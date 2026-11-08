@@ -4,17 +4,17 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 197577,
+    "agree": 198676,
     "declaration-name": 51217,
-    "ir-differs": 7134,
-    "nobody-knows": 2745,
+    "ir-differs": 7273,
+    "nobody-knows": 1507,
     "not-lowered": 3282,
     "unreached": 0
   },
   "unknownCauses": {
     "not-a-value": 51217,
-    "no-rule": 2110,
-    "unresolved-member": 316,
+    "no-rule": 1006,
+    "unresolved-member": 182,
     "unresolved-name": 649,
     "contextual-lambda": 82,
     "unresolved-type": 89,

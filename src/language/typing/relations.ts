@@ -36,6 +36,8 @@ export function typeToString(t: Ty): string {
             return typeToString(t.shape.ref);
           case "created":
             return `{ id } of ${t.shape.ref.name}`;
+          case "request":
+            return "request body";
           default:
             return t.shape.ref.name;
         }

@@ -4,6 +4,7 @@
 // value's name), an `or`-union result tagged, a projection / workflow /
 // routed-handler read by the client's own resolution order.
 
+import { readFileSync } from "node:fs";
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { isExpression, type Model } from "../../../src/language/generated/ast.js";
@@ -26,12 +27,14 @@ const sys = (body: string) => `system S {
   subdomain D {
     context Sales {
       enum Status { Open, Closed }
+      valueobject Address { city: string  zip: string }
       error Unsettled { code: string }
       aggregate Customer with crudish { name: string }
       aggregate WorkOrder with crudish { ref: string }
       aggregate Order with crudish {
         code: string
         total: money
+        shipTo: Address?
         placedAt: datetime
         status: Status
         customer: Customer id
@@ -62,7 +65,9 @@ ${body}
 describe("the e2e api client, typed as the wire values it receives", () => {
   it("a create answers its { id } envelope", async () => {
     const src = sys(`let c = api.customers.create({ name: "x" })  let i = c.id`);
-    expect(await typeOfText(src, `api.customers.create({ name: "x" })`)).toBe("rec:CustomerCreated");
+    expect(await typeOfText(src, `api.customers.create({ name: "x" })`)).toBe(
+      "rec:CustomerCreated",
+    );
     expect(await typeOfText(src, "c.id")).toBe("p:string");
   });
 
@@ -102,5 +107,40 @@ describe("the e2e api client, typed as the wire values it receives", () => {
     expect(await typeOfText(src, "t.revenue")).toBe("p:string");
     expect(await typeOfText(src, "run.type")).toBe("p:string");
     expect(await typeOfText(src, "byCode.total")).toBe("p:string");
+  });
+});
+
+describe("the e2e api client's request bodies, typed as what the client sends", () => {
+  it("a create body is the create's record; a nested value object is its wire record", async () => {
+    const src = sys(
+      `let made = api.orders.create({ code: "A", total: "1.00", status: "Open", customer: "c", placedAt: "2026-01-01T00:00:00Z", shipTo: { city: "Oslo", zip: "0150" } })`,
+    );
+    expect(await typeOfText(src, `{ city: "Oslo", zip: "0150" }`)).toBe("rec:Address");
+    expect(
+      await typeOfText(
+        src,
+        `{ code: "A", total: "1.00", status: "Open", customer: "c", placedAt: "2026-01-01T00:00:00Z", shipTo: { city: "Oslo", zip: "0150" } }`,
+      ),
+    ).toBe("rec:__Request__");
+  });
+
+  it("an operation body called as a statement is the operation's record", async () => {
+    const src = sys(`api.orders.retitle("x", { t: "renamed" })`);
+    expect(await typeOfText(src, `{ t: "renamed" }`)).toBe("rec:__Request__");
+  });
+
+  it("a workflow run body is its create's record", async () => {
+    const src = sys(`let started = api.checkout.run({ o: "x" })`);
+    expect(await typeOfText(src, `{ o: "x" }`)).toBe("rec:__Request__");
+  });
+
+  it("a route a macro splices (an unlinked context reference) still resolves", async () => {
+    // `scaffoldGetApi` splices the `route … -> Shop.<Handler>` binding; a
+    // macro-built reference is never linked.
+    const src = readFileSync("test/fixtures/corpus/scaffold-get-find.ddd", "utf8").replace(
+      "__PLATFORM__",
+      "node",
+    );
+    expect(await typeOfText(src, `api.shop.getOrderByCode("C2").code`)).toBe("p:string");
   });
 });

@@ -20,9 +20,11 @@ import type {
 import { SCALAR_WIRE_JSON } from "../../util/scalar-wire-json.js";
 import type {
   Aggregate,
+  Create,
   EntityPart,
   EnumDecl,
   EventDecl,
+  Operation,
   PayloadDecl,
   Projection,
   Resource,
@@ -30,6 +32,7 @@ import type {
   UserBlock,
   ValueObject,
   Workflow,
+  WorkflowCreateDecl,
 } from "../generated/ast.js";
 
 /** What a `record` type is a record OF. */
@@ -54,7 +57,10 @@ export type RecordShape =
   | { of: "created"; ref: Aggregate }
   /** An `or`-union result on the wire: the variant's `type` tag beside its
    *  fields, a scalar variant's value as `value` (`ref` is the union). */
-  | { of: "tagged"; ref: Ty };
+  | { of: "tagged"; ref: Ty }
+  /** A `test e2e` request body: the record of `ref`'s params, each as the
+   *  JSON the client sends. */
+  | { of: "request"; ref: Create | Operation | WorkflowCreateDecl };
 
 /** Why a node has no type. Every `unknown` names one, so a census can count
  *  them by cause and #3133's gate can refuse the ones that reach codegen. */
@@ -155,11 +161,14 @@ function recordName(shape: RecordShape): string {
     case "resource":
       return RESOURCE_HANDLE_SHAPE_NAME;
     case "wire":
-      return shape.ref.kind === "record" ? recordName(shape.ref.shape) : "__Wire__";
+      if (shape.ref.kind === "record") return recordName(shape.ref.shape);
+      return shape.ref.kind === "valueobject" ? shape.ref.name : "__Wire__";
     case "created":
       return `${shape.ref.name}Created`;
     case "tagged":
       return "__Tagged__";
+    case "request":
+      return "__Request__";
     default:
       return shape.ref.name;
   }

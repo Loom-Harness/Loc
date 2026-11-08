@@ -46,6 +46,7 @@ import type {
   BoundedContext,
   BuilderCall,
   CallArg,
+  Create,
   EntityPart,
   Expression,
   FunctionDecl,
@@ -280,6 +281,10 @@ export class Elaborator {
       this.lvalueChains.set(lv, steps);
       if (!lv.call) this.types.set(lv, steps[steps.length - 1]!);
       else {
+        // `api.<handle>.<verb>(…)` as a statement: its body arguments fill
+        // the request they are sent as.
+        if (inner.frame.e2e && lv.head === "api" && lv.tail.length === 2)
+          this.typeE2eArgs(String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
         const member = lv.tail.length > 0 ? lv.tail[lv.tail.length - 1]! : lv.head;
         const call = { $type: "MemberSuffix", member, call: true, args: [] } as never;
         this.lvalueCallResults.set(
@@ -1165,6 +1170,99 @@ export class Elaborator {
     return t.kind === "union" ? Ty.record({ of: "tagged", ref: t }) : wireOf(t);
   }
 
+  /** The declaration whose params the body argument at `index` of
+   *  `api.<handle>.<verb>(…)` sends: the canonical `create` (argument 0), a
+   *  public operation (argument 1, after the id), a workflow's `create` behind
+   *  `run` (argument 0). */
+  private e2eRequestOf(
+    handle: string,
+    verb: string,
+    index: number,
+  ): Create | Operation | WorkflowCreateDecl | undefined {
+    const named = this.index.e2eHandle(handle);
+    if (named.projection && (verb === "list" || verb === "byKey")) return undefined;
+    const agg = named.aggregate;
+    if (agg) {
+      if (verb === "create")
+        return index === 0
+          ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
+          : undefined;
+      if (index !== 1) return undefined;
+      for (const o of ownerChain(agg)) {
+        for (const m of o.members as AstNode[]) {
+          if (isOperation(m) && m.name === verb && !m.private) return m;
+        }
+      }
+      return undefined;
+    }
+    if (named.workflow && verb === "run" && index === 0) {
+      return named.workflow.members.find((m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m));
+    }
+    return undefined;
+  }
+
+  /** Type the body arguments of an e2e api call against the request each
+   *  fills — before the arguments' own elaboration, which then reads the
+   *  recorded types. */
+  private typeE2eArgs(
+    handle: string,
+    verb: string,
+    args: readonly Expression[],
+    scope: Scope,
+  ): void {
+    args.forEach((a, i) => {
+      const req = this.e2eRequestOf(handle, verb, i);
+      if (req) this.synthAgainst(a, scope, Ty.record({ of: "request", ref: req }));
+    });
+  }
+
+  /** Elaborate `e` where the client sends a value of `expected`: a record
+   *  literal IS that record, its fields typed against the record's own; a list
+   *  literal's elements against the element. */
+  private synthAgainst(e: Expression, scope: Scope, expected: Ty): void {
+    const want = expected.kind === "optional" ? expected.inner : expected;
+    if (isObjectLit(e) && want.kind === "record") {
+      for (const f of e.fields) {
+        const ft = this.e2eField(want, String(f.name), scope);
+        if (ft) this.synthAgainst(f.value, scope, ft);
+        else this.synth(f.value, scope);
+      }
+      this.scopes.set(e, scope);
+      this.types.set(e, want);
+      return;
+    }
+    if (isListLit(e) && want.kind === "array") {
+      for (const el of e.elements) this.synthAgainst(el, scope, want.element);
+    }
+    this.synth(e, scope);
+  }
+
+  /** The JSON type of field `name` of a request body or a wire record. */
+  private e2eField(t: Ty, name: string, scope: Scope): Ty | undefined {
+    if (t.kind !== "record") return undefined;
+    const shape = t.shape;
+    if (shape.of === "request") {
+      const p = shape.ref.params.find((x) => x.name === name);
+      return p ? wireOf(this.resolveType(p.type, scope)) : undefined;
+    }
+    if (shape.of !== "wire") return undefined;
+    const base = shape.ref;
+    const owner =
+      base.kind === "valueobject"
+        ? base.ref
+        : base.kind === "record" && (base.shape.of === "aggregate" || base.shape.of === "part")
+          ? base.shape.ref
+          : undefined;
+    if (!owner) return undefined;
+    const chain = isAggregate(owner) ? ownerChain(owner) : [owner];
+    for (const o of chain) {
+      for (const m of o.members as AstNode[]) {
+        if (isProperty(m) && m.name === name) return wireOf(this.resolveType(m.type, scope));
+      }
+    }
+    return undefined;
+  }
+
   /** The response of the operation `opId` an api exposes — the operation set
    *  `deriveAggregateOperations` lifts (create / getById / destroy / finds /
    *  public operations and their `can<Op>` gate probes / the `all` list),
@@ -1312,6 +1410,12 @@ export class Elaborator {
     if (scope.frame.e2e && name === "api") {
       const call = e.suffixes[1];
       if (!ms.call && call && isMemberSuffix(call) && call.call) {
+        this.typeE2eArgs(
+          String(ms.member),
+          String(call.member),
+          call.args.map((a) => a.value),
+          scope,
+        );
         this.synthArgs(call.args, scope);
         const t = this.e2eApiCall(String(ms.member), String(call.member), scope, node);
         return { t: t ?? Ty.unknown("unresolved-member"), consumed: 2 };
@@ -1618,6 +1722,11 @@ export class Elaborator {
       }
       case "created":
         return name === "id" && !ms.call ? Ty.prim("string") : Ty.unknown("unresolved-member");
+      case "request":
+        return (
+          (!ms.call && this.e2eField(Ty.record(shape), name, scope)) ||
+          Ty.unknown("unresolved-member")
+        );
       case "tagged": {
         if (ms.call) return Ty.unknown("unresolved-member");
         if (name === "type") return Ty.prim("string");
@@ -1766,6 +1875,7 @@ interface LValueNode extends AstNode {
   head: string;
   tail: string[];
   call?: boolean;
+  args: Expression[];
 }
 
 /** True inside a `ui` or a `component` — the frontend subtree, where a field

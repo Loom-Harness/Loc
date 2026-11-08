@@ -105,6 +105,7 @@ export class DeclIndex {
   readonly users: UserBlock[] = [];
   readonly resources: Resource[] = [];
   readonly apis: Api[] = [];
+  readonly contexts: BoundedContext[] = [];
 
   /** Declarations of the rest of the project's import closure — consulted by
    *  `find` only when this unit declares no candidate, so a local name always
@@ -143,8 +144,10 @@ export class DeclIndex {
     for (const n of members) {
       if (isSystem(n)) this.collect(n.members);
       else if (isSubdomain(n)) this.collect(n.contexts);
-      else if (isBoundedContext(n)) this.collect(n.members);
-      else if (isUserBlock(n)) this.users.push(n);
+      else if (isBoundedContext(n)) {
+        this.contexts.push(n);
+        this.collect(n.members);
+      } else if (isUserBlock(n)) this.users.push(n);
       else if (isResource(n)) this.resources.push(n);
       else if (isApi(n)) this.apis.push(n);
       else if (isAggregate(n)) {
@@ -254,7 +257,10 @@ export class DeclIndex {
       name === slug || lowerFirst(name) === slug || snake(name) === slug;
     for (const api of this.apis) {
       for (const route of api.routes) {
-        const ctx = route.target.context.ref;
+        // A macro-spliced route (`scaffoldGetApi`) carries a never-linked
+        // `{ $refText }` reference: resolve it by name.
+        const ctxName = route.target.context.$refText;
+        const ctx = route.target.context.ref ?? this.contexts.find((c) => c.name === ctxName);
         if (!ctx || !spells(ctx.name, contextSlug)) continue;
         const h = ctx.members.find(
           (m): m is CommandHandler | QueryHandler =>
