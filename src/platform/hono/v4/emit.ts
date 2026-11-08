@@ -45,6 +45,7 @@ import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
+  mikroForeignKeyDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -1069,27 +1070,27 @@ export function generateTypeScriptForContexts(
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system?.deployable.persistence === "mikroorm";
+  const mikroShapeOf = (agg: import("../../../ir/types/loom-ir.js").EnrichedAggregateIR) =>
+    effectiveSavingShape(agg, resolveDataSource?.(agg));
+  const mikroForeignKeys =
+    usingMikro &&
+    mikroForeignKeyDdl(merged.aggregates, merged, mikroShapeOf, resolveStreamContext).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",
-      renderMikroEntities(
-        merged.aggregates,
-        merged,
-        (agg) => effectiveSavingShape(agg, resolveDataSource?.(agg)),
-        {
-          audit: emitAudit,
-          provenance: emitProvenance,
-          // Transactional-outbox Row — the mikro twin of the drizzle
-          // `__loom_outbox` table, on the same condition the drizzle schema
-          // emitter uses (any durable channel in the deployable).
-          outbox: durableEventTypes(merged).size > 0,
-          resolveStreamContext,
-          // Timer-scheduler watermark Row — same condition as `scheduler.ts`
-          // below (this deployable OWNS a timerSource).  It has to be an entity
-          // on this adapter or `schema.update()` drops it on the second boot.
-          timerRuns: ownsTimers(system),
-        },
-      ),
+      renderMikroEntities(merged.aggregates, merged, mikroShapeOf, {
+        audit: emitAudit,
+        provenance: emitProvenance,
+        // Transactional-outbox Row — the mikro twin of the drizzle
+        // `__loom_outbox` table, on the same condition the drizzle schema
+        // emitter uses (any durable channel in the deployable).
+        outbox: durableEventTypes(merged).size > 0,
+        resolveStreamContext,
+        // Timer-scheduler watermark Row — same condition as `scheduler.ts`
+        // below (this deployable OWNS a timerSource).  It has to be an entity
+        // on this adapter or `schema.update()` drops it on the second boot.
+        timerRuns: ownsTimers(system),
+      }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
   } else {
@@ -1782,6 +1783,7 @@ export function generateTypeScriptForContexts(
       // A native run (`npm run dev`) listens on the deployable's declared
       // port; the image sets PORT to its container port.
       system?.deployable.port ?? 3000,
+      mikroForeignKeys,
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
@@ -2210,6 +2212,7 @@ function renderProjectIndexTs(
   hasChannels = false,
   hasChannelConsumers = false,
   nativePort = 3000,
+  mikroForeignKeys = false,
 ): string {
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
@@ -2305,7 +2308,7 @@ import { createApp } from "./http/index";
 ${dispatcherImports}${migImport}${seedImport}${authStubImport}${orgPathImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup(mikroForeignKeys).join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
   // mikroorm bootstraps its schema inside the connection block (schema.update),
   // so it never emits the drizzle boot-time migrate call.

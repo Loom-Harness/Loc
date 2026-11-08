@@ -150,7 +150,26 @@ export function voHasWireRules(vo: ValueObjectIR): boolean {
   return vo.invariants.some((inv) => classifyForWire(inv, { available }));
 }
 
-/** The VO-typed request fields whose VO carries wire rules — the nested
+/** True when a value object, or a value object nested in it at any depth,
+ *  carries a wire rule — so `route: Outer { origin: UnLocode }` validates
+ *  `/route/origin/value` at the wire like a top-level `tag: UnLocode` does,
+ *  instead of reaching the constructor and answering the domain floor. */
+function voValidatesAtWire(
+  vo: ValueObjectIR,
+  voByName: ReadonlyMap<string, ValueObjectIR>,
+  seen: Set<string> = new Set(),
+): boolean {
+  if (seen.has(vo.name)) return false;
+  seen.add(vo.name);
+  if (voHasWireRules(vo)) return true;
+  return vo.fields.some((f) => {
+    const borne = voBorne(f.type);
+    const inner = borne ? voByName.get(borne.name) : undefined;
+    return inner !== undefined && voValidatesAtWire(inner, voByName, seen);
+  });
+}
+
+/** The VO-typed request fields whose VO validates at the wire — the nested
  *  validators a command validator invokes (empty ⇒ none). */
 function voRequestFields(
   params: { name: string; type: TypeIR }[],
@@ -161,7 +180,7 @@ function voRequestFields(
     const borne = voBorne(p.type);
     if (!borne) continue;
     const vo = voByName.get(borne.name);
-    if (!vo || !voHasWireRules(vo)) continue;
+    if (!vo || !voValidatesAtWire(vo, voByName)) continue;
     out.push({ field: p.name, voClass: `${borne.name}Validator`, each: borne.each });
   }
   return out;
@@ -263,8 +282,14 @@ export function renderJavaVoValidators(
 ): JavaCommandValidator[] {
   const voByName = voLookup(vos);
   const wanted = new Set<string>();
-  for (const spec of commandSpecs(agg, voByName))
-    for (const f of spec.voFields) wanted.add(f.voClass.slice(0, -"Validator".length));
+  const want = (voClass: string): void => {
+    const name = voClass.slice(0, -"Validator".length);
+    if (wanted.has(name)) return;
+    wanted.add(name);
+    const vo = voByName.get(name);
+    if (vo) for (const f of voRequestFields(vo.fields, voByName)) want(f.voClass);
+  };
+  for (const spec of commandSpecs(agg, voByName)) for (const f of spec.voFields) want(f.voClass);
   const out: JavaCommandValidator[] = [];
   for (const name of wanted) {
     const vo = voByName.get(name);
@@ -280,7 +305,7 @@ export function renderJavaVoValidators(
         })),
         invariants: vo.invariants,
         available: new Set(vo.fields.map((f) => f.name)),
-        voFields: [],
+        voFields: voRequestFields(vo.fields, voByName),
       },
       pkg,
       basePkg,

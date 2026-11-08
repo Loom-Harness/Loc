@@ -93,19 +93,19 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "#4214 — RS-12: a folded projection's money column reaches the wire unscaled on mikroorm",
   },
-  // The .NET and java request validators apply a value object's invariant one
-  // level deep, so a breach inside a VO nested in a VO reaches the domain constructor
+  // The .NET request validator applies a value object's invariant one level
+  // deep, so a breach inside a VO nested in a VO reaches the domain constructor
   // and answers its domain-error 422 (no `errors[]` pointer) instead of the
   // field-validation one.  Status agrees.
   ...(["$.title", "$.detail", "$.errors[*].pointer"] as const).map(
     (path): WireWaiver => ({
-      backends: ["dotnet", "dapper", "java"],
+      backends: ["dotnet", "dapper"],
       cases: ["vo-root-kernel"],
       request: "POST /api/shipments",
       path,
       kinds: ["value"],
       reason:
-        "#4215 — a nested value object's invariant is not checked by the .NET / java request validator; the 422 comes from the domain",
+        "#4215 — a nested value object's invariant is not checked by the .NET request validator; the 422 comes from the domain",
     }),
   ),
   // The same domain 422 carries the rule's own code (and the values it read as

@@ -217,7 +217,8 @@ describe("the tenant-registry orgPath resolver is registered on this adapter too
     // …and it imports both halves (a missing import is a generated-project
     // TS2304, which only the tsc tier would catch).
     expect(src).toContain('import { registerOrgPathResolver } from "./auth/middleware";');
-    expect(src).toContain('import { OrgRow } from "./db/entities";');
+    // (merged with the `parent` FK's `foreignKeyDdl` from the same module)
+    expect(src).toMatch(/import \{ (?:[\w, ]+, )?OrgRow(?:, [\w, ]+)? \} from "\.\/db\/entities";/);
     // The drizzle spelling must NOT leak onto this adapter.
     expect(src).not.toContain('import { eq } from "drizzle-orm";');
   });

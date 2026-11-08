@@ -29,6 +29,7 @@ const TS_SYM = {
   registerDevStubVerifier: tsNamed("~/auth/dev-stub", "registerDevStubVerifier"),
   migrate: tsNamed("~/db/migrate", "migrate"),
   runSeeds: tsNamed("~/db/seed", "runSeeds"),
+  foreignKeyDdl: tsNamed("~/db/entities", "foreignKeyDdl"),
   eq: tsNamed("drizzle-orm", "eq"),
   NoopDomainEventDispatcher: tsNamed("~/domain/events", "NoopDomainEventDispatcher"),
   createInProcessDispatcher: tsNamed("~/http/workflows", "createInProcessDispatcher"),
