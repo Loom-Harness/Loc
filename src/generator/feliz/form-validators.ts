@@ -150,7 +150,7 @@ function lengthViolation(access: string, cmp: "<" | ">", n: number): string {
 
 /** An F# VERBATIM string literal (`@"…"`), in which the only escape is a
  *  doubled quote — so a regex source's backslashes survive intact. */
-export function fsVerbatim(s: string): string {
+function fsVerbatim(s: string): string {
   return `@"${s.replace(/"/g, '""')}"`;
 }
 
