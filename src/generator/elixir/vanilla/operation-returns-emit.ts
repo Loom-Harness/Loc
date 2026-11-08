@@ -38,6 +38,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -79,7 +80,6 @@ import {
   returnAlwaysFails,
   returnCanFail,
 } from "./union-return-emit.js";
-import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 import {
   EXPECTED_VERSION_BIND,

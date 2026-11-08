@@ -71,6 +71,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -82,7 +83,6 @@ import {
   vanillaDocCapabilityFilter,
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
-import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { ectoValidator } from "./changeset-validators.js";
 import {
   exEctoIdType,

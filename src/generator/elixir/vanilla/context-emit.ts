@@ -38,6 +38,7 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -78,7 +79,6 @@ import {
   renderEsContextBlock,
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
-import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
