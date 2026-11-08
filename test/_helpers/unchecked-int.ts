@@ -32,7 +32,7 @@ function splitTop(args: string): [string, string] {
 }
 
 const TS_OPEN =
-  /\(\(__v: number\): number => \{ if \(__v < -?\d+ \|\| __v > \d+\) throw new DomainError\("Value out of range"\); return __v; \}\)\(/g;
+  /\(\(__v: number\): number => \{ if \(__v < -?\d+ \|\| __v > \d+\) throw DomainError\.arithmeticOverflow\(\); return __v; \}\)\(/g;
 const PY_OPEN = /check_int\(/g;
 const CS_OPEN = /checked\(/g;
 const JAVA_OPEN = /Math\.(add|subtract|multiply|negate)Exact\(/g;

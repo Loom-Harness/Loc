@@ -52,6 +52,9 @@ const INDEX_LOCAL_IMPORTS = [
   /^\.\/obs\/log$/,
   /^\.\/obs\/tracing$/,
   /^\.\/mikro-orm\.config$/,
+  // mikroorm's schema bootstrap: the FK DDL applied right after
+  // `schema.update()`, part of the connection block like the config.
+  /^\.\/db\/entities$/,
   /^\.\/lib\/decimal-setup$/,
   /^\.\/resources\/[\w-]+$/,
 ];

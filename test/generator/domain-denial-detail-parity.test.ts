@@ -295,7 +295,7 @@ system Denials3 {
 /** The coded domain-error surface each backend emits only when the
  *  domain-floor gate is on. */
 const CODED_ERROR_SURFACE: Record<string, string> = {
-  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>)",
+  node: 'constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>, problemCode: string = "problem.domain-floor")',
   dotnet: "public string? RuleCode { get; }",
   java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
   python: "        code: str | None = None,",

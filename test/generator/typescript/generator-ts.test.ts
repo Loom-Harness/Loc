@@ -624,7 +624,7 @@ describe("typescript generator", () => {
       );
       // M-T5.1 — a value-object breach answers first when the project has one.
       expect(routes).toMatch(
-        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message, "problem\.domain-floor"\)/,
+        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message, err\.problemCode\)/,
       );
       expect(routes).toMatch(
         /return problem\(404, "Not Found", err\.message, "problem\.not-found"\)/,

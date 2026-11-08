@@ -71,7 +71,9 @@ async function emit(platform: string, apiBody: string): Promise<string> {
 /** The RUNTIME exception-handler arm each backend answers a `DomainError` with,
  *  as a literal fragment of its emitted source: `(status, title, …)`. */
 const RUNTIME_ARM: Record<string, (status: number, title: string) => string> = {
-  node: (s, t) => `return problem(${s}, "${t}", err.message, "problem.domain-floor");`,
+  // The class code rides the error (`problem.domain-floor`, or the
+  // arithmetic-overflow class a checked integer result raises).
+  node: (s, t) => `return problem(${s}, "${t}", err.message, err.problemCode);`,
   dotnet: (s, t) => `Problem(context, ${s}, "${t}", de.Message, trace_id, "problem.domain-floor");`,
   java: (s, t) =>
     `return respond(problem(${s}, "${t}", e.getMessage(), "problem.domain-floor", request), ${s});`,

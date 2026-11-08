@@ -168,13 +168,13 @@ const VALIDATION_FAILED_DETAIL = "One or more fields are invalid.";
 
 /** The 501 `detail`: the `extern` hook's file location stays in the server log,
  *  never in the response. */
-export const NOT_IMPLEMENTED_DETAIL = "This operation is not implemented.";
+const NOT_IMPLEMENTED_DETAIL = "This operation is not implemented.";
 
 /** The 500 `detail` (RS-28): the fault is never echoed. */
 const INTERNAL_DETAIL = "internal";
 
 /** The `detail` of an `arithmetic-overflow` refusal (RS-48). */
-export const INTEGER_OVERFLOW_DETAIL = "Value out of range";
+const INTEGER_OVERFLOW_DETAIL = "Value out of range";
 
 const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
   // The routing tier (RS-9): a path no router serves, and a served path asked
