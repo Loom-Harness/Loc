@@ -375,6 +375,22 @@ export async function generateBackendFromSource(
   return out;
 }
 
+/**
+ * A repo fixture's backend project, whatever its shape: a source that
+ * declares its system goes through `generateBackendFromSource` (its one
+ * deployable re-targeted at `platform`), a bare-context one through
+ * `generateBackendFiles` (deployable `app`, so the .NET namespace is `App`).
+ */
+export async function generateFixtureBackend(
+  source: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  return /^\s*system\s+[A-Z]\w*/m.test(source)
+    ? generateBackendFromSource(source, platform, options)
+    : generateBackendFiles(source, platform, options);
+}
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** `generateBackendFromSource` over a repo-relative `.ddd` file (an

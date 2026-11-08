@@ -45,6 +45,6 @@ context Roster {
 // The deployment: one node backend hosting the context, persisted to postgres.
 system Roster {
   storage db { type: postgres }
-  resource rosterState { for: Roster, kind: state, use: db }
+  resource rosterState { for: Roster, kind: state, use: db, index: [Trainer.party] }
   deployable roster { platform: node, contexts: [Roster], dataSources: [rosterState] }
 }

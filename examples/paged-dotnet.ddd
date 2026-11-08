@@ -15,6 +15,6 @@ context Orders {
 // The deployment: one dotnet backend hosting the context, persisted to postgres.
 system Orders {
   storage db { type: postgres }
-  resource ordersState { for: Orders, kind: state, use: db }
+  resource ordersState { for: Orders, kind: state, use: db, index: [Order.region] }
   deployable orders { platform: dotnet, contexts: [Orders], dataSources: [ordersState] }
 }

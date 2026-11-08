@@ -4,7 +4,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
-import { generateSystemFilesFromProject } from "../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesFromProject } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -239,10 +239,12 @@ describe("system / module / deployable", () => {
     });
   });
 
-  it("rejects `generate system` on a file with no system blocks", async () => {
-    // Legacy bare-context files don't have a system; the orchestrator
-    // returns an empty file map.
-    const files = await filesFor("examples/sales.ddd");
+  it("emits nothing for a source with contexts but no system", async () => {
+    // Code is emitted per deployable; the CLI turns the empty map into its
+    // "add a system" hint (test/cli/cli.test.ts).
+    const files = await generateSystemFiles(
+      "context Orders {\n  aggregate Order { total: int }\n}\n",
+    );
     expect(files.size).toBe(0);
   });
 

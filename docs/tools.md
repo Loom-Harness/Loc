@@ -156,10 +156,18 @@ with a hint showing the `system` to add — platform and database are the
 author's choice, so there is no implicit default deployable:
 
 ```ddd
+// The lines the hint adds:
 system SalesSystem {
   storage db { type: postgres }
   resource salesState { for: Sales, kind: state, use: db }
   deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}
+
+// The existing source, unchanged:
+context Sales {
+  aggregate Order {
+    total: int
+  }
 }
 ```
 

@@ -41,6 +41,6 @@ context Inventory {
 // The deployment: one node backend hosting the context, persisted to postgres.
 system Inventory {
   storage db { type: postgres }
-  resource inventoryState { for: Inventory, kind: state, use: db }
+  resource inventoryState { for: Inventory, kind: state, use: db, index: [Warehouse.code] }
   deployable inventory { platform: node, contexts: [Inventory], dataSources: [inventoryState] }
 }
