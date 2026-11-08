@@ -273,7 +273,7 @@ TenancyDecl:
 // at the system output root.
 TestE2E:
     'test' 'e2e' name=STRING 'against' deployable=[Deployable:LooseName]
-        ('verifies' verifies=[TestCase:TraceId])? '{'
+        ('verifies' verifies=[TestCase:TraceId])? principal=TestPrincipal? '{'
         body+=TestStatement*
     '}';
 
@@ -1382,12 +1382,32 @@ CapabilityMember:
 type TestSubject = Aggregate | ValueObject | DomainService | BoundedContext;
 
 TestBlock:
-    'test' name=STRING ('for' target=[TestSubject:ID])? ('verifies' verifies=[TestCase:TraceId])? '{'
+    'test' name=STRING ('for' target=[TestSubject:ID])? ('verifies' verifies=[TestCase:TraceId])?
+        principal=TestPrincipal? '{'
         body+=TestStatement*
     '}';
 
+// The principal a test runs as: `as { tenantId: "acme", roles: ["agent"] }`.
+// Shared by a context integration `test` and a `test e2e` block — as the head
+// clause (the whole test) and as a body line (the statements after it).  Each claim
+// names a field of the system's `user { … }` block (a bare name, checked in IR
+// validation against the declared fields — the user block may live in another
+// file); the value is an `Expression` so the printer and lowering reuse the
+// literal vocabulary, and the AST validator narrows it to a string literal or a
+// list of string literals.  Absent, the test runs as the dev-stub principal.
+TestPrincipal:
+    'as' '{'
+        (claims+=TestPrincipalClaim (','? claims+=TestPrincipalClaim)* ','?)?
+    '}';
+
+TestPrincipalClaim:
+    name=UserFieldName ':' value=Expression;
+
+// A bare `as { … }` line inside a test body switches the principal the
+// following statements run as (until the next `as { … }` line) — how one test
+// shows that a second principal cannot read what the first wrote.
 TestStatement:
-    ExpectStmt | PreconditionStmt | LetStmt | EmitStmt | AssignOrCallStmt;
+    ExpectStmt | PreconditionStmt | LetStmt | EmitStmt | TestPrincipal | AssignOrCallStmt;
 
 // Assertions are method-based: `expect(<actual>).<matcher>(…)`.  The matcher
 // is an intrinsic (`toBe` / `toThrow` / `toHaveText` / …) recognised by the

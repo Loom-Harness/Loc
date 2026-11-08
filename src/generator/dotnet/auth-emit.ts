@@ -810,10 +810,15 @@ public static class AuthHandshake
  *  boots end-to-end without the caller having to wire a JWT decoder
  *  first.  Replace by registering your own IUserVerifier (the last DI
  *  registration wins for new scope resolutions). */
+/** The dev-stub identity's named constructor arguments, one per declared
+ *  `user { … }` field — shared by the stub verifier and the context
+ *  integration test, which runs as this identity. */
+export function renderCsDevStubUserArgs(user: UserIR, sep = ", "): string {
+  return user.fields.map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`).join(sep);
+}
+
 function renderDevStubVerifier(user: UserIR, ns: string): string {
-  const args = user.fields
-    .map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`)
-    .join(",\n            ");
+  const args = renderCsDevStubUserArgs(user, ",\n            ");
   // An `X id` claim's stub value CONSTRUCTS the strong id (`new CustomerId(…)`)
   // — a raw `Guid.Empty` against `readonly record struct CustomerId(Guid)` is
   // CS0029 — and the id structs live in `<ns>.Domain.Ids` while this verifier

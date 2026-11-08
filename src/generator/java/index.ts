@@ -851,7 +851,8 @@ function emitProjectFromContexts(
       basePkg,
       (a) => pkgFor("entity", a),
       (a) => pkgFor("repository-interface", a),
-      system?.sys?.user?.fields,
+      // The auth layer (`auth/CurrentUserAccessor`) ships under this condition.
+      authRequired ? system?.sys?.user?.fields : undefined,
     );
     if (integrationTest) {
       out.set(integrationTest.path, integrationTest.content);

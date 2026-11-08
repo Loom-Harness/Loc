@@ -796,11 +796,37 @@ export interface TestIR {
    *  the test declares no link.  Enrichment uses it to mark a TestCase
    *  as backed by an executable test. */
   verifiesTestCase?: string;
+  /** The `as { … }` principal the test runs as — the claims it overrides on
+   *  the dev-stub principal.  Undefined when the test declares no clause (it
+   *  then runs as the dev-stub principal unchanged).  Only a context
+   *  integration test carries one (`loom.test-principal-placement`). */
+  principal?: TestPrincipalIR;
+}
+
+/** A test's declared principal: an ordered claim map keyed by `user { … }`
+ *  field name.  Every value is fixed data — a string, or a list of strings
+ *  for a `string[]` claim — so each backend renders it as a literal of the
+ *  claim's declared type, read off the system's user block. */
+export interface TestPrincipalIR {
+  claims: TestPrincipalClaimIR[];
+  origin?: OriginRef;
+}
+
+export interface TestPrincipalClaimIR {
+  /** The `user { … }` field the claim sets. */
+  name: string;
+  value: string | readonly string[];
+  origin?: OriginRef;
 }
 
 export type TestStmtIR =
   | StmtIR
   | { kind: "expect"; expr: ExprIR; source: string }
+  /** A bare `as { … }` body line: the statements after it run as this
+   *  principal (the dev-stub identity with these claims spread over it),
+   *  until the next such line.  Context integration and api e2e tests only
+   *  (`loom.test-principal-placement` / `loom.e2e-principal-ui`). */
+  | { kind: "principal"; principal: TestPrincipalIR }
   | {
       kind: "expect-throws";
       expr: ExprIR;
@@ -2984,6 +3010,9 @@ export interface TestE2EIR {
   statements: TestStmtIR[];
   /** Traceability back-link — see `TestIR.verifiesTestCase`. */
   verifiesTestCase?: string;
+  /** The `as { … }` principal — see `TestIR.principal`.  The suite sends it as
+   *  the dev-stub claims override for every request of this block. */
+  principal?: TestPrincipalIR;
 }
 
 // ---------------------------------------------------------------------------

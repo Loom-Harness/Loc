@@ -48,6 +48,7 @@ import type {
   TestBlock,
   TestCase,
   TestE2E,
+  TestPrincipal,
   TestStatement,
   ThemeBlock,
   Ui,
@@ -547,7 +548,7 @@ function printDeployable(node: Deployable): string {
 
 function printTestE2E(node: TestE2E): string {
   const verifies = node.verifies ? ` verifies ${node.verifies.$refText}` : "";
-  const header = `test e2e ${quote(node.name)} against ${node.deployable.$refText}${verifies}`;
+  const header = `test e2e ${quote(node.name)} against ${node.deployable.$refText}${verifies}${printTestPrincipal(node.principal)}`;
   return block(header, () => node.body.map(printTestStatement));
 }
 
@@ -1219,15 +1220,24 @@ function printApply(node: import("../generated/ast.js").Apply): string {
 function printTestBlock(node: TestBlock): string {
   const forHead = node.target ? ` for ${node.target.$refText}` : "";
   const verifies = node.verifies ? ` verifies ${node.verifies.$refText}` : "";
-  return block(`test ${quote(node.name)}${forHead}${verifies}`, () =>
-    node.body.map(printTestStatement),
+  return block(
+    `test ${quote(node.name)}${forHead}${verifies}${printTestPrincipal(node.principal)}`,
+    () => node.body.map(printTestStatement),
   );
+}
+
+/** The ` as { claim: value, … }` principal clause of a test head, or "". */
+function printTestPrincipal(node: TestPrincipal | undefined): string {
+  if (!node) return "";
+  const claims = node.claims.map((c) => `${c.name}: ${printExpr(c.value)}`).join(", ");
+  return claims.length > 0 ? ` as { ${claims} }` : " as {}";
 }
 
 /** TestStatement adds `expect` (with a method matcher) over the ordinary
  *  Statement set. */
 function printTestStatement(node: TestStatement): string {
   if (node.$type === "ExpectStmt") return `expect ${printExpr(node.expr)}`;
+  if (node.$type === "TestPrincipal") return printTestPrincipal(node).trimStart();
   return printStmt(node as Statement);
 }
 

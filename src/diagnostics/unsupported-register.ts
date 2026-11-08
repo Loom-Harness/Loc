@@ -192,7 +192,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.context-test-unsupported",
     kind: "seam",
-    site: "src/language/validators/test-placement.ts:98",
+    site: "src/language/validators/test-placement.ts:147",
     what:
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",
@@ -275,17 +275,14 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // classifies each cell — `test/system/target-capability-table.test.ts`
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
-    kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:350",
+    kind: "gap",
+    site: "src/ir/validate/checks/target-capability-checks.ts:639",
     what:
-      "a construct × position its target cannot render, per the capability table.  LATENT: " +
-      "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
-      "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
-      "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports.  One LIVE gap: a " +
-      "`tenantOwned` event-sourced aggregate (`#tenant-owned-event-sourced`) is carried on " +
-      "every backend's event store except node's mikroorm, which refuses it until that " +
-      "store carries the stream tenant (#4686)",
+      "a construct × position, or a feature pair, its target cannot render, per the capability " +
+      "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
+      "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
+      "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
     mission: "#3592",
     verified: true,
   },

@@ -140,6 +140,7 @@ import {
   validateContextIntegrationTests,
   validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
+import { validateTestPrincipals } from "./checks/test-principal-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import {
   validateUiBackendBindings,
@@ -226,6 +227,8 @@ export function validateLoomModel(
   // channel in its context (ambiguous in-process routing; first-by-declaration
   // wins).  Per-context internally, but gathered here alongside the carried check.
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
+  // The `as { … }` test principals, against each system's `user { … }` block.
+  validateTestPrincipals(loom, diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);

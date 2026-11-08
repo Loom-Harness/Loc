@@ -13,7 +13,7 @@ import type {
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkTestStmtExprsDeep } from "../../../ir/util/walk.js";
 import {
   elixirLocal,
   elixirString,
@@ -135,8 +135,7 @@ function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
   ];
   for (const t of tests) {
     for (const s of t.statements) {
-      if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-      else walkStmtExprsDeep(s, visit);
+      walkTestStmtExprsDeep(s, visit);
     }
   }
   return created;

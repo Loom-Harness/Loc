@@ -442,12 +442,19 @@ ${indentElixir(authedTail, 4)}
   // session, so without this the sidebar + every gated page would 302 to
   // /login even though the JSON API authenticates.  OIDC mode omits it — a
   // real login must populate the session.
-  const devUserFn = auth
-    ? ""
-    : `
+  const devUserFn = `${
+    auth
+      ? ""
+      : `
   # DEV STUB: the built-in admin principal, exposed so LiveAuth grants
   # LiveViews the same identity the :api pipeline grants every request.
   def dev_user, do: build_user(elem(verify_token(nil), 1))${orgPathPipe}
+`
+  }
+  # The request principal for a user-shape claims map (atom keys), derived as
+  # this plug derives a request's — the seam a context integration test binds
+  # its principal through.
+  def as_principal(claims) when is_map(claims), do: claims${orgPathPipe}
 `;
   // OIDC only: the browser LiveView guard reads the verified principal from the
   // `session` cookie (the /auth/callback handshake token) so the :browser
@@ -1075,7 +1082,7 @@ ${entries.join("\n")}
 /** One dev-stub claim value for a declared `user { … }` field — the Elixir arm
  *  of the shared stub table (see `renderDevStubVerifier`).  An optional field
  *  is `nil`: the declaration says the principal may not carry it. */
-function elixirStubValueFor(f: FieldIR): string {
+export function elixirStubValueFor(f: FieldIR): string {
   if (f.optional) return "nil";
   return elixirStubValueForType(f.type);
 }

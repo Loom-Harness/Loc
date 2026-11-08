@@ -299,23 +299,22 @@ export const BEHAVIOURAL_XFAIL = {
         "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
     },
     // A value object nested inside another is cast as `:map`, so the nested
-    // VO's invariant never runs and the bad create commits.
+    // VO's invariant would never run; the capability table refuses the shape
+    // on elixir until it does.
     "vo-root-kernel": {
       issue: "#4017",
-      expect: "fail",
-      tests: { "a shared-kernel value object round-trips": "expected the call to reject, but it resolved" },
-      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`)",
+      expect: "error",
+      match: "loom\\.target-unsupported .*value object 'Outer' field '\\w+' \\(a 'UnLocode', which declares an invariant\\)",
+      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`), so the shape is refused on elixir",
     },
-    // The document-shape create demands the defaulted capability field, so
-    // no `Note` can be written: the block and every document ladder seed 422.
+    // The document-shape create demands the defaulted capability field, so no
+    // `Note` could be written; the capability table refuses the pair on elixir
+    // (`persistence:document` with `capability:softDeletable`) until it can.
     "find-bypass": {
       issue: "#4224",
-      expect: "fail",
-      tests: {
-        "a bypassing read drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
-        "document — ": "seed POST /api/notes → 422",
-      },
-      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`",
+      expect: "error",
+      match: "loom\\.target-unsupported .*`persistence:document` with `capability:softDeletable`",
+      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`, so the pair is refused on elixir",
     },
     "workflow-two-handles-containment": {
       issue: "#3838",
