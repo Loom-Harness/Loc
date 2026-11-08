@@ -225,7 +225,7 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  system orchestrator resolves these from the deployable's axis
      *  selection via `resolveStyle` / `resolveLayout` and passes them
      *  here; the surface forwards them into its generator's `EmitCtx`.
-     *  Absent for frontends and in legacy single-context generate mode —
+     *  Absent for frontends and for a backend with no adapter menu —
      *  the generator then falls back to its hardcoded default sibling
      *  (byte-identical under today's size-1 menus). */
     styleAdapter?: StyleAdapter;

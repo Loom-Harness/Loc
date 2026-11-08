@@ -445,8 +445,6 @@ system LoomLanding {
             // pairs without needing the table primitive.
             Stack {
               KeyValueRow { "ddd parse",            "Parse + validate.  Exits non-zero on errors." },
-              KeyValueRow { "ddd generate ts",      "Emit a single Hono + Drizzle project." },
-              KeyValueRow { "ddd generate dotnet",  "Emit a single ASP.NET + EF + Mediator project." },
               KeyValueRow { "ddd generate system",  "Emit every deployable + docker-compose.yml." },
               KeyValueRow { "-w, --watch",          "Re-run on every save of the .ddd source." },
               KeyValueRow { "--dry-run",            "Print the plan; touch nothing." }

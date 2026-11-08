@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CORPUS_DEPLOYABLE, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
+import { generateBackendProject } from "./support/backend-project.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
@@ -84,13 +85,10 @@ describe.skipIf(!ENABLED)(
       // literal against a branded/`Date` signature ran green everywhere and
       // failed only in the user's own `npm run typecheck`.
       "test/e2e/fixtures/ts-build/typed-test-literals.ddd",
-    ])("%s — `ddd generate ts` output type-checks + tsup-bundles", (example) => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-"));
+    ])("%s — the node deployable type-checks + tsup-bundles", (example) => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-"));
       try {
-        execSync(`node ${cli} generate ts ${example} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        const outDir = generateBackendProject(repoRoot, example, "node", tmpDir);
         installGeneratedProject(outDir, { timeout: 180_000 });
         // Type-check (tsup is build-only with `dts: false`).
         execSync(`npx tsc --noEmit`, {
@@ -108,7 +106,7 @@ describe.skipIf(!ENABLED)(
         expect(fs.existsSync(path.join(outDir, "dist", "index.js"))).toBe(true);
       } finally {
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }
@@ -116,8 +114,8 @@ describe.skipIf(!ENABLED)(
     }, 300_000);
 
     // D-REALIZATION-AXES Phase 5b: `directoryLayout: byFeature` is a SYSTEM-MODE
-    // selection (it lives on a deployable), so `generate ts` above never sees it.
-    // This case generates the SYSTEM and type-checks the node deployable's
+    // selection (it lives on a deployable), so the default-layout cells above never
+    // see it.  This case generates the SYSTEM and type-checks the node deployable's
     // project, proving the byFeature relocation + relative-import rewrite produce
     // a COMPILING project — the gap that let the first byFeature attempt ship
     // broken.

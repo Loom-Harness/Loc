@@ -1,7 +1,7 @@
 name: .NET build verification
 
 # Compiles a .NET project generated from each test-fixture .ddd by
-# `ddd generate dotnet`, then runs `dotnet restore` + `dotnet build
+# `ddd generate system` (as a dotnet deployable), then runs `dotnet restore` + `dotnet build
 # /warnaserror`.  Catches emission bugs in the .NET generator that
 # the string-match unit tests cannot see (missing usings, EF Core
 # configuration that fails at model build, Mediator handler signature
@@ -71,6 +71,8 @@ on:
       - 'package.json'
       - '.github/workflows/dotnet-build.yml'
       - 'test/e2e/generated-dotnet-build.test.ts'
+      - 'test/e2e/support/backend-project.ts'
+      - 'test/_helpers/backend-system.ts'
       - 'test/e2e/fixtures/dotnet-build/**'
   workflow_dispatch:
   merge_group:

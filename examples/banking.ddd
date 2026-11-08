@@ -31,7 +31,7 @@ context Banking {
 
   aggregate Account with crudish {
     holder: Customer id
-    status: AccountStatus
+    status: AccountStatus immutable
     balance: Money
     openedAt: datetime
     closedAt: datetime?
@@ -99,4 +99,11 @@ context Banking {
   repository Accounts for Account { }
   criterion AccountsByHolder(holder: Customer id) of Account = this.holder == holder
   criterion AccountsOpenByHolder(holder: Customer id) of Account = this.holder == holder && this.status == Open
+}
+
+// The deployment: one node backend hosting the context, persisted to postgres.
+system Banking {
+  storage db { type: postgres }
+  resource bankingState { for: Banking, kind: state, use: db, index: [Customer.email, Account.status] }
+  deployable banking { platform: node, contexts: [Banking], dataSources: [bankingState] }
 }

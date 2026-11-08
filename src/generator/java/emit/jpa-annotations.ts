@@ -33,7 +33,7 @@ const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
 
 export interface JpaOpts {
   /** Postgres schema the aggregate's tables live in (binding-resolved);
-   *  undefined in legacy single-context mode → unqualified. */
+   *  undefined when no binding sets one → unqualified. */
   schema?: string;
   /** VO name → field list, for flattening attribute overrides. */
   voLookup: ReadonlyMap<string, readonly FieldIR[]>;
