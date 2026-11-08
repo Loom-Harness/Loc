@@ -29,6 +29,7 @@ import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { aggregateHasProvenanced, clientFinds, historyHookName } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -468,7 +469,7 @@ export function buildAngularApiModule(
           ? [
               `    mutationFn: (input: ${reqType}) =>`,
               `      firstValueFrom(`,
-              `        service.${op.name}(id, input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", id])?.version)),`,
+              `        service.${op.name}(id, input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", id])?.${ROW_VERSION_FIELD})),`,
               `      ),`,
             ]
           : [
@@ -498,7 +499,7 @@ export function buildAngularApiModule(
       ...(sendsIfMatchPrecondition(agg, op)
         ? [
             `      firstValueFrom(`,
-            `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.version)),`,
+            `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.${ROW_VERSION_FIELD})),`,
             `      ),`,
           ]
         : [`      firstValueFrom(service.${op.name}(vars.id, vars.input)),`]),

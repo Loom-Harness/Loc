@@ -44,6 +44,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
@@ -84,7 +85,6 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
   const usedVoOrEnum = [...voNames, ...enumNames].filter(referenced).sort();
   const usedAggs = [...aggNames].filter(referenced).sort();
   const usesMoney = /\bDecimal\b/.test(scanBody) || /money/.test([...sigTypeNames].join(" "));
-  const usesIds = /\bIds\.\w/.test(scanBody) || sigCarriesId(ctx);
   // Domain-error classes the rendered bodies throw.  A `precondition` in a
   // domain-service operation renders `throw new DomainError(...)` exactly as an
   // aggregate operation does, but this file derives its imports from the body
@@ -108,7 +108,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
       "// Domain services — stateless pure calculators (domain-services.md).",
       "// Auto-generated: do not edit.",
       usesMoney ? 'import Decimal from "decimal.js";' : null,
-      usesIds ? 'import * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       usedErrors.length > 0 ? `import { ${usedErrors.join(", ")} } from "./errors";` : null,
       usedVoOrEnum.length > 0
         ? `import { ${usedVoOrEnum.join(", ")} } from "./value-objects";`
@@ -228,31 +228,4 @@ function collectTypeNames(t: TypeIR, into: Set<string>): void {
       collectTypeNames(t.arg, into);
       break;
   }
-}
-
-/** True when any signature carries an `id` type or money (`Ids.*` / Decimal
- *  imports get pulled in then even if the body text didn't re-mention them). */
-function sigCarriesId(ctx: BoundedContextIR): boolean {
-  const carries = (t: TypeIR): boolean => {
-    switch (t.kind) {
-      case "id":
-        return true;
-      case "array":
-        return carries(t.element);
-      case "optional":
-        return carries(t.inner);
-      case "union":
-        return t.variants.some(carries);
-      case "genericInstance":
-        return carries(t.arg);
-      default:
-        return false;
-    }
-  };
-  return ctx.domainServices.some((svc) =>
-    svc.operations.some(
-      (op) =>
-        op.params.some((p) => carries(p.type)) || (op.returnType ? carries(op.returnType) : false),
-    ),
-  );
 }

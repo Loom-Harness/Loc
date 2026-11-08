@@ -47,6 +47,7 @@ import {
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { aggHasFieldMask } from "./repository-wire-builder.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
@@ -193,7 +194,7 @@ export function buildBaseReaderFile(
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(db, events);`),
     `  }`,
     "",
-    `  async findById(id: Ids.${base.name}Id): Promise<${base.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${base.name}Id): Promise<${base.name} | null> {`,
     `    const rows = await this.db.select().from(schema.${table})${where(`eq(schema.${table}.id, id)`)};`,
     `    return (await this.hydrate(rows))[0] ?? null;`,
     `  }`,
@@ -216,7 +217,7 @@ export function buildBaseReaderFile(
     "",
     `  private async hydrate(rows: (typeof schema.${table}.$inferSelect)[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
-      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => Ids.${c.name}Id(r.id));`,
+      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
       `    const ${lowerFirst(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${lowerFirst(c.name)}Ids)).map((a) => [a.id as string, a]));`,
     ]),
     `    return rows.flatMap((root): ${base.name}[] => {`,
@@ -306,9 +307,9 @@ export function buildTpcBaseReaderFile(
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(db, events);`),
     `  }`,
     "",
-    `  async findById(id: Ids.${base.name}Id): Promise<${base.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${base.name}Id): Promise<${base.name} | null> {`,
     ...concretes.flatMap((c) => [
-      `    const ${repoField(c.name)}Hit = await this.${repoField(c.name)}.findById(id as unknown as Ids.${c.name}Id);`,
+      `    const ${repoField(c.name)}Hit = await this.${repoField(c.name)}.findById(id as unknown as ${TT.Ids}.${c.name}Id);`,
       `    if (${repoField(c.name)}Hit) return ${repoField(c.name)}Hit;`,
     ]),
     `    return null;`,
@@ -404,7 +405,7 @@ export function buildMikroBaseReaderFile(
     ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(em, events);`),
     `  }`,
     "",
-    `  async findById(id: Ids.${base.name}Id): Promise<${base.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${base.name}Id): Promise<${base.name} | null> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
     `    const row = await em.findOne(${rootRow}, { id: id as string });`,
     `    return row === null ? null : ((await this.hydrate([row]))[0] ?? null);`,
@@ -428,7 +429,7 @@ export function buildMikroBaseReaderFile(
     "",
     `  private async hydrate(rows: ${rootRow}[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
-      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => Ids.${c.name}Id(r.id));`,
+      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
       `    const ${lowerFirst(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${lowerFirst(c.name)}Ids)).map((a) => [a.id as string, a]));`,
     ]),
     `    return rows.flatMap((row): ${base.name}[] => {`,
@@ -566,7 +567,7 @@ function byIdRouteLines(B: string): string[] {
     `    }),`,
     `    async (c) => {`,
     `      const { id } = c.req.valid("param");`,
-    `      const found = await repo.findById(Ids.${B}Id(id));`,
+    `      const found = await repo.findById(${T.Ids}.${B}Id(id));`,
     `      if (!found) ${tsNotFoundThrow(B, "id")}`,
     `      return c.json(repo.toWire(found) as z.infer<typeof ${B}Response>, 200);`,
     `    },`,

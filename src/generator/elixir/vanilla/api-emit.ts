@@ -44,6 +44,7 @@ import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -73,7 +74,7 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { renderPageParamHelper } from "./find-controller.js";
-import { effectiveGate, renderGateCondition } from "./gate.js";
+import { effectiveGate, renderGateCondition, updateSeamGates } from "./gate.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -581,9 +582,15 @@ ${cuBind}${showBody}
   // The update action already binds `current_user` when the aggregate has a
   // principal READ filter; bind it here too when only a principal stamp needs
   // it (avoid a double bind when both apply).
+  // A merge-patch `update` with a `mask unless` write gate evaluates it in the
+  // context seam, which then takes the principal and may deny with
+  // `{:forbidden, detail}`.
+  const updateGated = updateSeamGates(agg.operations.find((o) => o.name === "update")).length > 0;
   const updateCuBind =
-    !principal && stampPrincipal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
-  const updateActor = stampPrincipal ? ", current_user" : "";
+    !principal && (stampPrincipal || updateGated)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const updateActor = stampPrincipal || updateGated ? ", current_user" : "";
 
   // Per-operation member actions.  A returning operation (`: A or B`) translates
   // its tagged result to HTTP (success → 200, error variant → ProblemDetails);
@@ -842,7 +849,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
   const versionsDestroy = readsIfMatch(destroyVersionCheck(agg));
   const destroyVersionBind = versionsDestroy && !readOnly ? EXPECTED_VERSION_BIND : "";
   const destroyVersionClause = versionsDestroy
-    ? `\n         :ok <- if(expected_version in [nil, record.version], do: :ok, else: {:error, :conflict}),`
+    ? `\n         :ok <- if(expected_version in [nil, record.${ROW_VERSION_COLUMN}], do: :ok, else: {:error, :conflict}),`
     : "";
   const destroyConflictClause = versionsDestroy
     ? `
@@ -963,7 +970,7 @@ ${cuBind}${updateCuBind}${versionBind}
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)${conflictClause}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)
+        ProblemDetails.validation_error_response(conn, changeset)${updateGated ? forbiddenArm("      ") : ""}
     end
   end`;
   const writeActions = readOnly
@@ -1025,7 +1032,7 @@ ${((): string => {
         // `version` lives on the root row (`field :version`), not the `:data`
         // embed — read it off `row`, not the rehydrated `record`, which does
         // not carry it.
-        versionExpr: "row.version",
+        versionExpr: `row.${ROW_VERSION_COLUMN}`,
         contextModule: facadeMod,
       })
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });

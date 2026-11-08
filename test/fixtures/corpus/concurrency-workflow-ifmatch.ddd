@@ -49,20 +49,20 @@ system ConcurrencyWorkflowIfMatchSystem {
 
     // `a` moves to version 2; `b` stays at 1.  The tag below is 1: stale for
     // `a`, current for `b` — the header cannot be the version of both.
-    api.docs.rename(a, { t: "a2" }, { ifMatch: aRead.version })
+    api.docs.rename(a, { t: "a2" }, { ifMatch: aRead.rowVersion })
 
-    api.renameBoth.run({ a: a.id, b: b.id, t: "both" }, { ifMatch: aRead.version })
+    api.renameBoth.run({ a: a.id, b: b.id, t: "both" }, { ifMatch: aRead.rowVersion })
 
     let aAfter = api.docs.getById(a)
     let bAfter = api.docs.getById(b)
     expect(aAfter.title).toBe("both")
-    expect(aAfter.version).toBe(aRead.version + 2)
+    expect(aAfter.rowVersion).toBe(aRead.rowVersion + 2)
     expect(bAfter.title).toBe("both")
-    expect(bAfter.version).toBe(aRead.version + 1)
+    expect(bAfter.rowVersion).toBe(aRead.rowVersion + 1)
 
     // The same stale tag on the operation route itself IS refused: the header
     // is the operation's, not the workflow's.
-    expect(api.docs.rename(a, { t: "lost" }, { ifMatch: aRead.version })).toThrow(409)
+    expect(api.docs.rename(a, { t: "lost" }, { ifMatch: aRead.rowVersion })).toThrow(409)
 
     // The rest of the derived surface, so every route has a caller.
     api.docs.update(b, { title: "edited" })

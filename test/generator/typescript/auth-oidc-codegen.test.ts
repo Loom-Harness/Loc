@@ -108,6 +108,11 @@ function entryIndex(files: Map<string, string>): string {
   throw new Error("no entry index.ts found");
 }
 
+// The start-up sequence `index.ts` runs (and the playground runs too).
+function bootModule(files: Map<string, string>): string {
+  return findFile(files, /(^|\/)boot\.ts$/);
+}
+
 describe("hono OIDC turnkey auth — codegen", () => {
   it("emits a jose-backed verifier that maps the configured claims", async () => {
     const files = await generateSystemFiles(OIDC);
@@ -290,17 +295,22 @@ describe("hono OIDC turnkey auth — codegen", () => {
 
   it("registers the OIDC verifier at boot instead of the dev stub", async () => {
     const files = await generateSystemFiles(OIDC);
-    const index = entryIndex(files);
-    expect(index).toContain('import { registerOidcVerifier } from "./auth/oidc";');
-    expect(index).toContain("registerOidcVerifier();");
-    expect(index).not.toContain("auth_dev_stub_registered");
+    const boot = bootModule(files);
+    expect(boot).toContain('import { registerOidcVerifier } from "./auth/oidc";');
+    expect(boot).toContain("registerOidcVerifier();");
+    // The dev stub is the `verifier: "dev-stub"` branch only — and the
+    // deployed server boots with no options, so it takes the OIDC branch.
+    expect(boot).toMatch(
+      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(\);\n\s+baseLogger\.warn\(\{ event: "auth_dev_stub_registered" \}\);\n\s+\} else \{\n\s+registerOidcVerifier\(\);/,
+    );
+    expect(entryIndex(files)).toContain("await bootApp(db);");
   });
 
-  // The playground preview boots `createApp` in a browser worker, where no IdP
-  // is reachable, so it registers the dev stub instead — which therefore has to
-  // exist under OIDC too.  What keeps that preview-only: nothing in the
-  // generated project's own module graph reaches it.
-  it("emits the dev stub for the preview, unreferenced by every generated module", async () => {
+  // The playground preview boots in a browser worker, where no IdP is
+  // reachable, so it asks `bootApp` for the dev stub instead — which therefore
+  // has to exist under OIDC too.  What keeps that preview-only: only boot.ts
+  // imports it, behind the `verifier: "dev-stub"` option the server never sets.
+  it("emits the dev stub for the preview, imported by boot.ts alone", async () => {
     const files = await generateSystemFiles(OIDC);
     const devStub = findFile(files, /auth\/dev-stub\.ts$/);
     expect(devStub).toContain("export function registerDevStubVerifier()");
@@ -309,7 +319,7 @@ describe("hono OIDC turnkey auth — codegen", () => {
       .filter(([p]) => p.endsWith(".ts") && !p.endsWith("auth/dev-stub.ts"))
       .filter(([, src]) => /from "\.{1,2}\/(auth\/)?dev-stub"/.test(src))
       .map(([p]) => p);
-    expect(importers).toEqual([]);
+    expect(importers).toEqual(["api/boot.ts"]);
   });
 
   it("mounts the handshake routes and bypasses /auth in the middleware", async () => {
@@ -331,12 +341,12 @@ describe("hono OIDC turnkey auth — codegen", () => {
     const handshake = findFile(files, /auth\/handshake\.ts$/);
     expect(handshake).toContain('app.get("/me"');
     expect(handshake).not.toContain('app.get("/login"');
-    const index = entryIndex(files);
-    expect(index).toContain("auth_dev_stub_registered");
-    // The stub itself lives in `auth/dev-stub.ts` (#2548) — its own module, so
-    // a harness that boots `createApp` instead of `index.ts` registers THE
+    const boot = bootModule(files);
+    expect(boot).toContain("auth_dev_stub_registered");
+    // The stub itself lives in `auth/dev-stub.ts` — its own module, so a
+    // harness that boots `createApp` instead of `bootApp` registers THE
     // generated identity rather than hand-writing a copy of it.
-    expect(index).toContain("registerDevStubVerifier()");
+    expect(boot).toContain("registerDevStubVerifier()");
     const devStub = findFile(files, /auth\/dev-stub\.ts$/);
     // The dev stub honours an injected x-loom-dev-claims header (the
     // playground identity-injection seam) — dev-only, merged over the

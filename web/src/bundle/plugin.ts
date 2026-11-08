@@ -70,36 +70,34 @@ export interface TsconfigAliasEntry {
 // legacy mode; "<slug>/http/index.ts" / "<slug>/db/schema.ts" for
 // system mode).
 //
-// `devStubPath` — the emitted `auth/dev-stub.ts`, when the deployable has one
-// (#2571).  We boot through `createApp` rather than the generated `index.ts`,
-// and `createApp` asserts a verifier is registered when the deployable is
-// `auth: required` — a registration only `index.ts` performs.  Without this the
-// preview died at boot with
+// `bootPath` — the emitted `boot.ts`, the deployable's start-up sequence
+// (`bootApp(db, opts) → { app, stop }`): seeds, the user verifier, the
+// `orgPath` resolver, the event dispatchers, channel transports + consumers,
+// the outbox relay and the timers.  The generated `index.ts` runs that same
+// function around `serve()`; the worker runs it against PGlite, so the preview
+// boots exactly what the deployed server boots.  The worker passes
+// `verifier: "dev-stub"` (no IdP is reachable from the preview, so even an
+// `auth { oidc }` system takes the `x-loom-dev-claims` dev stub there) and
+// `infra: "in-process"` (no broker, no second Postgres connection).
 //
-//   createApp failed: No user verifier is registered.
-//
-// on every `auth: required` system, while the UI advertised the feature (the
-// Auth panel sends `x-loom-dev-claims` on every dispatched request).  Calling
-// the registrar at entry top-level runs it at module-evaluation time, i.e.
-// before the worker reaches `createApp` — the same order `index.ts` uses.
-//
-// An `auth { oidc }` system emits the dev stub too, and is registered here the
-// same way: its OIDC verifier validates tokens against the IdP's JWKS, and no
-// IdP is reachable from the preview worker.  This is the ONLY place the stub is
-// registered for such a system — its generated `index.ts` registers the OIDC
-// verifier, so the header is honoured in the preview and nowhere else.
+// `devStubPath` — the emitted `auth/dev-stub.ts`, registered at entry top level
+// ONLY when there is no `boot.ts` to boot through: `createApp` asserts a
+// verifier is registered on an `auth: required` deployable, and without one the
+// preview dies with "createApp failed: No user verifier is registered".
 export function makeEntryStdin(
   entryPath: string,
   schemaPath: string,
   devStubPath?: string,
+  bootPath?: string,
 ): string {
   return [
-    ...(devStubPath
+    ...(devStubPath && !bootPath
       ? [
           `import { registerDevStubVerifier } from "./${devStubPath}";`,
           "registerDevStubVerifier();",
         ]
       : []),
+    ...(bootPath ? [`export { bootApp } from "./${bootPath}";`] : []),
     `export { createApp } from "./${entryPath}";`,
     `export * as schema from "./${schemaPath}";`,
     `export { drizzle } from "drizzle-orm/pglite";`,
@@ -135,6 +133,18 @@ export function devStubEntryFor(
 ): string | undefined {
   const segs = entryPath.split("/");
   const path = [...segs.slice(0, -2), "auth", "dev-stub.ts"].join("/");
+  return files.has(`/${path}`) ? path : undefined;
+}
+
+// The deployable's `boot.ts` — the sibling of its `http/` dir — or `undefined`
+// when the emitter produced none.  Keyed like `devStubEntryFor`, for the same
+// reason.
+export function bootEntryFor(
+  files: ReadonlyMap<string, string | Uint8Array>,
+  entryPath: string,
+): string | undefined {
+  const segs = entryPath.split("/");
+  const path = [...segs.slice(0, -2), "boot.ts"].join("/");
   return files.has(`/${path}`) ? path : undefined;
 }
 

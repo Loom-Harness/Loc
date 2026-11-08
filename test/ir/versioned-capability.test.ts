@@ -48,7 +48,7 @@ function customerOf(loom: LoomModel): AggregateIR {
 describe("versioned capability — wireShape version token", () => {
   it("contributes a `version` field with token access to the wire shape", async () => {
     const agg = customerOf(await buildLoomModel(source("with versioned")));
-    const version = wireFieldsFor(agg).find((f) => f.name === "version");
+    const version = wireFieldsFor(agg).find((f) => f.name === "rowVersion");
     expect(version, "version wire field").toBeDefined();
     expect(version!.access).toBe("token");
     expect(version!.type).toEqual({ kind: "primitive", name: "int" });
@@ -58,7 +58,7 @@ describe("versioned capability — wireShape version token", () => {
   it("routes version onto API reads, off create/update bodies, into preconditions", async () => {
     const agg = customerOf(await buildLoomModel(source("with versioned")));
     const wire = wireFieldsFor(agg);
-    const has = (fs: { name: string }[]) => fs.some((f) => f.name === "version");
+    const has = (fs: { name: string }[]) => fs.some((f) => f.name === "rowVersion");
 
     expect(has(forApiRead(wire)), "read includes version").toBe(true);
     expect(has(forCreateInput(wire)), "create drops version").toBe(false);
@@ -68,7 +68,7 @@ describe("versioned capability — wireShape version token", () => {
 
   it("versions a plain aggregate by DEFAULT — version present without `with versioned` (M-T3.4)", async () => {
     const agg = customerOf(await buildLoomModel(source("")));
-    expect(wireFieldsFor(agg).some((f) => f.name === "version")).toBe(true);
+    expect(wireFieldsFor(agg).some((f) => f.name === "rowVersion")).toBe(true);
     expect(agg.capabilities ?? []).toContain("versioned");
   });
 

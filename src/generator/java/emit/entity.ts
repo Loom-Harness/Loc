@@ -1,3 +1,4 @@
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -28,6 +29,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, snake } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
@@ -735,7 +737,9 @@ export function renderJavaEntity(
   // from the entity.
   const versionFieldName =
     (persistence || options.documentRoot === true) && isAgg(entity) && aggregateIsVersioned(entity)
-      ? entity.fields.find((f) => f.access === "token" && !superType?.fieldNames.has(f.name))?.name
+      ? entity.fields.find(
+          (f) => f.name === ROW_VERSION_FIELD && !superType?.fieldNames.has(f.name),
+        )?.name
       : undefined;
   const applyVersionLines: string[] =
     versionFieldName !== undefined
@@ -768,6 +772,18 @@ export function renderJavaEntity(
           `        _appended = _domainEvents.size();`,
           `    }`,
           ``,
+          // The stream's tenant is metadata of its stored events, not folded
+          // state: the repository adopts it onto the `tenantOwned` fields after
+          // the fold, so the instance answers like a `tenantOwned` row.
+          ...(isAgg(entity) && isTenantScopedStream(entity)
+            ? [
+                `    /** Internal: adopt the stream's tenant metadata (stored-event metadata, never an event payload). */`,
+                `    public void _adoptStreamTenant(${STREAM_TENANT_METADATA.map((m) => `String ${m.field}`).join(", ")}) {`,
+                ...STREAM_TENANT_METADATA.map((m) => `        this.${m.field} = ${m.field};`),
+                `    }`,
+                ``,
+              ]
+            : []),
         ]
       : [];
   const pullEventsLines = isRoot
@@ -1149,7 +1165,8 @@ export function renderJavaEntity(
     };
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @${JPA("PrePersist")}`]),
-      `    void _stampOnCreate() {`,
+      // An event stream's repository stamps a new stream across packages.
+      `    ${eventSourced ? "public " : ""}void _stampOnCreate() {`,
       ...hookBody(claimStamps, "create"),
       `    }`,
       ``,
@@ -1387,7 +1404,7 @@ export function renderJavaAbstractBaseEntity(
   // dirtiness, the capability declares persisted commands).
   const baseVersionField =
     persistence && aggregateIsVersioned(base)
-      ? base.fields.find((f) => f.access === "token")?.name
+      ? base.fields.find((f) => f.name === ROW_VERSION_FIELD)?.name
       : undefined;
   const applyVersionLines: string[] =
     baseVersionField !== undefined

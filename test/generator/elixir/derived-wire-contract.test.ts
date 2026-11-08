@@ -20,6 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SRC = `
 system Shop {
@@ -113,7 +114,7 @@ describe("phoenix wire — `serialize/1` ships every key the published schema re
     // (a struct key that does not exist, so a `KeyError` at render time).
     expect(ctrl).not.toContain("record.subtotal");
     expect(ctrl).not.toContain("record.with_tax");
-    expect(ctrl).toContain(
+    expect(uncheckedInt(ctrl)).toContain(
       `"withTax" => (record.qty * record.unit_price) + (record.qty * record.unit_price)`,
     );
   });

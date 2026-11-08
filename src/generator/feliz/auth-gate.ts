@@ -16,6 +16,7 @@
 // degradation) — again mirroring the JS renderer.
 
 import type { BinOp, ExprIR, OperationIR, TypeIR, UiIR, UserIR } from "../../ir/types/loom-ir.js";
+import { operationActionGates } from "../../ir/util/op-gates.js";
 import { upperFirst } from "../../util/naming.js";
 import { fsString } from "./fs-expr.js";
 import { typeToFs } from "./type-fs.js";
@@ -159,7 +160,7 @@ export function renderFelizGate(e: ExprIR, userVar: string): string {
  *  a non-null gate hides the button when the claims fail; null leaves it always
  *  shown (the backend 403 still enforces the guard — defence-in-depth). */
 export function opActionGate(op: OperationIR): string | null {
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  const gates = operationActionGates(op);
   if (gates.length === 0) return null;
   try {
     return gates.map((g) => `(${renderFelizGate(g, "currentUser")})`).join(" && ");

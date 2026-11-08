@@ -282,7 +282,8 @@ bases are exempt; a subtype inherits its base's stance). An unmarked aggregate i
 | `loom.tenancy-claim-type-mismatch` | the claim's type can't bind against the registry's `ids` type (see the id-vs-claim rule above) | error |
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
 | `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.all`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
-| `loom.tenancy-folded-projection-unscoped` | a folded projection (`on(e: …)` folds) under `tenancy by`: its read-model rows carry no tenant and its read routes no tenant predicate, so it is refused; read the source through a query-time projection (`from <Aggregate> …`), which applies the aggregate's tenant floor | error |
+| `loom.tenancy-folded-projection-mixed` | a folded projection whose events come from a `crossTenant` aggregate AND a tenant-scoped producer — see [Folded projections](#folded-projections--rows-carry-the-events-tenant); split it in two | error |
+| `loom.tenancy-projection-over-scoped-fold` | a query-time projection `from <P>` over a tenant-scoped folded projection `P`: the query path reads its rows without the fold's tenant scope | error |
 
 ### Inheritance: a subtype inherits its base's stance
 
@@ -342,6 +343,134 @@ Each backend runs it under the principal its auth middleware would bind
 (`runAsUser` / `current_user_var` / a `RequestContext` frame /
 `CurrentUserAccessor.actAs` / the threaded actor) — see the
 [testing reference](language-reference/18-testing.md#running-as-a-principal).
+
+## Event-sourced aggregates — the tenant lives on the stream
+
+An event-sourced aggregate (`persistedAs: eventLog`) has no state row to carry
+a `tenantId` column, so `with tenantOwned` puts the tenant **on its stream**,
+as metadata of every stored event. Event payloads stay pure domain data.
+
+```ddd
+event Opened { ledger: Ledger id }
+aggregate Ledger persistedAs: eventLog with tenantOwned {
+  opened: bool
+  create open() { emit Opened { ledger: id } }
+  apply(e: Opened) { opened := true }
+}
+```
+
+- **Storage.** The context's event log (`<ctx>_events`) gains two nullable
+  metadata columns, `tenant_id` and `data_key`, through the ordinary migration
+  chain. A log holding no tenant-scoped stream is unchanged; the rows of its
+  other streams (a `crossTenant` aggregate, an `eventSourced` workflow) leave
+  them null.
+- **Stamp.** The creation command stamps the new stream from the principal —
+  the capability's own `onCreate` stamp (`tenantId := currentUser.<claim>`,
+  `dataKey := currentUser.orgPath`). Every later append copies the loaded
+  stream's tenant forward, never the caller's.
+- **Scope.** Every stream load — by id, the list, and the load an operation
+  (append) runs first — applies the tenancy restrictions of the aggregate's
+  `readScope` fact over the metadata columns: the flat floor, or the `policy`
+  `deep` / `global` subtree. A foreign tenant's `GET /api/ledgers/<id>` is a
+  404, its list never shows the stream, and it cannot append to a stream it
+  cannot load. `ignoring tenantOwned` drops the scope for that read only, as
+  on a table (and raises `loom.tenancy-filter-bypass`).
+- **Events.** A folded event's tenant is its stream's: the stored-event row
+  carries it, and so does the CloudEvents channel envelope (`tenantid` /
+  `loomorgpath`), so a reactor or a cross-deployable consumer runs in the
+  stream's tenant.
+- **Fold.** A load adopts the metadata onto the aggregate's `tenantOwned`
+  fields, so the folded instance answers exactly like a `tenantOwned` row.
+
+The fact is `streamTenancyFor` / `eventTenantMetadataFor`
+(`src/ir/enrich/stream-tenancy.ts`). On node it renders as:
+
+```ts
+// db/read-scopes.ts
+export function ledgerStreamScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : eq(schema.cEvents.tenantId, requireCurrentUser().tenantId),
+  );
+}
+
+// db/repositories/ledger-repository.ts — findById
+.where(and(eq(schema.cEvents.streamType, "Ledger"), eq(schema.cEvents.streamId, id as string), ledgerStreamScope()))
+
+// save — a new stream is stamped, an append carries the stream's tenant
+const meta = aggregate._streamVersion === 0
+  ? stampInsertLedger({ tenantId: aggregate.tenantId, dataKey: aggregate.dataKey })
+  : { tenantId: aggregate.tenantId, dataKey: aggregate.dataKey };
+```
+
+`loom.stamp-on-event-sourced-invalid` still refuses a genuine lifecycle stamp
+(`stamp onCreate { openedAt := now() }`) on an event-sourced aggregate; the
+tenancy capability's stamp is not one.
+
+**Backend coverage.** Every backend carries the stream tenant: node (its default
+Drizzle persistence), `dotnet` (EF and Dapper), `java`, `python` (through the
+repository's `_stream_scope`) and `elixir` (the scope lives on the aggregate's
+event-log schema, where `Repo.prepare_query/3` applies it).  node's
+`persistence: mikroorm` event store does not carry it yet, so there a
+`tenantOwned` event-sourced aggregate is refused with `loom.target-unsupported`
+(`#tenant-owned-event-sourced`) rather than emitted as an unscoped stream.
+
+## Folded projections — rows carry the event's tenant
+
+A folded projection (`projection P keyed by k { on(e: Ev) { … } }`) writes
+rows no tenant command owns. Under `tenancy by`, a fold over events raised by a
+`tenantOwned` aggregate — state or event-sourced — is **tenant-scoped**:
+
+- **Stamp.** The fold reads the event's tenant from its metadata — the event
+  origin of the frame the event is dispatched in (the raising request, the
+  stream tenant's frame for an event-sourced append, or the frame the outbox
+  relay / broker consumer opens from `tenantid` / `loomorgpath`) — and stamps
+  the row's `tenant_id` and `data_key` (the origin's org path, else the
+  tenant), the two columns a `tenantOwned` table carries. An event with no
+  tenant (raised outside any principal) folds into no row.
+- **Key.** The row is keyed by `(tenant_id, <key>)`, so two tenants folding
+  the same business key get two rows. The migration chain adds the columns
+  and the composite primary key.
+- **Scope.** Every read — `GET /api/projections/<p>`, the by-key read, and so
+  any page `QueryView` over it — applies the fold row's read scope
+  (`foldRowReadScope` in `read-scope.ts`): the tenant floor
+  `tenant_id = currentUser.<claim>`. A `policy` that widens a producer to
+  `deep` / `global` does not widen the read model.
+
+```ddd
+aggregate Acct with tenantOwned, crudish {
+  owner: string
+  operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+}
+projection Totals keyed by acct {
+  acct: Acct id
+  paid: int
+  on(e: Paid) { acct := e.acct  paid := e.amount }
+}
+```
+
+```ts
+// node — http/projections.ts
+const __origin = currentEventOrigin();
+const __tenant = __origin?.tenant;
+if (__tenant == null) return;
+const state = (await loadTotals(db, __key, __tenant))
+  ?? { acct: __key, tenantId: __tenant, dataKey: __origin?.orgPath ?? __tenant };
+// GET /projections/totals
+await db.select().from(schema.totalses)
+  .where(eq(schema.totalses.tenantId, String(requireCurrentUser().tenantId)));
+```
+
+A fold whose events all come from `crossTenant` aggregates is **exempt**: no
+tenant column, unscoped reads. A fold mixing `crossTenant` and tenant-scoped
+producers is refused (`loom.tenancy-folded-projection-mixed`): a
+`crossTenant` event carries no tenant, so its rows could be neither shared nor
+tenant-owned. Every other fold (a workflow or registry producer, or none
+found) is scoped — fail-closed. A query-time projection over a scoped fold
+(`from Totals`) is refused (`loom.tenancy-projection-over-scoped-fold`).
+
+The fact is `foldTenancyVerdict` / `foldTenancyFor`
+(`src/ir/enrich/fold-tenancy.ts`); every backend (node Drizzle and MikroORM,
+`dotnet` EF and Dapper, `python`, `java`, `elixir`) renders it.
 
 ## Reactors and timers — the system principal's tenant
 

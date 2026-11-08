@@ -1,7 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import { foldProducersOf, foldTenancyVerdict } from "../../enrich/fold-tenancy.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
-import { isMaterializedProjection } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
@@ -487,30 +487,52 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
-/** A folded (`on(e: …)`) projection under `tenancy by` is refused: the fold
- *  writes rows no tenant command owns, so on every backend the read-model
- *  table has no tenant column and the `GET /projections/<p>` routes read it
- *  whole — one tenant's events served to every tenant.  Stamping the fold row
- *  with the event's tenant (and keying it by tenant) is a feature no backend
- *  has, so until one does the shape is an error rather than a silent leak.  A
- *  query-time projection over the source aggregate is the scoped alternative:
- *  it reads through the aggregate's read scope, tenant floor included. */
+/** A folded (`on(e: …)`) projection under `tenancy by` whose folded events
+ *  come from BOTH `crossTenant` aggregates and tenant-scoped producers is
+ *  refused: a scoped fold row is keyed and read by the event's tenant, and a
+ *  `crossTenant` event carries none, so its fold would land under whichever
+ *  tenant raised it (or none) — neither the shared row the `crossTenant`
+ *  producer means nor a row the tenant owns.  A fold over only `crossTenant`
+ *  producers is exempt (no tenant to leak); every other fold is tenant-scoped
+ *  (`fold-tenancy.ts`). */
 function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const tenancy = sys.tenancy;
-  if (!tenancy) return;
+  if (!sys.tenancy) return;
   for (const sd of sys.subdomains) {
     for (const ctx of sd.contexts) {
       for (const p of ctx.projections ?? []) {
-        if (!isMaterializedProjection(p)) continue;
-        const events = [...new Set(p.handlers.map((h) => h.event))];
+        const source = p.query?.sourceKind === "projection" ? p.query.source : undefined;
+        if (source !== undefined) {
+          // A query-time projection over a tenant-scoped fold would read the
+          // fold's rows through the raw-table query path, which applies no
+          // read scope — every tenant's rows.
+          const home = sd.contexts.find((c) => c.name === (p.query?.sourceContext ?? ctx.name));
+          const folded = home?.projections.find((x) => x.name === source);
+          if (folded && foldTenancyVerdict(folded, sys) === "scoped") {
+            diags.push({
+              severity: "error",
+              code: "loom.tenancy-projection-over-scoped-fold",
+              message: diagMessage("loom.tenancy-projection-over-scoped-fold", {
+                name: p.name,
+                ctxName: ctx.name,
+                source,
+              }),
+              source: `${ctx.name}/${p.name}`,
+              origin: p.origin,
+            });
+          }
+          continue;
+        }
+        if (foldTenancyVerdict(p, sys) !== "mixed") continue;
+        const producers = foldProducersOf(p, sys);
+        const quote = (xs: string[]): string => xs.map((x) => `'${x}'`).join(", ");
         diags.push({
           severity: "error",
-          code: "loom.tenancy-folded-projection-unscoped",
-          message: diagMessage("loom.tenancy-folded-projection-unscoped", {
+          code: "loom.tenancy-folded-projection-mixed",
+          message: diagMessage("loom.tenancy-folded-projection-mixed", {
             name: p.name,
             ctxName: ctx.name,
-            events: events.map((e) => `'${e}'`).join(", "),
-            claim: tenancy.claimField,
+            crossTenant: quote(producers.crossTenant),
+            scoped: quote([...producers.tenantOwned, ...producers.other]),
           }),
           source: `${ctx.name}/${p.name}`,
           origin: p.origin,

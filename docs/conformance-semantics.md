@@ -268,9 +268,9 @@ the conforming backends, and the fix that established it.
 
 ### RS-11 · A created `versioned` aggregate reads back at version 1
 - **Guarantee.** A freshly-created `versioned` aggregate reads back with
-  `version` = **1** — the canonical value, fixed by the capability declaration
-  `version: int token = 1` (`src/macros/prelude.ts`), mirrored to
-  `version INTEGER NOT NULL DEFAULT 1`.
+  `rowVersion` = **1** — the canonical value, fixed by the capability declaration
+  `rowVersion: int token = 1` (`src/macros/prelude.ts`), mirrored to
+  `row_version INTEGER NOT NULL DEFAULT 1`.
 - **Trigger.** A `versioned` aggregate created via `POST`, then read.
 - **Observable.** Every backend now reads back `1`. node stamps `version = 1`
   in its versioned save *and* (since M-T6.63) seeds it in the factory too, so the
@@ -368,8 +368,8 @@ the conforming backends, and the fix that established it.
   shapes}.json`); fixed in the same PR, so the waiver is gone and the gate
   enforces the envelope unconditionally. Tier: **behavioral**.
 
-### RS-14 · `version` increments on every persisted mutation, document shapes included
-- **Guarantee.** A `versioned` aggregate reads back `version: 2` after one
+### RS-14 · `rowVersion` increments on every persisted mutation, document shapes included
+- **Guarantee.** A `versioned` aggregate reads back `rowVersion: 2` after one
   post-create mutation — `1` at create (RS-11), `+1` per persisted mutation —
   **regardless of `shape:`**.
 - **Trigger.** A `versioned` aggregate with `shape: document` (jsonb-stored):
@@ -612,8 +612,8 @@ the conforming backends, and the fix that established it.
   (2026-07-31), after the rule had already been recorded as all-five conforming.
   Both verified on booted apps. Tier: **behavioral**.
 
-### RS-20 · `version` counts persisted mutations, not entity-graph dirtiness
-- **Guarantee.** `version` is `1` at create and `+1` per persisted mutation,
+### RS-20 · `rowVersion` counts persisted mutations, not entity-graph dirtiness
+- **Guarantee.** `rowVersion` is `1` at create and `+1` per persisted mutation,
   **independent of which part of the aggregate graph changed** (RS-11 + RS-14)
   **and of whether any column value actually differs**. A command that ran and
   was persisted bumps the counter; that is what "optimistic concurrency token"
@@ -2288,3 +2288,38 @@ nothing and the test passes vacuously.
   `test/behavioral/wire-golden/merge-patch-update.json`, diffed by every
   wire-gated leg; the per-backend emission is pinned by
   `test/generator/merge-patch-update.test.ts`.
+
+### RS-48 · Integer arithmetic in domain code that leaves its declared range is a 422 "Value out of range", never a wrap and never a 500
+- **Guarantee.** An integer `+`, `-`, `*` or unary `-` evaluated in domain code
+  (an aggregate operation, a workflow, a handler, a domain service) whose result
+  is outside the operand type's range — int32 for `int`, int64 for `long` —
+  answers the domain floor: **422** `application/problem+json`, `title`
+  `Unprocessable Entity`, `detail` `Value out of range`, no `errors[]`
+  (wirePolicy rejection class `arithmetic-overflow`; the status follows
+  `httpStatus DomainError`). The write is refused and the row keeps its stored
+  value. A result is never wrapped and never reaches the database.
+  Constant expressions (`2 + 3`), `money`/`decimal` arithmetic and integer
+  division (which widens to `decimal`) are not covered.
+- **Trigger.** `stock + n` where `stock` is `2147483647` and `n` is `1`;
+  `a * b` over two `long`s; `-n` where `n` is `-2147483648`.
+- **Observable.** `POST …/restock {"n": 1}` → `422`, `detail: "Value out of
+  range"`; a following `GET` reads the old `stock`.
+- **The split when ruled (#3585).** node, python and elixir computed the
+  out-of-range value and failed at the database CHECK (a 500); java and .NET
+  wrapped silently (`2147483647 + 1` stored as `-2147483648`).
+- **Per-backend shape.** One predicate (`checkedBinaryKind` / `checkedUnaryKind`,
+  `src/generator/_expr/checked-int.ts`) selects the checked nodes for all five.
+  node wraps the result in an inline range guard throwing `DomainError`;
+  python in `check_int(value, lo, hi)` raising `DomainError`; elixir in a `case`
+  raising `<App>.GuardError, kind: :precondition`; java renders
+  `Math.addExact` / `subtractExact` / `multiplyExact` / `negateExact`, mapped
+  from `ArithmeticException("integer overflow" | "long overflow")` by
+  `ApiExceptionAdvice`; .NET renders `checked(...)`, mapped from
+  `OverflowException` by `DomainExceptionFilter`. EF-query and Ecto-query
+  filter renderings are unchecked (the database evaluates them).
+- **Not part of the guarantee (named).** `long` keeps its ruled node ceiling
+  (`D-LONG-AVG-DEFAULTS`): node refuses a `long` result past 2^53−1, the other
+  four past int64. The refusal carries no `errors[]` pointer.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** #3585 (owner ruling 2026-11-03). Tier: **static** —
+  `test/generator/_expr/checked-int.test.ts`.

@@ -34,7 +34,7 @@
         "balance": 100,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -69,7 +69,7 @@
         "balance": 70,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -81,8 +81,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "text": "attempted",
-            "version": 1
+            "rowVersion": 1,
+            "text": "attempted"
           }
         ],
         "page": 1,
@@ -121,7 +121,7 @@
         "balance": 50,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -169,7 +169,7 @@
         "balance": 5,
         "id": "<volatile:key>",
         "owner": "bob",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -181,8 +181,8 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "ann",
-        "type": "Account",
-        "version": 4
+        "rowVersion": 4,
+        "type": "Account"
       }
     },
     {
@@ -208,7 +208,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -244,7 +244,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -270,7 +270,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "ann",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -289,7 +289,7 @@
         "balance": 40,
         "id": "<volatile:key>",
         "owner": "bea",
-        "version": 5
+        "rowVersion": 5
       }
     },
     {
@@ -303,13 +303,13 @@
             "balance": 40,
             "id": "<volatile:key>",
             "owner": "bea",
-            "version": 5
+            "rowVersion": 5
           },
           {
             "balance": 5,
             "id": "<volatile:key>",
             "owner": "bob",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -334,8 +334,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "manual",
-        "version": 1
+        "rowVersion": 1,
+        "text": "manual"
       }
     },
     {

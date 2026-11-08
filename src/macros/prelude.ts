@@ -23,6 +23,7 @@
 
 import type { Capability, CapabilityMember } from "../language/generated/ast.js";
 import { PRINCIPAL_TYPE_NAME } from "../util/principal.js";
+import { ROW_VERSION_FIELD } from "../util/row-version.js";
 import {
   binaryExpr,
   contextFilter,
@@ -184,20 +185,22 @@ function buildTenantRegistry(): Capability {
   ] as CapabilityMember[]);
 }
 
-/** `capability versioned { version: int token = 1 }` — the opt-in
+/** `capability versioned { rowVersion: int token = 1 }` — the
  * optimistic-concurrency marker (optimistic-concurrency.md).  ONE synthetic
- * field: `version: int` with `token` access (echoed by the client on update as
- * a precondition, dropped from create/update editable bodies, present on every
- * read — the wire-projection matrix already routes `token` this way).  The
- * `= 1` default seeds new rows at version 1 and, mirrored onto the derived
- * `version INTEGER NOT NULL DEFAULT 1` state-table column
+ * field: `rowVersion: int` with `token` access (echoed by the client on update
+ * as a precondition, dropped from create/update editable bodies, present on
+ * every read — the wire-projection matrix already routes `token` this way).
+ * The `= 1` default seeds new rows at 1 and, mirrored onto the derived
+ * `row_version INTEGER NOT NULL DEFAULT 1` state-table column
  * (`migrations-builder.ts`), keeps the schema add non-destructive.  Enforcement
- * (guarded write + 409 on version mismatch) is per-backend, gated on
- * `aggregateIsVersioned` (`src/ir/util/versioned-capability.ts`). */
+ * (guarded write + 409 on a counter mismatch) is per-backend, gated on
+ * `aggregateIsVersioned` (`src/ir/util/versioned-capability.ts`).  The name is
+ * `ROW_VERSION_FIELD` (`src/util/row-version.ts`), so `version` stays an
+ * ordinary domain field name. */
 /** The name of the one field `versioned` contributes — the optimistic-concurrency
  *  counter.  Exported so consumers that must recognise that field (the scaffold
  *  list/detail bodies hide it) key on the capability's own declaration. */
-export const VERSIONED_TOKEN_FIELD = "version";
+export const VERSIONED_TOKEN_FIELD = ROW_VERSION_FIELD;
 
 function buildVersioned(): Capability {
   return capability("versioned", [

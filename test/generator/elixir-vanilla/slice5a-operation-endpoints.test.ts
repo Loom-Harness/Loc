@@ -58,7 +58,7 @@ describe("vanilla — Slice P4.0 per-operation endpoints", () => {
     expect(ctl).toContain('def deposit(conn, %{"id" => id} = params)');
     expect(ctl).toContain("Accounts.get_account(id)");
     expect(ctl).toContain(
-      "Accounts.deposit_account(%{record | version: expected_version || record.version}, attrs)",
+      "Accounts.deposit_account(%{record | row_version: expected_version || record.row_version}, attrs)",
     );
     expect(ctl).toContain("send_resp(conn, 204");
     // Failure mapping reuses the shared ProblemDetails responders.

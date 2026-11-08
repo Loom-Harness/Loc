@@ -117,7 +117,7 @@ describe("java service/validator/controller locals never collide with the method
     expect(svc).toContain("        var found = request.found();");
     expect(svc).toContain("        aggregate.tweak(ifMatch_, auditRecords_, found);");
     // The injected field and the version guard still read the real names.
-    expect(svc).toContain("        if (ifMatch != null && aggregate.version() != ifMatch)");
+    expect(svc).toContain("        if (ifMatch != null && aggregate.rowVersion() != ifMatch)");
     expect(svc).toContain("        auditRecords.save(new AuditRecord(");
   });
 

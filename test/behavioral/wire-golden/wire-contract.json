@@ -22,9 +22,9 @@
         "id": "<volatile:key>",
         "note": null,
         "price": "19.5000",
+        "rowVersion": 1,
         "sku": "SKU-1",
-        "tags": [],
-        "version": 1
+        "tags": []
       }
     },
     {
@@ -45,9 +45,9 @@
         "id": "<volatile:key>",
         "note": "clearance",
         "price": "24.7500",
+        "rowVersion": 2,
         "sku": "SKU-1B",
-        "tags": [],
-        "version": 2
+        "tags": []
       }
     },
     {
@@ -61,9 +61,9 @@
         "id": "<volatile:key>",
         "note": "clearance",
         "price": "24.7500",
+        "rowVersion": 2,
         "sku": "SKU-1B",
-        "tags": [],
-        "version": 2
+        "tags": []
       }
     },
     {
@@ -93,14 +93,14 @@
         "id": "<volatile:key>",
         "note": null,
         "price": "5.0000",
+        "rowVersion": 2,
         "sku": "SKU-2",
         "tags": [
           {
             "id": "<volatile:key>",
             "label": "clearance"
           }
-        ],
-        "version": 2
+        ]
       }
     },
     {
@@ -178,9 +178,9 @@
             "id": "<volatile:key>",
             "note": "clearance",
             "price": "24.7500",
+            "rowVersion": 2,
             "sku": "SKU-1B",
-            "tags": [],
-            "version": 2
+            "tags": []
           },
           {
             "availability": "Discontinued",
@@ -188,9 +188,9 @@
             "id": "<volatile:key>",
             "note": null,
             "price": "1.0000",
+            "rowVersion": 2,
             "sku": "SKU-3",
-            "tags": [],
-            "version": 2
+            "tags": []
           }
         ],
         "page": 1,

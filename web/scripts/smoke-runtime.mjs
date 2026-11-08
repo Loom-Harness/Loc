@@ -42,6 +42,7 @@ import { API_BASE_PATH } from "../../out/util/api-base.js";
 import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { generateSystems } from "../../out/system/index.js";
 import {
+  bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
   pgliteAssetUrl,
@@ -70,6 +71,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const REALM_ONLY = process.argv.includes("--realm-only");
 
 const EXPECTED_EXPORTS = [
+  "bootApp",
   "createApp",
   "schema",
   "drizzle",
@@ -175,7 +177,15 @@ async function userSchemas(pglite) {
   return res.rows.map((r) => r.nspname);
 }
 
-async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectAuth, evolve }) {
+async function runCase({
+  label,
+  sourcePath,
+  mode,
+  expectSchemaQualified,
+  expectAuth,
+  evolve,
+  afterBoot,
+}) {
   // Per-CASE identity for the emitted bundle.  It used to be the `mode` alone,
   // which is not unique: `await import()` caches by URL, so a second case with
   // the same mode re-imported the FIRST case's already-evaluated module and
@@ -218,7 +228,12 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
       // with "No user verifier is registered" — the same #2571 gap the runtime
       // engine had.  Today's fixtures declare no auth, so this is a no-op that
       // keeps the two boot paths from drifting apart again.
-      contents: makeEntryStdin(entry, schemaPath, devStubEntryFor(vfs, entry)),
+      contents: makeEntryStdin(
+        entry,
+        schemaPath,
+        devStubEntryFor(vfs, entry),
+        bootEntryFor(vfs, entry),
+      ),
       resolveDir: "/",
       sourcefile: "__entry__.ts",
       loader: "ts",
@@ -331,8 +346,10 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
   }
 
   const db = mod.drizzle(pglite, { schema: mod.schema });
-  const app = mod.createApp(db);
-  console.log("# app booted");
+  // The runtime worker's boot call, verbatim: the generated start-up sequence
+  // with the browser's answers (no IdP, no broker, no second connection).
+  const { app, stop } = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
+  console.log("# app booted (bootApp)");
 
   console.log("# 5/5 dispatching requests against in-process backend…");
   // Domain routes mount under the shared API base path (`/api`); infra
@@ -423,7 +440,24 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
     console.log(`# evolved in place by ${res.applied[0]} — ${evolve.column} added, 1 product kept`);
   }
 
+  if (afterBoot) await afterBoot(app);
+
+  await stop();
   await pglite.close();
+}
+
+/** Poll `GET url` until `accept(rows)` holds, or fail after `ms`. */
+async function waitForRows(app, url, accept, what, ms = 8000) {
+  const deadline = Date.now() + ms;
+  let last;
+  while (Date.now() < deadline) {
+    const res = await app.fetch(new Request(url));
+    const body = JSON.parse(await res.text());
+    last = Array.isArray(body) ? body : body.items;
+    if (Array.isArray(last) && accept(last)) return last;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  fail(`${what} within ${ms} ms; last rows ${JSON.stringify(last)}`);
 }
 
 await runCase({
@@ -456,6 +490,47 @@ await runCase({
   mode: "system",
   expectSchemaQualified: true,
   expectAuth: true,
+});
+
+// The generated start-up sequence (#4775).  Booting bare `createApp(db)`
+// skipped the broker transports, the consumer loop and the timers, so this
+// case's channel subscriber and `every:` timer never fired in the preview.
+await runCase({
+  label: "boot sequence (channel consumer + every: timer through bootApp)",
+  sourcePath: path.resolve(here, "fixtures/boot-sequence-smoke.ddd"),
+  mode: "system",
+  expectSchemaQualified: true,
+  afterBoot: async (app) => {
+    const base = `http://localhost${API_BASE_PATH}`;
+    const list = await app.fetch(new Request(`${base}/products`));
+    const product = JSON.parse(await list.text()).items?.[0];
+    if (!product?.id) fail("no product to announce");
+    const announced = await app.fetch(
+      new Request(`${base}/products/${product.id}/announce`, { method: "POST" }),
+    );
+    if (announced.status >= 400) {
+      fail(`POST announce returned ${announced.status}: ${await announced.text()}`);
+    }
+    // `ProductAnnounced` rides a redis-bound channel: it reaches the
+    // co-located `Notify` workflow only through the publish tee, the
+    // in-process broker and the consumer loop.
+    await waitForRows(
+      app,
+      `${base}/notices`,
+      (rows) => rows.some((r) => r.sku === product.sku),
+      "the channel subscriber did not create a Notice",
+    );
+    console.log("# channel: ProductAnnounced reached the co-located subscriber");
+    // `pulse` ticks every second; each tick starts a `Pulse` saga that
+    // creates a Beat.
+    const beats = await waitForRows(
+      app,
+      `${base}/beats`,
+      (rows) => rows.some((r) => r.source === "timer"),
+      "the every: timer did not fire",
+    );
+    console.log(`# timer: every: fired (${beats.length} beat(s))`);
+  },
 });
 
 console.log("\n# all green");

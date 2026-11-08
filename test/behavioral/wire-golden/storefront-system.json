@@ -23,8 +23,8 @@
           "amount": 9.99,
           "currency": "USD"
         },
-        "sku": "WIDGET-1",
-        "version": 1
+        "rowVersion": 1,
+        "sku": "WIDGET-1"
       }
     },
     {
@@ -41,8 +41,8 @@
               "amount": 9.99,
               "currency": "USD"
             },
-            "sku": "WIDGET-1",
-            "version": 1
+            "rowVersion": 1,
+            "sku": "WIDGET-1"
           }
         ],
         "page": 1,
@@ -103,7 +103,7 @@
         "email": "lookup@acme.test",
         "id": "<volatile:key>",
         "name": "Email Lookup",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -118,7 +118,7 @@
             "email": "lookup@acme.test",
             "id": "<volatile:key>",
             "name": "Email Lookup",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -221,8 +221,8 @@
         "id": "<volatile:key>",
         "openedAt": "<timestamp>",
         "ownerId": "<volatile:key>",
-        "status": "Open",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Open"
       }
     },
     {
@@ -251,7 +251,7 @@
         "email": "up2@acme.test",
         "id": "<volatile:key>",
         "name": "Updated",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -282,8 +282,8 @@
           "amount": 7.5,
           "currency": "USD"
         },
-        "sku": "UPD-2",
-        "version": 2
+        "rowVersion": 2,
+        "sku": "UPD-2"
       }
     },
     {
@@ -316,8 +316,8 @@
         "id": "<volatile:key>",
         "openedAt": "<timestamp>",
         "ownerId": "<volatile:key>",
-        "status": "Open",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Open"
       }
     },
     {
@@ -335,8 +335,8 @@
           "id": "<volatile:key>",
           "openedAt": "<timestamp>",
           "ownerId": "<volatile:key>",
-          "status": "Open",
-          "version": 2
+          "rowVersion": 2,
+          "status": "Open"
         }
       ]
     },
@@ -355,8 +355,8 @@
           "id": "<volatile:key>",
           "openedAt": "<timestamp>",
           "ownerId": "<volatile:key>",
-          "status": "Open",
-          "version": 2
+          "rowVersion": 2,
+          "status": "Open"
         }
       ]
     },
@@ -381,8 +381,8 @@
         "id": "<volatile:key>",
         "openedAt": "<timestamp>",
         "ownerId": "<volatile:key>",
-        "status": "Open",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Open"
       }
     },
     {
@@ -406,8 +406,8 @@
         "id": "<volatile:key>",
         "openedAt": "<timestamp>",
         "ownerId": "<volatile:key>",
-        "status": "Frozen",
-        "version": 4
+        "rowVersion": 4,
+        "status": "Frozen"
       }
     },
     {
@@ -425,8 +425,8 @@
           "id": "<volatile:key>",
           "openedAt": "<timestamp>",
           "ownerId": "<volatile:key>",
-          "status": "Frozen",
-          "version": 4
+          "rowVersion": 4,
+          "status": "Frozen"
         }
       ]
     },
@@ -481,8 +481,8 @@
           }
         ],
         "placedAt": "<timestamp>",
-        "status": "Confirmed",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Confirmed"
       }
     },
     {
@@ -513,8 +513,8 @@
           }
         ],
         "placedAt": "<timestamp>",
-        "status": "Shipped",
-        "version": 4
+        "rowVersion": 4,
+        "status": "Shipped"
       }
     },
     {
@@ -533,8 +533,8 @@
             "id": "<volatile:key>",
             "openedAt": "<timestamp>",
             "ownerId": "<volatile:key>",
-            "status": "Open",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Open"
           },
           {
             "balance": {
@@ -545,8 +545,8 @@
             "id": "<volatile:key>",
             "openedAt": "<timestamp>",
             "ownerId": "<volatile:key>",
-            "status": "Frozen",
-            "version": 4
+            "rowVersion": 4,
+            "status": "Frozen"
           }
         ],
         "page": 1,
@@ -591,8 +591,8 @@
             "id": "<volatile:key>",
             "openedAt": "<timestamp>",
             "ownerId": "<volatile:key>",
-            "status": "Open",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Open"
           }
         ],
         "page": 1,
@@ -631,8 +631,8 @@
               }
             ],
             "placedAt": "<timestamp>",
-            "status": "Shipped",
-            "version": 4
+            "rowVersion": 4,
+            "status": "Shipped"
           }
         ],
         "page": 1,

@@ -32,7 +32,7 @@ export class ProductRepository implements ProductRepositoryPort {
         return null;
       }
       const root = rootRows[0]!;
-      const loaded = Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), version: root.version });
+      const loaded = Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), rowVersion: root.rowVersion });
       requestLog().debug({ event: "aggregate_loaded", aggregate: "Product", id: id as string, found: true });
       return loaded;
     });
@@ -48,21 +48,21 @@ export class ProductRepository implements ProductRepositoryPort {
     if (ids.length === 0) return [];
     const rootRows = await this.db.select().from(schema.products).where(inArray(schema.products.id, ids)).orderBy(asc(schema.products.id));
     if (rootRows.length === 0) return [];
-    return rootRows.map((root) => Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), version: root.version }));
+    return rootRows.map((root) => Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), rowVersion: root.rowVersion }));
   }
 
   async save(aggregate: Product, expectedVersion?: number): Promise<void> {
     const pendingEvents = aggregate.pullEvents();
     let dispatchAfterCommit = pendingEvents;
-    let savedVersion = aggregate.version;
+    let savedVersion = aggregate.rowVersion;
     await this.db.transaction(async (tx) => {
-      const expected = expectedVersion ?? aggregate.version;
+      const expected = expectedVersion ?? aggregate.rowVersion;
       const existingRow = await tx.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.id, aggregate.id));
       if (existingRow.length === 0) {
-        await tx.insert(schema.products).values({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, version: 1 });
+        await tx.insert(schema.products).values({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, rowVersion: 1 });
         savedVersion = 1;
       } else {
-        const updated = await tx.update(schema.products).set({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, version: expected + 1 }).where(and(eq(schema.products.id, aggregate.id), eq(schema.products.version, expected))).returning({ id: schema.products.id });
+        const updated = await tx.update(schema.products).set({ id: aggregate.id as string, sku: aggregate.sku, price_amount: String(aggregate.price.amount), price_currency: aggregate.price.currency, rowVersion: expected + 1 }).where(and(eq(schema.products.id, aggregate.id), eq(schema.products.rowVersion, expected))).returning({ id: schema.products.id });
         if (updated.length === 0) throw new ConcurrencyError("Product", aggregate.id as string);
         savedVersion = expected + 1;
       }
@@ -94,13 +94,13 @@ export class ProductRepository implements ProductRepositoryPort {
       requestLog().debug({ event: "find_executed", aggregate: "Product", find: "all", rows: 0 });
       return { items: [], page, pageSize, total, totalPages };
     }
-    const items = rootRows.map((root) => Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), version: root.version }));
+    const items = rootRows.map((root) => Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), rowVersion: root.rowVersion }));
     requestLog().debug({ event: "find_executed", aggregate: "Product", find: "all", rows: items.length });
     return { items, page, pageSize, total, totalPages };
   }
 
   toWire(root: Product): unknown {
-    return { id: root.id as string, sku: root.sku, price: { amount: root.price.amount, currency: root.price.currency }, version: root.version, display: root.display };
+    return { id: root.id as string, sku: root.sku, price: { amount: root.price.amount, currency: root.price.currency }, rowVersion: root.rowVersion, display: root.display };
   }
 
 }

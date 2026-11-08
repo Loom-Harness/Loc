@@ -19,10 +19,10 @@
       "body": {
         "code": "O1",
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "status": "Shipped",
         "stock": 1,
-        "type": "Order",
-        "version": 2
+        "type": "Order"
       }
     },
     {
@@ -47,9 +47,9 @@
       "body": {
         "code": "O1",
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "status": "Shipped",
-        "stock": 1,
-        "version": 2
+        "stock": 1
       }
     },
     {
@@ -87,9 +87,9 @@
       "body": {
         "code": "O1",
         "id": "<volatile:key>",
+        "rowVersion": 5,
         "status": "Shipped",
-        "stock": 6,
-        "version": 5
+        "stock": 6
       }
     },
     {
@@ -107,9 +107,9 @@
       "body": {
         "code": "O1",
         "id": "<volatile:key>",
+        "rowVersion": 6,
         "status": "Shipped",
-        "stock": 206,
-        "version": 6
+        "stock": 206
       }
     },
     {
@@ -140,9 +140,9 @@
       "body": {
         "code": "O1",
         "id": "<volatile:key>",
+        "rowVersion": 6,
         "status": "Shipped",
-        "stock": 206,
-        "version": 6
+        "stock": 206
       }
     },
     {
@@ -169,11 +169,11 @@
       "body": {
         "id": "<volatile:key>",
         "qty": 4,
+        "rowVersion": 2,
         "total": {
           "lineage": null,
           "value": 0
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -184,11 +184,11 @@
       "body": {
         "id": "<volatile:key>",
         "qty": 4,
+        "rowVersion": 2,
         "total": {
           "lineage": null,
           "value": 0
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -206,6 +206,7 @@
       "body": {
         "id": "<volatile:key>",
         "qty": 12,
+        "rowVersion": 3,
         "total": {
           "lineage": {
             "computedValue": 24,
@@ -222,8 +223,7 @@
             }
           },
           "value": 24
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -234,6 +234,7 @@
       "body": {
         "id": "<volatile:key>",
         "qty": 12,
+        "rowVersion": 3,
         "total": {
           "lineage": {
             "computedValue": 24,
@@ -250,8 +251,7 @@
             }
           },
           "value": 24
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -364,9 +364,9 @@
       "body": {
         "code": "O2",
         "id": "<volatile:key>",
+        "rowVersion": 7,
         "status": "Shipped",
-        "stock": 206,
-        "version": 7
+        "stock": 206
       }
     },
     {
@@ -379,9 +379,9 @@
           {
             "code": "O2",
             "id": "<volatile:key>",
+            "rowVersion": 7,
             "status": "Shipped",
-            "stock": 206,
-            "version": 7
+            "stock": 206
           }
         ],
         "page": 1,
@@ -425,6 +425,7 @@
       "body": {
         "id": "<volatile:key>",
         "qty": 1,
+        "rowVersion": 4,
         "total": {
           "lineage": {
             "computedValue": 0,
@@ -441,8 +442,7 @@
             }
           },
           "value": 0
-        },
-        "version": 4
+        }
       }
     },
     {
@@ -455,6 +455,7 @@
           {
             "id": "<volatile:key>",
             "qty": 1,
+            "rowVersion": 4,
             "total": {
               "lineage": {
                 "computedValue": 0,
@@ -471,8 +472,7 @@
                 }
               },
               "value": 0
-            },
-            "version": 4
+            }
           }
         ],
         "page": 1,

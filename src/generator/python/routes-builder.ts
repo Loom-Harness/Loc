@@ -46,6 +46,7 @@ import {
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -70,6 +71,7 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
@@ -1026,7 +1028,7 @@ function destroyRoute(
       ? [
           // `chr(34)` is a literal double-quote (see `versionedSave`).
           '    _if_match = request.headers.get("if-match", "").strip(chr(34))',
-          "    if _if_match.isdigit() and int(_if_match) != __loaded.version:",
+          `    if _if_match.isdigit() and int(_if_match) != __loaded.${ROW_VERSION_COLUMN}:`,
           `        ${pyConflictRaise(H.ConcurrencyError, agg.name, "id")}`,
         ]
       : []),
@@ -1069,8 +1071,13 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
         return p ? pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx) : undefined;
       },
     });
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
     return [
-      `    if ${guard}:`,
+      present
+        ? `    if ${JSON.stringify(pythonWireIdent(present))} in body.model_fields_set and ${guard}:`
+        : `    if ${guard}:`,
       `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
     ];
   });
