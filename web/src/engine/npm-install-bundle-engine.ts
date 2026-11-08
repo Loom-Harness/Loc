@@ -12,6 +12,7 @@
 
 import { LoomRuntimeClient } from "../runtime/client.js";
 import { InfraClient } from "../runtime/infra-client.js";
+import type { ResourceService } from "../runtime/infra-client.js";
 import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
 import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
 import type {
@@ -176,7 +177,18 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   }
 
   private infraClient(): InfraClient {
-    return (this.infra ??= new InfraClient());
+    if (!this.infra) {
+      const infra = (this.infra = new InfraClient());
+      // Automation seam (like `__loomSetRequestBody`): lets a test read what
+      // the resource fakes captured — the Mailbox, stored objects, disk files.
+      // The Mailbox panel (#4780) replaces the need for it in the UI.
+      (window as unknown as { __loomInfraService?: unknown }).__loomInfraService = (
+        service: ResourceService,
+        op: string,
+        params?: unknown,
+      ) => infra.service(service, op, params);
+    }
+    return this.infra;
   }
 
   async prepare(input: PrepareInput): Promise<PreparedBuild> {
