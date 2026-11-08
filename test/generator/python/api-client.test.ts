@@ -122,8 +122,13 @@ describe("Python typed in-system api client", () => {
       // table and emits standalone models with no `wire_models` import. The
       // int4 bound is the SERVER's to enforce; a client-side copy would buy
       // nothing and drag the alias into a module that imports nothing else.
-      /class OrderResponse\(BaseModel\):[\s\S]*version: int/,
+      /class OrderResponse\(BaseModel\):[\s\S]*\brow_version: int/,
     );
+    // The callee answers in wire names: a multi-word field validates through
+    // its camel alias (without it, every response fails with
+    // `row_version Field required`).
+    expect(src).toContain('row_version: int = Field(alias="rowVersion")');
+    expect(src).toContain("from pydantic import BaseModel, Field");
     // The pydantic twin of zod's `.parse` — a real runtime check, not a cast.
     expect(src).toContain("return OrderResponse.model_validate(res.json())");
   });
