@@ -95,10 +95,11 @@ function responseModel(agg: AggregateIR, modelName: string): string[] {
     const nullable = wf.optional || wf.type.kind === "optional";
     const base = wf.type.kind === "optional" ? wf.type.inner : wf.type;
     const t = wf.source === "id" ? "str" : renderPyType(base);
-    // The wire key is the camelCase field name; a multi-word field reads it
-    // through an alias, or pydantic reports the snake_case key missing.
-    const alias = snake(wf.name) === wf.name ? "" : ` = Field(alias=${JSON.stringify(wf.name)})`;
-    out.push(`    ${snake(wf.name)}: ${nullable ? `${t} | None` : t}${alias}`);
+    // The callee answers in wire names (`rowVersion`); a multi-word field's
+    // attribute is snake-cased, so it validates through its wire alias.
+    const attr = snake(wf.name);
+    const alias = attr === wf.name ? "" : ` = Field(alias=${JSON.stringify(wf.name)})`;
+    out.push(`    ${attr}: ${nullable ? `${t} | None` : t}${alias}`);
   }
   return out;
 }
@@ -278,7 +279,7 @@ export function emitPythonApiClients(
     "from urllib.parse import quote",
     "",
     "import httpx",
-    `from pydantic import BaseModel${/= Field\(alias=/.test(body.join("\n")) ? ", Field" : ""}`,
+    "from pydantic import BaseModel, Field",
     ...(forwarding ? ["from starlette.types import ASGIApp, Receive, Scope, Send"] : []),
     ...(needsFileRef ? ["", "from app.domain.file_ref import FileRef"] : []),
     "",

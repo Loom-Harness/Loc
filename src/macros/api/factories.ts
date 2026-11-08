@@ -66,6 +66,7 @@ import {
   isStampDecl,
   isSubdomain,
 } from "../../language/generated/ast.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import {
   mkAssignOrCallStmt,
   mkCallArg,
@@ -972,7 +973,7 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
  *      and NOT `secret` (editable / immutable / managed / token stay) — the
  *      `forApiRead` matrix.  Unlike `writableCreateFields`, the origin-tag and
  *      stamp-target exclusions are NOT applied: apiRead keeps the macro-added
- *      managed/token fields (`createdAt`, `version`), exactly as wire shape
+ *      managed/token fields (`createdAt`, `rowVersion`), exactly as wire shape
  *      does.  `tenantOwned`'s `dataKey` is `internal`, so the access filter
  *      already drops it — no special carve-out.
  *   2. one synthesized field per `Containment`, typed `<Part>Response` (the
@@ -986,19 +987,20 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
  * `setContainer` would reparent) carrying name + type only — a response record
  * is name+type, exactly what the wire shape is. */
 export function apiReadFields(agg: Aggregate): readonly Property[] {
-  // Default-on `versioned` (M-T3.4) is spliced onto the aggregate LATER in the
+  // Default-on `versioned` is spliced onto the aggregate LATER in the
   // walk (`expandModel` visits this context's `scaffoldHandlers` before it
-  // reaches the child aggregate), so `version` is not yet a member here.  The
+  // reaches the child aggregate), so `rowVersion` is not yet a member here.  The
   // IR wire read projection (`forApiRead`) always exposes it, so the read
   // contract must too — re-derive it from the same default-on rule (every
   // non-event-sourced aggregate) and splice it into the wire-shape slot (after
-  // declared properties, before containments).  Skip it when a `version` member
+  // declared properties, before containments).  Skip it when a `rowVersion` member
   // already exists (an explicit context-level `with versioned` applied ahead of
   // `scaffoldHandlers`), so it is never doubled.
   const members = agg.members ?? [];
   const isEventSourced = (agg as { persistedAs?: string }).persistedAs === "eventLog";
-  const hasVersion = members.some((m) => isProperty(m) && m.name === "version");
-  const trailing = !isEventSourced && !hasVersion ? [field("version", primType("int"))] : [];
+  const hasVersion = members.some((m) => isProperty(m) && m.name === ROW_VERSION_FIELD);
+  const trailing =
+    !isEventSourced && !hasVersion ? [field(ROW_VERSION_FIELD, primType("int"))] : [];
   return apiReadFieldsOf(members, trailing);
 }
 
@@ -1009,7 +1011,7 @@ export function apiReadFields(agg: Aggregate): readonly Property[] {
 export function apiReadFieldsOf(
   members: readonly (AggregateMember | EntityPartMember)[],
   // Extra property fields spliced right after the declared properties (step a)
-  // and before containments — the wire-shape slot the macro-added `version`
+  // and before containments — the wire-shape slot the macro-added `rowVersion`
   // token occupies (`wireFieldsForAggregate` appends it last among `fields`).
   trailingProps: readonly Property[] = [],
 ): Property[] {
@@ -1123,7 +1125,7 @@ export function targetFields(target: Aggregate): readonly Property[] {
  *   2. **Access modifier** — exclude fields whose `access` puts them
  *      outside the editable update payload: `immutable` (create-only),
  *      `managed` (server-owned), `token` (echoed precondition like
- *      `id`/`version`), `internal` (never client-input).  `secret`
+ *      `id`/`rowVersion`), `internal` (never client-input).  `secret`
  *      STAYS — write-only fields belong IN update inputs (password
  *      changes etc.).
  *   3. **Stamp target** — exclude fields a visible `stamp onCreate` /

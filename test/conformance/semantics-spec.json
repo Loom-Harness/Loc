@@ -241,7 +241,7 @@
     },
     {
       "id": "RS-14",
-      "title": "`version` increments on every persisted mutation, document shapes included",
+      "title": "`rowVersion` increments on every persisted mutation, document shapes included",
       "trigger": "a `versioned` aggregate with `shape: document` (jsonb-stored): create, invoke an operation, read back",
       "observable": "the optimistic-concurrency `version` reads back 1 + one per persisted mutation, for EVERY `shape:`. every backend now does. Historically the other three each dropped the bump on a DIFFERENT shape, which is why no single fixture caught it — document `Cart` / embedded `Wishlist` / plain `Order` (2 / 2 / 3 canonical) read back 1 / 2 / 3 on dotnet+java and 2 / 1 / 1 on elixir. dotnet/java: the ORM concurrency token is bound to a mapped column and a document aggregate's `version` lives inside the jsonb blob — the `dapper` persistence adapter (raw Npgsql, same .NET emitters, hand-rolled document SQL) increments correctly, which localizes the gap to the EF/JPA mapping rather than the .NET/Java wire emitters. elixir: the mirror image — the document path bumps, but an operation on an embedded/plain aggregate persists without touching `version` at all.",
       "conforms": [
@@ -358,7 +358,7 @@
     },
     {
       "id": "RS-20",
-      "title": "`version` counts persisted mutations, not entity-graph dirtiness",
+      "title": "`rowVersion` counts persisted mutations, not entity-graph dirtiness",
       "trigger": "a `versioned` aggregate whose mutation touches only a CHILD (a single `contains`), whose create also writes a value-object collection, or whose command re-assigns a value the row already holds",
       "observable": "`version` is 1 at create and +1 per persisted mutation, independent of WHICH part of the aggregate graph changed (RS-11 + RS-14) and of whether any column value actually differs. Java diverged in BOTH directions: a `ship` op mutating a single containment read back 1 where the canonical value is 2 (the bump is missed), a create carrying a value-object collection read back 2 where the canonical value is 1 (an extra bump), and an idempotent command read back 2 where the canonical value is 3.",
       "conforms": [

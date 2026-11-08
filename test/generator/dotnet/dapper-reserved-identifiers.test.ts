@@ -72,12 +72,12 @@ describe("Dapper quotes reserved-word identifiers", () => {
 
     // SELECT column list (by id, by ids, and the paged read).
     expect(src).toContain(
-      `SELECT id, ${q}order${q}, ${q}group${q}, ${q}limit${q}, total, version FROM tickets WHERE id = @id`,
+      `SELECT id, ${q}order${q}, ${q}group${q}, ${q}limit${q}, total, row_version FROM tickets WHERE id = @id`,
     );
     // INSERT column list AND the ON CONFLICT … DO UPDATE SET assignments — the
     // upsert names each column twice, on both sides of `= excluded.`.
     expect(src).toContain(
-      `INSERT INTO tickets (id, ${q}order${q}, ${q}group${q}, ${q}limit${q}, total, version)`,
+      `INSERT INTO tickets (id, ${q}order${q}, ${q}group${q}, ${q}limit${q}, total, row_version)`,
     );
     expect(src).toContain(`SET ${q}order${q} = excluded.${q}order${q}`);
     // A criterion read's WHERE — `whereToSql`'s column arm.

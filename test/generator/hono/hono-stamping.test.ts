@@ -178,14 +178,14 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     expect(repo).toContain('import { stampInsertOrder, stampUpdateOrder } from "../audit-stamp";');
     // Insert branch: the seeded row (version: 1) is wrapped by stampInsert.
     expect(repo).toMatch(
-      /\.values\(stampInsertOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: 1 \}\)\)/,
+      /\.values\(stampInsertOrder\(\{ id: aggregate\.id as string,[\s\S]*?rowVersion: 1 \}\)\)/,
     );
     // Update branch: the version-bumped row (version: expected + 1) is wrapped
     // by stampUpdate, and the write is guarded on the expected version.
     expect(repo).toMatch(
-      /\.set\(stampUpdateOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: expected \+ 1 \}\)\)/,
+      /\.set\(stampUpdateOrder\(\{ id: aggregate\.id as string,[\s\S]*?rowVersion: expected \+ 1 \}\)\)/,
     );
-    expect(repo).toContain("eq(schema.orders.version, expected)");
+    expect(repo).toContain("eq(schema.orders.rowVersion, expected)");
   });
 
   it("neither the create route nor the update route stamps", async () => {

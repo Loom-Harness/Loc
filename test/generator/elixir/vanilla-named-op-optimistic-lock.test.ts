@@ -51,7 +51,7 @@ describe("M-T6.27 — elixir named-operation optimistic lock", () => {
     const ctx = get(await generateSystemFiles(SRC), "lib/d/shop.ex");
     const touch = ctx.slice(ctx.indexOf("def touch_order(%"));
     const touchBody = touch.slice(0, touch.indexOf("\n  end"));
-    expect(touchBody).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
+    expect(touchBody).toContain("|> Ecto.Changeset.optimistic_lock(:row_version)");
     expect(touchBody).not.toContain("version + 1");
   });
 

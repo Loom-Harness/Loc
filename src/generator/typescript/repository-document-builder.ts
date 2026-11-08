@@ -22,6 +22,7 @@ import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -49,6 +50,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "./saved-version.js";
+import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ export function buildDocumentRepositoryFile(
   _emitTrace = false,
 ): string {
   const tableName = lowerFirst(plural(agg.name));
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User`, so the mask
   // is a second reason this file needs the import — exactly as on the
   // relational builder (repository-builder.ts).  Masking is a WIRE-PROJECTION
@@ -104,7 +106,7 @@ export function buildDocumentRepositoryFile(
   // COLUMN (`<rowVar>.version`), not the stale blob copy (see entityFromDocFn).
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.version)`
+      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
       : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
 
   // Declared finds PLUS the query-time projections sourced from this aggregate.
@@ -180,9 +182,12 @@ export function buildDocumentRepositoryFile(
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
     ...(versioned
-      ? [`    const expected = expectedVersion ?? aggregate.version;`, savedVersionDecl("    ")]
+      ? [
+          `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
+          savedVersionDecl("    "),
+        ]
       : []),
-    `    const existing = await this.db.select({ version: schema.${tableName}.version }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
+    `    const existing = await this.db.select({ ${ROW_VERSION_FIELD}: schema.${tableName}.${ROW_VERSION_FIELD} }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
     `    if (existing.length === 0) {`,
     // The `onCreate` stamps (`auditable`, `tenantOwned`'s tenantId/dataKey, a
     // hand-written `stamp onCreate`) land HERE, on the doc payload, exactly as
@@ -202,17 +207,17 @@ export function buildDocumentRepositoryFile(
     // tenant and was invisible to every principal INCLUDING ITS CREATOR — the
     // read filter is correct, and `"" === currentUser.tenantId` is false, so a
     // 201 create was followed by a 404 on every read, update and destroy.
-    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, version: 1 });`,
+    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, ${ROW_VERSION_FIELD}: 1 });`,
     versioned && savedVersionOnInsert("      "),
     `    } else {`,
     ...(versioned
       ? [
-          `      const updated = await this.db.update(schema.${tableName}).set({ data, version: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected))).returning({ id: schema.${tableName}.id });`,
+          `      const updated = await this.db.update(schema.${tableName}).set({ data, ${ROW_VERSION_FIELD}: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
           `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
           savedVersionOnUpdate("      "),
         ]
       : [
-          `      await this.db.update(schema.${tableName}).set({ data, version: existing[0]!.version + 1 }).where(eq(schema.${tableName}.id, aggregate.id));`,
+          `      await this.db.update(schema.${tableName}).set({ data, ${ROW_VERSION_FIELD}: existing[0]!.${ROW_VERSION_FIELD} + 1 }).where(eq(schema.${tableName}.id, aggregate.id));`,
         ]),
     `    }`,
     versioned && applySavedVersion("    "),
@@ -583,7 +588,7 @@ function documentFindMethod(
     // everywhere else — caught by the wire golden, not by any assertion.  `id`
     // is the primary key, so this is an index scan, not a sort.
     `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? ", r.version" : ""}));`,
+    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? `, r.${ROW_VERSION_FIELD}` : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the
   // repository has to answer it (F2-CB-C1).  The match set is the same
@@ -666,11 +671,11 @@ export function entityFromDocFn(
   // route feeds `aggregate.version` when there's no `If-Match`) 409s on the
   // next update.  Parity with the python document repo (`_x_from_doc(raw, version)`).
   const versionedRoot = isRoot && rowVersionGuarded(entity as EnrichedAggregateIR);
-  const entries: string[] = [`id: Ids.${entity.name}Id(d.id)`];
-  if (!isRoot) entries.push(`parentId: Ids.${rootName}Id(d.parentId)`);
+  const entries: string[] = [`id: ${T.Ids}.${entity.name}Id(d.id)`];
+  if (!isRoot) entries.push(`parentId: ${T.Ids}.${rootName}Id(d.parentId)`);
   for (const f of entity.fields) {
-    if (versionedRoot && f.name === "version") {
-      entries.push(`version: version`);
+    if (versionedRoot && f.name === ROW_VERSION_FIELD) {
+      entries.push(`${ROW_VERSION_FIELD}: rowVersion`);
       continue;
     }
     entries.push(`${f.name}: ${deserializeField(f.type, `d.${f.name}`, ctx)}`);
@@ -687,7 +692,7 @@ export function entityFromDocFn(
   }
   return lines(
     versionedRoot
-      ? `function ${fnName}(d: ${entity.name}Doc, version: number): ${entity.name} {`
+      ? `function ${fnName}(d: ${entity.name}Doc, rowVersion: number): ${entity.name} {`
       : `function ${fnName}(d: ${entity.name}Doc): ${entity.name} {`,
     `  return ${entity.name}._rehydrate({ ${entries.join(", ")} });`,
     `}`,
@@ -772,7 +777,7 @@ export function deserializeField(
     if (t.name === "decimal") return numericEncode(TS_NUMERIC, "decimal", "repo-read", accessor);
     return accessor;
   }
-  if (t.kind === "id") return `Ids.${t.targetName}Id(${accessor})`;
+  if (t.kind === "id") return `${T.Ids}.${t.targetName}Id(${accessor})`;
   if (t.kind === "enum") return `${accessor} as ${t.name}`;
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
@@ -781,7 +786,7 @@ export function deserializeField(
   }
   if (t.kind === "array") {
     if (t.element.kind === "id") {
-      return `(${accessor} ?? []).map((s: string) => Ids.${t.element.targetName}Id(s))`;
+      return `(${accessor} ?? []).map((s: string) => ${T.Ids}.${t.element.targetName}Id(s))`;
     }
     return `(${accessor} ?? []).map((x) => ${deserializeField(t.element, "x", ctx)})`;
   }
@@ -819,7 +824,7 @@ export function tsParamType(t: TypeIR): string {
   // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
   // TS type renderer owns the element mapping.
   if (t.kind === "array") return renderTsType(t);
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
     switch (t.name) {

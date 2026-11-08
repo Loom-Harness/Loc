@@ -9,12 +9,12 @@ export class Product {
   private _events: Events.DomainEvent[] = [];
   private _sku: string;
   private _price: Money;
-  private _version: number;
-  private constructor(state: { id: Ids.ProductId; sku: string; price: Money; version: number }, trustStore = false) {
+  private _rowVersion: number;
+  private constructor(state: { id: Ids.ProductId; sku: string; price: Money; rowVersion: number }, trustStore = false) {
     this._id = state.id;
     this._sku = state.sku;
     this._price = state.price;
-    this._version = state.version;
+    this._rowVersion = state.rowVersion;
     if (!trustStore) {
       this._assertInvariants();
     }
@@ -23,9 +23,9 @@ export class Product {
   get id(): Ids.ProductId { return this._id; }
   get sku(): string { return this._sku; }
   get price(): Money { return this._price; }
-  get version(): number { return this._version; }
+  get rowVersion(): number { return this._rowVersion; }
   get display(): string { return this._sku; }
-  get inspect(): string { return "Product(" + "id: " + String(this._id) + ", " + "sku: " + "'" + this._sku + "'" + ", " + "price: " + "Money(" + "amount: " + String(this._price.amount) + ", " + "currency: " + "'" + this._price.currency + "'" + ")" + ", " + "version: " + String(this._version) + ")"; }
+  get inspect(): string { return "Product(" + "id: " + String(this._id) + ", " + "sku: " + "'" + this._sku + "'" + ", " + "price: " + "Money(" + "amount: " + String(this._price.amount) + ", " + "currency: " + "'" + this._price.currency + "'" + ")" + ", " + "rowVersion: " + String(this._rowVersion) + ")"; }
   toString(): string { return this.inspect; }
   [Symbol.for("nodejs.util.inspect.custom")](): string { return this.inspect; }
   public update(sku: string, price: Money): void {
@@ -41,13 +41,13 @@ export class Product {
   }
 
   /** @internal Repository save only: reflect the persisted version counter onto this instance. */
-  _applyVersion(next: number): void { this._version = next; }
+  _applyVersion(next: number): void { this._rowVersion = next; }
 
   private _assertInvariants(): void {
     if (!([...this._sku].length > 0)) throw new DomainError("Invariant violated: sku.length > 0", "invariant");
   }
 
-  static _create(state: { id: Ids.ProductId; sku: string; price: Money; version: number }): Product {
+  static _create(state: { id: Ids.ProductId; sku: string; price: Money; rowVersion: number }): Product {
     return new Product(state);
   }
 
@@ -55,7 +55,7 @@ export class Product {
    *  invariant run: invariants guard transitions (create + operations),
    *  not loads.  Repository hydration only; domain code constructs via
    *  `create`/`_create`, which assert. */
-  static _rehydrate(state: { id: Ids.ProductId; sku: string; price: Money; version: number }): Product {
+  static _rehydrate(state: { id: Ids.ProductId; sku: string; price: Money; rowVersion: number }): Product {
     return new Product(state, true);
   }
   static create(input: { sku: string; price: Money }): Product {
@@ -63,7 +63,7 @@ export class Product {
       id: Ids.newProductId(),
       sku: input.sku,
       price: input.price,
-      version: 1,
+      rowVersion: 1,
     });
   }
 }

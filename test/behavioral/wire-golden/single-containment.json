@@ -26,12 +26,12 @@
       "body": {
         "code": "SC1",
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "shipment": {
           "carrier": "UPS",
           "id": "<volatile:key>",
           "trackingCode": "1Z999"
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -49,12 +49,12 @@
       "body": {
         "code": "SC2",
         "id": "<volatile:key>",
+        "rowVersion": 3,
         "shipment": {
           "carrier": "UPS",
           "id": "<volatile:key>",
           "trackingCode": "1Z999"
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -67,12 +67,12 @@
           {
             "code": "SC2",
             "id": "<volatile:key>",
+            "rowVersion": 3,
             "shipment": {
               "carrier": "UPS",
               "id": "<volatile:key>",
               "trackingCode": "1Z999"
-            },
-            "version": 3
+            }
           }
         ],
         "page": 1,

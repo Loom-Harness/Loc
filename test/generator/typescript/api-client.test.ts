@@ -70,7 +70,7 @@ describe("Hono typed in-system api client", () => {
     expect(src).toContain("export const OrderResponse = z.object({");
     // Exactly the served field list — id + declared fields + version.
     expect(src).toMatch(/OrderResponse = z\.object\(\{[\s\S]*code: z\.string\(\)/);
-    expect(src).toMatch(/OrderResponse = z\.object\(\{[\s\S]*version: z\.number\(\)\.int\(\)/);
+    expect(src).toMatch(/OrderResponse = z\.object\(\{[\s\S]*rowVersion: z\.number\(\)\.int\(\)/);
     expect(src).toContain("return OrderResponse.parse(await res.json());");
   });
 

@@ -63,8 +63,8 @@
       "body": {
         "id": "<volatile:key>",
         "owner": "Ada",
-        "status": "Closed",
-        "version": 3
+        "rowVersion": 3,
+        "status": "Closed"
       }
     },
     {
@@ -82,8 +82,8 @@
       "body": {
         "id": "<volatile:key>",
         "owner": "Grace",
-        "status": "Closed",
-        "version": 4
+        "rowVersion": 4,
+        "status": "Closed"
       }
     },
     {
@@ -96,8 +96,8 @@
           {
             "id": "<volatile:key>",
             "owner": "Grace",
-            "status": "Closed",
-            "version": 4
+            "rowVersion": 4,
+            "status": "Closed"
           }
         ],
         "page": 1,

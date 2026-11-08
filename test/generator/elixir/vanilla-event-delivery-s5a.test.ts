@@ -203,7 +203,7 @@ system FulfillmentSys {
     expect(body).toContain(`    record
     |> Ecto.Changeset.change(%{})
     |> Ecto.Changeset.force_change(:status, record.status)
-    |> Ecto.Changeset.optimistic_lock(:version)
+    |> Ecto.Changeset.optimistic_lock(:row_version)
     |> Api.Ordering.OrderRepository.persist_change()`);
     // No persist_change `case`, no broadcast/dispatch.
     expect(body).not.toContain("case Api.Ordering.OrderRepository.persist_change");

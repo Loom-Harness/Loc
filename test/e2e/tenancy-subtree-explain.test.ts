@@ -258,7 +258,7 @@ describe.skipIf(!ENABLED)(
 
         // --- 2. enough rows that the planner has a real choice --------------
         pg.psql(
-          `INSERT INTO "books"."accounts" (id, label, amount, tenant_id, data_key, version)
+          `INSERT INTO "books"."accounts" (id, label, amount, tenant_id, data_key, row_version)
            SELECT gen_random_uuid(), 'r' || i, 1, 'org_' || (i % 100),
                   'org_' || (i % 100) || '.child' || (i % 7), 1
            FROM generate_series(1, ${SEED_ROWS}) AS i;
