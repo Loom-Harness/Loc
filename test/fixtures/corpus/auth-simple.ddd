@@ -13,6 +13,25 @@ system SimpleAuth {
         }
       }
       repository Tickets for Ticket { }
+
+      // The generic `update` carries a gate too: the second-identity ladder
+      // (`AUTHZ_LADDERS`) must see it refused for a non-agent principal, on
+      // the generic route as on the named `close()` above.  Two spellings of
+      // the same gate: a hand-written header `requires`, and the
+      // `crudish(requires: …)` policy.
+      policy AgentOnly(): bool = currentUser.role == "agent"
+      aggregate Memo {
+        body: string
+        operation update(body: string) requires currentUser.role == "agent" {
+          body := body
+        }
+        create(body: string) { body := body }
+      }
+      repository Memos for Memo { }
+      aggregate Note with crudish(requires: AgentOnly) {
+        text: string
+      }
+      repository Notes for Note { }
     }
   }
   storage primary { type: postgres }
@@ -60,5 +79,13 @@ system SimpleAuth {
     let empty = api.tickets.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)
+
+    // The update gates hold for the principal that satisfies them.
+    let m = api.memos.create({ body: "one" })
+    api.memos.update(m, { body: "two" })
+    expect(api.memos.getById(m).body).toBe("two")
+    let n = api.notes.create({ text: "one" })
+    api.notes.update(n, { text: "two" })
+    expect(api.notes.getById(n).text).toBe("two")
   }
 }
