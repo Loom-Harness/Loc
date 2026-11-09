@@ -3,7 +3,14 @@
 // because IR validation reads it too (a `test e2e` principal travels in this
 // header); it is re-exported here for the backend emitters.
 
-export { type DevClaimKind, devClaimFields, devClaimKind } from "../../util/dev-claims.js";
+export {
+  DEV_AUTH_DISABLED_LOG,
+  DEV_AUTH_ENABLED_LOG,
+  DEV_AUTH_ENV,
+  type DevClaimKind,
+  devClaimFields,
+  devClaimKind,
+} from "../../util/dev-claims.js";
 
 // ---------------------------------------------------------------------------
 // A PRESENT-BUT-UNDECODABLE header (ruling D6, eval-closure item #23).

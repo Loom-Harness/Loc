@@ -18,6 +18,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -27,6 +28,7 @@ import {
 } from "../../../util/test-reset.js";
 import { NPM_FETCH_RETRY_FLAGS } from "../../_docker/node-stage.js";
 import { uiUsesLocaleSwitcher } from "../../_frontend/locale-switcher-use.js";
+import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -185,7 +187,14 @@ export function emitVanillaShellFiles(
   // not lib/<app>_web/telemetry.ex).
   out.set(
     `lib/${appName}/application.ex`,
-    renderApplication(appName, appModule, schedulerChildren, preEndpointChildren, seedModules),
+    renderApplication(
+      appName,
+      appModule,
+      schedulerChildren,
+      preEndpointChildren,
+      seedModules,
+      authEnabled && !oidc ? devAuthBootLog() : [],
+    ),
   );
   // `mix run priv/repo/seeds.exs` — the canonical Phoenix manual entry, over
   // the SAME modules the boot path calls (so a hand-run and a boot can't
@@ -1901,4 +1910,17 @@ config :logger, level: :warning
 
 config :phoenix, :plug_init_mode, :runtime
 `;
+}
+
+/** The one boot line saying whether the dev-stub login is on — an
+ *  `auth: required` system with no `auth { oidc }` block. */
+function devAuthBootLog(): string[] {
+  const disabled = renderPhoenixLogCall("authDevStubDisabled", [
+    { name: "reason", valueExpr: JSON.stringify(DEV_AUTH_DISABLED_LOG) },
+  ]);
+  return [
+    `if System.get_env("${DEV_AUTH_ENV}") == "1",`,
+    `  do: ${renderPhoenixLogCall("authDevStubRegistered")},`,
+    `  else: ${disabled}`,
+  ];
 }

@@ -35,6 +35,12 @@
 import { randomBytes } from "node:crypto";
 import net from "node:net";
 
+// Every behavioral leg authenticates a no-`auth { oidc }` backend through the
+// generated dev stub, which answers only when LOOM_DEV_AUTH=1 (401 otherwise).
+// Set once on import, so the in-process node app and every backend a leg
+// spawns with `{ ...process.env }` inherit it.
+process.env.LOOM_DEV_AUTH = "1";
+
 /** Default deadline for `waitForPort`.  Runners with a faster boot pass their
  *  own (python 60s, mikroorm 90s) — the value is theirs, not this module's. */
 const DEFAULT_LISTEN_TIMEOUT_MS = 180_000;

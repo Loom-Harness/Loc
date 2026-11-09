@@ -1056,7 +1056,7 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 | Sink | What happens |
 | --- | --- |
 | a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
-| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
+| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s, `commandHandler`'s or workflow `create`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval, the same reads inside a `reading` domain service the body calls, or a capability `filter` the read runs under | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle.  Several masked fields in one predicate require all their masks (AND); a gate the body already leads with is not repeated |
 | an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
 | a `create` | not a sink: a new row has no stored value to overwrite |
 | the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
@@ -1066,6 +1066,29 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 Every inherited gate is the mask predicate alone.  It reads only `currentUser`
 (`loom.field-mask-not-current-user`), never the row or the value the caller
 sent, so a right guess at the hidden value and a wrong one get the same answer.
+
+```ddd
+aggregate Driver with crudish {
+  name: string
+  ssn: string mask unless currentUser.role == "hr"
+}
+repository Drivers for Driver
+criterion BySsn(s: string) of Driver = this.ssn == s
+queryHandler GetDriverBySsn(s: string): Driver {
+  if let d = Drivers.find(BySsn(s)) { return d } else { notFound }
+}
+workflow CheckSsn {
+  create(s: string) { let d = Drivers.find(BySsn(s)) }
+}
+```
+
+```ts
+// generated (Hono) — the handler route and the workflow's create route each lead
+// with the inherited gate: a non-hr caller gets 403 before the query runs,
+// never a 200-or-404.
+if (!(currentUser.role === "hr")) throw new ForbiddenError("Forbidden: mask unless — the read filters Driver on a masked field");
+const d = (await drivers.runFindAllByBySsn(s, { limit: 1 }))[0] ?? null;
+```
 
 ```ddd
 aggregate Employee with crudish {
@@ -1258,22 +1281,27 @@ The validator surfaces a friendly diagnostic for any disallowed use.
 ## .NET (ASP.NET Core + Mediator)
 
 When a deployable opts in via `auth: required`, the .NET generator
-emits five files under `Auth/`:
+emits these files under `Auth/`:
 
 | File | Role |
 | --- | --- |
 | `Auth/User.cs` | Strongly-typed `User` record matching the system's user block |
-| `Auth/IUserVerifier.cs` | Interface the user implements to decode a token into a `User` |
+| `Auth/IUserVerifier.cs` | The verifier seam: decode a request's credentials into a `User` |
 | `Auth/ICurrentUserAccessor.cs` | Scoped accessor exposed to handlers |
 | `Auth/HttpContextCurrentUserAccessor.cs` | Default implementation backed by `IHttpContextAccessor` |
 | `Auth/UserMiddleware.cs` | Middleware that calls the verifier and stashes the resolved user |
+| `Auth/DevStubUserVerifier.cs` | **Without** an `auth { oidc }` block: the [dev stub](#dev-stub-verifier-x-loom-dev-claims), on only under `LOOM_DEV_AUTH=1` |
+| `Auth/OidcUserVerifier.cs` + `Auth/AuthHandshake.cs` | **With** an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake (no dev stub is emitted) |
 
 `Program.cs` is extended to mount `UseMiddleware<UserMiddleware>()`
 between `UseSwagger()` and `MapControllers()`, register the
-accessor + `IHttpContextAccessor`, and fail fast at startup if no
-`IUserVerifier` is registered.
+accessor + `IHttpContextAccessor`, and register **exactly one**
+`IUserVerifier` — `OidcUserVerifier` under an `auth { oidc }` block,
+otherwise `DevStubUserVerifier`.  The app never needs a hand-written
+verifier to boot; without an `oidc` block it must **replace the dev stub**
+before production.
 
-You supply the verifier in your own project code:
+To replace the dev stub with your own verifier:
 
 ```csharp
 using Acme.Auth;
@@ -1289,7 +1317,9 @@ public sealed class JwtUserVerifier : IUserVerifier
 }
 ```
 
-Register in `Program.cs` (or any DI extension):
+Register it in place of the stub in `Program.cs` (pin the file in
+`.loomignore`), or in a DI extension registered after it (the last
+registration wins for new scope resolutions):
 
 ```csharp
 builder.Services.AddScoped<IUserVerifier, JwtUserVerifier>();
@@ -1304,7 +1334,7 @@ noise.
 
 ## Hono
 
-When a Hono deployable opts in, the generator emits three files
+When a Hono deployable opts in, the generator emits these files
 under `auth/`:
 
 | File | Role |
@@ -1312,11 +1342,17 @@ under `auth/`:
 | `auth/user-types.ts` | `User` interface matching the user block |
 | `auth/verifier.ts` | `registerUserVerifier(...)` registry + `verifyUserOrThrow(req)` helper |
 | `auth/middleware.ts` | Hono middleware mounted in `http/index.ts` |
+| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview |
+| `auth/oidc.ts` + `auth/handshake.ts` | With an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake |
 
 `http/index.ts` mounts `app.use("*", authMiddleware)` after
-`cors()` and asserts at startup that the verifier is registered.
+`cors()`.  `boot.ts` registers the verifier — the OIDC one under an
+`auth { oidc }` block, otherwise the dev stub — so the app never needs a
+hand-written verifier to boot; without an `oidc` block it must **replace the
+dev stub** before production.
 
-You register your verifier before serving:
+To replace the dev stub, register your verifier after `bootApp` has run
+(a later registration overwrites the earlier one):
 
 ```ts
 import { registerUserVerifier } from "./auth/verifier.js";
@@ -1440,10 +1476,56 @@ it. `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` select another realm user.
 
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
-Until you register a real verifier, every backend ships an **accept-all dev
-stub** so the stack boots and the routes are reachable in local dev. The stub
+A system with `auth: required` and a `user { … }` block but **no
+`auth { oidc }` block** gets a **dev stub** verifier on every backend — a
+development login, never a production one.
+
+- **It is off unless the backend runs with `LOOM_DEV_AUTH=1`.**  Off, it
+  refuses every request with 401 — a request with no token and one carrying
+  only a forged `x-loom-dev-claims` header alike — and the app logs one
+  `auth_dev_stub_disabled` line (level `error`) at startup saying why.  On, it
+  logs `auth_dev_stub_registered` (level `warn`).
+- **The generated dev `docker-compose.yml` sets `LOOM_DEV_AUTH: "1"`** on every
+  such backend, so `docker compose up` works out of the box.  The k8s chart
+  does not: a deployment that forgets to replace the stub fails closed.
+- **Build time warns:** `loom.auth-dev-login-only` — "auth: required without
+  auth { oidc }: development login only".  In this posture default-deny
+  enforcement is not checked either (`enforcement:` lives in the `auth { }`
+  block).
+
+```ddd
+system Desk {
+  user { id: string  role: string  permissions: string[] }
+  // … no auth { oidc } block
+  deployable api { platform: dotnet  contexts: [Tickets]  dataSources: [ticketState]  port: 8080  auth: required }
+}
+```
+
+```csharp
+// Auth/DevStubUserVerifier.cs
+public static readonly bool Enabled =
+    Environment.GetEnvironmentVariable("LOOM_DEV_AUTH") == "1";
+
+public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
+{
+    if (!Enabled)
+    {
+        return Task.FromResult<User?>(null);   // → 401
+    }
+    // … built-in identity, x-loom-dev-claims merged over it
+}
+```
+
+The other backends gate the same way: node's `boot.ts` passes
+`opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1"` to
+`registerDevStubVerifier(...)` (the playground preview boots with
+`verifier: "dev-stub"`), Java's `DevStubUserVerifier.verify` and Python's
+`_dev_stub_verifier` return null/`None`, and Phoenix's `verify_token/1`
+answers `{:error, :dev_auth_off}`.
+
+With the flag on, the stub accepts every request as a built-in identity and
 reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
-JSON** — and overlays it on the `User` shape, so you can exercise
+JSON** — overlaying it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
@@ -1453,8 +1535,11 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 
 > **The stub exists only without an `auth { oidc … }` block.** Declaring one
 > replaces the stub with the generated OIDC verifier on every backend
-> (D-AUTH-OIDC): there is no `x-loom-dev-claims` path and no env switch that
-> brings it back, so every request needs a real bearer token. Local
+> (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and
+> node's `auth/dev-stub.ts` is registered only by the playground preview's
+> `bootApp(db, { verifier: "dev-stub" })`.  There is no `x-loom-dev-claims`
+> path and no env switch that brings it back, so every request needs a real
+> bearer token. Local
 > development with an `oidc` block therefore needs an IdP:
 >
 > - **Self-hosted provider** (`provider: keycloak`, `provider: custom`, or a
@@ -1753,8 +1838,9 @@ to widen or tighten the list.
 | Two permissions with the same name in one subdomain | Validation error: "subdomain 'S': permission 'X' is declared more than once." |
 | `permissions.X` referencing an undeclared name (or used outside any subdomain) | Validation error: "permissions.X: no permission named 'X' is declared in this subdomain's 'permissions { ... }' block." |
 | Workflow body calls a currentUser-bound repository find | Validation error: "references a currentUser-bound find, which workflows don't yet pass the user into."  Use `getById` or move the call to the route layer. |
+| `auth: required` + a `user { … }` block but no `auth { oidc }` | `loom.auth-dev-login-only` (**warning**): "auth: required without auth { oidc }: development login only" — the generated verifier is the [dev stub](#dev-stub-verifier-x-loom-dev-claims). |
 
-Missing `IUserVerifier` registration surfaces at runtime startup,
-not during generation — the project compiles, but boots with a
-clear `InvalidOperationException` pointing you at the
-`AddScoped<IUserVerifier, ...>` line that needs to exist.
+No configuration fails fast at startup: every backend registers a verifier
+by itself.  A deployed build with no `auth { oidc }` block and no
+`LOOM_DEV_AUTH=1` boots, logs `auth_dev_stub_disabled` once, and answers 401
+to every authenticated request.

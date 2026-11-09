@@ -382,7 +382,12 @@ describe("Phoenix LiveView dev-stub auth", () => {
     const auth = files.get("api/lib/api_web/auth.ex")!;
     // The plug exposes the built-in principal (dev has no /auth/callback
     // handshake to seed a real one).
-    expect(auth).toContain("def dev_user, do: build_user(elem(verify_token(nil), 1))");
+    expect(auth).toContain("if dev_auth?(), do: build_user(dev_claims())");
+    // …but only as a development login: off unless LOOM_DEV_AUTH=1.
+    expect(auth).toContain('def dev_auth?, do: System.get_env("LOOM_DEV_AUTH") == "1"');
+    expect(auth).toContain(
+      "if dev_auth?(), do: {:ok, dev_claims()}, else: {:error, :dev_auth_off}",
+    );
   });
 
   it("oidc: the :api Auth plug stays strict — no dev_user fallback", async () => {

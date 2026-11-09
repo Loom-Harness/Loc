@@ -1279,13 +1279,15 @@ describe(".NET generator", () => {
     // dotted claim path, a string-array claim, an absent non-string array
     // claim → empty list) are carried by `corpus/auth-oidc` on every booted
     // leg.  The session-cookie read and the dev stub's empty-list default are
-    // not exercised there.
+    // not exercised there.  The stub exists only without an `auth { oidc }`
+    // block, so its half reads the same model with the block removed.
     it("reads the session cookie and defaults the dev stub's non-string array claim to an empty list", async () => {
-      const files = await emitForAuthSystem(
-        SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
-      );
+      const src = SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]");
+      const files = await emitForAuthSystem(src);
       expect(files.get("Auth/OidcUserVerifier.cs")!).toContain('request.Cookies["session"]');
-      const stub = files.get("Auth/DevStubUserVerifier.cs")!;
+      expect(files.has("Auth/DevStubUserVerifier.cs")).toBe(false);
+      const noOidc = src.replace(/auth \{[\s\S]*?claims: \{[^}]*\}\s*\}/, "");
+      const stub = (await emitForAuthSystem(noOidc)).get("Auth/DevStubUserVerifier.cs")!;
       expect(stub).toContain("Levels: new System.Collections.Generic.List<int>()");
     });
 

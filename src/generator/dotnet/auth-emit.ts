@@ -18,6 +18,7 @@ import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import {
+  DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
   devClaimFields,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -96,12 +97,15 @@ export function emitAuthFiles(
         : renderEfOrgPathResolver(ns, registry),
     );
   }
-  out.set("Auth/DevStubUserVerifier.cs", renderDevStubVerifier(sys.user, ns));
+  // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
+  // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
+  // verifier, and the header-trusting stub is not emitted at all — so no DI
+  // reordering or edit can put it in front of a production deployable.
+  if (!sys.auth) out.set("Auth/DevStubUserVerifier.cs", renderDevStubVerifier(sys.user, ns));
   // OIDC turnkey auth (D-AUTH-OIDC): the generated verifier that validates
   // the IdP's tokens against its JWKS and maps claims onto User — the
-  // batteries-included fill-in for the IUserVerifier seam.  Registered
-  // automatically in Program.cs (last-wins over the dev stub).  The
-  // /auth/* redirect handshake mounts the login flow.
+  // batteries-included fill-in for the IUserVerifier seam, registered in
+  // Program.cs.  The /auth/* redirect handshake mounts the login flow.
   if (sys.auth) {
     out.set("Auth/OidcUserVerifier.cs", renderOidcVerifier(sys.user, sys.auth, ns));
     out.set("Auth/AuthHandshake.cs", renderHandshake(sys.auth, ns));
@@ -876,13 +880,22 @@ using Microsoft.AspNetCore.Http;
 ${idsUsing}
 namespace ${ns}.Auth;
 
-/// <summary>Dev-stub verifier — accepts every request as a built-in user.
-/// REPLACE for production by registering your own IUserVerifier (e.g.
+/// <summary>Dev-stub verifier — with ${DEV_AUTH_ENV}=1, accepts every request as a
+/// built-in user; without it, refuses every request.  REPLACE for production by registering your own IUserVerifier (e.g.
 /// builder.Services.AddScoped&lt;IUserVerifier, MyJwtVerifier&gt;()).</summary>
 public sealed class DevStubUserVerifier : IUserVerifier
 {
+    /// <summary>True only when ${DEV_AUTH_ENV}=1.  Off, every request is refused
+    /// (401): the stub is a development login, never a production one.</summary>
+    public static readonly bool Enabled =
+        Environment.GetEnvironmentVariable("${DEV_AUTH_ENV}") == "1";
+
     public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
     {
+        if (!Enabled)
+        {
+            return Task.FromResult<User?>(null);
+        }
         // No declared claim is carryable, but a malformed header still refuses.
         var injected = httpContext.Request.Headers["${DEV_CLAIMS_HEADER}"].ToString();
         if (!string.IsNullOrEmpty(injected))
@@ -931,15 +944,24 @@ using Microsoft.AspNetCore.Http;
 ${idsUsing}
 namespace ${ns}.Auth;
 
-/// <summary>Dev-stub verifier — accepts every request as a built-in user.
-/// Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded
+/// <summary>Dev-stub verifier — with ${DEV_AUTH_ENV}=1, accepts every request as a
+/// built-in user; without it, refuses every request.  Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded
 /// JSON object in the <c>x-loom-dev-claims</c> header — the same injection the
 /// Hono dev stub honours.  REPLACE for production by registering your own
 /// IUserVerifier (e.g. builder.Services.AddScoped&lt;IUserVerifier, MyJwtVerifier&gt;()).</summary>
 public sealed class DevStubUserVerifier : IUserVerifier
 {
+    /// <summary>True only when ${DEV_AUTH_ENV}=1.  Off, every request is refused
+    /// (401): the stub is a development login, never a production one.</summary>
+    public static readonly bool Enabled =
+        Environment.GetEnvironmentVariable("${DEV_AUTH_ENV}") == "1";
+
     public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
     {
+        if (!Enabled)
+        {
+            return Task.FromResult<User?>(null);
+        }
         var user = new User(
             ${args});
         var injected = httpContext.Request.Headers["x-loom-dev-claims"].ToString();
@@ -1352,6 +1374,37 @@ function renderMiddleware(
   // redirect handshake (/auth/login|callback|logout) joins it when an
   // `auth { oidc }` block is present — those must be reachable without a
   // verified principal; /auth/me stays protected.
+  // The dev stub's 400 for a present-but-undecodable dev-claims header.  Under
+  // `auth { oidc }` there is no dev stub, so neither the catch nor the helper
+  // (nor the exception type they name) exists.
+  const malformedCatch = oidc
+    ? ""
+    : `        catch (MalformedDevClaimsException e)
+        {
+            // Dev stub only (ruling D6): a present-but-undecodable dev-claims
+            // header is a malformed REQUEST, not missing credentials.
+            await MalformedDevClaimsAsync(ctx, e.Message);
+            return;
+        }
+`;
+  const malformedHelper = oidc
+    ? ""
+    : `
+
+    /// <summary>RFC 7807 400 for a present-but-undecodable dev-claims header
+    /// (the dev stub's <see cref="MalformedDevClaimsException"/>).</summary>
+    private static async Task MalformedDevClaimsAsync(HttpContext ctx, string detail)
+    {
+        ctx.Response.StatusCode = 400;
+        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Bad Request",
+            Status = 400,
+            Detail = detail,
+            Instance = ctx.Request.Path,
+        }, (JsonSerializerOptions?)null, "application/problem+json");
+    }`;
   const handshakeBypass = oidc
     ? `
         "${AUTH_BASE_PATH}/login",
@@ -1478,14 +1531,7 @@ public sealed class UserMiddleware
         {
             user = await verifier.VerifyAsync(ctx, ctx.RequestAborted);
         }
-        catch (MalformedDevClaimsException e)
-        {
-            // Dev stub only (ruling D6): a present-but-undecodable dev-claims
-            // header is a malformed REQUEST, not missing credentials.
-            await MalformedDevClaimsAsync(ctx, e.Message);
-            return;
-        }
-        catch
+${malformedCatch}        catch
         {
             await UnauthorizedAsync(ctx);
             return;
@@ -1521,21 +1567,7 @@ public sealed class UserMiddleware
             Instance = ctx.Request.Path,
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }
-
-    /// <summary>RFC 7807 400 for a present-but-undecodable dev-claims header
-    /// (the dev stub's <see cref="MalformedDevClaimsException"/>).</summary>
-    private static async Task MalformedDevClaimsAsync(HttpContext ctx, string detail)
-    {
-        ctx.Response.StatusCode = 400;
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
-        {
-            Type = "about:blank",
-            Title = "Bad Request",
-            Status = 400,
-            Detail = detail,
-            Instance = ctx.Request.Path,
-        }, (JsonSerializerOptions?)null, "application/problem+json");
-    }${orgContextForbidden}
+${malformedHelper}${orgContextForbidden}
 }
 `;
 }

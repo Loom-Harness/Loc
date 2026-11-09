@@ -45,4 +45,5 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
+  "loom.auth-dev-login-only": "17-auth.md#dev-stub-verifier-x-loom-dev-claims",
 };
