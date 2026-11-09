@@ -886,7 +886,7 @@ function groupInnerDecl(
 }
 
 /** Build the `AngularFieldGroupSpec` for a single value-object field. */
-export function fieldGroupSpec(
+function fieldGroupSpec(
   name: string,
   voFields: FieldIR[],
   bc: BoundedContextIR,

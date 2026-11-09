@@ -802,7 +802,7 @@ export function flutterOperationForm(
 }
 
 /** Build the `FlutterFormSpec` for a `DestroyForm(of: agg)`. */
-export function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFormSpec {
+function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFormSpec {
   // The delete button is the whole sentence `chrome.deleteEntity.<Agg>`, the one
   // every other frontend renders — not a "Delete " frame around the name.
   const name = sentenceChromeName("deleteEntity", aggName);
