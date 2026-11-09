@@ -1,3 +1,4 @@
+import type { Bypassing } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { FieldIR, ParamIR, WireField } from "./members.js";
 import type { StmtIR } from "./stmt.js";
@@ -55,7 +56,7 @@ export interface ProjectionIR extends Sourced {
  *  (read-path-architecture.md rev.13).  Every expression inside is Loom's one
  *  candidate-rooted language (the same `criterion` / `find … where` dialect);
  *  the LINQ shape is purely structural. */
-export interface ProjectionQueryIR {
+export interface ProjectionQueryIR extends Bypassing {
   /** `from <Source> [as <alias>]` — the query source aggregate / workflow, by
    *  name.  Undefined for the folded+`join` hybrid (no `from`; `join`s resolve
    *  stored id columns instead). */
@@ -134,15 +135,6 @@ export interface ProjectionQueryIR {
    *  aggregate fields — the projection twin of `FindIR.requires`.  Emitted as a
    *  403-before-query check in each backend's query-projection route. */
   requires?: ExprIR;
-  /** `ignoring *` — bypass EVERY capability query-filter on the source
-   *  aggregate for this query-time read (named-filter-bypass.md §11).  Mutually
-   *  exclusive with `bypassCaps`.  Threaded into the synthesised source
-   *  `FindIR`, so it rides the same bypass path as a repository `find … ignoring`.
-   *  See `FindIR.bypassAll`. */
-  bypassAll?: boolean;
-  /** `ignoring A, B` — resolved capability names whose filters this read
-   *  bypasses (named-filter-bypass.md §11).  See `FindIR.bypassCaps`. */
-  bypassCaps?: string[];
 }
 
 /** One `join <Aggregate> as <alias> on <idRef>` follow. */

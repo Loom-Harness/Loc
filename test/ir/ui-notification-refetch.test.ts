@@ -60,8 +60,8 @@ describe("UiNotificationIR — refetch lowering", () => {
     ]);
   });
 
-  it("omits `refetches` for a toast-only handler", async () => {
+  it("leaves `refetches` empty for a toast-only handler", async () => {
     const n = await notification('toast("hi")');
-    expect(n.refetches).toBeUndefined();
+    expect(n.refetches).toEqual([]);
   });
 });

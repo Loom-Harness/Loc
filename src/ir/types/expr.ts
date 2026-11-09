@@ -1,7 +1,7 @@
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
-import type { BypassReadIR, KeyLookupIR } from "./context.js";
+import type { Bypassing, BypassReadIR, KeyLookupIR } from "./context.js";
 import type { DataSourceKind, LoomInterface } from "./deployment.js";
 import type { StmtIR } from "./stmt.js";
 import type { PrimitiveName, Sourced, TypeIR } from "./types.js";
@@ -245,7 +245,10 @@ export type ExprIR = (
        *  `aggregate` its target aggregate, `method` the find / retrieval method
        *  to render against the generated repository, and `op` what the read
        *  does.  Backends render a real call into the generated repository
-       *  without re-recognising the AST. */
+       *  without re-recognising the AST.  Its `ignoring` stance is set on a
+       *  widened list read (`all(<Ref>) ignoring …`): `retrievalName` then
+       *  names the read's own retrieval (`widenedRetrievalName`), which
+       *  enrichment derives with this stance on it. */
       repoRead?: {
         repo: string;
         aggregate: string;
@@ -277,13 +280,7 @@ export type ExprIR = (
          *  filters (`ignoring …`): `method` names the read's own method and
          *  there is no `retrievalName`. */
         bypassRead?: BypassReadIR;
-        /** The `ignoring` stance of a widened list read (`all(<Ref>) ignoring
-         *  …`): `retrievalName` then names the read's own retrieval
-         *  (`widenedRetrievalName`), which enrichment derives with this
-         *  stance on it. */
-        bypassAll?: boolean;
-        bypassCaps?: string[];
-      };
+      } & Bypassing;
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
        *  (not overloaded onto flat `name`) so backends bind the store action
@@ -388,8 +385,7 @@ export type ExprIR = (
    * Never reaches a domain-logic expression position — it lives ONLY in an
    * aggregate's `contextFilters` / `writeScopeFilter`, special-cased by the
    * filter translators BEFORE the generic dispatch.  Build/inspect it through
-   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `buildDeepScopeFilter`
-   * / `buildGlobalScopeFilter`, `isDenyFilter` / `isDeepScopeFilter`).
+   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `isDenyFilter`).
    */
   | {
       kind: "authz-filter";

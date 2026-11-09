@@ -12,7 +12,7 @@
 // aren't reachable from the test browser we self-skip just that
 // assertion, same idiom as runtime.spec.ts.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { browserCanReachNetwork, clickWorkspaceCreate, recordInitialMigration } from "./_helpers";
 
 test("mobile Run kicks the pipeline and surfaces files", async ({ page }) => {

@@ -37,6 +37,7 @@ import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
 import {
   type BoundedContextIR,
   type DeployableIR,
+  type EnrichedAggregateIR,
   type ExprIR,
   type Platform,
   type StmtIR,
@@ -55,7 +56,16 @@ import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
+import {
+  type OpSelfCallHit,
+  opSelfCallHits,
+  unvalidatedInvariants,
+} from "./backend-syntax-checks.js";
+import { boundMutatingCalls, callText, expectedFailureEntryPoints } from "./call-result-checks.js";
+import { documentResidue } from "./datasource-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { matchArmShapeRefusals } from "./elixir-match-stmt-checks.js";
+import { documentStampSelfRead } from "./principal-guard-checks.js";
 import { mountedUis, standardOpAwaitUses } from "./ui-framework-checks.js";
 
 /** One use of a construct: where it sits, and the message parameters its
@@ -371,7 +381,57 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
+  "call:bound-mutating@entry-body": (ctx) =>
+    boundMutatingCalls(ctx).map(({ where, st }) => ({
+      what: `${where}: \`let ${st.result.name} = ${callText(st)}(…)\``,
+      source: `${ctx.name}/${where}`,
+      origin: st.origin,
+    })),
+  "return:expected-failure@entry-point": (ctx) =>
+    expectedFailureEntryPoints(ctx).map(({ where }) => ({
+      what: `${where} answering an expected failure`,
+      source: `${ctx.name}/${where}`,
+    })),
+  "stmt:match-arm-shape@body": (ctx) =>
+    matchArmShapeRefusals(ctx).map(({ where, slug }) => ({
+      what: `a statement \`match\` in ${where} (${slug})`,
+      source: `${ctx.name}/${where}`,
+    })),
+  "invariant:unvalidated-shape@aggregate": (ctx) =>
+    unvalidatedInvariants(ctx).map(({ agg, inv }) => ({
+      what: `invariant '${inv.source}' on '${agg.name}'`,
+      source: `${ctx.name}/${agg.name}`,
+    })),
+  "call:op-self-non-tail@operation": (ctx) => opSelfCalls(ctx, "position"),
+  "call:private-op-reads-principal@operation": (ctx) => opSelfCalls(ctx, "actor"),
+  "op:document-residue@aggregate": (ctx, sys) =>
+    documentResidue(ctx, sys).map(({ agg, bits }) => ({
+      what: `document aggregate '${agg.name}' (${bits})`,
+      source: `${ctx.name}/${agg.name}`,
+    })),
+  "stamp:reads-aggregate@document": (ctx, sys) =>
+    ctx.aggregates.flatMap((agg) => {
+      const read = documentStampSelfRead(agg as EnrichedAggregateIR, ctx, sys);
+      return read
+        ? [
+            {
+              what: `stamp of '${agg.name}.${read.field}' reading the aggregate`,
+              source: `${ctx.name}/${agg.name}`,
+            },
+          ]
+        : [];
+    }),
 };
+
+/** The operation self-calls of one kind, as construct uses. */
+function opSelfCalls(ctx: BoundedContextIR, kind: OpSelfCallHit["kind"]): ConstructUse[] {
+  return opSelfCallHits(ctx)
+    .filter((h) => h.kind === kind)
+    .map((h) => ({
+      what: `operation '${h.agg.name}.${h.op.name}' calling '${h.eName}'`,
+      source: `${ctx.name}/${h.agg.name}.${h.op.name}`,
+    }));
+}
 
 /** Where each owned mask-sink construct meets: the channel events carrying a
  *  masked value, and the unique keys over a masked field. */

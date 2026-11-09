@@ -32,6 +32,7 @@ import {
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { migratesAtBoot } from "../../ir/util/databases.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -557,6 +558,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       hasFileRoutes,
       contextStaticSubpathRoutes(args.contexts),
       forwardsCallerCredential(args.deployable, args.sys),
+      migratesAtBoot(args.sys, args.deployable),
     ),
   );
   if (hasEmbeddedSpa) {
@@ -1279,6 +1281,7 @@ const M = {
   init_channel_transports: pyRef("app.channels", "init_channel_transports"),
   start_channel_consumers: pyRef("app.channels", "start_channel_consumers"),
   run_seeds: pyRef("app.db.seed", "run_seeds"),
+  run_migrations: pyRef("app.db.migrate", "run_migrations"),
   start_outbox_relay: pyRef("app.dispatch", "start_outbox_relay"),
   start_timer_scheduler: pyRef("app.scheduling", "start_timer_scheduler"),
   problem: pyRef("app.http.problem", "problem"),
@@ -1317,6 +1320,9 @@ function renderMain(
   // A typed call to an `auth: required` callee forwards the caller's
   // credential, captured per request by this middleware.
   forwardCallerCredential = false,
+  // False on a deployable whose storage's database another deployable
+  // migrates: it carries the migrations but leaves the boot run to that one.
+  runsMigrations = true,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1371,7 +1377,6 @@ function renderMain(
     "from sqlalchemy import text",
     "",
     "from app.db.engine import engine",
-    "from app.db.migrate import run_migrations",
     "from app.db.transaction import TransactionMiddleware",
     ...routerAggs.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
@@ -1472,7 +1477,7 @@ function renderMain(
     // A missing verifier registration surfaces as a clear boot error
     // instead of a 401 storm on the first request.
     authRequired ? `    ${M.assert_user_verifier_registered}()` : null,
-    "    await run_migrations()",
+    runsMigrations ? `    await ${M.run_migrations}()` : null,
     hasSeeds ? `    await ${M.run_seeds}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
     // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes

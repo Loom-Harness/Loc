@@ -22,6 +22,8 @@ const PLATFORM_KEYS: Platform[] = [
   "elixir",
   "python",
   "java",
+  "feliz",
+  "flutter",
 ];
 
 describe("descriptor table pinned to the live surfaces", () => {
@@ -36,5 +38,7 @@ describe("descriptor table pinned to the live surfaces", () => {
     expect([...d.hostableFrameworks].sort()).toEqual([...surface.hostableFrameworks].sort());
     // The capability table is the SAME object the validator reads, not a copy.
     expect(d.capabilities).toBe(surface.capabilities);
+    // So are the target facts.
+    expect(d.facts).toBe(surface.facts);
   });
 });

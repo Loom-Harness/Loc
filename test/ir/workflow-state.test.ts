@@ -68,9 +68,9 @@ describe("workflow state fields — surface + lowering", () => {
     expect(wf.correlationField).toBeUndefined();
   });
 
-  it("leaves stateFields undefined when the workflow declares none", async () => {
+  it("leaves stateFields empty when the workflow declares none", async () => {
     const wf = await lowerFirstWorkflow(`create() { let x = 1 }`);
-    expect(wf.stateFields).toBeUndefined();
+    expect(wf.stateFields).toEqual([]);
   });
 });
 

@@ -1,5 +1,6 @@
 import { Alert, Box, Code, Group, Stack, Switch, Text, Textarea } from "@mantine/core";
 import { type AuthStubConfig, type LayoutCtx, devClaimsHeader } from "./ctx";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -13,7 +14,7 @@ interface Props {
 // its built-in identity.  So an `auth: required` system is explorable as
 // different users — flip `role`, watch a `requires`-gated route go
 // 200 ↔ 403 — without any token.
-export function AuthConfigPanel({ ctx }: Props): JSX.Element {
+function AuthConfigPanelView({ ctx }: Props): JSX.Element {
   const { authStub, setAuthStub } = ctx;
 
   // Parse state drives the inline validity hint.  An empty / disabled stub
@@ -94,3 +95,4 @@ function validate(cfg: AuthStubConfig): ParseState {
   return { kind: "ok" };
 }
 
+export const AuthConfigPanel = trackedCtx("AuthConfigPanel", AuthConfigPanelView);

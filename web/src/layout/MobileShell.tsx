@@ -25,6 +25,7 @@ import {
   worstMark,
 } from "./status-mark";
 import { PANE } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The visual Builder (craft.js + a main-thread Langium parse) and the
 // Model graph (React Flow) are heavy — lazily loaded so neither lands in
@@ -77,7 +78,7 @@ const SECONDARY: readonly { id: MobileTab; label: string }[] = [
 // Active tab + persistence live in App.tsx so the header's Run
 // cascade can navigate to Preview/Backend on a clean boot.  We just
 // read it off the ctx here.
-export function MobileShell({ ctx }: Props): JSX.Element {
+function MobileShellView({ ctx }: Props): JSX.Element {
   const { activeTab, setActiveTab, codeView, setCodeView } = ctx;
   const [moreOpen, setMoreOpen] = useState(false);
   const marks: Record<MobileTab, Mark | null> = {
@@ -323,3 +324,5 @@ export function MobileShell({ ctx }: Props): JSX.Element {
     </>
   );
 }
+
+export const MobileShell = trackedCtx("MobileShell", MobileShellView);

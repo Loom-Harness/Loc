@@ -49,8 +49,8 @@ export function mergeContexts(contexts: EnrichedBoundedContextIR[]): EnrichedBou
     // Application-layer explicit handlers (unfoldable-api-derivation.md) — a
     // plain union, so a merged-context consumer (e.g. the .NET Program.cs extern
     // Scrutor scan) sees every hosted context's commandHandler / queryHandler.
-    commandHandlers: contexts.flatMap((c) => c.commandHandlers ?? []),
-    queryHandlers: contexts.flatMap((c) => c.queryHandlers ?? []),
+    commandHandlers: contexts.flatMap((c) => c.commandHandlers),
+    queryHandlers: contexts.flatMap((c) => c.queryHandlers),
     // The two error-status maps enrichment attaches.  They were MISSING from
     // this merge, and the consequence was silent: an emitter handed the merged
     // context read `undefined` for both, so `resolveErrorStatus(name, undefined)`

@@ -6,6 +6,7 @@ import {
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Vue frontend platform — the third frontend-only platform after
@@ -36,6 +37,7 @@ const vuePlatform: PlatformSurface = {
   // Vue generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
   capabilities: TARGET_CAPABILITIES.vue,
+  facts: TARGET_FACTS.vue,
   emitProject({
     contexts,
     sys,

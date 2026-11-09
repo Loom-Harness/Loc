@@ -7046,3 +7046,24 @@ The playground boots each Node deployable in its own worker and one PGlite per
   it), and the failure surfaces as a transform error on the *importing*
   module. Wrap the host's dynamic `import()` in an async IIFE. A nested
   `new Worker(new URL(…, import.meta.url))` inside a worker does bundle and run.
+
+## 140. Playground shell: panels subscribe to the `ctx` fields they read (2026-11-09)
+
+- **App's `ctx` is a store, not a prop.** `useCtxStore` publishes the memoised
+  `ctx`; panels wrapped with `trackedCtx(...)` (`web/src/layout/ctx-store.tsx`)
+  get a proxy that records the fields they read and re-render only when one of
+  those changes. A new panel that takes `ctx` should be wrapped too, or it
+  re-renders whenever its nearest wrapped ancestor does.
+- **A field read in a big component re-renders that whole subtree.** The
+  desktop shell read `ctx.sourceFiles` (it carries file contents) only to pass
+  it to the Explorer tree, so every keystroke re-rendered the layout. Read a
+  hot field in the smallest component that needs it.
+- **Selectors that build objects break the scoping silently.** Combining
+  several backends' bundles, or returning `[]` when nothing is booted, gave a
+  new identity every App render, so every reader re-rendered on every
+  keystroke. Memoise derived values on the state slot they read. To find these,
+  log which keys differ between consecutive published `ctx` objects.
+- **Measure with `window.__loomRenderCounts`.** Install `{}` with
+  `page.addInitScript` and read per-component render counts around an action
+  (`web/e2e/shell-render-scope.spec.ts`). For timing, sum the React bundle's
+  `FunctionCall` events in a CDP trace window after a `performance.mark`.

@@ -2,7 +2,7 @@
 // (Langium services in a worker, generator in another worker),
 // so this spec runs with no internet — perfect for sandboxed CI.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { fatalConsoleErrors, waitForPlaygroundReady } from "./_helpers";
 
 test("playground loads with Monaco editor and Langium LSP", async ({ page }) => {

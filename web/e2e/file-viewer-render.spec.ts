@@ -18,7 +18,7 @@
 // reliably rendered inside react-arborist's virtualized viewport.
 
 import type { Page } from "@playwright/test";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { revealTreeRow as revealRow, selectExample, waitForPlaygroundReady } from "./_helpers";
 
 // Count the distinct Monaco token classes (`.mtk1`, `.mtk2`, …) in the active

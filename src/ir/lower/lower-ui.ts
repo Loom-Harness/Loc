@@ -294,7 +294,7 @@ export function lowerUi(
         eventType: eventName,
         bind: m.bind,
         toasts,
-        ...(refetches.length > 0 ? { refetches } : {}),
+        refetches,
       });
     } else if (m.$type === "UiFunction") {
       const env: Env = { locals: new Map(), user: undefined, ui: true };
@@ -318,9 +318,9 @@ export function lowerUi(
     stores,
     menu,
     apiParams,
-    ...(channelParams.length > 0 ? { channelParams } : {}),
-    ...(notifications.length > 0 ? { notifications } : {}),
-    ...(functions.length > 0 ? { functions } : {}),
+    channelParams,
+    notifications,
+    functions,
   };
 }
 
@@ -438,6 +438,8 @@ function lowerPage(
     route,
     title,
     requires,
+    // Set to the nesting path by the enclosing `area { … }` walk.
+    area: [],
     state,
     derived,
     actions,
@@ -512,7 +514,16 @@ export function lowerComponent(c: Component, user?: UserIR, stores?: Env["stores
   // Non-extern components always carry a body (validator-enforced);
   // guard defensively so lowering an invalid model can't crash.
   const body = c.body ? lowerExpr(c.body, env) : undefined;
-  return { name: c.name, params, state, derived, actions, body, origin: originFor(c) };
+  return {
+    name: c.name,
+    params,
+    state,
+    derived,
+    actions,
+    body,
+    extern: false,
+    origin: originFor(c),
+  };
 }
 
 function lowerStateField(f: StateField, env: Env): StateFieldIR {

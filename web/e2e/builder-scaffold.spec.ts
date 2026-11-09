@@ -12,7 +12,7 @@
 // adds no dependency that would have to download at install time in the
 // no-network lane.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { readEditorSource, selectExample, waitForPlaygroundReady } from "./_helpers";
 
 /** Every `<button>` under `root` that has no accessible name — by the

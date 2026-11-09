@@ -8,6 +8,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import { platformBackendOwnedBy } from "../../../util/target-capabilities.js";
 import { isTenancyStampAssignment } from "../../enrich/stream-tenancy.js";
 import type {
   BoundedContextIR,
@@ -118,18 +119,19 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             code: "loom.stamp-on-event-sourced-invalid",
           });
         }
-        // The one backend-specific arm: Elixir's document write seam merges a
-        // document aggregate's stamps into the request attrs before any struct
-        // exists, so a stamp value reading the aggregate has no record to read.
-        // Every other (family, shape) cell evaluates it against the instance
-        // being persisted.
+        // A backend whose document write seam merges a document aggregate's
+        // stamps into the request attrs before any struct exists has no record
+        // for a stamp value reading the aggregate to read.  Every other
+        // (family, shape) cell evaluates it against the instance being
+        // persisted.
         if (
-          family === "elixir" &&
-          isDocumentShaped(enriched, resolveDataSourceConfig(enriched, ctx, sys))
+          platformBackendOwnedBy(
+            dep.platform,
+            "stamp:reads-aggregate@document",
+            "loom.stamp-reads-aggregate-unsupported",
+          )
         ) {
-          const selfRead = stamps
-            .flatMap((r) => r.assignments)
-            .find((a) => stampValueReadsAggregate(a.value));
+          const selfRead = documentStampSelfRead(enriched, ctx, sys);
           if (selfRead) {
             diags.push({
               severity: "error",
@@ -305,4 +307,17 @@ export function validateGuardPrincipalWithoutAuth(sys: SystemIR, diags: LoomDiag
       }
     }
   }
+}
+
+/** The first lifecycle stamp assignment of a `shape: document` aggregate whose
+ *  value reads the aggregate — the use of `stamp:reads-aggregate@document`. */
+export function documentStampSelfRead(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  sys: SystemIR,
+): { field: string } | undefined {
+  if (!isDocumentShaped(agg, resolveDataSourceConfig(agg, ctx, sys))) return undefined;
+  return (agg.contextStamps ?? [])
+    .flatMap((r) => r.assignments)
+    .find((a) => stampValueReadsAggregate(a.value));
 }

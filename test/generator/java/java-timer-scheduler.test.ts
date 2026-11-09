@@ -5,7 +5,7 @@
 // gradle, no LOOM_* env). Asserts that `cron:` timers run on JobRunr (a job bean
 // + JobRunrConfig wiring the core: SQL storage + background server + Spring
 // activator + scheduleRecurrently with the standard cron verbatim), `every:`
-// timers keep the in-process `@Scheduled(fixedRate)` + advisory lock in
+// timers keep the in-process `@Scheduled(fixedRate)` poll + period claim in
 // TimerScheduler.java, the JobRunr gradle dep — and that a timer-free java
 // deployable is byte-identical.
 
@@ -83,15 +83,15 @@ describe("timerSource → Java durable scheduler", () => {
     expect(g("d/build.gradle.kts")).toContain('implementation("org.jobrunr:jobrunr:');
   });
 
-  it("keeps every: timers in-process (@Scheduled + advisory lock), not JobRunr", async () => {
+  it("keeps every: timers in-process (@Scheduled + period claim), not JobRunr", async () => {
     const g = get(await generateSystemFiles(WITH_TIMERS));
 
     const scheduler = g("d/src/main/java/com/loom/d/TimerScheduler.java");
     expect(scheduler).not.toBe("");
     expect(scheduler).toContain("@EnableScheduling");
-    expect(scheduler).toContain("@Scheduled(fixedRate = 15000)");
-    expect(scheduler).toContain("pg_try_advisory_xact_lock");
-    expect(scheduler).toContain("static int timerLockKey");
+    expect(scheduler).toContain("@Scheduled(fixedRate = 7500)");
+    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
     expect(scheduler).toContain("new HealthTick(Instant.now())");
     // The cron timer is NOT a @Scheduled method here — it lives on JobRunr.
     expect(scheduler).not.toContain("SweepTick");

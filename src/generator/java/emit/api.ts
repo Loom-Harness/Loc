@@ -159,7 +159,14 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
-  const ifMatchHeader = `, @RequestHeader(value = "If-Match", required = false) String ifMatch`;
+  //
+  // The header stays OUT of the published OpenAPI document (`hidden`), as on
+  // the other four backends, which all read it at the HTTP edge without
+  // declaring it.  Published, it is a free-form string the contract fuzzer
+  // fills with values that are not an entity-tag, and the 400
+  // `problem.malformed-if-match` they earn is in no route's declared error set
+  // (a DELETE declares none for its body, having none).
+  const ifMatchHeader = `, @io.swagger.v3.oas.annotations.Parameter(hidden = true) @RequestHeader(value = "If-Match", required = false) String ifMatch`;
   const ifMatchHeaderParam = (op: OperationIR): string =>
     readsIfMatchFor(op) ? ifMatchHeader : "";
   const ifMatchServiceArg = (op: OperationIR): string =>

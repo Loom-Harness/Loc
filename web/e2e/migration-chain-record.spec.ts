@@ -11,7 +11,7 @@
 // network.  The Boot test bundles and boots, so it needs the npm registry and
 // jsdelivr and self-skips without them.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

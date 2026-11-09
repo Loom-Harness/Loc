@@ -33,7 +33,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectIR } from "../../types/effect-ir.js";
-import type { EnrichedLoomModel, WorkflowStmtIR } from "../../types/loom-ir.js";
+import type { BoundedContextIR, EnrichedLoomModel, WorkflowStmtIR } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { type EffectBodyIR, isGuardedCall } from "../../util/effects.js";
 import { entryResult } from "../../util/entry-result.js";
@@ -43,6 +43,7 @@ import {
   commandCreateResult,
 } from "../../util/workflow-command-route.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { ownerHosts } from "./shared.js";
 
 export interface CallResultSite {
   owner: string;
@@ -52,7 +53,7 @@ export interface CallResultSite {
 
 type GuardedCall = Extract<WorkflowStmtIR, { kind: "op-call" | "domain-service-call" }>;
 
-function callText(st: GuardedCall): string {
+export function callText(st: GuardedCall): string {
   return st.kind === "op-call" ? `${st.target}.${st.op}` : `${st.service}.${st.op}`;
 }
 
@@ -156,58 +157,68 @@ export function checkGuardedCallResults(
   }
 }
 
+/** Every `let`-bound mutating call in a workflow / handler body of `ctx` —
+ *  the uses of `call:bound-mutating@entry-body`. */
+export function boundMutatingCalls(
+  ctx: BoundedContextIR,
+): { where: string; st: GuardedCall & { result: NonNullable<GuardedCall["result"]> } }[] {
+  const bodies: { where: string; stmts: readonly WorkflowStmtIR[] }[] = [
+    ...ctx.workflows.flatMap((wf) =>
+      [...wf.creates, ...(wf.subscriptions ?? [])].map((b) => ({
+        where: `workflow '${wf.name}'`,
+        stmts: b.statements,
+      })),
+    ),
+    ...(ctx.commandHandlers ?? []).map((h) => ({
+      where: `commandHandler '${h.name}'`,
+      stmts: h.statements,
+    })),
+    ...(ctx.queryHandlers ?? []).map((h) => ({
+      where: `queryHandler '${h.name}'`,
+      stmts: h.statements,
+    })),
+  ];
+  const out: ReturnType<typeof boundMutatingCalls> = [];
+  for (const { where, stmts } of bodies) {
+    for (const root of stmts) {
+      walkWorkflowStmtsDeep(root, (st) => {
+        if ((st.kind !== "op-call" && st.kind !== "domain-service-call") || !st.result) return;
+        out.push({ where, st: st as ReturnType<typeof boundMutatingCalls>[number]["st"] });
+      });
+    }
+  }
+  return out;
+}
+
 /** `loom.elixir-bound-mutating-call-unsupported` — see the file header. */
 export function validateElixirBoundMutatingCalls(
   loom: EnrichedLoomModel,
   diags: LoomDiagnostic[],
 ): void {
   for (const sys of loom.systems) {
-    const elixirHost = new Map<string, string>();
-    for (const dep of sys.deployables) {
-      if (dep.platform !== "elixir") continue;
-      for (const cn of dep.contextNames) if (!elixirHost.has(cn)) elixirHost.set(cn, dep.name);
-    }
+    const elixirHost = ownerHosts(
+      sys.deployables,
+      "call:bound-mutating@entry-body",
+      "loom.elixir-bound-mutating-call-unsupported",
+    );
     if (elixirHost.size === 0) continue;
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) {
         const depName = elixirHost.get(ctx.name);
         if (!depName) continue;
-        const bodies: { where: string; stmts: readonly WorkflowStmtIR[] }[] = [
-          ...ctx.workflows.flatMap((wf) =>
-            [...wf.creates, ...(wf.subscriptions ?? [])].map((b) => ({
-              where: `workflow '${wf.name}'`,
-              stmts: b.statements,
-            })),
-          ),
-          ...(ctx.commandHandlers ?? []).map((h) => ({
-            where: `commandHandler '${h.name}'`,
-            stmts: h.statements,
-          })),
-          ...(ctx.queryHandlers ?? []).map((h) => ({
-            where: `queryHandler '${h.name}'`,
-            stmts: h.statements,
-          })),
-        ];
-        for (const { where, stmts } of bodies) {
-          for (const root of stmts) {
-            walkWorkflowStmtsDeep(root, (st) => {
-              if ((st.kind !== "op-call" && st.kind !== "domain-service-call") || !st.result) {
-                return;
-              }
-              diags.push({
-                severity: "error",
-                code: "loom.elixir-bound-mutating-call-unsupported",
-                message: diagMessage("loom.elixir-bound-mutating-call-unsupported", {
-                  where,
-                  name: st.result.name,
-                  call: callText(st),
-                  deployable: depName,
-                }),
-                source: `${ctx.name}/${where}`,
-                ...(st.origin ? { origin: st.origin } : {}),
-              });
-            });
-          }
+        for (const { where, st } of boundMutatingCalls(ctx)) {
+          diags.push({
+            severity: "error",
+            code: "loom.elixir-bound-mutating-call-unsupported",
+            message: diagMessage("loom.elixir-bound-mutating-call-unsupported", {
+              where,
+              name: st.result.name,
+              call: callText(st),
+              deployable: depName,
+            }),
+            source: `${ctx.name}/${where}`,
+            ...(st.origin ? { origin: st.origin } : {}),
+          });
         }
       }
     }
@@ -221,19 +232,41 @@ export function validateElixirBoundMutatingCalls(
  *  back whole on an error answer and translate the error at the edge; the
  *  Phoenix workflow / handler emitters have no tagged result and no rollback
  *  seam for it yet, so it is refused rather than emitted half-wired. */
+/** The routed entry points of `ctx` answering an expected failure, or a
+ *  workflow `create` answering the workflow itself (`#workflow-state`) — the
+ *  uses of `return:expected-failure@entry-point`. */
+export function expectedFailureEntryPoints(
+  ctx: BoundedContextIR,
+): { where: string; slug: "" | "#workflow-state" }[] {
+  const out: { where: string; slug: "" | "#workflow-state" }[] = [];
+  for (const wf of ctx.workflows) {
+    const r = commandCreateResult(wf);
+    if (!r) continue;
+    const where = `workflow '${wf.name}'`;
+    if (commandCreateEntryResult(wf, ctx)) out.push({ where, slug: "" });
+    else if (r.type.kind === "entity" && r.type.name === wf.name) {
+      out.push({ where, slug: "#workflow-state" });
+    }
+  }
+  for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
+    if (!h.extern && entryResult(h, ctx)) out.push({ where: `handler '${h.name}'`, slug: "" });
+  }
+  return out;
+}
+
 export function validateElixirEntryResults(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
   for (const sys of loom.systems) {
-    const elixirHost = new Map<string, string>();
-    for (const dep of sys.deployables) {
-      if (dep.platform !== "elixir") continue;
-      for (const cn of dep.contextNames) if (!elixirHost.has(cn)) elixirHost.set(cn, dep.name);
-    }
+    const elixirHost = ownerHosts(
+      sys.deployables,
+      "return:expected-failure@entry-point",
+      "loom.elixir-entry-result-unsupported",
+    );
     if (elixirHost.size === 0) continue;
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) {
         const deployable = elixirHost.get(ctx.name);
         if (!deployable) continue;
-        const push = (where: string, slug: "" | "#workflow-state") =>
+        for (const { where, slug } of expectedFailureEntryPoints(ctx)) {
           diags.push({
             severity: "error",
             code: "loom.elixir-entry-result-unsupported",
@@ -246,16 +279,6 @@ export function validateElixirEntryResults(loom: EnrichedLoomModel, diags: LoomD
                   }),
             source: `${ctx.name}/${where}`,
           });
-        for (const wf of ctx.workflows) {
-          const r = commandCreateResult(wf);
-          if (!r) continue;
-          const where = `workflow '${wf.name}'`;
-          if (commandCreateEntryResult(wf, ctx)) push(where, "");
-          else if (r.type.kind === "entity" && r.type.name === wf.name)
-            push(where, "#workflow-state");
-        }
-        for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
-          if (!h.extern && entryResult(h, ctx)) push(`handler '${h.name}'`, "");
         }
       }
     }

@@ -701,6 +701,22 @@ system S {
   }
 }
 migration "m" { Old -> Thing }`,
+  "loom.dapper-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
+  "loom.mikroorm-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
   "loom.migration-move-across-databases": `
 system S {
   subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep } }

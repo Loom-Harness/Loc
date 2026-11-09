@@ -4,28 +4,17 @@
 // and the per-backend dispatch wiring, so "which events are durable" has one
 // definition.
 
+import { factsFor } from "../../platform/metadata.js";
 import type { BoundedContextIR, Platform } from "../types/loom-ir.js";
 
-/** Backends that emit the realtime SSE wire (`GET /realtime/events`).  The
- *  frontend realtime client (`src/generator/_frontend/realtime.ts`) is
- *  byte-identical against every one of them, so its emit gate keys on this
- *  set rather than on a single backend.  Kept in one place so adding a
- *  realtime-serving backend flips both the backend emit and the client emit.
- *
- *  All five backends serve it: node (the hono packages' `realtime-builder.ts`),
- *  dotnet + java (`emit/realtime.ts`), python (`realtime-builder.ts`), and
- *  elixir (`src/generator/elixir/vanilla/realtime-emit.ts` — a chunked Phoenix
- *  controller fed by the `"events"` PubSub topic every domain `emit` already
- *  broadcasts on).  A HEEx/LiveView ui does NOT go through here at all: it
- *  subscribes to that topic in-process (`elixir/realtime-liveview.ts`). */
+/** Whether a platform emits the realtime SSE wire (`GET /realtime/events`) —
+ *  its `servesRealtime` fact.  The frontend realtime client
+ *  (`src/generator/_frontend/realtime.ts`) is byte-identical against every
+ *  such backend, so its emit gate keys on this rather than on one backend.  A
+ *  HEEx/LiveView ui does NOT go through here: it subscribes to the `"events"`
+ *  PubSub topic in-process. */
 export function backendServesRealtime(platform: Platform | undefined): boolean {
-  return (
-    platform === "node" ||
-    platform === "dotnet" ||
-    platform === "java" ||
-    platform === "python" ||
-    platform === "elixir"
-  );
+  return factsFor(platform)?.servesRealtime ?? false;
 }
 
 /** Event types carried by a channel that asks for durability

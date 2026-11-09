@@ -16,6 +16,7 @@ import {
   testsMark,
 } from "./status-mark";
 import { CHAT, PANE } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // `DockTab` (the consolidated bottom-dock tab ids) is defined in ctx.ts so
 // LayoutCtx can carry the active-tab state; re-exported here so existing
@@ -53,7 +54,7 @@ function isDockTab(v: string | null): v is DockTab {
 // navigation for free; the `devtools-tab-*` ids stay on the tabs.  Status
 // is a count badge where a count exists (errors, failed tests, destructive
 // migrations) and a dot with a hidden label otherwise (audit M11).
-export function DevToolsDock({ ctx, tab, setTab }: Props): JSX.Element {
+function DevToolsDockView({ ctx, tab, setTab }: Props): JSX.Element {
   const tabs: { id: DockTab; label: string; mark: Mark | null }[] = [
     { id: "output", label: PANE.output, mark: outputMark(ctx) },
     { id: "backend", label: PANE.runtime, mark: runtimeMark(ctx) },
@@ -169,3 +170,5 @@ function AgentShortcut({ ctx }: { ctx: LayoutCtx }): JSX.Element {
     </Tooltip>
   );
 }
+
+export const DevToolsDock = trackedCtx("DevToolsDock", DevToolsDockView);

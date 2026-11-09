@@ -14,6 +14,7 @@ import {
   parseBuiltinPlatformRef,
   RETIRED_BACKEND_VERSIONS,
 } from "../../platform/metadata.js";
+import { frameworkFacts } from "../../platform/target-facts.js";
 import {
   builtinVersionsForFamily,
   DAISYUI_THEMES,
@@ -81,6 +82,12 @@ function uiMountingPlatformMenu(): string {
  *  these kept inline wording long after every sibling moved to the catalog.
  *  Both the key and the code are spelled out here, once per platform. */
 const SPA_MISSING_UI: Record<string, (d: Deployable, accept: ValidationAcceptor) => void> = {
+  static: (d, accept) =>
+    accept("error", diagMessage("loom.static-deployable-missing-ui", { name: d.name }), {
+      node: d,
+      property: "name",
+      code: "loom.static-deployable-missing-ui",
+    }),
   react: (d, accept) =>
     accept("error", diagMessage("loom.react-deployable-missing-ui", { name: d.name }), {
       node: d,
@@ -165,16 +172,9 @@ export function checkDeployable(
       },
     );
   }
-  if (d.platform === "static" && !hasUiBinding) {
-    accept("error", diagMessage("loom.static-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.static-deployable-missing-ui",
-    });
-  }
-  // Rule 4b generalises to every frontend platform (`react`, `svelte`,
-  // `vue`, `angular`, `feliz`, `flutter`) — a frontend deployable without a
-  // `ui:` has no pages to render.  `static` keeps its own wording above.
+  // Rules 4/4b: every frontend platform (`static`, `react`, `svelte`, `vue`,
+  // `angular`, `feliz`, `flutter`) — a frontend deployable without a `ui:`
+  // has no pages to render.  Each keeps its own wording.
   if (!hasUiBinding) SPA_MISSING_UI[d.platform]?.(d, accept);
   // Rule 13 (D-PHOENIX-SURFACE): when the referenced `ui { framework: … }`
   // declaration carries its own framework, the hosting deployable's
@@ -487,7 +487,8 @@ export function checkDeployableDesignPack(
   // THEME (`data-theme`), not a pack family.  Validate against the built-in
   // daisyUI theme set instead of the pack-format machinery (which would flag
   // any theme name as an unchecked "custom pack").
-  if (framework === "feliz") {
+  const designSlot = frameworkFacts(framework)?.designSlot;
+  if (designSlot === "daisyui-theme") {
     if (!DAISYUI_THEMES.includes(d.design)) {
       accept(
         "error",
@@ -514,7 +515,7 @@ export function checkDeployableDesignPack(
   // cross-check below never fires and the author believes they chose a design.
   // Warning, not error, on the Case-3 precedent above: the value is inert, not
   // wrong, and the `.ddd` still generates.
-  if (framework === "flutter") {
+  if (designSlot === "inert") {
     accept(
       "warning",
       diagMessage("loom.design-pack-ignored#flutter", { design: d.design, name: d.name }),

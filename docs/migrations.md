@@ -429,8 +429,9 @@ bad one is a phase-⑦ error:
 - **`loom.migration-step-ambiguous`** — an unqualified name that more than one
   context declares; qualify the step.
 - **`loom.migration-move-across-databases`** — a move between two modules where a
-  deployable applies the target module's migrations to a database that never held
-  the source module's tables (each `needsDb` deployable has its own database).
+  database that receives the target module's migrations never held the source
+  module's tables (a database holds the modules its deployables host — see
+  [Databases and who migrates them](#databases-and-who-migrates-them)).
 
 What each target takes along:
 
@@ -1083,21 +1084,77 @@ entry numbered at or below the one it follows, a file name that does not match
 its contents, two entries of one module sharing a name, and unparseable JSON (an
 unresolved merge conflict).
 
-## `migrationsOwner` — one backend per module owns schema
+## Databases and who migrates them
 
-Schema emission is assigned to exactly one deployable per module so two backends
-sharing a module don't both create the tables. `assignMigrationsOwner`
-([`enrichments.ts`](../src/ir/enrich/enrichments.ts)) walks `sys.deployables` in
-declaration order and picks the **first deployable that hosts any context of the
-module AND whose platform owns a database** (`PlatformSurface.needsDb`, read via
-`descriptorFor` — no hardcoded platform list). Failing that, `migrationsOwner`
-stays undefined and no migrations are emitted.
+A database belongs to a `storage`, not to a deployable
+([`src/ir/util/databases.ts`](../src/ir/util/databases.ts)):
 
-At distribution time (`migrationsForDeployable` in
-[`system/index.ts`](../src/system/index.ts)), every `needsDb` deployable that hosts
-a context of the module still *receives* that module's `MigrationsIR` (each
-compose service has its own database, so each must run the migrations) — but only
-the `migrationsOwner` derivation gates whether the slice is built at all.
+- Every `needsDb` deployable whose `state` data source binds a postgres
+  `storage` runs on that storage's database — so deployables bound to one
+  storage read and write the same rows.  A deployable that binds none gets a
+  database of its own, named after itself.
+- A database holds the tables of every module any deployable on it hosts.
+- Each database has exactly **one migrator**: the first `needsDb` deployable on
+  it, in declaration order.  Only it applies migrations at boot.
+- Every deployable on the database **carries** the migrations of all of the
+  database's modules (`migrationsForDeployable` in
+  [`system/index.ts`](../src/system/index.ts)), so the migrator lands the union of
+  the tables and the others still know the schema they read — their integration
+  tests build it in a scratch database from those files.
+
+```ddd
+storage primary { type: postgres }
+resource catalogState { for: Catalog, kind: state, use: primary }
+resource ordersState  { for: Orders,  kind: state, use: primary }
+deployable writer { platform: node   contexts: [Catalog]         dataSources: [catalogState]              port: 3000 }
+deployable reader { platform: python contexts: [Catalog, Orders] dataSources: [catalogState, ordersState] port: 3002 }
+```
+
+```yaml
+# docker-compose.yml (excerpt)
+  writer:                       # the migrator: carries and applies Catalog + Orders
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/primary"
+  reader:                       # carries the same chain, applies none of it
+    depends_on:
+      writer:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/primary"
+```
+
+One migrator per database keeps each backend's history table sound: Drizzle,
+EF Core, Dapper, Flyway, the Python runner and Ecto each record applied ids in
+one table and expect to own it, so two runners on one database would race the
+same DDL or refuse each other's history.  The other deployables skip the boot
+run, each in its own way:
+
+| Backend | Not the migrator |
+|---|---|
+| Hono (drizzle) | `index.ts` makes no boot `migrate(...)` call |
+| .NET (EF Core / Dapper) | `Program.cs` runs neither `Database.Migrate()` / `DbSchema.EnsureAsync` nor `EnsureCreated()` |
+| Java | compose sets `SPRING_FLYWAY_ENABLED=false`; the project's own tests still run Flyway |
+| Python | the lifespan does not call `run_migrations()` |
+| Phoenix | `rel/overlays/bin/server` starts the release without `Release.migrate()` |
+
+In compose they start once the migrator is healthy (`depends_on … service_healthy`),
+and every backend reports healthy only after its boot migration.  Kubernetes has no
+such ordering: the other deployables answer errors until the migrator has run.
+
+Every deployable on a shared database must map the tables the same way.  Two
+adapters do not, and each is refused on a database it shares:
+
+- **`loom.mikroorm-shared-database`** — MikroORM has no migration chain; it syncs
+  its own entities with `orm.schema.update()` at boot.
+- **`loom.dapper-shared-database`** — Dapper projects the chain onto its own column
+  layout (a value object folds into one jsonb column); Dapper beside Dapper is
+  sound, Dapper beside any other adapter is not.
+
+`migrationsOwner` ([`enrichments.ts`](../src/ir/enrich/enrichments.ts),
+`assignMigrationsOwner`) is the per-module owning deployable: the first `needsDb`
+deployable hosting a context of the module.  It runs the module's singleton duties
+(timers), and its `state` binding names the storage the module's migrations record.
+A module with no owner (frontend-only) gets no migrations.
 
 ## How IR maps to tables
 

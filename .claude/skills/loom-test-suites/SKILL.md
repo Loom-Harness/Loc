@@ -109,6 +109,7 @@ npm run test:channels-kafka{,-python,-dotnet,-java,-elixir}
 npm run test:channels-auth                               # broker-auth variant
 
 npm run test:api-call     # LOOM_API_CALL_E2E=1 — typed in-system `api` call between deployables, runtime round-trip
+npm run test:shared-storage # LOOM_SHARED_STORAGE_E2E=1 — generated compose stack, two deployables on one `storage`: a write through one is a read through the other (CI: conformance-parity.yml)
 
 # Email runtime e2e — workflow `mail.send(...)` delivered to a Mailpit sidecar (from/to/subject/body
 # asserted via its REST inbox), all five backends:

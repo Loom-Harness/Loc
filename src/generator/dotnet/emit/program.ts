@@ -151,6 +151,11 @@ export function renderProgram(
      *  `PendingModelChangesWarning` that fires because our
      *  ModelSnapshot stub is intentionally empty. */
     hasMigrations?: boolean;
+    /** False on a deployable that shares its storage's database with the
+     *  deployable that migrates it: the schema is the migrator's, so this one
+     *  applies no migrations at boot and never runs `EnsureCreated()` (either
+     *  would race the migrator's DDL).  Defaults to true. */
+    migratesAtBoot?: boolean;
     /** When true (a `seed` block is present), adds a `Seed.RunSeeds(...)`
      *  startup call after `Database.Migrate()` (database-seeding.md). */
     hasSeeds?: boolean;
@@ -289,6 +294,7 @@ ${schemaOverrides.map((o) => `        ["${o.clrFullName}"] = "${o.schemaId}",\n`
   const usesStamping = !!options?.usesStamping;
   const hasEmbeddedSpa = !!options?.hasEmbeddedSpa;
   const hasMigrations = !!options?.hasMigrations;
+  const migratesAtBoot = options?.migratesAtBoot !== false;
   // In-process dispatch (channels.md): when the deployable has channel-routed
   // subscriptions, register the Mediator-notification dispatcher (Scoped — it
   // depends on the scoped IMediator) so emitted events reach their reactor /
@@ -1180,8 +1186,13 @@ ${ns}.Resources.ApiClients.CallerContext = app.Services.GetRequiredService<Micro
 `
     : ""
 }${hangfireRecurringBlock}${
-  usingDapper
+  !migratesAtBoot
     ? `
+// This database belongs to a storage another deployable migrates: the
+// schema is that deployable's, applied before this one starts.
+`
+    : usingDapper
+      ? `
 ${renderDotnetBootDbWait()}
 await LoomWaitForDbAsync(
     async () =>
@@ -1198,8 +1209,8 @@ await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
     app.Services.GetRequiredService<${CS.NpgsqlDataSource}>(),
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
-    : hasMigrations
-      ? `
+      : hasMigrations
+        ? `
 ${renderDotnetBootDbWait()}
 // Apply pending EF Core migrations before serving traffic.  Idempotent —
 // EF tracks applied versions in the __EFMigrationsHistory table.  Runs
@@ -1257,7 +1268,7 @@ using (var migrationScope = app.Services.CreateScope())
     }
 }
 `
-      : ""
+        : ""
 }${seedBlock}
 // Catalog server-lifecycle events.  Same event names + level Hono and
 // Phoenix emit so a cross-backend dashboard pivots on one identity.
@@ -1425,18 +1436,18 @@ app.MapFallbackToFile("index.html");
     : ""
 }
 ${
-  usingDapper || hasMigrations
+  usingDapper || hasMigrations || !migratesAtBoot
     ? // Dapper applied its migrations via DbSchema.EnsureAsync at startup; a
       // migrations-bearing deployable applied them via Database.Migrate().
       // Either way EnsureCreated must NOT also run: mixing it with
       // Migrate() is the classic EF trap — whichever runs first creates
       // *a* table, and the other then sees a non-empty database and
-      // no-ops, leaving the schema half-built with no error.
+      // no-ops, leaving the schema half-built with no error.  A deployable
+      // whose database another deployable migrates leaves the schema alone.
       ""
     : `// Dev-friendly schema bootstrap: create the schema from the model on
-// first boot.  System-mode compose isolates each deployable to its own
-// database (see db-init/), so EnsureCreated runs cleanly without
-// racing peers.  For production, replace this with
+// first boot.  No other deployable migrates this database, so
+// EnsureCreated runs cleanly without racing peers.  For production, replace this with
 // 'dotnet ef database update' and remove the block.
 using (var scope = app.Services.CreateScope())
 {

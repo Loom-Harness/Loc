@@ -117,17 +117,11 @@ describe("(b) PLATFORM_SAVING_SHAPES keys and values are real vocabulary", () =>
     }
   });
 
-  it("the elixir row's documented widening still lives in the validator", () => {
-    // The row deliberately omits `document`; `validateSavingShapeSupport`
-    // unconditionally widens it before checking, so reading the row alone would
-    // tell you the opposite of what ships.  Pin the widening's existence — if it
-    // is ever folded into the table the comment must go with it.
-    expect(PLATFORM_SAVING_SHAPES.elixir).not.toContain("document");
-    // `validateSavingShapeSupport` moved to the datasource leaf when
-    // system-checks.ts was split by theme; the widening itself is unchanged.
-    expect(read("src/ir/validate/checks/datasource-checks.ts")).toContain(
-      'dep.platform === "elixir" ? ([...base, "document"] as readonly SavingShape[]) : base',
-    );
+  it("every row is the backend's whole set — the validator widens none", () => {
+    // Elixir's `document` shape lives in its row like every other backend's, so
+    // the row alone is what the saving-shape check accepts.
+    expect(PLATFORM_SAVING_SHAPES.elixir).toContain("document");
+    expect(read("src/ir/validate/checks/datasource-checks.ts")).not.toContain('"document"]');
   });
 
   it("the sole consumer reads the table through `platformSavingShapes`", () => {

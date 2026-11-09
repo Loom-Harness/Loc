@@ -30,6 +30,7 @@ import { fileDeltaIsEmpty } from "../agent/receipt";
 import type { PlanCard as PlanCardData, TurnCheckpoint } from "../agent/turn";
 import type { LayoutCtx } from "./ctx";
 import { CHAT, CHECKPOINT, PLAN, RECEIPT, STUCK } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // "Agent" dock tab — two modes over one shared transcript display:
 //   • the deterministic M-T8.3 wedge demo (prose → `.ddd` → generate → green),
@@ -39,7 +40,7 @@ import { CHAT, CHECKPOINT, PLAN, RECEIPT, STUCK } from "./vocabulary";
 // The composer + settings gear configure the live mode; the demo button stays
 // for the reproducible, key-free walkthrough (and the Playwright e2e).
 
-export function ChatBody({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function ChatBodyView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   const { agentMessages, agentRunning, runAgentDemo, agentSettings, sendAgentMessage, clearAgentChat } =
     ctx;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -777,3 +778,5 @@ function ToolCallCard({ t }: { t: AgentToolCall }): JSX.Element {
     </Group>
   );
 }
+
+export const ChatBody = trackedCtx("ChatBody", ChatBodyView);

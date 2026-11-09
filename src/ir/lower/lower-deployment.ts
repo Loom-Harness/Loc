@@ -2,6 +2,7 @@ import { AstUtils, UriUtils } from "langium";
 import type { Deployable, Ui } from "../../language/generated/ast.js";
 import { defaultsFor } from "../../platform/adapter-metadata.js";
 import { descriptorFor } from "../../platform/metadata.js";
+import { frameworkFacts } from "../../platform/target-facts.js";
 import { parseBuiltinDesignRef } from "../../util/builtin-formats.js";
 import type { DeployableIR, Platform, UiParamBindingIR } from "../types/loom-ir.js";
 import { qualifyDesign, qualifyPlatform } from "./lower-platform.js";
@@ -19,14 +20,9 @@ export function lowerDeployable(d: Deployable): DeployableIR {
       : d.auth === "ui"
         ? { required: false, ui: true }
         : undefined;
-  // `design` defaults only on platforms that actually render UI in
-  // this deployable — keeping the IR honest about which deployables
-  // mount a frontend.  `react`/`static` always render React (TSX
-  // packs).  `phoenixLiveView` is fullstack and always renders HEEx
-  // against the `coreComponents` pack.  `dotnet` is dual-mode: it renders
-  // an embedded React SPA when (and only when) the deployable declares
-  // `ui:`; backend-only dotnet drops the field.  Other platforms
-  // (`hono`) silently drop `design:` and the validator already warns.
+  // `design` defaults only on platforms that actually render UI in this
+  // deployable — keeping the IR honest about which deployables mount a
+  // frontend.  The platform's `facts` say which ones do (see below).
   // D-PHOENIX-SURFACE: `hosts:` declarations the deployable serves.
   // Resolve the first hosted `Ui` node so `uiName`/`uiFramework` can
   // fall back to it (and read its own declared framework) when the
@@ -40,7 +36,7 @@ export function lowerDeployable(d: Deployable): DeployableIR {
   // `ui: WebApp` (sugar) and `ui: WebApp { Sales: salesApi }` (compose).
   // Both lower to the same `uiName` + optional `uiFramework` here.
   // `uiName` is computed above so the `design` default can branch on it
-  // for dual-mode platforms (fullstack dotnet).  Validator enforces that
+  // for a backend that embeds a ui only when bound.  Validator enforces that
   // the referenced ui exists, the platform supports a UI mount, and the
   // framework value is one of the v0-allowed alternatives.
   // Precedence: the framework declared on the bound `ui` itself — whether
@@ -53,90 +49,25 @@ export function lowerDeployable(d: Deployable): DeployableIR {
   // so the pack default can branch on it (a phoenix host embedding react
   // needs a tsx pack, not coreComponents).
   const boundUi = d.uiSugar?.ref?.ref ?? d.uiCompose?.ref?.ref;
+  const facts = descriptorFor(platform).facts;
   const uiFramework =
     boundUi?.framework ??
     firstHostedUi?.framework ??
-    (uiName
-      ? platform === "elixir"
-        ? "phoenixLiveView"
-        : platform === "svelte"
-          ? "svelte"
-          : platform === "vue"
-            ? "vue"
-            : platform === "angular"
-              ? "angular"
-              : platform === "flutter"
-                ? "flutter"
-                : // Feliz self-hosts (`hostableFrameworks: {feliz}`), so a bare
-                  // `platform: feliz` renders F#/Fable, NOT the react default
-                  // the fall-through would otherwise hand it.  Not cosmetic:
-                  // every per-framework validator gate keys on `uiFramework`, so
-                  // the wrong answer measures a feliz deployable against
-                  // react's capabilities.
-                  platform === "feliz"
-                  ? "feliz"
-                  : descriptorFor(platform).isFrontend ||
-                      platform === "dotnet" ||
-                      platform === "java"
-                    ? "react"
-                    : undefined
-      : undefined);
-  // Design pack default depends on what actually RENDERS — the ui's
-  // `framework:`, not the host platform keyword.  A static-asset host serves
-  // any static bundle (`STATIC_BUNDLE_FRAMEWORKS`), so a `platform: react` host
-  // of a `framework: svelte` ui must default to a svelte pack, not mantine —
-  // otherwise the svelte generator resolves a react pack and crashes.  This
-  // mirrors the elixir / dotnet-java branches below, which already key on
-  // `uiFramework`:
-  //  - react/static render React → `mantine`;
-  //  - svelte render Svelte → `shadcnSvelte`;
-  //  - vue render Vue → `vuetify`;
-  //  - angular render Angular → `angularMaterial`;
-  //  - phoenixLiveView renders HEEx → `coreComponents`, UNLESS it embeds a
-  //    `framework: react` ui (D-PHOENIX-SURFACE), in which case the SPA
-  //    needs a tsx pack → `mantine`;
-  //  - backends without a `ui:` mount carry no design.
-  const design = descriptorFor(platform).isFrontend
-    ? // Flutter has no design-pack menu in this phase (Feliz-style: it renders
-      // Material widgets procedurally, not a `design:`-selected pixel pack), so
-      // it carries no design rather than wrongly defaulting to `mantine`.
-      platform === "flutter"
+    (uiName ? facts.defaultUiFramework : undefined);
+  // The design pack defaults from what actually RENDERS — the ui's framework,
+  // not the host platform: a static-asset host serves any static bundle, so a
+  // `platform: react` host of a `framework: svelte` ui defaults to the svelte
+  // pack, and a Phoenix host embedding a react ui needs a tsx pack.  A
+  // framework with no static-bundle pack of its own takes the platform's
+  // fallback.  A platform with no fallback carries no design, and a backend
+  // that embeds a ui only when bound carries one only then.
+  const design =
+    facts.defaultDesignPack === undefined || (facts.rendersUiOnlyWhenBound && !uiName)
       ? undefined
       : qualifyDesign(
           d.design,
-          uiFramework === "svelte"
-            ? "shadcnSvelte"
-            : uiFramework === "vue"
-              ? "vuetify"
-              : uiFramework === "angular"
-                ? "angularMaterial"
-                : "mantine",
-        )
-    : platform === "elixir"
-      ? qualifyDesign(
-          d.design,
-          uiFramework === "react"
-            ? "mantine"
-            : uiFramework === "vue"
-              ? "vuetify"
-              : uiFramework === "svelte"
-                ? "shadcnSvelte"
-                : uiFramework === "angular"
-                  ? "angularMaterial"
-                  : "coreComponents",
-        )
-      : (platform === "dotnet" || platform === "java") && uiName
-        ? qualifyDesign(
-            d.design,
-            uiFramework === "svelte"
-              ? "shadcnSvelte"
-              : uiFramework === "vue"
-                ? "vuetify"
-                : uiFramework === "angular"
-                  ? "angularMaterial"
-                  : "mantine",
-          )
-        : undefined;
+          frameworkFacts(uiFramework)?.staticBundlePack ?? facts.defaultDesignPack,
+        );
   // Explicit api composition.
   const serves = (d.serves ?? []).map((r) => r.ref?.name ?? "").filter(Boolean);
   const uiBindings = (d.uiCompose?.bindings ?? []).map(

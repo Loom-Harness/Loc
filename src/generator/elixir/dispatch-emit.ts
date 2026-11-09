@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
+import { lookupOp } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   CreateIR,
@@ -51,7 +52,6 @@ import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import {
-  lookupOp,
   opCallParamFields,
   resolveInlinedServiceClauses,
 } from "./vanilla/workflow-execution-emit.js";
