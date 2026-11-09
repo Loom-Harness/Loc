@@ -118,7 +118,9 @@ export function stripStringLiterals(src: string): string {
       // `sql` tag interpolates operators and accessor calls — an `exists`
       // subquery's whole predicate sits in one), so what it calls must stay
       // visible to the import scans.
-      return `\`\`${templateHoles(m).map((h) => ` ${stripStringLiterals(h)} `).join("")}`;
+      return `\`\`${templateHoles(m)
+        .map((h) => ` ${stripStringLiterals(h)} `)
+        .join("")}`;
     },
   );
 }
