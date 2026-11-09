@@ -5,8 +5,8 @@ import { layeredStyleAdapter } from "../generator/elixir/adapters/layered-style.
 import { generateElixirProject } from "../generator/elixir/index.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { TARGET_FACTS } from "./target-facts.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Elixir platform — fullstack Phoenix deployable

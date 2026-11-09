@@ -1,8 +1,8 @@
 import { generateFelizForContexts } from "../generator/feliz/index.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { TARGET_FACTS } from "./target-facts.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Feliz frontend platform — a Fable/F#/Elmish (MVU) SPA

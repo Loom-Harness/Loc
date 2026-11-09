@@ -654,7 +654,7 @@ system M {
       `valueobject Amount { value: int  invariant value >= 0 }
       valueobject Discount { cap: Amount }
       aggregate Thing with crudish { label: string  discount: Discount }`,
-    ),  // A mutating call whose `T or E` result is bound with `let` and matched.
+    ), // A mutating call whose `T or E` result is bound with `let` and matched.
   "call:bound-mutating@entry-body": (platform) =>
     ledgerWitness(
       platform,

@@ -439,7 +439,6 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
       }
       const mounted = [dep.uiName, ...(dep.hostedUiNames ?? [])].filter((n): n is string => !!n);
       for (const uiName of mounted) {
-
         // async-effect gate — loom.feliz-async-effect-unsupported.  A frontend
         // `match await <op>()` (async-actions-and-effects.md Stage 2) lowers to a
         // `variant-match` statement.  On a PAGE the Feliz MVU renderer handles the

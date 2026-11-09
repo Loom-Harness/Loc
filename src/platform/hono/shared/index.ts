@@ -10,12 +10,12 @@ import type {
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
 import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
-import { TARGET_FACTS } from "../../target-facts.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "../../surface.js";
+import { TARGET_FACTS } from "../../target-facts.js";
 import { byFeatureLayoutAdapter } from "./adapters/by-feature-layout.js";
 import { byLayerLayoutAdapter } from "./adapters/by-layer-layout.js";
 import { drizzlePersistenceAdapterFor } from "./adapters/drizzle-persistence.js";

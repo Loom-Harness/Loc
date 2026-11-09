@@ -1,11 +1,11 @@
 import { generatePythonForContexts } from "../generator/python/index.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { TARGET_FACTS } from "./target-facts.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Python platform — FastAPI + SQLAlchemy 2 backend deployable

@@ -1,12 +1,12 @@
 import { API_BASE_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { TARGET_FACTS } from "./target-facts.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Vue frontend platform — the third frontend-only platform after

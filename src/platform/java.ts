@@ -6,12 +6,12 @@ import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { TARGET_FACTS } from "./target-facts.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Java platform — Spring Boot 3 / Spring Data JPA (Hibernate) / Postgres.
