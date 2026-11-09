@@ -2148,7 +2148,7 @@ gate.
 
 ## D-TENANCY-REGISTRY — registry named in `tenancy by … of X` + a `tenantRegistry` capability
 
-**Status:** PINNED.
+**Status:** PINNED — **amended by D-TENANCY-FLAT** (owner ruling, 2026-11-09): the capability provides no `dataKey` and no path stamp, and `parent` is movable through a provided `move(to)`.
 
 **Problem.** The tenant registry (the `Organization`/`Tenant` aggregate) can't be
 plain tenant-scoped (it is created before its own tenant context exists, and is
@@ -2194,7 +2194,7 @@ silent-default *mechanism*; the fail-closed *goal* survives via the lint).
 
 ## D-TENANCY-HIERARCHY — always hierarchy-ready; depth is a per-role authz access level
 
-**Status:** PINNED.
+**Status:** SUPERSEDED by D-TENANCY-FLAT (owner ruling, 2026-11-09). Kept for the rationale it records; nothing below is the current rule.
 
 **Problem.** Hierarchical (parent/child org) visibility could be a
 flat-vs-hierarchical *mode*, a per-aggregate `subtenantScoped` flavor, or a
@@ -2217,6 +2217,158 @@ contingent on session enrichment, else a per-request cached registry lookup.
 
 **Affects.** `multi-tenancy-design-note.md` R5; `authorization.md` §2 (`DataKey`
 = the hierarchical extension; directional predicates = the access levels).
+
+---
+
+## D-TENANCY-FLAT — data visibility is flat; the org tree manages sub-tenants; the operating org and its ancestors are resolved per request
+
+**Status:** PINNED (owner ruling, 2026-11-09). Supersedes D-TENANCY-HIERARCHY
+and amends D-TENANCY-REGISTRY. Implementation is tracked on GitHub (the
+tenancy & identity epic and its slices).
+
+**Problem.** D-TENANCY-HIERARCHY made hierarchical reach a per-role read level
+(`deep` / `global`) and paid for it by stamping the owning org's materialized
+path (`dataKey`) on every `tenantOwned` row, so a subtree read is a prefix
+scan. That design has four standing costs:
+
+- **No org can ever move.** The path is copied into every row of every table
+  (and into event streams, permanently), so the registry's `parent` has to be
+  immutable.
+- **It is a stamped copy with no invalidation** — the shape "Derive, don't
+  stamp" (CLAUDE.md) exists to prevent.
+- **The path must be known at write time.** The record itself left that as an
+  unverified assumption (session enrichment, or a per-request registry read);
+  the gap surfaced as cross-deployable registry reads against a table the
+  deployable does not host, and as a silent fall-back to the claim.
+- **Prefix matching is fragile**: escaping, the segment separator, an opclass
+  index, and five backends to get each right.
+
+The owner also ruled that hierarchical *data* visibility is not wanted: reach
+beyond the caller's own org is an explicit act (a share or a row rule), not a
+consequence of where an org sits in the tree.
+
+**Decision.**
+
+1. **Data visibility is flat.** A `tenantOwned` row is visible, by default, to
+   its own org only — today's `local` floor, `tenant_id = <operating org>`.
+   There is no `deep` and no `global` level; the policy ladder keeps `local`
+   and gains the rungs and row rules decided with the sharing model
+   (D-SHARING). Nothing about the registry tree takes part in a data read
+   except a `subtree` share grantee.
+
+2. **Rows carry only `tenantId`.** No `dataKey` field, column, stamp, index or
+   event attribute. `tenantOwned` provides exactly `tenantId`, its stamp and
+   its filter.
+
+3. **The registry tree is for managing sub-tenants.** `implements
+   tenantRegistry` provides `parent: Self id?` and a generated operation
+   `move(to: Self id)`:
+   - the move is one `parent` update — no row elsewhere changes;
+   - it is refused (422, a `loom.*` code) when `to` is the org itself or one of
+     its descendants (a cycle), or lies under a different top-level org (an org
+     never leaves its customer);
+   - who may move, create or administer child orgs is the author's ordinary
+     `requires` and policy on the registry — the capability gates nothing by
+     itself.
+
+4. **`organizationContext` is the operating org.**
+   - `organizationContext.org` — the org the request acts in: the caller's home
+     org (the tenancy claim) unless the request sends `x-org-context: <org id>`
+     naming an org the caller can **read on the registry** (its read rules
+     decide; a refused switch is a 403 before any handler runs).
+   - `organizationContext.ancestors` — the operating org **and** every org above
+     it, resolved **once per request** and memoized, by a recursive walk over
+     `parent`. Its one consumer here is the `subtree` share grantee.
+   - Reads, writes and the write stamp anchor on `organizationContext.org`.
+     `currentUser` is never rewritten by a switch: it is always the real
+     principal with its home-org claim.
+
+5. **Removed surface.** Each is a `loom.*` error naming its replacement once
+   the slice that removes it lands:
+
+   | Removed | Replacement |
+   |---|---|
+   | `allow deep on X`, `allow global on X` (read and write) | a share, or a row rule (D-SHARING) |
+   | `dataKey` (field, column, stamp) | none — rows carry `tenantId` only |
+   | `currentUser.orgPath`, `currentUser.rootOrg` | `organizationContext.org`, `organizationContext.ancestors` |
+   | `organizationContext.orgPath` | `organizationContext.org` (an id, not a path) |
+   | the `x-org-context` path value | an org id |
+   | `loomorgpath` envelope attribute, `orgPath` in the event origin | the event origin is `{tenant, causedBy}`; `tenant` is the operating org of the raising request |
+
+6. **A deployable that does not host the registry** resolves
+   `organizationContext.ancestors` and admits the switch from a generated,
+   internal folded projection of the registry — one `(org, parent)` row per
+   org, fed by registry events (`<Registry>Placed`, `<Registry>Moved`) over the
+   outbox and a channel derived on the system's broker. A system that needs the
+   copy and declares no broker is refused at compile time. No closure table and
+   no bespoke replication path.
+
+7. **Data locality.** A tenant (the owning org) is the unit of data locality:
+   tenant-owned data references another tenant's data only through
+   `crossTenant` reads or reference data. This keeps a distributed-Postgres
+   layout keyed by `tenant_id` available without changing the model.
+
+**Generated shape (postgres, node).**
+
+```ddd
+tenancy by user.tenantId of Organization
+
+aggregate Organization with crudish {
+  name: string
+  implements tenantRegistry        // parent: Organization id?  +  move(to)
+}
+aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
+```
+
+```sql
+-- Invoice read: the flat floor, anchored on the operating org
+SELECT * FROM invoices WHERE tenant_id = $operatingOrg;
+
+-- organizationContext.ancestors, once per request (memoized)
+WITH RECURSIVE up(id, parent) AS (
+  SELECT id, parent FROM organizations WHERE id = $operatingOrg
+  UNION ALL SELECT o.id, o.parent FROM organizations o JOIN up ON o.id = up.parent)
+SELECT id FROM up;
+
+-- POST /api/organizations/{id}/move {"to": "<newParent>"}
+--   refused when <newParent> is {id} or below it (walk down from {id}),
+--   or when the two orgs have different top-level orgs; otherwise:
+UPDATE organizations SET parent = $2 WHERE id = $1;
+```
+
+**Alternatives rejected.**
+
+- **Keep `dataKey`, allow moves by rewriting paths** — a move rewrites every
+  tenant-owned table and cannot rewrite event streams.
+- **A closure table** (`ancestor, descendant, depth`) — it earns its keep only
+  on a hot hierarchical read path, which this decision removes. The per-request
+  recursive walk over a small registry serves the remaining consumers.
+- **Hierarchical data levels with a closure table** (`deep` / `inherited` /
+  `global` as semi-joins) — technically sound, but the owner ruled reach beyond
+  one's own org should be explicit (shares, row rules), not positional.
+- **A tenant-boundary flag on a platform root org** — "root-org magic"; the
+  tree stays plain parent/child, and operator access is an ordinary role
+  (D-SHARING / the platform & identity design).
+
+**Consequences.**
+
+- The `subtree-like` prefix machinery, the `data_key` indexes and the
+  NULL-`dataKey` OR-fallback have no remaining purpose.
+- Event-sourced streams stop carrying `dataKey`; a fold over a tenant-owned
+  producer stamps `tenant_id` only.
+- `loom.policy-level-requires-hierarchy` and `loom.tenancy-registry-remote-unsupported`
+  lose their reason to exist (the second is lifted by item 6).
+- D-REACTOR-SYSTEM-PRINCIPAL's event origin drops `orgPath`.
+- D-CROSSTENANT-ACK is unaffected: `allow global` is gone altogether.
+
+**Affects.** `docs/tenancy.md` (the ladder, hierarchy, `organizationContext`,
+folded-projection and registry sections) and `docs/auth.md` (computed principal
+members) — each section is rewritten by the slice that lands its behaviour;
+D-TENANCY-HIERARCHY (superseded); D-TENANCY-REGISTRY (amended);
+D-REACTOR-SYSTEM-PRINCIPAL (event origin); `src/macros/prelude.ts`
+(`tenantOwned`, `tenantRegistry`); `src/ir/util/tenant-stance.ts`;
+`src/generator/_expr/subtree-like.ts`; the five backends' read-scope, stamp and
+principal seams.
 
 ---
 
@@ -4891,7 +5043,7 @@ them.
 
 ## D-REACTOR-SYSTEM-PRINCIPAL — event reactors run as a tenant-scoped system principal
 
-**Status:** PINNED (owner ruling D1, 2026-09-29, eval closure review).
+**Status:** PINNED (owner ruling D1, 2026-09-29, eval closure review); **amended by D-TENANCY-FLAT** (2026-11-09): the event origin is `{tenant, causedBy}` — no `orgPath`, no `loomorgpath` attribute.
 
 **Question.** A reactor — a workflow's event-triggered `create(e) by …`
 starter or `on(e)` subscription, including one driven by a `timerSource`
