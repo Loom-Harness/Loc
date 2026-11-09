@@ -60,11 +60,10 @@ describe("python shape: document", () => {
   });
 
   // A criterion read over a document aggregate: the handler calls
-  // `run_find_all_by_articles_popular`, and the document repository emits no
-  // retrieval method, so the call names a method that does not exist.  `fails`
-  // until the document repository emits criterion reads (in-memory over the
-  // rehydrated documents); then drop `.fails`.
-  it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
+  // `run_find_all_by_articles_popular` whatever the saving shape, so the
+  // document repository must define it — in memory over the rehydrated
+  // documents, since the blob is not queryable per field.
+  it("a criterion read's repository method filters the rehydrated documents", async () => {
     const files = await generateSystemFiles(
       FIXTURE.replace(
         /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,

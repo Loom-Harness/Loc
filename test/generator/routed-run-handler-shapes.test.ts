@@ -74,14 +74,19 @@ describe("routed Repo.run handlers", () => {
     expect(h).toContain("return r.ToList();");
   });
 
-  it(".NET: a non-relational carrier reads a paged criterion in memory, with no Run method", async () => {
+  it(".NET: a non-relational carrier reads a paged criterion in memory, and its Run method is implemented", async () => {
     const files = await generateSystemFiles(corpusSourceFor("paged-nonrelational", "dotnet"));
     // Document: LINQ-to-objects takes a Func, so the criterion's query face is
     // compiled (CS1503 on the bare Expression).
     expect(fileEndingWith(files, "Repositories/InvoiceRepository.cs")).toContain(
       "new InvoicesInRegionCriterion(region).ToExpression().Compile())",
     );
-    // Event log: the interface promises no `Run…Async` its impl lacks (CS0535).
-    expect(fileEndingWith(files, "IAccountRepository.cs")).not.toContain("RunFindAllBy");
+    // Event log: every `Run…Async` the interface promises has an impl (CS0535).
+    expect(fileEndingWith(files, "IAccountRepository.cs")).toContain(
+      "RunFindAllByAccountsByOwnerAsync(",
+    );
+    expect(fileEndingWith(files, "Repositories/AccountRepository.cs")).toContain(
+      "public async Task<IReadOnlyList<Account>> RunFindAllByAccountsByOwnerAsync(",
+    );
   });
 });

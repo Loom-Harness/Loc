@@ -170,6 +170,14 @@ A criterion shared by a retrieval and a find reifies to a **single**
 predicate object (one module-level fn / one Ecto query fragment), consumed by
 both.
 
+The table describes a relational aggregate. A `shape: document` aggregate (one
+jsonb blob) and a `persistedAs: eventLog` aggregate (a folded stream) have no
+queryable state columns, so on python, .NET (EF and Dapper) and elixir their
+repository answers the same `run…` read in memory: it rehydrates (or folds)
+every candidate, re-applies the aggregate's capability filters, then the
+criterion, the `sort:` and the call-site page. A `shape: embedded` root keeps
+real columns, so its read is the relational query.
+
 The emitted predicate is **byte-identical** to what inlining would
 produce — reification is a code-organisation choice, not a behavioural
 one, so cross-backend conformance/wire parity is unchanged. The rule for

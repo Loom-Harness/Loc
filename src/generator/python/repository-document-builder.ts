@@ -34,6 +34,7 @@ import {
   type AggregateReadShape,
   aggHasFieldMask,
   aggRef,
+  aggregateRetrievals,
   allFindOf,
   emittableFinds,
   findExecutedLine,
@@ -41,6 +42,7 @@ import {
   partRef,
   partWireMethod,
   pyInMemoryPagedFind,
+  pyInMemoryRunMethod,
   queryProjectionViews,
   R,
   recordAuditMethod,
@@ -193,6 +195,24 @@ export function buildPyDocumentRepositoryFile(
     ...queryProjectionViews(agg, ctx).flatMap((v) => [
       "",
       findMethod(agg, projectionViewFind(agg, v), ctx, capX != null || allShaped),
+    ]),
+    // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+    // `run_<retrieval>` whatever the saving shape.  The blob is not queryable
+    // per field, so the runner filters in-app over a RAW load (not the
+    // capability-narrowed `all()`), re-applying the capability conjunct minus
+    // what a widened read's own retrieval (`… ignoring …`) drops.
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
+      "",
+      pyInMemoryRunMethod(agg, r, {
+        loadLines: [
+          `        rows = (await self._session.execute(${R.select}(${row}).order_by(${row}.id))).scalars().all()`,
+          `        items = [${fromDocCall("r")} for r in rows]`,
+        ],
+        capability: documentCapabilityBody(agg, "x", {
+          bypassAll: r.bypassAll,
+          bypassCaps: r.bypassCaps,
+        }),
+      }),
     ]),
     "",
     versioned

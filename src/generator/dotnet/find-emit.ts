@@ -158,7 +158,18 @@ function orderByClauseFor(r: RetrievalIR): string {
   // The lambda parameter yields to a same-named retrieval param, as the
   // `where` lambda does (a param `x` would otherwise be shadowed).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
-  return readSortFor(r.sort)
+  return renderOrderBy(readSortFor(r.sort), x);
+}
+
+/** The declared sort terms alone (empty when unsorted) — for an in-memory
+ *  read over rehydrated aggregates, whose typed id is not guaranteed
+ *  comparable, so it takes no `id` tie-break.  `x` is the lambda parameter. */
+export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
+  return renderOrderBy(r.sort, x);
+}
+
+function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
+  return terms
     .map((s, i) => {
       const col = upperFirst(s.path[0]!.name);
       const method =
