@@ -1,0 +1,95 @@
+// Two Node backends and one message broker of each kind.  Both `admin` and
+// `storefront` run the Catalog, each on its own storage.  Launching a product
+// raises three events, each on its own channel and broker, and both backends
+// react to all three, so the Sightings each backend lists show what its own
+// consumers received:
+//
+//   Announcements  broadcast / ephemeral  → redis    every subscriber, nothing kept
+//   Listings       queue / ephemeral      → rabbitmq one consumer per group; a
+//                                                    failing reaction is retried,
+//                                                    then dead-lettered
+//   History        queue / work           → kafka    a retained log; a consumer
+//                                                    that was away replays it
+//
+// The playground runs the three brokers in its infra worker, emulated
+// (`await __loomInspectBroker()` lists where the emulation differs from the
+// real broker).  A product with sku "POISON" fails the Listings reaction,
+// which lands in `loom.dlq.<address>` after five attempts.
+
+system BrokerChannels {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string
+        name: string
+        operation launch() {
+          emit ProductAnnounced { product: id, sku: sku }
+          emit ProductListed { product: id, sku: sku }
+          emit ProductLogged { product: id, sku: sku }
+        }
+      }
+
+      // One row per envelope a backend's consumers received.
+      aggregate Sighting with crudish {
+        channel: string
+        sku: string
+        invariant channel != "rabbitmq" || sku != "POISON"
+      }
+
+      event ProductAnnounced { product: Product id, sku: string }
+      event ProductListed { product: Product id, sku: string }
+      event ProductLogged { product: Product id, sku: string }
+      channel Announcements { carries: ProductAnnounced }
+      channel Listings { carries: ProductListed  delivery: queue  retention: ephemeral }
+      channel History { carries: ProductLogged  delivery: queue  retention: work }
+
+      workflow Announced {
+        productId: Product id
+        create(e: ProductAnnounced) by e.product {
+          let s = Sighting.create(channel: "redis", sku: e.sku)
+        }
+      }
+      workflow Listed {
+        productId: Product id
+        create(e: ProductListed) by e.product {
+          let s = Sighting.create(channel: "rabbitmq", sku: e.sku)
+        }
+      }
+      workflow Logged {
+        productId: Product id
+        create(e: ProductLogged) by e.product {
+          let s = Sighting.create(channel: "kafka", sku: e.sku)
+        }
+      }
+    }
+  }
+
+  storage adminDb { type: postgres }
+  storage shopDb { type: postgres }
+  storage cache { type: redis }
+  storage queues { type: rabbitmq }
+  storage log { type: kafka }
+
+  resource adminState { for: Catalog, kind: state, use: adminDb }
+  resource shopState { for: Catalog, kind: state, use: shopDb }
+
+  channelSource announcementsBus { for: Announcements, use: cache }
+  channelSource listingsBus { for: Listings, use: queues }
+  channelSource historyBus { for: History, use: log }
+
+  deployable admin {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [adminState]
+    channels: [announcementsBus, listingsBus, historyBus]
+    port: 3000
+  }
+
+  deployable storefront {
+    platform: node
+    contexts: [Catalog]
+    dataSources: [shopState]
+    channels: [announcementsBus, listingsBus, historyBus]
+    port: 3002
+  }
+}

@@ -20,6 +20,7 @@
 
 import type { VirtualFile } from "../build/protocol.js";
 import type { BundleResult } from "../bundle/protocol.js";
+import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
 import type {
   BootPlan,
   BootResult,
@@ -150,6 +151,17 @@ export interface RuntimeEngine extends RuntimeDispatcher {
   /** Drop user data and re-apply the schema — of `storage`, or of every
    *  storage. */
   wipe(storage?: string): Promise<WipeResult>;
+
+  /** The emulated message broker's state and journal (topics, queues,
+   *  consumer groups, dead-letter queues; what is emulated).  Null before a
+   *  boot; absent on an engine without one. */
+  inspectBroker?(): Promise<BrokerInspectResult | null>;
+
+  /** Stop one booted deployable while the infrastructure and the other
+   *  deployables run on (`docker compose stop <svc>`), and start it again on
+   *  the same storage and broker.  Absent on an engine that cannot. */
+  stopDeployable?(slug: string): Promise<{ ok: true } | { ok: false; message: string }>;
+  startDeployable?(slug: string): Promise<{ ok: true } | { ok: false; message: string }>;
 
   /** Clear any booted state without tearing the engine down — used
    *  when the edited source changes (new example).  Mirrors
