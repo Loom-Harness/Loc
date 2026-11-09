@@ -9,7 +9,7 @@
 // deployable sends, runs through the server's scheduler — the one place that
 // decides whose turn it is on PGlite's single session.
 
-import { pgliteAssetUrl, pgliteModuleUrl } from "../bundle/plugin.js";
+import { pgliteAssetUrl, pgliteModuleUrl, RUNTIME_VERSIONS } from "../bundle/plugin.js";
 import { fnv1a32 } from "../util/hash.js";
 import type {
   HostInitOptions,
@@ -30,6 +30,7 @@ import {
   recordDdlHash,
   unversionedState,
 } from "./migrate.js";
+import { dropSnapshot, opfsClusterExists, readSnapshot, writeSnapshot } from "./pglite-snapshot.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 import type { StorageMigrateResult } from "./infra-protocol.js";
 import { type PgliteProtocolModule, type PgliteSession, pgliteEngine, StorageServer } from "./storage-server.js";
@@ -48,6 +49,7 @@ interface Pglite {
   }>;
   waitReady: Promise<void>;
   close(): Promise<void>;
+  dumpDataDir(compression?: "gzip" | "none"): Promise<Blob>;
 }
 
 interface PgliteModule extends PgliteProtocolModule {
@@ -55,6 +57,7 @@ interface PgliteModule extends PgliteProtocolModule {
 }
 
 const QUERY_TIMEOUT_MS = 30_000;
+const PGLITE_VERSION = RUNTIME_VERSIONS["@electric-sql/pglite"] as string;
 
 function progress(phase: HostProgress["phase"], note?: string): void {
   try {
@@ -64,21 +67,23 @@ function progress(phase: HostProgress["phase"], note?: string): void {
   }
 }
 
-async function loadAssets(): Promise<Record<string, unknown>> {
-  const [pgliteRes, initdbRes, dataRes] = await Promise.all([
+/** PGlite's WASM and seed data.  `initdb.wasm` only when this storage may run
+ *  initdb — a storage started from a snapshot or reopened never does. */
+async function loadAssets(withInitdb: boolean): Promise<Record<string, unknown>> {
+  const [pgliteRes, dataRes, initdbRes] = await Promise.all([
     fetch(pgliteAssetUrl("pglite.wasm")),
-    fetch(pgliteAssetUrl("initdb.wasm")),
     fetch(pgliteAssetUrl("pglite.data")),
+    withInitdb ? fetch(pgliteAssetUrl("initdb.wasm")) : null,
   ]);
   if (!pgliteRes.ok) throw new Error(`pglite.wasm fetch failed: ${pgliteRes.status}`);
-  if (!initdbRes.ok) throw new Error(`initdb.wasm fetch failed: ${initdbRes.status}`);
+  if (initdbRes && !initdbRes.ok) throw new Error(`initdb.wasm fetch failed: ${initdbRes.status}`);
   if (!dataRes.ok) throw new Error(`pglite.data fetch failed: ${dataRes.status}`);
-  const [pgliteWasmModule, initdbWasmModule, fsBundle] = await Promise.all([
+  const [pgliteWasmModule, fsBundle, initdbWasmModule] = await Promise.all([
     WebAssembly.compileStreaming(pgliteRes),
-    WebAssembly.compileStreaming(initdbRes),
     dataRes.blob(),
+    initdbRes ? WebAssembly.compileStreaming(initdbRes) : null,
   ]);
-  return { pgliteWasmModule, initdbWasmModule, fsBundle };
+  return initdbWasmModule ? { pgliteWasmModule, initdbWasmModule, fsBundle } : { pgliteWasmModule, fsBundle };
 }
 
 interface Opened {
@@ -94,36 +99,67 @@ let schema: StorageSchemaPlan | null = null;
 
 async function open(options: HostInitOptions): Promise<Opened> {
   progress("pglite-assets");
-  const [mod, assets] = await Promise.all([
+  const persistentDir = options.dataDir && options.dataDir !== ":memory:" ? options.dataDir : null;
+  const snapshot = await freshSnapshot(persistentDir);
+  const [mod, seededAssets] = await Promise.all([
     import(/* @vite-ignore */ pgliteModuleUrl("index.js")) as Promise<PgliteModule>,
-    loadAssets(),
+    loadAssets(snapshot.fresh && !snapshot.blob),
   ]);
+  let assets = seededAssets;
   const { PGlite } = mod;
-  progress("pglite-construct");
+  // The note says how the cluster comes up: unpacked from the cached
+  // snapshot, initdb (then dumped as the snapshot), or an existing OPFS one.
+  progress("pglite-construct", snapshot.blob ? "snapshot" : snapshot.fresh ? "initdb" : "reopen");
+  const start = async (dataDir: string | null, seed: Blob | null): Promise<Pglite & PgliteSession> => {
+    const opts = seed ? { ...assets, loadDataDir: seed } : assets;
+    const pg = dataDir ? new PGlite(dataDir, opts) : new PGlite(opts);
+    await pg.waitReady;
+    return pg;
+  };
   let pg: Pglite & PgliteSession;
   let persistent = false;
-  if (options.dataDir && options.dataDir !== ":memory:") {
+  let seeded = snapshot.blob;
+  if (persistentDir) {
     try {
-      pg = new PGlite(options.dataDir, assets);
-      await pg.waitReady;
+      pg = await start(persistentDir, seeded);
       persistent = true;
     } catch (err) {
       // A browser that refuses OPFS (Safari < 17, a sandboxed iframe) still
       // gets a database; `persistent` tells the UI it will not survive.
-      console.warn(`[storage] data dir "${options.dataDir}" refused, using memory`, err);
-      pg = new PGlite(assets);
+      console.warn(`[storage] data dir "${persistentDir}" refused, using memory`, err);
+      if (!("initdbWasmModule" in assets)) assets = await loadAssets(true);
+      pg = await start(null, null);
+      seeded = null;
     }
   } else {
-    pg = new PGlite(assets);
+    try {
+      pg = await start(null, seeded);
+    } catch (err) {
+      if (!seeded) throw err;
+      // A snapshot PGlite cannot start from is dropped, not retried.
+      console.warn("[storage] PGlite snapshot refused, running initdb", err);
+      await dropSnapshot(PGLITE_VERSION);
+      assets = await loadAssets(true);
+      pg = await start(null, null);
+      seeded = null;
+    }
   }
-  // PGlite really starts up on its first statement — which, on a fresh
-  // reset, is the drop below.
+  // The cluster initdb just made, before any migration touches it: the
+  // snapshot every later fresh storage starts from.
+  if (snapshot.fresh && !seeded) await writeSnapshot(PGLITE_VERSION, await pg.dumpDataDir("gzip"));
   if (options.fresh) {
     progress("ddl-drop");
     await pg.exec(dropUserSchemasSql(true));
   }
-  await pg.waitReady;
   return { pg, persistent, server: new StorageServer(pgliteEngine(pg, mod)) };
+}
+
+/** Whether this storage starts a new cluster, and the snapshot to start it
+ *  from.  An in-memory storage is always new; an OPFS one only while its data
+ *  dir holds no cluster yet. */
+async function freshSnapshot(persistentDir: string | null): Promise<{ fresh: boolean; blob: Blob | null }> {
+  const fresh = persistentDir ? !(await opfsClusterExists(persistentDir)) : true;
+  return { fresh, blob: fresh ? await readSnapshot(PGLITE_VERSION) : null };
 }
 
 async function migrate(pg: Pglite, plan: StorageSchemaPlan): Promise<StorageMigrateResult> {
