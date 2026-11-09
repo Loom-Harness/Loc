@@ -4,11 +4,11 @@
 // so it stays unit-testable with in-memory fixtures).
 //
 // `loadSourceMap` parses `.loom/sourcemap.json` the exact same way
-// `src/cli/main.ts`'s `runTrace` / `runBreakpoints` already do — there is no
+// `runTrace` / `runBreakpoints` (`src/cli/commands/`) already do — there is no
 // separate validating parser to reuse beyond that: the "parser" for this
 // wire format IS `JSON.parse(fs.readFileSync(path, "utf8")) as SourceMap`
 // (see `resolveMapPath`/the try/catch around `JSON.parse` in
-// `src/cli/main.ts`). Reusing the `SourceMap` TYPE from `src/trace/` (rather
+// `src/cli/commands/trace.ts`). Reusing the `SourceMap` TYPE from `src/trace/` (rather
 // than redeclaring it here) is what keeps this a genuine reuse and not a
 // hand-rolled second JSON->SourceMap bridge.
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ export function loadSourceMap(mapPath: string): SourceMap {
 /** A `ReadSource` backed by the real filesystem, with a per-path cache (a
  *  stack trace / breakpoint session re-reads the same few `.ddd` files
  *  repeatedly). Returns `undefined` for a missing/unreadable path — never
- *  guesses, mirroring `src/cli/main.ts`'s own `readSource` closures for
+ *  guesses, mirroring the CLI's own `readSource` closures for
  *  `ddd trace` / `ddd breakpoints`. */
 export function makeFsReadSource(): ReadSource {
   const cache = new Map<string, string | undefined>();

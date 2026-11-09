@@ -1332,7 +1332,7 @@ function indexRenamed(
  *  animal — it must not stop the run (that would break every model relying on
  *  the rename collapse), and it must not be silent either.  So it needs a
  *  channel that carries a diagnostic out without an exception, which is what
- *  this is: the caller passes a sink, the pass appends, and `src/cli/main.ts`
+ *  this is: the caller passes a sink, the pass appends, and `ddd generate`
  *  prints them the way it already prints the walkers' give-ups.
  *
  *  Phase ⑨ runs long after the phase-⑦ validator, and it needs a snapshot
@@ -1541,7 +1541,7 @@ export interface AmbiguousRename {
  *  — absent `--allow-destructive` — this fails fast with a dedicated
  *  `loom.migration-ambiguous-rename` code that points at the explicit
  *  rename-intent block (M-T2.1), the non-lossy remedy.  Subclasses
- *  {@link MigrationDestructiveError} so every existing catch (`src/cli/main.ts`)
+ *  {@link MigrationDestructiveError} so every existing catch (`src/cli/commands/`)
  *  and destructive-gate assertion keeps recognising it. */
 export class MigrationAmbiguousRenameError extends MigrationDestructiveError {
   override readonly code = "loom.migration-ambiguous-rename";

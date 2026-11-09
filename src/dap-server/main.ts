@@ -11,7 +11,7 @@
 // NOTE — the map path is deliberately simple: `--map=<path>` on argv, else the
 // `LOOM_DAP_MAP` env var, else `.loom/sourcemap.json`
 // relative to the current working directory (the same default
-// `src/cli/main.ts`'s `resolveMapPath` uses for `ddd trace`/`ddd
+// `src/cli/commands/trace.ts`'s `resolveMapPath` uses for `ddd trace`/`ddd
 // breakpoints`). A real editor launch config sets one of these explicitly.
 // ---------------------------------------------------------------------------
 
