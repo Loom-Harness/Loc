@@ -296,10 +296,33 @@ interface ProjectLayout {
   /** Shell steps, after `cd <slug>`, that install what the project's emitted
    *  unit tests need and then run them. */
   test?: string[];
+  /** The command, after `cd <slug>`, that runs the ONE test named `name` (the
+   *  string in the model's `test "…"`), in the runner's own filter syntax. */
+  one?: (name: string) => string;
   /** True for an emitted path (relative to the deployable dir) that is one of
    *  those unit tests — so a project with no emitted tests says nothing. */
   isTestFile: (rel: string) => boolean;
+  /** The environment that points this project's integration tests at its own
+   *  database (`db`, which `db-init/` creates) on the host Postgres, in the
+   *  URL form its driver reads.  Two projects must not share one database:
+   *  each applies its own migrations there, and the second collides with the
+   *  first's tables. */
+  integrationEnv?: (db: string) => Record<string, string>;
+  /** Set when `mix test` boots the whole application, Repo included, so even
+   *  the in-process tests expect the database. */
+  bootsRepo?: boolean;
+  /** Steps, after `cd <slug>`, that create and migrate the database the
+   *  integration tests run against, when the runner does not do it itself. */
+  integrationSetup?: string[];
 }
+
+/** A test name as a runner's identifier: the backends emit `test "a b c"` as a
+ *  method / function named `a_b_c`. */
+const snakeName = (name: string) =>
+  name
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
   const slug = ctx.slugOf(d.name);
@@ -325,6 +348,10 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
             ]
           : undefined,
       test: scripts.test ? ["npm install", "npm test"] : undefined,
+      one: scripts.test ? (name) => `npm test -- -t ${shellQuote(name)}` : undefined,
+      integrationEnv: (db) => ({
+        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+      }),
       isTestFile: (rel) => rel.endsWith(".test.ts") || rel.endsWith(".test.tsx"),
     };
   }
@@ -343,6 +370,13 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
         `${envPrefix({ ...env, ASPNETCORE_URLS: `http://localhost:${dep.port}` })}dotnet run`,
       ],
       test: testDirs.length > 0 ? testDirs.map((dir) => `dotnet test ${dir}`) : undefined,
+      one:
+        testDirs.length > 0
+          ? (name) => `dotnet test ${testDirs[0]} --filter ${shellQuote(`DisplayName=${name}`)}`
+          : undefined,
+      integrationEnv: (db) => ({
+        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+      }),
       isTestFile: (rel) => testDirs.some((dir) => rel.startsWith(`${dir}/`) && rel.endsWith(".cs")),
     };
   }
@@ -355,6 +389,10 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
         ? (env, dep) => [`${envPrefix({ ...env, SERVER_PORT: String(dep.port) })}gradle bootRun`]
         : undefined,
       test: ["gradle test"],
+      one: (name) => `gradle test --tests ${shellQuote(`*.${snakeName(name)}`)}`,
+      integrationEnv: (db) => ({
+        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+      }),
       isTestFile: (rel) => rel.startsWith("src/test/") && rel.endsWith(".java"),
     };
   }
@@ -365,7 +403,10 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
         `${envPrefix({ ...env, PORT: String(dep.port) })}mix phx.server`,
       ],
       test: ["mix deps.get", "mix test"],
+      one: (name) => `mix test --only ${shellQuote(`test:test ${name}`)}`,
       isTestFile: (rel) => rel.endsWith("_test.exs"),
+      bootsRepo: true,
+      integrationSetup: ["MIX_ENV=test mix ecto.setup"],
     };
   }
   // Python: a uv project — `pyproject.toml` and no requirements file; its
@@ -382,6 +423,12 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
           ]
         : undefined,
       test: /\bpytest\b/.test(pyproject) ? ["uv sync", "uv run pytest"] : undefined,
+      one: /\bpytest\b/.test(pyproject)
+        ? (name) => `uv run pytest -k ${shellQuote(snakeName(name))}`
+        : undefined,
+      integrationEnv: (db) => ({
+        LOOM_PG_URL: `postgresql+asyncpg://postgres:postgres@localhost:5432/${db}`,
+      }),
       isTestFile: (rel) => /(^|\/)test_[^/]+\.py$/.test(rel),
     };
   }
@@ -483,20 +530,108 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   if (unit.length > 0) {
     lines.push(unit.length === 1 ? `### \`${unit[0].slug}/\` — unit tests` : "### Unit tests");
     lines.push("");
-    lines.push(
-      "Emitted from the model's `test` blocks: the domain rules, exercised in process. No database, no running server.",
-    );
-    lines.push("");
+    lines.push(...unitPrerequisites(unit, ctx));
   }
+  const example = firstTestName(ctx);
   for (const u of unit) {
     lines.push("```bash");
     lines.push(`cd ${u.slug}`);
-    lines.push(...u.layout.test);
+    const integration = hasIntegration(ctx, u.slug, u.layout);
+    const setup =
+      integration && u.layout.integrationSetup
+        ? u.layout.integrationSetup.map((c) => `${c}   # once: create + migrate the test database`)
+        : [];
+    const env =
+      integration && u.layout.integrationEnv ? envPrefix(u.layout.integrationEnv(u.slug)) : "";
+    // The setup needs the dependencies, so it goes just before the run step.
+    lines.push(...u.layout.test.slice(0, -1), ...setup);
+    lines.push(...u.layout.test.slice(-1).map((c) => `${env}${c}`));
+    if (u.layout.one && example) lines.push(`${env}${u.layout.one(example)}   # just one test`);
     lines.push("```");
     lines.push("");
   }
   if (hasRootE2E) lines.push(...rootE2E(sys, ctx));
   for (const slug of uiE2E) lines.push(...uiE2ESection(slug, hasRootE2E));
+  return lines;
+}
+
+/** An emitted context-level test file — the `*integration*` suite each
+ *  backend writes for a `test` block in a `context`, which runs against live
+ *  repositories and so needs the database. */
+function hasIntegration(ctx: SystemReadmeContext, slug: string, layout: ProjectLayout): boolean {
+  return hasEmitted(ctx, slug, (rel) => layout.isTestFile(rel) && /integration/i.test(rel));
+}
+
+/** The name of a `test` block the model declares, to show the single-test
+ *  recipe with a name the reader can find in the model. */
+function firstTestName(ctx: SystemReadmeContext): string | undefined {
+  for (const [path, content] of ctx.emitted) {
+    if (!/\.test\.ts$/.test(path) || path.startsWith("e2e/") || path.includes("/e2e/")) continue;
+    const m = /\bit\("((?:[^"\\]|\\.)*)"/.exec(content);
+    if (m?.[1]) return JSON.parse(`"${m[1]}"`) as string;
+  }
+  for (const [path, content] of ctx.emitted) {
+    if (!path.endsWith("_test.exs")) continue;
+    const m = /^\s*test "((?:[^"\\]|\\.)*)" do/m.exec(content);
+    if (m?.[1]) return m[1];
+  }
+  for (const [, content] of ctx.emitted) {
+    const m =
+      /\[Fact\(DisplayName = "((?:[^"\\]|\\.)*)"\)\]|@DisplayName\("((?:[^"\\]|\\.)*)"\)/.exec(
+        content,
+      );
+    const name = m?.[1] ?? m?.[2];
+    if (name) return name;
+  }
+  return undefined;
+}
+
+/** What the in-process suites need before they run.  A `test` inside an
+ *  aggregate is a pure unit test; a `test` inside a context is an integration
+ *  test against the real repositories, so it needs a reachable Postgres. */
+function unitPrerequisites(
+  unit: { slug: string; layout: ProjectLayout }[],
+  ctx: SystemReadmeContext,
+): string[] {
+  const lines: string[] = [];
+  const integration = unit.filter((u) => hasIntegration(ctx, u.slug, u.layout));
+  lines.push(
+    "Emitted from the model's `test` blocks and run in process, with no running server. A `test` inside an aggregate is a unit test of its domain rules and needs nothing else.",
+  );
+  lines.push("");
+  if (integration.length > 0) {
+    lines.push(
+      `A \`test\` inside a context is an **integration test**: it saves and reads through the real repositories, so it needs a Postgres. These projects have some — ${integration
+        .map((u) => `\`${u.slug}/\``)
+        .join(
+          ", ",
+        )} — and the default test command runs them too. Start the host Postgres shown under [Or one deployable at a time](#or-one-deployable-at-a-time) first. Each block below points its project's suite at that project's own database through \`LOOM_PG_URL\`: the suites apply their migrations there, so two projects sharing one database collide on each other's tables${
+        integration.some((u) => u.layout.bootsRepo)
+          ? ". The Elixir project uses its own \`<app>_test\` database from \`config/test.exs\` instead"
+          : ""
+      }.`,
+    );
+    lines.push("");
+  }
+  const boots = unit.filter((u) => u.layout.bootsRepo);
+  if (boots.length > 0) {
+    lines.push(
+      `\`mix test\` starts the whole application, database pool included, so in ${boots
+        .map((u) => `\`${u.slug}/\``)
+        .join(
+          ", ",
+        )} run it with that Postgres up on \`localhost:5432\`, even for the unit tests (user and password \`postgres\`, set in \`config/test.exs\`)${
+        boots.some((u) => hasIntegration(ctx, u.slug, u.layout))
+          ? "; the integration tests also need the test database created and migrated once, as below"
+          : ""
+      }.`,
+    );
+    lines.push("");
+  }
+  lines.push(
+    "To run a single test, pass its name from the model: each block below ends with that command for one of this model's tests (Java and Python name a test's method after it, spaces as underscores).",
+  );
+  lines.push("");
   return lines;
 }
 
