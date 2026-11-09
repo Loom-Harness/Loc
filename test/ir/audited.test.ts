@@ -340,6 +340,14 @@ describe("audited — workflow capture", () => {
     // before/after wire snapshots bracket the audited call (via the repo).
     expect(wf).toContain("const __auditBefore0 = carts.toWire(cart);");
     expect(wf).toContain("const __auditAfter0 = carts.toWire(cart);");
+    // The row is queued and written after the exit save, so its `after`
+    // snapshot is the SAVED aggregate (the save advances its version), as the
+    // per-operation route records it.
+    expect(wf).toContain("const __auditAfterSave: (() => Promise<void>)[] = [];");
+    const save = wf.indexOf("await carts.save(cart);");
+    const drain = wf.indexOf("for (const __audit of __auditAfterSave) await __audit();");
+    expect(save, "exit save").toBeGreaterThan(-1);
+    expect(drain, "audit drain after the exit save").toBeGreaterThan(save);
     expect(wf).toContain("await db.insert(schema.auditRecords).values({");
     expect(wf).toContain('action: "cancel",');
     expect(wf).toContain('targetType: "Cart",');

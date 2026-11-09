@@ -467,6 +467,34 @@ export function validateHandlerInlineRepoCalls(
   validateInlineRepoReads(ctx, bodies, diags);
 }
 
+/** `loom.workflow-load-array-unsupported` over a context's command / query
+ *  handler bodies: a `let` over a bare repository list read (`let xs =
+ *  Repo.all()`) reads the whole table, and no repository emits an unbounded
+ *  load to run it (the implicit relational `all()` is paged).  The rows of a
+ *  list come from `Repo.all(<Criterion>(…))`, which runs a retrieval every
+ *  backend emits. */
+export function validateHandlerCollectionLets(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+): void {
+  const handlers = [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])];
+  for (const h of handlers) {
+    for (const top of h.statements) {
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind !== "repo-let" || st.op !== "select-many") return;
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-load-array-unsupported",
+          message: diagMessage("loom.workflow-load-array-unsupported#handler", {
+            repoName: st.repoName,
+          }),
+          source: `${ctx.name}/${h.name}`,
+        });
+      });
+    }
+  }
+}
+
 function validateInlineRepoReads(
   ctx: BoundedContextIR,
   bodies: readonly LabeledBody[],

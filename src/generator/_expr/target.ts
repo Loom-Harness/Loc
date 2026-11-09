@@ -527,6 +527,10 @@ export const QUERY_EMISSION_MODES = [
   /** node `repository-find-predicate.ts` `lowerToDrizzle` — Drizzle's
    *  function-call operator vocabulary (`eq`/`and`/`or`/…). */
   "drizzle-predicate",
+  /** node `emit/mikroorm-filter.ts` `whereToMikroFilter` — a MikroORM
+   *  FilterQuery object literal (`{ col: { $gt: v } }`, `$or`, `raw()`
+   *  fragments) for the `persistence: mikroorm` adapter. */
+  "mikroorm-filter",
   /** Elixir Ecto `where:` fragments — reuses the full domain-logic
    *  `ELIXIR_TARGET`/`renderExpr` (Ecto queries are valid Elixir syntax);
    *  vocabulary is `ALL_EXPR_KINDS`. */
@@ -615,6 +619,18 @@ const DRIZZLE_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "method-call",
 ]);
 
+/** node `emit/mikroorm-filter.ts`'s `predicateEntry` / `filterValue` arms. */
+const MIKROORM_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
+  "literal",
+  "ref",
+  "member",
+  "paren",
+  "unary",
+  "binary",
+  "authz-filter",
+  "method-call",
+]);
+
 export const QUERY_EMISSION_VOCABULARY: Record<QueryEmissionMode, EmissionVocabulary> = {
   "jpql-spring-data": { kinds: JPQL_KINDS },
   "jpql-entity-manager": { kinds: JPQL_KINDS },
@@ -623,6 +639,7 @@ export const QUERY_EMISSION_VOCABULARY: Record<QueryEmissionMode, EmissionVocabu
   "linq-efcore": { kinds: ALL_EXPR_KINDS },
   "sqlalchemy-filter": { kinds: SQLALCHEMY_KINDS },
   "drizzle-predicate": { kinds: DRIZZLE_KINDS },
+  "mikroorm-filter": { kinds: MIKROORM_KINDS },
   "ecto-fragment": { kinds: ALL_EXPR_KINDS },
 };
 

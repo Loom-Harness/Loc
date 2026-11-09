@@ -67,13 +67,14 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedParamSource } from "../../ir/util/routed-handler.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
+import { javaLogEvent } from "../_obs/render-java.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
@@ -97,6 +98,11 @@ import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "./ja
 import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
+
+/** The publisher an emitting handler injects (spelled fully qualified: the
+ *  handler bean's import header is hand-assembled). */
+const APP_EVENT_PUBLISHER = "org.springframework.context.ApplicationEventPublisher";
+const EVENT_PUBLISHER = "eventPublisher";
 
 const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
 const JSON_PROPERTY = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
@@ -448,6 +454,11 @@ function renderHandlerClass(
   // resolves the actor through the injected accessor, as the workflow and
   // paged-run handlers do.
   const usesUser = handlerUsesCurrentUser(h);
+  // An `emit` collects into `__events`, published through the injected
+  // `ApplicationEventPublisher` after the exit saves — the workflow service's
+  // event sink.  The bean is `@Transactional`, so AFTER_COMMIT reactors run
+  // once the command commits and a rollback discards the events.
+  const hasEmit = workflowEmits(h.statements).length > 0;
 
   // The (flattened) params are `handle(...)`'s own parameters, in a method
   // whose body dereferences the injected repository / service fields — a param
@@ -462,6 +473,7 @@ function renderHandlerClass(
     ...calledServices.reading,
     ...calledServices.pure,
     ...(usesUser ? ["currentUser", "currentUserAccessor"] : []),
+    ...(hasEmit ? [EVENT_PUBLISHER] : []),
   ]);
   const locals = javaLocals(
     flat.map((p) => p.name),
@@ -491,7 +503,7 @@ function renderHandlerClass(
     javaWorkflowStmtTarget(
       ctx,
       renderCtx,
-      undefined,
+      hasEmit ? "__events" : undefined,
       collectUnionFindLets(h.statements),
       undefined,
       undefined,
@@ -499,9 +511,22 @@ function renderHandlerClass(
     ),
     "        ",
   ).flat();
-  const saveLines = h.savesAtExit.map(
-    (s) => `        ${repoField(s.aggName)}.save(${boundLocal(renderCtx, s.name)});`,
-  );
+  const saveLines = [
+    ...h.savesAtExit.map(
+      (s) => `        ${repoField(s.aggName)}.save(${boundLocal(renderCtx, s.name)});`,
+    ),
+    ...(hasEmit
+      ? [
+          `        for (var __ev : __events) {`,
+          `            CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName());`,
+          `            ${EVENT_PUBLISHER}.publishEvent(__ev);`,
+          `        }`,
+        ]
+      : []),
+  ];
+  const eventsDecl = hasEmit
+    ? [`        var __events = new java.util.ArrayList<${basePkg}.domain.events.DomainEvent>();`]
+    : [];
   const returnLines: string[] = [];
   // An expected-failure result (`T or E`): the wire union, and an error answer
   // marks the transaction rollback-only, discarding every write the command
@@ -553,16 +578,19 @@ function renderHandlerClass(
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
     ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
     ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
+    ...(hasEmit ? [`    private final ${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER};`] : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
     ...calledServices.reading.map((s) => `${s} ${lowerFirst(s)}`),
     ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
+    ...(hasEmit ? [`${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER}`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
     ...calledServices.reading.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
     ...(usesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
+    ...(hasEmit ? [`        this.${EVENT_PUBLISHER} = ${EVENT_PUBLISHER};`] : []),
   ];
   const ctor =
     ctorAssigns.length > 0
@@ -582,7 +610,7 @@ function renderHandlerClass(
   // CatalogLog is only referenced when the body renders an `emit` (the shared
   // spine logs event_dispatched there); a plain load/mutate/save handler leaves
   // it out so the import header stays tight.
-  const usesCatalog = bodyLines.some((l) => l.includes("CatalogLog"));
+  const usesCatalog = [...bodyLines, ...saveLines].some((l) => l.includes("CatalogLog"));
 
   // `<resourcesPkg>.*` — the wildcard the workflow leg uses, gated on the
   // RENDERED body actually naming a resource-client class so an unused import
@@ -619,6 +647,7 @@ function renderHandlerClass(
     usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
+    hasEmit ? `import ${basePkg}.domain.events.*;` : null,
     `import ${basePkg}.domain.ids.*;`,
     `import ${basePkg}.domain.valueobjects.*;`,
     usesCatalog ? `import ${basePkg}.config.CatalogLog;` : null,
@@ -631,6 +660,7 @@ function renderHandlerClass(
     ...ctor,
     `    public ${retType} handle(${params}) {`,
     usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+    ...eventsDecl,
     ...bodyLines,
     ...saveLines,
     ...returnLines,

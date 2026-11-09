@@ -51,7 +51,7 @@ import {
 } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
-import { AMBIENT_PRINCIPAL, mikroGetByIdLines, whereToMikroFilter } from "./mikroorm-filter.js";
+import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
@@ -194,7 +194,6 @@ export function renderMikroEmbeddedRepository(
     const name = lowerFirst(f.name);
     const paged = pagedReturn(f.returnType);
     const isList = f.returnType.kind === "array";
-    const ret = isList ? `${agg.name}[]` : `${agg.name} | null`;
     // A find whose own `where` names `currentUser` gains a trailing
     // `currentUser: User` parameter — the same contract the drizzle repository
     // has, and the one every call site already assumes: the Hono route emits
@@ -206,29 +205,20 @@ export function renderMikroEmbeddedRepository(
     const usesUser = findUsesCurrentUser(f);
     const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
-    let filter: string;
     // The aggregate's scope applies by itself (schema filters); this read's
     // `ignoring` clause switches off the named ones.
     const ignoring = mikroFilterOption(agg, pool, {
       bypassAll: f.bypassAll,
       bypassCaps: f.bypassCaps,
     });
-    try {
-      // The find's OWN predicate reads the declared `currentUser` parameter;
-      // the schema filters keep the ambient accessor, because they ride reads
-      // that have no such parameter.  A clause-less find still filters — by its
-      // implicit key match.
-      const own = f.filter;
-      filter = own
-        ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
-        : "{}";
-    } catch {
-      return lines(
-        `  async ${name}(${paged ? `${params}${params ? ", " : ""}page: number, pageSize: number, sort: string, dir: string` : params}): Promise<${paged ? `{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }` : ret}> {`,
-        `    throw new Error("mikroorm v1: this find's predicate is not yet supported");`,
-        `  }`,
-      );
-    }
+    // The find's OWN predicate reads the declared `currentUser` parameter; the
+    // schema filters keep the ambient accessor, because they ride reads that
+    // have no such parameter.  A clause-less find still filters — by its
+    // implicit key match.
+    const own = f.filter;
+    const filter = own
+      ? mikroFilterOrRefuse(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
+      : "{}";
     if (paged) {
       const pagedParams = [
         ...baseParams,

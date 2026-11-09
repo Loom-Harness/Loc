@@ -581,4 +581,6 @@ export const messages = {
     `workflow '${p.name}': declared 'transactional' but does not mutate any aggregate or emit any event — the keyword has no effect.`,
   "loom.isolation-requires-transactional": (p: { name: unknown; isolation: unknown }) =>
     `workflow '${p.name}': isolation level '${p.isolation}' requires the 'transactional' keyword.`,
+  "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>
+    `'${p.repoName}.all()' in a handler body reads the whole table, and no repository emits an unbounded load to run it (the implicit 'all()' is paged).  Read the rows with '${p.repoName}.all(<Criterion>(…))'.`,
 } satisfies Record<string, MessageEntry>;
