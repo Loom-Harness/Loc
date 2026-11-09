@@ -192,6 +192,14 @@ The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
 files and mail live as long as the infra worker: Reset or a re-boot empties them.
 
+A presigned S3 URL the generated frontend `fetch`es from the preview iframe is
+answered by the same object store: the iframe's fetch shim
+(`src/preview/iframe-html.ts`) forwards any `*.amazonaws.com` URL carrying an
+`X-Amz-Credential` over the bridge port to the `s3` service. Only `fetch` is
+intercepted — an `<img src>` or a download link to a presigned URL still goes to
+the real host (a page cannot be intercepted without a service worker), which the
+Runtime panel's "emulated" tooltip states.
+
 ### In-browser test runner
 
 The Postgres is **PGlite** — a WebAssembly Postgres — one database per

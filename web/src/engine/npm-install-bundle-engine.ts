@@ -422,6 +422,11 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     return slug === undefined ? null : (this.runtimes.get(slug) ?? null);
   }
 
+  serveInfraHttp: NonNullable<RuntimeEngine["serveInfraHttp"]> = async ({ service, ...http }) => {
+    if (!this.infra) throw new Error("Runtime not booted — boot first.");
+    return (await this.infra.service(service, "http", http)) as Awaited<ReturnType<NonNullable<RuntimeEngine["serveInfraHttp"]>>>;
+  };
+
   dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult> {
     const rt = this.target(target);
     if (!rt) {
