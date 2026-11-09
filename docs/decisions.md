@@ -2466,6 +2466,7 @@ already renders.
 
 ```ddd
 context Catalog {
+  // … the context's other members
   enum ShareGranteeKind { Org, Subtree, User }
 
   aggregate Category with tenantOwned, shareable { name: string }
