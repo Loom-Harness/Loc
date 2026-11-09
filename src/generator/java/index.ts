@@ -1763,7 +1763,7 @@ function emitAggregate(
           voLookup,
           mangledEnums,
         },
-        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
+        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts, schema),
       }),
       agg.name,
       agg.origin,
@@ -1881,7 +1881,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
+      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts, schema),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state

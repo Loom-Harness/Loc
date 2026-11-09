@@ -7,7 +7,7 @@
 // bound, which forwards each syntax arm to `DART_LEAVES` and the money /
 // temporal / intrinsic / collection-op seams in `dart-expr.ts` — and its Dart
 // text is pinned byte-exact.  Kinds with no client-side meaning (`this`,
-// `authz-filter`) are pinned as the LOUD refusal they are, never as a
+// `authz-filter`, `exists`) are pinned as the LOUD refusal they are, never as a
 // placeholder; that refusal IS their Dart output.
 //
 // Why a table here rather than more full-generation tests: the kind arms were
@@ -428,6 +428,18 @@ const PINS: Record<ExprIR["kind"], Pin[]> = {
       name: "refused — record policy is enforced server-side",
       expr: { kind: "authz-filter", filter: { kind: "deny" }, aggregate: "Order" } as ExprIR,
       throws: /authorization filter for 'Order' reached a page\/component body/,
+    },
+  ],
+  exists: [
+    {
+      name: "refused — a query predicate, compiled into SQL server-side",
+      expr: {
+        kind: "exists",
+        aggregate: "Share",
+        binding: "s",
+        where: { kind: "literal", lit: "bool", value: "true" },
+      } as ExprIR,
+      throws: /'exists Share …' reached a page\/component body/,
     },
   ],
 };

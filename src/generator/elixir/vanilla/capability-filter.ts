@@ -19,6 +19,7 @@
 // (Ecto binds `= NULL`, never `IS NULL`).
 // ---------------------------------------------------------------------------
 
+import { exprReadsPrincipal } from "../../../ir/enrich/read-scope.js";
 import type { AggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -30,6 +31,7 @@ import {
   guidFromStringSelfScope,
   isDeepScopeFilter,
 } from "../../../ir/util/tenant-stance.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import {
   type RenderCtx,
@@ -50,8 +52,43 @@ export { aggregateUsesPrincipalContextFilter };
  *  used to notice: the aggregate-level predicate only inspects
  *  `contextFilters`, so the find's head bound no `current_user` while its body
  *  rendered one — "undefined variable current_user" at `mix compile`. */
-export function findUsesPrincipal(f: { filter?: ExprIR }): boolean {
-  return !!f.filter && exprUsesCurrentUser(f.filter);
+export function findUsesPrincipal(
+  f: { filter?: ExprIR },
+  /** The context's aggregates: an `exists` subquery reads the principal its
+   *  quantified aggregate's read scope reads. */
+  pool: readonly AggregateIR[] = [],
+): boolean {
+  return !!f.filter && exprReadsPrincipal(f.filter, pool);
+}
+
+/** True when a read predicate rooted at `agg` holds an `exists` quantifier, so
+ *  its queries must name their root `:record` for the subquery's
+ *  `parent_as(:record)` (see `renderEctoExists`): a capability `filter`, a
+ *  repository find, or a criterion / retrieval over `agg`. */
+export function quantifiesOver(
+  agg: AggregateIR,
+  ctx: {
+    criteria?: readonly { targetType: { kind: string; name?: string }; body: ExprIR }[];
+    retrievals?: readonly { targetType: { kind: string; name?: string }; where: ExprIR }[];
+    repositories?: readonly RepositoryIR[];
+  },
+): boolean {
+  const over = (t: { kind: string; name?: string }): boolean =>
+    t.kind === "entity" && t.name === agg.name;
+  const exprs: ExprIR[] = [
+    ...(agg.contextFilters ?? []),
+    ...(ctx.criteria ?? []).filter((c) => over(c.targetType)).map((c) => c.body),
+    ...(ctx.retrievals ?? []).filter((r) => over(r.targetType)).map((r) => r.where),
+    ...(ctx.repositories ?? [])
+      .filter((r) => r.aggregateName === agg.name)
+      .flatMap((r) => r.finds.flatMap((f) => (f.filter ? [f.filter] : []))),
+  ];
+  let found = false;
+  for (const e of exprs)
+    walkExprDeep(e, (x) => {
+      if (x.kind === "exists") found = true;
+    });
+  return found;
 }
 
 /** Does the repository find `method` on `aggName` take the request actor?
@@ -112,8 +149,13 @@ function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
  *  subtree sentinel renders its own fail-closed pinned fragment (both claims:
  *  the anchor and the system's tenancy claim, which the NULL-`data_key` floor
  *  compares against); every other principal side is pinned by `renderExpr`. */
-export function renderEctoRestriction(p: ExprIR, contextModule: string): string {
-  const ctx: RenderCtx = { thisName: "record", contextModule, filterArgs: true };
+export function renderEctoRestriction(
+  p: ExprIR,
+  contextModule: string,
+  /** The context's aggregates — resolves an `exists` quantifier in `p`. */
+  pool: readonly AggregateIR[] = [],
+): string {
+  const ctx: RenderCtx = { thisName: "record", contextModule, filterArgs: true, pool };
   return isDeepScopeFilter(p)
     ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
     : renderPrincipalFilter(p, ctx);

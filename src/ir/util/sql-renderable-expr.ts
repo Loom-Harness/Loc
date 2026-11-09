@@ -72,6 +72,7 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
     // `ExprIR` kind is a `tsc` error and someone rules on whether Postgres can
     // express it (`src/generator/sql-pg-expr.ts` is the other half of that
     // decision).
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

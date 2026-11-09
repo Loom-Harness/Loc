@@ -198,6 +198,7 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
       return e.fields.every((f) => ok(f.value));
     case "i18nFormat":
       return ok(e.inner);
+    case "exists":
     case "this":
     case "id":
     case "call":
@@ -514,6 +515,7 @@ export function renderRefineExpr(e: ExprIR): string {
     case "i18nFormat":
       // Transparent i18n wrapper — render the wrapped operand (format dropped).
       return renderRefineExpr(e.inner);
+    case "exists":
     case "this":
     case "id":
     case "call":

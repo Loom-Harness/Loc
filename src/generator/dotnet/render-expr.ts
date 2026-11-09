@@ -13,7 +13,7 @@ import {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
-import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { checkedBinaryKind, checkedUnaryKind } from "../_expr/checked-int.js";
 import { nullishOperand } from "../_expr/coalesce.js";
@@ -81,6 +81,10 @@ export interface CsRenderContext {
    *  criteria Specifications): scalar intrinsics render their EF-translatable
    *  spelling (see CS_INTRINSIC_QUERY_RENDERERS) instead of the domain form. */
   efQuery?: boolean;
+  /** How an EF query reaches the DbContext for an `exists <Agg> …` subquery
+   *  (`<db>.Set<Agg>()`): the repository's `_db` field by default, `this`
+   *  inside the DbContext's own `OnModelCreating` query filters. */
+  dbContextExpr?: string;
   /** Resource-op call routing: resourceName → static C# helper class
    *  name (e.g. `salesFiles` → `S3Resources`).  Set on the workflow
    *  render context; a `resource-op` call renders to
@@ -209,6 +213,10 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
       if (x.callKind === "domain-service") {
         into.add(`${ns}.Domain.Services`);
       }
+      break;
+    case "exists":
+      // `<db>.Set<Agg>()` names the quantified aggregate's class unqualified.
+      into.add(`${ns}.Domain.${plural(x.aggregate)}`);
       break;
     // No using needed for the node ITSELF.  This is a PER-NODE callback, not a
     // traversal: both call sites drive it with `walkExprDeep` /
@@ -444,7 +452,19 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
 const CS_TARGET_EF: ExprTarget<CsRenderContext> = {
   ...CS_TARGET,
   binary: (left, right, e, ctx) => renderCsBinary(left, right, e, true, ctx.memberScope),
+  // `exists <Agg> as s where p` → `<db>.Set<Agg>().Any(q_s => p)`, which EF
+  // translates to a correlated `EXISTS` subquery.  EF applies the quantified
+  // entity's own query filters to the `Set<Agg>()` it reads, so the subquery
+  // carries that aggregate's read scope with no help from here.
+  exists: (e, ctx) =>
+    `${ctx.dbContextExpr ?? "_db"}.Set<${e.aggregate}>().Any(${csRowParam(e.binding)} => ${renderCsExpr(e.where, ctx)})`,
 };
+
+/** The lambda parameter an `exists … as <row>` binding renders as — prefixed
+ *  so it can never shadow the enclosing query's own parameter (`x`). */
+function csRowParam(binding: string): string {
+  return `q_${binding}`;
+}
 
 export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string {
   // Authorization/tenancy filter sentinels must be intercepted BEFORE
@@ -871,6 +891,8 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}`;
     case "enum-value":
       return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
+    case "row":
+      return csRowParam(e.name);
     case "current-user":
       // Magic identifier for the system's `user { ... }` shape.  The
       // emitter for each per-request context (operation, workflow)

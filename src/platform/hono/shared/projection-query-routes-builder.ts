@@ -943,6 +943,7 @@ function mikroFilterFor(filter: ExprIR, p: ProjectionIR, ctx: EnrichedBoundedCon
     filter,
     undefined,
     projectionSourceAggregate(p, ctx)?.associations ?? [],
+    ctx.aggregates,
   );
 }
 

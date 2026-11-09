@@ -50,6 +50,7 @@ export function provableStringType(e: ExprIR): TypeIR | undefined {
     case "binary":
     case "call":
     case "duration":
+    case "exists":
     case "i18nFormat":
     case "id":
     case "lambda":
@@ -91,6 +92,8 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
       return bodyTypeOf(e.inner);
     case "modelText":
       return { kind: "primitive", name: "string" };
+    case "exists":
+      return { kind: "primitive", name: "bool" };
     case "convert":
       return { kind: "primitive", name: e.target };
     case "ternary":

@@ -263,6 +263,7 @@ function aggregationScope(
     enumsPkg,
     mode: "jpql-entity-manager",
     principalAccessors,
+    aggs: ctx.aggregates,
   };
   const filter = proj.query!.filter;
   const ownWhere = filter ? renderJpqlWhere(filter, jpqlCtx) : null;

@@ -159,6 +159,7 @@ export function lowerToSqlAlchemy(
     agg.associations ?? [],
     opts?.principalAccessor ?? "current_user",
     tphNullableBoolColumns(agg, ctx),
+    ctx,
   );
 }
 
@@ -179,6 +180,7 @@ export function lowerRestrictionToSqlAlchemy(
     agg.associations ?? [],
     principalAccessor,
     tphNullableBoolColumns(agg, ctx),
+    ctx,
   );
 }
 
@@ -245,15 +247,30 @@ export function lowerProjectionFilterToSqlAlchemy(
   return lowerOver(e, rowClassName(sourceProjName), [], "current_user", NO_NULLABLE_BOOLS);
 }
 
+/** The context an `exists <Agg> …` quantifier resolves against while one
+ *  predicate lowers: the quantified aggregates, and the row class each in-scope
+ *  `as <row>` binding reads.  Set by `lowerOver` for the duration of one
+ *  lowering (the recursive `lower` walk threads the rest positionally);
+ *  undefined for a projection / workflow source, where `exists` is refused. */
+let existsScope: { ctx: EnrichedBoundedContextIR; rows: Map<string, string> } | undefined;
+
 function lowerOver(
   e: ExprIR,
   row: string,
   associations: AssociationIR[],
   principalAccessor: string,
   nullBools: ReadonlySet<string>,
+  ctx?: EnrichedBoundedContextIR,
 ): PyPredicate | null {
   const ops = new Set<string>();
-  const expr = lower(e, row, associations, ops, principalAccessor, nullBools);
+  const saved = existsScope;
+  existsScope = ctx ? { ctx, rows: new Map(saved?.rows ?? []) } : undefined;
+  let expr: string | null;
+  try {
+    expr = lower(e, row, associations, ops, principalAccessor, nullBools);
+  } finally {
+    existsScope = saved;
+  }
   if (expr == null) return null;
   // Top-level boolean position: a filter that IS a bare boolean column
   // (`filter this.active`) lands straight in `.where(...)`, which wants the same
@@ -287,6 +304,40 @@ const MAKE_INTERVAL_ZEROS: Record<DurationUnit, number> = {
   hours: 4,
   minutes: 5,
 };
+
+/** `exists <Agg> as s where p` — a correlated `select(<AggRow>).where(p)
+ *  .exists()`.  SQLAlchemy correlates the enclosing row class automatically, so
+ *  `this.<col>` inside `p` stays the outer row's column.  The quantified
+ *  aggregate's read scope is not spelled here: the `read_scope` hook's
+ *  `with_loader_criteria` reaches every occurrence of `<AggRow>` in a
+ *  statement, subqueries included, so the `exists` sees only rows its caller
+ *  could read. */
+function lowerExists(
+  e: Extract<ExprIR, { kind: "exists" }>,
+  row: string,
+  associations: AssociationIR[],
+  ops: Set<string>,
+  principalAccessor: string,
+  nullBools: ReadonlySet<string>,
+): string | null {
+  const scope = existsScope;
+  if (!scope) return null;
+  const inner = scope.ctx.aggregates.find((a) => a.name === e.aggregate);
+  if (!inner) return null;
+  const innerRow = schemaRow(rowClassName(inner.name));
+  const shadowed = scope.rows.get(e.binding);
+  scope.rows.set(e.binding, innerRow);
+  let pred: string | null;
+  try {
+    pred = lower(e.where, row, associations, ops, principalAccessor, nullBools);
+  } finally {
+    if (shadowed === undefined) scope.rows.delete(e.binding);
+    else scope.rows.set(e.binding, shadowed);
+  }
+  if (pred == null) return null;
+  ops.add("select");
+  return `${SELECT}(${innerRow}).where(${boolOperand(pred, row, nullBools)}).exists()`;
+}
 
 function lower(
   e: ExprIR,
@@ -481,6 +532,8 @@ function lower(
     }
     case "paren":
       return lower(e.inner, row, associations, ops, principalAccessor, nullBools);
+    case "exists":
+      return lowerExists(e, row, associations, ops, principalAccessor, nullBools);
     case "ref":
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
@@ -495,6 +548,20 @@ function lower(
       }
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this") {
         return `${row}.${pythonIdent(`${e.receiver.member}_${e.member}`)}`;
+      }
+      // `s.<col>` / `s.<vo>.<sub>` on an `exists … as s` row — the quantified
+      // row class's column.
+      if (e.receiver.kind === "ref" && e.receiver.refKind === "row") {
+        const r = existsScope?.rows.get(e.receiver.name);
+        return r ? `${r}.${pythonIdent(e.member)}` : null;
+      }
+      if (
+        e.receiver.kind === "member" &&
+        e.receiver.receiver.kind === "ref" &&
+        e.receiver.receiver.refKind === "row"
+      ) {
+        const r = existsScope?.rows.get(e.receiver.receiver.name);
+        return r ? `${r}.${pythonIdent(`${e.receiver.member}_${e.member}`)}` : null;
       }
       // `currentUser.<claim>` — bind the principal's claim as a plain value.
       // The accessor is the source: a per-find `where` passes the threaded
@@ -656,6 +723,7 @@ function isColumnRooted(e: ExprIR): boolean {
     // renderer) rather than interpolating a column that is not there, so a
     // missing arm narrows a lowering, never widens one.  Named rather than
     // left to a `default:` so a new `ExprIR` kind is a decision.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":

@@ -59,6 +59,15 @@ export function canEmitToExpressionFor(
   return hasQueryFace(crit.body);
 }
 
+/** True when `e` holds an `exists` quantifier. */
+export function quantifies(e: ExprIR): boolean {
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "exists") found = true;
+  });
+  return found;
+}
+
 /** Does a criterion body get the EF `ToExpression()` query face?  It must be
  *  in the queryable subset AND read no reference collection: a
  *  `this.<refColl>.contains(x)` membership lives in a join table EF `Ignore`s on
@@ -92,6 +101,10 @@ function candidateName(c: CriterionIR, ctx: BoundedContextIR): string | undefine
   const name = c.targetType.name;
   if (!ctx.aggregates.some((a) => a.name === name)) return undefined;
   if (refsCurrentUser(c.body)) return undefined;
+  // An `exists` quantifier reads another entity set through the DbContext, so
+  // it has neither an in-memory `IsSatisfiedBy` face nor a Domain-layer
+  // expression face; its uses inline against the repository's `_db`.
+  if (quantifies(c.body)) return undefined;
   return name;
 }
 

@@ -117,14 +117,19 @@ export function mikroSchemaFilters(
   // several declarations) are ONE filter: their conditions conjoin.
   for (const r of scope.restrictions) {
     if (r.predicate === undefined) continue;
-    slot(r).base.push(whereToMikroFilter(r.predicate, AMBIENT_PRINCIPAL, host.associations));
+    slot(r).base.push(whereToMikroFilter(r.predicate, AMBIENT_PRINCIPAL, host.associations, pool));
   }
   if (isTphBase(host, pool)) {
     const concretes = tphConcreteAggregates(host, pool);
     for (const { discriminator, restriction } of scope.subtypeRestrictions) {
       if (restriction.predicate === undefined) continue;
       const owner = concretes.find((c) => discriminatorValue(c, pool) === discriminator) ?? host;
-      const cond = whereToMikroFilter(restriction.predicate, AMBIENT_PRINCIPAL, owner.associations);
+      const cond = whereToMikroFilter(
+        restriction.predicate,
+        AMBIENT_PRINCIPAL,
+        owner.associations,
+        pool,
+      );
       slot(restriction).guarded.push({
         concrete: owner.name,
         cond: `{ $or: [{ kind: { $ne: ${JSON.stringify(discriminator)} } }, ${cond}] }`,

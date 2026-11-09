@@ -179,6 +179,8 @@ export function lowerToDrizzle(
 ): DrizzleLowering | null {
   const principal = opts?.principalAccessor ?? "currentUser";
   const ops = new Set<string>();
+  /** The table each in-scope `exists … as <row>` binding reads. */
+  const rows = new Map<string, string>();
   const text = lowerExpr(expr);
   if (text === null) return null;
   return { expr: text, ops };
@@ -262,6 +264,7 @@ export function lowerToDrizzle(
         );
       }
     }
+    if (e.kind === "exists") return lowerExists(e);
     if (e.kind === "binary") {
       if (e.op === "&&" || e.op === "||") {
         const l = lowerExpr(e.left);
@@ -443,6 +446,32 @@ export function lowerToDrizzle(
     return null;
   }
 
+  /** `exists <Agg> as s where p` — a correlated `EXISTS (SELECT 1 FROM <agg's
+   *  table> WHERE p AND <agg's read scope>)`.  The subquery is a `sql` tag, not
+   *  a query builder, so it needs no `db` handle and renders the same in a
+   *  repository method and in the pooled `db/read-scopes` helpers.  Drizzle
+   *  qualifies every column with its table, so `s.<col>` (the quantified
+   *  table) and `this.<col>` (the filtered row's) stay distinct inside it.  The
+   *  quantified aggregate's own read scope is inlined, never dropped: an
+   *  `exists` sees only rows its caller could read. */
+  function lowerExists(e: Extract<ExprIR, { kind: "exists" }>): string | null {
+    const inner = ctx.aggregates.find((a) => a.name === e.aggregate);
+    if (!inner) return null;
+    const innerTable = repoTableName(inner, ctx);
+    const shadowed = rows.get(e.binding);
+    rows.set(e.binding, innerTable);
+    const pred = lowerExpr(e.where);
+    if (shadowed === undefined) rows.delete(e.binding);
+    else rows.set(e.binding, shadowed);
+    if (pred === null) return null;
+    const scope = drizzleScopeConjuncts(inner, ctx);
+    const terms = [pred, ...(scope.kind ? [scope.kind] : []), ...scope.filters.map((f) => f.expr)];
+    ops.add("sql");
+    const where = terms.length === 1 ? pred : `and(${terms.join(", ")})`;
+    if (terms.length > 1) ops.add("and");
+    return `sql\`exists (select 1 from \${schema.${innerTable}} where \${${where}})\``;
+  }
+
   /** A `this.<field>` (or bare `this-prop` ref) whose type is the
    *  primitive `bool`, rendered as its schema column — else null.  Lets
    *  the lowerer treat a bare boolean column as `eq(col, true)` in a
@@ -523,6 +552,21 @@ export function lowerToDrizzle(
     // `member` over the `this` literal.
     if (e.kind === "member" && e.receiver.kind === "this") {
       return `schema.${tableName}.${e.member}`;
+    }
+    // `s.field` / `s.vo.sub` on an `exists … as s` row — a column of the
+    // quantified aggregate's table.
+    if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "row") {
+      const t = rows.get(e.receiver.name);
+      return t ? `schema.${t}.${e.member}` : null;
+    }
+    if (
+      e.kind === "member" &&
+      e.receiver.kind === "member" &&
+      e.receiver.receiver.kind === "ref" &&
+      e.receiver.receiver.refKind === "row"
+    ) {
+      const t = rows.get(e.receiver.receiver.name);
+      return t ? `schema.${t}.${e.receiver.member}_${e.member}` : null;
     }
     // `this.field.subField` (value-object member access).  Schema
     // flattens VO fields into `<field>_<subField>` columns.
