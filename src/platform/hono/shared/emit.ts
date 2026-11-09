@@ -818,14 +818,24 @@ export interface ProvLineage {
 }
 `;
 
-/**
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
  *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
-  return (system.sys.timerSources ?? []).some((ts) => {
+  return ownedTimerSources(system).length > 0;
+}
+
+/** Does this deployable own an `every:` timer — the condition for the
+ *  `__loom_timer` claim entity on mikroorm (the same module-level condition
+ *  under which `buildMigrations` adds the table). */
+function ownsIntervalTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
+  return ownedTimerSources(system).some((ts) => ts.cadence.kind === "every");
+}
+
+function ownedTimerSources(system: { deployable: DeployableIR; sys: SystemIR }): TimerSourceIR[] {
+  return (system.sys.timerSources ?? []).filter((ts) => {
     const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
     return sub?.migrationsOwner === system.deployable.name;
   });
@@ -1076,6 +1086,9 @@ export function generateTypeScriptForContexts(
         // below (this deployable OWNS a timerSource).  It has to be an entity
         // on this adapter or `schema.update()` drops it on the second boot.
         timerRuns: ownsTimers(system),
+        // The `every:` claim table — the MigrationsIR table the drizzle path
+        // gets from its migrations; mikro's `schema.update()` needs an entity.
+        timerClaim: ownsIntervalTimers(system),
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
@@ -1613,20 +1626,11 @@ export function generateTypeScriptForContexts(
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no scheduler.ts, no import, no dep, no boot block).
-  const ownedTimers: TimerSourceIR[] = (system.sys.timerSources ?? []).filter((ts) => {
-    const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
-    return sub?.migrationsOwner === system.deployable.name;
-  });
-  // Invariant the watermark entity relies on: `ownsTimers` (used above, before
-  // the entity file is rendered) must agree with this filter.
-  if (ownedTimers.length > 0 !== ownsTimers(system)) {
-    throw new Error(
-      "internal: timer ownership disagrees between the entity opt and the scheduler filter",
-    );
-  }
-  // Persistence-neutral since M-T6.23: the scheduler's watermark table
-  // and advisory lock run on the EntityManager under `persistence: mikroorm`
-  // (`TimerStore` in scheduler-builder.ts).
+  // The same filter the mikro entity opts above read, so the scheduler and the
+  // watermark / claim entities cannot disagree.  Persistence-neutral: the
+  // watermark and the period claim run on the EntityManager under
+  // `persistence: mikroorm` (`TimerStore` in scheduler-builder.ts).
+  const ownedTimers: TimerSourceIR[] = ownedTimerSources(system);
   const hasTimers = ownedTimers.length > 0;
   if (hasTimers) {
     const eventByName = new Map<string, EventIR>(merged.events.map((e) => [e.name, e]));

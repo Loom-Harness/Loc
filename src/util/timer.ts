@@ -16,7 +16,7 @@ const UNIT_MS: Record<string, number> = {
 };
 
 /** Cadence floor — the shortest interval a `timerSource` may fire at, to keep
- *  advisory-lock churn sane.  One second (below cron's minute granularity, so
+ *  claim-row churn sane.  One second (below cron's minute granularity, so
  *  still a legitimate `every:`-only cadence). */
 export const MIN_INTERVAL_MS = 1_000;
 
@@ -116,4 +116,49 @@ export function cronEquivalentOf(everyMs: number): string | null {
   if (hours < 24) return 24 % hours === 0 ? `0 */${hours} * * *` : null;
   if (hours === 24) return `0 0 * * *`;
   return null;
+}
+
+/** The single-fire ledger for `every:` timers: one row per timer holding the
+ *  last period it fired in.  A companion table in the shared `MigrationsIR`
+ *  (`timerClaimTableShape` in `system/migrations-builder.ts`), so every backend
+ *  creates it from one shape. */
+export const TIMER_CLAIM_TABLE = "__loom_timer";
+
+/** How often a replica polls the claim for an `every:` timer: twice per period.
+ *  Any window of one period then holds at least one poll from every live
+ *  replica, so no period is skipped while one replica runs, and the claim — not
+ *  the poll rate — bounds the fire count to one per period. */
+export function timerPollMs(everyMs: number): number {
+  return Math.max(1, Math.floor(everyMs / 2));
+}
+
+/** The one statement that claims the current period of an `every:` timer.
+ *
+ *  The period is `floor(epoch_ms / everyMs)` read off the DATABASE clock
+ *  (`clock_timestamp()`), so replicas whose own clocks disagree still compute
+ *  the same period.  The upsert moves `last_period` forward only when it is
+ *  behind, and returns a row only to the caller whose statement moved it: a
+ *  replica that gets a row fires, every other replica polling the same period
+ *  gets none and skips.  It is a single autocommitted statement — no
+ *  transaction is held across the dispatch, so a host with one database
+ *  connection (the playground's PGlite) can run the tick's own writes after it.
+ *
+ *  A claimed period is spent before the tick dispatches: a replica that dies
+ *  between the claim and the dispatch loses that period's fire, and the next
+ *  period fires normally.  Periods during which no replica polled are skipped,
+ *  not replayed — the claim always jumps to the current period.
+ *
+ *  Name and period are compile-time constants inlined as literals, so every
+ *  backend runs the same text with no driver-specific parameter binding.
+ *  Contains no `"`, `\``, `$` or `#{`, so it embeds verbatim in a C#, Java,
+ *  Python, Elixir or TypeScript string. */
+export function timerClaimSql(name: string, everyMs: number): string {
+  const nameLit = `'${name.replace(/'/g, "''")}'`;
+  const period = `floor(extract(epoch from clock_timestamp()) * 1000 / ${everyMs})::bigint`;
+  return (
+    `INSERT INTO ${TIMER_CLAIM_TABLE} AS t (timer, last_period, fired_at) ` +
+    `VALUES (${nameLit}, ${period}, clock_timestamp()) ` +
+    "ON CONFLICT (timer) DO UPDATE SET last_period = EXCLUDED.last_period, fired_at = clock_timestamp() " +
+    "WHERE t.last_period < EXCLUDED.last_period RETURNING t.last_period"
+  );
 }

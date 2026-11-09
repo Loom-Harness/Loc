@@ -12,9 +12,11 @@
 //     boundary missed while every replica was down runs on recovery (native
 //     missed-run; no watermark shim).  Standard 5-field cron, no translation.
 //
-//   • `every:` (sub-minute) timers stay **in-process** (`PeriodicTimer` +
-//     transaction-scoped `pg_try_advisory_xact_lock` single-fire).  Durability is
-//     meaningless for a high-frequency poll and Hangfire cron is minute-granular.
+//   • `every:` (sub-minute) timers stay **in-process**: a `PeriodicTimer` poll at
+//     half the period, each poll claiming the current period's `__loom_timer`
+//     row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE) so one replica fires
+//     per period.  Durability is meaningless for a high-frequency poll and
+//     Hangfire cron is minute-granular.
 //
 // Every tick constructs its event struct and dispatches it through the SAME
 // `IDomainEventDispatcher` the sagas ride.  Emitted ONLY when the deployable owns
@@ -22,27 +24,16 @@
 
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
+import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { CS } from "../cs-symbols.js";
-
-/** Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource name
- *  into a signed 32-bit int, IDENTICAL to the Hono `timerLockKey` derivation so
- *  a node and a .NET replica of the same `every:` timer contend on the SAME key. */
-export function timerLockKey(name: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < name.length; i++) {
-    h ^= name.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h | 0;
-}
 
 /** The `cron:` timers of a set — run on Hangfire. */
 export function cronTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "cron");
 }
 
-/** The `every:` timers of a set — run in-process (PeriodicTimer + advisory lock). */
+/** The `every:` timers of a set — run in-process (PeriodicTimer + period claim). */
 export function everyTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "every");
 }
@@ -152,15 +143,14 @@ public sealed class ${cls}
 }`;
 }
 
-/** Render one `<Pascal>TimerService : BackgroundService` for an `every:` timer.
- *  Unchanged from: PeriodicTimer + transaction-scoped advisory lock. */
+/** Render one `<Pascal>TimerService : BackgroundService` for an `every:` timer:
+ *  a PeriodicTimer poll at half the period + the `__loom_timer` period claim. */
 function renderEveryService(
   ts: TimerSourceIR,
   eventByName: Map<string, EventIR>,
   usingDapper: boolean,
 ): string {
   const cls = `${upperFirst(ts.name)}TimerService`;
-  const lockKey = timerLockKey(ts.name);
   const struct = tickStruct(eventByName.get(ts.event), ts.event);
   const timerLit = `"${ts.name}"`;
   const firedLog = renderDotnetLogCall("timerFired", [{ name: "timer", valueExpr: timerLit }]);
@@ -175,38 +165,38 @@ function renderEveryService(
     { name: "error", valueExpr: "ex.Message" },
   ]);
   const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
-  // The tick's single-fire lock rides the persistence adapter's own connection:
-  // the EF `AppDbContext.Database`, or the Dapper path's `NpgsqlDataSource`.
-  const lockBlock = usingDapper
+  const claimSql = JSON.stringify(timerClaimSql(ts.name, everyMs));
+  // The claim is one autocommitted statement on the persistence adapter's own
+  // connection: the EF `AppDbContext.Database`, or the Dapper path's
+  // `NpgsqlDataSource`.  Rows affected is 1 only for the poll that advanced the
+  // row.  The EF path then dispatches inside a transaction of its own so the
+  // tick's writes commit together; the Dapper dispatcher opens its own.
+  const claimBlock = usingDapper
     ? `            var db = scope.ServiceProvider.GetRequiredService<${CS.NpgsqlDataSource}>();
             var events = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
-            // TRANSACTION-SCOPED advisory lock: held on the tx's single pinned
-            // connection and released automatically on commit (no unlock to leak
-            // onto a different pooled connection).  Non-blocking: a peer replica's
-            // concurrent tick fails the try and skips.
-            await using var conn = await db.OpenConnectionAsync(cancellationToken);
-            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
-            await using var lockCmd = new ${CS.NpgsqlCommand}("SELECT pg_try_advisory_xact_lock(${lockKey})", conn, tx);
-            var locked = (bool)(await lockCmd.ExecuteScalarAsync(cancellationToken))!;`
+            int claimed;
+            await using (var claimCmd = db.CreateCommand(ClaimSql))
+            {
+                claimed = await claimCmd.ExecuteNonQueryAsync(cancellationToken);
+            }`
     : `            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var events = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
-            // TRANSACTION-SCOPED advisory lock: held on the tx's single pinned
-            // connection and released automatically on commit (no unlock to leak
-            // onto a different pooled connection).  Non-blocking: a peer replica's
-            // concurrent tick fails the try and skips.
-            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
-            var locked = await db.Database
-                ${CS.EfCore}.SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock({LockKey}) AS \\"Value\\"")
-                .SingleAsync(cancellationToken);`;
+            var claimed = await db.Database${CS.EfCore}.ExecuteSqlRawAsync(ClaimSql, cancellationToken);`;
+  const dispatchBlock = usingDapper
+    ? `            await events.DispatchAsync(${struct}, cancellationToken);`
+    : `            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+            await events.DispatchAsync(${struct}, cancellationToken);
+            await tx.CommitAsync(cancellationToken);`;
 
   return `/// <summary>timerSource ${ts.name} { for: ${ts.event}, every: ${everyMs}ms } —
-/// in-process PeriodicTimer; single-fire across replicas via a transaction-scoped
-/// advisory lock; dispatches the tick through the in-process dispatcher.</summary>
+/// in-process PeriodicTimer polling at half the period; each poll claims the
+/// current period's __loom_timer row, so the tick fires once per period across
+/// replicas; dispatches the tick through the in-process dispatcher.</summary>
 public sealed class ${cls} : BackgroundService
 {
-    // FNV-1a hash of the timer name into a signed 32-bit int (identical to the
-    // Hono key derivation) — two replicas contend on the SAME advisory key.
-    private const int LockKey = ${lockKey};
+    // Claims the current period (database clock); affects a row only for the
+    // first poll in that period, on any replica.
+    private const string ClaimSql = ${claimSql};
 
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<${cls}> _log;
@@ -220,7 +210,7 @@ public sealed class ${cls} : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(${everyMs}));
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(${timerPollMs(everyMs)}));
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -241,14 +231,13 @@ public sealed class ${cls} : BackgroundService
         try
         {
             await using var scope = _scopes.CreateAsyncScope();
-${lockBlock}
-            if (!locked)
+${claimBlock}
+            if (claimed == 0)
             {
                 ${contendedLog}
                 return;
             }
-            await events.DispatchAsync(${struct}, cancellationToken);
-            await tx.CommitAsync(cancellationToken);
+${dispatchBlock}
             ${firedLog}
         }
         catch (OperationCanceledException)

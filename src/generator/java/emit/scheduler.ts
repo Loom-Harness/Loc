@@ -12,10 +12,11 @@
 //     (schema auto-created), the background server, and a Spring job activator —
 //     the documented "without-starter" path, version-independent.
 //
-//   • `every:` (sub-minute) timers stay **in-process** (`@Scheduled(fixedRate)`
-//     in `TimerScheduler.java` + a transaction-scoped `pg_try_advisory_xact_lock`).
-//     Durability is meaningless for a high-frequency poll and JobRunr cron is
-//     minute-granular.
+//   • `every:` (sub-minute) timers stay **in-process**: an `@Scheduled(fixedRate)`
+//     poll at half the period in `TimerScheduler.java`, each poll claiming the
+//     current period's `__loom_timer` row (`timerClaimSql`, decision
+//     D-TIMER-SINGLE-FIRE), so one replica fires per period.  Durability is
+//     meaningless for a high-frequency poll and JobRunr cron is minute-granular.
 //
 // Every tick builds its event struct and publishes it through Spring's
 // `ApplicationEventPublisher` — the SAME in-process channel the `<Ctx>Dispatcher`
@@ -26,6 +27,7 @@
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { J } from "../java-symbols.js";
 import { mainSourcePath } from "../naming.js";
@@ -35,7 +37,7 @@ export function cronTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "cron");
 }
 
-/** The `every:` timers of a set — run in-process (@Scheduled + advisory lock). */
+/** The `every:` timers of a set — run in-process (@Scheduled + period claim). */
 export function everyTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "every");
 }
@@ -101,7 +103,7 @@ function tickConstruct(event: EventIR): string {
 
 /**
  * Render `TimerScheduler.java` for the `every:` timers — one `@Scheduled(fixedRate)`
- * method each, single-fired by a transaction-scoped advisory lock.  Returns "" when
+ * poll method each, single-fired per period by the `__loom_timer` claim.  Returns "" when
  * there are no `every:` timers (the file is not emitted).
  */
 export function renderJavaTimerScheduler(
@@ -122,9 +124,13 @@ export function renderJavaTimerScheduler(
     const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
     return [
       `    // timerSource ${ts.name} { for: ${ts.event}, every: ${everyMs}ms }`,
-      `    @Scheduled(fixedRate = ${everyMs})`,
+      `    @Scheduled(fixedRate = ${timerPollMs(everyMs)})`,
       `    public void ${lowerFirst(ts.name)}() {`,
-      `        tick(${JSON.stringify(ts.name)}, ${lowerFirst(ts.name)}Running, () -> ${construct});`,
+      `        tick(`,
+      `            ${JSON.stringify(ts.name)},`,
+      `            ${JSON.stringify(timerClaimSql(ts.name, everyMs))},`,
+      `            ${lowerFirst(ts.name)}Running,`,
+      `            () -> ${construct});`,
       `    }`,
       ``,
     ];
@@ -133,6 +139,8 @@ export function renderJavaTimerScheduler(
   return lines(
     `package ${basePkg};`,
     ``,
+    `import java.util.List;`,
+    `import java.util.Map;`,
     `import java.util.concurrent.atomic.AtomicBoolean;`,
     `import java.util.function.Supplier;`,
     ``,
@@ -150,8 +158,8 @@ export function renderJavaTimerScheduler(
     ``,
     `/** In-process wall-clock event sources (scheduling.md) — the sub-minute`,
     ` *  \`every:\` timers.  Each @Scheduled method fires a plain domain event on its`,
-    ` *  cadence, single-fired across replicas by a transaction-scoped Postgres`,
-    ` *  advisory lock, dispatched through the same ApplicationEventPublisher the`,
+    ` *  cadence, fired once per period across replicas by the __loom_timer claim,`,
+    ` *  dispatched through the same ApplicationEventPublisher the`,
     ` *  saga @EventListeners subscribe to.  (\`cron:\` timers run on JobRunr — see`,
     ` *  JobRunrConfig.) */`,
     `@Component`,
@@ -172,39 +180,24 @@ export function renderJavaTimerScheduler(
     `        this.jdbc = jdbc;`,
     `    }`,
     ``,
-    `    // Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource`,
-    `    // name into a signed 32-bit int, so two replicas contend on the SAME key.`,
-    `    static int timerLockKey(String name) {`,
-    `        int h = 0x811c9dc5;`,
-    `        for (int i = 0; i < name.length(); i++) {`,
-    `            h ^= name.charAt(i);`,
-    `            h *= 0x01000193;`,
-    `        }`,
-    `        return h;`,
-    `    }`,
-    ``,
-    `    // One tick: a TRANSACTION-SCOPED advisory lock (single-fire across`,
-    `    // replicas) held on the TransactionTemplate's pinned connection and`,
-    `    // released automatically on commit.  The synchronous @EventListener`,
-    `    // dispatch joins this tx; a peer replica's concurrent tick fails the try`,
-    `    // and skips.  The in-process guard skips an overlapping tick on THIS replica.`,
-    `    private void tick(String name, AtomicBoolean running, Supplier<Object> build) {`,
+    `    // One poll: claim the current period (one autocommitted statement that`,
+    `    // returns a row only to the poll that advanced it, on any replica), then`,
+    `    // publish the tick inside a transaction the synchronous @EventListener`,
+    `    // dispatch joins.  The in-process guard skips an overlapping poll on THIS`,
+    `    // replica.`,
+    `    private void tick(String name, String claimSql, AtomicBoolean running, Supplier<Object> build) {`,
     `        if (!running.compareAndSet(false, true)) {`,
     `            CatalogLog.event(${javaLogEvent("timerSkippedOverlap")}, "timer", name);`,
     `            return;`,
     `        }`,
     `        try {`,
-    `            int lockKey = timerLockKey(name);`,
-    `            tx.executeWithoutResult(status -> {`,
-    `                Boolean locked = jdbc.queryForObject(`,
-    `                    "SELECT pg_try_advisory_xact_lock(?)", Boolean.class, lockKey);`,
-    `                if (locked == null || !locked) {`,
-    `                    CatalogLog.event(${javaLogEvent("timerLockContended")}, "timer", name);`,
-    `                    return;`,
-    `                }`,
-    `                events.publishEvent(build.get());`,
-    `                CatalogLog.event(${javaLogEvent("timerFired")}, "timer", name);`,
-    `            });`,
+    `            List<Map<String, Object>> claimed = jdbc.queryForList(claimSql);`,
+    `            if (claimed.isEmpty()) {`,
+    `                CatalogLog.event(${javaLogEvent("timerLockContended")}, "timer", name);`,
+    `                return;`,
+    `            }`,
+    `            tx.executeWithoutResult(status -> events.publishEvent(build.get()));`,
+    `            CatalogLog.event(${javaLogEvent("timerFired")}, "timer", name);`,
     `        } catch (Exception err) {`,
     `            CatalogLog.event(`,
     `                ${javaLogEvent("timerEmitFailed")}, "timer", name, "error", String.valueOf(err.getMessage()));`,
