@@ -4,7 +4,7 @@
 // (an object read back over S3, a captured mail, a written file, a mocked
 // response), not just a 2xx.  Needs real internet (npm), like runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

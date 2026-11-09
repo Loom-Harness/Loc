@@ -6,7 +6,7 @@
 //
 // Pure client-side (git store over LightningFS + IndexedDB) — no network.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { focusSourceEditor, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts clean (mirrors
