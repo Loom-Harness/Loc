@@ -181,6 +181,7 @@ function renderOne(
     derived: c.derived,
     actions: c.actions,
     body: c.body,
+    area: [],
   };
   return renderAngularPage({
     page,

@@ -8,6 +8,7 @@ import type { LayoutCtx } from "./ctx";
 import { describePendingMigration } from "./pending-migration";
 import { inDocumentOrder, toEditorRange } from "./problem-nav";
 import { FREE_ACTION, PENDING_MIGRATION, PROBLEMS } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The Problems stream as a teaching surface (M-T8.18 slice 1, audit H7).
 //
@@ -15,7 +16,7 @@ import { FREE_ACTION, PENDING_MIGRATION, PROBLEMS } from "./vocabulary";
 // language reference when `codeDocsUrl` has an anchor for the code (a code
 // without one renders no link rather than a 404); a **Fix** action when the
 // fix-hint registry (`src/language/fix-hints.ts`) has a provider — resolved
-// through the SAME `loomQuickFixes` path the editor's lightbulb uses, and
+// from the same language-server provider the editor's lightbulb uses, and
 // applied through the editor handle as one undoable edit; and *Ask the
 // agent*, which opens the Agent tab with the diagnostic in the composer.
 // Clicking a row reveals it in Source.  Errors / Warnings chips filter the
@@ -34,13 +35,15 @@ interface Props {
     | "editorHandleRef"
     | "revealSourceRange"
     | "askAgent"
+    | "lspClient"
     | "pendingMigration"
     | "setRecordMigrationOpen"
   >;
 }
 
-export function ProblemsPanel({ ctx }: Props): JSX.Element {
-  const { diagnostics, getSource, activeSourcePath, editorHandleRef, revealSourceRange, askAgent } = ctx;
+function ProblemsPanelView({ ctx }: Props): JSX.Element {
+  const { diagnostics, getSource, activeSourcePath, editorHandleRef, revealSourceRange, askAgent, lspClient } =
+    ctx;
   const [showErrors, setShowErrors] = useState(true);
   const [showWarnings, setShowWarnings] = useState(true);
 
@@ -50,10 +53,9 @@ export function ProblemsPanel({ ctx }: Props): JSX.Element {
   );
 
   // The fix-hint quick fixes for the CURRENT source — re-resolved when the
-  // diagnostics move (they move on every validated keystroke, which is
-  // exactly when the source changed).  `loomQuickFixes` memoises on the
-  // source text, so this costs one validate per distinct source, shared
-  // with the editor's own code-action provider.
+  // diagnostics move.  On desktop the language-server worker answers (it
+  // already validated this source); only mobile, which has no worker,
+  // validates through the toolkit, once per generate.
   const [fixes, setFixes] = useState<LoomQuickFix[]>([]);
   useEffect(() => {
     let live = true;
@@ -61,13 +63,13 @@ export function ProblemsPanel({ ctx }: Props): JSX.Element {
       setFixes([]);
       return;
     }
-    void loomQuickFixes(getSource(), modelUriFor(activeSourcePath)).then((f) => {
+    void loomQuickFixes(getSource(), modelUriFor(activeSourcePath), lspClient).then((f) => {
       if (live) setFixes(f);
     });
     return () => {
       live = false;
     };
-  }, [diagnostics, getSource, activeSourcePath]);
+  }, [diagnostics, getSource, activeSourcePath, lspClient]);
 
   const notice = <MigrationNotice ctx={ctx} />;
   if (diagnostics.length === 0) {
@@ -160,7 +162,7 @@ function MigrationNotice({ ctx }: Props): JSX.Element | null {
 }
 
 /** The quick fix anchored on this diagnostic's line, if any.  Line
- *  granularity mirrors the lightbulb (`quickFixesAt`): a fix's anchor is
+ *  granularity, as Monaco's lightbulb offers it: a fix's anchor is
  *  the diagnostic's own range, so the first fix on the row's line is the
  *  row's fix.  A `choose`-kind hint fans out several; the row offers the
  *  preferred one, else the first. */
@@ -280,3 +282,5 @@ function ProblemRow({
     </Group>
   );
 }
+
+export const ProblemsPanel = trackedCtx("ProblemsPanel", ProblemsPanelView);

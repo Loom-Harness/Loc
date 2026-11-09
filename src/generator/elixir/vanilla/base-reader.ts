@@ -227,8 +227,7 @@ defmodule ${baseModule}Repository do
   each concrete's scoped read, merged in the one global \`id\` order and then
   paged.  Each concrete's read scope is its own (\`base_query/0\` +
   \`Repo.prepare_query/3\`).
-  """${usesQuery ? "\n  import Ecto.Query" : ""}
-  alias ${appModule}.Repo
+  """${usesQuery ? `\n  import Ecto.Query\n  alias ${appModule}.Repo` : ""}
 
 ${listHead.replace("current_user \\\\ nil", `${actorName} \\\\ nil`)}
     window = page * page_size

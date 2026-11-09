@@ -45,7 +45,7 @@ services:
       db-bootstrap:
         condition: service_completed_successfully
     environment:
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=api;Username=postgres;Password=postgres"
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=primary_sql;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
@@ -64,8 +64,10 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
+      api:
+        condition: service_healthy
     environment:
-      DATABASE_URL: "postgres://postgres:postgres@db:5432/catalog_web"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/primary_sql"
       LOG_LEVEL: "info"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
@@ -84,8 +86,10 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
+      api:
+        condition: service_healthy
     environment:
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=catalog_api;Username=postgres;Password=postgres"
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=primary_sql;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
       CORS_ORIGIN: "http://localhost:3001"
     ports:

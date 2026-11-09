@@ -2148,7 +2148,7 @@ gate.
 
 ## D-TENANCY-REGISTRY — registry named in `tenancy by … of X` + a `tenantRegistry` capability
 
-**Status:** PINNED — **amended by D-TENANCY-FLAT** (owner ruling, 2026-11-09): the capability provides no `dataKey` and no path stamp, and `parent` is movable through a provided `move(to)`.
+**Status:** PINNED — **amended by D-TENANCY-FLAT** (owner ruling, 2026-11-09): the capability provides no `dataKey` and no path stamp, and `parent` is an ordinary mutable field: a move is an author-written operation.
 
 **Problem.** The tenant registry (the `Organization`/`Tenant` aggregate) can't be
 plain tenant-scoped (it is created before its own tenant context exists, and is
@@ -2261,15 +2261,21 @@ consequence of where an org sits in the tree.
    its filter.
 
 3. **The registry tree is for managing sub-tenants.** `implements
-   tenantRegistry` provides `parent: Self id?` and a generated operation
-   `move(to: Self id)`:
-   - the move is one `parent` update — no row elsewhere changes;
-   - it is refused (422, a `loom.*` code) when `to` is the org itself or one of
-     its descendants (a cycle), or lies under a different top-level org (an org
-     never leaves its customer);
-   - who may move, create or administer child orgs is the author's ordinary
-     `requires` and policy on the registry — the capability gates nothing by
-     itself.
+   tenantRegistry` provides `parent: Self id?` as an **ordinary mutable field**
+   — no generated move operation. Re-parenting an org is an operation the author
+   writes when tenant management needs it (`operation move(to: Organization id)
+   { parent := to }`), gated by the author's `requires` and policy like any
+   other registry operation:
+   - a move is one `parent` update — no row elsewhere changes, because nothing
+     positional is stamped on rows;
+   - guarding against cycles and cross-customer moves is the author's
+     operation's job; the generated code stays correct regardless: the
+     ancestors walk (item 4) terminates on a cycle, and the non-host copy
+     (item 6) follows any operation that assigns `parent`;
+   - a generated, fully checked `move(to)` was considered and dropped: its
+     cycle and same-top-level-org checks are a registry walk no operation body
+     can express, so it needed a dedicated macro plus a generated precondition
+     on every backend, for a rare tenant-management action.
 
 4. **`organizationContext` is the operating org.**
    - `organizationContext.org` — the org the request acts in: the caller's home
@@ -2278,7 +2284,9 @@ consequence of where an org sits in the tree.
      decide; a refused switch is a 403 before any handler runs).
    - `organizationContext.ancestors` — the operating org **and** every org above
      it, resolved **once per request** and memoized, by a recursive walk over
-     `parent`. Its one consumer here is the `subtree` share grantee.
+     `parent` that **terminates on a cycle** (set semantics, so an author-written
+     move that creates a loop cannot hang a request). Its one consumer here is
+     the `subtree` share grantee.
    - Reads, writes and the write stamp anchor on `organizationContext.org`.
      `currentUser` is never rewritten by a switch: it is always the real
      principal with its home-org claim.
@@ -2298,8 +2306,11 @@ consequence of where an org sits in the tree.
 6. **A deployable that does not host the registry** resolves
    `organizationContext.ancestors` and admits the switch from a generated,
    internal folded projection of the registry — one `(org, parent)` row per
-   org, fed by registry events (`<Registry>Placed`, `<Registry>Moved`) over the
-   outbox and a channel derived on the system's broker. A system that needs the
+   org, fed over the outbox and a channel derived on the system's broker by two
+   generated registry events: `<Registry>Placed { org, parent }` on create, and
+   `<Registry>ParentChanged { org, parent }` emitted by **every** operation whose
+   body assigns `parent` (read off its write effects, so an author-written move
+   is covered without naming it). A system that needs the
    copy and declares no broker is refused at compile time. No closure table and
    no bespoke replication path.
 
@@ -2315,7 +2326,10 @@ tenancy by user.tenantId of Organization
 
 aggregate Organization with crudish {
   name: string
-  implements tenantRegistry        // parent: Organization id?  +  move(to)
+  implements tenantRegistry        // parent: Organization id?  (mutable)
+  operation move(to: Organization id) requires currentUser.role == "admin" {
+    parent := to                   // authored; the capability generates no move
+  }
 }
 aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
 ```
@@ -2327,13 +2341,8 @@ SELECT * FROM invoices WHERE tenant_id = $operatingOrg;
 -- organizationContext.ancestors, once per request (memoized)
 WITH RECURSIVE up(id, parent) AS (
   SELECT id, parent FROM organizations WHERE id = $operatingOrg
-  UNION ALL SELECT o.id, o.parent FROM organizations o JOIN up ON o.id = up.parent)
+  UNION SELECT o.id, o.parent FROM organizations o JOIN up ON o.id = up.parent)   -- UNION: stops on a cycle
 SELECT id FROM up;
-
--- POST /api/organizations/{id}/move {"to": "<newParent>"}
---   refused when <newParent> is {id} or below it (walk down from {id}),
---   or when the two orgs have different top-level orgs; otherwise:
-UPDATE organizations SET parent = $2 WHERE id = $1;
 ```
 
 **Alternatives rejected.**
@@ -2369,6 +2378,208 @@ D-REACTOR-SYSTEM-PRINCIPAL (event origin); `src/macros/prelude.ts`
 (`tenantOwned`, `tenantRegistry`); `src/ir/util/tenant-stance.ts`;
 `src/generator/_expr/subtree-like.ts`; the five backends' read-scope, stamp and
 principal seams.
+
+---
+
+## D-SHARING — visibility composes from the tenancy default; row rules and shares add to it; relations are predicates
+
+**Status:** PINNED (owner ruling, 2026-11-09). Builds on D-TENANCY-FLAT.
+Implementation is tracked on GitHub (the tenancy & identity epic).
+
+**Problem.** With hierarchical data levels gone (D-TENANCY-FLAT), a row is
+visible to its own org and nothing else. Real models need more, and need it
+explicitly: a manager shares one record with another org; a category shared
+with a subsidiary brings its products along; a private note is visible to its
+author only; an operator role reads every tenant. Each of these is a widening
+or narrowing of the tenancy default, and each must stay compilable to one SQL
+predicate per aggregate — the same `readScope` / `writeScope` fact every backend
+already renders.
+
+**Decision.**
+
+1. **How visibility composes.** Per aggregate and per access (read / write):
+
+   | Source | Effect |
+   |---|---|
+   | `with tenantOwned` | **the default**: rows of the operating org (`local`) |
+   | `allow own on X [when …]` | **replaces** the default with "rows I created in the operating org" (needs a creator field — `auditable`'s `createdBy`, or an `owned` field) |
+   | `allow crossTenant on X when …` | **replaces** the default with "every tenant's rows" for callers the `when` admits; `when` is mandatory |
+   | `allow [write] on X as x where <row predicate>` | **adds** rows (OR) |
+   | `deny [write] on X`, `mask unless` | **removes** rows / fields; always wins |
+
+   The resulting scope is `(default OR rule₁ OR rule₂ …) AND NOT deny`, field
+   masks applied on top. A rule never restates the default.
+
+2. **`when` and `where` are different things.**
+   - `when <expr>` — a condition on the **caller** only (`currentUser`,
+     `organizationContext`, `permissions.*`), evaluated before any query. Several
+     level rules for one aggregate may coexist, each with its own `when`
+     (manager vs clerk); the rules OR together.
+   - `where <expr>` — a predicate on the **row**, bound by `as x`, compiled into
+     the query. It must be queryable (the `criterion` sublanguage plus `exists`).
+
+3. **Relations are predicates.** There is no relation graph and no
+   "follow"/`visible()` primitive.
+   - A relation on the row → a clause (`x.owner == currentUser.id`).
+   - A relation held by another aggregate → `exists <Agg> as s where …`. The
+     quantified aggregate's own read scope applies inside the `EXISTS`, so an
+     `exists` never observes rows the caller could not read.
+   - Following a reference → call a **named policy function** on it. A policy
+     function used inside a `where` must be queryable; it may take an aggregate
+     or an `X id` (dereferenced through a join); it is inlined at lowering;
+     recursion and call cycles are refused.
+
+4. **Relations never follow by default.** A reference (`X id`, `X id[]`, a
+   projection or event field) grants nothing. Visibility follows a relation only
+   through an authored rule. No per-relation declaration is required and no hint
+   is raised: a silent relation is *closed*, which is safe — unlike a silent
+   tenancy stance (D-TENANCY-DEFAULT), whose default could leak. A visible row may
+   reference a row the caller cannot read: its id is returned, and a dereferenced
+   read of the target yields nothing, like any read of an invisible row.
+
+5. **`shareable` is a capability that unfolds to plain Loom.** `with shareable`
+   on aggregate `X` expands to an ordinary share aggregate (`XShare`), two policy
+   functions (`GranteeIsMe`, `SharedWithMe`) and two rules (grantees read the
+   shares addressed to them; `X` is readable where `SharedWithMe`) — `unfold` ejects editable source; nothing is hidden machinery.
+   - Grantee is a **kind**, not an include-below flag, so every kind carries
+     exactly the data it needs and new kinds slot in uniformly:
+     `org` (that org), `subtree` (that org and every org below it), `user`.
+   - `subtree` matches through `organizationContext.ancestors` (the operating org
+     and every org above it), so a move re-targets subtree shares on the next
+     request with nothing rewritten.
+   - An `org` / `subtree` grantee must be under the sharer's top-level org;
+     a share never crosses customers.
+   - Write shares count only for the write scope.
+   - Rules on *dependent* aggregates ("products follow their category") are
+     written by the author — whether a relation follows is a domain decision.
+
+6. **Who may share, and what a share opens.**
+   - Creating or revoking a share needs `allow share on X [when …]` **and**
+     write access to that row. A grantee cannot re-share.
+   - A grant opens the row only: `mask unless` still applies by the grantee's
+     own principal.
+   - Shares are state-stored (never inside an event stream), co-hosted with
+     their aggregate (a cross-deployable read that bypasses the host is
+     refused), and a TPH base keeps its shares on the root.
+   - Sharing and revoking emit `<X>Shared` / `<X>Unshared`.
+
+7. **Generated surface of a shareable aggregate.**
+   `POST /api/<xs>/{id}/shares`, `GET /api/<xs>/{id}/shares`,
+   `DELETE /api/<xs>/{id}/shares/{shareId}` (OpenAPI and api clients included),
+   and a scaffolded **Share…** action on the detail page of every frontend and
+   HEEx: a grantee-kind radio (Org / Org and below / User), an org picker over the
+   registry, a user picker over the caller org's memberships (an id input when
+   the system has none), read/write, and the current grants with Revoke.
+
+**Example.**
+
+```ddd
+context Catalog {
+  // … the context's other members
+  enum ShareGranteeKind { Org, Subtree, User }
+
+  aggregate Category with tenantOwned, shareable { name: string }
+  aggregate Product with tenantOwned { name: string  category: Category id }
+  aggregate Note with tenantOwned, auditable { body: string }
+
+  // what `with shareable` on Category unfolds to:
+  aggregate CategoryShare with tenantOwned {
+    category: Category id
+    kind: ShareGranteeKind
+    org: Organization id?
+    user: User id?
+    write: bool
+    invariant orgGrantee: kind == ShareGranteeKind.User || org != null
+    invariant userGrantee: kind != ShareGranteeKind.User || user != null
+  }
+  policy GranteeIsMe(s: CategoryShare): bool =
+       (s.kind == ShareGranteeKind.Org     && s.org == organizationContext.org)
+    || (s.kind == ShareGranteeKind.Subtree && organizationContext.ancestors.contains(s.org))
+    || (s.kind == ShareGranteeKind.User    && s.user == currentUser.id)
+  policy SharedWithMe(c: Category id): bool =
+    exists CategoryShare as s where s.category == c && GranteeIsMe(s)
+
+  policy {
+    allow read on CategoryShare as s where GranteeIsMe(s)       // from the unfold: a grantee sees the shares addressed to it
+    allow read on Category as c where SharedWithMe(c.id)        // from the unfold
+    allow share on Category when currentUser.role == "manager"
+    allow read on Product as p where SharedWithMe(p.category)   // authored: products follow their category
+    allow own on Note when currentUser.role == "clerk"
+  }
+}
+```
+
+```sql
+-- Product read for a caller in operating org $org, user $u, ancestors $anc.
+-- GranteeIsMe(s) inlines to:
+--   (s.kind = 'Org' AND s.org_id = $org) OR (s.kind = 'Subtree' AND s.org_id = ANY($anc))
+--   OR (s.kind = 'User' AND s.user_id = $u)
+SELECT p.* FROM products p
+WHERE p.tenant_id = $org                                     -- Product's tenancy default
+   OR EXISTS (SELECT 1 FROM category_shares s
+              WHERE s.category_id = p.category_id
+                AND (s.tenant_id = $org OR GranteeIsMe(s))   -- CategoryShare's own read scope (item 3)
+                AND GranteeIsMe(s));                         -- SharedWithMe's predicate
+```
+
+A share row belongs to the **sharer's** tenant. The unfold's
+`allow read on CategoryShare … where GranteeIsMe(s)` is what lets a grantee in
+another org see the share rows addressed to it — and therefore what lets the
+`exists` inside `SharedWithMe` find them under the scoping rule of item 3. No
+special case: the share aggregate is read through its own rules like any other.
+
+**Validation (new `loom.*` codes; catalog text in the owning family).**
+
+| Condition | Severity |
+|---|---|
+| `allow crossTenant` without `when` | error |
+| `allow own` on an aggregate with no creator field | error |
+| `allow share on X` where `X` is not `shareable` | error |
+| a `where` that is not queryable (a non-queryable expression or policy function) | error |
+| a policy-function call cycle | error |
+| a cross-deployable read of a `shareable` aggregate that bypasses its host | error |
+
+Capability-table rows: `shareable` × `persistedAs: eventLog` (supported — shares
+are state-stored), × `softDeletable` (supported — a deleted row's shares are
+hidden with it), × TPH base (supported — shares on the root), × cross-deployable
+read (refused).
+
+**Alternatives rejected.**
+
+- **A relation graph / "follow" primitive** (Zanzibar `category->view`, Oso
+  `"read" if "read" on "category"`, a `visible(ref)` function) — Loom's model is
+  predicates over typed aggregates compiled to SQL (the Cedar / RLS family);
+  calling a policy function on a reference gives the arrow's reach without a
+  second relation store, and keeps every rule visible in source.
+- **General policy logic** (OPA / Rego) — turning it into a query needs partial
+  evaluation; the `criterion` sublanguage plus `exists` already compiles.
+- **Default visibility declared on the aggregate** — visibility stays per role in
+  `policy` (the established D-POLICY-STYLE / ladder shape); the aggregate only
+  opts into *capabilities* (`shareable`).
+- **An include-below flag on an org grantee** — a meaningless `user` + flag
+  combination becomes representable; a kind does not.
+- **An info hint for references to shareable aggregates without a rule** — most
+  references must not follow (Invoice → Customer), so it would fire everywhere
+  and need a per-reference silencing annotation.
+- **Hierarchical levels** (`deep` / `inherited` / `global`) — removed by
+  D-TENANCY-FLAT; reach beyond one's org is explicit.
+
+**Consequences.**
+
+- The policy ladder accepts several level rules per aggregate when each carries
+  a distinct `when`; `loom.policy-duplicate-target` still refuses exact
+  duplicates.
+- Every backend renders the composed scope from the one `readScope` /
+  `writeScope` fact; `exists` and inlined policy functions are its only new
+  shapes.
+- Folded projections may be policy targets for `crossTenant` reads (platform
+  reporting).
+
+**Affects.** `docs/auth.md` (policy block, named policy functions, read gates),
+`docs/tenancy.md` (the ladder) — each rewritten by the slice that lands the
+behaviour; `src/language/ddd.langium` (policy rules, `exists`);
+`src/macros/prelude.ts` (`shareable`); the read-scope enrichment and the five
+backends' scope renderers; the walker (Share primitive) and every design pack.
 
 ---
 
@@ -6325,3 +6536,55 @@ backend-package machinery (`LoomBackendManifest` in `manifest.ts`,
 **Consequences.** Adding a `node` version is a new `hono/v<N>/` pin set plus a
 registry row (`docs/platforms.md` § Backend versioning); `shared/` is never
 renamed for it. Retiring a version deletes its pin-set directory only.
+
+---
+
+## D-TIMER-SINGLE-FIRE — an `every:` timer fires once per period, claimed through one database row
+
+**Status:** owner ruling, 2026-11-09.
+
+**Decision.** An `every:` timerSource fires once per period across every
+replica of its owning deployable and across deployables that share its
+storage, on all five backends and in the playground. The period is
+`floor(epoch_ms / everyMs)`. Each backend polls at half the period, and each
+poll runs one statement (`timerClaimSql`, `src/util/timer.ts`) against the
+timer's row in `__loom_timer`:
+
+```sql
+INSERT INTO __loom_timer AS t (timer, last_period, fired_at)
+VALUES ('<timer>', floor(extract(epoch from clock_timestamp()) * 1000 / <everyMs>)::bigint, clock_timestamp())
+ON CONFLICT (timer) DO UPDATE SET last_period = EXCLUDED.last_period, fired_at = clock_timestamp()
+WHERE t.last_period < EXCLUDED.last_period RETURNING t.last_period
+```
+
+Only the poll whose upsert advanced the row gets a row back, and only that
+poll dispatches the tick. `__loom_timer` is a companion table in the shared
+`MigrationsIR` (`timerClaimTableShape`), added to the module whose context the
+timer's event belongs to. On `persistence: mikroorm`, which owns its schema
+through `schema.update()`, it is also an entity. `cron:` keeps its ecosystem
+runner (pg-boss, Hangfire, procrastinate, JobRunr, Oban), which already fires
+once per boundary.
+
+**Semantics.**
+- *Clock skew.* The period comes from the database clock, so replicas whose
+  clocks disagree still compute the same period. A replica's own clock only
+  decides when it polls.
+- *A replica dies mid-tick.* The claim commits before the dispatch, so a
+  replica that dies between the two loses that period's fire, and the next
+  period fires normally. A failed dispatch is likewise not retried. A period
+  fires at most once.
+- *Missed periods* (every replica down, or a dispatch slower than a period)
+  are skipped, not replayed: the claim always jumps to the current period.
+  This keeps the earlier resume-at-next-tick behaviour.
+- *Fire time.* A period fires on the first poll after its boundary, so up to
+  half a period late.
+
+**Why.** The transaction-scoped advisory lock it replaces only stopped two
+replicas from firing *concurrently*; two replicas whose ticks were staggered
+never contended and each fired every period (measured on node and Phoenix).
+On the playground's single PGlite connection the lock's transaction also
+deadlocked the tick's own writes, so the in-process mode skipped it. A
+watermark row fixes both: a single autocommitted statement holds nothing
+across the dispatch, and the conditional update is the only arbiter needed.
+A lease row was rejected — it needs an expiry tuned against the period and a
+renewal loop, and the per-period watermark already gives the guarantee.

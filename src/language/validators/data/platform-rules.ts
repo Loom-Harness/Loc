@@ -19,7 +19,8 @@ import {
   hasAdapters,
   styleSupportedLayouts,
 } from "../../../platform/adapter-metadata.js";
-import { descriptorFor, parseBuiltinPlatformRef } from "../../../platform/metadata.js";
+import { descriptorFor, factsFor, parseBuiltinPlatformRef } from "../../../platform/metadata.js";
+import { frameworkFacts } from "../../../platform/target-facts.js";
 import {
   BUILTIN_PACK_LATEST,
   type PackFormat,
@@ -99,32 +100,19 @@ export function platformSavingShapes(
   return fam ? PLATFORM_SAVING_SHAPES[fam as Platform] : undefined;
 }
 
-/** Framework a deployable will render against, given its platform
- *  and whether it actually declares a `ui:` mount.  `hasUi` matters
- *  for platforms that are dual-mode: `dotnet` is backend-only without
- *  `ui:` and serves an embedded React SPA when `ui:` is set.  For
- *  always-frontend platforms (`react`/`static`) and always-fullstack
- *  platforms (`phoenixLiveView`) the answer is independent of
- *  `hasUi`. */
+/** Framework a deployable will render against, given its platform and
+ *  whether it actually declares a `ui:` mount — the platform's
+ *  `defaultUiFramework` fact.  `hasUi` matters for a backend that embeds an
+ *  SPA only when bound (`rendersUiOnlyWhenBound`); a frontend or a fullstack
+ *  runtime renders its framework either way. */
 export function expectedFrameworkFor(
   platform: string | undefined,
   hasUi: boolean,
 ): string | undefined {
-  // Normalise a `family@version` pin to its family first so a pinned
-  // backend (`"phoenixLiveView@v1"`, `"dotnet@v10"`) maps to the same
-  // framework as its bareword.
-  const fam = platformFamily(platform);
-  if (fam === "react" || fam === "static") return "react";
-  if (fam === "svelte") return "svelte";
-  if (fam === "vue") return "vue";
-  if (fam === "angular") return "angular";
-  if (fam === "feliz") return "feliz";
-  if (fam === "flutter") return "flutter";
-  if (fam === "elixir") return "phoenixLiveView";
-  // dotnet and java are dual-mode: backend-only without `ui:`, embedded
-  // React SPA host with it.
-  if ((fam === "dotnet" || fam === "java") && hasUi) return "react";
-  return undefined;
+  const facts = factsFor(platform);
+  if (facts?.defaultUiFramework === undefined) return undefined;
+  if (facts.rendersUiOnlyWhenBound && !hasUi) return undefined;
+  return facts.defaultUiFramework;
 }
 
 /** Format a given framework's design pack must declare.  Mirrors
@@ -141,12 +129,7 @@ export function expectedFrameworkFor(
  *  them.  A new framework added here without either a format or an arm there
  *  silently accepts every pack name (the shape this comment exists to stop). */
 export function expectedPackFormatFor(framework: string | undefined): PackFormat | undefined {
-  if (framework === "react") return "tsx";
-  if (framework === "svelte") return "svelte";
-  if (framework === "vue") return "vue";
-  if (framework === "angular") return "angular";
-  if (framework === "phoenixLiveView") return "heex";
-  return undefined;
+  return frameworkFacts(framework)?.packFormat;
 }
 
 /** Comma-joined list of built-in pack family names whose default

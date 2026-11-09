@@ -151,6 +151,35 @@ on the next run. Exit 0 means identical, 1 means a difference (listed in
 result in the PR body; if the change is meant to move some output, list the
 intended differences there.
 
+### Proving a HEEx walker change byte-identical — `scripts/heex-corpus-diff.mjs`
+
+A change to the Phoenix/HEEx page walker (`src/generator/elixir/heex-*.ts`, or
+the shared walker HEEx renders through) proves itself against the HEEx corpus
+in a few minutes instead of an hour:
+
+```bash
+npx tsc -b                                              # the script reads out/
+node scripts/heex-corpus-diff.mjs capture /tmp/heex-base   # on the base commit
+node scripts/heex-corpus-diff.mjs diff /tmp/heex-base      # on the change; exit 1 on a diff
+node scripts/heex-corpus-diff.mjs coverage                 # which heex primitives and
+                                                           # WalkResult accumulators the corpus reaches
+```
+
+The corpus is every system that can host a LiveView ui: each `.ddd` under
+`examples/`, `web/src/examples/`, `journey/` and `test/e2e/fixtures/` with a
+`platform: elixir` deployable, `test/behavioral/heex-ui.ddd`, every corpus and
+templated fixture instantiated on `elixir`, the showcase's three uis
+self-hosted on Phoenix, and `test/fixtures/heex-showcase.ddd`. Only the files
+the HEEx walker and the HEEx design pack render are kept (`*_web/live/**`,
+`*_web/components/**`), so unrelated emitter churn neither hides a HEEx change
+nor shows up as one. An input that fails to generate records its error text,
+so breaking generation is a diff too.
+
+The diff only proves the renders the corpus reaches. `test/fixtures/heex-showcase.ddd`
+is the coverage floor: `test/generator/elixir/heex-coverage.test.ts` fails when
+any primitive with a `heex` renderer, or any `WalkResult` accumulator, is not
+reached by it. A new HEEx renderer or accumulator extends that fixture.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a
@@ -203,7 +232,7 @@ fails the fast suite.
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |
 | `behavioral-heex-ui-e2e.yml` | `npm run test:behavioral-heex-ui` (add `LOOM_HEX_MIRROR=1` behind a TLS-fingerprint proxy) | pg, mirror |
-| `conformance-parity.yml` | `LOOM_E2E_STRICT_PARITY=1 npx vitest run test/e2e/e2e.test.ts` (spec-level parity, no stack boot) | — |
+| `conformance-parity.yml` | `LOOM_E2E_STRICT_PARITY=1 npx vitest run test/e2e/e2e.test.ts` (spec-level parity, no stack boot), then `npm run test:shared-storage` (boots a two-storage compose stack: a write through one deployable is a read through the other on the same storage) | — |
 | `conformance-full.yml` | `LOOM_E2E=1 npm run test:e2e` | docker |
 | `differential-report.yml` | `LOOM_DIFF_REPORT=1 npx vitest run test/e2e/e2e.test.ts` | docker |
 | `schema-load.yml` | `npm run test:schema-load` (or point `LOOM_MIGRATION_PG_URL` at a running pg) | docker |
@@ -227,6 +256,7 @@ fails the fast suite.
 | `api-call-e2e.yml` | `LOOM_API_CALL_CALLER=<node\|python\|dotnet\|java\|elixir> npm run test:api-call` (pg via `LOOM_API_CALL_PG_URL`; elixir caller adds mirror) | pg |
 | `channels-e2e.yml` | `npm run test:channels` family — `test:channels{,-mikroorm,-python,-dotnet,-java,-elixir}`, `-rabbit*` (incl. `-rabbit-mikroorm`), `-kafka*`, `-auth` (pg via `LOOM_CHANNELS_PG_URL`; redis/rabbit/kafka via docker; the two `*-mikroorm` legs are the redis/rabbit suites with `LOOM_CHANNELS_PERSISTENCE=mikroorm` and shifted ports, so they run beside the default ones — the RABBIT one is the durable/outbox-relay leg) | docker, pg |
 | `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg + a Mailpit container: `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API`) | docker, pg |
+| `timer-e2e.yml` | `npm run test:timer` (all five backends; `LOOM_TIMER_E2E_BACKENDS=node,…` narrows; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `context-integration-e2e.yml` | `bash scripts/context-integration-e2e.sh <node\|python\|dotnet\|java\|elixir>` | pg |
 | `k8s-build.yml` | `npm run test:k8s` (helm + kubeconform on PATH) | — |
 | `k8s-e2e.yml` | `kind create cluster` then `npm run test:k8s-e2e` (kind + kubectl + helm) | docker |

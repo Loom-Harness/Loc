@@ -3,7 +3,7 @@
 // runtime worker; the database runs once, under the infra worker, and both
 // reach it over a storage port each.  Needs real internet, like runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

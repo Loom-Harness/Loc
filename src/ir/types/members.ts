@@ -1,7 +1,6 @@
 import type { ExprIR } from "./expr.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
-import type { SensitivityTags, TypeIR } from "./types.js";
+import type { SensitivityTags, Sourced, TypeIR } from "./types.js";
 import type { StateFieldIR } from "./ui.js";
 
 export interface ParamIR {
@@ -33,7 +32,7 @@ export interface ParamIR {
  *               in any read */
 export type FieldAccess = "editable" | "immutable" | "managed" | "token" | "internal" | "secret";
 
-export interface FieldIR {
+export interface FieldIR extends Sourced {
   name: string;
   type: TypeIR;
   optional: boolean;
@@ -74,10 +73,6 @@ export interface FieldIR {
    *  entry.  The gate expression, like a `requires` gate, references only
    *  `currentUser` (+ constants) — never the row. */
   maskUnless?: ExprIR;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** One entry in an aggregate's reified **create-input contract** — the
@@ -107,7 +102,7 @@ export interface ContainmentIR {
    *  runtime; backends serialise it as a nullable wire field.  Validators
    *  reject the combination `collection && optional` (an empty list already
    *  encodes absence). */
-  optional?: boolean;
+  optional: boolean;
 }
 
 /** A many-to-many association derived from an aggregate field whose
@@ -250,7 +245,7 @@ export interface FunctionIR {
  * carries the lifecycle asymmetry; bodies are identical across kinds. */
 export type OperationKind = "create" | "mutate" | "destroy";
 
-export interface OperationIR {
+export interface OperationIR extends Sourced {
   name: string;
   /** Declared `or`-union return type (exception-less.md, spike).  Absent on a
    *  legacy mutation operation (no `: T` clause).  When present, the operation
@@ -266,7 +261,7 @@ export interface OperationIR {
    * synthesised `name` is then the keyword itself (`"create"` /
    * `"destroy"`).  Drives the bare-collection-URL route slug derived in
    * the `urlStyle` enrichment.  Only meaningful on create/destroy. */
-  canonical?: boolean;
+  canonical: boolean;
   /** HTTP path segment for this action, derived in enrichment from the
    * surfacing api's `urlStyle` (D-URLSTYLE).  `undefined` ⇒ a canonical
    * action ⇒ the bare collection / canonical-id URL.  Otherwise the
@@ -309,10 +304,6 @@ export interface OperationIR {
    *  by compile-time diagnostics such as `loom.loop-gate-not-implied`.  Never
    *  on the wire: the 409 detail is constant.  Absent when `when` is. */
   whenSource?: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** Event-fold applier — the lowered form of an `apply(e: Event) { … }`

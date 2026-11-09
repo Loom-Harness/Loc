@@ -333,6 +333,22 @@ export const messages = {
     `'${p.binding}' declares '${p.asked}'. The Dapper repositories name every table ` +
     `UNQUALIFIED and unprefixed, so the migrations would create prefixed tables that no ` +
     `statement ever reads. Use 'persistence: efcore' on this deployable, or drop the clause.`,
+  "loom.mikroorm-shared-database": (p: { name: unknown; storage: unknown; others: unknown }) =>
+    `Deployable '${p.name}' selects 'persistence: mikroorm' and binds storage '${p.storage}', ` +
+    `whose database it shares with ${p.others}. Deployables on one storage share its ` +
+    `database and one migration chain, applied by the first of them; the MikroORM adapter ` +
+    `has no migration chain and syncs only its own entities with 'orm.schema.update()' at ` +
+    `boot, so it can neither create the other deployables' tables nor leave the chain's ` +
+    `columns alone. Use 'persistence: drizzle' on '${p.name}', or bind it to a storage of ` +
+    `its own.`,
+  "loom.dapper-shared-database": (p: { name: unknown; storage: unknown; others: unknown }) =>
+    `Deployable '${p.name}' selects 'persistence: dapper' and binds storage '${p.storage}', ` +
+    `whose database it shares with ${p.others}. Deployables on one storage share its ` +
+    `database and the tables its first deployable migrates; the Dapper adapter lays those ` +
+    `tables out its own way (a value object folds into one jsonb column), so it and ` +
+    `${p.others} would each read tables the other never created. Select the same ` +
+    `persistence on every deployable of '${p.storage}', or bind '${p.name}' to a storage of ` +
+    `its own.`,
   "loom.mikroorm-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;

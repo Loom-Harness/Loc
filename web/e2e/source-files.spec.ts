@@ -14,7 +14,7 @@
 // install, no bundle, no boot — so this belongs in the per-PR no-network lane.
 
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   readEditorSource,
   revealTreeRow,

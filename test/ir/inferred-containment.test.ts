@@ -31,7 +31,9 @@ describe("inferred containment (`contains` optional)", () => {
     const bare = await order("lines: OrderLine[]");
     const explicit = await order("contains lines: OrderLine[]");
     expect(bare.contains).toEqual(explicit.contains);
-    expect(bare.contains).toEqual([{ name: "lines", partName: "OrderLine", collection: true }]);
+    expect(bare.contains).toEqual([
+      { name: "lines", partName: "OrderLine", collection: true, optional: false },
+    ]);
     // …and it is NOT lowered as a value field.
     expect(bare.fields.map((f) => f.name)).not.toContain("lines");
     expect(bare.fields.map((f) => f.name)).toEqual(explicit.fields.map((f) => f.name));
@@ -39,7 +41,9 @@ describe("inferred containment (`contains` optional)", () => {
 
   it("a bare singular entity-typed field is a single (non-collection) containment", async () => {
     const bare = await order("single: OrderLine");
-    expect(bare.contains).toEqual([{ name: "single", partName: "OrderLine", collection: false }]);
+    expect(bare.contains).toEqual([
+      { name: "single", partName: "OrderLine", collection: false, optional: false },
+    ]);
     expect(bare.fields.map((f) => f.name)).not.toContain("single");
   });
 

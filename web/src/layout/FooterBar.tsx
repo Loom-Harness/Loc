@@ -5,6 +5,7 @@ import {
   modeLabel,
   type LayoutCtx,
 } from "./ctx";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -14,7 +15,7 @@ interface Props {
 // to summarise generation + bundle progress in one line.  On mobile
 // the right-side details collapse onto the same line — Mantine `Group`
 // with `wrap="wrap"` handles overflow gracefully.
-export function FooterBar({ ctx }: Props): JSX.Element {
+function FooterBarView({ ctx }: Props): JSX.Element {
   const { isDesktop, generateResult, honoBundleResult, unsupportedDeployables } = ctx;
   return (
     <Group h="100%" px="md" gap="md" justify="space-between" wrap="wrap">
@@ -47,3 +48,5 @@ export function FooterBar({ ctx }: Props): JSX.Element {
     </Group>
   );
 }
+
+export const FooterBar = trackedCtx("FooterBar", FooterBarView);

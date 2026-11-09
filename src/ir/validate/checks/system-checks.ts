@@ -27,7 +27,7 @@ export {
   validateVanillaDocumentScope,
 } from "./datasource-checks.js";
 export { validateDefaultDeny } from "./default-deny-checks.js";
-export { validateDapperSupport } from "./orm-adapter-checks.js";
+export { validateDapperSupport, validateSharedDatabaseLayouts } from "./orm-adapter-checks.js";
 export {
   validateGuardPrincipalWithoutAuth,
   validateStampSupport,

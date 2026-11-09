@@ -39,6 +39,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -603,6 +604,24 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
   ]);
 }
 
+/** Row-entity class name for the `every:` timer claim table. */
+
+export const MIKRO_TIMER_CLAIM_ROW_CLASS = "LoomTimerClaimRow";
+
+/** The `every:` timer claim Row (`__loom_timer`, decision D-TIMER-SINGLE-FIRE).
+ *  The other backends create it from the shared `MigrationsIR`; MikroORM owns
+ *  its schema through `schema.update()`, so the table must be an entity here or
+ *  it is never created (and would be diffed as removed if it were).  The
+ *  scheduler only ever writes it with the raw claim upsert. */
+
+function timerClaimRowEntity(): { block: string; schemaName: string } {
+  return renderRecordRowEntity(MIKRO_TIMER_CLAIM_ROW_CLASS, TIMER_CLAIM_TABLE, [
+    TEXT("timer", { primary: true }),
+    { prop: "lastPeriod", mikroType: "bigint", tsType: "string", nullable: false, primary: false },
+    TIMESTAMPTZ("firedAt"),
+  ]);
+}
+
 /** Transactional outbox Row (`__loom_outbox`) — the MikroORM edition of the
  *  drizzle `loomOutbox` pgTable (dispatch-delivery-semantics.md).  Column
  *  divergence from drizzle is deliberate on two properties, because MikroORM
@@ -836,6 +855,9 @@ export function renderMikroEntities(
     provenance?: boolean;
     outbox?: boolean;
     timerRuns?: boolean;
+    /** The deployable owns an `every:` timer — map the `__loom_timer` claim
+     *  table. */
+    timerClaim?: boolean;
     /** Maps an event-sourced aggregate / workflow to the context that declares
      *  it. A multi-context deployable passes one merged context here, and each
      *  `<Ctx>EventRow` must still be named after its stream's owner — the name
@@ -1118,6 +1140,11 @@ export function renderMikroEntities(
   // (the same condition that emits `scheduler.ts`).
   if (opts.timerRuns) {
     const { block, schemaName } = timerRunsRowEntity();
+    schemaNames.push(schemaName);
+    blocks.push(block);
+  }
+  if (opts.timerClaim) {
+    const { block, schemaName } = timerClaimRowEntity();
     schemaNames.push(schemaName);
     blocks.push(block);
   }

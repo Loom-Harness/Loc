@@ -19,7 +19,7 @@
 // no-network lane.
 
 import type { Page } from "@playwright/test";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { prependMarker, readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts clean (mirrors

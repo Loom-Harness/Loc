@@ -146,6 +146,10 @@ export const RESET_PRESERVED_SCHEMAS = [
  * fresh baseline instead of replaying the boundary it missed, silently
  * disabling the cron coalesce-once catch-up.
  *
+ * `__loom_timer` holds each `every:` timer's last claimed period.  Truncating
+ * it lets the next poll claim the current period again, so the timer fires
+ * twice in that period.
+ *
  * `__loom_seed` is NOT here, and deliberately so: the marker is truncated
  * WITH the domain tables so that a backend carrying `seed` data can re-apply
  * it afterwards.  A reset restores the just-migrated-and-seeded state, not an
@@ -154,6 +158,7 @@ export const RESET_PRESERVED_SCHEMAS = [
  */
 export const RESET_PRESERVED_TABLES = [
   "loom_timer_runs",
+  "__loom_timer",
   "__loom_migrations",
   "__EFMigrationsHistory",
   "schema_migrations",

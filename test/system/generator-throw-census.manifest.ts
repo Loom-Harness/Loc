@@ -1572,12 +1572,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
 
-  // src/platform/hono/shared/emit.ts
-  "src/platform/hono/shared/emit.ts#generateTypeScriptForContexts": {
-    invariant:
-      "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/shared/emit.ts:638-644; src/platform/hono/shared/emit.ts:1403-1416)",
-  },
-
   // src/platform/hono/shared/projection-builder.ts
   "src/platform/hono/shared/projection-builder.ts#renderFoldStatement": {
     guardedBy: ["loom.projection-fold-impure"],

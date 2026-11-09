@@ -171,7 +171,7 @@ Each `storage` whose type needs a dev backing service becomes a **compose sideca
 
 | storage type | sidecar | when |
 |---|---|---|
-| `s3` | `minio/minio:latest` + a named data volume | always |
+| `s3` | `cgr.dev/chainguard/minio:latest` + a named data volume | always |
 | `smtp` | `axllent/mailpit:latest` (SMTP :1025, web inbox :8025) | always — `ses` / `sendgrid` are SaaS, no sidecar |
 | `redis` | `valkey/valkey:8-alpine` with `--requirepass` | only when it backs a `channelSource` a deployable wires; a cache-only redis emits nothing |
 | `rabbitmq` | `rabbitmq:4-management-alpine` + a mounted `broker-init/` definitions file (vhost + per-deployable user) | when wired as a channel transport; an unwired one falls back to plain `rabbitmq:3-management` |
@@ -182,7 +182,7 @@ Each `storage` whose type needs a dev backing service becomes a **compose sideca
 ```yaml
 # docker-compose.yml — an s3 storage and an smtp storage, from `generate system`
   blobs:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin

@@ -53,8 +53,11 @@ CHART="$(awk '/^name:/{print $2; exit}' "${OUT}/helm/Chart.yaml")"
 FULLNAME="${RELEASE}-${CHART}"                                   # <release>-<chart>
 VK="$(grep -oE '\.Values\.[A-Za-z0-9]+\.replicas' "$DEP" | head -1 | sed -E 's/\.Values\.([A-Za-z0-9]+)\.replicas/\1/')"
 SPORT="$(grep -oE 'port: [0-9]+' "$SVC" | grep -oE '[0-9]+' | head -1)"
-DB="${TARGET//-/_}"          # workload `hono-api` → db `hono_api` (serviceSlug)
-DIR="${TARGET//-/_}"         # build context dir mirrors the db/slug
+# The database the backend's chart-default URL names — its storage's database
+# (one per `storage`, shared by every deployable bound to it).
+DB="$(awk -v k="${VK}:" '$0 == k {f=1; next} f && /^[^ ]/ {f=0} f && /url:/ {print; exit}' "${OUT}/helm/values.yaml" | grep -oE '(5432/|Database=)[a-z0-9_]+' | sed -E 's#^(5432/|Database=)##')"
+[ -n "$DB" ] || { echo "no database url for '${VK}' in values.yaml"; exit 1; }
+DIR="${TARGET//-/_}"         # build context dir: the deployable's service slug
 IMAGE="${TARGET}"            # image ref matches the workload name
 echo "backend=${TARGET} valuesKey=${VK} servicePort=${SPORT} db=${DB} chart=${CHART}"
 
@@ -71,7 +74,7 @@ step "Stand up a throwaway postgres (Service name 'db', database '${DB}')"
 # ecto://…@db).  Each backend's URL FORMAT differs (node-postgres URL / Npgsql
 # keywords / asyncpg / JDBC / ecto), so we DON'T override it — we just point the
 # shared `db` host at this pod, with the matching user/password and the one
-# database the backend expects (POSTGRES_DB=${DB}, the serviceSlug).
+# database the backend expects (POSTGRES_DB=${DB}, its storage's database).
 kubectl -n "$NS" apply -f - <<YAML
 apiVersion: apps/v1
 kind: Deployment

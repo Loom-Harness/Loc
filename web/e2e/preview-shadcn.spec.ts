@@ -15,7 +15,7 @@
 // jsdelivr — those steps self-skip when the browser can't reach the
 // npm registry, just like runtime.spec.ts.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   fatalConsoleErrors,

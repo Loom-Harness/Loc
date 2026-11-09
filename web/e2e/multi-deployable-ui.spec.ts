@@ -5,9 +5,10 @@
 // second storage), so a write through one backend must not show in the other.
 // Needs real internet, like multi-backend-runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
+  pgliteStarts,
   readEditorSource,
   recordInitialMigration,
   selectExample,
@@ -127,12 +128,22 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
     await expect(page.getByTestId("sql-result")).toBeVisible({ timeout: 30_000 });
   });
 
+  await test.step("Both storages started from the seeded PGlite snapshot", async () => {
+    expect((await pgliteStarts(page)).sort()).toEqual(["primary: snapshot", "replica: snapshot"]);
+  });
+
   await test.step("Reset acts on the picked storage only", async () => {
     await pick(page, "db-target", "replica");
+    // An ad-hoc table in the snapshot-started replica, which Reset must drop.
+    await sql(page, "CREATE TABLE only_in_replica (id int)");
+    await expect(page.getByTestId("sql-error")).toHaveCount(0);
     await expect(page.getByText("Reset acts on storage replica only.")).toBeVisible();
     await page.getByTestId("btn-wipe").click();
     await page.getByRole("button", { name: "Yes, clear all rows" }).click();
-    // primary's ad-hoc table survives a Reset of replica.
+    // Reset leaves replica with the recorded schema only…
+    await sql(page, "SELECT * FROM only_in_replica");
+    await expect(page.getByTestId("sql-error")).toContainText(/only_in_replica/, { timeout: 30_000 });
+    // …while primary's ad-hoc table survives a Reset of replica.
     await pick(page, "db-target", "primary");
     await sql(page, "SELECT * FROM only_in_primary");
     await expect(page.getByTestId("sql-result")).toBeVisible({ timeout: 30_000 });

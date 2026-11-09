@@ -3,6 +3,7 @@ import type {
   HttpCall,
   LoadRequest,
   LoadResult,
+  RuntimeBackgroundLogs,
   RuntimeProgress,
   RuntimeRpcRequest,
   RuntimeRpcResponse,
@@ -67,7 +68,7 @@ export class LoomRuntimeClient {
     this.worker = new Worker(new URL("./runtime.worker.ts", import.meta.url), {
       type: "module",
     });
-    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress | HttpCall>) => {
+    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress | RuntimeBackgroundLogs | HttpCall>) => {
       // Progress note, not a response: no `id`, carries `phase`.  Written
       // through synchronously here because a worker has no localStorage —
       // this is what makes a mid-boot renderer kill attributable to a step
@@ -80,17 +81,24 @@ export class LoomRuntimeClient {
         void this.answerHttp(ev.data);
         return;
       }
-      const msg = ev.data;
-      if (msg.logs && msg.logs.length > 0) {
-        const source = this.source;
-        this.onLog?.(source ? msg.logs.map((l) => ({ ...l, source })) : msg.logs);
+      if ("backgroundLogs" in ev.data) {
+        this.emitLogs(ev.data.backgroundLogs);
+        return;
       }
+      const msg = ev.data;
+      if (msg.logs && msg.logs.length > 0) this.emitLogs(msg.logs);
       const slot = this.pending.get(msg.id);
       if (!slot) return;
       this.pending.delete(msg.id);
       if (msg.error) slot.reject(new Error(msg.error.message));
       else slot.resolve(msg.result ?? null);
     };
+  }
+
+  /** Hand captured lines to `onLog`, tagged with this deployable. */
+  private emitLogs(lines: LogLine[]): void {
+    const source = this.source;
+    this.onLog?.(source ? lines.map((l) => ({ ...l, source })) : lines);
   }
 
   /** Run a backend→backend request through the main thread's router and send

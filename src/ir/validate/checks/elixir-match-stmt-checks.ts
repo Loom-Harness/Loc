@@ -53,6 +53,7 @@ import type {
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import { walkStmtDeep, walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { ownerHosts } from "./shared.js";
 
 /** True when any statement reachable from `s` (itself included, and inside a
  *  block-body lambda it carries) matches `pred`.  Rides `walkStmtDeep` rather
@@ -273,11 +274,11 @@ export function validateElixirMatchStatements(
   for (const sys of loom.systems) {
     // context name → the elixir deployable that emits it (first one wins; the
     // message names a concrete deployable so the author can find it).
-    const elixirHost = new Map<string, string>();
-    for (const dep of sys.deployables) {
-      if (dep.platform !== "elixir") continue;
-      for (const cn of dep.contextNames) if (!elixirHost.has(cn)) elixirHost.set(cn, dep.name);
-    }
+    const elixirHost = ownerHosts(
+      sys.deployables,
+      "stmt:match-arm-shape@body",
+      "loom.elixir-match-stmt-unsupported",
+    );
     if (elixirHost.size === 0) continue;
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) {
@@ -340,52 +341,61 @@ export function validateElixirMatchStatements(
             });
           }
         };
-        const flag = (where: string, stmts: readonly StmtIR[], kind: ElixirIfBodyKind): void => {
-          const slug = elixirMatchRefusal(stmts, kind, ctx);
-          if (slug) push(where, slug);
-        };
-        const flagWorkflow = (
-          where: string,
-          stmts: readonly WorkflowStmtIR[],
-          eventSourced = false,
-        ): void => {
-          const slug = elixirWorkflowMatchRefusal(stmts, ctx, eventSourced);
-          if (slug) push(where, slug);
-        };
-        for (const agg of ctx.aggregates) {
-          // An event-sourced command body is not a statement sequence at all.
-          const opKind: ElixirIfBodyKind = aggregateIsEventSourced(agg)
-            ? "event-sourced"
-            : "operation";
-          for (const op of agg.operations) {
-            flag(`operation '${agg.name}.${op.name}'`, op.statements, opKind);
-          }
-          for (const c of agg.creates ?? []) {
-            flag(`create '${agg.name}.${c.name}'`, c.statements, opKind);
-          }
-          for (const d of agg.destroys ?? []) {
-            flag(`destroy '${agg.name}.${d.name}'`, d.statements, opKind);
-          }
-        }
-        for (const svc of ctx.domainServices) {
-          for (const op of svc.operations) {
-            flag(`domainService operation '${svc.name}.${op.name}'`, op.body, "value");
-          }
-        }
-        for (const wf of ctx.workflows) {
-          const bodies = [
-            ...(wf.creates ?? []).map((c) => c.statements),
-            ...(wf.subscriptions ?? []).map((s) => s.statements),
-          ];
-          flagWorkflow(`workflow '${wf.name}'`, bodies.flat(), wf.eventSourced === true);
-        }
-        for (const h of ctx.commandHandlers ?? []) {
-          flagWorkflow(`commandHandler '${h.name}'`, h.statements);
-        }
-        for (const h of ctx.queryHandlers ?? []) {
-          flagWorkflow(`queryHandler '${h.name}'`, h.statements);
-        }
+        for (const { where, slug } of matchArmShapeRefusals(ctx)) push(where, slug);
       }
     }
   }
+}
+
+/** Every statement `match` in a body of `ctx` whose arm shape the Phoenix
+ *  renderers cannot carry, with its `#slug` — the uses of
+ *  `stmt:match-arm-shape@body`. */
+export function matchArmShapeRefusals(
+  ctx: BoundedContextIR,
+): { where: string; slug: ElixirMatchRefusal }[] {
+  const out: { where: string; slug: ElixirMatchRefusal }[] = [];
+  const flag = (where: string, stmts: readonly StmtIR[], kind: ElixirIfBodyKind): void => {
+    const slug = elixirMatchRefusal(stmts, kind, ctx);
+    if (slug) out.push({ where, slug });
+  };
+  const flagWorkflow = (
+    where: string,
+    stmts: readonly WorkflowStmtIR[],
+    eventSourced = false,
+  ): void => {
+    const slug = elixirWorkflowMatchRefusal(stmts, ctx, eventSourced);
+    if (slug) out.push({ where, slug });
+  };
+  for (const agg of ctx.aggregates) {
+    // An event-sourced command body is not a statement sequence at all.
+    const opKind: ElixirIfBodyKind = aggregateIsEventSourced(agg) ? "event-sourced" : "operation";
+    for (const op of agg.operations) {
+      flag(`operation '${agg.name}.${op.name}'`, op.statements, opKind);
+    }
+    for (const c of agg.creates ?? []) {
+      flag(`create '${agg.name}.${c.name}'`, c.statements, opKind);
+    }
+    for (const d of agg.destroys ?? []) {
+      flag(`destroy '${agg.name}.${d.name}'`, d.statements, opKind);
+    }
+  }
+  for (const svc of ctx.domainServices) {
+    for (const op of svc.operations) {
+      flag(`domainService operation '${svc.name}.${op.name}'`, op.body, "value");
+    }
+  }
+  for (const wf of ctx.workflows) {
+    const bodies = [
+      ...(wf.creates ?? []).map((c) => c.statements),
+      ...(wf.subscriptions ?? []).map((s) => s.statements),
+    ];
+    flagWorkflow(`workflow '${wf.name}'`, bodies.flat(), wf.eventSourced === true);
+  }
+  for (const h of ctx.commandHandlers ?? []) {
+    flagWorkflow(`commandHandler '${h.name}'`, h.statements);
+  }
+  for (const h of ctx.queryHandlers ?? []) {
+    flagWorkflow(`queryHandler '${h.name}'`, h.statements);
+  }
+  return out;
 }

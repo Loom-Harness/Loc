@@ -12,7 +12,7 @@
 // correspondence.test.ts` pins the same mapping headlessly, both directions.)
 
 import type { Page } from "@playwright/test";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   readEditorSource,
   revealTreeRow,

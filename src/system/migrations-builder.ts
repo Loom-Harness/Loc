@@ -92,6 +92,7 @@ import {
   workflowStateTableName,
 } from "../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../util/row-version.js";
+import { TIMER_CLAIM_TABLE } from "../util/timer.js";
 import type { SnapshotStore } from "./snapshot.js";
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,11 @@ export function schemaFromModule(
    *  hosts).  Defaults to the module's own channels for schema-only unit
    *  tests. */
   durableEvents: ReadonlySet<string> = moduleDurableEventTypes(module),
+  /** Whether a timerSource with an `every:` cadence fires an event of one of
+   *  this module's contexts — the module then owns the `__loom_timer` claim
+   *  table.  Timers are system-scope, so `buildMigrations` resolves this from
+   *  the system; defaults to false for schema-only callers. */
+  ownsIntervalTimer = false,
 ): SchemaSnapshot {
   const tables: TableShape[] = [];
   const aggPairs = collectAggregatePairs(module);
@@ -391,6 +397,10 @@ export function schemaFromModule(
   if (module.contexts.some((c) => contextsHaveProvenancedField([c]))) {
     tables.push(provenanceTableShape(module.name));
   }
+  // `every:` timer single-fire (decision D-TIMER-SINGLE-FIRE): one claim row
+  // per timer, advanced once per period by whichever replica claims it first.
+  // Machinery, not domain — no context schema.
+  if (ownsIntervalTimer) tables.push(timerClaimTableShape(module.name));
   // Cross-context id references get NO foreign key (M-T4.4): the SQL
   // renderer qualifies an FK with the REFERENCING table's schema, so a
   // reference into another context would point at a table that doesn't
@@ -495,6 +505,25 @@ function outboxTableShape(ownerModule: string): TableShape {
         predicate: OUTBOX_PENDING_PREDICATE,
       },
     ],
+  };
+}
+
+/** The `every:` timer claim table — one row per timer, holding the last period
+ *  (`floor(epoch_ms / everyMs)` on the database clock) it fired in.  Every
+ *  backend's tick claims a period with `timerClaimSql` (`util/timer.ts`); the
+ *  row needs no index beyond its primary key. */
+function timerClaimTableShape(ownerModule: string): TableShape {
+  return {
+    name: TIMER_CLAIM_TABLE,
+    ownerModule,
+    columns: [
+      { name: "timer", type: { kind: "text" }, nullable: false },
+      { name: "last_period", type: { kind: "bigint" }, nullable: false },
+      { name: "fired_at", type: { kind: "datetime" }, nullable: false },
+    ],
+    primaryKey: ["timer"],
+    foreignKeys: [],
+    indexes: [],
   };
 }
 
@@ -2519,9 +2548,20 @@ export function buildMigrations(
   const nextOf = new Map<string, SchemaSnapshot>();
   for (const md of owning) {
     baselineOf.set(md.name, snapshots.read(md.name));
+    const ownsIntervalTimer = (sys.timerSources ?? []).some(
+      (ts) => ts.cadence.kind === "every" && md.contexts.some((c) => c.name === ts.context),
+    );
     nextOf.set(
       md.name,
-      schemaFromModule(md, shapeOf, schemaOf, manualIndexesOf, contextSchemaOf, systemDurable),
+      schemaFromModule(
+        md,
+        shapeOf,
+        schemaOf,
+        manualIndexesOf,
+        contextSchemaOf,
+        systemDurable,
+        ownsIntervalTimer,
+      ),
     );
   }
   const holds = (

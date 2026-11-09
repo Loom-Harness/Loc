@@ -335,7 +335,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     ...(tenancy
       ? [
           `        var byStream = new LinkedHashMap<String, List<DomainEvent>>();`,
-          `        var meta = new LinkedHashMap<String, Map<String, Object>>();`,
+          `        var meta = new LinkedHashMap<String, ${J.Map}<String, Object>>();`,
           `        for (var row : rows) {`,
           `            var sid = (String) row.get("stream_id");`,
           `            meta.putIfAbsent(sid, row);`,

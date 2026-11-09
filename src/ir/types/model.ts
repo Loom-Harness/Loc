@@ -3,9 +3,9 @@ import type { BoundedContextIR, EnumIR, PayloadIR, ValueObjectIR } from "./conte
 import type { LoomInterface, NeedIR, SubdomainIR } from "./deployment.js";
 import type { ExprIR } from "./expr.js";
 import type { AssociationIR, CreateInputFieldIR, EntityPartIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { SystemIR } from "./system.js";
 import type { RequirementIR, SolutionIR, TestCaseIR, TraceabilityIR } from "./traceability.js";
+import type { Sourced } from "./types.js";
 import type { ComponentIR } from "./ui.js";
 
 export interface LoomModel {
@@ -92,7 +92,7 @@ export interface LoomModel {
  *  column names, exactly as it does for aggregate fields).  `context` scopes
  *  the aggregate to a bounded context so the builder can resolve the owning
  *  module + Postgres schema, disambiguating same-named aggregates. */
-export interface RenameIntentIR {
+export interface RenameIntentIR extends Sourced {
   /** Block label — the `"<name>"` on the owning `migration` block.  Carried
    *  for diagnostics and duplicate-name validation. */
   migration: string;
@@ -104,8 +104,6 @@ export interface RenameIntentIR {
   from: string;
   /** New (post-rename) field name — a live field of `aggregate`. */
   to: string;
-  /** Provenance back to the `rename` step's `.ddd` source. */
-  origin?: OriginRef;
 }
 
 /** One table step lowered from a `migration` block: `OldName -> NewName`
@@ -117,7 +115,7 @@ export interface RenameIntentIR {
  *  (`resolveTableStepTarget`, `src/ir/util/table-step-target.ts`), never
  *  stamped here, because it may live in another file of the project than the
  *  block that names it. */
-export interface TableRenameIntentIR {
+export interface TableRenameIntentIR extends Sourced {
   /** Block label — the `"<name>"` on the owning `migration` block. */
   migration: string;
   /** Old (pre-step) declaration name — its old table is derived from it. */
@@ -128,8 +126,6 @@ export interface TableRenameIntentIR {
   fromContext?: string;
   /** New bounded context, on the qualified (move) form only. */
   toContext?: string;
-  /** Provenance back to the step's `.ddd` source. */
-  origin?: OriginRef;
 }
 
 /** One `Agg.field = <expr>` backfill step (M-T2.3) lowered from a `migration`
@@ -138,7 +134,7 @@ export interface TableRenameIntentIR {
  *  in the aggregate's scope, so sibling fields appear as `this-prop` refs the
  *  SQL renderer turns into column references.  The builder snake-cases names
  *  exactly as it does for table/column derivation. */
-export interface BackfillIntentIR {
+export interface BackfillIntentIR extends Sourced {
   /** Block label — the `"<name>"` on the owning `migration` block. */
   migration: string;
   /** Target aggregate name (table `plural(snake(aggregate))`). */
@@ -150,15 +146,13 @@ export interface BackfillIntentIR {
   /** The backfill expression, restricted to the SQL-renderable subset
    *  (`sqlRenderableExpr` — validated at phase ⑦, rendered at phase ⑨). */
   value: ExprIR;
-  /** Provenance back to the step's `.ddd` source. */
-  origin?: OriginRef;
 }
 
 /** One raw `sql "…"` step (M-T2.3) lowered from a `migration` block.
  *  `index` is the step's position among the block's steps — the ledger key
  *  is `"<migration>#<index>"`, recorded in the snapshot's
  *  `appliedDataMigrations` so the statement runs exactly once. */
-export interface SqlStepIR {
+export interface SqlStepIR extends Sourced {
   /** Block label — the `"<name>"` on the owning `migration` block. */
   migration: string;
   /** Position among the owning block's steps (ledger key component). */
@@ -167,10 +161,8 @@ export interface SqlStepIR {
   sql: string;
   /** `sql before "…"` — emitted AHEAD of the generation's structural steps
    *  (a dedupe that must precede a new `unique (…)` index) instead of after
-   *  them.  Absent/false = the default trailing position. */
-  before?: boolean;
-  /** Provenance back to the step's `.ddd` source. */
-  origin?: OriginRef;
+   *  them.  `false` = the default trailing position. */
+  before: boolean;
 }
 
 // ---------------------------------------------------------------------------

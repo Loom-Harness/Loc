@@ -1,0 +1,26 @@
+// Refuses comparing a value against a platform or ui-framework NAME literal
+// (`platform === "elixir"`, `fw !== "phoenixLiveView"`, `case "flutter":`) in
+// the front half of the pipeline — `src/ir/`, `src/language/`, `src/system/`.
+// A per-target fact lives on the target's row instead: `src/platform/
+// target-facts.ts` (what a target is) or `src/util/target-capabilities.ts`
+// (what it renders), read through `descriptorFor(platform).facts`,
+// `frameworkFacts(framework)` or a capability-table helper.
+language js
+
+or {
+  `$a === $b`,
+  `$a !== $b`,
+  `$a == $b`,
+  `$a != $b`,
+  JsCaseClause(test = $b)
+} as $cmp where {
+  or {
+    $a <: r"[\"'`](?:node|dotnet|elixir|python|java|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]",
+    $b <: r"[\"'`](?:node|dotnet|elixir|python|java|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]"
+  },
+  $filename <: r".*src/(?:ir|language|system)/.*",
+  register_diagnostic(
+    span=$cmp,
+    message="A platform or ui-framework name is compared against a literal. Read the target's fact from src/platform/target-facts.ts or its row in src/util/target-capabilities.ts instead."
+  )
+}

@@ -12,7 +12,7 @@
 // new-group start offsets) are pinned without a browser in
 // test/web/broker-model.test.ts.  Needs real internet, like runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,
@@ -187,5 +187,27 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
     await expect
       .poll(() => sightings(page, "storefront"), { timeout: 30_000 })
       .toEqual(["kafka:LATE", "rabbitmq:LATE", "kafka:POISON", "redis:POISON", ...ALL("WIDGET")].sort());
+  });
+
+  await test.step("consumers log outside any request, and those lines reach Runtime logs", async () => {
+    // Every line below is written by a channel consumer, after the request
+    // that raised the event has returned: no RPC is running in that
+    // deployable, so only the background flush can carry it.
+    await page.getByTestId("devtools-tab-output").click();
+    await page.getByTestId("output-stream-select").click();
+    await page.getByRole("option", { name: "Runtime logs" }).click();
+    const lines = page.getByTestId("output-backend-log-structured");
+    for (const address of ["loom.Catalog.Announcements", "loom.Catalog.Listings", "loom.Catalog.History"]) {
+      await expect(
+        lines.filter({ hasText: "channel_consumed" }).filter({ hasText: address }).and(page.locator('[data-source="storefront"]')).first(),
+        `storefront channel_consumed on ${address}`,
+      ).toBeAttached({ timeout: 30_000 });
+    }
+    for (const source of ["admin", "storefront"]) {
+      await expect(
+        lines.filter({ hasText: "channel_dead_lettered" }).and(page.locator(`[data-source="${source}"]`)).first(),
+        `${source} channel_dead_lettered`,
+      ).toBeAttached({ timeout: 30_000 });
+    }
   });
 });
