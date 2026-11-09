@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { expectAudienceEnforced } from "./support/audience-probe.js";
 import { hasDocker } from "./support/docker-probe.js";
+import { expectEveryPathSpellingGated } from "./support/path-spelling-probe.js";
 import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
@@ -289,6 +290,10 @@ describe.skipIf(!RUN)(
         // Unauthenticated hitting the gated route → 401 (authn precedes authz;
         // the unscoped call is rejected before the gate is even reached).
         expect((await fetch(`${apiBase}/api/projections/admin_scoped`)).status).toBe(401);
+        // The gate decides on the path the router dispatches: no encoded,
+        // parameterised or dot-segmented spelling of a protected route (or of a
+        // bypass prefix) reaches a handler without credentials.
+        await expectEveryPathSpellingGated(apiBase, "tickets");
         // --- Audience enforcement (CR1-b / P0-4).  The primary backend ran with
         // no OIDC_AUDIENCE, so it accepted this token.  All five backends resolve
         // the audience as "declared value, overridden by OIDC_AUDIENCE, empty =>
