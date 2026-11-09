@@ -159,6 +159,7 @@ import {
   effectiveSavingShape,
   resolveContextSchema,
   resolveDataSourceConfig,
+  resolveWorkflowIsolation,
 } from "../../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
@@ -1034,6 +1035,12 @@ export function generateTypeScriptForContexts(
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
     return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
   };
+  // Per-workflow transaction isolation — resolved against the workflow's
+  // OWNING context, whose state dataSource supplies the default level.
+  const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
+    const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+    return owningCtx ? resolveWorkflowIsolation(wf, owningCtx, system.sys) : wf.isolation;
+  };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
     const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
@@ -1124,6 +1131,7 @@ export function generateTypeScriptForContexts(
       resolveStreamContext,
       usingMikro,
       authRequired,
+      resolveWorkflowIsolationLevel,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
