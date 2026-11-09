@@ -101,7 +101,7 @@ system Sys {
     expect(party.isAbstract).toBe(true);
     expect(party.inheritanceUsing).toBe("sharedTable");
     expect(party.extendsAggregate).toBeUndefined();
-    expect(customer.isAbstract).toBeUndefined();
+    expect(customer.isAbstract).toBe(false);
     expect(customer.extendsAggregate).toBe("Party");
   });
 });

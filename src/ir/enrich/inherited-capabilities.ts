@@ -97,14 +97,14 @@ export function inheritBaseCapabilities(aggs: readonly AggregateIR[]): Aggregate
     const stamps = mergeStamps(baseStamps, a.contextStamps ?? []);
     const out: AggregateIR = {
       ...a,
-      contextFilters: filters.length > 0 ? filters.map((f) => f.predicate) : undefined,
+      contextFilters: filters.map((f) => f.predicate),
       contextFilterRefs: filters.some((f) => f.ref) ? filters.map((f) => f.ref) : undefined,
       contextFilterOrigins: filters.some((f) => f.origin)
         ? filters.map((f) => f.origin)
         : undefined,
-      contextStamps: stamps.length > 0 ? stamps : undefined,
-      capabilities: caps.length > 0 ? caps : undefined,
-      crossTenant: a.crossTenant || base.crossTenant ? true : undefined,
+      contextStamps: stamps,
+      capabilities: caps,
+      crossTenant: a.crossTenant || base.crossTenant,
     };
     merged.set(a.name, out);
     return out;
