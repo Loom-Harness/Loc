@@ -3,6 +3,8 @@
 // params }` request to the service named, from the main thread (`client:
 // null`) or from a deployable's `InfraPort` (`client: <slug>`).
 
+import type { BlobStore } from "./persist.js";
+
 /** Something a service pushes to one deployable without being asked (a
  *  broker delivery).  Plain data. */
 export interface InfraPush {
@@ -25,6 +27,9 @@ export interface InfraService<Op extends { op: string; params: unknown }> {
   handle(req: Op, ctx: InfraServiceContext): Promise<unknown> | unknown;
   /** A deployable disconnected (stopped, reset or respawned). */
   disconnect?(client: string): void;
-  /** `infra.reset`: drop all state. */
+  /** `infra.configure`: back this service with `store` (null → memory only) and
+   *  load what the store holds.  Runs after `reset`. */
+  persist?(store: BlobStore | null): Promise<void>;
+  /** `infra.reset`: drop all in-memory state (the durable copy stays). */
   reset(): Promise<void> | void;
 }

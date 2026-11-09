@@ -182,15 +182,20 @@ facades that forward there over the deployable's `InfraPort` (`src/runtime/resou
 
 | sourceType | In the bundle | In the infra worker |
 |---|---|---|
-| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an in-memory object map |
-| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one in-memory tree, shared by every deployable |
+| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an object map, written through to OPFS |
+| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one tree, shared by every deployable, written through to OPFS |
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
 | `restApi` | the generated `fetch` → the `httpMock` service | echo response, or sample data from a registered OpenAPI document (`openapi-sampler`) |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
-files and mail live as long as the infra worker: Reset or a re-boot empties them.
+files and mail are written through to an OPFS directory (`loomres-<island>`, the
+same island as the first storage's PGlite data, so it follows the workspace and
+`engine/opfs-gc.ts` collects it with it) and reloaded at boot, so they survive a
+page reload; the database Reset (and "Clear stored data") empties them. Where OPFS
+is unavailable (mobile's `:memory:` storages, private mode) they live in memory
+only: a re-boot empties them.
 
 ### In-browser test runner
 

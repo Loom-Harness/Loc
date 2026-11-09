@@ -303,6 +303,13 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     const infra = this.infraClient();
     this.booted = null;
     await infra.reset();
+    // Objects, files and mail follow the first storage's island (workspace +
+    // entry), so they survive a reload with the database; `:memory:` (mobile)
+    // keeps them in memory.
+    const island = plan.storages
+      .map((s) => /^opfs-ahp:\/\/loom-(.+)$/.exec(s.dataDir ?? "")?.[1])
+      .find((i) => i !== undefined);
+    await infra.configureResources(island ?? null, opts?.fresh);
     // A deployable that left the system takes its worker with it.
     const slugs = new Set(plan.backends.map((b) => b.slug));
     for (const [slug, rt] of this.runtimes) {
@@ -444,6 +451,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   async wipe(storage?: string): Promise<WipeResult> {
     if (!this.booted || !this.infra) return { ok: false, message: "Runtime not booted — nothing to wipe." };
     const keys = storage ? [storage] : this.booted.storages.map((s) => s.key);
+    if (!storage) await this.infra.wipeResources();
     for (const key of keys) {
       const res = await this.infra.wipe(key);
       if (!res.ok) return keys.length > 1 ? { ok: false, message: `storage ${key}: ${res.message}` } : res;
