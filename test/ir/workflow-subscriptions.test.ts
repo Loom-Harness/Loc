@@ -68,11 +68,11 @@ describe("workflow on(...) reactors — surface + lowering", () => {
     }
   });
 
-  it("leaves subscriptions undefined when the workflow declares none", async () => {
+  it("leaves subscriptions empty when the workflow declares none", async () => {
     const wf = await lowerFirstWorkflow(
       sales({ reactors: "", body: "create() { let total = 1 }" }),
     );
-    expect(wf.subscriptions).toBeUndefined();
+    expect(wf.subscriptions).toEqual([]);
   });
 
   it("preserves the legacy statement body unchanged alongside a reactor", async () => {

@@ -81,9 +81,9 @@ describe("workflow function(...) — lowering + call model", () => {
     expect(stmt?.type).toEqual({ kind: "primitive", name: "int" });
   });
 
-  it("leaves functions undefined when none declared", async () => {
+  it("leaves functions empty when none declared", async () => {
     const wf = await lowerFirstWorkflow(`workflow Ops { create() { let z = 1 } }`);
-    expect(wf.functions).toBeUndefined();
+    expect(wf.functions).toEqual([]);
   });
 });
 
