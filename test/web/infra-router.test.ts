@@ -18,6 +18,7 @@ type EchoOp = { op: "echo"; params: { text: string } } | { op: "poke"; params: {
 interface Probe {
   calls: { op: string; client: string | null }[];
   disconnected: string[];
+  storageDetached: string[];
   resets: number;
 }
 
@@ -40,11 +41,14 @@ function echoService(host: InfraServiceHost, probe: Probe): InfraService<EchoOp>
 }
 
 function setup() {
-  const probe: Probe = { calls: [], disconnected: [], resets: 0 };
+  const probe: Probe = { calls: [], disconnected: [], storageDetached: [], resets: 0 };
   let storagesClosed = 0;
   const router = new InfraRouter({
     createServices: (host) => new Map([["echo", echoService(host, probe)]]),
     storage: async () => ({ ok: true }),
+    detachStorages: async (client) => {
+      probe.storageDetached.push(client);
+    },
     closeStorages: async () => {
       storagesClosed++;
     },
@@ -105,7 +109,7 @@ describe("infra router + InfraPort", () => {
     const port = await connect("admin");
     await expect(
       port.call({ service: "storage", op: "wipe", params: { key: "k" } }),
-    ).rejects.toThrow(/PGliteWorker/);
+    ).rejects.toThrow(/storage port/);
     await expect(port.call({ service: "infra", op: "reset", params: {} })).rejects.toThrow(
       /main thread only/,
     );
@@ -120,6 +124,7 @@ describe("infra router + InfraPort", () => {
     const port = await connect("admin");
     await main({ service: "infra", op: "disconnect", params: { client: "admin" } });
     expect(probe.disconnected).toEqual(["admin"]);
+    expect(probe.storageDetached).toEqual(["admin"]);
     await connect("shop");
     await main({ service: "infra", op: "reset", params: {} });
     expect(probe.disconnected).toEqual(["admin", "shop"]);

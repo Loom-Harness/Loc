@@ -97,7 +97,6 @@ describe("makeEntryStdin", () => {
         'export * as schema from "./d/db/schema.ts";',
         'export { drizzle } from "drizzle-orm/pglite";',
         'export { PGlite } from "@electric-sql/pglite";',
-        'export { PGliteWorker } from "@electric-sql/pglite/worker";',
         'export { is, Table } from "drizzle-orm";',
         'export { getTableConfig } from "drizzle-orm/pg-core";',
         "",

@@ -139,8 +139,6 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private readonly injectedRun?: EsbuildRun;
   private vfsBundler: VfsBundlerClient | null = null;
   private lastBoot: { plan: BootPlan; persistent: boolean } | null = null;
-  /** Each booted storage's `PGliteWorker` channel, for a deployable restart. */
-  private storageChannels = new Map<string, string>();
 
   constructor(
     opts: RuntimeEngineOptions & { esbuildRun?: EsbuildRun } = {},
@@ -172,6 +170,9 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
         // Backend→backend HTTP: a deployable's request to another's compose
         // address runs through that deployable's app, in its own worker.
         onHttpCall: (host, request) => this.dispatch(request, host),
+        // The worker is gone: drop its storage clients now rather than when
+        // the browser releases its liveness lock.
+        onTerminate: () => void this.infra?.disconnect(slug).catch(() => undefined),
       });
       this.runtimes.set(slug, rt);
     }
@@ -310,11 +311,11 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       this.runtimes.delete(slug);
     }
 
-    const opened = new Map<string, { channel: string; persistent: boolean }>();
+    const opened = new Map<string, { persistent: boolean }>();
     for (const st of plan.storages) {
       const res = await infra.openStorage({ key: st.key, dataDir: st.dataDir, fresh: opts?.fresh });
       if (!res.ok) return this.failed(res);
-      opened.set(st.key, { channel: res.channel, persistent: res.persistent });
+      opened.set(st.key, { persistent: res.persistent });
     }
 
     // Import every bundle.  A storage without a recorded chain (a source
@@ -350,16 +351,15 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     }
 
     for (const b of plan.backends) {
-      const channel = opened.get(b.storage)?.channel ?? "";
-      // The deployable's line to the infra services (its channel bindings
-      // ride the emulated broker over it).
+      // The deployable's storage port, and its line to the infra services
+      // (its channel bindings ride the emulated broker over it).
+      const storagePort = await infra.attachStorage(b.storage, b.slug);
       const port = await infra.connect(b.slug);
-      const res = await this.rt(b.slug).start(channel, port);
+      const res = await this.rt(b.slug).start(storagePort, port);
       if (!res.ok) return this.failed(res, b.slug);
     }
 
     this.booted = plan;
-    this.storageChannels = new Map([...opened].map(([key, o]) => [key, o.channel]));
     const persistent = storages.every((s) => s.persistent);
     this.lastBoot = { plan, persistent };
     return {
@@ -392,8 +392,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
    *  broker — it resumes its consumer groups where they stopped. */
   async startDeployable(slug: string): Promise<StartResult> {
     const b = this.booted?.backends.find((x) => x.slug === slug);
-    const channel = b ? this.storageChannels.get(b.storage) : undefined;
-    if (!b || !this.infra || channel === undefined) return { ok: false, message: `No booted deployable "${slug}".` };
+    if (!b || !this.infra) return { ok: false, message: `No booted deployable "${slug}".` };
     const rt = this.rt(slug);
     const loaded = await rt.load({
       bundleCode: b.bundleCode,
@@ -402,7 +401,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       serviceHosts: (this.booted?.backends ?? []).map((o) => o.slug).filter((h) => h !== slug),
     });
     if (!loaded.ok) return loaded;
-    return rt.start(channel, await this.infra.connect(slug));
+    return rt.start(await this.infra.attachStorage(b.storage, slug), await this.infra.connect(slug));
   }
 
   /** A boot that stopped: name the deployable or storage it stopped at when

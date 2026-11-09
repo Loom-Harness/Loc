@@ -44,7 +44,7 @@ Heavy work runs in Web Workers, not on the UI thread:
   infrastructure `docker-compose.yml` runs beside the services: one PGlite
   per `storage`, each in a nested storage host worker, and the services
   registered in `src/runtime/infra/services.ts` (the message broker). A deployable reaches a
-  storage through `PGliteWorker` and every other service through its
+  storage over a storage port of its own and every other service through its
   `InfraPort`, a `MessagePort` the engine hands it at boot (routing:
   `src/runtime/infra/router.ts`; a service implements
   `src/runtime/infra/service.ts` and adds its ops to `InfraServiceOps` in
@@ -198,10 +198,33 @@ The Postgres is **PGlite** — a WebAssembly Postgres — one database per
 `storage` the system's Node deployables bind, not one per deployable. Each
 runs in a storage host worker under the infra worker
 (`src/runtime/storage-host.worker.ts`), and every deployable bound to the
-storage connects to it through PGlite's `PGliteWorker` client, so two backends
-on one `storage` read and write the same rows (the Shared storage example).
-Each storage holds the union of the schemas of the modules its deployables
-host. A request through the extra hop costs about 6 ms per SQL statement. The
+storage connects to it over a `MessagePort` of its own, so two backends on one
+`storage` read and write the same rows (the Shared storage example). Each
+storage holds the union of the schemas of the modules its deployables host.
+
+The port carries one message per SQL statement each way
+(`src/runtime/storage-wire.ts`). The deployable side, `StorageClient`, is the
+slice of PGlite's API that drizzle's `drizzle-orm/pglite` driver calls. A
+transaction's `BEGIN` rides on its first statement. The hop costs about 0.4 ms
+per statement over running PGlite in the same worker. PGlite is one Postgres
+session, so the storage host schedules every client on it
+(`src/runtime/storage-scheduler.ts`):
+
+- Statements run one at a time, in arrival order.
+- While one deployable's transaction is open, only that deployable's
+  statements run. The others wait in order, as they would behind a row lock
+  on separate connections.
+- A deployable that goes away mid-transaction is rolled back before any other
+  deployable's queued statement runs. The host learns of it in two ways. The
+  engine sends `infra.disconnect` whenever it stops or terminates a
+  deployable's worker. As a backstop, each client holds a Web Lock while it
+  lives, which the browser releases when the worker ends, even when nobody
+  said so.
+- Migrations, the Database console and Reset queue as host jobs. They never
+  run inside a deployable's transaction. Whatever a console statement leaves
+  open is rolled back.
+
+The
 Runtime tab's request composer picks which backend a request goes to when the
 system has several. Its schema comes only from
 the workspace's **recorded migration chain** (`migrations/*.json`, below), the

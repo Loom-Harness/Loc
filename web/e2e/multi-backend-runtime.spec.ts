@@ -1,7 +1,7 @@
 // Two Node backends on one storage: Bundle → Boot both → a write through one
 // backend is read back through the other.  Each backend runs in its own
-// runtime worker; the database runs once, in the infra worker, and both reach
-// it through `PGliteWorker`.  Needs real internet, like runtime.spec.ts.
+// runtime worker; the database runs once, under the infra worker, and both
+// reach it over a storage port each.  Needs real internet, like runtime.spec.ts.
 
 import { expect, type Page, test } from "@playwright/test";
 import {

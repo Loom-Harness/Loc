@@ -5,9 +5,10 @@
 // `infra/services.ts`.
 //
 // Deployable workers hold no infrastructure state: they reach a storage
-// through the `channel` its `open` returns, and every other service through
-// their `InfraPort` — the `MessagePort` the `connect` op hands over (routing:
-// `infra/router.ts`).  See `infra-protocol.ts`.
+// through the storage port its `attach` op hands to the storage host, and
+// every other service through their `InfraPort` — the `MessagePort` the
+// `connect` op hands over (routing: `infra/router.ts`).  See
+// `infra-protocol.ts`.
 
 import type {
   HostControl,
@@ -26,18 +27,12 @@ import { errText } from "./migrate.js";
 
 declare const self: DedicatedWorkerGlobalScope;
 
-/** Unique per infra worker, so two playground tabs (or a respawned infra
- *  worker) never answer each other's broadcast channels. */
-const instance = crypto.randomUUID();
-let generation = 0;
-
 class StorageHost {
   private nextId = 1;
   private readonly pending = new Map<number, (res: HostResponse) => void>();
 
   private constructor(
     readonly key: string,
-    readonly channel: string,
     private readonly worker: Worker,
   ) {
     worker.addEventListener("message", (ev: MessageEvent) => {
@@ -53,10 +48,9 @@ class StorageHost {
     });
   }
 
-  /** Spawn the host and run PGlite's handshake with it: it announces `here`,
-   *  takes the init options, and opens the database. */
+  /** Spawn the host: it announces `here`, takes the init options, and opens
+   *  the database. */
   static async spawn(key: string, dataDir?: string, fresh?: boolean): Promise<StorageHost> {
-    const channel = `loom-storage:${instance}:${++generation}:${key}`;
     const worker = new Worker(new URL("./storage-host.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -70,18 +64,18 @@ class StorageHost {
         resolve();
       });
     });
-    const options: HostInitOptions = { id: channel, dataDir, fresh };
+    const options: HostInitOptions = { dataDir, fresh };
     worker.postMessage({ type: "init", options });
-    return new StorageHost(key, channel, worker);
+    return new StorageHost(key, worker);
   }
 
-  call<T>(control: HostControl): Promise<T> {
+  call<T>(control: HostControl, transfer: Transferable[] = []): Promise<T> {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, (res) =>
         res.error !== undefined ? reject(new Error(res.error)) : resolve(res.result as T),
       );
-      this.worker.postMessage({ type: "loom-host", id, ...control } satisfies HostRequest);
+      this.worker.postMessage({ type: "loom-host", id, ...control } satisfies HostRequest, transfer);
     });
   }
 
@@ -108,7 +102,7 @@ function host(key: string): StorageHost {
   return h;
 }
 
-async function storage(req: StorageOp): Promise<unknown> {
+async function storage(req: StorageOp, ports: readonly MessagePort[]): Promise<unknown> {
   switch (req.op) {
     case "open": {
       const { key, dataDir, fresh } = req.params;
@@ -123,11 +117,16 @@ async function storage(req: StorageOp): Promise<unknown> {
       try {
         const { persistent } = await h.call<{ persistent: boolean }>({ op: "status" });
         storages.set(key, h);
-        return { ok: true, channel: h.channel, persistent } satisfies StorageOpenResult;
+        return { ok: true, persistent } satisfies StorageOpenResult;
       } catch (err) {
         await h.close();
         return { ok: false, message: `PGlite boot failed: ${errText(err)}` };
       }
+    }
+    case "attach": {
+      const port = ports[0];
+      if (!port) throw new Error("storage.attach needs a transferred MessagePort.");
+      return host(req.params.key).call({ op: "attach", client: req.params.client }, [port]);
     }
     case "migrate":
       return host(req.params.key).call({ op: "migrate", plan: req.params.plan });
@@ -149,6 +148,9 @@ async function storage(req: StorageOp): Promise<unknown> {
 const router = new InfraRouter({
   createServices,
   storage,
+  async detachStorages(client) {
+    await Promise.all([...storages.values()].map((h) => h.call({ op: "detach", client }).catch(() => undefined)));
+  },
   async closeStorages() {
     await Promise.all([...storages.values()].map((h) => h.close()));
     storages.clear();
