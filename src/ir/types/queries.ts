@@ -16,7 +16,7 @@ import {
 } from "../util/write-scope-guards.js";
 import type { AggregateIR } from "./aggregate.js";
 import type { BoundedContextIR, FindIR, ValueObjectIR } from "./context.js";
-import { type ExprIR, lit } from "./expr.js";
+import type { ExprIR } from "./expr.js";
 import type { EntityPartIR, FunctionBodyIR, OperationIR, ParamIR } from "./members.js";
 import type { LoomModel } from "./model.js";
 import type { ProjectionIR } from "./projection.js";

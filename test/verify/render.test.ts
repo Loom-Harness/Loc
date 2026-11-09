@@ -20,7 +20,6 @@
 //   • A Mermaid-hostile requirement id / title cannot corrupt the graph.
 // ---------------------------------------------------------------------------
 
-
 import { describe, expect, it } from "vitest";
 import type {
   LoomModel,
