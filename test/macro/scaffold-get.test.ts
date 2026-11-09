@@ -115,7 +115,10 @@ describe("scaffoldGet — the expanded source", () => {
 
 /** Each backend's query-string binding of the read's param on the routed GET. */
 const QUERY_BINDING: Record<(typeof BACKENDS)[number], string[]> = {
-  node: ["request: { query: z.object({ code: z.string() }) }", "const code = __query.code;"],
+  node: [
+    'request: { query: z.object({ code: z.string().refine((s: string) => !s.includes("\\u0000")) }) }',
+    "const code = __query.code;",
+  ],
   python: ["async def get_order_by_code_route(code: WireStr, session: SessionDep)"],
   java: ['@GetMapping("/api/orders/by_code")', "@RequestParam String code"],
   dotnet: [
