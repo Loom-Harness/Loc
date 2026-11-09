@@ -39,7 +39,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
+import { ORG_CONTEXT_ACCESSOR, REMOVED_DATA_KEY_FIELD } from "../../util/principal.js";
 import { DURATION_UNITS } from "../../util/temporal.js";
 import type { DddServices } from "../ddd-module.js";
 import {
@@ -56,7 +56,7 @@ import { stdFunctions } from "../stdlib.js";
 // is the module-permissions namespace head (`permissions.<name>`); the A5
 // duration constructors (`days`/`hours`/`minutes`) are free-call
 // builtins; `organizationContext` is the operating-scope peer of
-// `currentUser` (its surface — `.orgPath` only, never on a `ui` — is
+// `currentUser` (its surface — `.org` only, never on a `ui` — is
 // `loom.org-context-surface`, validators/tenancy.ts).  All admitted unconditionally — a superset is safe (only ever
 // masks a report, never invents one; the temporal validator owns the
 // duration arity checks).
@@ -229,6 +229,14 @@ export function checkUnknownNameRefs(
     const name = node.name;
     if (universe.has(name)) continue;
     if (!inCheckedZone(node)) continue;
+    if (name === REMOVED_DATA_KEY_FIELD) {
+      accept("error", diagMessage("loom.tenancy-data-key-removed", { where: "this expression" }), {
+        node,
+        property: "name",
+        code: "loom.tenancy-data-key-removed",
+      });
+      continue;
+    }
     const hint = suggest(name, node);
     accept("error", diagMessage("loom.unknown-name", { hint, name }), {
       node,

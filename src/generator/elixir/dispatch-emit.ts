@@ -855,9 +855,7 @@ function renderProjectionFoldHandler(
   const lookup = cols
     ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
     : `${appModule}.Repo.get(${rowMod}, key)`;
-  const seed = cols
-    ? `${snake(corr)}: key, ${tenantCol}: tenant, ${snake(cols.dataKey.field)}: Map.get(origin, "orgPath") || tenant`
-    : `${snake(corr)}: key`;
+  const seed = cols ? `${snake(corr)}: key, ${tenantCol}: tenant` : `${snake(corr)}: key`;
   const body = [
     `    key = ${keyExpr}`,
     "",
@@ -878,11 +876,11 @@ function renderProjectionFoldHandler(
 
     case Map.get(origin, "tenant") do
       nil -> :ok
-      tenant -> fold(event, tenant, origin)
+      tenant -> fold(event, tenant)
     end
   end
 
-  defp fold(event, tenant, origin) do
+  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
     : `  def handle(${event}) do

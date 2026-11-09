@@ -482,32 +482,13 @@ export const messages = {
     `policy in context '${p.name}': \`${p.source}\` targets '${p.aggregate}', which ` +
     `is not \`with tenantOwned\`.  A write level refines the tenant floor, so it applies only ` +
     `to tenant-owned aggregates.`,
-  "loom.policy-level-requires-hierarchy#read": (p: {
-    name: unknown;
-    source: unknown;
-    level: unknown;
-  }) =>
-    `policy in context '${p.name}': \`${p.source}\` uses the '${p.level}' read level, ` +
-    `which needs a tenant hierarchy — mark the registry \`implements tenantRegistry\` (the ` +
-    `materialized-path tree).  Under flat tenancy only 'local' is defined (every org is its ` +
-    `own root).`,
-  "loom.policy-level-requires-hierarchy#write": (p: { name: unknown; source: unknown }) =>
-    `policy in context '${p.name}': \`${p.source}\` uses the 'deep' write level, which ` +
-    `needs a tenant hierarchy — mark the registry \`implements tenantRegistry\` (the ` +
-    `materialized-path tree).  Under flat tenancy only 'local' is defined.`,
-  "loom.policy-write-global-invalid": (p: { name: unknown; source: unknown }) =>
-    `policy in context '${p.name}': \`${p.source}\` uses \`write global\`, which is not ` +
-    `offered — root-subtree-wide mutation is a footgun.  Use \`write deep\` (the caller's own ` +
-    `subtree) or \`write local\` (the floor).  A caller can still \`allow global\` for READS.`,
-  "loom.policy-write-wider-than-read": (p: {
-    name: unknown;
-    source: unknown;
-    aggregate: unknown;
-    readLevel: unknown;
-  }) =>
-    `policy in context '${p.name}': \`${p.source}\` grants a wider WRITE scope than ` +
-    `the READ scope for '${p.aggregate}' (read is '${p.readLevel}').  You cannot write ` +
-    `what you cannot read — add \`allow deep on ${p.aggregate}\` (or \`allow global\`).`,
+  // Hierarchical data visibility is gone (D-TENANCY-FLAT): a row is visible to
+  // its own org only, and reach beyond it is an explicit share or row rule.
+  "loom.policy-level-removed": (p: { source: unknown; level: unknown }) =>
+    `\`${p.source}\`: the '${p.level}' level no longer exists — data visibility is flat, so a ` +
+    `tenant-owned row is visible to its own org only ('local', the default).  To reach rows of ` +
+    `other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule ` +
+    `or write \`allow local on …\`.`,
   "loom.policy-deny-duplicate": (p: {
     name: unknown;
     access: unknown;

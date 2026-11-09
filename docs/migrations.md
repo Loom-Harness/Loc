@@ -334,7 +334,7 @@ such flag.
   | `tenantOwned` | `tenant_id` | unknown: which tenant owns a pre-tenancy row is a business fact, and a wrong guess leaks it | **refused**, with a line naming the capability and why |
   | `auditable` | `created_at`/`updated_at`/`created_by`/`updated_by` | unknown: the real creation time and author are lost | **refused**, same |
 
-  The nullable ones (`deleted_at`, `data_key`) need nothing. A declared
+  The nullable one (`deleted_at`) needs nothing. A declared
   `migration "…" { Agg.field = <value> }` block still wins over the automatic
   `softDeletable` fill, and is the remedy for the two refused ones:
 

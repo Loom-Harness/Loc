@@ -13,17 +13,15 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation — vanilla Phoenix (plain
-// Ecto/Phoenix) backend, the fifth leg (sibling of tenancy-hierarchy.test.ts).
-// Same corpus fixture + shared `assertHierarchyIsolation`; boots via host
-// `mix phx.server`.  Proves the deep/global/local Ecto `fragment("… LIKE ? ||
-// '.%'")` scopes agree at RUNTIME — the put_org_path plug reads the registry
-// `data_key` per request, the changeset stamp copies it, and the fail-closed
-// LIKE fragment scopes reads to the subtree.
-//
-// Opt-in: LOOM_TENANCY_E2E_ELIXIR=1.  Needs elixir/mix on PATH (setup-beam in
-// CI) + docker (postgres sidecar) or LOOM_TENANCY_PG_URL.  The NULL-dataKey
-// probe needs `psql` too.  Slow (~5-8 min cold; ~60s warm with hex cache).
+// The registry tree beside flat data visibility, booted on the vanilla Phoenix
+// (plain Ecto/Phoenix) backend. Boots the `tenancy-hierarchy.ddd` corpus
+// fixture (a registry `implements tenantRegistry` + `tenantOwned` aggregates
+// under the default floor, `allow local` and `deny write`) against a throwaway
+// postgres and runs the shared `assertHierarchyIsolation` sequence: every org
+// reads exactly its own rows — a parent never its child's — no `data_key`
+// column exists, and the write scope is the same floor. Opt-in:
+// LOOM_TENANCY_E2E_ELIXIR=1. Needs elixir/mix on PATH + docker (postgres
+// sidecar) or LOOM_TENANCY_PG_URL, and `psql`. Slow (~5-8 min cold).
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +40,9 @@ function hasElixir(): boolean {
 }
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated vanilla Phoenix backend (LOOM_TENANCY_E2E_ELIXIR=1)",
+  "registry-tree isolation over the generated vanilla Phoenix backend (LOOM_TENANCY_E2E_ELIXIR=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       if (!hasElixir())
         throw new Error(
           "LOOM_TENANCY_E2E_ELIXIR=1 set but `mix` is not on PATH. " +

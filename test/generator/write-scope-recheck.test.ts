@@ -3,7 +3,7 @@
 // mutates or deletes a row it holds — one `Repo.all(<criterion>)` returned, a
 // find, a loop variable — re-loads it through the backend's write-scope load
 // (the load the op route uses) before the mutation, inside one transaction, so
-// a row outside `deny write` / the write floor answers the op route's 404 and
+// a row outside `deny write` answers the op route's 404 and
 // rolls the whole command back.  A row the body created is exempt.
 
 import { describe, expect, it } from "vitest";
@@ -152,12 +152,12 @@ describe("write-scope guards — derived from the body's mutate / delete effects
     expect(workflowCanAnswerNotFound(wf, ctx)).toBe(true);
   });
 
-  it("the `allow deep` own-org floor narrows the write scope too", async () => {
-    const ctx = await contextOf("node", "allow deep on Ledger");
+  // `deny write` is the one narrowing write scope (D-TENANCY-FLAT): the
+  // `local` floor reads and writes the same rows, so it adds no re-check.
+  it("`allow local` does not narrow the write scope, so it guards nothing", async () => {
+    const ctx = await contextOf("node", "allow local on Ledger");
     const wf = ctx.workflows.find((w) => w.name === "touchLedgers")!;
-    expect(
-      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).map((g) => g.name),
-    ).toEqual(["l"]);
+    expect(bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx))).toEqual([]);
   });
 });
 

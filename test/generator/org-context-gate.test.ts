@@ -1,21 +1,22 @@
-// The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5) —
-// the EMITTED half, per backend.
+// The operating-org switch gate (`organizationContext`) — the EMITTED half,
+// per backend.
 //
 // The accessor re-roots the tenant write stamp onto a caller-submitted value, so
 // it is only safe where every backend emits the fail-closed gate.  This pins, on
-// all five backends, that a system reading `organizationContext.orgPath`:
+// all five backends, that a system reading `organizationContext.org`:
 //
 //   - reads the request header in the auth layer, BEFORE any handler;
-//   - admits only the caller's own `orgPath` or a path anchored under
-//     `orgPath + "."` (the delimiter keeps `org_a` from admitting `org_ab`);
-//   - refuses with a 403 and logs the catalog event `org_context_denied`;
-//   - stamps / reads the switched value through the principal member the
-//     lowering targets (`orgContextPath` in each backend's casing);
+//   - admits only the caller's own home-org id — an equality check against the
+//     tenancy claim, with no registry read and no path prefix (D-TENANCY-FLAT);
+//   - refuses anything else with a 403 and logs the catalog event
+//     `org_context_denied`, with a distinct reason when the caller has no
+//     home org at all;
+//   - stamps / reads the operating org through the principal member the
+//     lowering targets (`operatingOrg` in each backend's casing);
 //
 // and that a system which never reads it emits NO trace of the gate — the
-// header is never consulted (the byte-identity half is the corpus snapshot diff
-// recorded in the hand-off note).  The runtime proof on a booted app per
-// backend is `test/e2e/tenancy-org-context*.test.ts`.
+// header is never consulted.  The runtime proof on a booted app per backend is
+// `test/e2e/tenancy-org-context*.test.ts`.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -37,49 +38,49 @@ interface BackendExpectation {
   platform: string;
   /** The auth-layer file that hosts the gate. */
   gateFile: RegExp;
-  /** The principal member the switched value is read through. */
+  /** The principal member the operating org is read through. */
   member: string;
   /** Where the stamp reads it. */
   stampFile: RegExp;
-  /** The anchored-prefix spelling (the delimiter is part of it). */
-  anchored: string;
+  /** The id-equality spelling that admits (or, negated, refuses) a switch. */
+  equality: string;
 }
 
 const BACKENDS: BackendExpectation[] = [
   {
     platform: "node",
     gateFile: /auth\/middleware\.ts$/,
-    member: "currentUser.orgContextPath",
+    member: "currentUser.operatingOrg",
     stampFile: /db\/audit-stamp\.ts$/,
-    anchored: "requested.startsWith(`${orgPath}.`)",
+    equality: "requested === homeOrg ? requested : null",
   },
   {
     platform: "dotnet",
     gateFile: /Auth\/UserMiddleware\.cs$/,
-    member: "OrgContextPath",
+    member: "OperatingOrg",
     stampFile: /AuditableInterceptor\.cs$/,
-    anchored: 'requestedOrgContext.StartsWith(scope + ".", StringComparison.Ordinal)',
+    equality: "requestedOrgContext != homeOrg",
   },
   {
     platform: "java",
     gateFile: /auth\/UserFilter\.java$/,
-    member: "currentUser.orgContextPath()",
+    member: "currentUser.operatingOrg()",
     stampFile: /accounts\/Account\.java$/,
-    anchored: 'requestedOrgContext.startsWith(scope + ".")',
+    equality: "!requestedOrgContext.equals(homeOrg)",
   },
   {
     platform: "python",
     gateFile: /app\/auth\/middleware\.py$/,
-    member: "current_user.org_context_path",
+    member: "current_user.operating_org",
     stampFile: /app\/domain\/account\.py$/,
-    anchored: 'requested_org_context.startswith(scope + ".")',
+    equality: "requested_org_context != home_org",
   },
   {
     platform: "elixir",
     gateFile: /_web\/auth\.ex$/,
-    member: "current_user.org_context_path",
+    member: "current_user.operating_org",
     stampFile: /account_repository\.ex$/,
-    anchored: 'String.starts_with?(requested, scope <> ".")',
+    equality: "requested == home ->",
   },
 ];
 
@@ -95,20 +96,23 @@ function pick(files: Map<string, string>, re: RegExp): string {
 describe("organizationContext switch gate — emitted on every backend", () => {
   for (const b of BACKENDS) {
     describe(b.platform, () => {
-      it("the auth layer reads the header and refuses out-of-scope switches with a logged 403", async () => {
+      it("the auth layer reads the header and admits only the home org, refusing with a logged 403", async () => {
         const files = await generateSystemFiles(ORG_CONTEXT.replace("__PLATFORM__", b.platform));
         const gate = pick(files, b.gateFile);
         expect(gate).toContain(`"${ORG_CONTEXT_HEADER}"`);
-        expect(gate).toContain(b.anchored);
+        expect(gate).toContain(b.equality);
         expect(gate).toContain(EVENT);
         expect(gate).toMatch(/403/);
-        // Fail-closed on a principal with no orgPath — the `no_principal_scope`
-        // arm must exist, not just the out-of-subtree one.
+        // Fail-closed on a principal with no home org — the `no_principal_scope`
+        // arm must exist, not just the foreign-org one.
         expect(gate).toContain("no_principal_scope");
         expect(gate).toContain("outside_scope");
+        // The gate compares ids: no org path is resolved or prefix-matched
+        // (visibility is flat: D-TENANCY-FLAT).
+        expect(gate).not.toMatch(/org_?path/i);
       });
 
-      it("the tenant stamp reads the switched operating scope", async () => {
+      it("the tenant stamp reads the operating org", async () => {
         const files = await generateSystemFiles(ORG_CONTEXT.replace("__PLATFORM__", b.platform));
         expect(pick(files, b.stampFile)).toContain(b.member);
       });

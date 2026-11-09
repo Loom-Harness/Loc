@@ -133,7 +133,7 @@ the derived surfaces: a keyword that is also an aggregate's plural (`claims`
 for `aggregate Claim`) must stay addressable as an e2e slug, which is what
 `PluralSlugKeyword` is for. A new keyword extends these sets in the same PR.
 
-`of`, `allow`, `deny`, `local`, `deep`, `global`, `policy` and `persistence` used to be soft **only** as `LooseName` — usable as a parameter or clause name but not as a field name, so `aggregate Claim { policy: Policy id }` was a parse error with no explanation why (audit finding D4). All eight are now in `CommonSoftKeywords`, i.e. soft in every value position, even though each still heads its own hard syntax somewhere (`policy { … }` / `policy N(): bool`, `realization { persistence: … }`, `criterion X() of T`, the `local`/`deep`/`global` read ladder). That is safe because none of those hard positions is reachable from a value position: `PolicyDecl` is a *context* member and `Property` an aggregate/value-object/payload one, and the rest are introduced by a preceding hard keyword. `test/language/parsing/reserved-field-name-widening.test.ts` pins both halves — the field-name admission and an AST snapshot of every hard position, captured before the widening.
+`of`, `allow`, `deny`, `local`, `deep`, `global`, `policy` and `persistence` are in `CommonSoftKeywords`, i.e. soft in every value position (`aggregate Claim { policy: Policy id }` parses), even though each still heads its own hard syntax somewhere (`policy { … }` / `policy N(): bool`, `realization { persistence: … }`, `criterion X() of T`, the `allow local on X` read level — `deep` / `global` still parse there so the validator can refuse them with `loom.policy-level-removed`). That is safe because none of those hard positions is reachable from a value position: `PolicyDecl` is a *context* member and `Property` an aggregate/value-object/payload one, and the rest are introduced by a preceding hard keyword. `test/language/parsing/reserved-field-name-widening.test.ts` pins both halves — the field-name admission and an AST snapshot of every hard position, captured before the widening.
 
 **Soft by default.** Hand-picked widenings kept losing the race against real domains — `event`, `theme`, `layout`, `channel`, `document`, `node`, `platform`, `port`, `header`, `seed`, `log` were all parse errors as field names — so the rule is now the other way round: **every word keyword is a soft keyword** unless it is on the short hard list below. That covers the declaration heads (`event`, `channel`, `api`, `ui`, `workflow`, `projection`, …), every block-config key and value (`platform`, `provider`, `theme`, `layout`, `postgres`, `react`, …) and the member modifiers (`check`, `mask`, `provenanced`, `sensitive`, …). A new keyword is soft too, unless one of the reasons below applies.
 
@@ -150,7 +150,7 @@ context Orders {
     write: int         // the `policy` verb — soft as a field
     migration: int     // the top-level ledger-block head — soft as a field
     policy: string     // heads `policy { … }` at context level — soft as a field
-    deny: bool         // a `policy` read-ladder effect — soft as a field
+    deny: bool         // a `policy` rule effect — soft as a field
     of: string         // the `criterion X() of T` connector — soft as a field
   }
 }

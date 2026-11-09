@@ -259,7 +259,7 @@ export function renderJavaChannelFiles(
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
     valueObjects?: readonly ValueObjectIR[];
     /** The deployable carries auth: every envelope carries the raising
-     *  thread's EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`,
+     *  thread's EVENT ORIGIN (`tenantid` / `loomcausedby`,
      *  ruling D1), the outbox row records it, and the consumer dispatches each
      *  event as the system principal of that origin (`auth/EventOrigin.java`). */
     carriesOrigin?: boolean;
@@ -328,8 +328,6 @@ export function renderJavaChannelFiles(
             `        /** The raising principal's tenant (ruling D1) — the consuming`,
             `         *  reactor runs as the system principal OF this tenant. */`,
             `        String tenantId,`,
-            `        /** That tenant's materialized path (hierarchical tenancy). */`,
-            `        String loomOrgPath,`,
             `        /** The originating user id — audit and logs only. */`,
             `        String loomCausedBy,`,
           ]
@@ -367,9 +365,6 @@ export function renderJavaChannelFiles(
             `        if (tenantId != null) {`,
             `            m.put("tenantid", tenantId);`,
             `        }`,
-            `        if (loomOrgPath != null) {`,
-            `            m.put("loomorgpath", loomOrgPath);`,
-            `        }`,
             `        if (loomCausedBy != null) {`,
             `            m.put("loomcausedby", loomCausedBy);`,
             `        }`,
@@ -394,7 +389,6 @@ export function renderJavaChannelFiles(
       ...(carriesOrigin
         ? [
             `                (String) m.get("tenantid"),`,
-            `                (String) m.get("loomorgpath"),`,
             `                (String) m.get("loomcausedby"),`,
           ]
         : []),
@@ -406,9 +400,9 @@ export function renderJavaChannelFiles(
             `    /** The event origin this envelope names, or null (a producer`,
             `     *  without auth, a timer-raised event). */`,
             `    public EventOrigin origin() {`,
-            `        return tenantId == null && loomOrgPath == null && loomCausedBy == null`,
+            `        return tenantId == null && loomCausedBy == null`,
             `                ? null`,
-            `                : new EventOrigin(tenantId, loomOrgPath, loomCausedBy);`,
+            `                : new EventOrigin(tenantId, loomCausedBy);`,
             `    }`,
           ]
         : []),
@@ -1143,12 +1137,12 @@ export function renderJavaChannelFiles(
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
-            `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
+            `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
-            `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
+            `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,
       ``,

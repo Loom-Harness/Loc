@@ -193,21 +193,12 @@ function exprCases(): Record<ExprIR["kind"], () => ExprCase> {
         stmtChildren: [],
       };
     },
-    // The `scope` decision, not `deny`: `deny` is a childless leaf, so only
-    // this branch has child slots the walker can drop.
-    "authz-filter": () => {
-      const anchorClaim = sent();
-      const tenantClaim = sent();
-      return {
-        node: {
-          kind: "authz-filter",
-          filter: { kind: "scope", anchorClaim, tenantClaim },
-          aggregate: "X",
-        },
-        exprChildren: [anchorClaim, tenantClaim],
-        stmtChildren: [],
-      };
-    },
+    // `deny`, the only decision, is a childless leaf.
+    "authz-filter": () => ({
+      node: { kind: "authz-filter", filter: { kind: "deny" }, aggregate: "X" },
+      exprChildren: [],
+      stmtChildren: [],
+    }),
     duration: () => {
       const amount = sent();
       return {

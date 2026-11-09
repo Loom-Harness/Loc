@@ -1224,12 +1224,10 @@ StampEvent returns string:
 
 // ---- policy block ------------------------------------------------
 //
-// A `policy {}` context member declares record-level read reachability for
-// tenant-owned aggregates: the directional read ladder
-// `local`/`deep`/`global`.  Each `allow <level> on <Aggregate>` rule selects
-// one aggregate's read scope, lowering to a rewrite of that aggregate's
-// `tenantOwned` capability filter (its `contextFilters` entry) — so it rides
-// the exact per-backend query-filter seams the tenant floor already uses.
+// A `policy {}` context member declares record-level read rules for
+// aggregates.  `allow [write] local on <Aggregate>` names the tenant floor (the
+// only level — data visibility is flat); `deny [write] on <Aggregate>` is the
+// carve-out.
 //
 // Beside the ladder, `read <Aggregate> requires <expr>` gates who may read the
 // aggregate at all (see `PolicyReadRule`).  The rest of the policy DSL
@@ -1262,20 +1260,17 @@ PolicyDecl:
     );
 
 // `allow [write] <level> on <Aggregate>` — the optional `write` verb selects
-// the ladder: bare = the read reachability ladder; `write` gates INSTANCE
-// mutations (update-style ops, destroy, applier dispatch) on the target row's
-// write scope.  `write global` PARSES but is an IR validator error
-// (`loom.policy-write-global-invalid`) — root-subtree-wide mutation is a
-// footgun; only `write local` (the default floor) and `write deep` are
-// offered.  There is deliberately NO `read` verb synonym on the ladder: bare
+// the ladder: bare = reads; `write` = INSTANCE mutations (update-style ops,
+// destroy, applier dispatch).  There is deliberately NO `read` verb synonym on
+// the ladder: bare
 // already means read, and `read` heads the gate rule below (as an identifier,
 // not a keyword).  The rule name stays
 // `PolicyReadRule` (every form is a policy rule structurally); the IR splits
 // them by effect and verb.
 //
 // `deny [write] on <Aggregate>` — the DENY-WINS carve-out.  `effect`
-// discriminates the two forms: `allow` carries a widening `level`
-// (local/deep/global); `deny` is ALL-OR-NOTHING at the aggregate — no level
+// discriminates the two forms: `allow` carries a `level`; `deny` is
+// ALL-OR-NOTHING at the aggregate — no level
 // word (a partial deny is field-mask / `data {}` row-clause territory of a
 // later slice).  Deny reuses the same optional `write` verb: bare `deny on X`
 // denies READ (the aggregate becomes invisible; the write command load —
@@ -1310,12 +1305,11 @@ PolicyGateVerb returns string:
 PolicyVerb returns string:
     'write';
 
-// The directional read ladder:
-//   - `local`  — the caller's own org node (today's `tenantId ==` floor; default)
-//   - `deep`   — the caller's org + all descendants (`dataKey` path prefix)
-//   - `global` — all in the caller's tenant (tenant-root-floored)
-// A closed set — an unknown level name is a parse error, so no validator arm
-// is needed for it.
+// The level of an `allow` rule.  `local` — the caller's own org, the
+// `tenantId ==` floor — is the only level.  `deep` and `global` still PARSE so a
+// model written against the removed hierarchical ladder gets the named
+// `loom.policy-level-removed` error (with its replacement) instead of a parse
+// error; lowering drops the rule.
 ReadLevel returns string:
     'local' | 'deep' | 'global';
 

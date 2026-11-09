@@ -1,25 +1,16 @@
-// F2-ADP-5 — the WRITE-scope guard on ALL FOUR node saving shapes, on BOTH
-// node adapters.
+// The WRITE-scope guard on ALL FOUR node saving shapes, on BOTH node adapters.
 //
-// The ledger row was filed against a probe in which only the RELATIONAL drizzle
-// shape carried the guard: `shape: embedded`, `shape: document` and
-// `persistedAs: eventLog` emitted a bare `findById` + not-found throw, so
-// `policy { deny write on X }` was silently unenforced on the DEFAULT node
-// adapter while MikroORM (the second adapter) enforced all four.  The emitters
-// were brought to parity, but nothing on the node side pinned it: the
-// shape-by-shape coverage that exists (`policy-write-scope-shapes.test.ts`)
-// asserts python and java, and `policy-write-scope.test.ts` asserts only node's
-// relational shape.  A regression on any blob shape here is an authorization
+// `policy { deny write on X }` must be enforced on `shape: embedded`,
+// `shape: document` and `persistedAs: eventLog` as well as on the relational
+// shape, on the default drizzle adapter and on MikroORM.  The shape-by-shape
+// coverage in `policy-write-scope-shapes.test.ts` asserts python and java, and
+// `policy-write-scope.test.ts` asserts only node's relational shape, so this
+// file is node's pin.  A regression on any blob shape here is an authorization
 // hole that type-checks, so each shape is asserted on its own — and the
 // REFUSAL is asserted, not merely that a `getById` exists.
 //
-// Two write scopes per adapter:
-//   * the SENTINEL (`deny write`) — the predicate collapses to `false`, so the
-//     command load must refuse without loading;
-//   * a NARROWING scope (`allow deep` read over the fail-closed `local` write
-//     floor) — a real predicate, pushed into a `where`/`count` pre-guard on the
-//     queryable shapes and checked in-app over the rehydrated aggregate on the
-//     blob ones.
+// `deny write` is the one narrowing write scope (D-TENANCY-FLAT): its predicate
+// collapses to `false`, so the command load must refuse without loading.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -67,41 +58,6 @@ const denySystem = (platform: string) => `
       contexts: [C]
       dataSources: [shapesState, shapesLog]
       serves: ShapesApi
-      port: 4000
-      auth: required
-    }
-  }
-`;
-
-/** A NARROWING (non-sentinel) write scope: read `deep` (the orgPath subtree)
- *  over the fail-closed `local` write floor, on one blob shape and one
- *  queryable shape. */
-const narrowSystem = (platform: string) => `
-  system WriteScopeNarrowNode {
-    user { id: guid  tenantId: string }
-    tenancy by user.tenantId of Org
-    subdomain S {
-      context C {
-        aggregate Doc shape: document, with tenantOwned, crudish { balance: int }
-        aggregate Emb shape: embedded, with tenantOwned, crudish { balance: int }
-        aggregate Org with tenantRegistry, crudish { name: string }
-        repository Docs for Doc { }
-        repository Embs for Emb { }
-        repository Orgs for Org { }
-        policy {
-          allow deep on Doc
-          allow deep on Emb
-        }
-      }
-    }
-    api NarrowApi from S
-    storage primarySql { type: postgres }
-    resource narrowState { for: C, kind: state, use: primarySql }
-    deployable d {
-      platform: ${platform}
-      contexts: [C]
-      dataSources: [narrowState]
-      serves: NarrowApi
       port: 4000
       auth: required
     }
@@ -172,26 +128,9 @@ for (const [adapter, platform] of [
       const doc = await repoFile(denySystem(platform), "doc");
       expect(doc).toContain("async findById(");
     });
-  });
 
-  describe(`F2-ADP-5 — node/${adapter}: a NARROWING write scope`, () => {
-    it("document: the predicate is checked in-app over the rehydrated aggregate", async () => {
-      const body = getByIdBody(await repoFile(narrowSystem(platform), "doc"));
-      expect(body).toContain("const currentUser = requireCurrentUser();");
-      expect(body).toContain(
-        "if (!(found.tenantId === currentUser.tenantId)) throw new AggregateNotFoundError(`Doc ${id} not found`);",
-      );
-    });
-
-    it("embedded: the predicate is pushed into the pre-guard query", async () => {
-      const body = getByIdBody(await repoFile(narrowSystem(platform), "emb"));
-      expect(body).toContain("requireCurrentUser().tenantId");
-      expect(body).toContain("if (inScope");
-      expect(body).toContain("throw new AggregateNotFoundError(`Emb ${id} not found`)");
-    });
-
-    it("no write narrowing leaves the command load byte-identical (no guard)", async () => {
-      const body = getByIdBody(await repoFile(narrowSystem(platform), "org"));
+    it("an aggregate with no write rule keeps the bare command load (no guard)", async () => {
+      const body = getByIdBody(await repoFile(denySystem(platform), "org"));
       expect(body).not.toContain("inScope");
       expect(body).not.toContain("no row is in write scope");
       expect(body).toContain("return found;");

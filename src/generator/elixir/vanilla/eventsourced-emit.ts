@@ -515,12 +515,7 @@ ${
     : ""
 }
 
-    if ${
-      tenancy.metadata
-        .filter((m) => m.required)
-        .map((m) => `${m.column} in [nil, ""]`)
-        .join(" or ") || "false"
-    },
+    if ${tenancy.metadata.map((m) => `${m.column} in [nil, ""]`).join(" or ") || "false"},
       do: {:error, :forbidden},
       else: {:ok, %{${tenancy.metadata.map((m) => `${m.column}: ${m.column}`).join(", ")}}}
   end
@@ -539,7 +534,6 @@ ${
       ${webModule}.Auth.with_event_origin(
         %{
           "tenant" => tenant.tenant_id,
-          "orgPath" => tenant.data_key,
           "causedBy" => origin && origin["causedBy"]
         },
         fun

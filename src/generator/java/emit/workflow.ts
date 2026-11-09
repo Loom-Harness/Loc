@@ -751,8 +751,7 @@ function publishDrainedLine(binding: string, publisher: string): string {
  *  tenant-scoped event stream's events carry the STREAM's tenant
  *  (`stream-tenancy.ts`): the outbox capture, the channel envelope and a fold
  *  read the ambient origin, so when the raising principal's tenant is not the
- *  stream's (a `policy`-widened subtree append) the publish runs in the stream
- *  tenant's event-origin frame — the twin of the aggregate service's
+ *  stream's the publish runs in the stream tenant's event-origin frame — the twin of the aggregate service's
  *  `publishEvents`.  Every other aggregate publishes in the caller's frame.
  *  `authPkg` is the generated `auth` package (`<base>.auth`). */
 export function javaPublishDrained(
@@ -766,7 +765,7 @@ export function javaPublishDrained(
     `{ var __s = ${binding}; var __o = ${authPkg}.User.currentEventOrigin(); ` +
     `Runnable __pub = () -> { for (var __e : __s.pullEvents()) ${publisher}.publishEvent(__e); }; ` +
     `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __s.tenantId())) __pub.run(); ` +
-    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __s.dataKey(), __o == null ? null : __o.causedBy()), __pub); }`
+    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __o == null ? null : __o.causedBy()), __pub); }`
   );
 }
 

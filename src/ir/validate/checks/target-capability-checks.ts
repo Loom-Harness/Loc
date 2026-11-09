@@ -51,10 +51,8 @@ import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregatesWithTuple } from "../../util/feature-atoms.js";
-import { baseOf } from "../../util/inheritance.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
-import { TENANT_REGISTRY_CAPABILITY } from "../../util/tenant-stance.js";
 import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -287,26 +285,6 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
-  "tenancy:remote-registry@deployable": (ctx, sys, d) => {
-    const registry = sys.tenancy?.registryName;
-    if (!registry) return [];
-    const registryCtx = sys.subdomains
-      .flatMap((sd) => sd.contexts)
-      .find((c) => c.aggregates.some((a) => a.name === registry));
-    // Only a `tenantRegistry` tree has an org path to resolve; a flat registry
-    // is never read at request time.
-    const tree = registryCtx?.aggregates
-      .find((a) => a.name === registry)
-      ?.capabilities?.includes(TENANT_REGISTRY_CAPABILITY);
-    if (!registryCtx || !tree || d.contextNames.includes(registryCtx.name)) return [];
-    return ctx.aggregates
-      .filter((a) => a.capabilities?.includes("tenantOwned"))
-      .map((a) => ({
-        what: `tenant-owned aggregate '${a.name}' (its registry '${registry}' is hosted by another deployable)`,
-        source: `${ctx.name}/aggregate ${a.name}`,
-        origin: a.origin,
-      }));
-  },
   "call:auth-required-api@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) => {
       if (ds.kind !== "api" || !ds.apiName) return undefined;
@@ -323,24 +301,6 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
         what: `timerSource '${t.name}' (its '${t.event}' rides a broker-bound channel)`,
         source: `${sys.name}/${t.name}`,
       }));
-  },
-  "read:wide-stance@tph-subtype": (ctx, sys) => {
-    const pool = sys.subdomains.flatMap((sd) => sd.contexts.flatMap((c) => c.aggregates));
-    const out: ConstructUse[] = [];
-    for (const rule of ctx.policyReadLevels ?? []) {
-      if (rule.level === "local") continue;
-      const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
-      const base = agg && baseOf(agg, pool);
-      if (!agg || !base?.capabilities?.includes("tenantOwned")) continue;
-      if ((agg.inheritanceUsing ?? base.inheritanceUsing ?? "sharedTable") !== "sharedTable")
-        continue;
-      out.push({
-        what: `\`allow ${rule.level} on ${agg.name}\` (a TPH subtype of tenant-owned base '${base.name}')`,
-        source: `${ctx.name}/policy ${rule.source}`,
-        origin: agg.origin,
-      });
-    }
-    return out;
   },
   "derived:reads-masked-field@aggregate": (ctx) => {
     const out: ConstructUse[] = [];

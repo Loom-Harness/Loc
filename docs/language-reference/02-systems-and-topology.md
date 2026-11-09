@@ -619,40 +619,34 @@ system Shop {
 }
 ```
 
-The generated filters, stamps, hierarchical `dataKey` scoping, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
-
-### A registry and the deployables that read it
-
-Under a hierarchy registry (`implements tenantRegistry`), `currentUser.orgPath` is the caller org's materialized `dataKey`, read per request from the registry's table. Only the deployable that hosts the registry's context has that table. Any other deployable keeps `orgPath` as the bare claim, which is correct only when nothing it hosts reads the hierarchy. A backend deployable that hosts a `tenantOwned` aggregate (its `dataKey` stamp reads `orgPath`), or any `orgPath` / `rootOrg` / `organizationContext` read, without also hosting the registry's context, is refused with `loom.tenancy-registry-remote-unsupported`:
-
-```ddd
-deployable netSvc  { platform: node   contexts: [Orgs]  … }   // hosts `Org implements tenantRegistry`
-deployable shopSvc { platform: python contexts: [Sales] … }   // `Sale with tenantOwned` → refused
-```
-
-A deployable that hosts only `crossTenant` aggregates may live apart from the registry. Its generated auth layer carries no registry lookup:
-
-```python
-# catalog — app/auth/user.py (excerpt): the claim-copy, no `SELECT data_key FROM orgs`
-@property
-def org_path(self) -> str:
-    return "" if self.tenant_id is None else str(self.tenant_id)
-```
+Data visibility is flat: a `tenantOwned` row is visible to its own org only (`tenant_id = <claim>`), and `tenantId` is the only column tenancy adds. The registry tree (`parent`) is for managing sub-tenants and takes no part in a data read. The generated filters, stamps, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
 
 ### `organizationContext` — the operating scope
 
-Under a hierarchy (the registry `implements tenantRegistry`), backend code may read `organizationContext.orgPath` — the materialized path of the org the request operates *in*. It is the principal's own `currentUser.orgPath` unless the request carries an `x-org-context: <path>` header naming an org inside the caller's subtree; every backend's auth middleware validates that header before any handler runs and answers anything else with a 403. Its first use is the tenant write stamp:
+Backend code may read `organizationContext.org` — the id of the org the request operates *in*. It is the caller's home org (the tenancy claim) unless the request carries an `x-org-context: <org id>` header; every backend's auth middleware resolves that header once, before any handler runs, with no registry read: absent or empty is the home org, equal to the home org is admitted, and anything else — or any header on a token with no tenancy claim — is a 403. Its use is the tenant write stamp:
 
 ```ddd
 capability tenantOwned {
   tenantId: string internal
-  dataKey: string? internal
   stamp onCreate {
-    tenantId := currentUser.tenantId
-    dataKey := organizationContext.orgPath   // the operating scope
+    tenantId := organizationContext.org         // the operating org
   }
-  filter this.tenantId == currentUser.tenantId // reads stay on the principal
+  filter this.tenantId == currentUser.tenantId  // reads stay on the principal
 }
 ```
 
-`orgPath` is the only member, and it is backend-only (`loom.org-context-surface`); a read needs the hierarchy and `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). The gate table, the per-backend seams and what a switched write is visible to are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).
+`organizationContext.org` lowers to the principal member `currentUser.operatingOrg`, which the gate sets:
+
+```ts
+// node — auth/middleware.ts (generated)
+const homeOrg = String(claims.tenantId ?? "");
+const requestedOrgContext = c.req.header("x-org-context");
+const operatingOrg = orgContextFor(homeOrg, requestedOrgContext);
+if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);
+const user: User = { ...claims, operatingOrg };
+
+// db/audit-stamp.ts (generated)
+return { ...row, tenantId: currentUser.operatingOrg };
+```
+
+`org` is the only member (`organizationContext.orgPath` is `loom.tenancy-principal-member-removed`), and it is backend-only (`loom.org-context-surface`); a read needs `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). The gate table and the per-backend seams are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).

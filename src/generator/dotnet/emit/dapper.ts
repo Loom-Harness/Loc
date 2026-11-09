@@ -45,14 +45,7 @@ import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import {
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
@@ -62,7 +55,6 @@ import { ROW_VERSION_COLUMN, ROW_VERSION_PASCAL } from "../../../util/row-versio
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
-import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
@@ -830,7 +822,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         }
       }
       // Queryable scalar intrinsic (src/util/intrinsics.ts) — `this.s.trim()`,
-      // `this.dataKey.startsWith(p)`, `this.total.abs()`, …  Keyed off the
+      // `this.code.startsWith(p)`, `this.total.abs()`, …  Keyed off the
       // catalogue's `queryable` flag exactly like the four sibling SQL tables,
       // so a new queryable row is a completeness-test failure here rather than
       // a generate-time crash on this adapter.
@@ -959,44 +951,17 @@ function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
  *  reach the generic dispatcher and CRASH codegen on this adapter.  That is the
  *  whole point of giving the sentinel its own `ExprIR.kind`. */
 function authzFilterToSql(e: Extract<ExprIR, { kind: "authz-filter" }>): string {
-  switch (e.filter.kind) {
+  const kind = e.filter.kind;
+  switch (kind) {
     // DENY carve-out (deny-wins).  The always-false
     // term, ANDed into every read SELECT (and into the write-scope existence
     // pre-guard).  `1 = 0` rather than `FALSE` to match the JPQL/Java rendering
     // and stay a valid standalone predicate in every SQL position.
     case "deny":
       return "1 = 0";
-    // `deep`/`global` read level (hierarchical tenancy) — the materialized-path
-    // descendant-or-self sentinel, rendered as raw Postgres (M-T6.35, wave C2
-    // packet 2b).  Structurally the MikroORM `raw()` twin
-    // (`typescript/emit/mikroorm-filter.ts`), down to the unqualified columns:
-    // every statement this fragment lands in is single-table, so `data_key`
-    // cannot be ambiguous.  The `strpos(col, anchor || '.') = 1` term is the
-    // ANCHORED RECHECK that decides the row; the `LIKE` beside it is the
-    // sargable prefilter (`DEEP_SCOPE_SEMANTICS`, M-T3.17), so a widened
-    // pattern can never admit a foreign subtree.  The NULL-`dataKey` branch
-    // degrades to the flat tenant floor — never wider.
-    //
-    // The three anchor-derived values and the tenant claim bind as ordinary
-    // Dapper params (`collectFilterPrincipalRefs` contributes them for this
-    // node kind — the sentinel carries no child `currentUser.<claim>`
-    // expression a structural walk could find).
-    case "scope": {
-      const col = sqlIdent(snake(TENANT_OWNED_DATA_KEY_FIELD));
-      const tenantCol = sqlIdent(snake(TENANT_OWNED_TENANT_ID_FIELD));
-      const anchor = `@${currentUserParam(deepScopeAnchorClaim(e))}`;
-      const like = `@${subtreeLikeParam(deepScopeAnchorClaim(e))}`;
-      const needle = `@${subtreeNeedleParam(deepScopeAnchorClaim(e))}`;
-      const tenant = `@${currentUserParam(deepScopeTenantClaim(e))}`;
-      return (
-        `((${col} IS NOT NULL AND (${col} = ${anchor} ` +
-        `OR (${col} LIKE ${like} ${SQL_LIKE_ESCAPE_CLAUSE} AND strpos(${col}, ${needle}) = 1))) ` +
-        `OR (${col} IS NULL AND ${tenantCol} = ${tenant}))`
-      );
-    }
     default: {
-      const _exhaustive: never = e.filter;
-      throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+      const _exhaustive: never = kind;
+      throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
     }
   }
 }
@@ -1006,20 +971,6 @@ function authzFilterToSql(e: Extract<ExprIR, { kind: "authz-filter" }>): string 
  *  `@__cu_tenantId`).  Stable per claim so repeated references share one param. */
 function currentUserParam(member: string): string {
   return `__cu_${member}`;
-}
-
-/** Dapper param holding the ESCAPED subtree `LIKE` pattern derived from the
- *  hierarchical-tenancy anchor claim (`orgPath` → `@__cu_orgPath__like`).
- *  Computed app-side (`csSubtreeLikePattern`) rather than in SQL so all six
- *  backends spell one escaping chain — see `_expr/subtree-like.ts`. */
-function subtreeLikeParam(member: string): string {
-  return `${currentUserParam(member)}__like`;
-}
-
-/** Dapper param holding the anchored recheck needle (`<anchor>` + the path
- *  delimiter) — the `strpos(col, @…) = 1` operand. */
-function subtreeNeedleParam(member: string): string {
-  return `${currentUserParam(member)}__needle`;
 }
 
 /** Dapper param holding the tenancy claim PARSED to a uuid, for the registry
@@ -1057,10 +1008,9 @@ export interface FilterPrincipalRef {
   param: string; // `__cu_tenantId`
   claimProp: string; // `TenantId`
   /** How to spell the bound VALUE from the principal accessor `base`.  Omitted
-   *  for the ordinary `currentUser.<claim>` reference (`base.ClaimProp`); the
-   *  hierarchical-tenancy sentinel needs two DERIVED bindings off one claim
-   *  (the escaped LIKE pattern and the anchored needle), which are expressions
-   *  rather than property reads. */
+   *  for the ordinary `currentUser.<claim>` reference (`base.ClaimProp`); an
+   *  id-typed claim, a principal term and the registry self-scope bind DERIVED
+   *  values, which are expressions rather than property reads. */
   valueExpr?: (base: string) => string;
   /** This ref binds through the `__ClaimGuid` helper, so the emitting class
    *  must carry it (`claimGuidHelperLines`). */
@@ -1082,10 +1032,8 @@ function principalValue(r: FilterPrincipalRef, base: string): string {
  *  `@__cu_<claim>` param from the principal on every SELECT.
  *
  *  Rides `walkExprDeep` rather than a hand-rolled recursion: the hand-rolled
- *  one covered four `ExprIR` kinds, so a principal reference nested anywhere
- *  else (a `match` arm, a list literal) was invisible — and the `authz-filter`
- *  sentinel it could not see is precisely why hierarchical tenancy was gated
- *  off this adapter for a release. */
+ *  traversal must reach a principal reference nested anywhere (a `match` arm,
+ *  a list literal), or its parameter goes unbound. */
 export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPrincipalRef[] {
   const byParam = new Map<string, FilterPrincipalRef>();
   const add = (ref: FilterPrincipalRef): void => {
@@ -1143,10 +1091,6 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
         if (!consumed.has(e)) addClaim(e.member, e.memberType);
         return;
       }
-      // The hierarchical-tenancy subtree sentinel reads TWO principal claims
-      // (the anchor path and the tenant floor) without carrying either as a
-      // child expression — they are derived from the `scope` decision by
-      // `authzFilterToSql`, so they must be contributed here by kind.
       // The registry self-scope comparison binds a uuid-typed parameter parsed
       // from the claim, NOT the claim's own text param (see `whereToSql`).
       const selfScope = guidFromStringSelfScope(e);
@@ -1160,22 +1104,6 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
           needsGuidParse: true,
         });
         return;
-      }
-      if (e.kind === "authz-filter" && e.filter.kind === "scope") {
-        const anchorClaim = deepScopeAnchorClaim(e);
-        const anchorProp = upperFirst(anchorClaim);
-        addClaim(anchorClaim);
-        addClaim(deepScopeTenantClaim(e));
-        add({
-          param: subtreeLikeParam(anchorClaim),
-          claimProp: anchorProp,
-          valueExpr: (base) => csSubtreeLikePattern(`${base}.${anchorProp}`),
-        });
-        add({
-          param: subtreeNeedleParam(anchorClaim),
-          claimProp: anchorProp,
-          valueExpr: (base) => `${base}.${anchorProp} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`,
-        });
       }
     });
   return [...byParam.values()];
@@ -2259,7 +2187,7 @@ export function renderDapperDocumentRepository(
   // Capability read filter + write-scope narrowing, the Dapper twins of the EF
   // document repository's (`renderDocumentRepositoryImpl`).  A document
   // aggregate is ONE opaque jsonb column, so the filtered fields (`tenantId`,
-  // `dataKey`, `isDeleted`) have no column for a WHERE fragment to name — the
+  // `isDeleted`) have no column for a WHERE fragment to name — the
   // predicate runs IN-APP over the rehydrated instance instead, exactly as the
   // EF document path (and node/java/python) do.  Both were simply MISSING here:
   // the read filter silently, so a `tenantOwned` document aggregate read across
@@ -2312,7 +2240,7 @@ export function renderDapperDocumentRepository(
   // SaveAsync upsert — CAS-guarded on `version` when the aggregate is
   // `versioned` (the same optimistic-concurrency shape the relational Dapper
   // repository uses), a blind version-bumping upsert otherwise.
-  // Create-only claim stamps (`tenantOwned`'s tenantId/dataKey) on the DOCUMENT
+  // Create-only claim stamps (`tenantOwned`'s tenantId) on the DOCUMENT
   // write path.  A jsonb aggregate is not EF-tracked, so the AuditableInterceptor
   // never sees it, and unlike the EF document repository this save is a single
   // `INSERT … ON CONFLICT DO UPDATE` with no insert branch to hang the stamp on.

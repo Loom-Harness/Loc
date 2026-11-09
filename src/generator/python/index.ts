@@ -1,8 +1,4 @@
-import {
-  forwardsCallerCredential,
-  hostedHierarchyRegistry,
-} from "../../ir/enrich/hosting-facts.js";
-import { registryTableName } from "../../ir/enrich/storage-names.js";
+import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import {
   fieldCode,
   fieldFixedMessage,
@@ -502,34 +498,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // An `auth { oidc }` block drives the generated OIDC verifier + handshake;
   // absent it, the dev stub keeps a fresh stack callable out of the box.
   const oidc = authRequired ? args.sys.auth : undefined;
-  // Hierarchy (multi-tenancy): when the tenant registry opts into
-  // `tenantRegistry` (a `data_key` column exists), `currentUser.orgPath`
-  // resolves from that registry's table.  Pass the schema-qualified table so
-  // the auth middleware can `SELECT data_key … WHERE id = <claim>`; `undefined`
-  // for flat tenancy keeps the claim-copy.
-  const orgPathRegistryTable = authRequired
-    ? (() => {
-        // Only a deployable hosting the registry's context has its table.
-        const reg = hostedHierarchyRegistry(
-          args.sys,
-          args.contexts.map((c) => c.name),
-        );
-        if (!reg) return undefined;
-        const owning = args.contexts.find((c) => c.aggregates.some((a) => a.name === reg.name));
-        const ds = owning
-          ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
-          : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${registryTableName(args.sys)}`;
-        return ds?.schema ? `${ds.schema}.${table}` : table;
-      })()
-    : undefined;
   if (authRequired && args.sys.user)
     emitPyAuthFiles(
       args.sys.user,
       out,
       oidc,
       args.sys.tenancy?.claimField,
-      orgPathRegistryTable,
       systemReadsOrgContext(args.sys),
     );
   // First-boot seeding (database-seeding.md): emitted only when a

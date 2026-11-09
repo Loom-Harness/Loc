@@ -65,18 +65,11 @@ import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
-  buildDeepScopeFilter,
   buildDenyFilter,
-  buildGlobalScopeFilter,
   buildRegistrySelfScopeFilter,
-  buildTenantFloorFilter,
-  hasTenantOwned,
-  hierarchyRegistry,
   isDenyFilter,
   TENANCY_SELF_SCOPE_ORIGIN,
-  TENANT_OWNED_CAPABILITY,
   tenancyClaimBinding,
-  tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import {
   walkExprDeep,
@@ -286,10 +279,6 @@ function enrichSystem(
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
     .map((m) => applyFoldTenancy(m, sys))
-    .map((m) => applyPolicyReadLevels(m, sys))
-    .map((m) => applyPolicyWriteLevels(m, sys))
-    // DENY WINS: runs AFTER the allow read/write-level passes, so an
-    // always-false carve-out dominates any widened allow scope on the same target.
     .map((m) => applyPolicyDenies(m))
     // The bundled dev Keycloak's demo tenant gets a first-boot registry row
     // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
@@ -538,141 +527,8 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
 }
 
 // ---------------------------------------------------------------------------
-// Policy read-reachability levels (tenancy.md).
-//
-// A `policy { allow <level> on <Agg> }` block selects an aggregate's read
-// scope.  `local` (the default) keeps the flat `tenantId ==` tenant floor the
-// `tenantOwned` capability already contributed — no rewrite.  `deep` and
-// `global` both REPLACE the aggregate's `tenantOwned`-origin `contextFilters`
-// entry (the `tenantId ==` floor) with a subtree sentinel (materialized-path
-// prefix, delimiter-correct, NULL-dataKey fallback to the floor — see
-// `DEEP_SCOPE_SEMANTICS`), keeping the same `"tenantOwned"` origin so an
-// `ignoring tenantOwned` read still drops it.  They differ only in the anchor
-// claim:
-//   - `deep`   → `buildDeepScopeFilter`   (anchor `orgPath`: caller's node + descendants).
-//   - `global` → `buildGlobalScopeFilter` (anchor `rootOrg`: caller's ROOT subtree) —
-//                ONLY under a hierarchy registry.  Without a hierarchy
-//                `global` keeps the flat floor (fail-closed; and `deep`/`global`
-//                without a hierarchy is a phase-⑦ error anyway), and under flat
-//                tenancy `rootOrg == orgPath == the tenant floor` so the levels
-//                coincide.
-//
-// The origin marker keeps this idempotent-ish: a second pass rewrites an
-// already-widened filter to the same sentinel (byte-identical).  Validation
-// (tenant-owned-ness, hierarchy requirement, unknown/duplicate target) is
-// phase ⑦ (`tenancy-checks.ts`); enrichment only rewrites where a `tenantOwned`
-// floor exists to replace, so an invalid target is a no-op here.
-// ---------------------------------------------------------------------------
-
-function applyPolicyReadLevels(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
-  const hierarchy = hierarchyRegistry(sys) !== undefined;
-  // Which subtree filter (if any) a level rewrites the tenant floor to.
-  const claim = tenancyPrincipalClaim(sys);
-  const filterFor = (agg: AggregateIR, level: string): ExprIR | undefined => {
-    if (level === "deep") return buildDeepScopeFilter(agg, claim);
-    // `global` widens to the root subtree only under a hierarchy; otherwise it
-    // stays the flat floor (fail-closed).
-    if (level === "global" && hierarchy) return buildGlobalScopeFilter(agg, claim);
-    return undefined;
-  };
-  const anyWidened = m.contexts.some((c) =>
-    (c.policyReadLevels ?? []).some((r) => r.level === "deep" || r.level === "global"),
-  );
-  if (!anyWidened) return m;
-  return {
-    ...m,
-    contexts: m.contexts.map((ctx) => {
-      const levelByAgg = new Map(
-        (ctx.policyReadLevels ?? []).map((r) => [r.aggregate, r.level] as const),
-      );
-      if (levelByAgg.size === 0) return ctx;
-      return {
-        ...ctx,
-        aggregates: ctx.aggregates.map((agg) => {
-          const level = levelByAgg.get(agg.name);
-          if (!level || !hasTenantOwned(agg)) return agg;
-          const replacement = filterFor(agg, level);
-          if (!replacement) return agg;
-          const i = agg.contextFilterOrigins.indexOf(TENANT_OWNED_CAPABILITY);
-          if (i < 0) return agg;
-          const rewritten = [...agg.contextFilters];
-          rewritten[i] = replacement;
-          return { ...agg, contextFilters: rewritten };
-        }),
-      };
-    }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// `policy { allow write <level> on X }` — the WRITE ladder
-// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md).  Derives each tenant-owned
-// aggregate's `writeScopeFilter`: the predicate an INSTANCE mutation's command
-// load must satisfy, set ONLY when the write scope is strictly narrower than
-// the read scope (so the mutation load — which reuses the read filter on every
-// backend — must be tightened below what a read sees).  Ranks: local=0 < deep=1
-// < global=2.  Write levels are `local` (floor, default) and `deep`; `global`
-// write is rejected in phase ⑦.  Byte-neutral when nothing narrows (the common
-// flat / read-`local` case): `writeScopeFilter` stays undefined.
-// ---------------------------------------------------------------------------
-
-const SCOPE_RANK: Record<string, number> = { local: 0, deep: 1, global: 2 };
-
-function applyPolicyWriteLevels(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
-  const hierarchy = hierarchyRegistry(sys) !== undefined;
-  const claim = tenancyPrincipalClaim(sys);
-  // The write scope is derived whenever a tenant-owned aggregate's command load
-  // (which reuses the read filter on every backend) could be WIDER than the
-  // caller's write scope: either an explicit `allow write` rule, OR a widened
-  // READ (`deep`/`global`) with no `allow write` — the fail-closed default,
-  // which restores the floor (the task's "every mutation still hits the flat
-  // tenant floor" invariant; a widened read must NOT silently widen writes).
-  const anyRelevant = m.contexts.some(
-    (c) =>
-      (c.policyWriteLevels ?? []).length > 0 ||
-      (c.policyReadLevels ?? []).some((r) => r.level === "deep" || r.level === "global"),
-  );
-  if (!anyRelevant) return m;
-  return {
-    ...m,
-    contexts: m.contexts.map((ctx) => {
-      const writeByAgg = new Map(
-        (ctx.policyWriteLevels ?? []).map((r) => [r.aggregate, r.level] as const),
-      );
-      const readByAgg = new Map(
-        (ctx.policyReadLevels ?? []).map((r) => [r.aggregate, r.level] as const),
-      );
-      if (writeByAgg.size === 0 && readByAgg.size === 0) return ctx;
-      return {
-        ...ctx,
-        aggregates: ctx.aggregates.map((agg) => {
-          if (!hasTenantOwned(agg)) return agg;
-          // Explicit write level, else the fail-closed default `local`.
-          const writeLevel = writeByAgg.get(agg.name) ?? "local";
-          // `global` write is unsupported (validator rejects it); leave the
-          // command load unchanged so an invalid model still generates.
-          if (writeLevel === "global") return agg;
-          const readLevel = readByAgg.get(agg.name) ?? "local";
-          const writeRank = SCOPE_RANK[writeLevel] ?? 0;
-          const readRank = SCOPE_RANK[readLevel] ?? 0;
-          // Only tighten when the write scope is strictly narrower than the
-          // read scope — otherwise the command load already matches (byte-
-          // identical seam: no policy, read `local`, or write == read).
-          if (writeRank >= readRank) return agg;
-          const filter =
-            writeLevel === "deep" && hierarchy
-              ? buildDeepScopeFilter(agg, claim)
-              : buildTenantFloorFilter(agg, claim);
-          return { ...agg, writeScopeFilter: filter };
-        }),
-      };
-    }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// `policy { deny [write] on X }` — the DENY-WINS carve-out
-// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  For each denied aggregate:
+// `policy { deny [write] on X }` — the DENY-WINS carve-out.  For each denied
+// aggregate:
 //   - deny READ  → append the always-false `buildDenyFilter` sentinel to the
 //     aggregate's read `contextFilters` (every backend ANDs these into every
 //     read, so the read set is empty → findAll `[]`, findById 404; and because
@@ -680,10 +536,8 @@ function applyPolicyWriteLevels(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
 //   - deny WRITE → overwrite the aggregate's `writeScopeFilter` with the
 //     sentinel (all 5 backends already consume it → `GetByIdForWrite` loads
 //     nothing → mutation 404).  Reads are untouched.
-// Runs AFTER the allow read/write-level passes, so deny WINS: the appended
-// always-false term dominates any widened allow scope on the same target, and a
-// deny-write sentinel replaces any allow-derived write narrowing.  Deny is NOT
-// restricted to tenant-owned aggregates — the seams it uses exist on every
+// The appended always-false term dominates every other read term, so deny WINS
+// over any `allow` on the same target.  Deny is NOT restricted to tenant-owned aggregates — the seams it uses exist on every
 // aggregate.  Byte-neutral when no context declares a deny.
 // ---------------------------------------------------------------------------
 
@@ -723,7 +577,7 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
           // on a first pass by construction.
           if (readHit && !next.contextFilters.some(isDenyFilter)) {
             // Append the always-false term to the read filter list (deny wins:
-            // any widened allow scope earlier in the list is dominated).  Its
+            // it dominates every other term in the list).  Its
             // ref and origin slots are `undefined`: the deny is a bare filter,
             // never `ignoring`-bypassable — the desired semantics for a
             // carve-out.
@@ -735,7 +589,7 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
             };
           }
           if (writeHit) {
-            // Overwrite any allow-derived write narrowing with the carve-out.
+            // The carve-out is the aggregate's whole write scope.
             next = { ...next, writeScopeFilter: buildDenyFilter(agg) };
           }
           return next;

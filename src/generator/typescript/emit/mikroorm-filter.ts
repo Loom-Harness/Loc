@@ -11,19 +11,11 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
 import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
-import {
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../../util/intrinsics.js";
 import { escapeTsIdent, snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
-import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
 import { QueryEmissionRefusal, refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
@@ -107,8 +99,7 @@ export const MIKRO_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) 
   // is a VALUE, so a `%`/`_` inside it must match LITERALLY (the corpus fixture
   // `prefix-filter.ddd` asserts exactly that, alongside the delimiter trap).
   // `starts_with` has no pattern language, so no ESCAPE discipline is needed —
-  // the same reasoning as the deep-scope subtree predicate above, and the twin
-  // of drizzle's `strpos(col, $p) = 1`.
+  // the twin of drizzle's `strpos(col, $p) = 1`.
   "string.startsWith": (r, a) => `starts_with(${r}, ${a[0]})`,
   "int.abs": (r) => `abs(${r})`,
   "long.abs": (r) => `abs(${r})`,
@@ -258,7 +249,7 @@ function mikroOperandSql(e: ExprIR, params: string[], acc: string): string | nul
  *  A FilterQuery has no arithmetic vocabulary at all, so unlike an intrinsic
  *  (which keeps the comparison's operator as a `$lt` payload) the WHOLE
  *  comparison becomes SQL text with the empty-array value — the same
- *  `RawQueryFragment` shape the deep-scope sentinel uses.  One path serves both
+ *  `RawQueryFragment` shape every raw entry here uses.  One path serves both
  *  orientations: the column side (`this.due + days(30) < q`) and the value side
  *  (`this.due < q + days(2)`), which differ only in which operand inlines a
  *  column and which binds.
@@ -479,7 +470,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // `unsupported find predicate` throw at the bottom of this function — which
   // is how the `deny` carve-out becomes unreachable on this adapter.  That is
   // the whole point of giving the sentinel its own `ExprIR.kind`.
-  if (inner.kind === "authz-filter") return authzFilterEntry(inner, acc);
+  if (inner.kind === "authz-filter") return authzFilterEntry(inner);
   const selfScope = guidFromStringSelfScope(inner);
   if (selfScope) {
     const claim = `${acc}.${selfScope.claim}`;
@@ -502,7 +493,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // the root table `e0` in the SQL it builds, so an EXISTS fragment correlating
   // on `<table>.id` would fail with "missing FROM-clause entry", while a bare
   // `id` resolves in the outer scope exactly like every other unqualified
-  // column this file emits (the deep-scope sentinel's own note).
+  // column this file emits.
   const membership = containsMembershipFragment(inner, acc, assocs);
   if (membership) return rawEntry(membership, "[]");
   // A principal term (`currentUser.role == "agent"`) reads no column, so it
@@ -576,7 +567,7 @@ function containsMembershipFragment(
  *  MikroORM twin of Dapper's `authzFilterToSql` (`1 = 0`) and Drizzle's
  *  `and(isNull(id), isNotNull(id))`. */
 
-function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: string): string {
+function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>): string {
   switch (e.filter.kind) {
     // DENY carve-out (authorization — deny-wins).  The always-false
     // term, ANDed into every read FilterQuery (and into the write-scope
@@ -587,62 +578,9 @@ function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: str
     // sibling entries `flattenAnd` merges into the same object literal.
     case "deny":
       return `$and: [{ id: null }, { id: { $ne: null } }]`;
-    // `deep`/`global` read level (hierarchical tenancy) — the
-    // materialized-path descendant-or-self sentinel, DEEP_SCOPE_SEMANTICS:
-    //
-    //   (data_key IS NOT NULL
-    //      AND (data_key = ?
-    //           OR (data_key like ? escape '!' AND strpos(data_key, ?) = 1)))
-    //   OR (data_key IS NULL AND tenant_id = ?)
-    //
-    // The FilterQuery *operator* vocabulary genuinely cannot express a prefix
-    // test — but MikroORM has a first-class escape hatch for exactly that, and
-    // the shape is ordinary SQL.  `raw(sql, params)` used as a FilterQuery KEY
-    // with an empty-array value (`{ [raw("…", […])]: [] }`) is the documented
-    // way to AND a bare SQL condition into a find (`RawQueryFragment`), and it
-    // composes with the sibling `$and` entries the same way every other entry
-    // here does.  It must be built INSIDE the object literal at each call site
-    // (never hoisted into a `const` shared by two queries): a raw fragment's
-    // cache key is consumed on use, so two statements need two fragments — the
-    // emitters splice this string per statement, which is what makes that true.
-    //
-    // The descendant test is TWO terms (M-T3.17).  The row is DECIDED by the
-    // anchored `strpos(data_key, ?) = 1`, which has no pattern language: the
-    // anchor is a principal CLAIM, i.e. data, and `_`/`%` inside it would be
-    // LIKE wildcards — an org legitimately named `org_a` would match
-    // `orgXa.leak`, a cross-tenant read with no attacker involved.  Binding the
-    // value (which `raw`'s `?` does) stops injection, not pattern semantics.
-    // The escaped `like ? escape '!'` in FRONT of it is a pure prefilter, there
-    // so the planner can turn the fixed prefix into an index range over
-    // `<table>_data_key_idx` instead of seq-scanning every row; an escaping
-    // slip could only widen it, and the recheck still gates the row.  Same
-    // two-term shape as the drizzle twin.
-    //
-    // The NULL branch is a deliberate OR-fallback, not fail-closed: a row
-    // stamped before (or by a principal-less save) has no `data_key`, and
-    // a bare prefix test would hide it from its own tenant.  It degrades to
-    // exactly the flat floor — never wider.
-    //
-    // Columns are UNQUALIFIED (`data_key`, not `<alias>.data_key`), matching the
-    // Dapper twin: every statement this fragment lands in is single-table
-    // (`em.find`/`em.count` over one Row entity, or the QueryBuilder's direct
-    // read of the source table), so there is nothing to be ambiguous with.
-    case "scope": {
-      const anchor = `${acc}.${deepScopeAnchorClaim(e)}`;
-      const tenant = `${acc}.${deepScopeTenantClaim(e)}`;
-      const col = snake(TENANT_OWNED_DATA_KEY_FIELD);
-      const tenantCol = snake(TENANT_OWNED_TENANT_ID_FIELD);
-      const sql =
-        `((${col} is not null and (${col} = ? ` +
-        `or (${col} like ? ${SQL_LIKE_ESCAPE_CLAUSE} and strpos(${col}, ?) = 1))) ` +
-        `or (${col} is null and ${tenantCol} = ?))`;
-      const needle = `${anchor} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`;
-      const params = `[${anchor}, ${tsSubtreeLikePattern(anchor)}, ${needle}, ${tenant}]`;
-      return `[raw(${JSON.stringify(sql)}, ${params})]: []`;
-    }
     default: {
-      const _exhaustive: never = e.filter;
-      throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+      const _exhaustive: never = e.filter.kind;
+      throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
     }
   }
 }

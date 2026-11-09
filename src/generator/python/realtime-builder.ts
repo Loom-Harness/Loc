@@ -27,7 +27,7 @@ import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spel
 // Two topologies (channels.md "Realtime topology" — rooms + policy-derived
 // routing v1), mirroring the Hono backend: an untenanted context is
 // broadcast-to-all (byte-identical); a tenant-owned context scopes delivery by
-// the tenant DataKey (`currentUser.<claim>`, the bound `tenancy by
+// the tenant claim (`currentUser.<claim>`, the bound `tenancy by
 // user.<claim>` — NOT the row column `tenantId`), so a tenant-scoped event
 // reaches only subscribers in the emitter's tenant room — never cross-tenant.
 // A connection derives its room from the verified principal at connect (never
@@ -183,7 +183,7 @@ function ticketArm(ev: EventIR, idFields: readonly string[], keyword: "if" | "el
 }
 
 /** The tenant-scoped module (channels.md rooms + policy-derived routing v1):
- *  the subscriber registry is keyed by the tenant DataKey; tenant-scoped events
+ *  the subscriber registry is keyed by the tenant claim; tenant-scoped events
  *  reach only the emitter's tenant room, never cross-tenant. */
 function buildRoomScopedRealtime(
   events: EventIR[],
@@ -205,7 +205,7 @@ function buildRoomScopedRealtime(
     "",
     "Events carried by a `delivery: broadcast` channel stream to connected",
     "browsers at GET /realtime/events.  This context hosts tenant-owned",
-    "aggregates, so delivery is scoped by the tenant DataKey",
+    "aggregates, so delivery is scoped by the tenant claim",
     `(\`currentUser.${claim}\`): a tenant-scoped event reaches only subscribers in`,
     "the emitter's tenant room — never cross-tenant.  The authorized read remains",
     "the gate — clients refetch through the API rather than trust payloads.",

@@ -83,16 +83,11 @@ export interface AggregateIR extends Sourced {
    * `contextFilterRefs` and this array always have exactly one slot per
    * `contextFilters` entry; every writer that appends a filter appends both. */
   contextFilterOrigins: (string | undefined)[];
-  /** The WRITE-scope predicate an INSTANCE mutation's command load must satisfy
-   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Derived in enrichment from the aggregate's `policy` read + write levels,
-   *  and set **only when the write scope is strictly narrower than the read
-   *  scope** — i.e. when the mutation load (which reuses the read filter on
-   *  every backend) must be tightened below what a read can see.  Two shapes:
-   *  the flat `tenantId ==` floor (`write local` under a widened read) or the
-   *  `deep` descendant-or-self sentinel (`write deep` under a `global` read).
-   *  `undefined` = the command load already matches the write scope, so the
-   *  mutation seam stays byte-identical.  Uses `currentUser`, so backends
-   *  render it through their existing principal-filter path. */
+  /** The WRITE-scope predicate an INSTANCE mutation's command load must
+   *  satisfy, on top of the read filter the load already reuses on every
+   *  backend.  Set by enrichment only for a `policy { deny write on X }`
+   *  carve-out (the always-false `buildDenyFilter` sentinel); `undefined`
+   *  keeps the mutation seam identical to a read. */
   writeScopeFilter?: ExprIR;
   /** Lifecycle stamping rules contributed by `stamp onCreate { ... }`
    * / `stamp onUpdate { ... }` declarations (hand-written or

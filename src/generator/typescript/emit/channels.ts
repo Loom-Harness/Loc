@@ -73,7 +73,7 @@ export function renderChannelsModule(
    *  closure) — lets a decoder rebuild a carried VO field-by-field. */
   valueObjects: readonly ValueObjectIR[] = [],
   /** The deployable carries auth: every envelope carries the raising frame's
-   *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
+   *  EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1)
    *  and the consumer delivers each event inside the system principal of
    *  that origin (`auth/middleware.ts` `runAsEventOrigin`), so a reactor in
    *  this deployable runs in the tenant that raised the event elsewhere. */
@@ -180,8 +180,6 @@ export function renderChannelsModule(
             "  /** The raising principal's tenant (ruling D1) — this deployable's",
             "   * reactor runs as the system principal OF this tenant. */",
             "  tenantid?: string;",
-            "  /** That tenant's materialized path (hierarchical tenancy). */",
-            "  loomorgpath?: string;",
             "  /** The originating user id — audit and logs only. */",
             "  loomcausedby?: string;",
           ]
@@ -615,11 +613,10 @@ export function renderChannelsModule(
             " * is omitted, never sent as null (CloudEvents extensions are strings). */",
             "function originAttributes(",
             `  origin: ${TT.EventOrigin} | null,`,
-            '): Pick<LoomEventEnvelope, "tenantid" | "loomorgpath" | "loomcausedby"> {',
+            '): Pick<LoomEventEnvelope, "tenantid" | "loomcausedby"> {',
             "  if (origin === null) return {};",
             "  return {",
             "    ...(origin.tenant === null ? {} : { tenantid: origin.tenant }),",
-            "    ...(origin.orgPath === null ? {} : { loomorgpath: origin.orgPath }),",
             "    ...(origin.causedBy === null ? {} : { loomcausedby: origin.causedBy }),",
             "  };",
             "}",
@@ -627,9 +624,9 @@ export function renderChannelsModule(
             "/** The inverse: the origin a received envelope names, or null when it",
             " * names none (a producer without auth, a timer-raised event). */",
             `function originOf(envelope: LoomEventEnvelope): ${TT.EventOrigin} | null {`,
-            "  const { tenantid, loomorgpath, loomcausedby } = envelope;",
-            "  if (tenantid === undefined && loomorgpath === undefined && loomcausedby === undefined) return null;",
-            "  return { tenant: tenantid ?? null, orgPath: loomorgpath ?? null, causedBy: loomcausedby ?? null };",
+            "  const { tenantid, loomcausedby } = envelope;",
+            "  if (tenantid === undefined && loomcausedby === undefined) return null;",
+            "  return { tenant: tenantid ?? null, causedBy: loomcausedby ?? null };",
             "}",
             "",
           ]

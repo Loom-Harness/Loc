@@ -117,7 +117,7 @@ export type BackendConstruct =
   | "stmt:requires@event-sourced-create"
   /** A workflow command or command handler that mutates or deletes a row it
    *  holds (from `Repo.all(…)`, a find, a loop) of an aggregate whose write
-   *  scope is narrowed (`deny write`, the `allow deep` own-org floor): the
+   *  scope is narrowed (`deny write`): the
    *  body re-checks the row's write scope before the write and rolls back on
    *  a miss (`ir/util/write-scope-guards.ts`). */
   | "effect:mutate-held-row@command-body"
@@ -160,18 +160,12 @@ export type BackendConstruct =
   /** An event-sourced aggregate emitting an event that a broker-bound channel
    *  carries: the event append and the outbox row must commit together. */
   | "publish:event-sourced@broker-channel"
-  /** A `tenantOwned` aggregate hosted on a deployable that does not host the
-   *  tenancy registry: the org-path resolver reads the registry's table. */
-  | "tenancy:remote-registry@deployable"
   /** A typed `kind: api` resource whose api is served by an `auth: required`
    *  deployable: the call must forward the caller's credentials. */
   | "call:auth-required-api@resource"
   /** A `timerSource` whose event a broker-bound channel carries to another
    *  deployable: the tick must be published, not dispatched in-process. */
   | "timer:broker-channel@deployable"
-  /** `allow deep` / `allow global` on a TPH subtype whose base is
-   *  `tenantOwned`. */
-  | "read:wide-stance@tph-subtype"
   /** A `derived` that reads a `mask unless` field of its aggregate. */
   | "derived:reads-masked-field@aggregate"
   /** A `criterion` whose predicate reads a `mask unless` field. */
@@ -233,10 +227,8 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "storage:bigquery@declaration",
   "storage:nats@declaration",
   "publish:event-sourced@broker-channel",
-  "tenancy:remote-registry@deployable",
   "call:auth-required-api@resource",
   "timer:broker-channel@deployable",
-  "read:wide-stance@tph-subtype",
   "derived:reads-masked-field@aggregate",
   "criterion:reads-masked-field@context",
   "field:valueobject-collection@entity-part",
@@ -542,10 +534,8 @@ const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = 
 const COMMON_PAIRS: Pick<
   Record<BackendConstruct, CapabilityVerdict>,
   | "publish:event-sourced@broker-channel"
-  | "tenancy:remote-registry@deployable"
   | "call:auth-required-api@resource"
   | "timer:broker-channel@deployable"
-  | "read:wide-stance@tph-subtype"
   | "derived:reads-masked-field@aggregate"
   | "criterion:reads-masked-field@context"
   | "field:valueobject-collection@entity-part"
@@ -555,9 +545,6 @@ const COMMON_PAIRS: Pick<
 > = {
   // No fixture runs an event-sourced save through a durable channel.
   "publish:event-sourced@broker-channel": refused("feature-composition-unwitnessed"),
-  // Phase ⑦ refuses a deployable that reads the hierarchy without hosting the
-  // registry: its database holds no registry table to resolve the path from.
-  "tenancy:remote-registry@deployable": owned("loom.tenancy-registry-remote-unsupported"),
   // A request-originated call forwards the caller's own credential
   // (`api-call-e2e` runs it on every caller); a call with no request principal
   // is refused by `loom.api-call-principal-unsupported`.
@@ -565,8 +552,6 @@ const COMMON_PAIRS: Pick<
   // The scheduler publishes a broker-carried tick through the channel tee;
   // `channels-e2e` runs one to a consumer on another deployable.
   "timer:broker-channel@deployable": SUPPORTED,
-  // No fixture runs a widened read stance over a tenant-owned TPH base.
-  "read:wide-stance@tph-subtype": refused("feature-composition-unwitnessed"),
   // A derived that reads a masked field inherits the mask, and a criterion
   // over one is evaluated as the caller sees it; the `field-mask` corpus
   // fixture runs both on every backend.
@@ -609,8 +594,6 @@ const DOTNET_BACKEND: TargetCapabilityTable = {
     ...STATIC_HOST_BACKEND_ROWS,
     // The event save and the dispatcher's outbox write are two `SaveChangesAsync`.
     "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
-    // The base's exact `TenantId` query filter drops the subtype's subtree read.
-    "read:wide-stance@tph-subtype": refused("feature-composition-broken"),
   },
   compositions: COMMON_COMPOSITIONS,
 };

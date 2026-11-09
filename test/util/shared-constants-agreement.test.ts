@@ -16,8 +16,7 @@ import { AUDIT_HISTORY_FIND } from "../../src/util/audit-names.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../../src/util/capability-tag.js";
 import { PLATFORM_SAVING_SHAPES } from "../../src/util/platform-axes.js";
 import {
-  PRINCIPAL_ORG_PATH,
-  PRINCIPAL_ROOT_ORG,
+  PRINCIPAL_OPERATING_ORG,
   PRINCIPAL_TYPE_NAME,
   principalIdField,
 } from "../../src/util/principal.js";
@@ -39,7 +38,7 @@ import {
 //
 // Several of these reach into module source text.  That is deliberate: the code
 // under test is module-private or lives inside an emitter's
-// template string (the `rootOrg` derivations), and a hand-copied duplicate of it
+// template string, and a hand-copied duplicate of it
 // here would be the very drift the test claims to prevent.
 // ---------------------------------------------------------------------------
 
@@ -268,110 +267,35 @@ describe("(c) KEYCLOAK_HOST_PORT vs the compose emitter's port assignment", () =
 });
 
 // ===========================================================================
-// (d) principal.ts — the principal names and the root-segment rule
+// (d) principal.ts — the principal names
 // ===========================================================================
 
-/** The root-segment rule `PRINCIPAL_ROOT_ORG` documents: "the first segment of
- *  `orgPath` (the substring before the first `.`, or the whole path when it has
- *  no `.`)".  The reference the emitted implementations are checked against. */
-function rootSegment(orgPath: string): string {
-  const i = orgPath.indexOf(".");
-  return i === -1 ? orgPath : orgPath.slice(0, i);
-}
-
-const ROOT_SEGMENT_CASES: ReadonlyArray<readonly [string, string]> = [
-  ["a.b.c", "a"],
-  ["a", "a"],
-  ["", ""],
-  ["acme.emea.paris", "acme"],
-  ["acme.", "acme"],
-  [".b", ""], // a leading dot means an EMPTY root segment, not "b"
-  ["a..b", "a"],
-];
-
-describe("(d) principal — the documented root-segment rule", () => {
-  it("takes the substring before the first `.`, else the whole path", () => {
-    for (const [input, expected] of ROOT_SEGMENT_CASES) {
-      expect(rootSegment(input), JSON.stringify(input)).toBe(expected);
-    }
-  });
-
-  it("is idempotent — a root segment is its own root segment", () => {
-    for (const [input] of ROOT_SEGMENT_CASES) {
-      expect(rootSegment(rootSegment(input))).toBe(rootSegment(input));
-    }
-  });
-
-  it("under FLAT tenancy (`orgPath` has no dot) rootOrg == orgPath", () => {
-    // Documented: "under flat tenancy `orgPath` is the root-segment claim, so
-    // `rootOrg == orgPath`".
-    for (const flat of ["acme", "tenant-1", "", "a"]) {
-      expect(rootSegment(flat)).toBe(flat);
-    }
-  });
-
-  it("the Hono emitter emits exactly this rule", () => {
-    // Extracted verbatim rather than transliterated: this is the real emitted
-    // helper, and a change to it fails here instead of only in a compose e2e.
-    const src = read("src/platform/hono/shared/auth-emit.ts");
-    const start = src.indexOf("function rootOrgOf(orgPath: string): string {");
-    expect(start, "rootOrgOf not found in the hono auth emitter").toBeGreaterThanOrEqual(0);
-    const body = src.slice(start, src.indexOf("\n}", start) + 2);
-    expect(body.replace(/\s+/g, " ").trim()).toBe(
-      'function rootOrgOf(orgPath: string): string { const i = orgPath.indexOf("."); return i === -1 ? orgPath : orgPath.slice(0, i); }',
-    );
-  });
-
-  it("every backend's auth emitter derives the root segment from the FIRST dot", () => {
-    // Five independent implementations of one rule (TS `indexOf`, C#
-    // `IndexOf`, Java `indexOf`, Python `split(".", 1)[0]`, Elixir
-    // `:binary.split(path, ".")`).  Pinned as a set so a backend that quietly
-    // switches to `lastIndexOf` / an unbounded `split` is caught here.
-    const sites: ReadonlyArray<readonly [string, RegExp]> = [
-      ["src/platform/hono/shared/auth-emit.ts", /orgPath\.indexOf\("\."\)/],
-      ["src/generator/dotnet/auth-emit.ts", /OrgPath\.IndexOf\('\.'\)/],
-      ["src/generator/java/emit/auth.ts", /path\.indexOf\('\.'\)/],
-      ["src/generator/python/auth-emit.ts", /org_path\.split\("\\?\."?, 1\)\[0\]/],
-      ["src/generator/elixir/auth-emit.ts", /:binary\.split\(path, "\."\)/],
-    ];
-    for (const [file, pattern] of sites) {
-      expect(read(file), `${file} no longer derives rootOrg from the first dot`).toMatch(pattern);
-    }
-  });
-});
-
 describe("(d) principal — the member names every backend spells", () => {
-  it("the derived member names are the ones the emitters hardcode", () => {
-    // The emitters do NOT import these constants (they are baked into template
+  it("the operating-org member is the name the emitters hardcode", () => {
+    // The emitters do NOT import the constant (it is baked into template
     // strings in each target language's casing), so a rename of the constant
     // would leave the emitters behind silently.  This is that tripwire.
-    const camel: ReadonlyArray<readonly [string, string]> = [
-      ["src/platform/hono/shared/auth-emit.ts", PRINCIPAL_ORG_PATH],
-      ["src/platform/hono/shared/auth-emit.ts", PRINCIPAL_ROOT_ORG],
-      ["src/generator/java/emit/auth.ts", PRINCIPAL_ORG_PATH],
-      ["src/generator/java/emit/auth.ts", PRINCIPAL_ROOT_ORG],
-    ];
-    for (const [file, name] of camel) {
-      expect(read(file), `${file} no longer spells "${name}"`).toContain(name);
+    for (const file of [
+      "src/platform/hono/shared/auth-emit.ts",
+      "src/generator/java/emit/auth.ts",
+    ]) {
+      expect(read(file), `${file} no longer spells "${PRINCIPAL_OPERATING_ORG}"`).toContain(
+        PRINCIPAL_OPERATING_ORG,
+      );
     }
-    // Snake-cased targets spell the same members with their own casing.
-    expect(read("src/generator/python/auth-emit.ts")).toContain("root_org");
-    expect(read("src/generator/python/auth-emit.ts")).toContain("org_path");
-    expect(read("src/generator/elixir/auth-emit.ts")).toContain(":root_org");
-    expect(read("src/generator/elixir/auth-emit.ts")).toContain(":org_path");
+    // The other targets spell the same member with their own casing.
+    expect(read("src/generator/dotnet/auth-emit.ts")).toContain("OperatingOrg");
+    expect(read("src/generator/python/auth-emit.ts")).toContain("operating_org");
+    expect(read("src/generator/elixir/auth-emit.ts")).toContain("operating_org");
   });
 
-  it("the typing pass and the validators gate derived members through the constants", () => {
-    // Lowering no longer types a member itself (M-T5.47): it copies the single
-    // typing pass's answer, so the pass is the member-typing site to pin.
+  it("the typing pass and the lowering reach the operating org through the constant", () => {
     for (const file of [
       "src/language/typing/elaborate.ts",
-      "src/language/type-system.ts",
-      "src/language/validators/tenancy.ts",
+      "src/ir/lower/lower-expr.ts",
+      "src/ir/util/org-context.ts",
     ]) {
-      const src = read(file);
-      expect(src, file).toContain("PRINCIPAL_ORG_PATH");
-      expect(src, file).toContain("PRINCIPAL_ROOT_ORG");
+      expect(read(file), file).toContain("PRINCIPAL_OPERATING_ORG");
     }
   });
 

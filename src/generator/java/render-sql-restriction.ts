@@ -1,13 +1,6 @@
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  guidClaimAccessorName,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
+import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { snake } from "../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../_expr/pg-interval.js";
@@ -18,7 +11,6 @@ import {
   enumNameBindEntry,
   principalParamName,
   principalTermBindEntry,
-  subtreeLikeBindEntry,
 } from "./render-jpql.js";
 import { sqlRestrictionIdent } from "./sql-ident.js";
 
@@ -160,43 +152,14 @@ function renderPrincipalBinary(
 function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
   const renderSqlRestriction = (x: ExprIR): string => renderSql(x, p);
   switch (e.kind) {
-    case "authz-filter":
-      // Only the DENY carve-out (authorization — deny-wins) reaches the
-      // static (no-principal) restriction path: the always-false `1 = 0`
-      // appended to every SELECT for a read-denied entity.  A `scope` sentinel
-      // is principal-referencing and is routed to the `tenantScope` Specification
-      // instead, so it never lands here — the exhaustive switch throws if it did.
-      switch (e.filter.kind) {
-        case "deny":
-          return "1 = 0";
-        case "scope": {
-          if (!p) {
-            throw unsupported(
-              "principal-referencing `scope` filter (needs the Specification path)",
-            );
-          }
-          // Descendant-or-self materialized-path scope with the NULL-dataKey
-          // fallback to the tenant floor: the JPQL `scope` arm in SQL.  The
-          // anchored `position(...) = 1` decides the row; the prefix `like`
-          // in front of it is the sargable prefilter the `data_key`
-          // text_pattern_ops index serves.
-          const col = snake(TENANT_OWNED_DATA_KEY_FIELD);
-          const tenantCol = snake(TENANT_OWNED_TENANT_ID_FIELD);
-          const org = renderSqlRestriction(e.filter.anchorClaim);
-          const tenant = renderSqlRestriction(e.filter.tenantClaim);
-          const pattern = bind(p, subtreeLikeBindEntry(deepScopeAnchorClaim(e)), "String");
-          const anchored = `position(concat(${org}, '${DATA_KEY_PATH_DELIMITER}') in ${col}) = 1`;
-          const descendant = `(${col} like ${pattern} escape '${DATA_KEY_LIKE_ESCAPE}' and ${anchored})`;
-          return (
-            `((${col} is not null and (${col} = ${org} or ${descendant})) ` +
-            `or (${col} is null and ${tenantCol} = ${tenant}))`
-          );
-        }
-        default: {
-          const _exhaustive: never = e.filter;
-          throw unsupported(`authz-filter kind '${(_exhaustive as { kind: string }).kind}'`);
-        }
-      }
+    case "authz-filter": {
+      // The DENY carve-out (authorization — deny-wins): the always-false
+      // `1 = 0` appended to every SELECT for a read-denied entity.  `deny` is
+      // the only filter kind; the typed binding makes a new kind a `tsc` error
+      // here, not a silent authorization bypass.
+      const _deny: "deny" = e.filter.kind;
+      return "1 = 0";
+    }
     case "paren":
       return `(${renderSqlRestriction(e.inner)})`;
     case "unary":
@@ -236,7 +199,7 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
     }
     case "method-call": {
       // Queryable scalar intrinsic (src/util/intrinsics.ts) over a candidate
-      // path — `filter this.dataKey.startsWith("root")`, `filter
+      // path — `filter this.code.startsWith("root")`, `filter
       // this.code.trim() == "x"`.  The static path admits it because every
       // operand here is a literal or a column: no parameter binding is needed,
       // which is the only thing `@SQLRestriction` cannot express.  Shares the

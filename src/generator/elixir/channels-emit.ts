@@ -283,7 +283,6 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
       origin ->
         envelope
         |> put_present("tenantid", origin["tenant"])
-        |> put_present("loomorgpath", origin["orgPath"])
         |> put_present("loomcausedby", origin["causedBy"])
     end
   end
@@ -298,7 +297,6 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
   def as_envelope_origin(envelope, fun) do
     origin = %{
       "tenant" => envelope["tenantid"],
-      "orgPath" => envelope["loomorgpath"],
       "causedBy" => envelope["loomcausedby"]
     }
 

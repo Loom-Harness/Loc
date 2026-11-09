@@ -1061,7 +1061,7 @@ function renderEntity(
                 "  /** @internal Adopt the stream's tenant metadata (stored-event metadata, never an event payload). */",
                 `  _adoptStreamTenant(meta: { ${STREAM_TENANT_METADATA.map((m) => `${m.field}: string | null`).join("; ")} }): void {`,
                 ...STREAM_TENANT_METADATA.map(
-                  (m) => `    this._${m.field} = meta.${m.field}${m.required ? " as string" : ""};`,
+                  (m) => `    this._${m.field} = meta.${m.field} as string;`,
                 ),
                 "  }",
                 "",

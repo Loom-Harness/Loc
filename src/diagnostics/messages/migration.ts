@@ -100,7 +100,7 @@ export const messages = {
     "subtype instead.",
   "loom.seed-tenant-owned-needs-raw": (p: { name: unknown }) =>
     `Seed row on tenant-owned aggregate '${p.name}' uses the domain create path, which ` +
-    "stamps `tenantId`/`dataKey` FROM THE PRINCIPAL — and a first-boot seeder has none, so " +
+    "stamps `tenantId` FROM THE PRINCIPAL — and a first-boot seeder has none, so " +
     "the row is written with an empty/NULL tenant and no tenant can ever read it. Use " +
     "`seed <dataset> raw { … }` and spell the tenant columns (and the row's `id`) " +
     "explicitly instead.",

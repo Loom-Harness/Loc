@@ -1,25 +1,21 @@
 // `organizationContext` — the OPERATING-scope accessor and its fail-closed
-// switch gate (docs/tenancy.md → "organizationContext"; M-T3.6 items 3+5).
+// switch gate (docs/tenancy.md → "organizationContext").
 //
-// `currentUser` is the PRINCIPAL (its `orgPath` is the caller's own org, read off
-// the unforgeable tenancy claim + the registry row).  `organizationContext` is the
-// org the request operates IN: the principal's own `orgPath` unless the request
-// carries an `x-org-context: <path>` header naming an org inside the caller's
-// subtree.  Every backend's auth middleware validates that header BEFORE any
-// handler runs — a path outside the caller's `orgPath` subtree (or any path at all
-// on a token with no `orgPath`) is a 403 with no write.
+// `currentUser` is the PRINCIPAL (its tenancy claim is the caller's home org,
+// read off the unforgeable token).  `organizationContext.org` is the id of the
+// org the request operates IN: the home org, unless the request carries an
+// `x-org-context: <org id>` header the gate admits.  Every backend's auth
+// middleware validates that header BEFORE any handler runs — an org it does not
+// admit (or any org at all on a token with no tenancy claim) is a 403 with no
+// write.
 //
-//   - `tenantOwned` is re-declared here with the reconciled surface's stamp
-//     (tenancy-authorization-final-surface decision 3): the WRITE stamp reads
-//     the operating scope, the read filter stays principal-anchored (decision 4).
-//     A user-declared capability of the same name replaces the prelude's.
-//   - `Account` carries `policy allow deep`, so a row stamped into a sub-org is
-//     visible to a deep read from its parent and invisible to a sibling.
-//   - `note()` reads the operating scope in an OPERATION body too, so every
+//   - `tenantOwned` is re-declared here so its WRITE stamp reads the operating
+//     org while the read filter stays principal-anchored.  A user-declared
+//     capability of the same name replaces the prelude's.
+//   - `note()` reads the operating org in an OPERATION body too, so every
 //     backend threads it through its ordinary principal path (not only the
 //     stamp seam) — and the harness can read the value back on the wire.
-//   - `Org` is the registry tree (`setPath` seeds deterministic paths, exactly
-//     as `tenancy-hierarchy.ddd` does).
+//   - `Org` is the registry tree.
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system OrgContext {
@@ -29,10 +25,8 @@ system OrgContext {
 
   capability tenantOwned {
     tenantId: string internal
-    dataKey: string? internal
     stamp onCreate {
-      tenantId := currentUser.tenantId
-      dataKey := organizationContext.orgPath
+      tenantId := organizationContext.org
     }
     filter this.tenantId == currentUser.tenantId
   }
@@ -42,21 +36,17 @@ system OrgContext {
       aggregate Account with tenantOwned, crudish {
         label: string
         scope: string?
-        // Records the operating scope the call ran under, on the wire.
+        // Records the operating org the call ran under, on the wire.
         operation note() {
-          scope := organizationContext.orgPath
+          scope := organizationContext.org
         }
       }
       aggregate Org with crudish {
         name: string
         implements tenantRegistry
-        operation setPath(p: string) { dataKey := p }
       }
       repository Accounts for Account { }
       repository Orgs for Org { }
-      policy {
-        allow deep on Account
-      }
     }
   }
 

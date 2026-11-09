@@ -139,12 +139,12 @@ describe("policy deny — enrichment composition", () => {
     expect((agg(model, "Order").contextFilters ?? []).some(isDenyFilter)).toBe(false);
   });
 
-  it("DENY WINS: a deny read dominates a widening `allow deep` on the same target", async () => {
+  it("DENY WINS: a deny read dominates an `allow local` on the same target", async () => {
     const model = await buildLoomModel(
-      hierarchy({ policy: "allow deep on Invoice\ndeny on Invoice" }),
+      hierarchy({ policy: "allow local on Invoice\ndeny on Invoice" }),
     );
-    // The widened read scope is still present, but the always-false term is too,
-    // so the conjunction is empty — deny wins.
+    // The tenant floor is still present, but the always-false term is too, so
+    // the conjunction is empty — deny wins.
     expect((agg(model, "Invoice").contextFilters ?? []).some(isDenyFilter)).toBe(true);
   });
 
@@ -193,7 +193,7 @@ describe("policy deny — validation", () => {
   });
 
   it("a deny shadowing an allow on the same target+access → loom.policy-deny-shadows-allow (warning)", async () => {
-    const diags = await denyDiags(hierarchy({ policy: "allow deep on Invoice\ndeny on Invoice" }));
+    const diags = await denyDiags(hierarchy({ policy: "allow local on Invoice\ndeny on Invoice" }));
     const shadow = diags.find((d) => d.code === "loom.policy-deny-shadows-allow");
     expect(shadow).toBeDefined();
     expect(shadow!.severity).toBe("warning");
@@ -201,7 +201,7 @@ describe("policy deny — validation", () => {
 
   it("a deny WRITE does not shadow an allow READ (different access)", async () => {
     const diags = await denyDiags(
-      hierarchy({ policy: "allow deep on Invoice\ndeny write on Invoice" }),
+      hierarchy({ policy: "allow local on Invoice\ndeny write on Invoice" }),
     );
     expect(diags.map((d) => d.code)).not.toContain("loom.policy-deny-shadows-allow");
   });

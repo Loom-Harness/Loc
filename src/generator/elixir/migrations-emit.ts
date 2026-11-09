@@ -128,17 +128,9 @@ function ectoIndexes(table: TableShape): readonly IndexShape[] {
   return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
 }
 
-/** The bracketed column list for a `create index(...)` call.  A column with a
- *  per-column opclass (materialized-path prefix index) uses Ecto's raw
- *  fragment string form (`"data_key text_pattern_ops"`) so the opclass reaches
- *  the DDL; plain columns stay `:atom`s. */
+/** The bracketed column list for a `create index(...)` call. */
 function ectoIndexColumns(i: IndexShape): string {
-  return i.columns
-    .map((n) => {
-      const oc = i.opclasses?.[n];
-      return oc ? JSON.stringify(`${n} ${oc}`) : `:${n}`;
-    })
-    .join(", ");
+  return i.columns.map((n) => `:${n}`).join(", ");
 }
 
 /** The `execute "CREATE SCHEMA …"` line that precedes a create-table when

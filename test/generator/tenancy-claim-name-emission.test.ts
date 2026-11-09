@@ -1,15 +1,14 @@
-// Cross-backend emission gate for the tenancy claim NAME (M-T3.7(a)).
+// Cross-backend emission gate for the tenancy claim NAME.
 //
-// `tenancy by user.<claim>` is documented as taking any claim name, but the
-// `tenantOwned` capability hardcoded `currentUser.tenantId` on the principal
-// side of its stamp and filter — so the feature only worked when the author
-// happened to name the claim `tenantId`, which every fixture did.  The expander
-// now splices the declared claim (`resolveTenancyClaim`).
+// `tenancy by user.<claim>` takes any claim name: the expander splices the
+// declared claim (`resolveTenancyClaim`) into the `tenantOwned` capability's
+// stamp and filter, so a fixture that names its claim `tenantId` cannot tell a
+// backend binding the declaration from one reaching for the default.
 //
 // This pins the emitted result on all five backends, because the IR-level test
 // (`test/ir/tenancy-claim-binding.test.ts`) cannot see a backend that reaches
 // for the `TENANT_OWNED_TENANT_ID_FIELD` constant on the principal side of its
-// own scope-sentinel renderer — which four of the five did.
+// own scope-sentinel renderer.
 //
 // Both halves matter, so both are asserted:
 //   - the ROW column stays `tenantId` (the capability owns it), and
@@ -29,67 +28,6 @@ const src = (platform: string) => FIXTURE.replace("__PLATFORM__", platform);
 /** Concatenated contents of every emitted file whose path matches. */
 async function emitted(platform: string, match: RegExp): Promise<string> {
   const files = await generateSystemFiles(src(platform));
-  const hits = [...files.entries()].filter(([p]) => match.test(p));
-  expect(hits.length, `no emitted file matched ${match} for ${platform}`).toBeGreaterThan(0);
-  return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
-}
-
-/** The fixture's SECOND axis — the same `tenancy by user.orgId` system with a
- *  HIERARCHY on top (`Organization implements tenantRegistry` + `policy allow
- *  deep on Invoice`).
- *
- *  Kept HERE rather than folded into the corpus `.ddd` on purpose.  The two
- *  axes have to cross somewhere: the flat fixture never renders a deep-scope
- *  sentinel at all, and the hierarchy fixture (`tenancy-hierarchy`) spells its
- *  claim `tenantId`, where a backend reaching for the `tenantId` DEFAULT is
- *  indistinguishable from one binding the declared claim.  But `allow deep` is
- *  outside the Dapper SQL subset (`loom.dapper-unsupported`, the reason
- *  `tenancy-hierarchy` sits in that leg's DAPPER_UNSUPPORTED map), so adding it
- *  to the shared fixture would have taken the whole claim-name feature out of
- *  the dapper compile leg — trading away FLAT claim-name coverage on one
- *  adapter to buy hierarchy coverage. An inline source costs nothing. */
-const HIERARCHICAL = `
-system TenantClaimNameDeep {
-  user { id: guid  orgId: string }
-
-  tenancy by user.orgId of Organization
-
-  subdomain Core {
-    context Billing {
-      aggregate Invoice with tenantOwned, crudish {
-        number: string
-        amountDue: int
-      }
-      repository Invoices for Invoice { }
-      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
-      policy {
-        allow deep on Invoice
-      }
-    }
-    context Accounts {
-      aggregate Organization with crudish {
-        name: string
-        implements tenantRegistry
-      }
-    }
-  }
-  api BillingApi from Core
-  storage primary { type: postgres }
-  resource billingState { for: Billing, kind: state, use: primary }
-  resource accountsState { for: Accounts, kind: state, use: primary }
-  deployable d {
-    platform: __PLATFORM__
-    contexts: [Billing, Accounts]
-    dataSources: [billingState, accountsState]
-    serves: BillingApi
-    port: 4000
-    auth: required
-  }
-}
-`;
-
-async function emittedDeep(platform: string, match: RegExp): Promise<string> {
-  const files = await generateSystemFiles(HIERARCHICAL.replace("__PLATFORM__", platform));
   const hits = [...files.entries()].filter(([p]) => match.test(p));
   expect(hits.length, `no emitted file matched ${match} for ${platform}`).toBeGreaterThan(0);
   return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
@@ -137,70 +75,6 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
     const repo = await emitted("elixir", /invoice_repository\.ex$/);
     expect(repo).toContain("current_user.org_id");
     expect(repo).not.toContain("current_user.tenant_id");
-  });
-
-  // ─── claim name × HIERARCHICAL scope ──────────────────────────────────────
-  //
-  // The flat-floor assertions above only reach the principal member access the
-  // shared enrichment rewrites.  `policy { allow deep on Invoice }` routes the
-  // read through each backend's DEEP-SCOPE SENTINEL instead, which spells the
-  // claims ITSELF — the anchor (`orgPath`) and, in the NULL-`dataKey` floor arm,
-  // the declared tenancy claim.  Elixir defaulted that second one to `tenantId`
-  // at three of four call sites, emitting `current_user.tenant_id` for a
-  // principal that carries `orgId`: a `KeyError` on every deep/global read.
-  it("elixir: the deep-scope floor compares against the DECLARED claim, not `tenantId`", async () => {
-    // The sentinel is the Invoice schema's `:tenant_owned` clause, which
-    // `Repo.prepare_query/3` applies to every read starting from `base_query/0`.
-    const files = await generateSystemFiles(HIERARCHICAL.replace("__PLATFORM__", "elixir"));
-    const scope = ectoScope(files, "D.Billing.Invoice");
-    // The sentinel is what is under test — assert we are reading the deep form.
-    expect(scope).toContain("record.data_key");
-    // The floor arm: `(? IS NULL AND ? = ?)` binds the row column against the
-    // principal's DECLARED claim.
-    expect(scope).toContain("record.tenant_id, ^(current_user && current_user.org_id)");
-    // The anchor claim is a different field and stays `orgPath`.
-    expect(scope).toContain("current_user.org_path");
-    expect(scope).not.toContain("current_user.tenant_id");
-    const repo = await emittedDeep("elixir", /invoice_repository\.ex$/);
-    expect(repo).toContain(
-      "from(record in D.Billing.Invoice.base_query(), where: record.id == ^id)",
-    );
-    expect(repo).not.toContain("current_user.tenant_id");
-  });
-
-  it("elixir: the deep-scope claim is threaded on the WRITE-scope seam too", async () => {
-    // `vanillaWriteScopeFilter` is the third of the three sites that dropped
-    // the claim; the load-before-write in the canonical update/destroy renders
-    // through it, so a claim-name miss there 404s a row the read can see.
-    const repo = await emittedDeep("elixir", /invoice_repository\.ex$/);
-    const writeGuards = repo
-      .split("\n")
-      .filter((l) => /record\.id == \^id/.test(l))
-      .join("\n");
-    expect(writeGuards.length, "no load-before-write guard emitted").toBeGreaterThan(0);
-    expect(writeGuards).not.toContain("current_user.tenant_id");
-  });
-
-  it("the other four backends already bind the declared claim in the same floor arm", async () => {
-    // The cross is elixir's bug, but the ASSERTION is cross-backend: this is
-    // what says the fix is parity, not a new elixir-only convention.  Each
-    // spells the anchor (`orgPath`) and the tenant floor (`orgId`) separately.
-    const cases: [string, RegExp, string, string][] = [
-      [
-        "node",
-        /invoice-repository\.ts$/,
-        "requireCurrentUser().orgPath",
-        "requireCurrentUser().orgId",
-      ],
-      ["python", /app\/db\/read_scope\.py$/, "user.org_path", "user.org_id"],
-      ["java", /features\/invoices\/Invoice\.java$/, "__cu.orgPath()", "__cu.orgId()"],
-      ["dotnet", /AppDbContext\.cs$/, "_currentUser.User.OrgPath", "_currentUser.User.OrgId"],
-    ];
-    for (const [platform, file, anchor, tenant] of cases) {
-      const out = await emittedDeep(platform, file);
-      expect(out, `${platform}: no deep-scope anchor claim`).toContain(anchor);
-      expect(out, `${platform}: the NULL-dataKey floor lost the declared claim`).toContain(tenant);
-    }
   });
 
   it("every backend keeps the ROW column named `tenantId` (the capability owns it)", async () => {

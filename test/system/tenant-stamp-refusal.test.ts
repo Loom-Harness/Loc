@@ -134,14 +134,8 @@ describe("a missing tenancy claim refuses the write (F-018)", () => {
     }
   });
 
-  it("leaves the OPTIONAL dataKey stamp unguarded, so the signup bootstrap survives", async () => {
-    // `tenantOwned` also stamps `dataKey: string?` from `currentUser.orgPath`.
-    // Null is legal there, and guarding it would refuse the claim-less signup
-    // bootstrap `docs/tenancy.md` documents (create an Org with no tenant claim,
-    // then use its id as the claim).  One guard, not two.
+  it("guards the tenant stamp exactly once", async () => {
     const src = await file("api_node/db/audit-stamp.ts");
-    expect(src).toContain("dataKey: currentUser.orgPath");
-    expect(src).not.toContain("currentUser.orgPath == null");
     expect((src.match(/throw new ForbiddenError\(/g) ?? []).length).toBe(1);
   });
 

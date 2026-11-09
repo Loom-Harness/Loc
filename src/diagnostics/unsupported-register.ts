@@ -24,8 +24,7 @@
 //
 //   * semantically impossible or deliberately refused — `-invalid`
 //     (`projection-groupby-join`: a join is a by-id load AFTER the query, so it
-//     cannot compose with `group by`; `policy-write-global`, a documented
-//     deliberate never);
+//     cannot compose with `group by`);
 //   * parses and does nothing — `-no-effect`;
 //   * not in a closed vocabulary, or a plain misuse error — `-unknown`
 //     (`auth-ui-on-backend` is a misuse error; `ui-handler-unsupported` a closed
@@ -188,19 +187,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
-    code: "loom.tenancy-registry-remote-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/tenancy-checks.ts:557",
-    what:
-      "a backend deployable hosting a context that reads the tenant hierarchy (a " +
-      "`tenantOwned` aggregate's `dataKey` stamp, or an `orgPath` / `rootOrg` / " +
-      "`organizationContext` read) without hosting the registry's context.  Its database has " +
-      "no registry table, and no backend resolves the caller org's path from another " +
-      "deployable yet.",
-    mission: "#4806",
-    verified: false,
-  },
-  {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:310",
@@ -302,7 +288,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:670",
+    site: "src/ir/validate/checks/target-capability-checks.ts:632",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +

@@ -97,7 +97,7 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             code: "loom.stamp-principal-without-auth",
           });
         }
-        // The `tenantOwned` capability's own `tenantId` / `dataKey` stamp is
+        // The `tenantOwned` capability's own `tenantId` stamp is
         // not a lifecycle stamp on an event-sourced aggregate: it stamps the
         // stream's tenant METADATA when the stream is created (see
         // `stream-tenancy.ts`).  Every other stamp would mutate folded state.

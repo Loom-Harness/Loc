@@ -444,27 +444,6 @@ system Bk {
   deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
 }
 `,
-  "tenancy:remote-registry@deployable": (platform) => `
-system H {
-  user { id: string  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Net { context Orgs {
-    aggregate Org with crudish { name: string  implements tenantRegistry
-      operation setPath(p: string) { dataKey := p } }
-    repository Orgs for Org { } } }
-  subdomain Shop { context Sales {
-    aggregate Sale with tenantOwned, crudish { label: string }
-    repository Sales for Sale { }
-    policy { allow deep on Sale } } }
-  api NetApi from Net
-  api ShopApi from Shop
-  storage pg { type: postgres }
-  resource orgState { for: Orgs, kind: state, use: pg }
-  resource saleState { for: Sales, kind: state, use: pg }
-  deployable netSvc { platform: ${platform} contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
-  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
-}
-`,
   "call:auth-required-api@resource": (platform) => `
 system S {
   user { id: string  role: string }
@@ -507,26 +486,6 @@ system T {
   timerSource t { for: Tick, every: 30s }
   deployable up { platform: ${platform} contexts: [Clock] dataSources: [clockState] serves: ClockApi port: 4000 channels: [tb] }
   deployable down { platform: ${platform} contexts: [Billing] dataSources: [billState] serves: BillApi port: 4001 channels: [tb] }
-}
-`,
-  "read:wide-stance@tph-subtype": (platform) => `
-system F2 {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core {
-    context Books {
-      abstract aggregate Asset inheritanceUsing: sharedTable with tenantOwned { label: string }
-      aggregate Car extends Asset with tenantOwned, crudish { wheels: int }
-      aggregate Org with crudish { name: string  implements tenantRegistry  operation setPath(p: string) { dataKey := p } }
-      repository Cars for Car { }
-      repository Orgs for Org { }
-      policy { allow deep on Car }
-    }
-  }
-  api BooksApi from Core
-  storage primary { type: postgres }
-  resource booksState { for: Books, kind: state, use: primary }
-  deployable d { platform: ${platform}  contexts: [Books]  dataSources: [booksState]  serves: BooksApi  port: 4000  auth: required }
 }
 `,
   "derived:reads-masked-field@aggregate": (platform) => `
