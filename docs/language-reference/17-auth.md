@@ -551,7 +551,7 @@ if (!(Objects.equals(currentUser.role(), "clerk"))) throw new ForbiddenException
 | The gate is not `bool` | `loom.requires-not-bool` |
 | A rule starts with a word other than `allow` / `deny` / `read` | `loom.policy-unknown-rule` |
 
-`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#migration-find--requires-moved-to-the-policy-block)).
+`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#read-gates-live-in-the-policy-block)).
 
 ## `mask unless` — field read redaction
 

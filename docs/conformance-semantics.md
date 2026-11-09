@@ -139,7 +139,7 @@ the conforming backends, and the fix that established it.
 - **Provenance.** #1631 (S2: absence match → nullable-subject ternary +
   per-backend `absenceCheck` leaf). Tier: **T0** — already gated per-PR by the
   pre-existing
-  [`test/conformance/union-find-absence-parity.test.ts`](../test/conformance/union-find-absence-parity.test.ts),
+  `test/conformance/union-find-absence-parity.test.ts`,
   which anchors each backend's absence-check leaf (`result == null`, `is None`,
   …) and the 404 ProblemDetails mapping across all five.
 
@@ -1171,7 +1171,7 @@ the conforming backends, and the fix that established it.
   **`"Validation failed"`**, detail **`"One or more fields are invalid."`**, and
   the `errors[]` pointer array.
 - **Why the title is deliberately *not* the reason phrase.** The **domain floor**
-  also answers 422 ([RS-15](#rs-15--the-domain-floor-is-422-not-400)), and its
+  also answers 422 ([RS-15](#rs-15--a-domain-floor-rejection-is-422-not-400)), and its
   title *is* `"Unprocessable Entity"`. Both rungs are 422, so status alone cannot
   separate them: `title` plus `errors[]` is the only thing telling a client
   *"your JSON is malformed"* from *"your request was understood and refused"*.
