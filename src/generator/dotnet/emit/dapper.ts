@@ -2515,7 +2515,7 @@ export function renderDapperDocumentRepository(
       ...inMemoryRunMethodLines(agg, retrievals, {
         loadAll: (ct, local) => [
           dapperOpenConn(ns, local("conn"), ct),
-          `var __rows = await ${local("conn")}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
+          `var __rows = await ${local("conn")}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, ${ROW_VERSION_COLUMN} FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
           `var __all = __rows.Select(__d => ${deser});`,
         ],
         capFilters: documentReadRestrictions(agg, pool),
