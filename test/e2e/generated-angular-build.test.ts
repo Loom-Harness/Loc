@@ -656,6 +656,55 @@ const OPTIONAL: Case = {
   `,
 };
 
+/** A value object nested inside a value object, and inside an array row: each
+ *  renders as a nested `FormGroup`, so the typed `getRawValue()` keeps the
+ *  nested wire shape the request DTO declares.  `mustEmit` pins the nested
+ *  group declaration. */
+const NESTED_VO: Case = {
+  name: "nested-vo",
+  angularDir: "web",
+  mustEmit: [
+    "geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true })",
+    'formGroupName="spot"',
+  ],
+  source: `
+    system ANested {
+      subdomain Core {
+        context Places {
+          valueobject Geo { lat: decimal  lng: decimal }
+          valueobject Address { street: string  geo: Geo }
+          valueobject Stop { label: string  spot: Geo }
+          aggregate Venue with crudish {
+            name: string
+            address: Address
+            stops: Stop[]
+            derived display: string = name
+          }
+        }
+      }
+      api PlacesApi from Core
+      ui WebApp with scaffold(subdomains: [Core]) {
+        api Places: PlacesApi
+      }
+      storage primary { type: postgres }
+      resource placesState { for: Places, kind: state, use: primary }
+      deployable api {
+        platform: node
+        contexts: [Places]
+        dataSources: [placesState]
+        serves: PlacesApi
+        port: 3000
+      }
+      deployable web {
+        platform: angular
+        targets: api
+        ui: WebApp { Places: api }
+        port: 3004
+      }
+    }
+  `,
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -672,6 +721,7 @@ const allCases: MatrixCase[] = [
   GRID,
   HISTORY,
   OPTIONAL,
+  NESTED_VO,
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or

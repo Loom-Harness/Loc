@@ -124,7 +124,9 @@ describe("named layouts — i18n", () => {
     const files = await vueFiles(SRC);
     const layout = files.get("src/layouts/Marketing.vue")!;
     expect(layout).toContain('import { t } from "../lib/locale";');
-    expect(layout).toMatch(/<h3>\{\{ t\("Web\.layout\.Marketing\.heading\.[a-z0-9]+", "Acme"\) \}\}<\/h3>/);
+    expect(layout).toMatch(
+      /<h3>\{\{ t\("Web\.layout\.Marketing\.heading\.[a-z0-9]+", "Acme"\) \}\}<\/h3>/,
+    );
     expect(layout).toMatch(/t\("Web\.layout\.Marketing\.text\.[a-z0-9]+", "© Acme"\)/);
   });
 });

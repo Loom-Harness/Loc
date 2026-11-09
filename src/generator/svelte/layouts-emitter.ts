@@ -24,8 +24,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
-import type { LoadedPack } from "../_packs/loader.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
+import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { renderSvelteImportLines } from "./walker/import-lines.js";
 import { localeSwitcherImport } from "./walker/page-shell.js";
