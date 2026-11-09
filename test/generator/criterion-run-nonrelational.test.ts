@@ -111,7 +111,11 @@ describe("criterion reads on document, embedded and event-log repositories", () 
   }
 
   it("elixir: every shape gets a retrieval module behind the context delegate", async () => {
-    const files = await generateSystemFiles(src("elixir"));
+    // Elixir refuses `shape: document` with `softDeletable` (loom.target-unsupported),
+    // so its leg reads the document aggregate without the capability.
+    const files = await generateSystemFiles(
+      src("elixir").replace(", softDeletable, softDelete {", " {"),
+    );
     for (const { agg, crit } of AGGS) {
       const ret = `find_all_by_${snake(crit)}`;
       const ctx = agg === "Entry" ? "ledger" : "store";
