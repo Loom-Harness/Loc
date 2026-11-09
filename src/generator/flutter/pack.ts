@@ -577,6 +577,7 @@ function primitiveIcon(c: Ctx): string {
  *  rendered as a horizontally-scrollable `DataTable` whose rows map the
  *  `rowsExpr` collection under `rowVar`. */
 function primitiveTable(c: Ctx): string {
+  // `Ctx` types scalar render fields; the walker passes `columns` as objects.
   const cols =
     (c.columns as unknown as
       | { header: string; headerMarkup?: boolean; cellJsx: string }[]
@@ -778,6 +779,7 @@ function primitiveTabs(c: Ctx): string {
   // fixed-height `TabBarView` (a `TabBarView` needs bounded height, and pages
   // wrap the body in a scroll view where `Expanded` has no bound).  The walked
   // per-tab body widget arrives as `tabs[i].bodyJsx`.
+  // `Ctx` types scalar render fields; the walker passes `tabs` as objects.
   const tabs =
     (c.tabs as unknown as
       | {
@@ -893,7 +895,7 @@ export function flutterPack(): LoadedPack {
     // never invoked.
     templates: new Map([
       ["primitive-modal-controlled", { fn: () => "", filePath: "<flutter-procedural>" }],
-    ]) as unknown as LoadedPack["templates"],
+    ]),
     // No `.hbs` templates, so no pack-DECLARED chrome to bind — see the Feliz
     // pack for the same note.
     setChromeI18n() {},

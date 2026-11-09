@@ -1,18 +1,13 @@
 import { foldTenancyFor, foldTenantColumns } from "../../../ir/enrich/fold-tenancy.js";
 import { projectionTableName } from "../../../ir/enrich/storage-names.js";
-import type {
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  FieldIR,
-  ProjectionIR,
-} from "../../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, FieldIR, ProjectionIR } from "../../../ir/types/loom-ir.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { boxedJavaType, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
-import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
+import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
 // ---------------------------------------------------------------------------
 // Persisted projection read-model row (Java / JPA) — the projection.md read
@@ -101,7 +96,7 @@ export function renderProjectionRowEntity(
   // onto its jsonb column (no association needed), and a value-object
   // collection here is refused by `loom.collection-field-unpersisted`, so
   // jpaFieldAnnotations never reads the owner's associations / fields.
-  const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;
+  const owner: JpaFieldOwner = { name: proj.name, fields: [], associations: [] };
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
 
@@ -201,7 +196,7 @@ function renderTenantScopedRowEntity(
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
   const voLookup = valueObjectFieldLookup(ctx);
-  const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;
+  const owner: JpaFieldOwner = { name: proj.name, fields: [], associations: [] };
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
   const { tenant, dataKey } = foldTenantColumns(tenancy);

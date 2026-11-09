@@ -56,9 +56,11 @@ export function aggregateReturnUnions(
   return out;
 }
 
-/** The op's return-union translation spec, or undefined for void ops. */
+/** The op's return-union translation spec, or undefined for void ops.  Reads
+ *  only the declared return type, so an aggregate operation and a domain-service
+ *  operation both qualify. */
 export function returnUnionSpec(
-  op: OperationIR,
+  op: Pick<OperationIR, "returnType">,
   ctx: EnrichedBoundedContextIR,
 ): JavaReturnUnionSpec | undefined {
   if (op.returnType?.kind !== "union") return undefined;

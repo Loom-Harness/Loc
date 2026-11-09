@@ -174,9 +174,9 @@ export class DddTokenBuilder extends DefaultTokenBuilder {
     if (fmt) {
       // Chevrotain custom-pattern token: PATTERN is a matcher fn; START_CHARS_HINT
       // keeps the optimized lexer path (a format only ever begins with `,`).
-      (fmt as unknown as { PATTERN: unknown }).PATTERN = matchTemplateFormat;
-      (fmt as unknown as { START_CHARS_HINT: string[] }).START_CHARS_HINT = [","];
-      (fmt as unknown as { LINE_BREAKS: boolean }).LINE_BREAKS = false;
+      fmt.PATTERN = matchTemplateFormat;
+      fmt.START_CHARS_HINT = [","];
+      fmt.LINE_BREAKS = false;
 
       // Langium auto-adds a `LONGER_ALT` from the `,` keyword to TEMPLATE_FORMAT
       // (the placeholder regex begins with `,`).  As with the `}`→MIDDLE/END

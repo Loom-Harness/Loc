@@ -433,6 +433,8 @@ export function sourceTextOf(parseResult: ParseResult<object>): string | undefin
 /** The `LangiumParser` re-parse seam, resolved lazily so the provider never
  *  holds a service reference the browser bundle would keep alive. */
 export function ruleParserOf(services: LangiumCoreServices): RuleParser {
+  // `RuleParser` names the rule-entry surface `LangiumParser` has at runtime but
+  // does not declare in its public type.
   return services.parser.LangiumParser as unknown as RuleParser;
 }
 

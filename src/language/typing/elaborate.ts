@@ -464,7 +464,7 @@ export class Elaborator {
       isActionDecl(node)
     ) {
       const s = scope.child();
-      this.bindParams(s, (node as { params: { name: string; type: TypeRef }[] }).params);
+      this.bindParams(s, node.params);
       return s;
     }
     if (isOnDecl(node) || isApply(node) || isProjectionOn(node)) {
@@ -517,10 +517,9 @@ export class Elaborator {
 
   private bindParams(
     s: Scope,
-    params: readonly { name: string; type: TypeRef }[] | undefined,
+    params: readonly (AstNode & { name: string; type: TypeRef })[] | undefined,
   ): void {
-    for (const p of params ?? [])
-      s.bind(p.name, this.resolveType(p.type, s), p as unknown as AstNode, "param");
+    for (const p of params ?? []) s.bind(p.name, this.resolveType(p.type, s), p, "param");
   }
 
   // ---- types ------------------------------------------------------------

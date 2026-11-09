@@ -1,10 +1,4 @@
-import type {
-  AssociationIR,
-  EnrichedAggregateIR,
-  EnrichedEntityPartIR,
-  FieldIR,
-  TypeIR,
-} from "../../../ir/types/loom-ir.js";
+import type { AssociationIR, FieldIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
@@ -161,13 +155,18 @@ function unwrap(t: TypeIR): TypeIR {
   return t.kind === "optional" ? t.inner : t;
 }
 
+/** What `jpaFieldAnnotations` reads off the field's owner: its name (for the
+ *  value-collection table and error text), its fields (value collections) and,
+ *  on an aggregate, its reference-collection associations. */
+export interface JpaFieldOwner {
+  name: string;
+  fields: readonly FieldIR[];
+  associations?: readonly AssociationIR[];
+}
+
 /** Annotation lines for one stored field.  `owner` resolves reference
  *  collections (associations) and value collections by field name. */
-export function jpaFieldAnnotations(
-  f: FieldIR,
-  owner: EnrichedAggregateIR | EnrichedEntityPartIR,
-  opts: JpaOpts,
-): string[] {
+export function jpaFieldAnnotations(f: FieldIR, owner: JpaFieldOwner, opts: JpaOpts): string[] {
   const t = unwrap(f.type);
   const col = snake(f.name);
 
@@ -291,10 +290,6 @@ export function jpaFieldAnnotations(
   return [`    @${JPA("Column")}(name = "${hbIdent(col)}")`];
 }
 
-function associationFor(
-  owner: EnrichedAggregateIR | EnrichedEntityPartIR,
-  fieldName: string,
-): AssociationIR | undefined {
-  const withAssocs = owner as Partial<EnrichedAggregateIR>;
-  return withAssocs.associations?.find((a) => a.fieldName === fieldName);
+function associationFor(owner: JpaFieldOwner, fieldName: string): AssociationIR | undefined {
+  return owner.associations?.find((a) => a.fieldName === fieldName);
 }

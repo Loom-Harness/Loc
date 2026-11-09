@@ -1926,9 +1926,7 @@ function emitAggregate(
   };
   // Views + query-time projections sourced from this aggregate both ride
   // synthesized parameterless finds (the mergeViewsAsFinds analog).
-  const viewFinds = [
-    ...queryProjectionFindsFor(agg.name, ctx, contexts),
-  ] as unknown as RepositoryIR["finds"];
+  const viewFinds: RepositoryIR["finds"] = queryProjectionFindsFor(agg.name, ctx, contexts);
   const repoWithViews: RepositoryIR =
     viewFinds.length > 0
       ? repo

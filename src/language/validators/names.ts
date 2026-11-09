@@ -95,11 +95,12 @@ const SKIP_CONTAINERS: ReadonlySet<string> = new Set(["Ui", "TestE2E"]);
  *  where it is the reference under validation — collecting it there would
  *  add the very typo to the universe and mask the report. */
 function collectDeclNames(node: AstNode, into: Set<string>): void {
-  const n = node as unknown as Record<string, unknown>;
-  if (node.$type !== "NameRef" && typeof n.name === "string") into.add(n.name);
-  if (typeof n.var === "string") into.add(n.var); // ForStmt / IfLetStmt
-  if (typeof n.binding === "string") into.add(n.binding); // VariantArm
-  if (typeof n.param === "string") into.add(n.param); // OnDecl / Apply / Lambda
+  if (node.$type !== "NameRef" && "name" in node && typeof node.name === "string") {
+    into.add(node.name);
+  }
+  if ("var" in node && typeof node.var === "string") into.add(node.var); // ForStmt / IfLetStmt
+  if ("binding" in node && typeof node.binding === "string") into.add(node.binding); // VariantArm
+  if ("param" in node && typeof node.param === "string") into.add(node.param); // OnDecl / Apply / Lambda
 }
 
 /** Build the resolvable-name universe: every declaration / binding name in

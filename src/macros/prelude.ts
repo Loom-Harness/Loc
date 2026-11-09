@@ -43,6 +43,7 @@ import { nowExpr } from "./api/ui-factories.js";
 /** Assemble a `Capability` AST node from already-built members, wiring the
  * member `$container` triples (the factories wire each member's own subtree). */
 function capability(name: string, members: CapabilityMember[]): Capability {
+  // A hand-built AST node: the literal lacks the Langium-only container members.
   const cap = { $type: "Capability", name, members } as unknown as Capability;
   members.forEach((m, i) => {
     const mm = m as { $container?: unknown; $containerProperty?: string; $containerIndex?: number };

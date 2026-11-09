@@ -60,7 +60,8 @@ const DEFAULT_DROPPING_SITES: ReadonlySet<string> = new Set([
  *  site that drops defaults. */
 function checkDroppedParamDefaults(node: AstNode, label: string, accept: ValidationAcceptor): void {
   if (!DEFAULT_DROPPING_SITES.has(node.$type)) return;
-  const params = (node as unknown as { params?: readonly Parameter[] }).params ?? [];
+  const params: readonly Parameter[] =
+    "params" in node && Array.isArray(node.params) ? (node.params as Parameter[]) : [];
   for (const p of params) {
     if (!p.default) continue;
     accept("error", diagMessage("loom.param-default-unsupported", { name: p.name, label }), {
@@ -75,7 +76,8 @@ function checkDroppedParamDefaults(node: AstNode, label: string, accept: Validat
  *  flag, a clause is a parsed expression.  Both read the same way — the
  *  property is absent / false when the author did not write it. */
 function carries(node: AstNode, feature: CallableFeature): boolean {
-  const value = (node as unknown as Record<string, unknown>)[CALLABLE_FEATURE_PROPERTY[feature]];
+  const key = CALLABLE_FEATURE_PROPERTY[feature];
+  const value: unknown = key in node ? node[key as keyof typeof node] : undefined;
   return value !== undefined && value !== false && value !== null;
 }
 

@@ -24,6 +24,7 @@
 import {
   type BoundedContext,
   type Expression,
+  isBoundedContext,
   isPolicyDecl,
   type PolicyDecl,
 } from "../../../language/generated/ast.js";
@@ -39,7 +40,7 @@ function isNode(v: unknown): v is Node {
 function enclosingContext(node: unknown): BoundedContext | undefined {
   let cur = node as { $type?: string; $container?: unknown } | undefined;
   while (cur) {
-    if (cur.$type === "BoundedContext") return cur as unknown as BoundedContext;
+    if (isBoundedContext(cur)) return cur;
     cur = cur.$container as typeof cur;
   }
   return undefined;

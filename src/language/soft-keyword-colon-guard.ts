@@ -136,14 +136,9 @@ export function applySoftKeywordColonGuard(tokens: TokenType[]): string[] {
   for (const keyword of GUARDED_SOFT_KEYWORDS) {
     const token = byName.get(keyword);
     if (!token) continue;
-    const mutable = token as unknown as {
-      PATTERN: unknown;
-      START_CHARS_HINT: string[];
-      LINE_BREAKS: boolean;
-    };
-    mutable.PATTERN = guardedPattern(keyword);
-    mutable.START_CHARS_HINT = [keyword[0] as string];
-    mutable.LINE_BREAKS = false;
+    token.PATTERN = guardedPattern(keyword);
+    token.START_CHARS_HINT = [keyword[0] as string];
+    token.LINE_BREAKS = false;
     guarded.push(keyword);
   }
   return guarded;
