@@ -377,7 +377,7 @@ defmodule ${appModule}.RequestContext do
 
   # A shipped tag: the negotiated \`Accept-Language\` match, else the source
   # language — never a literal the app does not ship.
-  defp resolve_locale(conn) do
+  defp resolve_locale(${locale.negotiated ? "conn" : "_conn"}) do
     ${resolveLocale}
   end
 

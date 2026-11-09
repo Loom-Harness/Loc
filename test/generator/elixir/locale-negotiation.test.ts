@@ -249,7 +249,13 @@ describe("Phoenix request locale and error pages", () => {
   });
 
   it("an app that ships no matcher renders its source language and direction", async () => {
-    const html = file(await generateSystemFiles(SYSTEM("Stack { }")), "/controllers/error_html.ex");
+    const files = await generateSystemFiles(SYSTEM("Stack { }"));
+    // The accessor reads no `conn` there, so the argument is underscored (an
+    // unused variable fails `mix compile --warnings-as-errors`).
+    expect(file(files, "/request_context.ex")).toContain(
+      "defp resolve_locale(_conn) do\n    @source_locale",
+    );
+    const html = file(files, "/controllers/error_html.ex");
     expect(html).toContain('defp locale(_assigns), do: {"en", "ltr"}');
     expect(html).not.toContain("Locale.from_accept_language");
   });

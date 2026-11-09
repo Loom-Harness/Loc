@@ -86,7 +86,11 @@ describe("HEEx fallback chrome", () => {
     const live = part(files, "/home_live.ex");
     expect(live).toContain('label={pgettext("chrome.fieldFallback", "Field")}');
     expect(live).not.toContain('label="Field"');
-    expect(part(files, "default.pot")).toContain('msgctxt "chrome.fieldFallback"');
+    const pot = part(files, "default.pot");
+    expect(pot).toContain('msgctxt "chrome.fieldFallback"');
+    // Exact: no table without columns and no unresolvable form on this page.
+    expect(pot).not.toContain("chrome.dataFallback");
+    expect(pot).not.toContain("chrome.submitFallback");
   });
 
   it("keeps the English literal when the app has nothing to translate", async () => {

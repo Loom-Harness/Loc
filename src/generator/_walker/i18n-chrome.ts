@@ -36,6 +36,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
@@ -257,6 +258,54 @@ export function fallbackColumnNames(call: ExprIR & { kind: "call" }): string[] {
     }
   });
   return names;
+}
+
+/** A form call's named arg when it is a bare reference (`of: Order`). */
+function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | undefined {
+  const idx = (call.argNames ?? []).indexOf(argName);
+  const arg = idx >= 0 ? call.args[idx] : undefined;
+  return arg?.kind === "ref" ? arg.name : undefined;
+}
+
+/** The {@link FALLBACK_LABEL_CHROME} names a UI renders, one per site where the
+ *  HEEx emitter has no model text to show: a form with no input to label
+ *  (`fieldFallback`), a form whose `of:` / `runs:` is not a resolvable
+ *  reference (`submitFallback`), a `Table` with no column (`dataFallback`), a
+ *  `KeyValueRow` with no label (`fieldFallback`).  Exact per call, so the
+ *  catalog never carries a message nothing reads. */
+export function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
+  const names = new Set<string>();
+  const aggregates = new Map<string, AggregateIR>();
+  const workflows = new Map<string, WorkflowIR>();
+  for (const bc of contexts) {
+    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const wf of bc.workflows) workflows.set(wf.name, wf);
+  }
+  const visit = (body: ExprIR | undefined) =>
+    walkExprDeep(body, (e) => {
+      if (e.kind !== "call") return;
+      const positionals = e.args.filter((_, i) => !e.argNames?.[i]);
+      if (e.name === "Table" && positionals.length === 0) names.add("dataFallback");
+      else if (e.name === "KeyValueRow" && positionals.length === 0) names.add("fieldFallback");
+      else if (e.name === "CreateForm" || e.name === "WorkflowForm") {
+        const of = refArgName(e, "of");
+        const runs = refArgName(e, "runs");
+        const wf = runs ? workflows.get(runs) : undefined;
+        // An event-triggered workflow has no command surface: no form at all.
+        if (wf && !emitsCommandRoute(wf)) return;
+        const agg = of ? aggregates.get(of) : undefined;
+        const inputs = wf
+          ? wf.params.length
+          : agg
+            ? createInputFields(agg).filter((f) => f.name !== "id").length
+            : 0;
+        if (inputs === 0) names.add("fieldFallback");
+        if (!agg && !wf) names.add("submitFallback");
+      }
+    });
+  for (const page of ui.pages) visit(page.body);
+  for (const component of ui.components) visit(component.body);
+  return [...names].sort();
 }
 
 /** What the model-dependent sentences of a UI's FORMS are enumerated against.
@@ -537,7 +586,11 @@ export function chromeMergedWhenEnabled(
     // The implicit model-text sites (form labels, enum options, submit
     // buttons) — identity-keyed, and like the form chrome above never the
     // reason a UI turns translatable.
-    if (scope?.fallbackLabels) Object.assign(out, FALLBACK_LABEL_CHROME);
+    if (scope?.fallbackLabels) {
+      for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {
+        out[chromeKey(name)] = chromeMessage(name);
+      }
+    }
     if (scope?.implicitModelText) {
       for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
         optionalCreateInputs: scope.optionalCreateInputs === true,
