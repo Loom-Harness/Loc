@@ -295,11 +295,15 @@ if (ENABLED && !(CALLER in CALLERS)) {
 // that is the whole point of the binding.
 const FIXTURE = `
 system Acme {
+  // Both deployables require auth (the dev-stub verifier): a typed call
+  // forwards the caller's credential, and the callee's \`auditable\` stamp
+  // records whose it was.
+  user { id: string }
   subdomain Core {
     // \`scaffoldGet\` + \`scaffoldGetApi\` serve \`GET /api/orders/by_code?code=\`,
     // the callee-side read the write test below verifies through.
     context Orders with scaffoldGet(of: ByCode) {
-      aggregate Order with crudish {
+      aggregate Order with crudish, auditable {
         code: string
         status: string
       }
@@ -343,10 +347,10 @@ system Acme {
   resource shippingState { for: Shipping, kind: state, use: primary }
   resource orders        { for: Shipping, kind: api,   use: OrdersApi }
   deployable ordersSvc {
-    platform: node contexts: [Orders] dataSources: [ordersState] serves: OrdersApi port: 3000
+    platform: node contexts: [Orders] dataSources: [ordersState] serves: OrdersApi port: 3000 auth: required
   }
   deployable shippingSvc {
-    platform: ${CALLER} contexts: [Shipping] dataSources: [shippingState, orders] port: 3001
+    platform: ${CALLER} contexts: [Shipping] dataSources: [shippingState, orders] port: 3001 auth: required
   }
 }
 `;
@@ -629,6 +633,32 @@ describe.skipIf(!ENABLED)(`typed in-system api call (api-call-e2e, caller=${CALL
       rows.some((s) => s.orderCode === code && s.status === "Placed"),
       `caller did not record the created order:\n${JSON.stringify(rows)}`,
     ).toBe(true);
+  }, 120_000);
+
+  it("forwards the caller's credential, so the callee acts as the same principal", async () => {
+    // The caller is told who it is through the dev-stub claims header.  The
+    // callee's \`auditable\` stamp records the principal it authenticated, so
+    // \`createdBy\` is the forwarded id only when the typed client copied the
+    // caller's credential.  A client that sends none gets the dev stub's
+    // default principal instead.
+    const who = `caller-${Date.now()}`;
+    const claims = Buffer.from(JSON.stringify({ id: who })).toString("base64");
+    const code = `AUTH-${Date.now()}`;
+    const ran = await fetch(`http://localhost:${SHIPPING_PORT}/api/workflows/place_order`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-loom-dev-claims": claims },
+      body: JSON.stringify({ code }),
+    });
+    expect(ran.ok, `placeOrder failed:\n${tail("shipping_svc")}`).toBe(true);
+
+    const found = await fetch(
+      `http://localhost:${ORDERS_PORT}/api/orders/by_code?code=${encodeURIComponent(code)}`,
+    );
+    expect(found.status, `callee has no order ${code}:\n${tail("orders_svc")}`).toBe(200);
+    const order = (await found.json()) as { createdBy?: string };
+    expect(order.createdBy, `callee stamped the wrong principal:\n${JSON.stringify(order)}`).toBe(
+      who,
+    );
   }, 120_000);
 
   it("reads the callee's paged envelope through the typed client", async () => {

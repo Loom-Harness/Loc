@@ -144,6 +144,18 @@ export const messages = {
     `system '${p.name}' has ${p.length} aggregates implementing 'tenantRegistry' ` +
     `(${p.registries}); the tenant registry is singular — ` +
     `keep it on exactly one aggregate (the '${p.registryName}' named in 'tenancy by … of').`,
+  "loom.tenancy-registry-remote-unsupported": (p: {
+    name: unknown;
+    context: unknown;
+    registry: unknown;
+    registryContext: unknown;
+  }) =>
+    `deployable '${p.name}' hosts context '${p.context}', which reads the tenant hierarchy ` +
+    `(a 'tenantOwned' aggregate stamps 'dataKey' from 'currentUser.orgPath', or an ` +
+    `'orgPath' / 'rootOrg' / 'organizationContext' read), but the registry '${p.registry}' ` +
+    `lives in context '${p.registryContext}', which '${p.name}' does not host.  Its database ` +
+    `has no registry table, and resolving the path from another deployable is not supported ` +
+    `yet.  Host '${p.context}' and '${p.registryContext}' on one deployable.`,
   "loom.tenancy-registry-not-target": (p: { agg: unknown; registryName: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but the tenancy registry is ` +
     `'${p.registryName}' ('tenancy by … of ${p.registryName}').  The tree ` +

@@ -1,3 +1,4 @@
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import { registryTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
@@ -52,6 +53,7 @@ export function emitAuthFiles(
   ns: string,
   out: Map<string, string>,
   usingDapper = false,
+  hostedContextNames?: readonly string[],
 ): void {
   if (!sys.user) return;
   const orgPathClaim = sys.tenancy?.claimField;
@@ -62,7 +64,14 @@ export function emitAuthFiles(
   // the request principal.  Without it (flat tenancy), the claim-copy
   // computed property stands.  `registry` (undefined ⇒ flat) is the single
   // signal both the User record and the middleware branch on.
-  const registry = orgPathClaim ? hierarchyRegistry(sys) : undefined;
+  // Only a deployable that hosts the registry's context has its table.
+  // `hostedContextNames` is absent in legacy single-project mode, where every
+  // context is hosted.
+  const registry = !orgPathClaim
+    ? undefined
+    : hostedContextNames
+      ? hostedHierarchyRegistry(sys, hostedContextNames)
+      : hierarchyRegistry(sys);
   const orgPathClaimExpr =
     registry && orgPathClaim ? userClaimExpr(sys.user, orgPathClaim) : undefined;
   // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)

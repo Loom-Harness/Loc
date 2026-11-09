@@ -26,6 +26,7 @@
 // defect the compile gates cannot see, which is why the runtime e2e exists.
 // ---------------------------------------------------------------------------
 
+import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
@@ -135,6 +136,11 @@ export function emitDotnetApiClients(
   ns: string,
 ): string | undefined {
   if (bindings.length === 0) return undefined;
+  // A callee that requires auth receives the caller's own credential, read off
+  // the inbound request through `CallerContext` (set once in Program.cs) and
+  // copied onto every call to it.  A deployable whose callees are all open
+  // emits none of this.
+  const forwarding = bindings.some((b) => apiCallPrincipal(b.server) === "forward-caller");
 
   const records: string[] = [];
   const methods: string[] = [];
@@ -232,6 +238,9 @@ export function emitDotnetApiClients(
         methods.push(
           `            using var req = new HttpRequestMessage(new HttpMethod("${op.method.toUpperCase()}"), ${res}BaseUrl + path);`,
         );
+        if (apiCallPrincipal(b.server) === "forward-caller") {
+          methods.push("            ForwardCallerCredential(req);");
+        }
         if (bodyParams.length > 0) {
           const payload = wholeShapeBody
             ? arg(bodyParams[0]?.name ?? "body")
@@ -300,6 +309,7 @@ export function emitDotnetApiClients(
     "{",
     "    private static readonly HttpClient Http = new HttpClient();",
     "",
+    ...(forwarding ? callerCredentialForwarding() : []),
     "    // The callee serializes camelCase; these records are Pascal.  Without",
     "    // BOTH halves of this every field deserializes to its default and the",
     "    // call succeeds carrying nothing.",
@@ -314,4 +324,33 @@ export function emitDotnetApiClients(
     "}",
     "",
   ].join("\n");
+}
+
+/** The caller's credential, copied per call from the inbound request: the
+ *  bearer token the auth middleware accepted (an `Authorization` header, or
+ *  the HttpOnly `session` cookie the OIDC handshake sets) and, under the
+ *  dev-stub verifier, the `x-loom-dev-claims` override.  Headers go on the
+ *  request message, never on the shared client's defaults. */
+function callerCredentialForwarding(): string[] {
+  return [
+    "    /// <summary>The inbound request whose caller credential the calls below forward.",
+    "    /// Set once at startup in Program.cs.</summary>",
+    "    public static Microsoft.AspNetCore.Http.IHttpContextAccessor? CallerContext { get; set; }",
+    "",
+    "    private static void ForwardCallerCredential(HttpRequestMessage req)",
+    "    {",
+    "        var inbound = CallerContext?.HttpContext?.Request;",
+    "        if (inbound is null)",
+    "            return;",
+    '        var authorization = inbound.Headers["Authorization"].ToString();',
+    "        if (!string.IsNullOrEmpty(authorization))",
+    '            req.Headers.TryAddWithoutValidation("Authorization", authorization);',
+    '        else if (inbound.Cookies.TryGetValue("session", out var session) && !string.IsNullOrEmpty(session))',
+    '            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + session);',
+    '        var devClaims = inbound.Headers["x-loom-dev-claims"].ToString();',
+    "        if (!string.IsNullOrEmpty(devClaims))",
+    '            req.Headers.TryAddWithoutValidation("x-loom-dev-claims", devClaims);',
+    "    }",
+    "",
+  ];
 }

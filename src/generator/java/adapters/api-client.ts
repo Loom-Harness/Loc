@@ -26,6 +26,7 @@
 // with a message that points at the record rather than at the callee.
 // ---------------------------------------------------------------------------
 
+import { apiCallPrincipal } from "../../../ir/enrich/hosting-facts.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import {
@@ -119,6 +120,11 @@ export function emitJavaApiClients(
   pkg: string,
 ): string | undefined {
   if (bindings.length === 0) return undefined;
+  // A callee that requires auth receives the caller's own credential, read off
+  // the inbound servlet request (`RequestContextHolder` — the call runs on the
+  // request thread) and copied onto every call to it.  A deployable whose
+  // callees are all open emits none of this.
+  const forwarding = bindings.some((b) => apiCallPrincipal(b.server) === "forward-caller");
 
   const records: string[] = [];
   const methods: string[] = [];
@@ -219,7 +225,9 @@ export function emitJavaApiClients(
           );
         }
         methods.push(
-          `        var req = HttpRequest.newBuilder(URI.create(${res}BaseUrl + path))`,
+          apiCallPrincipal(b.server) === "forward-caller"
+            ? `        var req = withCallerCredential(HttpRequest.newBuilder(URI.create(${res}BaseUrl + path)))`
+            : `        var req = HttpRequest.newBuilder(URI.create(${res}BaseUrl + path))`,
           `            .header("content-type", "application/json")`,
         );
         if (bodyParams.length > 0) {
@@ -329,6 +337,7 @@ export function emitJavaApiClients(
     "        .enable(tools.jackson.core.StreamWriteFeature.WRITE_BIGDECIMAL_AS_PLAIN)",
     "        .build();",
     "",
+    ...(forwarding ? callerCredentialForwarding() : []),
     "    private static String enc(String v) {",
     "        return URLEncoder.encode(v, StandardCharsets.UTF_8);",
     "    }",
@@ -346,4 +355,37 @@ export function emitJavaApiClients(
     "}",
     "",
   ].join("\n");
+}
+
+/** The caller's credential, copied per call from the inbound request: the
+ *  bearer token the auth filter accepted (an `Authorization` header, or the
+ *  HttpOnly `session` cookie the OIDC handshake sets) and, under the dev-stub
+ *  verifier, the `x-loom-dev-claims` override. */
+function callerCredentialForwarding(): string[] {
+  return [
+    "    private static HttpRequest.Builder withCallerCredential(HttpRequest.Builder req) {",
+    "        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();",
+    "        if (!(attrs instanceof org.springframework.web.context.request.ServletRequestAttributes servlet)) {",
+    "            return req;",
+    "        }",
+    "        var inbound = servlet.getRequest();",
+    '        var authorization = inbound.getHeader("Authorization");',
+    "        if (authorization != null && !authorization.isEmpty()) {",
+    '            req.header("Authorization", authorization);',
+    "        } else if (inbound.getCookies() != null) {",
+    "            for (var c : inbound.getCookies()) {",
+    '                if ("session".equals(c.getName()) && c.getValue() != null && !c.getValue().isEmpty()) {',
+    '                    req.header("Authorization", "Bearer " + c.getValue());',
+    "                    break;",
+    "                }",
+    "            }",
+    "        }",
+    '        var devClaims = inbound.getHeader("x-loom-dev-claims");',
+    "        if (devClaims != null && !devClaims.isEmpty()) {",
+    '            req.header("x-loom-dev-claims", devClaims);',
+    "        }",
+    "        return req;",
+    "    }",
+    "",
+  ];
 }

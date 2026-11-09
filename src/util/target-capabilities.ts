@@ -555,13 +555,16 @@ const COMMON_PAIRS: Pick<
 > = {
   // No fixture runs an event-sourced save through a durable channel.
   "publish:event-sourced@broker-channel": refused("feature-composition-unwitnessed"),
-  // Every resolver selects the registry's table on a database that holds none
-  // (java emits no resolver and reads the claim as the path).
-  "tenancy:remote-registry@deployable": refused("feature-composition-broken"),
-  // No typed api client sends an `Authorization` header.
-  "call:auth-required-api@resource": refused("feature-composition-broken"),
-  // No fixture runs a timer tick across a broker.
-  "timer:broker-channel@deployable": refused("feature-composition-unwitnessed"),
+  // Phase ⑦ refuses a deployable that reads the hierarchy without hosting the
+  // registry: its database holds no registry table to resolve the path from.
+  "tenancy:remote-registry@deployable": owned("loom.tenancy-registry-remote-unsupported"),
+  // A request-originated call forwards the caller's own credential
+  // (`api-call-e2e` runs it on every caller); a call with no request principal
+  // is refused by `loom.api-call-principal-unsupported`.
+  "call:auth-required-api@resource": SUPPORTED,
+  // The scheduler publishes a broker-carried tick through the channel tee;
+  // `channels-e2e` runs one to a consumer on another deployable.
+  "timer:broker-channel@deployable": SUPPORTED,
   // No fixture runs a widened read stance over a tenant-owned TPH base.
   "read:wide-stance@tph-subtype": refused("feature-composition-unwitnessed"),
   // A derived that reads a masked field inherits the mask, and a criterion
@@ -597,8 +600,6 @@ const NODE_BACKEND: TargetCapabilityTable = {
     ...STATIC_HOST_BACKEND_ROWS,
     // The save inserts the events and then dispatches outside the transaction.
     "publish:event-sourced@broker-channel": refused("feature-composition-broken"),
-    // The scheduler dispatches in-process instead of through the channel tee.
-    "timer:broker-channel@deployable": refused("feature-composition-broken"),
   },
   compositions: COMMON_COMPOSITIONS,
 };

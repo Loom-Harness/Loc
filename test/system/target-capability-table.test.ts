@@ -482,7 +482,7 @@ system S {
   resource saleState { for: Sales, kind: state, use: pg }
   resource orgs { for: Sales, kind: api, use: NetApi }
   deployable netSvc { platform: ${platform} contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
-  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi port: 3001 }
+  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi port: 3001 auth: required }
 }
 `,
   "timer:broker-channel@deployable": (platform) => `
