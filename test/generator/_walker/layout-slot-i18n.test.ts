@@ -50,4 +50,33 @@ describe("layout slot text", () => {
     );
     expect(app).toMatch(/import \{ tRich \} from "\.\/i18n"/);
   });
+
+  // The Vue / Svelte layout emitters key their slot text with `layoutKeyPrefix`
+  // while the extraction pass catalogues it — two derivations of one key.  Every
+  // layout key a framework's layout file looks up must be a catalog key, and the
+  // layout's two strings must both be looked up.
+  const LAYOUT_FILE: Record<string, string> = {
+    vue: "web/src/layouts/Marketing.vue",
+    svelte: "web/src/routes/(marketing)/+layout.svelte",
+  };
+  for (const platform of ["vue", "svelte"] as const) {
+    it(`${platform} looks the slot text up under the catalogued keys`, async () => {
+      const files = await generateSystemFiles(
+        system("Stack { }").replace("platform: static", `platform: ${platform}`),
+      );
+      const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+        string,
+        string
+      >;
+      const layout = files.get(LAYOUT_FILE[platform]!) ?? "";
+      expect(layout, `${LAYOUT_FILE[platform]} not generated`).not.toBe("");
+      const heading = messageKey("Web.layout.Marketing", "heading", "Acme");
+      const rich = messageKey("Web.layout.Marketing", "text", "Read the <b>terms</b> first");
+      expect(layout).toContain(`t("${heading}", "Acme")`);
+      expect(layout).toContain(`tRich("${rich}", "Read the <b>terms</b> first")`);
+      const looked = [...layout.matchAll(/\bt(?:Rich)?\("(Web\.layout\.[^"]+)"/g)].map((m) => m[1]);
+      expect(looked.length).toBeGreaterThanOrEqual(2);
+      for (const key of looked) expect(catalog, key).toHaveProperty([key!]);
+    });
+  }
 });
