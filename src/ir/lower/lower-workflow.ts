@@ -188,11 +188,11 @@ export function lowerWorkflow(
     savesAtExit: primary?.savesAtExit ?? [],
     creates,
     eventSourced: !!wf.eventSourced,
-    ...(subscriptions.length > 0 ? { subscriptions } : {}),
-    ...(stateFields.length > 0 ? { stateFields } : {}),
+    subscriptions,
+    stateFields,
     ...(correlationField ? { correlationField } : {}),
-    ...(appliers.length > 0 ? { appliers } : {}),
-    ...(functions.length > 0 ? { functions } : {}),
+    appliers,
+    functions,
     // The instance-read gate lowers in the BARE context env, not `paramEnv` —
     // the same stance the projection gate takes.  `paramEnv` binds `this` to
     // the workflow instance, and the gate runs BEFORE any instance is loaded,
@@ -276,7 +276,7 @@ function lowerWorkflowCreate(
     ...(eventRef ? { eventRef } : {}),
     ...(declared ? { returnType: declared } : {}),
     ...(returnValue ? { returnValue } : {}),
-    ...(returnTags ? { returnTags } : {}),
+    returnTags: returnTags ?? [],
   };
 }
 
@@ -342,6 +342,7 @@ export function lowerCommandHandler(
       ...(h.returnType ? { returnType: lowerType(h.returnType, env) } : {}),
       statements: [],
       savesAtExit: [],
+      returnTags: [],
     };
   }
   // A handler `return <expr>` is captured separately as `returnValue`, NOT as a
@@ -363,7 +364,7 @@ export function lowerCommandHandler(
     statements,
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
-    ...(returnTags ? { returnTags } : {}),
+    returnTags: returnTags ?? [],
   };
 }
 
@@ -393,6 +394,7 @@ export function lowerQueryHandler(
       returnType: lowerType(h.returnType, env),
       statements: [],
       savesAtExit: [],
+      returnTags: [],
     };
   }
   const declared = lowerType(h.returnType, env);
@@ -410,7 +412,7 @@ export function lowerQueryHandler(
     statements,
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
-    ...(returnTags ? { returnTags } : {}),
+    returnTags: returnTags ?? [],
   };
 }
 

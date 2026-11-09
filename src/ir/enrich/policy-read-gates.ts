@@ -110,10 +110,10 @@ function withReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
 /** Put the aggregate's `policy { read X requires … }` gate ahead of every
  *  hand-written handler whose body reads X. */
 export function applyHandlerReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
-  handlers: H[] | undefined,
+  handlers: H[],
   gates: PolicyReadGateIR[] | undefined,
-): H[] | undefined {
-  if (!handlers || !gates || gates.length === 0) return handlers;
+): H[] {
+  if (!gates || gates.length === 0) return handlers;
   const byAggregate = new Map<string, PolicyReadGateIR>();
   for (const g of gates) if (!byAggregate.has(g.aggregate)) byAggregate.set(g.aggregate, g);
   return handlers.map((h) => withReadGates(h, byAggregate));

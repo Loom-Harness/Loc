@@ -48,15 +48,15 @@ export interface UiIR {
   apiParams: UiApiParamIR[];
   /** Channel subscriptions (`channel Orders: Sales.Lifecycle`) — each
    *  binds a local handle to a context's broadcast channel (channels.md
-   *  Part I, ui surface).  Omitted when the ui declares none. */
-  channelParams?: UiChannelParamIR[];
+   *  Part I, ui surface).  Empty when the ui declares none. */
+  channelParams: UiChannelParamIR[];
   /** Live-event handlers (`on Orders.OrderShipped(e) { toast(…) }`).
-   *  Omitted when the ui declares none. */
-  notifications?: UiNotificationIR[];
+   *  Empty when the ui declares none. */
+  notifications: UiNotificationIR[];
   /** Extern frontend functions (`function f(…): T extern from "…"`) —
    *  the logic escape hatch (extern-function-hook-escape-hatch.md §3).
-   *  Omitted when the ui declares none. */
-  functions?: UiFunctionIR[];
+   *  Empty when the ui declares none. */
+  functions: UiFunctionIR[];
 }
 
 /** `function <name>(params): T extern from "<path>"` — a typed pure
@@ -111,8 +111,8 @@ export interface UiNotificationIR {
   /** One toast message expression per `toast(<expr>)` handler statement. */
   toasts: ExprIR[];
   /** One entry per aggregate named across the handler's `refetch(…)`
-   *  statements.  Omitted when the handler declares no refetch. */
-  refetches?: RefetchTargetIR[];
+   *  statements.  Empty when the handler declares no refetch. */
+  refetches: RefetchTargetIR[];
 }
 
 /** API declaration — first-class contract derived from a module's
@@ -228,9 +228,9 @@ export interface PageIR extends Sourced {
   emitPath?: string;
   /** Containing-area path (outermost → innermost), when the page is
    *  declared inside one or more `area { … }` blocks.  Drives `emitPath`
-   *  (`src/pages/<area-path>/<page>.tsx`); empty/absent for a top-level
+   *  (`src/pages/<area-path>/<page>.tsx`); empty for a top-level
    *  page.  Each segment is the snake-cased area name. */
-  area?: string[];
+  area: string[];
   /** Optional layout selector.  When undefined, the page receives
    *  the deployable's default app-shell chrome.  See `PageLayoutIR`
    *  for the preset value set; undefined is intentionally distinct

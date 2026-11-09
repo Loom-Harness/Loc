@@ -294,7 +294,7 @@ export function lowerUi(
         eventType: eventName,
         bind: m.bind,
         toasts,
-        ...(refetches.length > 0 ? { refetches } : {}),
+        refetches,
       });
     } else if (m.$type === "UiFunction") {
       const env: Env = { locals: new Map(), user: undefined, ui: true };
@@ -318,9 +318,9 @@ export function lowerUi(
     stores,
     menu,
     apiParams,
-    ...(channelParams.length > 0 ? { channelParams } : {}),
-    ...(notifications.length > 0 ? { notifications } : {}),
-    ...(functions.length > 0 ? { functions } : {}),
+    channelParams,
+    notifications,
+    functions,
   };
 }
 
@@ -438,6 +438,8 @@ function lowerPage(
     route,
     title,
     requires,
+    // Set to the nesting path by the enclosing `area { … }` walk.
+    area: [],
     state,
     derived,
     actions,

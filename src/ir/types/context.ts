@@ -347,10 +347,10 @@ export interface BoundedContextIR extends Sourced {
   /** Top-level `commandHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3).  Present when the context declares
    *  any; they ride alongside the IR, unread by any backend. */
-  commandHandlers?: CommandHandlerIR[];
+  commandHandlers: CommandHandlerIR[];
   /** Top-level `queryHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3). */
-  queryHandlers?: QueryHandlerIR[];
+  queryHandlers: QueryHandlerIR[];
   /** Named predicate specifications declared in this context. */
   criteria: CriterionIR[];
   /** Stateless pure-calculator domain services declared in this context

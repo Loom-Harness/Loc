@@ -38,10 +38,10 @@ export interface PermissionDeclIR {
   /** Runtime strings of the permissions that transitively IMPLY this one
    *  (`X implies Y` ⇒ `impliedBy(Y)` includes `X`).  A `contains(this)`
    *  authorization check is expanded to also accept any of these, so holding
-   *  a broader permission satisfies a narrower gate.  Absent / empty when
+   *  a broader permission satisfies a narrower gate.  Empty when
    *  nothing implies it.  See `src/ir/util/permission-closure.ts`
    *  (authorization.md §6). */
-  impliedBy?: string[];
+  impliedBy: string[];
 }
 
 /** D-STORAGE-SPLIT: a per-(context, kind) binding from a domain

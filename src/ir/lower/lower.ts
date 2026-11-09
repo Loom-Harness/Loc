@@ -682,6 +682,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           permissions.push({
             name: d.name,
             runtimeString: `${m.name.toLowerCase()}.${d.name}`,
+            impliedBy: [],
           });
           permEdges.push({ name: d.name, implies: d.implies ?? [] });
         }
@@ -697,7 +698,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         const impliedBy = impliedByNames
           .map((n) => runtimeOf.get(n))
           .filter((s): s is string => s !== undefined);
-        if (impliedBy.length > 0) p.impliedBy = impliedBy;
+        p.impliedBy = impliedBy;
       }
       subdomains.push({
         name: m.name,
@@ -1480,8 +1481,8 @@ function lowerContext(
     aggregates,
     repositories,
     workflows,
-    ...(commandHandlers.length > 0 ? { commandHandlers } : {}),
-    ...(queryHandlers.length > 0 ? { queryHandlers } : {}),
+    commandHandlers,
+    queryHandlers,
     criteria,
     domainServices,
     channels,

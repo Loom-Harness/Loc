@@ -455,10 +455,10 @@ const anyMasked = (ctx: MaskScopeInput): boolean =>
  *  reads an aggregate through a predicate on a masked field — the handler
  *  twin of `applyMaskFindGates`. */
 export function applyMaskHandlerGates<H extends QueryHandlerIR | CommandHandlerIR>(
-  handlers: H[] | undefined,
+  handlers: H[],
   ctx: MaskScopeInput,
-): H[] | undefined {
-  if (!handlers || !anyMasked(ctx)) return handlers;
+): H[] {
+  if (!anyMasked(ctx)) return handlers;
   const scope = readScope(ctx);
   return handlers.map((h) => {
     if (h.extern) return h;
