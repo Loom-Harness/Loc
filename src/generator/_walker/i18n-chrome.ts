@@ -205,7 +205,7 @@ export function sentenceChromeName(base: string, subject: string): string {
  *  an empty form's single input label, a column-less table's only header.
  *  Merged when the scope says the target renders them
  *  ({@link FormSentenceScope.fallbackLabels}). */
-export const FALLBACK_LABEL_CHROME: Record<string, string> = {
+const FALLBACK_LABEL_CHROME: Record<string, string> = {
   [chromeKey("fieldFallback")]: "Field",
   [chromeKey("dataFallback")]: "Data",
   [chromeKey("submitFallback")]: "Submit",
@@ -282,7 +282,7 @@ function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | 
  *  reference (`submitFallback`), a `Table` with no column (`dataFallback`), a
  *  `KeyValueRow` with no label (`fieldFallback`).  Exact per call, so the
  *  catalog never carries a message nothing reads. */
-export function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
+function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
   const names = new Set<string>();
   const aggregates = new Map<string, AggregateIR>();
   const workflows = new Map<string, WorkflowIR>();

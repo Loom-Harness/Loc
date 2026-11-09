@@ -158,7 +158,7 @@ export function icuFromConcat(expr: ExprIR | undefined): IcuMessage | undefined 
 
 /** The inline-emphasis primitives a rich `Text` may carry, and the tag each
  *  becomes in the message. */
-export const RICH_TEXT_TAGS: Readonly<Record<string, "b" | "i" | "code">> = {
+const RICH_TEXT_TAGS: Readonly<Record<string, "b" | "i" | "code">> = {
   Bold: "b",
   Italic: "i",
   InlineCode: "code",

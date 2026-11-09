@@ -205,7 +205,7 @@ function collectExpr(e: ExprIR, prefix: string, out: MessageEntry[], folded: Set
 }
 
 /** The named layouts, among `layouts`, that a page of `ui` selects. */
-export function layoutsSelectedBy(ui: UiIR, layouts: readonly LayoutIR[]): LayoutIR[] {
+function layoutsSelectedBy(ui: UiIR, layouts: readonly LayoutIR[]): LayoutIR[] {
   const selected = new Set<string>();
   for (const page of ui.pages) {
     if (page.layout?.kind === "named") selected.add(page.layout.ref);
