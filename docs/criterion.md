@@ -12,7 +12,7 @@ guards.
 > [`docs/old/proposals/criterion.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion.md): the
 > `criterion` declaration, body validation, and **inline use** in every
 > existing boolean-expression position. A criterion referenced by a
-> [`retrieval`](#reification-retrieval-and-find-criteria)'s or a `find`'s
+> [`retrieval`](#reification-retrieval-criteria)'s or a `find`'s
 > `where` additionally **reifies** — it emits a named, constructed
 > predicate object on every backend rather than dissolving at compile time
 > (see "Reification" below). `when <predicate>` operation guards with their

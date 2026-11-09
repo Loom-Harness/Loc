@@ -1127,7 +1127,7 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
 The DSL `test e2e "..." against <react-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
-see [`language.md`](language.md#ui-e2e-tests-against-a-react-deployable).
+see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).
 
 Page-object classes are derived directly from the IR.  Per aggregate:
 
