@@ -10,6 +10,10 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
 import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
@@ -1586,9 +1590,15 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        return MAPPER.readTree(resp.body());`,
     `    }`,
     ``,
+    `    // Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack serves`,
+    `    // plain http), so the tokens never ride cleartext in a TLS deployment.`,
+    `    private static final boolean SECURE_TRANSPORT = !java.util.Set.of(${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}).contains(`,
+    `        System.getenv().getOrDefault(${JSON.stringify(SECURE_TRANSPORT_ENV)}, "").trim().toLowerCase(java.util.Locale.ROOT));`,
+    ``,
     `    private static Cookie stateCookie(String name, String value) {`,
     `        Cookie c = new Cookie(name, value);`,
     `        c.setHttpOnly(true);`,
+    `        c.setSecure(SECURE_TRANSPORT);`,
     `        c.setPath("/");`,
     `        c.setAttribute("SameSite", "Lax");`,
     `        return c;`,

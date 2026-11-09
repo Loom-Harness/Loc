@@ -30,6 +30,10 @@ import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
 import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
+import {
+  DOCKERFILE_PY as PYTHON_DOCKERFILE,
+  renderPyFullstackDockerfile,
+} from "../../src/generator/python/index.js";
 import { DOCKERFILE_TS as HONO_DOCKERFILE } from "../../src/platform/hono/shared/emit.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -243,6 +247,9 @@ function allDockerfiles(): Array<{ name: string; text: string }> {
       name: "java+spa(feliz)",
       text: renderJavaDockerfile({ embeddedSpa: true, spaBuildKind: "feliz" }),
     },
+    { name: "python", text: PYTHON_DOCKERFILE },
+    { name: "python+spa(vite)", text: renderPyFullstackDockerfile("dist") },
+    { name: "python+spa(feliz)", text: renderPyFullstackDockerfile("dist", "feliz") },
     // The standalone FRONTEND hosts are `.hbs` templates rather than TS
     // renderers, and they are the ones finding G7b was actually reported
     // against — so they have to be in the same list, not trusted to a
@@ -361,6 +368,63 @@ describe("G10 — every node build stage trusts ./certs before its first install
         `${name}: stage "${stage[0]}" copies certs/ AFTER its first network call`,
       ).toBeLessThan(fetchIdx);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every BACKEND image runs its process unprivileged.
+//
+// String-tier on purpose: which uid a container runs as is wiring no fast or
+// behavioural tier boots (the behavioural legs run the generated backends on
+// the host, not in their image), so the emitted Dockerfile is the one place
+// the fast suite can observe it.  The compose boot is what proves the image
+// still starts and writes its data/ dir under that user.
+//
+// Two facts per runtime (last) stage: its final USER is neither root nor uid 0
+// and comes before the entrypoint, and the process can still write where it
+// writes — data/ (the local object-store default) is created and handed to a
+// non-root owner, or the whole /app is.  The frontend hosts are not backends
+// and are out of this sweep.
+// ---------------------------------------------------------------------------
+describe("every backend runtime stage drops root", () => {
+  const FRONTEND_HOSTS = new Set(["react/vite host", "sveltekit host", "angular host"]);
+  const backends = allDockerfiles().filter(({ name }) => !FRONTEND_HOSTS.has(name));
+
+  it.each(backends)("$name", ({ name, text }) => {
+    // Logical instructions: a `\` continuation belongs to the RUN it continues.
+    const logical: string[] = [];
+    let pending = "";
+    for (const raw of instructions(text)) {
+      const joined = pending + raw.trim();
+      if (joined.endsWith("\\")) pending = `${joined.slice(0, -1).trimEnd()} `;
+      else {
+        logical.push(joined);
+        pending = "";
+      }
+    }
+    const stages: string[][] = [];
+    for (const line of logical) {
+      if (/^FROM /.test(line)) stages.push([]);
+      if (stages.length > 0) stages[stages.length - 1]!.push(line.trim());
+    }
+    const runtime = stages[stages.length - 1] ?? [];
+    const userIdx = runtime.map((l) => /^USER\s/.test(l)).lastIndexOf(true);
+    expect(userIdx, `${name}: runtime stage "${runtime[0]}" has no USER`).toBeGreaterThanOrEqual(0);
+    const user = runtime[userIdx]!.replace(/^USER\s+/, "")
+      .split(":")[0]!
+      .trim();
+    expect(["root", "0"], `${name}: USER ${user}`).not.toContain(user);
+    const entryIdx = runtime.findIndex((l) => /^(CMD|ENTRYPOINT)\s/.test(l));
+    expect(entryIdx, `${name}: USER after the entrypoint`).toBeGreaterThan(userIdx);
+    const writable = runtime
+      .slice(0, userIdx)
+      .some((l) => /^RUN .*chown\s+\S+\s+\/app(\/data)?(\s|$)/.test(l));
+    expect(writable, `${name}: nothing hands /app or /app/data to the runtime user`).toBe(true);
+  });
+
+  it("covers every backend family (non-vacuity)", () => {
+    const families = new Set(backends.map(({ name }) => name.split(/[+/]/)[0]));
+    expect([...families].sort()).toEqual(["dotnet", "elixir", "java", "node", "python"]);
   });
 });
 

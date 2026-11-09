@@ -49,6 +49,7 @@ import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { DEV_AUTH_ENV } from "../util/dev-claims.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
@@ -1665,6 +1666,10 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // they get no allowlist; a system with no frontend leaves it unset (the
   // backend then applies its own auth-aware fallback).
   if (!platform.isFrontend) {
+    // This stack serves plain http on localhost, so the backend neither sends
+    // Strict-Transport-Security nor marks its OIDC cookies Secure.  Every other
+    // deployment (the k8s chart, a bare `docker run`) keeps the TLS default.
+    lines.push(`    ${SECURE_TRANSPORT_ENV}: "false"`);
     const origins = frontendOrigins(sys);
     if (origins.length > 0) {
       lines.push(`    CORS_ORIGIN: ${JSON.stringify(origins.join(","))}`);

@@ -1857,6 +1857,15 @@ The handshake is hardened by default (no knobs):
   `POST /api/auth/refresh` rotates it (the cookie is overwritten with the new
   token the IdP hands back — single-use). All access/refresh tokens ride
   HttpOnly cookies; the SPA never sees the raw tokens.
+- **`Secure` cookies, gated on the deploy flag** — the session, refresh and
+  PKCE cookies carry `Secure` (and `SameSite=Lax`, so the IdP's redirect back
+  to `/callback` still carries them) unless `LOOM_SECURE_TRANSPORT` is
+  `false` / `0` / `off` / `no`. Unset means on: a deployment is assumed to be
+  reached over TLS, directly or through a TLS-terminating proxy. The generated
+  `docker-compose.yml` serves plain http on localhost and sets it `false`; the
+  k8s chart keeps the default. The same flag gates the
+  `Strict-Transport-Security` header (see
+  [Security headers](tools.md#security-response-headers)).
 
 Emitted identically across all five backends (Hono, .NET, Java/Spring,
 Python/FastAPI, Phoenix).

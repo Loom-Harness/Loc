@@ -15,6 +15,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
@@ -663,8 +664,14 @@ public static class AuthHandshake
             new HttpDocumentRetriever { RequireHttps = Issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase) });
     private static readonly HttpClient Http = new();
 
+    // Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack
+    // serves plain http), so the tokens never ride cleartext in a TLS deployment.
+    private static readonly bool SecureTransport =
+        (Environment.GetEnvironmentVariable("${SECURE_TRANSPORT_ENV}") ?? "").Trim().ToLowerInvariant()
+            is not (${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(" or ")});
+
     private static CookieOptions SessionCookie() =>
-        new() { HttpOnly = true, SameSite = SameSiteMode.Lax, Path = "/" };
+        new() { HttpOnly = true, Secure = SecureTransport, SameSite = SameSiteMode.Lax, Path = "/" };
 
     /// <summary>Base64url with no padding — the encoding PKCE (RFC 7636)
     /// mandates for the verifier and the challenge.</summary>
