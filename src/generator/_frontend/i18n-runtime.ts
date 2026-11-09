@@ -19,9 +19,9 @@
 // provider, no design-pack template change. The formatting half is
 // `intl-messageformat` (the standalone ICU engine react-intl itself
 // builds on) so a `, number` / `, date` format suffix (M-T1.11) locale-formats
-// at runtime. The `t(key, default, values?)` call sites the walker emits are
-// unchanged. (Plural/select — brace-bodied ICU — are a later slice; the same
-// engine already supports them, only the grammar/extractor gate them out.)
+// at runtime, and a brace-bodied `{n, plural, …}` / `select` / `selectordinal`
+// hole selects its branch by the active locale's CLDR rules. The
+// `t(key, default, values?)` call sites the walker emits are unchanged.
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";

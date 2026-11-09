@@ -920,6 +920,19 @@ system IcuDrop {
     }
   } }
 }`,
+  // A plural with no `other` branch: no ICU runtime can render it.
+  "loom.interp-format-invalid": `
+system IcuInvalid {
+  subdomain S { context Sales {
+    aggregate Order with crudish { qty: int }
+    repository Orders for Order { }
+  } }
+  ui Web {
+    page Home(count: int) { route: "/:count"
+      body: Text { \`You have {count, plural, one {# order}}\` }
+    }
+  }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
