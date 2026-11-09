@@ -53,7 +53,7 @@ public sealed class ProductRepository : IProductRepository
         }
         if (entry.State != EntityState.Added && entry.State != EntityState.Detached)
         {
-            var __version = entry.Property(x => x.Version);
+            var __version = entry.Property(x => x.RowVersion);
             var __expected = expectedVersion;
             if (__expected.HasValue) __version.OriginalValue = __expected.Value;
             __version.CurrentValue = __version.OriginalValue + 1;

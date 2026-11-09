@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CORPUS_DEPLOYABLE, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
+import { generateBackendProject } from "./support/backend-project.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +41,7 @@ describe.skipIf(!ENABLED)(
       // JSON round-trip through `_create` (toDoc / fromDoc).
       "examples/document.ddd",
       // First-boot seeding (database-seeding.md): compiles db/seed.ts + the
-      // index.ts runSeeds wiring + the db:seed package.json script.
+      // boot.ts runSeeds wiring + the db:seed package.json script.
       "examples/seeding.ddd",
       // Value-object array (`Money[]`): the id-less child table + the repo
       // load/save round-trip (bulk-load → `new Money(...)`, delete + re-insert
@@ -84,13 +85,10 @@ describe.skipIf(!ENABLED)(
       // literal against a branded/`Date` signature ran green everywhere and
       // failed only in the user's own `npm run typecheck`.
       "test/e2e/fixtures/ts-build/typed-test-literals.ddd",
-    ])("%s — `ddd generate ts` output type-checks + tsup-bundles", (example) => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-"));
+    ])("%s — the node deployable type-checks + tsup-bundles", (example) => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-"));
       try {
-        execSync(`node ${cli} generate ts ${example} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        const outDir = generateBackendProject(repoRoot, example, "node", tmpDir);
         installGeneratedProject(outDir, { timeout: 180_000 });
         // Type-check (tsup is build-only with `dts: false`).
         execSync(`npx tsc --noEmit`, {
@@ -108,7 +106,7 @@ describe.skipIf(!ENABLED)(
         expect(fs.existsSync(path.join(outDir, "dist", "index.js"))).toBe(true);
       } finally {
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* ignore */
         }
@@ -116,8 +114,8 @@ describe.skipIf(!ENABLED)(
     }, 300_000);
 
     // D-REALIZATION-AXES Phase 5b: `directoryLayout: byFeature` is a SYSTEM-MODE
-    // selection (it lives on a deployable), so `generate ts` above never sees it.
-    // This case generates the SYSTEM and type-checks the node deployable's
+    // selection (it lives on a deployable), so the default-layout cells above never
+    // see it.  This case generates the SYSTEM and type-checks the node deployable's
     // project, proving the byFeature relocation + relative-import rewrite produce
     // a COMPILING project — the gap that let the first byFeature attempt ship
     // broken.
@@ -251,7 +249,7 @@ describe.skipIf(!ENABLED)(
     // OIDC turnkey auth (D-AUTH-OIDC, Phase 1): a system with an
     // `auth { oidc { … } }` block emits the generated jose-backed verifier
     // (auth/oidc.ts) + the /auth/* handshake (auth/handshake.ts) + the
-    // index.ts registerOidcVerifier wiring + the `jose` dep.  Generated via
+    // boot.ts registerOidcVerifier wiring + the `jose` dep.  Generated via
     // `generate system` (auth files are system-mode only) and type-checked
     // against the real `jose` types — the gate that proves the emitted
     // verifier + handshake compile (content tests can't see a type error).
@@ -478,6 +476,32 @@ describe.skipIf(!ENABLED)(
         );
         const proj = path.join(outDir, "api");
         expect(fs.existsSync(path.join(proj, "auth", "middleware.ts"))).toBe(true);
+        installGeneratedProject(proj, { timeout: 180_000 });
+        execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 300_000);
+
+    // A `tenantOwned` event-sourced aggregate (`stream-tenancy.ts`): the event
+    // log's tenant metadata columns, the `<agg>StreamScope` helpers (flat floor
+    // and `allow deep` subtree), the stamped append and the stream-origin
+    // dispatch all have to type-check against the drizzle schema.
+    it("system tenantOwned event-sourced stream — generated project type-checks", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-es-tenant-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/ts-build/es-tenant-owned.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "api");
+        expect(fs.readFileSync(path.join(proj, "db", "read-scopes.ts"), "utf8")).toContain(
+          "ledgerStreamScope",
+        );
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {

@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { Menu } from "lucide-vue-next";
 import { Alert, AlertDescription, AlertTitle, Button } from "@/components/ui";
 {{#if i18nEnabled}}import { t } from "{{i18nImportPath}}";
+{{/if}}{{#if localeSwitchable}}import LocaleSwitcher from "@/components/LocaleSwitcher.vue";
 {{/if}}{{#if navUsesSession}}import { useSession } from "@/auth/useSession";
 {{/if}}{{#if authUi}}import { signOut } from "@/auth/session";
 {{/if}}{{#if hasRealtimeHandlers}}import RealtimeHandlers from "@/components/RealtimeHandlers.vue";
@@ -17,6 +18,7 @@ const currentUser = (useSession().user.value ?? {}) as Record<string, any>;
 // burger opens it; auto-closes after a route change so tapping a nav
 // link doesn't leave the menu covering the destination page.
 const opened = ref(false);
+
 // App-level error capture — a render-time crash in any page lands
 // here instead of blanking the whole shell.  Reset navigates home,
 // matching "the dashboard keeps working when one page is broken".
@@ -54,7 +56,8 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
         <div class="h-7 w-7 rounded-md bg-primary" aria-hidden="true"></div>
         <span class="text-lg font-semibold tracking-tight">{{systemNameHuman}}</span>
       </router-link>
-{{#if authUi}}      <Button variant="outline" size="sm" class="ml-auto" data-testid="sign-out" @click="signOut">{{{chrome "signOut"}}}</Button>
+{{#if localeSwitchable}}      <LocaleSwitcher class="ml-auto h-8 rounded-md border bg-background px-2 text-sm" />
+{{/if}}{{#if authUi}}      <Button variant="outline" size="sm"{{#unless localeSwitchable}} class="ml-auto"{{/unless}} data-testid="sign-out" @click="signOut">{{{chrome "signOut"}}}</Button>
 {{/if}}    </header>
     <div class="flex flex-1">
       <nav data-testid="nav-sidebar" {{{primaryNavAria}}} :class="['w-60 shrink-0 border-r bg-background p-4 sm:block', opened ? 'block' : 'hidden']">

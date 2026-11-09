@@ -1,5 +1,5 @@
 // The frontend-body throw sites of the fail-closed register, one case each
-// (the four Feliz find-read sites share one), from its repros
+// from its repros
 // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T9.77-fail-closed-register.md).  Each `.ddd`
 // reported `0 error(s)` and then crashed `ddd generate system`; now each is
 // refused by a `loom.*` code at `ddd parse`, or (toast) generates.  The
@@ -63,9 +63,6 @@ system Demo {
 }`;
 }
 
-const QV = (of: string, data = 'rows => Text { "x" }') =>
-  `QueryView { of: ${of}, loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: ${data} }`;
-
 const NESTED =
   'match await C.Order.reserve() { Order o => { match await C.Order.reserve() { Order p => { draftName := p.customerId } else => { draftName := "b" } } } else => { draftName := "u" } }';
 
@@ -108,23 +105,6 @@ const CASES: readonly { site: string; src: string; code: string }[] = [
     site: "feliz/update-emit.ts#renderUpdateStmt$2",
     src: awaitPage("feliz", NESTED),
     code: "loom.ui-body-feature-unsupported",
-  },
-  // The four Feliz find-read sites (`wire.ts#findParamQueryValue`,
-  // `#felizFindRead`, `#felizFindRead$2`, `#walk`) were reached through a
-  // declared `find`.  The only finds a page can read now are synthesized paged
-  // `findAllBy<Criterion>` ones, which Feliz cannot reach (no derived route),
-  // so every such read is refused before any of the four: one repro stands for
-  // them.
-  {
-    site: "feliz/wire.ts#felizFindRead",
-    src: onePage("feliz", `body: ${QV("Thing.findAllByNamed(s)")}`)
-      .replace("context Sales {", "context Sales with scaffoldPaged(of: Named) {")
-      .replace(
-        "repository Things for Thing {  }",
-        "repository Things for Thing\n    criterion Named(name: string) of Thing = this.name == name",
-      )
-      .replace("api SApi from M", "api SApi with scaffoldPagedApi(of: Named) from M"),
-    code: "loom.ui-read-unresolved",
   },
   {
     site: "flutter/riverpod-emit.ts#renderNotifierStmt",

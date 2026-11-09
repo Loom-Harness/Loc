@@ -128,7 +128,7 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
     // \"hi\"".  int / bool / decimal / an entity DTO already fall through to the
     // JSON formatter, which is why only this arm changes.
     const ctrl = await fileEndingWith(CLEAN_SRC("dotnet"), "Api/ARoutesController.cs");
-    expect(ctrl).toContain("return new JsonResult(result);");
+    expect(ctrl).toContain("return new JsonResult(__result);");
   });
 
   it("dotnet leaves a NON-string scalar on Ok() (the formatter does not touch it)", async () => {
@@ -139,7 +139,7 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
       )
       .replace('route POST "/echo/{text}" -> Sales.Echo', 'route GET "/sum/{a}/{b}" -> Sales.Sum');
     const ctrl = await fileEndingWith(intSrc, "Api/ARoutesController.cs");
-    expect(ctrl).toContain("return Ok(result);");
+    expect(ctrl).toContain("return Ok(__result);");
     expect(ctrl).not.toContain("JsonResult");
   });
 
@@ -195,10 +195,10 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     for (const line of [
-      'get "/orders/:order_id", SalesApiRoutesController, :get_order',
+      'get "/orders/:orderId", SalesApiRoutesController, :get_order',
       'post "/orders", SalesApiRoutesController, :create_order',
-      'post "/orders/:order_id/cancel", SalesApiRoutesController, :cancel_order',
-      'delete "/orders/:order_id", SalesApiRoutesController, :destroy_order',
+      'post "/orders/:orderId/cancel", SalesApiRoutesController, :cancel_order',
+      'delete "/orders/:orderId", SalesApiRoutesController, :destroy_order',
     ])
       expect(apiBlock).toContain(line);
     // The derived routes for those slots are gone — two clauses on one slot is

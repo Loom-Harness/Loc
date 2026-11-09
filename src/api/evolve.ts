@@ -327,6 +327,31 @@ function diffSystems(
 }
 
 /**
+ * Load a `.ddd` source a migration can be derived from: it parses, lowers,
+ * and the IR validator accepts it.  A model the IR validator refuses (an
+ * `index:` on a removed field, a dangling cross-reference) derives migrations
+ * that cannot apply — the gate `ddd migrate add` and `ddd diff` run before
+ * deriving anything.  `error` carries the diagnostics that stopped it;
+ * otherwise `diagnostics` are the source's warnings.
+ */
+export async function loadMigratableSource(
+  source: string,
+): Promise<
+  { loom: EnrichedLoomModel; diagnostics: JsonDiagnostic[] } | { error: JsonDiagnostic[] }
+> {
+  const cur = await parseSource(source);
+  const json = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
+  if (!cur.model || hasErrors(cur.diagnostics)) return { error: json };
+  const loom = lowerEnriched(cur.model);
+  if (!loom) {
+    return { error: [...json, loweringDiag(diagMessage("loom.ir-internal#evolve-lowering"))] };
+  }
+  const ir = validateLoomModel(loom).map((d) => irDiagnosticToJson(d, cur.doc));
+  if (ir.some((d) => d.severity === "error")) return { error: [...json, ...ir] };
+  return { loom, diagnostics: json };
+}
+
+/**
  * The evolution diff between a `baseline` `.ddd` source and the `current` one —
  * the schema migrations the change implies (per owning module, rendered to
  * Postgres SQL, with the destructive-data-loss gate surfaced) plus the wire-
@@ -347,23 +372,9 @@ export async function diff(
   baseline?: string,
   migrationFiles?: ReadonlyArray<{ name: string; content: string }>,
 ): Promise<DiffReport> {
-  const cur = await parseSource(current);
-  const curJson = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
-  if (!cur.model || hasErrors(cur.diagnostics)) return emptyReport(false, false, curJson);
-  const curLoom = lowerEnriched(cur.model);
-  if (!curLoom) {
-    return emptyReport(false, false, [
-      ...curJson,
-      loweringDiag(diagMessage("loom.ir-internal#evolve-lowering")),
-    ]);
-  }
-  // A model the IR validator refuses (an `index:` on a removed field, a
-  // dangling cross-reference) derives migrations that cannot apply — the same
-  // gate `ddd migrate add` and `ddd diff` run before deriving anything.
-  const curIr = validateLoomModel(curLoom).map((d) => irDiagnosticToJson(d, cur.doc));
-  if (curIr.some((d) => d.severity === "error")) {
-    return emptyReport(false, false, [...curJson, ...curIr]);
-  }
+  const loaded = await loadMigratableSource(current);
+  if ("error" in loaded) return emptyReport(false, false, loaded.error);
+  const { loom: curLoom, diagnostics: curJson } = loaded;
 
   // Load the baseline if given.  One that does not load is an error, never
   // "no baseline": the diff against nothing reads every change as additive.

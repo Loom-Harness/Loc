@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import {
   CS_BCL_RECEIVER_HOME,
   csBcl,
@@ -151,8 +152,10 @@ describe("dotnet — a member spelled like a static receiver shadows it", () => 
   ];
   for (const [label, expr, bare, qualified] of cases) {
     it(`${label}: bare without a collision, global::-qualified with one`, () => {
-      expect(renderCsExpr(expr, plain)).toBe(bare);
-      expect(renderCsExpr(expr, { thisName: "this" })).toBe(bare);
+      // A bare BCL receiver may be a `ref` marker (the file derives its
+      // `using`); spelled, it is the bare name.
+      expect(spellMarkers(renderCsExpr(expr, plain))).toBe(bare);
+      expect(spellMarkers(renderCsExpr(expr, { thisName: "this" }))).toBe(bare);
       expect(renderCsExpr(expr, shadowed)).toBe(qualified);
     });
   }

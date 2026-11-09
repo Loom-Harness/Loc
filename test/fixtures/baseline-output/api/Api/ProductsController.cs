@@ -87,8 +87,9 @@ public sealed class ProductsController : ControllerBase
         HttpMetrics.RecordDomainOperation("Product", "update");
         var cmd = new UpdateCommand(
             new ProductId(id),
-            request.Sku,
-            new Money(request.Price.Amount, request.Price.Currency)
+            (request.Sku is null ? default! : request.Sku!),
+            (request.Price is null ? default! : new Money(request.Price!.Amount, request.Price!.Currency)),
+            request.PatchedKeys()
         );
         await _mediator.Send(cmd);
         return NoContent();

@@ -33,7 +33,10 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
+
+const REFUSED_ON_ELIXIR =
+  "the capability table refuses `shape: document` with `softDeletable` on elixir; this pins the emitter for the day a fixture lifts the pair";
 
 /** Tenant-owned document aggregates under a `deep` read ladder + a `deny`
  *  carve-out — the `policy-document` corpus fixture's shape. */
@@ -238,7 +241,9 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
   });
 
   it("keeps a NON-principal document filter actor-free (no current_user seam)", async () => {
-    const repo = (await generateSystemFiles(NON_PRINCIPAL)).get(DOC_REPO)!;
+    const repo = (await generateSystemFilesUnchecked(NON_PRINCIPAL, REFUSED_ON_ELIXIR)).get(
+      DOC_REPO,
+    )!;
     expect(repo).not.toContain("current_user");
     expect(repo).toContain("def list do");
     expect(repo).toContain("def find_by_id(id) when is_binary(id) do");
@@ -254,9 +259,12 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
   // find renderer was handed the aggregate-level predicate instead of computing
   // its own, so the clause reached nothing.  Wrong DATA, fail-closed and
   // silent: the read the author wrote to SEE deleted rows returned none.
-  // #4435: a criterion read's bypass does not reach the document renderer yet.
-  it.fails("honours `ignoring <Cap>` on a document read — the named capability's predicate is dropped — #4435", async () => {
-    const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
+  // A widened paged read gets a find of its own, named for its stance, which
+  // carries that stance into the document renderer.
+  it("honours `ignoring <Cap>` on a document read — the named capability's predicate is dropped", async () => {
+    const repo = codeOf(
+      (await generateSystemFilesUnchecked(DOC_IGNORING, REFUSED_ON_ELIXIR)).get(DOC_REPO)!,
+    );
     const fn = (name: string) =>
       repo.slice(repo.indexOf(`def ${name}(`), repo.indexOf(`def ${name}(`) + 400);
 
@@ -266,13 +274,16 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     );
     // `ignoring softDeletable` drops exactly that one — the criterion's own
     // predicate survives untouched.
-    expect(fn("find_all_by_docs_by_label_all")).toContain("record.label == l");
-    expect(fn("find_all_by_docs_by_label_all")).not.toContain("is_deleted");
+    const widened = fn("find_all_by_docs_by_label_all_ignoring_soft_deletable");
+    expect(widened).toContain("record.label == l");
+    expect(widened).not.toContain("is_deleted");
   });
 
-  it.fails("honours `ignoring *` on a document read — every capability predicate is dropped — #4435", async () => {
-    const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
-    const at = repo.indexOf("def find_all_by_docs_by_note_any(");
+  it("honours `ignoring *` on a document read — every capability predicate is dropped", async () => {
+    const repo = codeOf(
+      (await generateSystemFilesUnchecked(DOC_IGNORING, REFUSED_ON_ELIXIR)).get(DOC_REPO)!,
+    );
+    const at = repo.indexOf("def find_all_by_docs_by_note_any_ignoring_all(");
     const fn = repo.slice(at, at + 400);
     expect(fn).toContain("record.note == n");
     expect(fn).not.toContain("is_deleted");
@@ -282,7 +293,9 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     // The bypass is per-read.  A fix that recomputed the predicate globally (or
     // mutated the aggregate) would open `list` / `find_by_id` too — the exact
     // failure mode a "just drop the filter" repair produces.
-    const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
+    const repo = codeOf(
+      (await generateSystemFilesUnchecked(DOC_IGNORING, REFUSED_ON_ELIXIR)).get(DOC_REPO)!,
+    );
     const list = repo.slice(repo.indexOf("def list do"), repo.indexOf("def find_by_id("));
     expect(list).toContain("not record.is_deleted");
     const byId = repo.slice(repo.indexOf("def find_by_id("), repo.indexOf("def insert("));

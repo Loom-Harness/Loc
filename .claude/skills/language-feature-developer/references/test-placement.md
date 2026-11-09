@@ -6,12 +6,17 @@ feature author.
 
 ## The placement rule
 
-Put each assertion at the **lowest altitude that can actually catch the
-failure.** Structural tests (parse/validate/lower → string-match or
-`tsc --noEmit`) are fast and exact — they're the default. Behavioral tests
-(boot the generated app, do a real round-trip) are slower — reach for them only
-when the failure is a *runtime* one a structural test can't see (a form that
-submits a malformed value, a backend that 500s, a duplicate bundle).
+Put each assertion at the **altitude where the claim is actually observable.**
+Parse, validate, lower and IR claims are structural, so they go in the fast
+suite. A claim about what generated code **does** (a status, a value, a
+persisted row, rendered text) goes in a corpus fixture's `test e2e` block with
+a wire golden. One fixture runs on every backend, and per-target `toContain`
+copies of the same claim are the main source of suite bloat (#3863).
+String-matching emitted source is for what no compile or booted tier can
+observe: absence, import hygiene, spelling with no wire effect, and wiring
+nothing boots. Say in the test which of these it is.
+`test/system/string-tier-ratchet.test.ts` caps that tier, and raising a
+ceiling needs a PR-body reason for why the claim can't be a fixture.
 
 Two axes decide the tier: **structural vs behavioral**, and **docker-free
 (in-process: PGlite, `app.fetch`, headless Chromium) vs docker (cross-backend
@@ -86,9 +91,10 @@ Reach for the one that matches the compiler your emitted code must satisfy.
    (`test/{language,macro,ir}/`). After a grammar edit, `langium:generate` and
    satisfy **print-completeness**. A new IR diagnostic → **diagnostic-codes-completeness**.
    A queryability change → **queryable-subset-parity**.
-2. **A backend/frontend now emits something new** → one generator test **per
-   affected target** (`test/generator/<platform>/`), string-matching the source.
-   This is the default home. A new UI primitive → register in both walker
+2. **A backend/frontend now emits something new** → if the claim is about
+   behaviour, go to step 4 (one corpus fixture, all backends). Use a generator
+   test per affected target (`test/generator/<platform>/`), string-matching the
+   source, only for the unobservable claims named in the placement rule. A new UI primitive → register in both walker
    mirrors (**walker-stdlib-completeness**) and write/pin the HEEx renderer
    (**heex-parity**). If the shape is a baseline fixture, regenerate it via
    `scripts/capture-baseline-fixture.mjs`.
@@ -99,11 +105,14 @@ Reach for the one that matches the compiler your emitted code must satisfy.
    `test e2e "…" against <node>` or aggregate `test "…"` to a `.ddd` and ensure
    the example is in `test/behavioral/corpus.json` (the docker-free behavioral
    corpus requires exactly one `platform: node` deployable). A React round-trip
-   needs `"ui": true`. Cross-backend behaviour rides the docker `conformance-full`
-   leg — keep the assertion in the emitted `test e2e` so every backend runs it.
+   needs `"ui": true`. For cross-backend behaviour, add the block to a corpus
+   fixture with a node-minted wire golden (`test/behavioral/wire-golden/README.md`).
+   Every backend's per-PR `behavioral-e2e*` leg replays it.
 5. **Cross-backend contract (OpenAPI / wire shape)** → conformance parity
    (mostly automatic from `wireShape`; a new dimension goes in the parity harness).
 
 The recipe minimum for a real semantic feature: **1 parsing test + 1 negative
-validator test + 1 IR test + 1 generator test per touched backend**, then at
-least one `LOOM_TS_BUILD=1` / `LOOM_REACT_BUILD=1` compile pass.
+validator test + 1 IR test + 1 corpus fixture (manifest row, `test e2e` block,
+wire golden)**, then at least one `LOOM_TS_BUILD=1` / `LOOM_REACT_BUILD=1`
+compile pass. Add per-target generator string tests only for the claims the
+fixture cannot observe.

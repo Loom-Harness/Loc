@@ -18,10 +18,12 @@ import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   docTypeAlias,
   documentCapabilityBody,
+  documentRunMethods,
   entityFromDocFn,
   entityToDocFn,
   findPredicate,
@@ -32,6 +34,13 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
+import { TT } from "../ts-symbols.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
@@ -56,14 +65,14 @@ export function renderMikroDocumentRepository(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const row = rowClassOf(agg.name);
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   const versioned = rowVersionGuarded(agg);
   const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.version)`
+      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
       : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
   // In-app capability predicate over a rehydrated aggregate (soft-delete /
   // tenancy).  On `shape: document` the filter CANNOT be pushed into the query
@@ -155,6 +164,15 @@ export function renderMikroDocumentRepository(
     );
   });
 
+  // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+  // `run<Retrieval>` whatever the saving shape — the same in-app runner the
+  // drizzle document repository emits, over this adapter's id-ordered load.
+  const runMethods = documentRunMethods(agg, ctx, ({ all, rows, em }) => [
+    `    const ${em} = this.em.fork({ keepTransactionContext: true });`,
+    `    const ${rows} = await ${em}.find(${row}, {}, { orderBy: { id: "ASC" } });`,
+    `    const ${all} = ${rows}.map((r) => ${fromDocOf("r")});`,
+  ]);
+
   const docAudited = aggregateIsAudited(agg);
   const deleteMethod = emitsDelete
     ? lines(
@@ -185,21 +203,23 @@ export function renderMikroDocumentRepository(
   const docData = docAudited ? `data: ${stampInsertCall(agg, "data")}` : "data";
   const saveLines = versioned
     ? [
-        `    const expected = expectedVersion ?? aggregate.version;`,
+        `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
         `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
         `    if (existing === null) {`,
-        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, version: 1 });`,
+        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, ${ROW_VERSION_FIELD}: 1 });`,
+        savedVersionOnInsert("      "),
         `    } else {`,
-        `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, { data, version: expected + 1 });`,
+        `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, { data, ${ROW_VERSION_FIELD}: expected + 1 });`,
         `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+        savedVersionOnUpdate("      "),
         `    }`,
       ]
     : [
         `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
         `    if (existing === null) {`,
-        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, version: 1 });`,
+        `      await em.insert(${row}, { id: aggregate.id as string, ${docData}, ${ROW_VERSION_FIELD}: 1 });`,
         `    } else {`,
-        `      await em.nativeUpdate(${row}, { id: aggregate.id as string }, { data, version: existing.version + 1 });`,
+        `      await em.nativeUpdate(${row}, { id: aggregate.id as string }, { data, ${ROW_VERSION_FIELD}: existing.${ROW_VERSION_FIELD} + 1 });`,
         `    }`,
       ];
 
@@ -243,10 +263,12 @@ export function renderMikroDocumentRepository(
     versioned
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines([
       `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
       ...saveLines,
     ]),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of aggregate.pullEvents()) {`,
@@ -257,6 +279,7 @@ export function renderMikroDocumentRepository(
     deleteMethod ? "" : null,
     deleteMethod || null,
     ...findMethods.flatMap((m) => ["", m]),
+    ...runMethods.flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

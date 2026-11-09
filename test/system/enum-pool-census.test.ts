@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // Enum-pool census — claims-eval defect D1 (M-T6.80).
@@ -186,6 +187,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
+  "src/generator/_walker/model-text-sites.ts#implicitModelTextEntries": ALL_CONTEXTS,
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {
@@ -196,7 +198,7 @@ describe("enum-pool census — no name resolution of an enum through a context's
     // The floor sits just under the STANDING surface (14 sites) — what is
     // left once the fleet's P1–P4 drains have all landed — so it holds on
     // every combination of those branches.
-    expect(sites.length).toBeGreaterThanOrEqual(12);
+    expectReach("`ctx.enums` sites", sites.length, 12);
   });
 
   it("every `ctx.enums` site is waived (standing = own declarations / all contexts; deferred = drain to enumPool)", () => {

@@ -19,11 +19,13 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import {
+  aggregateRetrievals,
   deserializeField,
   docTypeAlias,
   entityFromDocFn,
@@ -35,6 +37,13 @@ import { repoPortImportLine, repoPortName } from "../repository-port-builder.js"
 import { projectFieldEntries } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
 import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "../saved-version.js";
+import { T, TT } from "../ts-symbols.js";
+import {
   aggregateIsAudited,
   stampImportLine,
   stampInsertCall,
@@ -43,7 +52,7 @@ import {
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroGetByIdLines, whereToMikroFilter } from "./mikroorm-filter.js";
-import { valueCollFieldsOf } from "./mikroorm-relational.js";
+import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
 
@@ -73,7 +82,7 @@ function embeddedHydrateLocals(
     if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
     const target = f.type.element.targetName;
     out.push(
-      `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => Ids.${target}Id(s));`,
+      `${indent}const ${f.name} = ((${rowVar}.${f.name} ?? []) as string[]).map((s) => ${T.Ids}.${target}Id(s));`,
     );
   }
   // Value-object collections (`<VO>[]`) fold onto an inline jsonb column, so
@@ -104,7 +113,7 @@ export function renderMikroEmbeddedRepository(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const row = rowClassOf(agg.name);
-  const idVar = `Ids.${agg.name}Id`;
+  const idVar = `${TT.Ids}.${agg.name}Id`;
   const pool = ctx.aggregates;
   /** `<where>[, <options>]` — the call tail of a read. */
   const readArgs = (where: string, options: string | null): string =>
@@ -157,22 +166,24 @@ export function renderMikroEmbeddedRepository(
   // the CAS value itself (1 on insert, expected + 1 on the update).  A
   // non-versioned embedded aggregate keeps the byte-identical bare upsert.
   const versioned = rowVersionGuarded(agg);
-  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith("version:"));
-  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, version: 1 }`;
-  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, version: expected + 1 }`;
+  const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith(`${ROW_VERSION_FIELD}:`));
+  const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: 1 }`;
+  const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, ${ROW_VERSION_FIELD}: expected + 1 }`;
   const insertValues = audited ? stampInsertCall(agg, rootRowInsert) : rootRowInsert;
   const updateSet = audited ? stampUpdateCall(agg, rootRowUpdate) : rootRowUpdate;
   const versionedSaveLines = [
-    `    const expected = expectedVersion ?? aggregate.version;`,
+    `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
     // The save's statements are scoped by id (and version) alone: they bypass
     // the read scope, so a loaded-`ignoring` aggregate stays savable and a
     // soft-deleted row is still found as existing.
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
+    savedVersionOnInsert("      "),
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    savedVersionOnUpdate("      "),
     `    }`,
   ];
 
@@ -282,6 +293,24 @@ export function renderMikroEmbeddedRepository(
     );
   });
 
+  // Criterion reads (`Repo.all(C(…))` / `Repo.find(C(…))`) call
+  // `run<Retrieval>` whatever the saving shape.  The root scalars are real
+  // columns, so the relational query applies; only the hydrate is per row.
+  const runMethods = aggregateRetrievals(agg, ctx).map((r) =>
+    mikroRetrievalMethod(
+      agg,
+      r,
+      row,
+      ({ rows }) => [
+        `    return ${rows}.map((row) => {`,
+        ...embeddedHydrateLocals(agg, "row", "      ", ctx),
+        `      return ${hydrateRootExpr(agg, "row", ctx)};`,
+        `    });`,
+      ],
+      mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+    ),
+  );
+
   const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `  async delete(id: ${idVar}): Promise<void> {`,
@@ -330,9 +359,11 @@ export function renderMikroEmbeddedRepository(
     versioned
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
+    versioned && savedVersionDecl("    "),
     ...mikroSaveTxLines(
       versioned ? versionedSaveLines : [`    const rootRow = ${rootRow};`, upsertCall],
     ),
+    versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of aggregate.pullEvents()) {`,
@@ -343,6 +374,7 @@ export function renderMikroEmbeddedRepository(
     deleteMethod ? "" : null,
     deleteMethod || null,
     ...findMethods.flatMap((m) => ["", m]),
+    ...runMethods.flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

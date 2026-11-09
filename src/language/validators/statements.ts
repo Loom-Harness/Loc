@@ -36,8 +36,12 @@ import {
   isDerivedProp,
   isEmitStmt,
   isFilterDecl,
+  isForStmt,
   isFunctionDecl,
+  isIfLetStmt,
+  isIfStmt,
   isLetStmt,
+  isMatchStmt,
   isMemberSuffix,
   isModel,
   isNameRef,
@@ -226,6 +230,46 @@ export function checkStatement(
   // the extended env passed in.
   checkConstructionArgTypes(stmt, env, accept);
   checkExprCallArgs(stmt, env, accept);
+  return checkStatementShape(stmt, agg, op, env, accept);
+}
+
+/** The per-statement checks (assignment types, `precondition` / `requires`
+ *  bool, `emit`, call statements) of one statement, descending into the
+ *  statement lists of an `if` / `else`, `if let`, `for` and statement `match`.
+ *  The construction and call-argument checks are NOT repeated here: the
+ *  caller's `checkStatement` streams them over the whole subtree once.  A
+ *  nested block's `let`s are scoped to that block. */
+function checkStatementShape(
+  stmt: Statement,
+  agg: Aggregate,
+  op: ActionLike,
+  env: Env,
+  accept: ValidationAcceptor,
+): Env {
+  const block = (stmts: readonly Statement[]): void => {
+    let inner = env;
+    for (const s of stmts) inner = checkStatementShape(s, agg, op, inner, accept);
+  };
+  if (isIfStmt(stmt)) {
+    block(stmt.thenBody);
+    if (stmt.elseIf) checkStatementShape(stmt.elseIf, agg, op, env, accept);
+    block(stmt.elseBody);
+    return env;
+  }
+  if (isIfLetStmt(stmt)) {
+    block(stmt.thenBody);
+    block(stmt.elseBody);
+    return env;
+  }
+  if (isForStmt(stmt)) {
+    block(stmt.body);
+    return env;
+  }
+  if (isMatchStmt(stmt)) {
+    for (const arm of stmt.varArms) block(arm.body);
+    block(stmt.elseBody);
+    return env;
+  }
   if (isPreconditionStmt(stmt)) {
     checkBlankMessage(stmt, stmt.message, accept);
     const t = typeOf(stmt.expr, env);

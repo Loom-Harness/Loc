@@ -1,10 +1,12 @@
-import { generateDotnet as generateDotnetProject } from "../../src/generator/dotnet/index.js";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../src/ir/lower/lower.js";
+import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { assertLoomModelVerifies } from "../../src/ir/verify/verify-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../src/platform/hono/v5/pins.js";
 import {
   type GenerateSystemOptions,
@@ -18,23 +20,17 @@ import {
   type MigrationChain,
   recordGeneration,
 } from "../../src/system/migration-chain.js";
+import { type BackendPlatform, backendSystemFor } from "./backend-system.js";
 import { extractErrors, parseString } from "./parse.js";
 
 export { HONO_PINS };
 
 /**
  * Phases ⑤/⑥/⑦ over an already-parsed AST Model — lower, merge, enrich, then
- * the IR verifier and `validateLoomModel`.  Synchronous, so it can ride the
- * synchronous legacy `generate` helpers as well as the async ones.
- *
- * This is the shared body of the phase-⑤-and-later half of `assertGeneratable`;
- * both call it so the two paths cannot drift.  The whole point of extracting it
- * was `generateHono` below: at the 2026-09 census that wrapper was one line with
- * no checks at all, and its **66 call sites across 37 files** were the last
- * corner of the tree that could assert on emitted output from an IR nothing had
- * ever looked at (M-T9.48).
+ * the IR verifier and `validateLoomModel`.  The phase-⑤-and-later half of
+ * `assertGeneratable`.
  */
-export function assertModelVerifies(model: Model, context = ".ddd fixture"): void {
+function assertModelVerifies(model: Model, context = ".ddd fixture"): void {
   // Phases ⑤/⑥ — the IR the backends will consume must hold its own contract
   // before phase ⑦ is asked whether the MODEL is valid.  Ordered first because
   // the two answer different questions and a violation here invalidates the
@@ -56,46 +52,6 @@ export function assertModelVerifies(model: Model, context = ".ddd fixture"): voi
     );
   }
 }
-
-/**
- * Generate the single-context Hono/TS project file map from an AST Model.
- *
- * Runs `assertModelVerifies` first, so this legacy single-context path asserts
- * everything `generateSystemFiles` asserts about the IR — phases ⑤/⑥ via the
- * verifier and phase ⑦ via `validateLoomModel`.  Phases ① and ④ are the
- * CALLER's, because this helper takes a Model rather than a source string: a
- * caller that reaches it through `parseValid` has both; one that reaches it
- * through a bare `parseString` has neither, which is what
- * `test/system/legacy-generate-path-ratchet.test.ts` pins.
- */
-export const generateHono = (model: Model): Map<string, string> => {
-  assertModelVerifies(model);
-  return generateTypeScript(model, HONO_PINS);
-};
-
-/**
- * Generate the single-context .NET project file map from an AST Model.
- *
- * The .NET twin of `generateHono` above, and it was the same hole: until
- * M-T9.49 this name was RE-EXPORTED straight from
- * `src/generator/dotnet/index.js`, so the helper wrapped it with nothing.  Its
- * call sites asserted on emitted C# from an IR nothing had ever inspected —
- * and most of them did not even reach the helper, importing the generator
- * directly from `src/` and so sitting outside every gate this module has.
- *
- * Now a real wrapper: `assertModelVerifies` first, exactly as `generateHono`
- * does, from the same shared body so the two legacy paths cannot drift.
- * Phases ① and ④ are the CALLER's for the same reason as above — this takes a
- * `Model`, not a source string — which is what the `parseString` column of
- * `test/system/legacy-generate-path-ratchet.test.ts` pins.
- */
-export const generateDotnet = (
-  model: Model,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> => {
-  assertModelVerifies(model);
-  return generateDotnetProject(model, options);
-};
 
 /**
  * The phases a `.ddd` fixture must survive before any test may assert on what
@@ -248,6 +204,26 @@ export async function generateSystemResult(
 }
 
 /**
+ * `generateSystemFiles` with `sourceTexts` filled in the way the CLI fills it —
+ * the fixture's own text, keyed by the path of the document it was parsed
+ * into — and that path returned alongside the files.
+ *
+ * A source-mapped emission (`#line` directives, inlined sources) names that
+ * path, and only the parse knows it, so a test asserting on the directives
+ * cannot build `sourceTexts` itself without parsing outside the gated path.
+ */
+export async function generateSystemFilesWithSourceText(
+  source: string,
+  options: Omit<GenerateSystemOptions, "sourceTexts"> = {},
+): Promise<{ files: Map<string, string>; docPath: string }> {
+  const model = await assertGeneratable(source);
+  const docPath = model.$document?.uri.path;
+  if (!docPath) throw new Error("parsed fixture has no backing document — cannot key sourceTexts");
+  const sourceTexts = new Map([[docPath, source]]);
+  return { files: generateSystems(model, { ...options, sourceTexts }).files, docPath };
+}
+
+/**
  * The MULTI-FILE twin of `generateSystemFiles`: load a `.ddd` entry file from
  * disk with the import-graph project loader — the same path `ddd generate
  * system` takes — assert the same three phases, and emit.
@@ -290,18 +266,145 @@ export async function generateSystemFilesFromProject(
     );
   }
   const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult.value as Model)));
+  return generateSystemFilesFromLoom(loom, options, absEntryFile);
+}
+
+/**
+ * Emit from an ALREADY-LOWERED, enriched model — after the phases the model
+ * still owes: the ⑤/⑥ verifier and phase ⑦ `validateLoomModel`.
+ *
+ * For a caller whose loader is not the disk one: the playground's VFS loader
+ * hands back documents `generateSystemFilesFromProject` cannot reach.  Phases ①
+ * and ④ are the CALLER's — they live on the documents it parsed, which this
+ * helper never sees — so read their diagnostics before calling it.
+ */
+export async function generateSystemFilesFromLoom(
+  loom: EnrichedLoomModel,
+  options: GenerateSystemOptions = {},
+  context = "loaded model",
+): Promise<Map<string, string>> {
   // Phases ⑤/⑥ then ⑦ — the same order, and the same two calls, the
   // single-source path makes in `assertGeneratable`.
-  assertLoomModelVerifies(loom, absEntryFile);
+  assertLoomModelVerifies(loom, context);
   const irErrors = validateLoomModel(loom).filter((d) => d.severity === "error");
   if (irErrors.length) {
     throw new Error(
-      `${absEntryFile}: ${irErrors.length} IR-validation error(s) (phase ⑦):\n` +
+      `${context}: ${irErrors.length} IR-validation error(s) (phase ⑦):\n` +
         irErrors.map((d) => `  ${d.code ?? "?"} ${d.message}`).join("\n"),
     );
   }
   const { generateSystemsFromLoom } = await import("../../src/system/index.js");
   return generateSystemsFromLoom(loom, options).files;
+}
+
+/**
+ * Emit ONE backend's project for a fixture written as bare `context { … }`
+ * blocks, through the orchestrator the CLI runs.
+ *
+ * `ddd generate system` needs a `system` that hosts each context on a backend
+ * deployable bound to a datasource.  This wraps the contexts in the smallest
+ * such system — one subdomain, one api, one postgres `state` resource per
+ * context (plus an `eventLog` one when the fixture declares an event-sourced
+ * aggregate), one deployable — and asserts phases ①/④/⑤/⑥/⑦ on the result,
+ * exactly as `generateSystemFiles` does.
+ *
+ * The returned map is the deployable's project with the `<deployable>/` prefix
+ * stripped, so a key is project-relative.
+ */
+export async function generateBackendFiles(
+  contexts: string,
+  platform: "node" | "dotnet",
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  // A leading `user { … }` block is the system's principal: hoisted out of
+  // the subdomain the contexts are spliced into.
+  const userBlock = /^\s*user\s*\{[^{}]*\}/.exec(contexts)?.[0];
+  if (userBlock) contexts = contexts.slice(userBlock.length);
+  const names = [...contexts.matchAll(/\bcontext\s+([A-Z]\w*)\b[^{}]*\{/g)].map((m) => m[1]!);
+  if (names.length === 0) {
+    throw new Error("generateBackendFiles: the fixture declares no `context Name { … }` block");
+  }
+  const eventLog = /persistedAs:\s*eventLog/.test(contexts);
+  const resources = names.flatMap((c) => [
+    `  resource ${c}State { for: ${c}, kind: state, use: pg }`,
+    ...(eventLog ? [`  resource ${c}Log { for: ${c}, kind: eventLog, use: pg }`] : []),
+  ]);
+  const dataSources = names.flatMap((c) => [`${c}State`, ...(eventLog ? [`${c}Log`] : [])]);
+  const source = [
+    "system Fixture {",
+    ...(userBlock ? [`  ${userBlock.trim()}`] : []),
+    "  subdomain Fixture {",
+    contexts,
+    "  }",
+    "  api FixtureApi from Fixture",
+    "  storage pg { type: postgres }",
+    ...resources,
+    "  deployable app {",
+    `    platform: ${platform}`,
+    `    contexts: [${names.join(", ")}]`,
+    `    dataSources: [${dataSources.join(", ")}]`,
+    "    serves: FixtureApi",
+    "  }",
+    "}",
+  ].join("\n");
+  const files = await generateSystemFiles(source, options);
+  const out = new Map<string, string>();
+  for (const [k, v] of files) if (k.startsWith("app/")) out.set(k.slice(4), v);
+  return out;
+}
+
+/**
+ * One backend project's file map, keyed relative to its project dir, from a
+ * `.ddd` source with ONE backend deployable — or from a bare-context source,
+ * which gets a `platform` deployable over its root contexts
+ * (`withBackendSystem`).  A source that declares its system has its
+ * `platform: node|dotnet` clause re-targeted at `platform`.  Emits through
+ * `generateSystemFiles`, so phases ①/④/⑤/⑥/⑦ are asserted.
+ */
+export async function generateBackendFromSource(
+  source: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  const { source: wrapped, deployable } = backendSystemFor(source, platform);
+  const files = await generateSystemFiles(wrapped, options);
+  const prefix = `${deployable}/`;
+  const out = new Map<string, string>();
+  for (const [k, v] of files) if (k.startsWith(prefix)) out.set(k.slice(prefix.length), v);
+  if (out.size === 0) throw new Error(`generateBackendFromSource: nothing emitted under ${prefix}`);
+  return out;
+}
+
+/**
+ * A repo fixture's backend project, whatever its shape: a source that
+ * declares its system goes through `generateBackendFromSource` (its one
+ * deployable re-targeted at `platform`), a bare-context one through
+ * `generateBackendFiles` (deployable `app`, so the .NET namespace is `App`).
+ */
+export async function generateFixtureBackend(
+  source: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  return /^\s*system\s+[A-Z]\w*/m.test(source)
+    ? generateBackendFromSource(source, platform, options)
+    : generateBackendFiles(source, platform, options);
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** `generateBackendFromSource` over a repo-relative `.ddd` file (an
+ *  `examples/` source, say).  The file must not `import` others. */
+export async function generateBackendFromFile(
+  file: string,
+  platform: BackendPlatform,
+  options: GenerateSystemOptions = {},
+): Promise<Map<string, string>> {
+  return generateBackendFromSource(
+    readFileSync(path.join(repoRoot, file), "utf8"),
+    platform,
+    options,
+  );
 }
 
 /** Re-exported — full multi-deployable system emission orchestrator. */

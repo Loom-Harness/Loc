@@ -7,6 +7,7 @@ import {
   type EnrichedBoundedContextIR,
   type PageIR,
   type SystemIR,
+  sourceLocaleOf,
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
@@ -31,6 +32,8 @@ import {
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
 import { buildProjectionsApiModule, readableProjections } from "../_frontend/projections-module.js";
@@ -58,6 +61,7 @@ import {
   REACT_LIB_STRICT_FIELD_MAP_TS,
 } from "./emit-templates.js";
 import { prepareNamedLayouts } from "./layouts-emitter.js";
+import { renderLocaleSwitcherModule } from "./locale-switcher.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
@@ -66,6 +70,7 @@ import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
 import { REACT_LIB_TOAST, REACT_LIB_TOAST_PATH, uiUsesToastEffect } from "./toast-runtime.js";
+import { tsxTarget } from "./walker/tsx-target.js";
 
 // ---------------------------------------------------------------------------
 // React + React Query + Zod + Mantine generator.
@@ -231,12 +236,22 @@ export function generateReactForContexts(
   // byte-identical to pre-i18n.  User-visible text is escaped at RUNTIME by
   // React (a `t()` return in a JSX text node), not at compile time — safe, and
   // the reason the emitted default keeps its raw source form.
-  const i18nEnabled = collectUiMessages(ui).length > 0;
+  const i18nEnabled =
+    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+  // Whether the app ships two or more locales (the source plus at least one
+  // translated catalog) — the condition for the shell header's switcher.  Set
+  // where the translated catalogs are emitted, below.
+  let localeSwitchable = false;
   // Pack-DECLARED chrome rides the SAME gate: on only for a UI that is already
   // translatable by its authored strings, so a string-less app never grows a
   // runtime it doesn't need and its output stays byte-identical.
   pack.setChromeI18n(i18nEnabled);
   const packChrome = packChromeCatalog(pack.manifest);
+  const formScope = {
+    contexts,
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: tsxTarget.modelTextImplicitSites === true,
+  };
   const emitCtx = {
     sys,
     deployable,
@@ -254,12 +269,24 @@ export function generateReactForContexts(
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/locales/en.json", renderLocaleCatalog(ui, packChrome));
-    const translated = renderTranslatedCatalogs(ui, options.translations, packChrome);
+    out.set(
+      `src/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChrome, formScope),
+    );
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChrome,
+      sourceLocaleOf(sys),
+      formScope,
+    );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    // The React binding of that store (`useLocale`, `LocaleSwitcher`).
+    out.set("src/lib/locale-switcher.tsx", renderLocaleSwitcherModule());
+    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);
@@ -303,7 +330,7 @@ export function generateReactForContexts(
   // `page { requires … }` gate).  Drives the session client + route guard emits.
   out.set(
     "src/api/client.ts",
-    renderShellFile("api-client", { hasDelete, hasAuthUi: authUi }, pack),
+    renderShellFile("api-client", { hasDelete, hasAuthUi: authUi, i18nEnabled }, pack),
   );
   out.set("src/api/config.ts", renderShellFile("api-config", { apiBaseUrl }, pack));
   if (authUi) {
@@ -371,7 +398,7 @@ export function generateReactForContexts(
   );
   out.set(
     "src/lib/format.tsx",
-    renderShellFile("format-helpers", { moneySource: MONEY_TEXT_SOURCE }, pack),
+    renderShellFile("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }, pack),
   );
   // Frontend ACL shared utilities — pack-agnostic, emitted into every
   // React project.  `strict-field-map.ts` is type-only (zero runtime
@@ -512,6 +539,7 @@ export function generateReactForContexts(
       // makes, so an ungated default entry advertised a route the backend
       // refuses.
       ui.pages,
+      localeSwitchable,
     ),
   );
   // Home is synthesised by the scaffold expander whenever the
@@ -569,7 +597,7 @@ export function generateReactForContexts(
     "index.html",
     renderShellFile(
       "index-html",
-      { ...prepareIndexHtmlVM(sys, deployable, ui), usesCodeBlock },
+      { ...prepareIndexHtmlVM(sys, deployable, ui, i18nEnabled), usesCodeBlock },
       pack,
     ),
   );
@@ -639,13 +667,20 @@ export function generateReactForContexts(
 
 interface IndexHtmlVM {
   title: string;
+  lang: string;
+  dir?: string;
   description?: string;
   ogImage?: string;
   canonical?: string;
   favicon?: string;
 }
 
-function prepareIndexHtmlVM(sys: SystemIR, deployable: DeployableIR, ui: UiIR): IndexHtmlVM {
+function prepareIndexHtmlVM(
+  sys: SystemIR,
+  deployable: DeployableIR,
+  ui: UiIR,
+  i18nEnabled: boolean,
+): IndexHtmlVM {
   const page = pickMetadataPage(ui.pages);
   // Fallback order: the landing page's own static `title:`, then the SYSTEM
   // name, then the deployable's.  The deployable name is an infrastructure
@@ -655,6 +690,10 @@ function prepareIndexHtmlVM(sys: SystemIR, deployable: DeployableIR, ui: UiIR): 
   const metadata = page?.metadata;
   return {
     title,
+    lang: sourceLocaleOf(sys),
+    // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+    // app with no locale model keeps its markup byte-identical.
+    ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
     description: metadata?.description,
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,

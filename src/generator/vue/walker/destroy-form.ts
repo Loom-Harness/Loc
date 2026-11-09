@@ -15,9 +15,10 @@
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { humanize, lowerFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { giveUp } from "../../_walker/give-up.js";
+import { sentenceChromeName } from "../../_walker/i18n-chrome.js";
 import { localizedPageChromeText, localizedPageChromeValue } from "../../_walker/i18n-emit.js";
 import { emitActionThen } from "../../_walker/primitives/controls.js";
 import { renderPrimitive } from "../../_walker/render-primitive.js";
@@ -80,8 +81,7 @@ export function renderVueDestroyForm(
   }
   // The prompt and the button label are emitter-built chrome: `chrome.*` keys
   // with the entity name as an ICU hole, as on every frontend.
-  const entityLower = { name: "entity", expr: JSON.stringify(humanize(agg.name).toLowerCase()) };
-  const confirmMsg = localizedPageChromeValue(ctx, "deleteConfirm", [entityLower]);
+  const confirmMsg = localizedPageChromeValue(ctx, sentenceChromeName("deleteConfirm", agg.name));
 
   const handlerName = `onDelete${agg.name}`;
   ctx.hoistedHandlers ??= [];
@@ -92,9 +92,7 @@ export function renderVueDestroyForm(
   const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(testidNamespace);
   return renderPrimitive(ctx, "primitive-button", {
-    label: localizedPageChromeText(ctx, "deleteEntity", [
-      { name: "entity", expr: JSON.stringify(humanize(agg.name)) },
-    ]),
+    label: localizedPageChromeText(ctx, sentenceChromeName("deleteEntity", agg.name)),
     onClick: handlerName,
     hasOnClick: true,
     disabled: undefined,

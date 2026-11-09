@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // The seven generator-throw-census sites of the event-sourced / workflow body
@@ -18,6 +19,13 @@ const fileMatching = (files: Map<string, string>, re: RegExp): string => {
   if (!hit) throw new Error(`no generated file matches ${re}`);
   return hit[1];
 };
+
+/** Every generated Elixir source, concatenated. */
+const allElixir = (files: Map<string, string>): string =>
+  [...files]
+    .filter(([p]) => p.endsWith(".ex"))
+    .map(([, c]) => c)
+    .join("\n");
 
 const ledger = (createBody: string, applyBody: string): string => `
 system Ledger {
@@ -63,12 +71,17 @@ const FOLD = `
           if r.n > 0 { count := count + r.n } else { count := 0 }`;
 
 describe("event-sourced / workflow body vocabulary — the seven census sites", () => {
-  it("eventsourced-emit#renderCommandRunner: an `if` in an ES `create` on elixir is refused", async () => {
+  it("eventsourced-emit#renderCommandRunner: an `if` in an ES `create` on elixir renders one runner tail per path", async () => {
     const src = ledger(
       `if owner != "" { emit Opened { account: id, owner: owner } }`,
       "owner := e.owner",
     );
-    expect(await errorCodes(src)).toEqual(["loom.elixir-if-stmt-unsupported"]);
+    expect(await errorCodes(src)).toEqual([]);
+    const ex = allElixir(await generateSystemFiles(src));
+    expect(ex).toContain(
+      '    if owner != "" do\n      with events = [%Api.Accounts.Events.Opened{',
+    );
+    expect(ex).toMatch(/ {4}else\n {6}with events = \[\],/);
   });
 
   it("fold-stmt-emit#renderFoldStatement: a `return` in an applier is refused on every backend", async () => {
@@ -120,11 +133,11 @@ system WF {
     aggregate Thing with crudish { name: string }
     repository Things for Thing {}
     workflow make {
-      function label(n: int): string {
+      function caption(n: int): string {
         if n > 0 { return "pos" }
         return "neg"
       }
-      create(n: int) { let t = Thing.create(name: label(n)) }
+      create(n: int) { let t = Thing.create(name: caption(n)) }
     }
   } }
   api XApi from S
@@ -132,13 +145,15 @@ system WF {
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: elixir contexts: [C] dataSources: [st] serves: XApi port: 4000 }
 }`;
-    expect(await errorCodes(src)).toEqual(["loom.elixir-if-stmt-unsupported"]);
+    expect(await errorCodes(src)).toEqual([]);
+    const ex = allElixir(await generateSystemFiles(src));
+    expect(ex).toMatch(/if n > 0 do\n\s+"pos"\n\s+else\n\s+"neg"\n\s+end/);
   });
 
   it("python workflow-eventsourced-emit#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("python", FOLD));
     const py = fileMatching(files, /app\/dispatch\.py$/);
-    expect(py).toContain(
+    expect(uncheckedInt(py)).toContain(
       [
         "    a = r.at",
         "    state.fired_at = a",
@@ -153,7 +168,7 @@ system WF {
   it("hono workflow-eventsourced-builder#renderApplierStmt: `let` and `if` in a workflow applier render", async () => {
     const files = await generateSystemFiles(sweep("node", FOLD));
     const ts = fileMatching(files, /http\/workflows\.ts$/);
-    expect(ts).toContain(
+    expect(uncheckedInt(ts)).toContain(
       [
         "      const a = r.at;",
         "      state.firedAt = a;",
@@ -166,8 +181,12 @@ system WF {
     );
   });
 
-  it("an `if` in a workflow applier on elixir is refused (the fold renders no `if`)", async () => {
-    expect(await errorCodes(sweep("elixir", FOLD))).toEqual(["loom.elixir-if-stmt-unsupported"]);
+  it("elixir fold-stmt-emit#renderFoldStatement: an `if` in a workflow applier rebinds the folded state", async () => {
+    expect(await errorCodes(sweep("elixir", FOLD))).toEqual([]);
+    const ex = allElixir(await generateSystemFiles(sweep("elixir", FOLD)));
+    expect(uncheckedInt(ex)).toMatch(
+      /state = if r\.n > 0 do\n\s+state = %\{state \| count: state\.count \+ r\.n\}\n\s+state\n\s+else\n\s+state = %\{state \| count: 0\}\n\s+state\n\s+end/,
+    );
   });
 
   it("dispatch-emit#renderStmt: `Orders.delete` / a resource verb / `if let` in an elixir reactor render", async () => {

@@ -34,7 +34,7 @@
           }
         ],
         "note": null,
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -60,7 +60,7 @@
           }
         ],
         "note": null,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -80,7 +80,7 @@
             }
           ],
           "note": null,
-          "version": 3
+          "rowVersion": 3
         }
       ]
     },
@@ -154,18 +154,12 @@
       "seq": 12,
       "method": "POST",
       "path": "/api/orders/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "customer is required",
-            "pointer": "/customer"
-          }
-        ],
+        "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

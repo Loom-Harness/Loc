@@ -9,7 +9,8 @@
 // failed `gradle testClasses`.  The emitted project for this model compiles.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFilesUnchecked } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system S {
@@ -48,7 +49,10 @@ system S {
 `;
 
 async function testFile(suffix: string): Promise<string> {
-  const files = await generateSystemFiles(SOURCE);
+  const files = await generateSystemFilesUnchecked(
+    SOURCE,
+    "the fixture keeps a `Tag[]` on an entity part, which the capability table refuses on java (unwitnessed); the subject is the test-body renderer",
+  );
   const hit = [...files].find(([p]) => p.endsWith(suffix));
   expect(hit, `no emitted file ends with ${suffix}`).toBeDefined();
   return hit![1];
@@ -63,7 +67,9 @@ describe("java — test-body lambda binders clear the test's locals", () => {
       "o.lines().stream().anyMatch(o_ -> o_.tags().stream().anyMatch(t_ -> t_.weight() > 0))",
     );
     // The `+ t` outside the lambda still names the test local.
-    expect(src).toContain("o.lines().stream().filter(t_ -> t_.qty() > 5).toList().size() + t");
+    expect(uncheckedInt(src)).toContain(
+      "o.lines().stream().filter(t_ -> t_.qty() > 5).toList().size() + t",
+    );
   });
 
   it("context integration test: same rule, nested binders stack the suffix", async () => {

@@ -34,6 +34,16 @@ system Defaults {
         archived: bool = false
         flag: bool
 
+        // A COMMAND over the same bools (RS-26): every parameter is required
+        // input, and no wire default may stand in for an omitted one.  The
+        // crudish `update` is the merge-patch twin (RS-47), where an omitted
+        // bool keeps its stored value instead.
+        operation configure(active: bool, archived: bool, flag: bool) {
+          active := active
+          archived := archived
+          flag := flag
+        }
+
         test "an omitted default is applied at construction" {
           let i = Item.create(name: "N")
           expect(i.qty).toBe(1)
@@ -70,9 +80,9 @@ system Defaults {
     expect(read.active).toBe(true)
 
     // The OTHER seam of RS-26, and the one no request had ever crossed: a
-    // `= default` relaxes CREATE input only.  The canonical `update` is full
-    // replacement — every writable field is a required param, defaults
-    // included — so this call carries all six, and the read-back proves each
+    // `= default` relaxes CREATE input only.  The canonical `update` is a
+    // merge patch (RS-47) — an absent key keeps the stored value, never the
+    // default — and this call carries all six, so the read-back proves each
     // declared value was overwritten by the one sent rather than re-defaulted.
     // `flag` (the bare bool, on the implicit rule) is the discriminator: a
     // backend that carried its create-side relaxation onto update would let a
@@ -102,6 +112,15 @@ system Defaults {
     let left = api.items.all()
     expect(left.items.length).toBe(1)
     expect(left.total).toBe(1)
+
+    // The command over the same bools (RS-26): every parameter is required
+    // input, and each is written exactly as sent.
+    api.items.configure(i, { active: true, archived: false, flag: false })
+    let configured = api.items.getById(i)
+    expect(configured.active).toBe(true)
+    expect(configured.archived).toBe(false)
+    expect(configured.flag).toBe(false)
+
     api.items.destroy(i)
     expect(api.items.getById(i)).toThrow(404)
     let empty = api.items.all()

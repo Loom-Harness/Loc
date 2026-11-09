@@ -1,4 +1,5 @@
-import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_BATCH,
@@ -12,6 +13,11 @@ import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import {
+  exCalendarDateWire,
+  exEnvelopeInstant,
+  exLogInstantType,
+} from "./vanilla/codec-spelling-ex.js";
 import { ELIXIR_NUMERIC } from "./vanilla/numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -93,12 +99,13 @@ export function elixirDispatchCall(
  *  events (or none, or runs without channels) answers `false` and keeps the
  *  plain post-commit fan-out. */
 export function opEmitsDurableEvent(
-  op: { statements: readonly { kind: string; eventName?: string }[] },
+  op: { statements: readonly StmtIR[] },
   channels: ElixirChannelsCfg | undefined,
 ): boolean {
   if (!channels || channels.durableEvents.size === 0) return false;
-  return op.statements.some(
-    (s) => s.kind === "emit" && !!s.eventName && channels.durableEvents.has(s.eventName),
+  const durable = channels.durableEvents;
+  return op.statements.some((s) =>
+    branchesContain(s, (n) => n.kind === "emit" && durable.has(n.eventName)),
   );
 }
 
@@ -117,14 +124,13 @@ function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
 function encodeExpr(access: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "primitive" && inner.name === "datetime") {
-    return t.kind === "optional"
-      ? `${access} && DateTime.to_iso8601(${access})`
-      : `DateTime.to_iso8601(${access})`;
+    // The RS-38 wire instant (the `Codec` fact's envelope ruling) — nil-safe.
+    return exEnvelopeInstant(access);
   }
   if (inner.kind === "primitive" && inner.name === "date") {
     return t.kind === "optional"
-      ? `${access} && Date.to_iso8601(${access})`
-      : `Date.to_iso8601(${access})`;
+      ? `${access} && ${exCalendarDateWire(access)}`
+      : exCalendarDateWire(access);
   }
   if (inner.kind === "primitive" && inner.name === "money") {
     // money pins the FIXED wire scale (RS-12) — a bare `Decimal.to_string`
@@ -311,7 +317,14 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
  *  the poll and logs event_dead_lettered once.  A separate timer purges
  *  dispatched rows older than the retention window in bounded batches;
  *  dead rows are never purged. */
-function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: string): string {
+function elixirOutboxRelayModule(
+  appModule: string,
+  name: string,
+  deliverBody: string,
+  /** The delivery publishes through a broker: an unreachable broker halts the
+   *  pass and backs off without spending the row's attempt budget. */
+  brokerAware = false,
+): string {
   const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
     { name: "id", valueExpr: "row.id" },
     { name: "type", valueExpr: "row.type" },
@@ -332,6 +345,7 @@ function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: s
   @purge_interval_ms ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}
   @purge_batch ${OUTBOX_PURGE_BATCH}
   @default_retention_days ${OUTBOX_RETENTION_DEFAULT_DAYS}
+  @max_backoff_ms 30_000
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -339,14 +353,25 @@ function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: s
   def init(:ok) do
     Process.send_after(self(), :drain, @interval_ms)
     Process.send_after(self(), :purge, @purge_interval_ms)
-    {:ok, %{}}
+    {:ok, %{failures: 0}}
   end
 
+  # A failing pass (pool exhausted, database or broker briefly unreachable) is
+  # logged and retried after a capped exponential backoff; it never escapes the
+  # GenServer, so an outage cannot exhaust the supervisor's restart intensity.
   @impl true
   def handle_info(:drain, state) do
-    drain()
-    Process.send_after(self(), :drain, @interval_ms)
-    {:noreply, state}
+    case drain() do
+      :ok ->
+        Process.send_after(self(), :drain, @interval_ms)
+        {:noreply, %{state | failures: 0}}
+
+      {:error, error} ->
+        ${purgeErrorLog}
+        failures = state.failures + 1
+        Process.send_after(self(), :drain, backoff_ms(failures))
+        {:noreply, %{state | failures: failures}}
+    end
   end
 
   def handle_info(:purge, state) do
@@ -354,6 +379,8 @@ function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: s
     Process.send_after(self(), :purge, @purge_interval_ms)
     {:noreply, state}
   end
+
+  defp backoff_ms(failures), do: min(@interval_ms * Integer.pow(2, min(failures, 6)), @max_backoff_ms)
 
   defp drain do
     ${appModule}.Repo.all(
@@ -363,7 +390,25 @@ function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: s
         limit: @batch
       )
     )
-    |> Enum.each(&deliver/1)
+    ${
+      // Only a broker-aware deliver can answer `{:halt, _}`; a `{:halt, _}`
+      // clause the standalone relay can never reach is a typing warning, which
+      // --warnings-as-errors turns into a compile failure.
+      brokerAware
+        ? `|> Enum.reduce_while(:ok, fn row, :ok ->
+      case deliver(row) do
+        :ok -> {:cont, :ok}
+        {:halt, error} -> {:halt, {:error, error}}
+      end
+    end)`
+        : `|> Enum.each(&deliver/1)
+
+    :ok`
+    }
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   # Retention: delete a bounded batch of dispatched rows older than
@@ -399,7 +444,15 @@ ${deliverBody}
       from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
       set: [dispatched_at: DateTime.utc_now()]
     )
-  rescue
+
+    :ok
+  rescue${
+    brokerAware
+      ? `
+    error in ${appModule}.BrokerUnavailable -> {:halt, error}
+`
+      : ""
+  }
     error ->
       attempts = row.attempts + 1
       dead_at = if attempts >= @max_attempts, do: DateTime.utc_now()
@@ -412,6 +465,8 @@ ${deliverBody}
       if dead_at do
         ${deadLetteredLog}
       end
+
+      :ok
   end
 end
 `;
@@ -529,12 +584,12 @@ defmodule ${appModule}.LoomOutbox do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "__loom_outbox" do
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
-    field :dispatched_at, :utc_datetime_usec
+    field :dispatched_at, ${exLogInstantType()}
     field :attempts, :integer, default: 0
-    field :dead_at, :utc_datetime_usec
+    field :dead_at, ${exLogInstantType()}
   end
 end
 `,
@@ -669,6 +724,13 @@ export function emitElixirChannelFiles(
 # never fanned out locally — co-located consumers receive it through their
 # subscription exactly like remote ones.  Everything else forwards to the
 # local dispatcher (nil when the context has none).
+defmodule ${appModule}.BrokerUnavailable do
+  defexception [:reason]
+
+  @impl true
+  def message(%{reason: reason}), do: "broker unavailable: #{inspect(reason)}"
+end
+
 defmodule ${appModule}.Channels do
   require Logger
 
@@ -779,7 +841,7 @@ ${originHelpers(webModule, carriesOrigin && opts.durableBroker, carriesOrigin)}
       "id" => id,
       "type" => context <> "." <> type,
       "source" => "/loom/" <> context,
-      "time" => DateTime.to_iso8601(DateTime.utc_now()),
+      "time" => ${exEnvelopeInstant("DateTime.utc_now()")},
       "datacontenttype" => "application/json",
       "loomchannel" => address,
       "data" => data
@@ -803,12 +865,23 @@ ${
     ? hasKafka
       ? `
   defp transmit(:redis, conn, address, _key, json) do
-    Redix.command!(conn, ["PUBLISH", address, json])
+    redis_publish(conn, address, json)
   end
 `
       : `
   defp transmit(:redis, conn, address, json) do
-    Redix.command!(conn, ["PUBLISH", address, json])
+    redis_publish(conn, address, json)
+  end
+`
+    : ""
+}${
+  hasRedis
+    ? `
+  defp redis_publish(conn, address, json) do
+    case Redix.command(conn, ["PUBLISH", address, json]) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise ${appModule}.BrokerUnavailable, reason: reason
+    end
   end
 `
     : ""
@@ -817,12 +890,12 @@ ${
     ? hasKafka
       ? `
   defp transmit(:rabbitmq, conn, address, _key, json) do
-    GenServer.call(conn, {:publish, address, json})
+    call_broker(conn, {:publish, address, json}, 5_000)
   end
 `
       : `
   defp transmit(:rabbitmq, conn, address, json) do
-    GenServer.call(conn, {:publish, address, json})
+    call_broker(conn, {:publish, address, json}, 5_000)
   end
 `
     : ""
@@ -830,7 +903,23 @@ ${
   hasKafka
     ? `
   defp transmit(:kafka, conn, address, key, json) do
-    GenServer.call(conn, {:publish, address, key, json}, 30_000)
+    call_broker(conn, {:publish, address, key, json}, 30_000)
+  end
+`
+    : ""
+}${
+  hasRabbit || hasKafka
+    ? `
+  # The broker process answers {:error, reason} for a failed publish; a dead or
+  # unresponsive broker process exits the call.  Both surface as one exception
+  # the outbox relay backs off on.
+  defp call_broker(conn, message, timeout) do
+    case GenServer.call(conn, message, timeout) do
+      :ok -> :ok
+      {:error, reason} -> raise ${appModule}.BrokerUnavailable, reason: reason
+    end
+  catch
+    :exit, reason -> raise ${appModule}.BrokerUnavailable, reason: reason
   end
 `
     : ""
@@ -890,19 +979,27 @@ defmodule ${appModule}.KafkaBroker do
   def handle_call({:publish, address, key, json}, _from, state) do
     state = ensure_client(state)
     state = ensure_topic(state, address)
-    :ok = :brod.produce_sync(state.client, address, :hash, key, json)
-    {:reply, :ok, state}
+
+    case :brod.produce_sync(state.client, address, :hash, key, json) do
+      :ok -> {:reply, :ok, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  rescue
+    error -> {:reply, {:error, error}, state}
+  catch
+    :exit, reason -> {:reply, {:error, reason}, state}
   end
 
   defp ensure_client(%{started: false} = state) do
-    :ok =
-      :brod.start_client(
-        state.endpoints,
-        state.client,
-        [auto_start_producers: true] ++ state.conn_config
-      )
-
-    %{state | started: true}
+    case :brod.start_client(
+           state.endpoints,
+           state.client,
+           [auto_start_producers: true] ++ state.conn_config
+         ) do
+      :ok -> %{state | started: true}
+      {:error, {:already_started, _}} -> %{state | started: true}
+      {:error, reason} -> raise "kafka client not started: #{inspect(reason)}"
+    end
   end
 
   defp ensure_client(state), do: state
@@ -977,36 +1074,68 @@ defmodule ${appModule}.ChannelBroker do
   end
 
   @impl true
-  def init(url), do: {:ok, %{url: url, chan: nil, declared: MapSet.new()}}
+  def init(url) do
+    # The AMQP connection is linked to this process; trapping exits turns its
+    # death into a message handled below instead of taking this process down.
+    Process.flag(:trap_exit, true)
+    {:ok, %{url: url, conn: nil, chan: nil, declared: MapSet.new()}}
+  end
 
+  # An unreachable broker, a refused declare or a dead channel answers
+  # {:error, reason} and resets the connection state, so the next publish
+  # reconnects; the caller (the outbox relay) backs off and retries.
   @impl true
   def handle_call({:publish, address, payload}, _from, state) do
-    state = ensure_channel(state)
-
-    state =
-      if MapSet.member?(state.declared, address) do
-        state
-      else
-        :ok = AMQP.Exchange.declare(state.chan, address, :fanout, durable: true)
-        %{state | declared: MapSet.put(state.declared, address)}
-      end
-
-    :ok =
-      AMQP.Basic.publish(state.chan, address, "", payload,
-        persistent: true,
-        content_type: "application/json"
-      )
-
-    {:reply, :ok, state}
+    with {:ok, state} <- ensure_channel(state),
+         {:ok, state} <- ensure_exchange(state, address),
+         :ok <-
+           AMQP.Basic.publish(state.chan, address, "", payload,
+             persistent: true,
+             content_type: "application/json"
+           ) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, reset(state)}
+      other -> {:reply, {:error, other}, reset(state)}
+    end
+  catch
+    kind, reason -> {:reply, {:error, {kind, reason}}, reset(state)}
   end
+
+  @impl true
+  def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, reset(state)}
+  def handle_info(_message, state), do: {:noreply, state}
 
   defp ensure_channel(%{chan: nil, url: url} = state) do
-    {:ok, conn} = AMQP.Connection.open(url)
-    {:ok, chan} = AMQP.Channel.open(conn)
-    %{state | chan: chan}
+    with {:ok, conn} <- AMQP.Connection.open(url),
+         {:ok, chan} <- AMQP.Channel.open(conn) do
+      {:ok, %{state | conn: conn, chan: chan}}
+    end
   end
 
-  defp ensure_channel(state), do: state
+  defp ensure_channel(state), do: {:ok, state}
+
+  defp ensure_exchange(state, address) do
+    if MapSet.member?(state.declared, address) do
+      {:ok, state}
+    else
+      with :ok <- AMQP.Exchange.declare(state.chan, address, :fanout, durable: true) do
+        {:ok, %{state | declared: MapSet.put(state.declared, address)}}
+      end
+    end
+  end
+
+  defp reset(%{conn: nil} = state), do: %{state | chan: nil, declared: MapSet.new()}
+
+  defp reset(%{conn: conn} = state) do
+    try do
+      AMQP.Connection.close(conn)
+    catch
+      _, _ -> :ok
+    end
+
+    %{state | conn: nil, chan: nil, declared: MapSet.new()}
+  end
 end
 `,
     );
@@ -1026,12 +1155,12 @@ defmodule ${appModule}.LoomOutbox do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "__loom_outbox" do
-    field :occurred_at, :utc_datetime_usec
+    field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
-    field :dispatched_at, :utc_datetime_usec
+    field :dispatched_at, ${exLogInstantType()}
     field :attempts, :integer, default: 0
-    field :dead_at, :utc_datetime_usec
+    field :dead_at, ${exLogInstantType()}
   end
 end
 `,
@@ -1046,6 +1175,7 @@ ${elixirOutboxRelayModule(
   appModule,
   "OutboxRelay",
   `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
+  true,
 )}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);

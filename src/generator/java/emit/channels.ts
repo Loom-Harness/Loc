@@ -1,10 +1,4 @@
-import type {
-  EventIR,
-  FieldIR,
-  SystemIR,
-  TypeIR,
-  ValueObjectIR,
-} from "../../../ir/types/loom-ir.js";
+import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   OUTBOX_PURGE_BATCH,
   OUTBOX_PURGE_INTERVAL_SECONDS,
@@ -23,10 +17,10 @@ import {
 import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaCalendarDateWire, javaEnvelopeInstant } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
-import { javaInstantWire } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Broker transport classes (M-T4.4 slices 6b + 7c — the Java/Spring Boot leg
@@ -133,9 +127,8 @@ function toDataExpr(access: string, t: TypeIR, vo?: JavaVoEncode): string {
       vo.used.add(inner.name);
       return `encode${inner.name}(${access})`;
     }
-    if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
-    // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
-    if (inner.kind === "primitive" && inner.name === "date") return `${access}.toString()`;
+    if (inner.kind === "primitive" && inner.name === "datetime") return javaEnvelopeInstant(access);
+    if (inner.kind === "primitive" && inner.name === "date") return javaCalendarDateWire(access);
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
     // an arithmetic result's scale), which need not be 4dp: the SAME class of
@@ -185,18 +178,14 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
 }
 
 /** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
- *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the `id`
- *  leaf needs the system's id-value-type lookup (the leaves' `java.*` types
- *  are markers, so the unit's import block is derived).
- *
- *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
- *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
- *  which now lives once, is exhaustive, and `never`-checks — so a new IR type
- *  kind can no longer land silently in the `(String) ...` arm.
+ *  (`src/generator/_channels/wire-codec.ts`).  The leaves' `java.*` types are
+ *  markers, so the unit's import block is derived.  The `TypeIR.kind`
+ *  DISPATCH lives once there, is exhaustive, and `never`-checks — so a new IR
+ *  type kind cannot land silently in the `(String) ...` arm.
  *
  *  Of the five backends this is the codec that was already MOST complete: it
  *  is the only pre-port one with a real optional null-guard. */
-function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
+function javaWireDecode(): WireDecodeTarget {
   const asString: WireDecodeLeaf = (e) => `(String) ${e}`;
   return {
     lang: "java",
@@ -215,18 +204,7 @@ function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTa
       File: asString,
       duration: asString,
     },
-    id: (e, targetName) => {
-      const vt = idValueTypeOf(targetName);
-      if (vt === "string") return `new ${targetName}Id((String) ${e})`;
-      // Through the numeric seam like the scalar arms above (M-T5.23): an
-      // int-keyed id decoded with a bare `intValue()` wrapped an envelope
-      // value that does not fit into a DIFFERENT id, silently.
-      if (vt === "int")
-        return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", e)})`;
-      if (vt === "long")
-        return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", e)})`;
-      return `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`;
-    },
+    id: (e, targetName) => `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`,
     enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
     passthrough: asString,
@@ -245,13 +223,12 @@ function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTa
 function fromDataExpr(
   name: string,
   t: TypeIR,
-  idValueTypeOf: (target: string) => string,
   vos?: ReadonlyMap<string, readonly FieldIR[]>,
 ): string {
   return decodeField(
     "data",
     { name, type: t, optional: t.kind === "optional" },
-    javaWireDecode(idValueTypeOf),
+    javaWireDecode(),
     vos,
   );
 }
@@ -267,7 +244,6 @@ export function renderJavaChannelFiles(
   /** Dispatcher handler methods for broker-routed events — gates the
    *  ChannelConsumerService (a pure producer ships publish-only). */
   consumerHandlers: ChannelConsumerHandler[],
-  sys: SystemIR,
   /** M-T4.4: hosted durable events ride a broker-bound
    *  `queue`/`work` channel — the tee records them in `__loom_outbox` and
    *  the relay publishes on drain (design §5).  False on consumers that
@@ -315,15 +291,6 @@ export function renderJavaChannelFiles(
   }
   const routed = new Set([...routing.keys(), ...durableRouting.keys()]);
   const carried = carriedEvents.filter((e) => routed.has(e.name));
-  const idValueTypeOf = (target: string): string => {
-    for (const sub of sys.subdomains) {
-      for (const c of sub.contexts) {
-        const agg = c.aggregates.find((a) => a.name === target);
-        if (agg) return agg.idValueType;
-      }
-    }
-    return "uuid";
-  };
 
   const out = emissionSink("generator/java/emit/channels");
 
@@ -1026,7 +993,7 @@ export function renderJavaChannelFiles(
   const fromArms = carried.map(
     (ev) =>
       `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
-        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, vos))
+        .map((f) => fromDataExpr(f.name, f.type, vos))
         .join(", ")});`,
   );
   // Rendered before the header: a helper body can reach a nested VO, and
@@ -1175,12 +1142,12 @@ export function renderJavaChannelFiles(
             `            loomKey = String.valueOf(data.get(bound.key()));`,
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
+            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
+            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,

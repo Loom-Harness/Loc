@@ -57,6 +57,9 @@ import { renderReactDataGridChild } from "./data-grid-child.js";
  *  shared with `heexTarget`. */
 export const tsxTarget: WalkerTarget = {
   framework: "react",
+  // The React packs read the identity-keyed form label / enum option / submit
+  // tokens (`_walker/model-text-sites.ts`).
+  modelTextImplicitSites: true,
 
   // --- Expression-syntax leaves (JS) — shared by all JSX-family frontends --
   ...jsExprLeaves,
@@ -431,6 +434,13 @@ export const tsxTarget: WalkerTarget = {
 
   defaultInitFor(type: TypeIR): string {
     return defaultInitForJs(type);
+  },
+
+  /** `LocaleSwitcher {}` → the generated `src/lib/locale-switcher.tsx`
+   *  component, a named export the walker's import map carries. */
+  renderLocaleSwitcher(_call, ctx) {
+    addImport(ctx, "../lib/locale-switcher", "LocaleSwitcher");
+    return "<LocaleSwitcher />";
   },
 
   // --- Markup seams ---------------------------------------------------------

@@ -156,6 +156,7 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "list":
     case "literal":
@@ -785,6 +786,7 @@ function toastMessageProblem(
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":

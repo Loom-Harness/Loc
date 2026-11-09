@@ -44,6 +44,7 @@ export {
   checkThrowKindPlacement,
 } from "./match.js";
 export { checkMigrations } from "./migration.js";
+export { checkModelText } from "./model-text.js";
 export { checkUnknownNameRefs } from "./names.js";
 export { checkNullableReceivers } from "./nullable-receiver.js";
 export { checkIntegerLiteralPrecision } from "./numeric-literals.js";
@@ -74,6 +75,7 @@ export {
   checkContainment,
   checkContext,
   checkEntityPart,
+  checkIdTargets,
   checkSlotTypePosition,
   checkTypeReferences,
   checkValueObject,
@@ -104,6 +106,7 @@ export {
 export {
   checkApiBodyRefs,
   checkComponent,
+  checkI18nBlock,
   checkLayout,
   checkMenuBlock,
   checkPage,

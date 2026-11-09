@@ -98,12 +98,12 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     // Relay-published envelopes reuse the outbox row id as the idempotency key.
     expect(mod).toContain("id: __loomEventId ??");
     // The producer hosts NO workflow, yet boots the outbox + relay: the
-    // workflow-less producer shape emits the machinery and index.ts wires
+    // workflow-less producer shape emits the machinery and boot.ts wires
     // the relay dispatcher through the tee in relay mode.
     const workflows = files.get("sales_api/http/workflows.ts") ?? "";
     expect(workflows).toContain("export function createOutboxDispatcher(");
     expect(workflows).toContain("export function startOutboxRelay(");
-    const index = files.get("sales_api/index.ts") ?? "";
+    const index = files.get("sales_api/boot.ts") ?? "";
     expect(index).toContain(
       "startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }))",
     );
@@ -145,7 +145,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     expect(mod).not.toContain("amqplib");
     // Broadcast/ephemeral events stay on the inline tee; no durable routing.
     expect(mod).toContain('  OrderPlaced: "loom.Orders.Lifecycle",');
-    const index = files.get("sales_api/index.ts") ?? "";
+    const index = files.get("sales_api/boot.ts") ?? "";
     expect(index).not.toContain("startOutboxRelay");
     expect(files.get("sales_api/http/workflows.ts")).toBeUndefined();
   });

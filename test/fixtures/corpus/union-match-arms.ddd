@@ -1,0 +1,100 @@
+// A union-returning operation whose `return match { … }` arms build DIFFERENT
+// variants.  Each arm answers its own wire tag, and an `error` variant is the
+// error path only when its own arm runs — including when it is the FIRST arm,
+// the shape where the whole match used to be tagged with that variant.
+//
+// The arms branch on a `string` parameter.  Every operation reads `title`
+// (`this`), since a Phoenix returning operation that never reads its record
+// fails `mix compile --warnings-as-errors` on the unused binding.
+system UnionMatchArms {
+  subdomain Repairs {
+    context Desk {
+      payload Repaired { notes: string }
+      payload Replaced { part: string }
+      error Rejected { reason: string }
+
+      aggregate Ticket with crudish {
+        title: string
+        closed: bool
+        // Two success variants.
+        operation resolve(kind: string, notes: string): Repaired or Replaced {
+          return match {
+            kind == "repair" => Repaired { notes: title },
+            else => Replaced { part: notes }
+          }
+        }
+        // The FIRST arm is the error variant; the `else` succeeds.
+        operation decide(kind: string, notes: string): Repaired or Rejected {
+          return match {
+            kind == "reject" => Rejected { reason: title },
+            else => Repaired { notes: notes }
+          }
+        }
+        // Mutates, then answers per arm: the error arm leaves no trace
+        // (D-FAILURE-MODEL), a success arm commits the write.
+        operation close(kind: string, notes: string): Repaired or Replaced or Rejected {
+          closed := true
+          return match {
+            kind == "reject" => Rejected { reason: title },
+            kind == "repair" => Repaired { notes: notes },
+            else => Replaced { part: notes }
+          }
+        }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  api DeskApi from Repairs {
+    httpStatus Rejected -> 422
+  }
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a return match answers each arm's own variant" against d {
+    let t = api.tickets.create({ title: "pump", closed: false })
+
+    // Success arms of two different variants.
+    let repaired = api.tickets.resolve(t, { kind: "repair", notes: "seal" })
+    expect(repaired.type).toBe("Repaired")
+    expect(repaired.notes).toBe("pump")
+    let replaced = api.tickets.resolve(t, { kind: "replace", notes: "impeller" })
+    expect(replaced.type).toBe("Replaced")
+    expect(replaced.part).toBe("impeller")
+
+    // The first arm is the error variant: it answers only when it runs.
+    expect(api.tickets.decide(t, { kind: "reject", notes: "no part" })).toThrow(422)
+    let decided = api.tickets.decide(t, { kind: "repair", notes: "gasket" })
+    expect(decided.type).toBe("Repaired")
+    expect(decided.notes).toBe("gasket")
+
+    // A mutating op: the error arm writes nothing, a success arm commits.  A
+    // fresh ticket, so the read-backs see only `close`'s own writes.
+    let u = api.tickets.create({ title: "valve", closed: false })
+    expect(api.tickets.close(u, { kind: "reject", notes: "no part" })).toThrow(422)
+    let untouched = api.tickets.getById(u)
+    expect(untouched.closed).toBe(false)
+    expect(untouched.rowVersion).toBe(1)
+    let closed = api.tickets.close(u, { kind: "replace", notes: "seat" })
+    expect(closed.type).toBe("Replaced")
+    expect(closed.part).toBe("seat")
+    let committed = api.tickets.getById(u)
+    expect(committed.closed).toBe(true)
+    expect(committed.rowVersion).toBe(2)
+
+    // The remaining generated routes.  `t` goes first: no read records its
+    // `version`, which only the non-mutating calls above moved.
+    api.tickets.destroy(t)
+    expect(api.tickets.getById(t)).toThrow(404)
+    api.tickets.update(u, { title: "valve 2", closed: true })
+    expect(api.tickets.getById(u).title).toBe("valve 2")
+    let listed = api.tickets.all({ sort: "title", dir: "asc" })
+    expect(listed.items.length).toBe(1)
+  }
+}

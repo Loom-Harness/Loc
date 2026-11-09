@@ -42,7 +42,7 @@ async function repo(): Promise<string> {
 describe("node document capability filter (DEBT-02 slice 1)", () => {
   it("filters findManyByIds by the capability predicate", async () => {
     expect(await repo()).toContain(
-      "rows.map((r) => cartFromDoc(r.data as CartDoc, r.version)).filter((x) => (!x.isDeleted));",
+      "rows.map((r) => cartFromDoc(r.data as CartDoc, r.rowVersion)).filter((x) => (!x.isDeleted));",
     );
   });
 
@@ -51,7 +51,7 @@ describe("node document capability filter (DEBT-02 slice 1)", () => {
     const files = await generateSystemFiles(noFilter);
     const key = [...files.keys()].find((k) => /repositories\/.*cart/i.test(k))!;
     const r = files.get(key!)!;
-    expect(r).toContain("return cartFromDoc(row.data as CartDoc, row.version);");
+    expect(r).toContain("return cartFromDoc(row.data as CartDoc, row.rowVersion);");
     expect(r).not.toContain("const rec =");
   });
 });
@@ -107,29 +107,27 @@ describe("node document principal capability filter (DEBT-02 Slice B)", () => {
   it("binds the fail-closed principal in findById and gates the rehydrated aggregate", async () => {
     const r = await principalRepo();
     expect(r).toContain("const currentUser = requireCurrentUser();");
-    expect(r).toContain("const rec = orderFromDoc(row.data as OrderDoc, row.version);");
+    expect(r).toContain("const rec = orderFromDoc(row.data as OrderDoc, row.rowVersion);");
     expect(r).toContain("if (!((rec.tenantId === currentUser.tenantId))) return null;");
   });
 
   it("binds the principal in findManyByIds and AND-s the in-app predicate", async () => {
     expect(await principalRepo()).toContain(
-      "rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version)).filter((x) => (x.tenantId === currentUser.tenantId));",
+      "rows.map((r) => orderFromDoc(r.data as OrderDoc, r.rowVersion)).filter((x) => (x.tenantId === currentUser.tenantId));",
     );
   });
 
   it("narrows the synthesized findAll by the principal predicate", async () => {
     const r = await principalRepo();
     expect(r).toContain(
-      "const all = rows.map((r) => orderFromDoc(r.data as OrderDoc, r.version));",
+      "const all = rows.map((r) => orderFromDoc(r.data as OrderDoc, r.rowVersion));",
     );
     expect(r).toContain("all.filter((x) => (x.tenantId === currentUser.tenantId))");
   });
 
-  // KNOWN DEFECT: a document aggregate's plain `Repo.find(C)` read emits no
-  // repository method (a routed handler calls `runFindAllBy<C>` regardless),
-  // so there is no criterion read here to narrow.  Flip to `it` once the
-  // document repository emits it.
-  it.fails("applies the principal capability BEFORE a criterion read's own predicate", async () => {
+  // A document criterion read (`runFindAllBy<C>`) filters in-app: the
+  // principal capability first, then the criterion's own predicate.
+  it("applies the principal capability BEFORE a criterion read's own predicate", async () => {
     const r = await principalRepo();
     const start = r.indexOf("async runFindAllByOrdersByCode(");
     expect(start).toBeGreaterThanOrEqual(0);

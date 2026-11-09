@@ -4,19 +4,11 @@
 // with a pre-provisioned realm + seeded demo user, and points the
 // `auth: required` backend at it.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
-
-const services = createDddServices(NodeFileSystem);
-const parse = parseHelper<Model>(services.Ddd);
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 async function filesFor(src: string): Promise<Map<string, string>> {
-  const doc = await parse(src, { validation: false });
-  return generateSystems(doc.parseResult.value).files;
+  return generateSystemFiles(src);
 }
 
 function system(authBlock: string): string {
@@ -46,7 +38,8 @@ system Helpdesk {
   ${authBlock}
   subdomain Support {
     context Tickets {
-      aggregate Ticket with crudish { open: bool  derived display: string = "t" }
+      policy Staff(): bool = currentUser.id != ""
+      aggregate Ticket with crudish(requires: Staff) { open: bool  derived display: string = "t" }
       repository Tickets for Ticket { }
     }
   }
@@ -181,7 +174,8 @@ system Helpdesk {
   }
   subdomain Support {
     context Tickets {
-      aggregate Ticket with crudish { subject: string  derived display: string = subject }
+      policy Staff(): bool = currentUser.id != ""
+      aggregate Ticket with crudish(requires: Staff) { subject: string  derived display: string = subject }
       repository Tickets for Ticket { }
     }
   }
@@ -221,7 +215,8 @@ system FieldOps {
   subdomain Ops {
     permissions { workOrderWrite }
     context Work {
-      aggregate Job with crudish { title: string  derived display: string = title }
+      policy Staff(): bool = currentUser.id != ""
+      aggregate Job with crudish(requires: Staff) { title: string  derived display: string = title }
       repository Jobs for Job { }
     }
   }
@@ -299,7 +294,8 @@ system FieldOps {
   auth { provider: keycloak  oidc { issuer: env("I")  clientId: env("C") } }
   subdomain Ops {
     context Work {
-      aggregate Job with crudish { title: string  derived display: string = title }
+      policy Staff(): bool = currentUser.id != ""
+      aggregate Job with crudish(requires: Staff) { title: string  derived display: string = title }
       repository Jobs for Job { }
     }
   }
@@ -443,7 +439,8 @@ system Claims {
   subdomain Desk {
     permissions { manageAgents  payClaims }
     context A {
-      aggregate Agent with crudish { name: string }
+      policy Staff(): bool = currentUser.id != ""
+      aggregate Agent with crudish(requires: Staff) { name: string }
       repository Agents for Agent { }
     }
   }

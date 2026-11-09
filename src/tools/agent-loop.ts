@@ -16,7 +16,7 @@
 // playground's real client maps 1:1, but nothing here depends on that provider.
 // ---------------------------------------------------------------------------
 
-import { callTool, TOOLS } from "./catalog.js";
+import { callTool, TOOLS, type ToolDef } from "./catalog.js";
 
 /** A text span in a message. */
 export interface TextBlock {
@@ -91,26 +91,30 @@ export type Complete = (req: {
   onTextDelta?: (text: string) => void;
 }) => Promise<Completion>;
 
-/** The catalog as provider-neutral tool specs — the tool definitions an LLM
- *  tool-use request expects. */
-export function toolSpecs(): ToolSpec[] {
-  return TOOLS.map((t) => ({
+/** A tool set as provider-neutral tool specs — the tool definitions an LLM
+ *  tool-use request expects.  Default: the catalog. */
+export function toolSpecs(tools: readonly ToolDef[] = TOOLS): ToolSpec[] {
+  return tools.map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.inputSchema,
   }));
 }
 
-/** Run every `tool_use` block in an assistant turn through the catalog and
- *  return the matching `tool_result` blocks (in order).  A handler throw or an
- *  unknown tool becomes an `is_error` result the model can recover from —
- *  never a thrown exception that breaks the loop. */
-export async function dispatchToolUses(blocks: ContentBlock[]): Promise<ToolResultBlock[]> {
+/** Run every `tool_use` block in an assistant turn through the tool set
+ *  (default: the catalog) and return the matching `tool_result` blocks (in
+ *  order).  A handler throw or an unknown tool becomes an `is_error` result the
+ *  model can recover from — never a thrown exception that breaks the loop. */
+export async function dispatchToolUses(
+  blocks: ContentBlock[],
+  tools?: readonly ToolDef[],
+): Promise<ToolResultBlock[]> {
+  const run = tools ? toolDispatcher(tools) : callTool;
   const results: ToolResultBlock[] = [];
   for (const block of blocks) {
     if (block.type !== "tool_use") continue;
     try {
-      const result = await callTool(block.name, block.input ?? {});
+      const result = await run(block.name, block.input ?? {});
       results.push({
         type: "tool_result",
         tool_use_id: block.id,
@@ -128,9 +132,36 @@ export async function dispatchToolUses(blocks: ContentBlock[]): Promise<ToolResu
   return results;
 }
 
+/** `callTool` over an arbitrary tool set — what a host that adds its own tools
+ *  ({@link withHostTools}) dispatches through. */
+export function toolDispatcher(
+  tools: readonly ToolDef[],
+): (name: string, args: Record<string, unknown>) => Promise<unknown> {
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  return (name, args) => {
+    const tool = byName.get(name);
+    if (!tool) return Promise.reject(new Error(`unknown tool '${name}'`));
+    return tool.handler(args);
+  };
+}
+
+/** The catalog with a host's own tools layered on: a host tool replaces the
+ *  catalog tool of the same name (a host that owns state — the playground's
+ *  workspace — runs the verb against it) and any other is appended.  The
+ *  catalog itself stays pure; the side effects live in the host's handlers. */
+export function withHostTools(hostTools: readonly ToolDef[]): ToolDef[] {
+  const host = new Map(hostTools.map((t) => [t.name, t]));
+  const merged = TOOLS.map((t) => host.get(t.name) ?? t);
+  const catalogNames = new Set(TOOLS.map((t) => t.name));
+  return [...merged, ...hostTools.filter((t) => !catalogNames.has(t.name))];
+}
+
 export interface RunAgentOptions {
   /** The injected LLM call. */
   complete: Complete;
+  /** The tools the model is offered and the loop dispatches.  Default: the
+   *  catalog. */
+  tools?: readonly ToolDef[];
   /** The conversation so far — seed with the user's first message.  Mutated in
    *  place (each turn appended) AND returned, so a UI can render live. */
   messages: Message[];
@@ -165,7 +196,7 @@ export interface RunAgentResult {
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const { complete, messages, system, onMessage, onTextDelta } = opts;
   const maxSteps = opts.maxSteps ?? 12;
-  const tools = toolSpecs();
+  const tools = toolSpecs(opts.tools);
   let usage: TokenUsage | undefined;
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -180,7 +211,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     messages.push(assistant);
     onMessage?.(assistant);
 
-    const toolResults = await dispatchToolUses(completion.content);
+    const toolResults = await dispatchToolUses(completion.content, opts.tools);
     if (toolResults.length === 0) {
       return { messages, steps: step, stoppedBy: "end_turn", usage };
     }

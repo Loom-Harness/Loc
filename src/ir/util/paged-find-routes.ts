@@ -48,15 +48,14 @@ export function pagedFindRoutes(
   return out;
 }
 
-/** The route a frontend hook calls for `find`, or `undefined` when the find is
- *  synthesized and no served api routes it (so no hook is emitted).  A
- *  declared find keeps its derived `/<plural>/<find>` route: `null` says "use
- *  the derived path". */
+/** The route a frontend hook calls for the synthesized paged find `find`, or
+ *  `undefined` when no served api routes it (so no hook is emitted).  Every
+ *  find a repository carries beside the auto-`all` is synthesized, so this is
+ *  the only HTTP surface a named find has. */
 export function servedFindRoute(
   aggName: string,
-  find: Pick<FindIR, "name" | "synthesized">,
+  find: Pick<FindIR, "name">,
   routes: PagedFindRoutes | undefined,
-): RouteIR | null | undefined {
-  if (!find.synthesized) return null;
+): RouteIR | undefined {
   return routes?.get(aggName)?.get(find.name);
 }

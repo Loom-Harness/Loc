@@ -18,6 +18,7 @@ import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
 import { lines } from "../../util/code-builder.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
+import { sourceText } from "../_walker/source-text.js";
 import { renderFlutterGate } from "./auth-gate.js";
 import { dartStringLit } from "./i18n.js";
 
@@ -37,7 +38,7 @@ export function renderFlutterNavMenu(
   const text = (label: string, key: string | undefined): string => {
     if (!(i18nEnabled && key)) return dartStringLit(label);
     usesT = true;
-    return `t(${dartStringLit(key)}, ${dartStringLit(label)})`;
+    return `t(${dartStringLit(key)}, ${dartStringLit(sourceText(key, label))})`;
   };
   const pageAt = (route: string): PageIR | undefined => ui.pages.find((p) => p.route === route);
 

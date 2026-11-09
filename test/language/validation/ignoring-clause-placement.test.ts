@@ -190,16 +190,54 @@ describe("loom.ignoring-clause-placement — the bypass clause only where it is 
       ).toEqual([]);
     });
 
-    it("errors on `findById … ignoring` as an `if let` source — findById is not one", async () => {
-      const { diagnostics } = await parseString(
-        singleRow("if let o = Orders.find(id) ignoring * { o.bump() }"),
-      );
-      expect(codesOf(diagnostics)).toContain(CODE);
+    it("accepts `find(id) … ignoring` as a workflow `if let` source — it calls its own method", async () => {
+      expect(
+        await errorsOf(singleRow("if let o = Orders.find(id) ignoring * { o.bump() }")),
+      ).toEqual([]);
     });
 
-    it("errors on `findAll(C) … ignoring` in a domain-service expression — the service read drops it", async () => {
+    it("accepts a `let`-bound `find(C)` / `find(id)` with `ignoring` in a workflow", async () => {
+      expect(
+        await errorsOf(
+          singleRow(
+            "let a = Orders.find(Big(min)) ignoring softDeletable\n let b = Orders.find(id) ignoring *\n if let x = a { x.bump() }\n if let y = b { y.bump() }",
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("accepts `let o = Agg.find(id) ignoring …` in a context integration test", async () => {
+      const src = singleRow("").replace(
+        "workflow w {",
+        'test "reads a deleted order" {\n let o = Order.find(Order.create(total: 1).id) ignoring softDeletable\n expect(o.total).toBe(1)\n }\n workflow w {',
+      );
+      expect(codesOf((await parseString(src)).diagnostics)).not.toContain(CODE);
+    });
+
+    it("errors on `find(C) … ignoring` in an aggregate unit test — nothing reads it there", async () => {
+      const src = singleRow("").replace(
+        "operation bump() { total := total + 1 }",
+        'operation bump() { total := total + 1 }\n test "t" { let o = Orders.find(Big(1)) ignoring * }',
+      );
+      expect(codesOf((await parseString(src)).diagnostics)).toContain(CODE);
+    });
+
+    it("accepts `all(C) … ignoring` in a domain-service expression and `let` — it runs its own retrieval", async () => {
+      expect(
+        await errorsOf(
+          singleRow("", "return (Orders.all(Big(min)) ignoring softDeletable).count > 0"),
+        ),
+      ).toEqual([]);
+      expect(
+        await errorsOf(
+          singleRow("", "let xs = Orders.all(Big(min)) ignoring *\n return xs.count > 0"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("errors on a bare `all() … ignoring` in a domain service — the whole-collection read carries no stance", async () => {
       const { diagnostics } = await parseString(
-        singleRow("", "return (Orders.all(Big(min)) ignoring softDeletable).count > 0"),
+        singleRow("", "return (Orders.all() ignoring softDeletable).count > 0"),
       );
       expect(codesOf(diagnostics)).toContain(CODE);
     });

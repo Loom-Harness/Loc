@@ -1,0 +1,82 @@
+// Backend → backend HTTP in the playground.  `shippingSvc` calls `ordersSvc`
+// through a typed `kind: api` resource: no address is authored — the compose
+// file derives `ORDERS_URL=http://orders_svc:3000`, the generated client reads
+// it, and the playground routes that address to `ordersSvc`'s in-browser app
+// (each deployable boots in its own worker with its own env).
+//
+// Try it: POST /orders on `ordersSvc` (target picker) to create an order, then
+// POST the `fulfil` workflow on `shippingSvc` with that order's id.
+
+system CrossDeployable {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish {
+        code: string
+        status: string
+      }
+      repository Orders for Order
+    }
+    context Shipping {
+      aggregate Shipment with crudish {
+        orderCode: string
+        status: string
+      }
+      repository Shipments for Shipment { }
+      workflow fulfil {
+        // `Order id`, not `string`: a foreign aggregate id the caller does NOT
+        // host, so the deployable has to declare the brand itself — the shape
+        // that broke every backend before `src/ir/util/foreign-ids.ts`.
+        create(orderId: Order id) {
+          let o = orders.getOrderById(orderId)
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
+        }
+      }
+      // The COLLECTION half.  Two things are pinned here that nothing else
+      // covers: that a caller can reach the callee's auto-`findAll` at all (the
+      // resolver's operation set has to include the ENRICHMENT-derived ops, not
+      // just the declared ones), and that the response is the callee's paged
+      // envelope rather than nothing — reading `.total` off it is what makes a
+      // client returning void a compile error instead of a silent no-op.
+      // (Deliberately a `match` on the count rather than a string conversion:
+      //  there is no `toString` intrinsic in the stdlib, and writing one anyway
+      //  compiles on node/.NET/Java — which have a native method of that name —
+      //  while failing at RUNTIME on Python and Elixir.)
+      workflow census {
+        create(label: string) {
+          let listing = orders.allOrder()
+          let note = match { listing.total > 0 => "SEEN", else => "EMPTY" }
+          let s = Shipment.create(orderCode: label, status: note)
+        }
+      }
+      // The WRITE half: the caller creates a row in the CALLEE's database
+      // through the typed client.  Every other workflow here only reads, so
+      // without this the write methods (`createOrder`/`updateOrder`/
+      // `destroyOrder`) were emitted on all five backends and never exercised.
+      workflow placeOrder {
+        create(code: string) {
+          let created = orders.createOrder({ code: code, status: "Draft" })
+          let s = Shipment.create(orderCode: code, status: "Placed")
+        }
+      }
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  resource ordersState   { for: Orders,   kind: state, use: pg }
+  resource shippingState { for: Shipping, kind: state, use: pg }
+  // No address anywhere in this source — the binding is what makes it derivable.
+  resource orders        { for: Shipping, kind: api,   use: OrdersApi }
+  deployable ordersSvc {
+    platform: node
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: OrdersApi
+    port: 4000
+  }
+  deployable shippingSvc {
+    platform: node
+    contexts: [Shipping]
+    dataSources: [shippingState, orders]
+    port: 4001
+  }
+}

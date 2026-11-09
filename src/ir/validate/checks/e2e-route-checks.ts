@@ -45,12 +45,14 @@ import {
   isRequiredCreateInput,
   wireFieldsForAggregate,
 } from "../../enrich/wire-projection.js";
+import { PAGED_QUERY_PARAMS } from "../../stdlib/generics.js";
 import type {
   AggregateIR,
   ApiIR,
   BoundedContextIR,
   ExprIR,
   LiteralKind,
+  ProjectionIR,
   RepositoryIR,
   SubdomainIR,
   SystemIR,
@@ -72,7 +74,7 @@ import {
   type RoutedHandlerTarget,
   resolveRoutedHandler,
 } from "../../util/routed-handler.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { walkTestStmtExprsDeep } from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -115,9 +117,16 @@ export function validateE2ERouteContract(
   for (const call of collectMagicCalls(test.statements, "api")) {
     if (!checkApiVerb(call, contexts, apis, source, diags)) continue;
     routed.add(`${call.slug}.${call.verb}`);
+    // A projection read — the renderer's first arm for `byKey` / `list`.
+    const proj = projectionBySlug(call.slug, contexts);
+    if (proj && (call.verb === "byKey" || call.verb === "list")) {
+      checkProjectionReadArgs(call, proj, source, diags);
+      continue;
+    }
     const resolved = resolveAggregate(call.slug, contexts);
     if (resolved) {
-      checkApiPayload(call, resolved.agg, contexts, source, diags);
+      if (call.verb === "all") checkListQuery(call, resolved.agg, source, diags);
+      else checkApiPayload(call, resolved.agg, contexts, source, diags);
       continue;
     }
     // The WORKFLOW accessor's body half — `api.<wf>.run({…})`.  Aggregate
@@ -596,8 +605,7 @@ function collectMagicCalls(statements: readonly TestStmtIR[], magicId: "api" | "
     if (c) out.push(c);
   };
   for (const s of statements) {
-    if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-    else walkStmtExprsDeep(s, visit);
+    walkTestStmtExprsDeep(s, visit);
   }
   return out;
 }
@@ -635,9 +643,15 @@ function resolveAggregate(
 }
 
 function findProjectionBySlug(slug: string, contexts: BoundedContextIR[]): boolean {
-  return contexts.some((c) =>
-    c.projections.some((p) => lowerFirst(p.name) === slug || snake(p.name) === slug),
-  );
+  return projectionBySlug(slug, contexts) !== undefined;
+}
+
+function projectionBySlug(slug: string, contexts: BoundedContextIR[]): ProjectionIR | undefined {
+  for (const c of contexts) {
+    const p = c.projections.find((x) => lowerFirst(x.name) === slug || snake(x.name) === slug);
+    if (p) return p;
+  }
+  return undefined;
 }
 
 function collectContexts(
@@ -681,12 +695,12 @@ function collectContexts(
 // WHAT IS DELIBERATELY NOT CHECKED, and why — a gate that guesses is worse
 // than no gate, because a false positive turns a valid model red:
 //
-//   - `find` / `list` / `all` / projection reads.  Their argument is a QUERY
-//     string, not a body, and it carries an implicit pagination set
-//     (`page`, `pageSize`, `sort`, `dir`) on top of the declared params — 145
-//     `all(...)` sites in the corpus depend on it.  Their RESPONSE is a
-//     per-cardinality envelope (`{items,total}` for a list find, a bare row for
-//     a unique-key one), which this layer has no derivation for.
+//   - the VALUES of a list read's query.  `all({…})` is checked for its KEYS
+//     only (`checkListQuery`: the pagination set `page`/`pageSize`/`sort`/
+//     `dir` is its whole vocabulary — a repository declares no finds), and a
+//     projection read for its ARITY (`checkProjectionReadArgs`).  Which column
+//     a `sort:` names, and the list RESPONSE (a paged envelope or a bare array,
+//     per persistence shape), are not judged.
 //   - a non-literal value.  A member read (`cust.id`), a nested `{…}` for a
 //     value object, a `[…]`, a bare `ref` and a conversion call (`decimal(x)`)
 //     are all admissible wire values whose type this layer cannot decide; only
@@ -703,6 +717,62 @@ function collectContexts(
 // enumerated all 1001 magic-call sites across the tracked `.ddd` corpus, and
 // these are the shapes whose contract is not decidable here.
 // ---------------------------------------------------------------------------
+
+/** `api.<agg>.all({…})` — the object literal is rendered as the QUERY STRING
+ *  of `GET /api/<aggs>`, and the pagination set is everything that route
+ *  reads.  An unknown key (`pgae`) is not refused by any backend — it is
+ *  silently ignored — so the test runs against the default page and an
+ *  assertion about the page it asked for passes or fails for the wrong reason. */
+function checkListQuery(
+  call: MagicCall,
+  agg: AggregateIR,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const query = call.args[0];
+  if (query?.kind !== "object") return;
+  for (const entry of query.fields) {
+    if (PAGED_QUERY_PARAMS.includes(entry.name)) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unknown-query-key",
+      source,
+      message: diagMessage("loom.e2e-unknown-query-key", {
+        slug: call.slug,
+        key: entry.name,
+        aggregate: agg.name,
+        known: PAGED_QUERY_PARAMS.join(", "),
+        suggestion: nearestName(entry.name, PAGED_QUERY_PARAMS),
+      }),
+    });
+  }
+}
+
+/** `api.<proj>.byKey(k)` / `.list()` — `GET /projections/<proj>[/{key}]`.
+ *  `byKey` reads exactly one path key (with none, `renderProjectionRead`
+ *  throws at generate time); `list` reads none, so any argument it is given is
+ *  dropped by the renderer and the request is not the one the test wrote. */
+function checkProjectionReadArgs(
+  call: MagicCall,
+  proj: ProjectionIR,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  const expected = call.verb === "byKey" ? 1 : 0;
+  if (call.args.length === expected) return;
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-projection-read-arity",
+    source,
+    message: diagMessage("loom.e2e-projection-read-arity", {
+      slug: call.slug,
+      verb: call.verb,
+      projection: proj.name,
+      got: call.args.length,
+      expected,
+    }),
+  });
+}
 
 /** The create-input contract as the WIRE carries it: the reified
  *  `createInput` for a state-backed aggregate, or the create action's params
@@ -1112,7 +1182,7 @@ function describeLiteral(lit: LiteralKind, value: string): string {
  *  {@link CREATE_RESPONSE_FIELDS}, and a workflow's `instance` answers its
  *  persisted instance row.  Every other verb is skipped — its body is either
  *  not derived here (a find's paged-vs-row split) or not a row at all. */
-const SHAPED_RESPONSE_VERBS = new Set(["getById", "create", "instance"]);
+const SHAPED_RESPONSE_VERBS = new Set(["getById", "create", "instance", "byKey"]);
 
 /** The WHOLE body of a `201` create on every backend — and nothing wider:
  *  Hono `c.json({ id }, 201)`, FastAPI `Create<Agg>Response { id }`, Spring
@@ -1190,6 +1260,37 @@ function checkWorkflowInstanceRead(
   });
 }
 
+/** One read off a projection's `byKey(k)` row, against its `wireShape`.  No
+ *  `extends` / masking escape applies: a projection row has neither. */
+function checkProjectionRowRead(
+  r: ResponseRead,
+  proj: ProjectionIR,
+  seen: Set<string>,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  // Populated by enrichment; absent only on an un-enriched model, which has
+  // nothing to judge against.
+  const shape = proj.wireShape;
+  if (!shape) return;
+  const readable = shape.map((w) => w.name);
+  if (readable.includes(r.field)) return;
+  if (seen.has(r.read)) return;
+  seen.add(r.read);
+  diags.push({
+    severity: "error",
+    code: "loom.e2e-unknown-response-field",
+    source,
+    message: diagMessage("loom.e2e-unknown-response-field#projection", {
+      read: r.read,
+      slug: r.call.slug,
+      projection: proj.name,
+      known: readable.join(", ") || "(none)",
+      suggestion: nearestName(r.field, readable),
+    }),
+  });
+}
+
 function checkResponseFields(
   test: TestE2EIR,
   contexts: BoundedContextIR[],
@@ -1226,6 +1327,16 @@ function checkResponseFields(
     const r = readOf(e);
     if (!r) return;
     const { call } = r;
+    // A projection's `byKey(k)` answers one read-model ROW — its `wireShape`
+    // (correlation token, then the state fields), the list every backend
+    // builds the projection's response DTO from.  Resolved before the
+    // aggregate, the precedence `test-checks.ts` and the renderer use for the
+    // projection read verbs.
+    const proj = call.verb === "byKey" ? projectionBySlug(call.slug, contexts) : undefined;
+    if (proj) {
+      checkProjectionRowRead(r, proj, seen, source, diags);
+      return;
+    }
     const resolved = resolveAggregate(call.slug, contexts);
     if (!resolved) {
       // The WORKFLOW accessor's read half — `let one = api.<wf>.instance(k)`.
@@ -1257,13 +1368,11 @@ function checkResponseFields(
       });
       return;
     }
+    // An `extends` subtype is judged like any other aggregate: enrichment has
+    // already merged every ancestor's fields into its `fields`, so its wire
+    // shape here is the one its getById serves (`.loom/wire-spec.json` agrees).
     const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);
     if (readable.includes(r.field)) return;
-    // An `extends` subtype does not carry its abstract base's fields in its own
-    // `fields` (the I1 note on `AggregateIR.extendsAggregate`), so a read of an
-    // inherited field is not decidable here and the whole aggregate is skipped
-    // rather than half-judged.
-    if (resolved.agg.extendsAggregate) return;
     // One read, one diagnostic, however many times the body repeats it.
     if (seen.has(r.read)) return;
     seen.add(r.read);
@@ -1282,7 +1391,6 @@ function checkResponseFields(
     });
   };
   for (const s of test.statements) {
-    if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-    else walkStmtExprsDeep(s, visit);
+    walkTestStmtExprsDeep(s, visit);
   }
 }

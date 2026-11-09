@@ -57,8 +57,8 @@
           "archived": false,
           "id": "<volatile:key>",
           "plate": "C-1",
-          "seats": 4,
-          "version": 1
+          "rowVersion": 1,
+          "seats": 4
         }
       ]
     },
@@ -71,8 +71,8 @@
         "archived": false,
         "id": "<volatile:key>",
         "plate": "C-1",
-        "seats": 4,
-        "version": 1
+        "rowVersion": 1,
+        "seats": 4
       }
     },
     {
@@ -104,7 +104,7 @@
           "desk": 3,
           "id": "<volatile:key>",
           "name": "Bob",
-          "version": 1
+          "rowVersion": 1
         }
       ]
     },
@@ -145,7 +145,7 @@
         "desk": 3,
         "id": "<volatile:key>",
         "name": "Bob",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -176,8 +176,8 @@
           "archived": false,
           "id": "<volatile:key>",
           "reachM": 40,
-          "tag": "CR-1",
-          "version": 1
+          "rowVersion": 1,
+          "tag": "CR-1"
         }
       ]
     },
@@ -191,8 +191,8 @@
           "archived": false,
           "id": "<volatile:key>",
           "liftKg": 2000,
-          "tag": "FL-1",
-          "version": 1
+          "rowVersion": 1,
+          "tag": "FL-1"
         }
       ]
     },
@@ -205,9 +205,9 @@
         "archived": false,
         "id": "<volatile:key>",
         "reachM": 40,
+        "rowVersion": 1,
         "tag": "CR-1",
-        "type": "Crane",
-        "version": 1
+        "type": "Crane"
       }
     },
     {
@@ -219,9 +219,9 @@
         "archived": false,
         "id": "<volatile:key>",
         "liftKg": 2000,
+        "rowVersion": 1,
         "tag": "FL-1",
-        "type": "Forklift",
-        "version": 1
+        "type": "Forklift"
       }
     },
     {
@@ -287,8 +287,8 @@
         "archived": false,
         "id": "<volatile:key>",
         "plate": "C-9",
-        "seats": 2,
-        "version": 2
+        "rowVersion": 2,
+        "seats": 2
       }
     },
     {
@@ -353,7 +353,7 @@
         "id": "<volatile:key>",
         "payloadKg": 5,
         "plate": "T-9",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -402,7 +402,7 @@
         "id": "<volatile:key>",
         "licence": "L-10",
         "name": "Cy",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -451,7 +451,7 @@
         "desk": 2,
         "id": "<volatile:key>",
         "name": "Di",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -499,8 +499,8 @@
         "archived": false,
         "id": "<volatile:key>",
         "reachM": 12,
-        "tag": "CR-9",
-        "version": 2
+        "rowVersion": 2,
+        "tag": "CR-9"
       }
     },
     {
@@ -548,8 +548,8 @@
         "archived": false,
         "id": "<volatile:key>",
         "liftKg": 20,
-        "tag": "FL-9",
-        "version": 2
+        "rowVersion": 2,
+        "tag": "FL-9"
       }
     },
     {
@@ -654,18 +654,12 @@
       "seq": 62,
       "method": "POST",
       "path": "/api/cars/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "seats is required",
-            "pointer": "/seats"
-          }
-        ],
+        "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

@@ -1,3 +1,5 @@
+import { foldTenancyFor, foldTenantColumns } from "../../../ir/enrich/fold-tenancy.js";
+import { projectionTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -7,9 +9,8 @@ import type {
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import { jid } from "../java-ident.js";
-import { renderJavaType } from "../render-expr.js";
+import { boxedJavaType, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
@@ -45,7 +46,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 /** The read-model table name — matches `projectionTableShape` in the migrations
  *  builder (`plural(snake(name))`). */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return tableNameFor(proj.name);
+  return projectionTableName(proj);
 }
 
 function correlationField(proj: ProjectionIR): FieldIR {
@@ -85,7 +86,13 @@ export function renderProjectionRowEntity(
   const corr = proj.correlationField as string;
   // Non-key columns are nullable (partial upsert), so render every non-key
   // field as if optional — this drives the nullable column mapping AND leaves
-  // `_allocate` an empty seed (no required non-key defaults).
+  // `_allocate` an empty seed (no required non-key defaults).  Only a DECLARED
+  // optional field is boxed: it is the one whose column can actually read NULL.
+  // A required field keeps its primitive, so a freshly allocated row starts at
+  // 0 / false and a fold's `+=` / `!` never unboxes a null.
+  const declaredOptional = new Set(proj.stateFields.filter((f) => f.optional).map((f) => f.name));
+  const rowJavaType = (f: FieldIR): string =>
+    declaredOptional.has(f.name) ? boxedJavaType(f.type) : renderJavaType(f.type);
   const stateOnly = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
@@ -98,6 +105,11 @@ export function renderProjectionRowEntity(
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
 
+  // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
+  // `(tenant_id, <key>)`: the composite `Key` embeddable is the row's id, and
+  // the org path rides beside it.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) return renderTenantScopedRowEntity(proj, ctx, basePkg, pkg, schema, tenancy);
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
@@ -105,7 +117,7 @@ export function renderProjectionRowEntity(
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
-    fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
+    fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
   }
 
   // Empty-seed allocate factory — every non-key column is nullable, so a fresh
@@ -140,8 +152,8 @@ export function renderProjectionRowEntity(
   const accessors = [
     ...accessor(idClass, corr),
     ...stateOnly.flatMap((f) => [
-      ...accessor(renderJavaType(f.type), f.name),
-      ...setter(renderJavaType(f.type), f.name),
+      ...accessor(rowJavaType(f), f.name),
+      ...setter(rowJavaType(f), f.name),
     ]),
   ];
 
@@ -170,6 +182,120 @@ export function renderProjectionRowEntity(
 
 /** The Spring Data repository over the read-model row, keyed by the correlation
  *  id — the load/save handle the dispatcher fold + the read routes go through. */
+/** The row entity of a tenant-scoped fold: `@EmbeddedId Key rowKey` over
+ *  `(tenant_id, <key>)`, the org path as a plain column, the correlation and
+ *  tenant exposed through record-style accessors like every other row field. */
+function renderTenantScopedRowEntity(
+  proj: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+  basePkg: string,
+  pkg: string,
+  schema: string | undefined,
+  tenancy: NonNullable<ReturnType<typeof foldTenancyFor>>,
+): string {
+  const corr = proj.correlationField as string;
+  const declaredOptional = new Set(proj.stateFields.filter((f) => f.optional).map((f) => f.name));
+  const rowJavaType = (f: FieldIR): string =>
+    declaredOptional.has(f.name) ? boxedJavaType(f.type) : renderJavaType(f.type);
+  const stateOnly = proj.stateFields
+    .filter((f) => f.name !== corr)
+    .map((f) => ({ ...f, optional: true }) as FieldIR);
+  const voLookup = valueObjectFieldLookup(ctx);
+  const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;
+  const cls = projectionRowClass(proj);
+  const idClass = projectionCorrIdClass(proj);
+  const { tenant, dataKey } = foldTenantColumns(tenancy);
+  const t = jid(tenant.field);
+  const d = jid(dataKey.field);
+  const c = jid(corr);
+  const fieldLines: string[] = [
+    `    @EmbeddedId`,
+    `    Key rowKey;`,
+    `    @Column(name = "${hbIdent(dataKey.column)}")`,
+    `    String ${d};`,
+  ];
+  for (const f of stateOnly) {
+    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
+    fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
+  }
+  const keyClass = [
+    `    /** The row's key: the event's tenant and the fold key. */`,
+    `    @Embeddable`,
+    `    public static class Key implements java.io.Serializable {`,
+    `        @Column(name = "${hbIdent(tenant.column)}")`,
+    `        String ${t};`,
+    `        @Embedded`,
+    `        @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
+    `        ${idClass} ${c};`,
+    ``,
+    `        protected Key() {`,
+    `        }`,
+    ``,
+    `        public Key(String ${t}, ${idClass} ${c}) {`,
+    `            this.${t} = ${t};`,
+    `            this.${c} = ${c};`,
+    `        }`,
+    ``,
+    `        @Override`,
+    `        public boolean equals(Object o) {`,
+    `            return o instanceof Key k && java.util.Objects.equals(${t}, k.${t}) && java.util.Objects.equals(${c}, k.${c});`,
+    `        }`,
+    ``,
+    `        @Override`,
+    `        public int hashCode() {`,
+    `            return java.util.Objects.hash(${t}, ${c});`,
+    `        }`,
+    `    }`,
+    ``,
+  ];
+  const accessor = (type: string, name: string, expr: string): string[] => [
+    `    public ${type} ${jid(name)}() {`,
+    `        return ${expr};`,
+    `    }`,
+    ``,
+  ];
+  const setter = (type: string, name: string): string[] => [
+    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
+    `        this.${jid(name)} = ${jid(name)};`,
+    `    }`,
+    ``,
+  ];
+  return lines(
+    `package ${pkg};`,
+    ``,
+    `import jakarta.persistence.*;`,
+    ``,
+    `import ${basePkg}.domain.enums.*;`,
+    `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
+    ``,
+    ...jpaClassAnnotations(projectionRowTable(proj), { voLookup, schema }),
+    `public class ${cls} {`,
+    ...fieldLines,
+    ``,
+    ...keyClass,
+    `    ${cls}() {`,
+    `    }`,
+    ``,
+    `    public static ${cls} _allocate(String ${t}, String ${d}, ${idClass} ${c}) {`,
+    `        var __s = new ${cls}();`,
+    `        __s.rowKey = new Key(${t}, ${c});`,
+    `        __s.${d} = ${d};`,
+    `        return __s;`,
+    `    }`,
+    ``,
+    ...accessor(idClass, corr, `rowKey.${c}`),
+    ...accessor("String", tenant.field, `rowKey.${t}`),
+    ...accessor("String", dataKey.field, d),
+    ...stateOnly.flatMap((f) => [
+      ...accessor(rowJavaType(f), f.name, jid(f.name)),
+      ...setter(rowJavaType(f), f.name),
+    ]),
+    `}`,
+    ``,
+  );
+}
+
 export function renderProjectionRowRepository(
   proj: ProjectionIR,
   basePkg: string,
@@ -178,6 +304,32 @@ export function renderProjectionRowRepository(
 ): string {
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    // A tenant-scoped fold row is read by its tenant (`fold-tenancy.ts`).
+    const t = jid(foldTenantColumns(tenancy).tenant.field);
+    return lines(
+      `package ${pkg};`,
+      ``,
+      `import java.util.List;`,
+      `import org.springframework.data.jpa.repository.JpaRepository;`,
+      `import org.springframework.data.jpa.repository.Query;`,
+      `import org.springframework.data.repository.query.Param;`,
+      ``,
+      `import ${entityPkg}.${cls};`,
+      `import ${basePkg}.domain.ids.${idClass};`,
+      ``,
+      `public interface ${cls}Repository extends JpaRepository<${cls}, ${cls}.Key> {`,
+      `    @Query("select r from ${cls} r where r.rowKey.${t} = :tenant")`,
+      `    List<${cls}> findAllByTenant(@Param("tenant") String tenant);`,
+      ``,
+      `    default java.util.Optional<${cls}> findByTenantAndKey(String tenant, ${idClass} key) {`,
+      `        return findById(new ${cls}.Key(tenant, key));`,
+      `    }`,
+      `}`,
+      ``,
+    );
+  }
   return lines(
     `package ${pkg};`,
     ``,

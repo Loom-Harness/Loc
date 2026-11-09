@@ -93,6 +93,11 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  bodyWriteScopeGuards,
+  writeScopeContext,
+  writeScopeGuards,
+} from "../../../ir/util/write-scope-guards.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
@@ -109,7 +114,8 @@ import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import { exLit, exSentence, exValuePrefix, strictIngressFields } from "../wire-policy-ex.js";
-import { customFindReadsActor } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
+import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -143,6 +149,43 @@ function readPassesActor(
   if (!renderCtx.repoRunActor || !ctx) return false;
   if (retrievalName) return retrievalReadsActor(retrievalName, ctx);
   return !!find?.method && customFindReadsActor(ctx, find.aggName, find.method);
+}
+
+/** Does a body run a read that consumes the request actor — a criterion read
+ *  (`Repo.all(<C>)`, or the single-row `Repo.find(<C>)` as a `let` or `if
+ *  let`) whose retrieval reads it (a principal filter such as `tenantOwned` on
+ *  its target, or a `currentUser` criterion), or a declared / widened find that
+ *  still scopes by it?  Then the body binds `current_user` and each such read
+ *  forwards it; without it the read fails closed to no rows.  Shared by the
+ *  workflow and the explicit-handler emitters, so both thread the actor alike. */
+export function bodyReadsActor(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  ctx: BoundedContextIR,
+): boolean {
+  const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
+  const findReads = (aggName: string, method: string | undefined): boolean =>
+    !!method && customFindReadsActor(ctx, aggName, method);
+  let found = false;
+  for (const body of bodies) {
+    for (const top of body) {
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "repo-run" && reads(st.retrievalName)) found = true;
+        if (
+          st.kind === "repo-let" &&
+          st.returnType.kind === "optional" &&
+          (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.method))
+        )
+          found = true;
+        if (
+          st.kind === "if-let" &&
+          st.op !== "bound" &&
+          (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.findMethod))
+        )
+          found = true;
+      });
+    }
+  }
+  return found;
 }
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
@@ -548,6 +591,7 @@ function lowerStatement(
             method: st.method,
             aggregate: st.aggName,
             retrievalName: st.retrievalName,
+            widened: st.bypassRead !== undefined,
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
@@ -731,7 +775,13 @@ function lowerStatement(
       // (mirrors the op-call `{:ok, _}` shape); a failure threads `{:error, _}`
       // up the with-chain so a transactional workflow rolls back.
       const action = internalDeleteFn(st.aggName, aggOf(ctx, st.aggName));
-      const call = `${contextModule}.${action}(${renderExpr(st.entity, renderCtx)})`;
+      const call = withWriteScopeGuards(
+        st,
+        `${contextModule}.${action}(${renderExpr(st.entity, renderCtx)})`,
+        renderCtx,
+        contextModule,
+        ctx,
+      );
       return [
         {
           kind: "with-clause",
@@ -806,6 +856,7 @@ function lowerStatement(
                   method: st.findMethod ?? "",
                   aggregate: st.aggName,
                   retrievalName: st.retrievalName,
+                  widened: st.bypassRead !== undefined,
                 },
                 args,
                 contextModule,
@@ -1054,7 +1105,48 @@ function opCallSource(
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
-  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`;
+  return withWriteScopeGuards(
+    st,
+    `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`,
+    renderCtx,
+    contextModule,
+    ctx,
+  );
+}
+
+/** The with-clauses re-loading each row `st` mutates or deletes through the
+ *  context's `get_<agg>_for_write` — the load every mutation route uses — so
+ *  a row outside the caller's write scope answers `{:error, :not_found}`
+ *  (→ 404) before anything is written, and threads up the chain into the
+ *  workflow's rollback.  Empty outside a command body (`renderCtx.writeScope`
+ *  unset) and for a row the body created. */
+function writeScopeGuardClauses(
+  st: WorkflowStmtIR,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string[] {
+  const cx = renderCtx.writeScope;
+  if (!cx) return [];
+  return writeScopeGuards(st, cx).map((g) => {
+    const agg = aggOf(ctx, g.aggName);
+    const actor = agg && aggregateUsesPrincipalContextFilter(agg) ? ", current_user" : "";
+    return `{:ok, _} <- ${contextModule}.get_${snake(g.aggName)}_for_write(${escapeElixirIdent(snake(g.name))}.id${actor})`;
+  });
+}
+
+/** `call` behind the write-scope guards of `st`: unchanged when there are
+ *  none, else an inline `with` that answers the first guard's error instead
+ *  of running the call. */
+function withWriteScopeGuards(
+  st: WorkflowStmtIR,
+  call: string,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  ctx?: BoundedContextIR,
+): string {
+  const clauses = writeScopeGuardClauses(st, renderCtx, contextModule, ctx);
+  return clauses.length === 0 ? call : `(with ${clauses.join(", ")}, do: ${call})`;
 }
 
 /** Resolve a `mutating` `domain-service-call` to its inlined with-clauses
@@ -1074,9 +1166,14 @@ export function resolveInlinedServiceClauses(
   const op = svc?.operations.find((o) => o.name === st.op);
   if (!op) return [];
   const callArgs = st.call.kind === "call" ? st.call.args : [];
-  return inlineMutatingServiceCall(op, callArgs, ctx, contextModule, (e) =>
+  const inlined = inlineMutatingServiceCall(op, callArgs, ctx, contextModule, (e) =>
     renderExpr(e, renderCtx),
   );
+  // The rows the service mutates re-check their write scope ahead of its
+  // first write.
+  const guards =
+    inlined.length > 0 ? writeScopeGuardClauses(st, renderCtx, contextModule, ctx) : [];
+  return [...guards.map((text) => ({ text })), ...inlined];
 }
 
 /** Look up an operation by aggregate + op name in the context's aggregate
@@ -1149,13 +1246,19 @@ function opCallThreadsUser(
  *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
 function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
   if (workflowUsesCurrentUser(wf)) return true;
+  if (bodyReadsActor([wf.statements], ctx)) return true;
   let needs = false;
   for (const st of wf.statements)
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
       if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
     });
-  return needs;
+  if (needs) return true;
+  // A write-scope re-check passes the actor to `get_<agg>_for_write`.
+  return bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).some((g) => {
+    const agg = aggOf(ctx, g.aggName);
+    return agg !== undefined && aggregateUsesPrincipalContextFilter(agg);
+  });
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
@@ -1714,7 +1817,13 @@ function renderWorkflowModule(
   const moduleName = `${appModule}.${ctxModule}.Workflows.${wfPascal}`;
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
-  const transactional = !!wf.transactional;
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
+  const transactional =
+    !!wf.transactional ||
+    (writeScope !== undefined && bodyWriteScopeGuards(wf.statements, writeScope).length > 0);
   // Resolved transaction isolation (workflow override → state-dataSource
   // default → undefined).  Only meaningful on the transactional path.
   const isolation =
@@ -1753,6 +1862,10 @@ function renderWorkflowModule(
       ? (service, opName) => lookupServiceTier(ctx, service, opName)
       : undefined,
     readingServiceModule: contextModuleFq,
+    ...(writeScope ? { writeScope } : {}),
+    // A workflow that binds `current_user` forwards it to every read that
+    // scopes by the actor, as an explicit handler does.
+    ...(ctx && workflowNeedsCurrentUser(wf, ctx) ? { repoRunActor: true } : {}),
   };
   // Workflow lifecycle narrative — `workflow_started` at run entry, woven into
   // the success tail of the body by `assembleBody` (`workflow_completed`).  The
@@ -1966,7 +2079,7 @@ function renderWorkflowModule(
   # context's operation-param guard.
   defp __loom_payload_money(checks) do
     Enum.find_value(checks, :ok, fn {param, field, value} ->
-      if is_nil(value) or (is_binary(value) and Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)) do
+      if is_nil(value) or (is_binary(value) and Regex.match?(${exMoneyGrammarRegex()}, value)) do
         nil
       else
         {:error,

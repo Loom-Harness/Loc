@@ -34,7 +34,9 @@
 import type { BoundedContextIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { isTpcBase } from "../../../ir/util/inheritance.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { exMoneyColumnSql } from "./codec-spelling-ex.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -96,7 +98,7 @@ export function renderControllerSerialize(
             headVar: "row",
             bind: "    record = row.data",
             idExpr: "row.id",
-            versionExpr: "row.version",
+            versionExpr: `row.${ROW_VERSION_COLUMN}`,
             contextModule: `${appModule}.${ctxModule}`,
             nameSuffix: suffix,
           })
@@ -171,7 +173,7 @@ export function renderControllerSerialize(
     );
   } else if (declared.money) {
     scalarClauses.push(
-      `  # Money rides the wire at the fixed \`NUMERIC(19,4)\` scale (Jason` +
+      `  # Money rides the wire at the fixed \`${exMoneyColumnSql()}\` scale (Jason` +
         `\n  # encodes a \`%Decimal{}\` as the string the other backends send).` +
         `\n  defp serialize(%Decimal{} = value), do: ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "value")}`,
     );

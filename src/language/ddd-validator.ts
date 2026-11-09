@@ -19,6 +19,7 @@ import type {
   AuthBlock,
   DddAstType,
   Deployable,
+  I18nBlock,
   Model,
   Resource,
   Storage,
@@ -54,7 +55,9 @@ import {
   checkFileUploadBinding,
   checkGenericCarriers,
   checkHandlerBodies,
+  checkI18nBlock,
   checkIconOnlyButtonName,
+  checkIdTargets,
   checkImageAltText,
   checkInheritance,
   checkIntegerLiteralPrecision,
@@ -67,6 +70,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkModelText,
   checkNullableReceivers,
   checkOrgContextSurface,
   checkOrgPathReferences,
@@ -259,6 +263,9 @@ export class DddValidator {
     // warning: the template→ICU runtime makes interpolation first-class, so
     // there is always a translatable spelling to move to.
     guard("user-visible-concat", model, () => checkUserVisibleConcat(model, accept));
+    // i18n: `label(…)` / `plural(…)` resolve to a model element, sit only in a
+    // page / component body, and never inside a template or `+` chain.
+    guard("model-text", model, () => checkModelText(model, accept, this.services));
     // Accessibility: an `Image`/`Avatar` rendering an image needs a text
     // alternative (`alt:` or `decorative: true`).  Alt text is human content
     // Loom can't derive — a missing alt fails WCAG 1.1.1 (accessibility.md).
@@ -302,6 +309,9 @@ export class DddValidator {
     // `entity <Name>` make a bare `Name id` resolve to an arbitrary one via
     // the global scope — report the ambiguity at the reference site.
     guard("ambiguous-part-ref", model, () => checkAmbiguousPartRefs(model, accept));
+    // `X id` must name an identity — an aggregate or an entity part; a value
+    // object / enum / event / payload / workflow has no id to reference.
+    guard("id-targets", model, () => checkIdTargets(model, accept));
     // Aggregate-inheritance surface (aggregate-inheritance.md, I1):
     // `extends` may only target an `abstract` base; abstract bases have no
     // repository and declare no lifecycle actions; `inheritanceUsing: …` is
@@ -488,6 +498,16 @@ export class DddValidator {
           }
         }
         for (const tb of themeBlocks) guard("theme", tb, () => checkTheme(tb, accept));
+        // i18n block: at most one per system, and its source tag must be a
+        // canonicalizable BCP-47 language tag.
+        const i18nBlocks = m.members.filter((sm) => sm.$type === "I18nBlock") as I18nBlock[];
+        for (const ib of i18nBlocks.slice(1)) {
+          accept("error", diagMessage("loom.i18n-duplicate", { name: m.name }), {
+            node: ib,
+            code: "loom.i18n-duplicate",
+          });
+        }
+        for (const ib of i18nBlocks) guard("i18n-block", ib, () => checkI18nBlock(ib, accept));
         // Auth block (D-AUTH-OIDC).  At most one `auth { … }` per
         // system; flag the extras, semantic-check the first.
         const authBlocks = sysMembers.filter((sm) => sm.$type === "AuthBlock") as AuthBlock[];

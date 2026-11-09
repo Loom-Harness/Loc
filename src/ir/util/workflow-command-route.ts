@@ -14,6 +14,7 @@
 // platform-neutral, browser-safe.
 // -------------------------------------------------------------------------
 import {
+  type BoundedContextIR,
   type CreateIR,
   type EnrichedBoundedContextIR,
   type ExprIR,
@@ -21,6 +22,7 @@ import {
   type WorkflowIR,
   workflowEmitsCommandRoute,
 } from "../types/loom-ir.js";
+import { type EntryResult, entryResult } from "./entry-result.js";
 
 /** The create the command route serves — the primary unnamed command-triggered
  *  create, else the first create (the `WorkflowIR.params`/`statements` facade).
@@ -39,10 +41,30 @@ export const emitsCommandRoute: (wf: WorkflowIR) => boolean = workflowEmitsComma
  *  answers 200 with `value` as its JSON body; absent ⇒ the unchanged 204.  Every
  *  backend's workflow-route emitter reads this one predicate, so "does this
  *  route return a body" cannot drift between them. */
-export function commandCreateResult(wf: WorkflowIR): { type: TypeIR; value: ExprIR } | undefined {
+export function commandCreateResult(
+  wf: WorkflowIR,
+): { type: TypeIR; value: ExprIR; returnTags?: string[] } | undefined {
   if (!emitsCommandRoute(wf)) return undefined;
   const c = routedCreate(wf);
-  return c?.returnType && c.returnValue ? { type: c.returnType, value: c.returnValue } : undefined;
+  return c?.returnType && c.returnValue
+    ? {
+        type: c.returnType,
+        value: c.returnValue,
+        ...(c.returnTags ? { returnTags: c.returnTags } : {}),
+      }
+    : undefined;
+}
+
+/** The expected-failure result (`T or E`) of the workflow's command route, as
+ *  the leaves every backend renders (`entry-result.ts`). */
+export function commandCreateEntryResult(
+  wf: WorkflowIR,
+  ctx: BoundedContextIR,
+): EntryResult | undefined {
+  const r = commandCreateResult(wf);
+  return r
+    ? entryResult({ returnType: r.type, returnValue: r.value, returnTags: r.returnTags }, ctx)
+    : undefined;
 }
 
 /** The command-route-bearing workflows of a context (filter helper). */

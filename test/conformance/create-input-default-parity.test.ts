@@ -132,16 +132,16 @@ describe("create-input defaults reach every backend's create surface", () => {
 });
 
 // ---------------------------------------------------------------------------
-// UPDATE-side: an omitted bool must be REJECTED, never silently defaulted.
+// COMMAND-side: an omitted bool must be REJECTED, never silently defaulted.
 //
 // The sibling half of the rule above, and the one that eats data.  A create
-// default is a construction rule; on UPDATE there is nothing to construct, so
-// "absent" cannot mean "the default" — it can only mean "the client did not
-// send a required field".  Loom's update contract is full-replacement (PUT
-// carries every field), so every updatable field is required input.
+// default is a construction rule; on a command there is nothing to construct,
+// so "absent" cannot mean "the default" — it can only mean "the client did not
+// send a required field".  The fixture's `configure(active, archived, flag)` is
+// that command.
 //
 // Applying a wire default there silently rewrote stored state: for
-// `active: bool = true`, a PUT omitting `active` set it to FALSE — not even the
+// `active: bool = true`, a body omitting `active` set it to FALSE — not even the
 // declared default, because the value came from a hardcoded implicit-bool rule
 // rather than the model.  This is the proto3 lesson: a wire-level default makes
 // "absent" indistinguishable from "the default value", which is why proto3
@@ -149,57 +149,55 @@ describe("create-input defaults reach every backend's create surface", () => {
 //
 // This is RS-26 (`test/conformance/semantics-rules.ts`, docs/conformance-
 // semantics.md) — the exact inverse of RS-6, which says an omitted CREATE bool
-// materializes its declared default.
+// materializes its declared default.  No two backends express it the same way:
 //
-// It began 1-vs-4 with the MINORITY correct — node's `.default(false)` had been
-// added to match .NET model-binding and Phoenix, so four backends agreed and the
-// agreement was wrong.  All five conform now, and NO TWO NEEDED THE SAME FIX,
-// which is why the rule was worth numbering rather than patching one emitter:
+//   node     zodFor's `create-body` context keeps the implicit-bool rule off
+//            every other body, and body bools are UNCOERCED
+//   python   requestFieldDecl's `slot`
+//   elixir   the `require_command_params` plug (what enforces) AND the
+//            OpenApiSpex schema (what documents)
+//   java     boxed components + `RequiredSet`
+//   dotnet   `[property: JsonRequired]` — `[Required]` tests for null, and an
+//            omitted value type binds to 0/false
 //
-//   node     zodFor gained a `create-body` context
-//   python   requestFieldDecl gained a `slot`
-//   elixir   SPEC-ONLY divergence — `@update_required` already listed every bool
-//            at runtime while the OpenApiSpex schema did not
-//   java     BOTH halves wrong — primitive components meant Jackson supplied
-//            0/false for an omitted key while RequiredSet claimed required;
-//            now boxed + @NotNull
-//   dotnet   `[Required]` cannot express this at all: it tests for null, and an
-//            omitted value type binds to 0/false.  Presence is a
-//            DESERIALIZATION question → `[property: JsonRequired]`
-//
-// Each waiver dies when its backend lands the rule; the list only shrinks.
+// The crudish `update` is the merge-patch twin (RS-47): there an omitted bool
+// keeps its STORED value — required by nothing, defaulted by nothing.  The
+// second describe below holds that half.
 // ---------------------------------------------------------------------------
 
 // Empty, and kept as a ratchet rather than deleted: a backend that REGRESSES
 // gets an entry here plus an RS-26 `targets` row, instead of the assertion
 // being quietly relaxed.
-const UPDATE_BOOL_WAIVED: Partial<Record<Backend, string>> = {};
+const COMMAND_BOOL_WAIVED: Partial<Record<Backend, string>> = {};
 
-/** Is `field` REQUIRED (no default, no optionality) in the update request? */
-function updateRequiresField(files: Map<string, string>, backend: Backend, field: string): boolean {
+/** Is `field` REQUIRED (no default, no optionality) in `<Op>ItemRequest`? */
+function requestRequiresField(
+  files: Map<string, string>,
+  backend: Backend,
+  op: "Configure" | "Update",
+  field: string,
+): boolean {
   const all = [...files.values()].join("\n");
   const pascal = field.charAt(0).toUpperCase() + field.slice(1);
   switch (backend) {
     case "node": {
       // `\n})` closes the object; a bare `})` would stop at the first
-      // `.openapi({ … })` an `int` field now carries (F11) and silently drop
-      // every field after it — reading as "this backend requires nothing".
-      const block = sliceBlock(all, "const UpdateItemRequest = z.object({", "\n})");
+      // `.openapi({ … })` an `int` field carries and silently drop every field
+      // after it — reading as "this backend requires nothing".
+      const block = sliceBlock(all, `const ${op}ItemRequest = z.object({`, "\n})");
       const decl = new RegExp(`^\\s*${field}:([^\\n]*)`, "m").exec(block);
       if (decl === null) return false;
-      const zod = decl[1];
       // Requiredness in zod is "does the schema REJECT `undefined`" — which is
       // also exactly what zod-to-openapi asks (`schema.isOptional()`) when it
       // builds the served spec's `required[]`.  So the absence of `.default(`
       // is NOT enough: `z.coerce.boolean()` is `Boolean(input)`, and
       // `Boolean(undefined) === false`, so a COERCED bool accepts an omitted
       // key and yields `false` — the same silent wire default, spelled without
-      // the word `default`.  This gate used to miss it, and the divergence
-      // surfaced only in the 5-way OpenAPI parity run.
-      return !/\.default\(|\.optional\(|\.nullish\(|z\.coerce\.boolean/.test(zod);
+      // the word `default`.
+      return !/\.default\(|\.optional\(|\.nullish\(|z\.coerce\.boolean/.test(decl[1]);
     }
     case "python": {
-      const block = sliceBlock(all, "class UpdateItemRequest(BaseModel):", "\n\n");
+      const block = sliceBlock(all, `class ${op}ItemRequest(BaseModel):`, "\n\n");
       return new RegExp(`^\\s*${field}:\\s*[^=\\n]+$`, "m").test(block);
     }
     case "dotnet": {
@@ -207,44 +205,65 @@ function updateRequiresField(files: Map<string, string>, backend: Backend, field
       // for null, and an omitted value type binds to 0/false — non-null, so it
       // passes.  Presence is a DESERIALIZATION question, which is the one
       // JsonRequired asks.
-      const block = sliceBlock(all, "public sealed record UpdateItemRequest(", ");");
+      const block = sliceBlock(all, `public sealed record ${op}ItemRequest(`, ");");
       return new RegExp(`\\[property: JsonRequired\\][^,]*\\b${pascal}\\b`).test(block);
     }
     case "java": {
-      const block = sliceBlock(all, 'new RequiredSet("UpdateItemRequest"', ")");
+      const block = sliceBlock(all, `new RequiredSet("${op}ItemRequest"`, ")");
       return new RegExp(`"${field}"`).test(block);
     }
     case "vanilla": {
-      // TWO artifacts, and BOTH must agree — this is the one backend where the
-      // document and the enforcement live in different files.
-      //
-      //   update_item_request.ex   OpenApiSpex `required:` — what the served
-      //                            spec PROMISES a client
-      //   item_changeset.ex        `@update_required` → `validate_required/2`
-      //                            — what actually REJECTS the request
-      //
-      // Asserting only the schema is how #2377's `isRequiredUpdateInput`
-      // regression got past this gate: it dropped every bool from
-      // `@update_required`, so Elixir advertised `active` as required and then
-      // accepted a PUT without it.  A gate that reads the documentation cannot
-      // see a runtime that stopped honouring it.  (Sibling of the node arm
-      // above, which asked the right question of the right file in the wrong
-      // VOCABULARY — spelling instead of behaviour.)
-      const schema = fileNamed(files, /update_item_request\.ex$/);
-      const changeset = fileNamed(files, /item_changeset\.ex$/);
+      // TWO artifacts, and BOTH must agree — the document and the enforcement
+      // live in different files on this backend.  A gate that reads only the
+      // OpenApiSpex schema certifies the promise, not the behaviour.
+      const schema = fileNamed(files, new RegExp(`${op.toLowerCase()}_item_request\\.ex$`));
       const inSchema = new RegExp(`required: \\[[^\\]]*:${field}\\b`).test(schema);
-      const inChangeset = new RegExp(`@update_required \\[[^\\]]*:${field}\\b`).test(changeset);
-      // ...and a THIRD assertion, because membership in `@update_required` is
-      // still not enforcement on this seam.  `validate_required/2` resolves
-      // through `get_field/2`, which falls back to the LOADED ROW, so an omitted
-      // key is invisible to it: the field can be correctly listed and the PUT
-      // still accepted (204 here, 422 on the other four).  Presence is enforced
-      // by `__require_keys/3` against the raw attrs, ahead of `cast`, so the gate
-      // reads the mechanism and not just the list — the same lesson as the two
-      // arms above, one level further in.
-      const enforcesPresence = /\|> __require_keys\(attrs, @update_required\)/.test(changeset);
-      return inSchema && inChangeset && enforcesPresence;
+      const controller = fileNamed(files, /item_controller\.ex$/);
+      const plug = new RegExp(
+        `@required_params %\\{[^}]*${op.toLowerCase()}: ~w\\([^)]*\\b${field}\\b`,
+      );
+      // The generic update's presence check lives in its changeset instead
+      // (`__require_keys/3`, ahead of `cast`), because `validate_required/2`
+      // reads through to the loaded row.
+      const changeset = fileNamed(files, /item_changeset\.ex$/);
+      const enforced =
+        op === "Update"
+          ? /\|> __require_keys\(attrs, @update_required\)/.test(changeset) || plug.test(controller)
+          : plug.test(controller);
+      return inSchema && enforced;
     }
+  }
+}
+
+/** Does `<Op>ItemRequest` give `field` a WIRE default — a value the server
+ *  substitutes for an omitted key? */
+function requestDefaultsField(
+  files: Map<string, string>,
+  backend: Backend,
+  op: "Update",
+  field: string,
+): boolean {
+  const all = [...files.values()].join("\n");
+  const pascal = field.charAt(0).toUpperCase() + field.slice(1);
+  switch (backend) {
+    case "node": {
+      const block = sliceBlock(all, `const ${op}ItemRequest = z.object({`, "\n})");
+      const decl = new RegExp(`^\\s*${field}:([^\\n]*)`, "m").exec(block);
+      return decl !== null && /\.default\(|z\.coerce\.boolean/.test(decl[1]);
+    }
+    case "python": {
+      const block = sliceBlock(all, `class ${op}ItemRequest(BaseModel):`, "\n\n");
+      return new RegExp(`^\\s*${field}:[^\\n]*=\\s*(True|False)\\b`, "m").test(block);
+    }
+    case "dotnet": {
+      const block = sliceBlock(all, `class ${op}ItemRequest`, "\n}");
+      return new RegExp(`\\b${pascal}\\b[^\\n]*=\\s*(true|false)\\b`).test(block);
+    }
+    case "java":
+    case "vanilla":
+      // Neither has a request-side default slot: java's components are boxed
+      // (null when absent), and Ecto's `cast/3` ignores an absent key.
+      return false;
   }
 }
 
@@ -262,30 +281,27 @@ function sliceBlock(source: string, from: string, to: string): string {
   return source.slice(at, end < 0 ? undefined : end + to.length);
 }
 
-describe("an omitted UPDATE bool is rejected, not silently defaulted", () => {
-  // `active`/`archived` carry an explicit `= default`, so a wire default on the
-  // update side can only come from the implicit-bool rule.  `flag` is BARE — it
-  // has nothing but the implicit rule — and it is the discriminating case: a
-  // backend that applies `hasImplicitDefault` (a CREATE-input predicate) to the
-  // update seam still requires the two explicitly-defaulted bools on some
-  // paths, and drops `flag` on all of them.  Covering only defaulted bools
-  // leaves "the two seams were collapsed into one" invisible.
-  const BOOLS = ["active", "archived", "flag"];
+// `active`/`archived` carry an explicit `= default`, so a wire default on the
+// command side can only come from the implicit-bool rule.  `flag` is BARE — it
+// has nothing but the implicit rule — and it is the discriminating case: a
+// backend that applies `hasImplicitDefault` (a CREATE-input predicate) to an
+// operation body still requires the two explicitly-defaulted bools on some
+// paths, and drops `flag` on all of them.
+const BOOLS = ["active", "archived", "flag"];
 
+describe("an omitted COMMAND bool is rejected, not silently defaulted (RS-26)", () => {
   for (const backend of BACKENDS) {
-    const waiver = UPDATE_BOOL_WAIVED[backend];
+    const waiver = COMMAND_BOOL_WAIVED[backend];
     it(`${BACKEND_LABEL[backend]}${waiver ? " (waived)" : ""}`, async () => {
       const files = await generateCorpusCase(FEATURE, backend);
-      const required = BOOLS.filter((f) => updateRequiresField(files, backend, f));
+      const required = BOOLS.filter((f) => requestRequiresField(files, backend, "Configure", f));
 
       if (waiver) {
-        // Ratchet: the waiver must still be EARNED.  If a backend starts
-        // requiring its update bools, this fails and the waiver comes out —
-        // a stale waiver is how a fixed gap silently stops being tracked.
+        // Ratchet: the waiver must still be EARNED.
         expect(
           required,
-          `${BACKEND_LABEL[backend]} now requires ${required.join(", ")} on update — ` +
-            `drop its UPDATE_BOOL_WAIVED entry (${waiver})`,
+          `${BACKEND_LABEL[backend]} now requires ${required.join(", ")} on configure — ` +
+            `drop its COMMAND_BOOL_WAIVED entry (${waiver})`,
         ).toHaveLength(0);
         return;
       }
@@ -293,11 +309,26 @@ describe("an omitted UPDATE bool is rejected, not silently defaulted", () => {
       expect(
         required,
         `${BACKEND_LABEL[backend]} does not require ${BOOLS.filter((f) => !required.includes(f)).join(", ")} ` +
-          `on update — a PUT omitting the field is ACCEPTED here and rejected 422 elsewhere. ` +
-          `(It does not overwrite: an omitted key never enters \`changes\`, so \`Repo.update\` ` +
-          `does not write the column. The defect is the cross-backend divergence, and a served ` +
-          `spec the runtime does not honour.)`,
+          `on a command — a body omitting the field is ACCEPTED here and rejected 422 elsewhere.`,
       ).toEqual(BOOLS);
+    });
+  }
+});
+
+describe("an omitted UPDATE bool keeps its stored value — required by nothing, defaulted by nothing (RS-47)", () => {
+  for (const backend of BACKENDS) {
+    it(BACKEND_LABEL[backend], async () => {
+      const files = await generateCorpusCase(FEATURE, backend);
+      // Non-vacuity: the update request this reads must exist.
+      expect([...files.values()].some((c) => c.includes("UpdateItemRequest"))).toBe(true);
+      expect(
+        BOOLS.filter((f) => requestRequiresField(files, backend, "Update", f)),
+        `${BACKEND_LABEL[backend]} still requires these on the merge-patch update`,
+      ).toEqual([]);
+      expect(
+        BOOLS.filter((f) => requestDefaultsField(files, backend, "Update", f)),
+        `${BACKEND_LABEL[backend]} gives these a wire default on update — an omitted key would overwrite the stored value`,
+      ).toEqual([]);
     });
   }
 });

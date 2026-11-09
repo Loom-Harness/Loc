@@ -51,14 +51,14 @@ describe("flutter Modal (op-form dialog)", () => {
     // renderer used to hardcode while the authored title reached the catalog
     // and nothing else.
     expect(src).toMatch(
-      /AlertDialog\(title: Text\(t\('page\.\w+\.modalTitle\.\w+', 'Add note'\)\)/,
+      /AlertDialog\(title: Text\(t\('\w+\.page\.\w+\.modalTitle\.\w+', 'Add note'\)\)/,
     );
     // …wrapping the generated op-form widget (addressed by the route id).
     expect(src).toContain("AddNoteOrderForm(id: id)");
     // The button carries the trigger's label — TRANSLATED, like the title: it
     // is the `button` user-visible slot, so the extractor keys it and this
     // renderer used to ship it raw (a live catalog entry nothing rendered, A13).
-    expect(src).toMatch(/child: Text\(t\('page\.\w+\.button\.\w+', 'Add note'\)\)\)/);
+    expect(src).toMatch(/child: Text\(t\('\w+\.page\.\w+\.button\.\w+', 'Add note'\)\)\)/);
   });
 
   it("emits the op-form widget the dialog references into forms.dart", async () => {

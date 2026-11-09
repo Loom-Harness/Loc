@@ -663,10 +663,59 @@ jobs:
           }
           DDD
           node bin/cli.js generate system ci-flutter-apk/apk.ddd -o ci-flutter-apk/out
-      - name: flutter create android platform + build apk
+      # The Android build downloads from github.com release URLs, anonymously,
+      # on every run: the Gradle distribution (the wrapper's distributionUrl,
+      # a gradle/gradle-distributions asset) and kotlin-compiler-embeddable
+      # (Maven Central redirects that artifact to JetBrains/kotlin releases).
+      # Those downloads flap between 504 and read-timeouts (#4773), and this
+      # workflow runs in the merge queue.  So: (1) cache the Gradle distribution
+      # and dependency caches, keyed on the generated android project's
+      # wrapper/plugin versions — a hit downloads nothing; (2) on a miss fetch
+      # the Gradle zip through the authenticated release API and point the
+      # wrapper at it; (3) retry the build on a network failure only —
+      # Gradle keeps every artifact it already fetched, so a retry resumes.
+      - name: flutter create android platform
         run: |
           APK_DIR="$(dirname "$(find ci-flutter-apk/out -name pubspec.yaml | head -1)")"
           cd "$APK_DIR"
           flutter pub get
           flutter create --platforms=android .
-          flutter build apk --debug
+          echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: gradle-apk-${{ runner.os }}-${{ hashFiles('ci-flutter-apk/out/**/android/gradle/wrapper/gradle-wrapper.properties', 'ci-flutter-apk/out/**/android/settings.gradle*', 'ci-flutter-apk/out/**/android/build.gradle*', 'ci-flutter-apk/out/**/android/app/build.gradle*') }}
+      - name: build apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$APK_DIR"
+          PROPS=android/gradle/wrapper/gradle-wrapper.properties
+          DIST_URL="$(sed -n 's/^distributionUrl=//p' "$PROPS" | sed 's/\\:/:/g')"
+          DIST_FILE="$(basename "$DIST_URL")"
+          DIST_VER="$(echo "$DIST_FILE" | sed -E 's/^gradle-(.+)-(all|bin)\.zip$/\1/')"
+          # A stable file: URL keeps the wrapper's per-URL dists/<hash> dir
+          # identical between the run that cached it and the run that hits it.
+          DL="$HOME/.gradle/dl"
+          if [ -n "$DIST_VER" ] && [ "$DIST_VER" != "$DIST_FILE" ]; then
+            mkdir -p "$DL"
+            if [ -z "$(find "$HOME/.gradle/wrapper/dists" -name '*.ok' -path "*gradle-$DIST_VER-*" 2>/dev/null | head -1)" ]; then
+              gh release download "v$DIST_VER" --repo gradle/gradle-distributions \
+                --pattern "$DIST_FILE" --output "$DL/$DIST_FILE" --clobber || true
+            fi
+            # Rewrite only when the zip is present or the dist is already unpacked.
+            if [ -f "$DL/$DIST_FILE" ] || [ -n "$(find "$HOME/.gradle/wrapper/dists" -name '*.ok' -path "*gradle-$DIST_VER-*" 2>/dev/null | head -1)" ]; then
+              sed -i "s#^distributionUrl=.*#distributionUrl=file\\\\:$DL/$DIST_FILE#" "$PROPS"
+            fi
+          fi
+          grep '^distributionUrl=' "$PROPS"
+          set -o pipefail
+          for attempt in 1 2 3; do
+            flutter build apk --debug 2>&1 | tee "$RUNNER_TEMP/apk-build.log" && exit 0
+            grep -qiE 'Could not (download|resolve|GET|HEAD)|timed out|Read timed out|Connection (reset|refused)|Premature end|50[234]|Server returned HTTP response code' "$RUNNER_TEMP/apk-build.log" || exit 1
+            echo "::warning::apk build attempt $attempt hit a network error; retrying"
+            sleep $((attempt * 20))
+          done
+          exit 1

@@ -128,11 +128,12 @@ describe("loom.elixir-match-stmt-unsupported — the refused sub-shapes", () => 
 
   it("#arm-statement: an `emit` in an operation arm", async () => {
     const src = shop(`
+      event Noted { noteId: Note id }
       aggregate Note with crudish {
         text: string
         operation set(n: string?) {
           match n {
-            string s => { emit Settled { orderId: id } }
+            string s => { emit Noted { noteId: id } }
             else => { }
           }
         }

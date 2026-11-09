@@ -18,8 +18,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDddServices } from "../../out/language/ddd-module.js";
 import { generateSystems } from "../../out/system/index.js";
-import { generateTypeScript } from "../../out/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { planInstall } from "../src/engine/npm/resolve-tree.ts";
 import { fetchTarball } from "../src/engine/npm/registry.ts";
 import { RUNTIME_VERSIONS } from "../src/bundle/plugin.ts";
@@ -29,8 +27,7 @@ const root = path.resolve(here, "../..");
 const outDir = path.resolve(here, "../public/npm-mirror");
 
 // The examples a user can pick — generating each gives us the real
-// dependency surface to mirror.  Single-context (.ts) examples use
-// generateTypeScript; system-mode use generateSystems.
+// dependency surface to mirror.
 const EXAMPLES = [
   "examples/acme.ddd",
   "examples/sales.ddd",
@@ -56,15 +53,7 @@ function genFiles(text) {
     text,
   );
   return services.shared.workspace.DocumentBuilder.build([doc], { validation: true }).then(() => {
-    const model = doc.parseResult.value;
-    // System mode when any deployable exists; else single Hono project.
-    try {
-      const sys = generateSystems(model).files;
-      if (sys.size > 0) return sys;
-    } catch {
-      /* fall through to single-context */
-    }
-    return generateTypeScript(model, BACKEND_PINS);
+    return generateSystems(doc.parseResult.value).files;
   });
 }
 

@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 /** A language tag — one finalizer per tag. */
-export type ImportLang = "py" | "java";
+export type ImportLang = "py" | "java" | "cs" | "ts";
 
 /** A typed handle on an importable symbol. */
 export interface ImportSymbol {
@@ -30,26 +30,44 @@ export interface ImportSymbol {
   readonly name?: string;
   /** The local binding (`from m import N as alias` / `import m as alias`). */
   readonly alias?: string;
+  /** Java only: the reference is satisfied by an on-demand import
+   *  (`import <module>.*;`) rather than a single-type import.  `name` is the
+   *  simple name the text spells; it never enters the simple-name collision
+   *  check, because wildcard imports shadow nothing explicit. */
+  readonly onDemand?: true;
+  /** TypeScript only: the reference sits in a type position, so an import
+   *  that only such references need is written `import type`. */
+  readonly typeOnly?: true;
 }
 
-const OPEN = "";
-const CLOSE = "";
+/** The marker delimiters — exported so a language finalizer can recognise
+ *  its own private-use-area tokens (the C# `using` slot line). */
+export const OPEN = "";
+export const CLOSE = "";
 const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
  *  private-use delimiters, so the token grammar is unambiguous. */
-const MARKER_RE = /([a-z]+)\|([^|]*)\|([^|]*)\|([^|]*)/g;
+const MARKER_RE = /([a-z]+[*~]?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
 
 const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
-const IDENT = /^[A-Za-z_][\w]*$/;
+/** A TypeScript module specifier: a package (`decimal.js`, `@hono/zod-openapi`,
+ *  `node:crypto`) or a project-root path (`~/domain/errors`). */
+const TS_MODULE = /^~?[@\w.:/-]+$/;
+const IDENT = /^[A-Za-z_$][\w$]*$/;
 
 function check(sym: ImportSymbol): ImportSymbol {
-  if (!IDENT_PATH.test(sym.module)) throw new Error(`import symbol: bad module '${sym.module}'`);
+  if (!(sym.lang === "ts" ? TS_MODULE : IDENT_PATH).test(sym.module)) {
+    throw new Error(`import symbol: bad module '${sym.module}'`);
+  }
   if (sym.name !== undefined && !IDENT.test(sym.name)) {
     throw new Error(`import symbol: bad name '${sym.name}' (from ${sym.module})`);
   }
   if (sym.alias !== undefined && !IDENT.test(sym.alias)) {
     throw new Error(`import symbol: bad alias '${sym.alias}' (for ${sym.module})`);
+  }
+  if (sym.onDemand && (sym.lang !== "java" || sym.name === undefined)) {
+    throw new Error(`import symbol: on-demand is a java import of a named type (${sym.module})`);
   }
   return sym;
 }
@@ -58,7 +76,7 @@ function check(sym: ImportSymbol): ImportSymbol {
  *  finalizer turns into the spelling AND an import line. */
 export function ref(sym: ImportSymbol): string {
   check(sym);
-  return `${OPEN}${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}${CLOSE}`;
+  return `${OPEN}${symbolKey(sym)}${CLOSE}`;
 }
 
 /** The spelling a reference to `sym` resolves to. */
@@ -76,12 +94,21 @@ export function binding(sym: ImportSymbol): string {
 
 /** A stable identity for de-duplication. */
 export function symbolKey(sym: ImportSymbol): string {
-  return `${sym.lang}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
+  return `${tag(sym)}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
 }
 
-function decode(lang: string, module: string, name: string, alias: string): ImportSymbol {
+/** The marker's language tag: the language, suffixed `*` for a java
+ *  on-demand import or `~` for a TypeScript type-position reference. */
+function tag(sym: ImportSymbol): string {
+  return `${sym.lang}${sym.onDemand ? "*" : sym.typeOnly ? "~" : ""}`;
+}
+
+function decode(tag: string, module: string, name: string, alias: string): ImportSymbol {
+  const suffix = /[*~]$/.test(tag) ? tag.slice(-1) : "";
   return {
-    lang: lang as ImportLang,
+    lang: (suffix ? tag.slice(0, -1) : tag) as ImportLang,
+    ...(suffix === "*" ? { onDemand: true as const } : {}),
+    ...(suffix === "~" ? { typeOnly: true as const } : {}),
     module,
     ...(name !== "" ? { name } : {}),
     ...(alias !== "" ? { alias } : {}),
@@ -95,6 +122,9 @@ function decode(lang: string, module: string, name: string, alias: string): Impo
 export function resolveMarkers(
   text: string,
   isLocal: (sym: ImportSymbol) => boolean = () => false,
+  /** The language's spelling, when it differs from {@link spelling} (a C#
+   *  namespace-only reference spells as nothing). */
+  spell: (sym: ImportSymbol) => string = spelling,
 ): { text: string; used: ImportSymbol[] } {
   const seen = new Map<string, ImportSymbol>();
   const out = text.replace(
@@ -104,7 +134,7 @@ export function resolveMarkers(
       if (sym.name !== undefined && isLocal(sym)) return sym.name;
       const key = symbolKey(sym);
       if (!seen.has(key)) seen.set(key, sym);
-      return spelling(sym);
+      return spell(sym);
     },
   );
   if (out.includes(OPEN) || out.includes(CLOSE)) {

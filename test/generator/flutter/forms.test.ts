@@ -168,7 +168,7 @@ describe("flutter form pages (generate system)", () => {
     expect(forms).toContain("'cost': <String, dynamic>{");
     expect(forms).toContain("'amount': int.tryParse(_costAmountController.text),");
     // Widget kinds.
-    expect(forms).toContain("SwitchListTile(title: const Text('Active')");
+    expect(forms).toContain("SwitchListTile(title: Text(t('Shop.Product.field.active', 'Active'))");
     expect(forms).toContain("DropdownButtonFormField<String>(initialValue: _status");
     expect(forms).toContain("showDatePicker(");
 

@@ -321,7 +321,7 @@ export function esWorkflowFoldBlock(
     `    data = ${PY.cast}(dict[str, object], row.data)`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
-      `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`).join(", ")})`,
+      `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type, ctx)}`).join(", ")})`,
     ]),
     `    raise ValueError(f"unknown ${wf.name} event type: {row.type}")`,
   );
@@ -329,7 +329,7 @@ export function esWorkflowFoldBlock(
     `def _${snake(wf.name)}_event_to_data(ev: DomainEvent) -> dict[str, object]:`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} isinstance(ev, ${ev.name}):`,
-      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
+      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type, ctx)}`).join(", ")}}`,
     ]),
     `    raise ValueError(f"unknown event: {type(ev).__name__}")`,
   );

@@ -51,7 +51,12 @@ import type {
 import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import { entryResult } from "../../ir/util/entry-result.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -61,13 +66,30 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
-import { csPagedQueryParams } from "./emit/common.js";
+import { sortedCsUsings } from "./cs-symbols.js";
+import {
+  csIdValueClrType,
+  projectEntityExpr,
+  projectToResponse,
+  wireToCommandArgument,
+  wireType,
+} from "./dto-mapping.js";
+import { csPagedQueryParams, dotnetFindAbsenceThrow } from "./emit/common.js";
+import {
+  entryControllerAnswer,
+  entryErrorStatuses,
+  entryErrorTestCs,
+  entryResultCsLines,
+  entryResultNs,
+  entryUnionName,
+  renderEntryUnionFile,
+} from "./entry-result-emit.js";
 import { csFindMethodName } from "./find-method-name.js";
 import {
   API_CLIENT_CLASS,
@@ -83,6 +105,11 @@ import {
 } from "./workflow-emit.js";
 
 const INDENT = "        ";
+
+/** The action-body local holding the mediator's answer.  Double-underscored so
+ *  a query / path param named `result` (bound by the action signature) cannot
+ *  redeclare it (CS0136). */
+const RESULT_LOCAL = "__result";
 
 /** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
@@ -187,7 +214,7 @@ function internalReturnType(h: Handler, ctx: EnrichedBoundedContextIR): TypeIR |
  *  id / scalar / void return. */
 function returnEntityAgg(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
   const ret = internalReturnType(h, ctx);
-  if (!ret) return undefined;
+  if (!ret || ret.kind === "union") return undefined;
   const info = wireTypeInfo(ret, "response");
   if (info.refKind !== "entity") return undefined;
   const owning =
@@ -225,7 +252,7 @@ function renderRecord(
   agg: string | undefined,
   kind: "Command" | "Query",
 ): string {
-  const recName = `${h.name}${kind}`;
+  const recName = `${upperFirst(h.name)}${kind}`;
   // The Mediator record FLATTENS a request record's fields (byte-identical to
   // the flat-param form); the internal return types on the entity, not its
   // `<Agg>Response` contract (the route projects at the boundary).
@@ -233,12 +260,9 @@ function renderRecord(
   const params = flatHandlerParams(h, ctx)
     .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
     .join(", ");
+  const retCs = ret ? handlerResultCs(h, ret, ctx, ns) : undefined;
   const iface =
-    kind === "Command"
-      ? ret
-        ? `ICommand<${renderCsType(ret)}>`
-        : "ICommand"
-      : `IQuery<${renderCsType(ret!)}>`;
+    kind === "Command" ? (retCs ? `ICommand<${retCs}>` : "ICommand") : `IQuery<${retCs!}>`;
   // A record whose return type is an aggregate needs that aggregate's domain
   // namespace so `ICommand<Order>` / `IQuery<Order>` resolves.
   const retAgg = returnEntityAgg(h, ctx);
@@ -269,10 +293,19 @@ function renderHandlerClass(
    *  renderer still reports loudly rather than dropping. */
   resourceClasses: Map<string, string> = new Map(),
 ): string {
-  const recName = `${h.name}${kind}`;
-  const handlerName = `${h.name}Handler`;
+  const recName = `${upperFirst(h.name)}${kind}`;
+  const handlerName = `${upperFirst(h.name)}Handler`;
   const retType = internalReturnType(h, ctx);
-  const ret = retType ? renderCsType(retType) : "Unit";
+  const ret = retType ? handlerResultCs(h, retType, ctx, ns) : "Unit";
+  // An expected-failure result (`T or E`): one transaction, rolled back on an
+  // error answer.
+  const er = entryResult(h, ctx);
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const writeScope = writeScopeContext(h.statements, ctx);
+  const rechecks = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const needsUow = er !== undefined || rechecks;
   const iface =
     kind === "Command"
       ? `ICommandHandler<${recName}, ${ret}>`
@@ -302,16 +335,19 @@ function renderHandlerClass(
       (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
     ),
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
+    ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
+    ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
     ...(usesUser ? ["_currentUser = currentUser"] : []),
+    ...(needsUow ? ["_uow = uow"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -335,7 +371,7 @@ function renderHandlerClass(
   // dereferences its load (op-call target / return projection).
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    csWorkflowStmtTarget(ctx, renderArg, true, false),
+    csWorkflowStmtTarget(ctx, renderArg, true, false, writeScope),
     INDENT,
   ).flat();
   const saveLines = h.savesAtExit.map(
@@ -358,7 +394,66 @@ function renderHandlerClass(
     ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
     : "        return Unit.Value;";
   const userLines = usesUser ? ["        var currentUser = _currentUser.User;"] : [];
-  const body = [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
+  const body =
+    er && retType?.kind === "union"
+      ? [
+          ...userLines,
+          `        ${ret} handlerResult = default!;`,
+          "        using var __deferral = DomainEventDeferral.Begin();",
+          "        await using var tx = await _uow.BeginTransactionAsync(cancellationToken);",
+          "        try",
+          "        {",
+          ...[
+            ...stmtLines,
+            ...saveLines,
+            ...entryResultCsLines(
+              er,
+              retType,
+              renderArg,
+              ctx,
+              ns,
+              INDENT,
+              "handlerResult",
+              "state",
+              (agg) => {
+                const repo = [...repos].find(([, a]) => a === agg)?.[0];
+                return repo ? repoField(repo) : undefined;
+              },
+            ),
+          ].map((l) => `    ${l}`),
+          `            if (${entryErrorTestCs(er, retType, ns, "handlerResult")}) await tx.RollbackAsync(cancellationToken);`,
+          "            else await tx.CommitAsync(cancellationToken);",
+          "        }",
+          "        catch",
+          "        {",
+          "            await tx.RollbackAsync(cancellationToken);",
+          "            throw;",
+          "        }",
+          // A rolled-back command announces nothing: the deferral is disposed
+          // unflushed.
+          `        if (${entryErrorTestCs(er, retType, ns, "handlerResult")}) return handlerResult;`,
+          "        await __deferral.FlushAsync(cancellationToken);",
+          "        return handlerResult;",
+        ].join("\n")
+      : rechecks
+        ? [
+            ...userLines,
+            "        using var __deferral = DomainEventDeferral.Begin();",
+            "        await using var tx = await _uow.BeginTransactionAsync(cancellationToken);",
+            "        try",
+            "        {",
+            ...[...stmtLines, ...saveLines].map((l) => `    ${l}`),
+            "            await tx.CommitAsync(cancellationToken);",
+            "        }",
+            "        catch",
+            "        {",
+            "            await tx.RollbackAsync(cancellationToken);",
+            "            throw;",
+            "        }",
+            "        await __deferral.FlushAsync(cancellationToken);",
+            returnLine,
+          ].join("\n")
+        : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.
@@ -451,7 +546,7 @@ using ${ns}.Application.${plural(agg)}.Responses;
 
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed record ${h.name}Query(${params}) : IQuery<Paged<${agg}Response>>;
+public sealed record ${upperFirst(h.name)}Query(${params}) : IQuery<Paged<${agg}Response>>;
 `;
 }
 
@@ -497,13 +592,13 @@ function renderPagedQueryHandlerClass(
   const ctor = usesUser
     ? [
         "    private readonly ICurrentUserAccessor _currentUser;",
-        `    public ${h.name}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
+        `    public ${upperFirst(h.name)}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
         "    {",
         `        ${field} = ${field.slice(1)};`,
         "        _currentUser = currentUser;",
         "    }",
       ].join("\n")
-    : `    public ${h.name}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
+    : `    public ${upperFirst(h.name)}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
   const extraUsingLines = [...extraUsings]
     .sort()
     .map((u) => `using ${u};\n`)
@@ -522,12 +617,12 @@ using ${ns}.Application.${plural(agg)}.Responses;
 ${extraUsingLines}
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
-public sealed class ${h.name}Handler : IQueryHandler<${h.name}Query, Paged<${agg}Response>>
+public sealed class ${upperFirst(h.name)}Handler : IQueryHandler<${upperFirst(h.name)}Query, Paged<${agg}Response>>
 {
     private readonly I${agg}Repository ${field};
 ${ctor}
 
-    public async ValueTask<Paged<${agg}Response>> Handle(${h.name}Query query, CancellationToken cancellationToken)
+    public async ValueTask<Paged<${agg}Response>> Handle(${upperFirst(h.name)}Query query, CancellationToken cancellationToken)
     {
 ${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${csFindMethodName(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
@@ -572,7 +667,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed record ${h.name}${kind}(${params}) : ${iface};
+public sealed record ${upperFirst(h.name)}${kind}(${params}) : ${iface};
 `;
 }
 
@@ -588,10 +683,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-/// <summary>Extern-handler contract for ${h.name} — the one external-service
+/// <summary>Extern-handler contract for ${upperFirst(h.name)} — the one external-service
 /// call this handler wraps.  Implemented by the scaffold-once, user-owned
-/// [ExternHandler] class ${h.name}ExternHandler (regeneration never overwrites it).</summary>
-public interface I${h.name}Handler
+/// [ExternHandler] class ${upperFirst(h.name)}ExternHandler (regeneration never overwrites it).</summary>
+public interface I${upperFirst(h.name)}Handler
 {
     ${ret} Handle(${externPortParams(h)});
 }
@@ -600,7 +695,7 @@ public interface I${h.name}Handler
 
 /** The generated Mediator handler that delegates to the injected port. */
 function renderExternHandlerClass(h: Handler, ns: string, kind: "Command" | "Query"): string {
-  const recName = `${h.name}${kind}`;
+  const recName = `${upperFirst(h.name)}${kind}`;
   const ret = h.returnType ? renderCsType(h.returnType) : "Unit";
   const iface =
     kind === "Command"
@@ -622,10 +717,10 @@ using ${ns}.Domain.Enums;
 
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
-public sealed class ${h.name}Handler : ${iface}
+public sealed class ${upperFirst(h.name)}Handler : ${iface}
 {
-    private readonly I${h.name}Handler _impl;
-    public ${h.name}Handler(I${h.name}Handler impl) => _impl = impl;
+    private readonly I${upperFirst(h.name)}Handler _impl;
+    public ${upperFirst(h.name)}Handler(I${upperFirst(h.name)}Handler impl) => _impl = impl;
 
     public async ValueTask<${ret}> Handle(${recName} command, CancellationToken cancellationToken)
     {
@@ -643,7 +738,7 @@ function renderExternImpl(
   kindLabel: "commandHandler" | "queryHandler",
 ): string {
   const ret = h.returnType ? `ValueTask<${renderCsType(h.returnType)}>` : "ValueTask";
-  const msg = `extern ${kindLabel} '${h.name}' is not implemented — fill in Application/Handlers/${h.name}ExternHandler.cs`;
+  const msg = `extern ${kindLabel} '${upperFirst(h.name)}' is not implemented — fill in Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`;
   return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
 // \`generate\` and NEVER overwrites it again, so your implementation survives every
 // regenerate.  Replace the \`throw\` with the extern handler's real logic.
@@ -658,7 +753,7 @@ using ${ns}.Domain.Enums;
 namespace ${EXTERN_HANDLERS_NS(ns)};
 
 [ExternHandler]
-public sealed class ${h.name}ExternHandler : I${h.name}Handler
+public sealed class ${upperFirst(h.name)}ExternHandler : I${upperFirst(h.name)}Handler
 {
     public ${ret} Handle(${externPortParams(h)})
         => throw new NotImplementedException(${JSON.stringify(msg)});
@@ -673,11 +768,14 @@ function emitExternHandler(
   kind: "Command" | "Query",
   out: Map<string, string>,
 ): void {
-  out.set(`Application/Handlers/${h.name}${kind}.cs`, renderExternRecord(h, ns, kind));
-  out.set(`Application/Handlers/I${h.name}Handler.cs`, renderExternPort(h, ns));
-  out.set(`Application/Handlers/${h.name}Handler.cs`, renderExternHandlerClass(h, ns, kind));
+  out.set(`Application/Handlers/${upperFirst(h.name)}${kind}.cs`, renderExternRecord(h, ns, kind));
+  out.set(`Application/Handlers/I${upperFirst(h.name)}Handler.cs`, renderExternPort(h, ns));
   out.set(
-    `Application/Handlers/${h.name}ExternHandler.cs`,
+    `Application/Handlers/${upperFirst(h.name)}Handler.cs`,
+    renderExternHandlerClass(h, ns, kind),
+  );
+  out.set(
+    `Application/Handlers/${upperFirst(h.name)}ExternHandler.cs`,
     renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler"),
   );
 }
@@ -689,8 +787,8 @@ export function emitExplicitHandlers(
   ns: string,
   out: Map<string, string>,
   /** The composed system, for the resource-op → helper-class routing a handler
-   *  body needs.  Absent (legacy single-context `generate dotnet`) ⇒ no
-   *  resources are bound anyway, and the output stays byte-identical. */
+   *  body needs.  Absent ⇒ no resources are bound, and the output stays
+   *  byte-identical. */
   sys?: SystemIR,
 ): void {
   const resourceClasses = buildResourceClasses(sys);
@@ -699,13 +797,14 @@ export function emitExplicitHandlers(
       emitExternHandler(h, ns, "Command", out);
       continue;
     }
+    emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
-    const home = handlerHome(ns, agg, "Command").dir;
-    supersede(out, `${home}/${h.name}Command.cs`, renderRecord(h, ns, ctx, agg, "Command"));
+    const slice = handlerSlice(h, ctx, ns, "Command", out);
+    supersede(out, slice.record, renderRecord(slice.typed, ns, ctx, agg, "Command"));
     supersede(
       out,
-      `${home}/${h.name}Handler.cs`,
-      renderHandlerClass(h, ns, ctx, agg, "Command", resourceClasses),
+      slice.handler,
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Command", resourceClasses),
     );
   }
   for (const h of ctx.queryHandlers ?? []) {
@@ -713,30 +812,112 @@ export function emitExplicitHandlers(
       emitExternHandler(h, ns, "Query", out);
       continue;
     }
+    const slice = handlerSlice(h, ctx, ns, "Query", out);
     // paged-run queryHandler: a dedicated Query + Handler over the synthesized
     // paged FIND (the generic `paged` carrier can't flow through the Mediator
     // record's `IQuery<renderCsType(...)>` return).
     if (h.returnType && pagedReturn(h.returnType)) {
       const pagedAgg = pagedRunStmt(h, ctx).aggName;
-      out.set(
-        `Application/${plural(pagedAgg)}/Queries/${h.name}Query.cs`,
-        renderPagedQueryRecord(h, ns, ctx, pagedAgg),
-      );
-      out.set(
-        `Application/${plural(pagedAgg)}/Queries/${h.name}Handler.cs`,
-        renderPagedQueryHandlerClass(h, ns, ctx, pagedAgg),
-      );
+      supersede(out, slice.record, renderPagedQueryRecord(slice.typed, ns, ctx, pagedAgg));
+      supersede(out, slice.handler, renderPagedQueryHandlerClass(slice.typed, ns, ctx, pagedAgg));
       continue;
     }
+    emitEntryUnion(h, ctx, ns, out);
     const agg = primaryAgg(h);
-    const home = handlerHome(ns, agg, "Query").dir;
-    supersede(out, `${home}/${h.name}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
+    supersede(out, slice.record, renderRecord(slice.typed, ns, ctx, agg, "Query"));
     supersede(
       out,
-      `${home}/${h.name}Handler.cs`,
-      renderHandlerClass(h, ns, ctx, agg, "Query", resourceClasses),
+      slice.handler,
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Query", resourceClasses),
     );
   }
+}
+
+/** Where a (non-extern) handler's record + handler class live, and the
+ *  handler as its C# types are named (`typed.name` is the type stem).
+ *
+ *  The stem is the handler's own name, so `commandHandler CreateOrder` lands
+ *  on the path of the aggregate's auto `create` slice
+ *  (`Application/Orders/Commands/CreateOrderCommand.cs`) and supersedes it —
+ *  the auto controller's `new CreateOrderCommand(...)` binds either record,
+ *  since the two take the same parameter types and answer the same result.  A
+ *  handler whose record does NOT stand in for the auto slice on that path —
+ *  `queryHandler All(): Order[]` against the paged list's
+ *  `AllQuery(int Page, int PageSize, string Sort, string Dir)`, or
+ *  `queryHandler GetOrderById(orderId: Order id): Order` against the by-id
+ *  read's `IQuery<OrderResponse?>` — would leave the auto controller sending a
+ *  record that no longer exists (CS1729), so its types take the `<Name>Entry`
+ *  stem and both slices stand.
+ *
+ *  Pure over `out`: the controller emitter asks again after the handlers are
+ *  written and gets the same answer — the path then holds this handler's own
+ *  record (superseded) or the auto slice's (escaped). */
+function handlerSlice(
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+  kind: "Command" | "Query",
+  out: ReadonlyMap<string, string>,
+): { record: string; handler: string; typed: Handler } {
+  const paged = kind === "Query" && h.returnType !== undefined && pagedReturn(h.returnType);
+  const home = paged
+    ? `Application/${plural(pagedRunStmt(h, ctx).aggName)}/Queries`
+    : handlerHome(ns, primaryAgg(h), kind).dir;
+  const render = (named: Handler): string =>
+    paged
+      ? renderPagedQueryRecord(named, ns, ctx, pagedRunStmt(h, ctx).aggName)
+      : renderRecord(named, ns, ctx, primaryAgg(h), kind);
+  const existing = out.get(`${home}/${upperFirst(h.name)}${kind}.cs`);
+  const shape = existing === undefined ? undefined : recordShape(existing);
+  const standsIn =
+    existing === undefined || (shape !== undefined && shape === recordShape(render(h)));
+  const name = standsIn ? h.name : `${h.name}Entry`;
+  return {
+    record: `${home}/${upperFirst(name)}${kind}.cs`,
+    handler: `${home}/${upperFirst(name)}Handler.cs`,
+    typed: name === h.name ? h : { ...h, name },
+  };
+}
+
+/** A Mediator record's positional parameter TYPES and the interface it
+ *  implements — what decides whether one record can stand in for another
+ *  under `new <Name>(…)`.  `undefined` for a file holding no such record. */
+function recordShape(file: string): string | undefined {
+  const m = /public sealed record \w+\(([^)]*)\)\s*:\s*([^;{]+)/.exec(file);
+  if (!m) return undefined;
+  const types: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of `${m[1]!},`) {
+    if (ch === "<") depth++;
+    else if (ch === ">") depth--;
+    if (ch === "," && depth === 0) {
+      const param = cur.trim();
+      if (param) types.push(param.slice(0, param.lastIndexOf(" ")));
+      cur = "";
+    } else cur += ch;
+  }
+  return `${types.join(",")}:${m[2]!.trim()}`;
+}
+
+/** An expected-failure handler's wire union (`Application.EntryResults`). */
+function emitEntryUnion(
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+  out: Map<string, string>,
+): void {
+  if (h.returnType?.kind !== "union" || !entryResult(h, ctx)) return;
+  const f = renderEntryUnionFile(h.returnType, ctx, ns);
+  if (!out.has(f.path)) out.set(f.path, f.content);
+}
+
+/** The C# type a handler answers: the entry-result union for `T or E`, else
+ *  the domain type. */
+function handlerResultCs(h: Handler, t: TypeIR, ctx: EnrichedBoundedContextIR, ns: string): string {
+  return t.kind === "union" && entryResult(h, ctx)
+    ? `global::${entryResultNs(ns)}.${entryUnionName(t)}`
+    : renderCsType(t);
 }
 
 /** Write an explicit handler's record / handler class, REPLACING the auto-CQRS
@@ -771,7 +952,7 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
     // that used to live here mapped `int` to `long`, so an `int`-keyed
     // aggregate bound a `long` route token and handed it to a ctor taking
     // `int` — CS1503 (G2667-D4).  Latent only because ids are guid by default.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
@@ -786,7 +967,13 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
  *  the query string in exactly this shape. */
 export function queryActionParam(
   p: ParamIR,
-  opts: { bindRequired?: boolean } = {},
+  opts: {
+    bindRequired?: boolean;
+    /** The routed-handler context: a `money` param then binds as the wire
+     *  STRING and parses through the RS-42 grammar guard, so `"12,50"` answers
+     *  the shared 422 instead of reading as 1250 through `decimal` binding. */
+    wire?: { ns: string; ctx: EnrichedBoundedContextIR };
+  } = {},
 ): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
@@ -800,10 +987,19 @@ export function queryActionParam(
       : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
-    const wire = csIdValueClrType(t.valueType);
+    const wire = csIdValueClrType();
     return {
       actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
+    };
+  }
+  if (opts.wire && wireTypeInfo(t, "request").primitive === "money") {
+    return {
+      actionParam: `[FromQuery] ${bind}${wireType(t, opts.wire.ctx, "request")} ${n}`,
+      commandArg: wireToCommandArgument(n, t, opts.wire.ctx, {
+        ns: opts.wire.ns,
+        pointer: `/${p.name}`,
+      }),
     };
   }
   return { actionParam: `[FromQuery] ${bind}${renderCsType(t)} ${n}`, commandArg: n };
@@ -856,7 +1052,7 @@ export function emitExplicitRouteController(
       const bind = new Map(
         h.params.map((p) => [
           p.name,
-          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p),
+          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p, { wire: { ns, ctx } }),
         ]),
       );
       const actionParams = [
@@ -873,8 +1069,8 @@ export function emitExplicitRouteController(
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           routedResponseDecls("    [ProducesResponseType(200)]", r, h, ctx) +
-          `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
-          `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
+          `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
+          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(handlerSlice(h, ctx, ns, "Query", out).typed.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
       continue;
     }
@@ -902,14 +1098,16 @@ export function emitExplicitRouteController(
     const urlArg = new Map(
       urlParams.map((p) => [
         p.name,
-        source(p) === "path" ? pathActionParam(p) : queryActionParam(p, { bindRequired: true }),
+        source(p) === "path"
+          ? pathActionParam(p)
+          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx } }),
       ]),
     );
 
     const actionParamParts = urlParams.map((p) => urlArg.get(p.name)!.actionParam);
     let bodyRecName: string | undefined;
     if (bodyParams.length > 0) {
-      bodyRecName = `${h.name}Body`;
+      bodyRecName = `${upperFirst(h.name)}Body`;
       const fields = bodyParams
         .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
         .join(", ");
@@ -923,7 +1121,7 @@ export function emitExplicitRouteController(
       .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
       .join(", ");
 
-    const rec = `${h.name}${kind}`;
+    const rec = `${upperFirst(h.extern ? h.name : handlerSlice(h, ctx, ns, kind, out).typed.name)}${kind}`;
     const attr = HTTP_ATTR[r.method] ?? "HttpGet";
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
@@ -941,13 +1139,27 @@ export function emitExplicitRouteController(
     let successDecl = retType
       ? "    [ProducesResponseType(200)]"
       : "    [ProducesResponseType(204)]";
-    if (retType) {
+    const er = h.extern ? undefined : entryResult(h, ctx);
+    let armDecls = "";
+    if (er && retType?.kind === "union") {
+      // An expected-failure result: an error record answers problem+json at
+      // its mapped status, a success record 200 through the union base.
+      successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ctx, ns)}), 200)]`;
+      const declared = new Set(routedErrorStatuses(r, h, ctx));
+      armDecls = entryErrorStatuses(er, ctx)
+        .filter((st) => !declared.has(st))
+        .map((st) => `    [ProducesResponseType(typeof(ProblemDetails), ${st})]\n`)
+        .join("");
+      sendBlock =
+        `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n` +
+        entryControllerAnswer(er, retType, ctx, ns, "result", "        ").join("\n");
+    } else if (retType) {
       // An aggregate/entity return is projected to its wire-shape `<Agg>Response`
       // — the same projection the auto-derived read endpoints use — so the route
       // serialises the contract, not the raw domain entity. Scalar / id returns
       // serialise as-is.
       const info = wireTypeInfo(retType, "response");
-      let okExpr = "result";
+      let okExpr: string = RESULT_LOCAL;
       // Extern handlers own their return shape (no home aggregate to project
       // through) — serialise the impl's value as-is.
       if (!h.extern && info.refKind === "entity") {
@@ -955,7 +1167,7 @@ export function emitExplicitRouteController(
           ctx.aggregates.find((a) => a.name === info.base) ??
           ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base));
         if (owning) {
-          okExpr = projectToResponse("result", retType, ctx);
+          okExpr = projectToResponse(RESULT_LOCAL, retType, ctx);
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
           if (!info.isCollection)
             successDecl = `    [ProducesResponseType(typeof(${info.base}Response), 200)]`;
@@ -969,7 +1181,7 @@ export function emitExplicitRouteController(
       // fixture (M-T9.42 slice 2) — the per-backend string test pinned
       // `return Ok(result);` and passed.
       if (!h.extern && (info.refKind === "primitive" || info.refKind === "id")) {
-        okExpr = projectToResponse("result", retType, ctx);
+        okExpr = projectToResponse(RESULT_LOCAL, retType, ctx);
       }
       // A bare CLR `string` return must be sent as JSON EXPLICITLY (M-T6.73).
       // `Ok(<string>)` is the one value shape ASP.NET does not serialise as
@@ -981,17 +1193,24 @@ export function emitExplicitRouteController(
       // so this stays narrow: `renderCsType` naming `string` is exactly the set
       // that formatter intercepts.
       const csRet = renderCsType(retType).replace(/\?$/, "");
+      // A `T?` entity return answers its miss as the find-absence 404 (the
+      // shared exception filter renders it), never an empty-bodied 200.
+      const absentGuard =
+        !h.extern && routedAbsenceAnswers404(h, ctx)
+          ? `\n        if (${RESULT_LOCAL} is null) ${dotnetFindAbsenceThrow(ns)}`
+          : "";
       sendBlock =
         csRet === "string"
-          ? `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return new JsonResult(${okExpr});`
-          : `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return Ok(${okExpr});`;
+          ? `        var ${RESULT_LOCAL} = await _mediator.Send(new ${rec}(${ctorArgs}));${absentGuard}\n        return new JsonResult(${okExpr});`
+          : `        var ${RESULT_LOCAL} = await _mediator.Send(new ${rec}(${ctorArgs}));${absentGuard}\n        return Ok(${okExpr});`;
     } else {
       sendBlock = `        await _mediator.Send(new ${rec}(${ctorArgs}));\n        return NoContent();`;
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
         routedResponseDecls(successDecl, r, h, ctx) +
-        `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
+        armDecls +
+        `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );
   }
@@ -1002,7 +1221,7 @@ export function emitExplicitRouteController(
   // exactly when something in the file needs it.
   if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
     nsUsings.add(`${ns}.Domain.Common`);
-  const usings = [...nsUsings].sort().map((u) => `using ${u};`);
+  const usings = sortedCsUsings(nsUsings);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";
   out.set(

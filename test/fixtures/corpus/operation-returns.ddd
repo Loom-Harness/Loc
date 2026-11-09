@@ -67,6 +67,6 @@ system RU {
     expect(api.orders.hold(o)).toThrow(404)
     let after = api.orders.getById(o)
     expect(after.reserved).toBe(false)
-    expect(after.version).toBe(3)
+    expect(after.rowVersion).toBe(3)
   }
 }

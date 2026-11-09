@@ -11,6 +11,8 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_a
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../../generator/_i18n/validation-catalog.js";
+import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
+import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
@@ -82,13 +84,16 @@ import { buildRepositoryFile } from "../../../generator/typescript/repository-bu
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
 import { buildEventSourcedRepositoryFile } from "../../../generator/typescript/repository-eventsourced-builder.js";
+import { aggregateHasStreamScope } from "../../../generator/typescript/repository-find-predicate.js";
 import {
   PORT_POOL_PATH,
   portMembersFromSource,
   type RepoPortSpec,
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
-import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
+import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
@@ -102,7 +107,6 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { lowerModel } from "../../../ir/lower/lower.js";
 import {
   type BoundedContextIR,
   contextUsesMoney,
@@ -128,7 +132,6 @@ import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
   foreignValueTypes,
-  NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
   withForeignValueTypes,
@@ -154,11 +157,9 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
-import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
@@ -176,7 +177,6 @@ import { emitObservabilityFiles } from "./observability-builder.js";
 import { buildProjectionsFile } from "./projection-builder.js";
 import { buildQueryProjectionsFile } from "./projection-query-routes-builder.js";
 import { buildRealtimeFile } from "./realtime-builder.js";
-import { buildRoutesFile } from "./routes-builder.js";
 import { anyTimerUsesCron, renderTimerScheduler } from "./scheduler-builder.js";
 import { buildWorkflowsFile } from "./workflow-builder.js";
 
@@ -489,21 +489,27 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
   ).join("/");
 }
 
-/** Is the issue's path ABSENT from the request input?  An absent required
- *  field answers the sentence every backend sends for it (RS-39) instead of
- *  zod's type-mismatch sentence ("expected string, received undefined"). */
-function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
+/** Is the issue a MISSING required field — its key absent from the request
+ *  input, or present as \`null\` where the type refuses null (a merge-patch
+ *  update cannot remove a required field, RS-47)?  Either answers the sentence
+ *  every backend sends for it (RS-39) instead of zod's type-mismatch sentence
+ *  ("expected string, received undefined"). */
+function isMissing(input: unknown, issue: { path: ReadonlyArray<PropertyKey>; code?: string }): boolean {
+  const path = issue.path;
   if (path.length === 0) return false;
   let node: unknown = input;
   for (const seg of path.slice(0, -1)) {
     if (node === null || typeof node !== "object") return false;
     node = (node as Record<PropertyKey, unknown>)[seg];
   }
-  return node !== null && typeof node === "object" && !(path[path.length - 1]! in node);
+  if (node === null || typeof node !== "object") return false;
+  const key = path[path.length - 1]!;
+  if (!(key in node)) return true;
+  return issue.code === "invalid_type" && (node as Record<PropertyKey, unknown>)[key] === null;
 }
 
-/** \`"<field> ${fieldSentenceSuffix("missing")}"\` for an absent key — the field is the
- *  path's last segment, the key \`isAbsent\` found missing. */
+/** \`"<field> ${fieldSentenceSuffix("missing")}"\` for a missing key — the field is the
+ *  path's last segment, the key \`isMissing\` found missing. */
 function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
   return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;
 }
@@ -522,7 +528,7 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
  *  server refuses on SEMANTIC grounds, which is what RFC 9110 reserves 422
  *  for, and it makes the denial ladder identical on all five backends.  400
  *  stays for a genuinely malformed/unparseable request. */
-export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
+export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; code?: string; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
   if (result.success) return undefined;
   const trace_id = c.get("requestId") ?? "";
   const errors = (result.error?.issues ?? []).map((issue) => ({
@@ -537,8 +543,8 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
     // authored text the refine carries.  Resolved HERE rather than in the refine
     // because a zod "message" is fixed when the schema is CONSTRUCTED (module
     // load), where no request — and so no locale — exists yet.
-    message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
-        : `message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,`
+    message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
+        : `message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,`
     }
     // A messaged invariant/precondition carries a stable content-hash code (via
     // the refine's params.loomCode) so a client can localise the error;
@@ -734,51 +740,29 @@ export interface ProvLineage {
 `;
 
 /**
- * Legacy entry: lowers the whole model and emits one project from all
- * top-level bounded contexts.  Used by `ddd generate ts <file> -o <dir>`.
- */
-export function generateTypeScript(
-  model: Model,
-  pins: BackendPins,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> {
-  // Lowering produces a faithful AST projection; enrichment populates
-  // wireShape, the implicit `findAll` find, and react `moduleNames`
-  // inheritance.  Every backend consumes the enriched IR, never the
-  // raw lowered output.
-  const loom = enrichLoomModel(lowerModel(model));
-  return generateTypeScriptForContexts(loom.contexts, pins, undefined, options);
-}
-
-/**
- * System-mode entry: emits one project from a pre-filtered list of
- * contexts.  Used by the deployable orchestrator to scope the output
- * to a single deployable's modules.
- *
- * `system` (when present) carries the system-wide user-claim shape +
- * the deployable's auth setting.  When the deployable opts in via
- * `auth: required` AND the system declares a user block, the
- * generator emits the auth/* package + mounts the middleware in
- * http/index.ts.  Loose top-level contexts (no enclosing system)
- * skip the auth path entirely.
- */
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
  *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
-function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR } | undefined): boolean {
-  if (!system) return false;
+function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return (system.sys.timerSources ?? []).some((ts) => {
     const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
     return sub?.migrationsOwner === system.deployable.name;
   });
 }
 
+/**
+ * The Hono backend entry: emits one deployable's project from its hosted
+ * contexts.  `system` carries the deployable and its system — the user-claim
+ * shape and auth setting (an `auth: required` deployable in a system with a
+ * `user` block gets the auth/* package + middleware), the migrations and the
+ * resolved style / layout adapters.
+ */
 export function generateTypeScriptForContexts(
   contexts: EnrichedBoundedContextIR[],
   pins: BackendPins,
-  system?: {
+  system: {
     deployable: DeployableIR;
     sys: SystemIR;
     migrations?: MigrationsIR[];
@@ -789,13 +773,13 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = emissionSink("platform/hono/v4/emit");
-  const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
+  const out = new TsOutputMap("platform/hono/v4/emit");
+  const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the
   // generated verifier + `/auth/*` handshake + the `jose` dep, replacing
   // the hand-registered dev stub.
-  const oidcAuth = authRequired ? system?.sys.auth : undefined;
+  const oidcAuth = authRequired ? system.sys.auth : undefined;
   // Emission is forced by presence: any written `provenanced` field turns
   // on the lineage types + co-located `<field>_provenance` columns + the
   // `provenance_records` history table.  Threaded as a flag (rather than
@@ -829,7 +813,7 @@ export function generateTypeScriptForContexts(
   // Persistence-neutral since M-T6.23: `http/channels.ts` (the driver,
   // producer tee and consumer loop) reads no `db` at all, and the outbox relay
   // it publishes drained rows through now emits on both adapters.
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
   // Durable broker-bound events (M-T4.4): carried by a wired
   // `queue`/`work` (or future `log`) channel — the producer path for these
   // rides the outbox relay (design §5), never the inline tee.
@@ -874,25 +858,21 @@ export function generateTypeScriptForContexts(
   // vocabulary with it, which is what made `channels-e2e-kafka (node)` red on
   // every push to `main` between #2944 and this change.
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
-  const foreignConsumedEvents = system
-    ? resolveForeignEvents(
-        [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
-        knownEventNames,
-        system.sys,
-      )
-    : [];
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((s) => s.event), ...channelBindings.flatMap((b) => b.events)],
+    knownEventNames,
+    system.sys,
+  );
   // …and the value objects / enums those foreign events' fields — or the
   // hosted contexts' own declarations (D15: a sibling-context enum / VO) —
   // reach, which the deployable does not host: `domain/value-objects.ts` must
   // DECLARE them, because `domain/events.ts` and the aggregate modules import
   // them from it (eval item 11).
-  const foreignValues = system
-    ? foreignValueTypes(
-        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
-        system.sys,
-        mergedBase,
-      )
-    : NO_FOREIGN_VALUE_TYPES;
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+    system.sys,
+    mergedBase,
+  );
   const merged: EnrichedBoundedContextIR = {
     ...withForeignValueTypes(mergedBase, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
@@ -913,7 +893,7 @@ export function generateTypeScriptForContexts(
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValues.valueObjects),
     ...hostedContextIdTypeSources([merged]),
-    ...userClaimIdTypeSources(system?.sys.user),
+    ...userClaimIdTypeSources(system.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
   out.set("domain/value-objects.ts", renderEnumsAndValueObjects(merged));
@@ -945,7 +925,7 @@ export function generateTypeScriptForContexts(
       emitVoInvariant,
       emitDomainFloorCodes,
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(system?.deployable, system?.sys),
+      echoesDenialDetail(system.deployable, system.sys),
     ),
   );
   // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
@@ -970,35 +950,29 @@ export function generateTypeScriptForContexts(
   // `<schema>.table(...)` / `tablePrefix` routing in `renderSchema`.
   // Returns `undefined` for systems without a matching binding, which
   // falls back to the existing plain `pgTable(...)` shape.
-  const resolveDataSource = system
-    ? (agg: import("../../../ir/types/loom-ir.js").AggregateIR) => {
-        const owningCtx = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
-        return owningCtx
-          ? resolveDataSourceConfig(
-              agg as import("../../../ir/types/loom-ir.js").EnrichedAggregateIR,
-              owningCtx,
-              system.sys,
-            )
-          : undefined;
-      }
-    : undefined;
+  const resolveDataSource = (agg: import("../../../ir/types/loom-ir.js").AggregateIR) => {
+    const owningCtx = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
+    return owningCtx
+      ? resolveDataSourceConfig(
+          agg as import("../../../ir/types/loom-ir.js").EnrichedAggregateIR,
+          owningCtx,
+          system.sys,
+        )
+      : undefined;
+  };
   // Per-workflow saga-table schema — resolved from the workflow's OWNING
   // context (map-back by name, mirroring `resolveDataSource`), so its
   // correlation-state / event-log table lands in the same schema as that
   // context's aggregate tables instead of `public`.
-  const resolveWorkflowSchema = system
-    ? (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
-        const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-        return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-      }
-    : undefined;
+  const resolveWorkflowSchema = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
+    const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+    return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+  };
   // Per-projection read-model-table schema — same owning-context map-back.
-  const resolveProjectionSchema = system
-    ? (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
-        const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
-        return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-      }
-    : undefined;
+  const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
+    const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
+    return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+  };
   // Per-stream OWNING-context name — maps an event-sourced aggregate / workflow
   // to the context that declares it, so the merged multi-context schema names
   // each `<ctx>_events` log after its owner (matching the per-aggregate
@@ -1015,14 +989,14 @@ export function generateTypeScriptForContexts(
   // (schema owned by `orm.schema.update()` at startup).  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
-  const usingMikro = system?.deployable.persistence === "mikroorm";
+  const usingMikro = system.deployable.persistence === "mikroorm";
   if (usingMikro) {
     out.set(
       "db/entities.ts",
       renderMikroEntities(
         merged.aggregates,
         merged,
-        (agg) => effectiveSavingShape(agg, resolveDataSource?.(agg)),
+        (agg) => effectiveSavingShape(agg, resolveDataSource(agg)),
         {
           audit: emitAudit,
           provenance: emitProvenance,
@@ -1030,6 +1004,7 @@ export function generateTypeScriptForContexts(
           // `__loom_outbox` table, on the same condition the drizzle schema
           // emitter uses (any durable channel in the deployable).
           outbox: durableEventTypes(merged).size > 0,
+          resolveStreamContext,
           // Timer-scheduler watermark Row — same condition as `scheduler.ts`
           // below (this deployable OWNS a timerSource).  It has to be an entity
           // on this adapter or `schema.update()` drops it on the second boot.
@@ -1060,12 +1035,10 @@ export function generateTypeScriptForContexts(
   // the router emitted a bare `salesFiles$put(...)` → TS2304 in the generated
   // project.  One map, both call sites, so they cannot drift.
   const resourceSourceTypes = new Map<string, string>();
-  if (system) {
-    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-    for (const r of system.sys.dataSources) {
-      const st = storeType.get(r.storageName);
-      if (st) resourceSourceTypes.set(r.name, st);
-    }
+  const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
+  for (const r of system.sys.dataSources) {
+    const st = storeType.get(r.storageName);
+    if (st) resourceSourceTypes.set(r.name, st);
   }
   if (
     merged.workflows.length > 0 ||
@@ -1091,8 +1064,8 @@ export function generateTypeScriptForContexts(
       for (const frag of workflowOpFragments) {
         sourcemap.fragment(
           "http/workflows.ts",
-          workflowsContent,
-          frag.fragmentText,
+          out.get("http/workflows.ts")!,
+          spellMarkers(frag.fragmentText),
           frag.subRegions,
         );
       }
@@ -1116,20 +1089,24 @@ export function generateTypeScriptForContexts(
   // to a hosted commandHandler / queryHandler.  A no-op (byte-identical) when
   // the deployable serves no api with explicit routes.
   const explicitRouters: { fn: string; module: string; mountPath: string }[] = [];
-  if (system) {
-    for (const apiName of system.deployable.serves) {
-      const api = system.sys.apis.find((a) => a.name === apiName);
-      if (!api || api.routes.length === 0) continue;
-      const content = buildExplicitRoutesFile(api.name, api.routes, contexts, resourceSourceTypes);
-      if (!content) continue;
-      const slug = lowerFirst(api.name);
-      out.set(`http/${slug}-routes.ts`, content);
-      explicitRouters.push({
-        fn: `${slug}Routes`,
-        module: `./${slug}-routes`,
-        mountPath: API_BASE_PATH,
-      });
-    }
+  for (const apiName of system.deployable.serves) {
+    const api = system.sys.apis.find((a) => a.name === apiName);
+    if (!api || api.routes.length === 0) continue;
+    const content = buildExplicitRoutesFile(
+      api.name,
+      api.routes,
+      contexts,
+      resourceSourceTypes,
+      usingMikro,
+    );
+    if (!content) continue;
+    const slug = lowerFirst(api.name);
+    out.set(`http/${slug}-routes.ts`, content);
+    explicitRouters.push({
+      fn: `${slug}Routes`,
+      module: `~/http/${slug}-routes`,
+      mountPath: API_BASE_PATH,
+    });
   }
   // File upload/download wiring (M-T1.2): when this deployable hosts a
   // File-bearing aggregate AND binds an objectStore, `createApp` mounts the
@@ -1137,19 +1114,17 @@ export function generateTypeScriptForContexts(
   // (`loom.file-field-needs-object-storage`) guarantees the binding exists, so
   // a missing objectStore here means simply no File field — emit nothing.
   let fileUpload: { resource: string; sourceType: string } | undefined;
-  if (system) {
-    const hasFileField = contexts.some((ctx) =>
-      ctx.aggregates.some((agg) => aggregateHasFileField(agg)),
+  const hasFileField = contexts.some((ctx) =>
+    ctx.aggregates.some((agg) => aggregateHasFileField(agg)),
+  );
+  if (hasFileField) {
+    const wired = new Set(system.deployable.dataSourceNames);
+    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
+    const objStore = system.sys.dataSources.find(
+      (r) => wired.has(r.name) && r.kind === "objectStore",
     );
-    if (hasFileField) {
-      const wired = new Set(system.deployable.dataSourceNames);
-      const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-      const objStore = system.sys.dataSources.find(
-        (r) => wired.has(r.name) && r.kind === "objectStore",
-      );
-      const st = objStore ? storeType.get(objStore.storageName) : undefined;
-      if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
-    }
+    const st = objStore ? storeType.get(objStore.storageName) : undefined;
+    if (objStore && st) fileUpload = { resource: objStore.name, sourceType: st };
   }
   out.set(
     "http/index.ts",
@@ -1172,7 +1147,7 @@ export function generateTypeScriptForContexts(
   // module reads no `db` at all — `realtimeTee(inner)` decorates a dispatcher and
   // `realtimeRoutes()` takes no handle — so the wire is adapter-independent.
   {
-    const realtimeFile = buildRealtimeFile(merged, system?.sys);
+    const realtimeFile = buildRealtimeFile(merged, system.sys);
     if (realtimeFile) out.set("http/realtime.ts", realtimeFile);
   }
 
@@ -1182,24 +1157,22 @@ export function generateTypeScriptForContexts(
   // module, repository, extern handler, tests) still write inline
   // paths; future slices can move them under the persistence adapter +
   // additional layout categories.
-  const emitCtx: EmitCtx | undefined = system
-    ? {
-        deployable: system.deployable,
-        contexts,
-        sys: system.sys,
-        migrations: system.migrations,
-        emitTrace,
-        styleAdapter: system.styleAdapter,
-        layoutAdapter: system.layoutAdapter,
-      }
-    : undefined;
+  const emitCtx: EmitCtx = {
+    deployable: system.deployable,
+    contexts,
+    sys: system.sys,
+    migrations: system.migrations,
+    emitTrace,
+    styleAdapter: system.styleAdapter,
+    layoutAdapter: system.layoutAdapter,
+  };
   // Per-aggregate placement (D-REALIZATION-AXES `directoryLayout:`): every
   // per-aggregate file routes through the deployable's RESOLVED layout adapter,
-  // byLayer fallback in the legacy single-context path.  byLayer reproduces the
-  // historical inline paths byte-for-byte; byFeature rehomes them under
+  // byLayer when none was resolved.  byLayer keeps the inline paths;
+  // byFeature rehomes them under
   // `features/<agg>/`.  Relocated files are recorded in `moved` (byLayer →
   // final) so a single post-emit pass can rewrite their relative imports.
-  const layout = emitCtx?.layoutAdapter ?? byLayerLayoutAdapter;
+  const layout = emitCtx.layoutAdapter ?? byLayerLayoutAdapter;
   const moved = new Map<string, string>();
   const placeArtifact = (
     artifact: HonoArtifact,
@@ -1210,15 +1183,18 @@ export function generateTypeScriptForContexts(
     const byLayerPath = byLayerLayoutAdapter.pathFor(artifact, emitCtx ?? ({} as EmitCtx));
     const finalPath = layout.pathFor(artifact, emitCtx ?? ({} as EmitCtx));
     if (finalPath !== byLayerPath) moved.set(byLayerPath, finalPath);
-    out.set(finalPath, artifact.content);
-    sourcemap?.file(finalPath, artifact.content, origin, construct);
+    // Finalized under the byLayer path its project-relative imports resolve
+    // against; the layout pass below rewrites them for the final path.
+    out.set(finalPath, finalizeTsModule(artifact.content, { path: byLayerPath }));
+    const content = out.get(finalPath)!;
+    sourcemap?.file(finalPath, content, origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content, so they land at the right
     // absolute lines regardless of what the layout adapter did to the path.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(finalPath, artifact.content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(finalPath, content, spellMarkers(frag.fragmentText), frag.subRegions);
       }
     }
   };
@@ -1289,7 +1265,7 @@ export function generateTypeScriptForContexts(
       // round-trip via `_create`; `embedded` → queryable root columns +
       // containments in jsonb columns; `relational` (default) → the
       // normalised table-per-entity hydrate.
-      const shape = effectiveSavingShape(agg, resolveDataSource?.(agg));
+      const shape = effectiveSavingShape(agg, resolveDataSource(agg));
       const repoContent = usingMikro
         ? // mikroorm: event-sourced aggregates use the EntityManager event
           // store (appliers, MikroORM edition); `shape: document` folds the
@@ -1321,36 +1297,21 @@ export function generateTypeScriptForContexts(
       ) {
         scopeSpecs.push({ agg, ctx });
       }
+      // A tenant-scoped event stream scopes its SQL stream loads through its
+      // own helper, over the event log's tenant metadata (`stream-tenancy.ts`).
+      if (!usingMikro && agg.persistedAs === "eventLog" && aggregateHasStreamScope(agg, ctx)) {
+        scopeSpecs.push({ agg, ctx, stream: true });
+      }
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.
       portSpecs.push({ aggName: agg.name, members: portMembersFromSource(repoContent) });
-      // Routes file — adapter-dispatched in system mode (the layered
-      // StyleAdapter re-derives audit / provenance gates from
-      // ctx.contexts so the output matches `buildRoutesFile(...,
-      // emitAudit, emitProvenance, emitTrace)` byte-for-byte); direct
-      // call in legacy single-context mode.
-      if (emitCtx) {
-        // Resolved style / layout selection (D-REALIZATION-AXES) when
-        // threaded in; sibling default otherwise.  Size-1 menus → same
-        // object → byte-identical.
-        const style = emitCtx.styleAdapter ?? layeredStyleAdapter;
-        const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
-        for (const artifact of artifacts) {
-          placeArtifact(artifact as HonoArtifact, agg.origin, construct);
-        }
-      } else {
-        const routesPath = `http/${lowerFirst(agg.name)}.routes.ts`;
-        const routesContent = buildRoutesFile(
-          agg,
-          repo,
-          ctx,
-          emitAudit,
-          emitProvenance,
-          emitTrace,
-          usingMikro,
-        );
-        out.set(routesPath, routesContent);
-        sourcemap?.file(routesPath, routesContent, agg.origin, construct);
+      // Routes file — dispatched through the deployable's resolved style
+      // adapter (the layered StyleAdapter by default; size-1 menu, so the
+      // same object).
+      const style = emitCtx.styleAdapter ?? layeredStyleAdapter;
+      const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
+      for (const artifact of artifacts) {
+        placeArtifact(artifact as HonoArtifact, agg.origin, construct);
       }
       const testsFile = renderTestsFile(agg, ctx);
       if (testsFile) {
@@ -1379,9 +1340,9 @@ export function generateTypeScriptForContexts(
         out.get("http/workflows.ts") ?? "",
       ),
       // The project's own runner whenever it ships one (see `hasMigrations`).
-      ...(!usingMikro && (system?.migrations?.length ?? 0) > 0
-        ? { migrator: "../db/migrate" }
-        : {}),
+      ...(!usingMikro && (system.migrations?.length ?? 0) > 0 ? { migrator: "../db/migrate" } : {}),
+      // The auth layer is emitted below under the same condition.
+      ...(authRequired && system.sys.user ? { user: system.sys.user.fields } : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
@@ -1462,12 +1423,12 @@ export function generateTypeScriptForContexts(
     }
   }
 
-  if (authRequired && system?.sys) {
+  if (authRequired) {
     emitAuthFiles(system.sys, out);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
-  emitObservabilityFiles(out, system?.deployable.name ?? "api");
+  emitObservabilityFiles(out, system.deployable.name);
   // Persist-time audit-stamp helper (node-persist-time-auditing): emitted once
   // per project when any served aggregate carries lifecycle stamps, so the
   // backend `save()` can stamp the audit columns from the ambient request
@@ -1492,20 +1453,19 @@ export function generateTypeScriptForContexts(
   // The audit row's `actor` projection — one copy for every audit write site
   // (routes and workflow bodies alike).
   if (emitAudit) {
-    out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system?.sys.user : undefined));
+    out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system.sys.user : undefined));
   }
   // Per-module Postgres migrations + Drizzle journal — emitted whenever
-  // the system orchestrator hands us a migrations slice.  Empty slice
-  // (non-system entry points) → no-op.
+  // the system orchestrator hands us a migrations slice.  Empty slice → no-op.
   // mikroorm owns its schema via `orm.schema.update()` at startup, so it
   // emits no drizzle migration files and `hasMigrations` stays false (which
   // suppresses the boot-time `migrate(...)` call in index.ts).
-  const hasMigrations = !usingMikro && !!(system?.migrations && system.migrations.length > 0);
+  const hasMigrations = !usingMikro && !!(system.migrations && system.migrations.length > 0);
   // The co-located `<field>_provenance` columns are ordinary MigrationsIR
   // columns (`withLineageColumns` in migrations-builder.ts), so they ride the
   // chain's own generations like any other column.
   if (hasMigrations) {
-    emitTypescriptMigrations(system?.migrations ?? [], out);
+    emitTypescriptMigrations(system.migrations ?? [], out);
   }
   // First-boot seed data (database-seeding.md) — emits `db/seed.ts`
   // when the served contexts declare any `seed` block.  Through the domain
@@ -1541,44 +1501,41 @@ export function generateTypeScriptForContexts(
   // consumption surface.
   const resourceDeps: Record<string, string> = {};
   const resourceImports: string[] = [];
-  if (system) {
-    const wired = new Set(system.deployable.dataSourceNames);
-    const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
-    const bySourceType = new Map<string, DataSourceIR[]>();
-    for (const r of system.sys.dataSources) {
-      if (!wired.has(r.name)) continue;
-      if (r.kind !== "objectStore" && r.kind !== "queue" && r.kind !== "api" && r.kind !== "mailer")
-        continue;
-      const st = storeType.get(r.storageName);
-      if (!st) continue;
-      const group = bySourceType.get(st);
-      if (group) group.push(r);
-      else bySourceType.set(st, [r]);
-    }
-    const resourceCtx: EmitCtx = {
-      deployable: system.deployable,
-      contexts,
-      sys: system.sys,
-    };
-    for (const [sourceType, group] of bySourceType) {
-      const adapter = resourceAdapterFor(sourceType);
-      if (!adapter) continue;
-      out.set(
-        `resources/${sourceType}.ts`,
-        `${adapter.emitClientModule(group, system.sys.storages, resourceCtx).join("\n")}\n`,
-      );
-      Object.assign(resourceDeps, adapter.emitProjectDeps(resourceCtx));
-      resourceImports.push(`import "./resources/${sourceType}";`);
-    }
-    // Typed in-system api clients (M-T4.8).  Emitted alongside the
-    // sourceType-keyed adapters above, NOT through them: an api-bound resource
-    // has no `storage`, so `storeType.get(r.storageName)` misses by design and
-    // the loop above skips it.
-    const apiBindings = apiResourceBindings(system.deployable, system.sys);
-    const apiClient = emitApiClientModule(apiBindings, system.sys);
-    if (apiClient.length > 0) {
-      out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
-    }
+  const wired = new Set(system.deployable.dataSourceNames);
+  const bySourceType = new Map<string, DataSourceIR[]>();
+  for (const r of system.sys.dataSources) {
+    if (!wired.has(r.name)) continue;
+    if (r.kind !== "objectStore" && r.kind !== "queue" && r.kind !== "api" && r.kind !== "mailer")
+      continue;
+    const st = storeType.get(r.storageName);
+    if (!st) continue;
+    const group = bySourceType.get(st);
+    if (group) group.push(r);
+    else bySourceType.set(st, [r]);
+  }
+  const resourceCtx: EmitCtx = {
+    deployable: system.deployable,
+    contexts,
+    sys: system.sys,
+  };
+  for (const [sourceType, group] of bySourceType) {
+    const adapter = resourceAdapterFor(sourceType);
+    if (!adapter) continue;
+    out.set(
+      `resources/${sourceType}.ts`,
+      `${adapter.emitClientModule(group, system.sys.storages, resourceCtx).join("\n")}\n`,
+    );
+    Object.assign(resourceDeps, adapter.emitProjectDeps(resourceCtx));
+    resourceImports.push(`import "./resources/${sourceType}";`);
+  }
+  // Typed in-system api clients (M-T4.8).  Emitted alongside the
+  // sourceType-keyed adapters above, NOT through them: an api-bound resource
+  // has no `storage`, so `storeType.get(r.storageName)` misses by design and
+  // the loop above skips it.
+  const apiBindings = apiResourceBindings(system.deployable, system.sys);
+  const apiClient = emitApiClientModule(apiBindings, system.sys);
+  if (apiClient.length > 0) {
+    out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
   }
 
   // TimerSource scheduling (scheduling.md, M-T4.1).  A timer's emit owner is
@@ -1586,14 +1543,10 @@ export function generateTypeScriptForContexts(
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no scheduler.ts, no import, no dep, no boot block).
-  const ownedTimers: TimerSourceIR[] = system
-    ? (system.sys.timerSources ?? []).filter((ts) => {
-        const sub = system.sys.subdomains.find((s) =>
-          s.contexts.some((c) => c.name === ts.context),
-        );
-        return sub?.migrationsOwner === system.deployable.name;
-      })
-    : [];
+  const ownedTimers: TimerSourceIR[] = (system.sys.timerSources ?? []).filter((ts) => {
+    const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
+    return sub?.migrationsOwner === system.deployable.name;
+  });
   // Invariant the watermark entity relies on: `ownsTimers` (used above, before
   // the entity file is rendered) must agree with this filter.
   if (ownedTimers.length > 0 !== ownsTimers(system)) {
@@ -1676,51 +1629,66 @@ export function generateTypeScriptForContexts(
   // Deliberately root-only: no `include`, so vitest's DEFAULT include still
   // decides what runs and the set of tests `npm test` executes is unchanged.
   // The single job of this file is to stop the upward search.
-  out.set("vitest.config.ts", VITEST_CONFIG);
-  out.set(
-    "index.ts",
-    renderProjectIndexTs(
-      hasMigrations,
-      authRequired ? system?.sys.user : undefined,
-      resourceImports,
-      hasSeeds,
-      usingMikro,
-      // Outbox relay (dispatch-delivery-semantics.md): started at boot when
-      // any context carries a durable channel AND the in-process dispatcher
-      // is wired (subscriptions exist).  Persistence-neutral — the mikro
-      // adapter emits the same relay over the EntityManager.
+  out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
+  const entryConfig: ProjectEntryConfig = {
+    runMigrationsAtBoot: hasMigrations,
+    userShape: authRequired ? system.sys.user : undefined,
+    resourceImports,
+    runSeedsAtBoot: hasSeeds,
+    usingMikro,
+    // Outbox relay (dispatch-delivery-semantics.md): started at boot when
+    // any context carries a durable channel AND the in-process dispatcher
+    // is wired (subscriptions exist).  Persistence-neutral — the mikro
+    // adapter emits the same relay over the EntityManager.
+    outboxRelay:
       contexts.some((c) => c.eventSubscriptions.length > 0 && durableEventTypes(c).size > 0) ||
-        // A durable-broker producer relays even without local subscribers:
-        // the drained rows publish to the broker (M-T4.4).
-        (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0),
-      // Realtime tee: the relay's inner dispatcher rides through it so
-      // relayed (durable) events reach the SSE wire too.  Persistence-neutral
-      // since M-T6.23.
-      contexts.some((c) => realtimeEventTypes(c).size > 0),
-      // OIDC turnkey auth: register the generated verifier instead of the
-      // dev stub.
-      !!oidcAuth,
-      // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
-      // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
-      // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
-      // per request, on both persistence adapters.  `undefined` for flat
-      // tenancy.  The aggregate name (not the drizzle table var) is what
-      // crosses the seam: each branch needs a different spelling of it (the
-      // `orgs` schema var vs the `OrgRow` entity class).
-      authRequired && system ? hierarchyRegistry(system.sys)?.name : undefined,
-      // Timer scheduler (scheduling.md, M-T4.1): boot wires startTimerScheduler
-      // into the same in-process dispatcher the outbox relay uses.
-      hasTimers,
-      // Broker transport (M-T4.4): boot creates the redis transports,
-      // wraps the app dispatcher in the publish tee, and starts the consumer
-      // loop feeding the in-process dispatcher.
-      hasChannels,
-      hasChannelConsumers,
-      // A native run (`npm run dev`) listens on the deployable's declared
-      // port; the image sets PORT to its container port.
-      system?.deployable.port ?? 3000,
-    ),
-  );
+      // A durable-broker producer relays even without local subscribers:
+      // the drained rows publish to the broker.
+      (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0),
+    // Realtime tee: the relay's inner dispatcher rides through it so
+    // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
+    hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
+    // OIDC turnkey auth: register the generated verifier instead of the
+    // dev stub.
+    oidc: !!oidcAuth,
+    // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
+    // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
+    // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
+    // per request, on both persistence adapters.  `undefined` for flat
+    // tenancy.  The aggregate name (not the drizzle table var) is what
+    // crosses the seam: each branch needs a different spelling of it (the
+    // `orgs` schema var vs the `OrgRow` entity class).
+    orgPathRegistryAgg: authRequired ? hierarchyRegistry(system.sys)?.name : undefined,
+    // Timer scheduler (scheduling.md): boot wires startTimerScheduler
+    // into the same in-process dispatcher the outbox relay uses.
+    hasTimers,
+    // Broker transport: boot creates the broker transports, wraps the app
+    // dispatcher in the publish tee, and starts the consumer loop feeding
+    // the in-process dispatcher.
+    hasChannels,
+    hasChannelConsumers,
+    // A native run (`npm run dev`) listens on the deployable's declared
+    // port; the image sets PORT to its container port.
+    nativePort: system.deployable.port,
+  };
+  out.set("boot.ts", renderProjectBootTs(entryConfig));
+  out.set("index.ts", renderProjectIndexTs(entryConfig));
+  // Exact-`decimal` arithmetic precision: configured once at boot (and in the
+  // vitest setup) so every module's `Decimal` sees it.
+  if (projectImportsDecimalJs) {
+    out.set(DECIMAL_SETUP_PATH, DECIMAL_SETUP_TS);
+    // Both entry modules import it: the deployed server loads index.ts, the
+    // browser playground loads boot.ts without it.
+    for (const entry of ["index.ts", "boot.ts"]) {
+      out.replace(
+        entry,
+        (out.get(entry) as string).replace(
+          "// Auto-generated.\n",
+          `// Auto-generated.\nimport "./${DECIMAL_SETUP_PATH.replace(/\.ts$/, "")}";\n`,
+        ),
+      );
+    }
+  }
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
   out.set("Dockerfile", renderDockerfileTs(hasMigrations));
   out.set(".dockerignore", DOCKERIGNORE_TS);
@@ -1748,7 +1716,7 @@ export function generateTypeScriptForContexts(
   // through the phase-5 `.ts.map` sidecars straight to `.ddd` coordinates.
   // Flag-off keeps today's extensionless (Bundler-style) imports untouched.
   if (sourcemap) addTsExtensionsForNodeDebug(out);
-  return out;
+  return out.assertFinal();
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {
@@ -1988,6 +1956,9 @@ function projectTsconfigJson(debugImports: boolean): string {
           // tsup handles emit (single bundled `dist/index.js`); tsc is
           // type-check only via `npm run typecheck`.
           noEmit: true,
+          // Node's type stripping (the debug run path) rejects `namespace`,
+          // `enum` and parameter properties; docs/debugging.md.
+          erasableSyntaxOnly: true,
           // `Bundler` resolution lets relative imports omit the `.js`
           // extension — esbuild (via tsup at build time, tsx at dev
           // time, vite-node at test time) resolves them.
@@ -2002,7 +1973,21 @@ function projectTsconfigJson(debugImports: boolean): string {
   );
 }
 
-const VITEST_CONFIG = `// Auto-generated.  Pins the test root to THIS project so
+/** Significant digits `Decimal` computes with.  decimal.js defaults to 20, which
+ *  rounds a product/quotient that .NET (`decimal`, 28-29 digits) and Python
+ *  (`decimal` context, 28) keep exact; 28 is the floor all backends agree on. */
+const DECIMAL_PRECISION = 28;
+const DECIMAL_SETUP_PATH = "lib/decimal-setup.ts";
+const DECIMAL_SETUP_TS = `// Auto-generated.  Do not edit by hand.
+// decimal.js computes with 20 significant digits by default; the other
+// backends keep 28, so configure the shared Decimal constructor to match.
+import Decimal from "decimal.js";
+
+Decimal.set({ precision: ${DECIMAL_PRECISION} });
+`;
+
+function renderVitestConfig(withDecimalSetup: boolean): string {
+  return `// Auto-generated.  Pins the test root to THIS project so
 // vitest never walks up into an enclosing repo's config — without this file a
 // generated tree dropped inside such a repo ran zero of its own tests and still
 // exited 0.  No \`include\`: vitest's default globs decide what runs.
@@ -2011,10 +1996,13 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    root: fileURLToPath(new URL(".", import.meta.url)),
+    root: fileURLToPath(new URL(".", import.meta.url)),${
+      withDecimalSetup ? `\n    setupFiles: ["./${DECIMAL_SETUP_PATH}"],` : ""
+    }
   },
 });
 `;
+}
 
 const TSUP_CONFIG = `// Auto-generated.  tsup bundles index.ts → dist/index.js for
 // production.  Externals match runtime deps from package.json so
@@ -2098,7 +2086,7 @@ function renderHonoBootMigrate(): string {
     renderHonoBaseLogCall("migrationsStarting"),
     `for (let attempt = 1, maxAttempts = ${maxAttempts}; ; attempt++) {`,
     "  try {",
-    '    await migrate(db, { migrationsFolder: "./db/migrations" });',
+    `    await ${T.migrate}(db, { migrationsFolder: "./db/migrations" });`,
     `    ${renderHonoBaseLogCall("migrationsComplete")}`,
     "    break;",
     "  } catch (err) {",
@@ -2117,58 +2105,74 @@ function renderHonoBootMigrate(): string {
   );
 }
 
-function renderProjectIndexTs(
-  runMigrationsAtBoot: boolean,
-  userShape?: UserIR,
-  resourceImports: readonly string[] = [],
-  runSeedsAtBoot = false,
-  usingMikro = false,
-  outboxRelay = false,
-  hasRealtime = false,
-  oidc = false,
-  orgPathRegistryAgg?: string,
-  hasTimers = false,
-  hasChannels = false,
-  hasChannelConsumers = false,
-  nativePort = 3000,
-): string {
-  // Side-effect imports for the resource-client modules (objectStore /
-  // queue / api) so their clients instantiate at boot.  Empty for
-  // deployables with no such resources — byte-identical to before.
-  const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
-  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
-  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
-  const migImport = runMigrationsAtBoot ? `import { migrate } from "./db/migrate";\n` : "";
-  const seedImport = runSeedsAtBoot ? `import { runSeeds } from "./db/seed";\n` : "";
+/** What the deployable's start-up sequence wires — the inputs of both
+ *  `boot.ts` (the sequence itself) and `index.ts` (the server around it). */
+interface ProjectEntryConfig {
+  readonly runMigrationsAtBoot: boolean;
+  readonly userShape?: UserIR;
+  readonly resourceImports: readonly string[];
+  readonly runSeedsAtBoot: boolean;
+  readonly usingMikro: boolean;
+  readonly outboxRelay: boolean;
+  readonly hasRealtime: boolean;
+  readonly oidc: boolean;
+  readonly orgPathRegistryAgg?: string;
+  readonly hasTimers: boolean;
+  readonly hasChannels: boolean;
+  readonly hasChannelConsumers: boolean;
+  readonly nativePort: number;
+}
+
+/** Indent every non-empty line of `text` by two spaces. */
+function indentBlock(text: string): string {
+  return text.replace(/^(?=.)/gm, "  ");
+}
+
+/**
+ * `boot.ts` — the deployable's whole start-up sequence as one function,
+ * `bootApp(db, opts) → { app, stop }`: first-boot seeds, the user verifier,
+ * the tenant-registry `orgPath` resolver, the event dispatchers, the channel
+ * transports + publish tee + consumer loop, the outbox relay and the timer
+ * scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
+ * `serve`, shutdown around it) and the browser playground's runtime worker
+ * (PGlite, no `serve`).  One function is what keeps the two from drifting —
+ * `test/generator/typescript/boot-entry-census.test.ts` fails when `index.ts`
+ * grows start-up logic outside it.
+ *
+ * `opts` carries the browser's answers, each defaulting to the deployed
+ * behaviour: `verifier: "dev-stub"` (no IdP is reachable from the preview),
+ * `infra: "in-process"` (no broker and no second Postgres connection — the
+ * brokers become one in-memory transport and `cron:` timers run in-process),
+ * and `channelTransport` (the seam an emulated broker plugs into).
+ */
+function renderProjectBootTs(cfg: ProjectEntryConfig): string {
+  const {
+    userShape,
+    runSeedsAtBoot,
+    usingMikro,
+    outboxRelay,
+    hasRealtime,
+    oidc,
+    orgPathRegistryAgg,
+    hasTimers,
+    hasChannels,
+    hasChannelConsumers,
+  } = cfg;
   const seedCall = runSeedsAtBoot
-    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`
+    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
-  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
-  // OIDC verifier; otherwise we emit a permissive dev stub so the stack
-  // boots out of the box (replace in production with a real verifier).
-  // The in-process dispatcher is constructed once and shared by the outbox
-  // relay and/or the timer scheduler (scheduling.md, M-T4.1).
-  const needsDispatcher = outboxRelay || hasTimers || hasChannels;
-  // `createInProcessDispatcher` exists in http/workflows.ts only when the
-  // deployable has channel-routed workflow subscriptions.  A pure-producer
-  // deployable (wires a broker channel, hosts no reactors) falls back to the
-  // always-exported Noop as the tee's inner dispatcher.
-  const withInProcess = outboxRelay || hasTimers || hasChannelConsumers;
-  // The dispatcher `createApp` gets on the request path — the isolating twin
-  // when there are reactors to isolate (H-28), else the shared instance.
-  const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
-  const authStubImport = !userShape
-    ? ""
-    : oidc
-      ? `import { registerOidcVerifier } from "./auth/oidc";\n`
-      : `import { registerDevStubVerifier } from "./auth/dev-stub";\n`;
+  // OIDC verifier — unless the host asks for the dev stub (the playground,
+  // which reaches no IdP); otherwise we register a permissive dev stub so the
+  // stack boots out of the box (replace in production with a real verifier).
+  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
+  const devStubRegistration = `${T.registerDevStubVerifier}();\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
   const authStubCall = !userShape
     ? ""
     : oidc
-      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\nregisterOidcVerifier();\nbaseLogger.info({ event: "auth_oidc_verifier_registered" });\n`
-      : `\n// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\nregisterDevStubVerifier();\nbaseLogger.warn({ event: "auth_dev_stub_registered" });\n`;
+      ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
+      : `\n${devStubDoc}${devStubRegistration}`;
   // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
   // persistence paths.  The auth middleware calls it per request; here we bind
   // it to the db with a `SELECT data_key … WHERE id = <claim>`.
@@ -2189,82 +2193,27 @@ function renderProjectIndexTs(
   // cannot drift apart.
   const orgPathRegistryTable = orgPathRegistryAgg && lowerFirst(plural(orgPathRegistryAgg));
   const orgPathRegistryRow = orgPathRegistryAgg && `${orgPathRegistryAgg}Row`;
-  const wireOrgPath = !!orgPathRegistryAgg;
-  const orgPathImport = !wireOrgPath
-    ? ""
-    : usingMikro
-      ? `import { registerOrgPathResolver } from "./auth/middleware";\nimport { ${orgPathRegistryRow} } from "./db/entities";\n`
-      : `import { eq } from "drizzle-orm";\nimport { registerOrgPathResolver } from "./auth/middleware";\n`;
+  const orgPathRow = orgPathRegistryRow && ref(tsNamed("~/db/entities", orgPathRegistryRow));
   const orgPathDoc = `\n// Register the tenant-registry \`orgPath\` resolver (multi-tenancy):\n// currentUser.orgPath = the caller org's materialized \`data_key\`, memoized\n// per request in the auth middleware; a missing row / dataKey falls back to\n// the claim (root-segment path) — fail-safe, never null/crash.\n`;
-  const orgPathRegistration = !wireOrgPath
+  const orgPathRegistration = !orgPathRegistryAgg
     ? ""
     : usingMikro
-      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
-      : `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(eq(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
-  // Event-dispatch / relay / scheduler imports — SHARED by both persistence
-  // branches — the mikro adapter emits the outbox relay too, so this block
-  // cannot live inside the drizzle arm.  Empty when nothing needs the
-  // in-process dispatcher.
-  const dispatcherImports = `${
-    // The in-process dispatcher is shared by the outbox relay and the timer
-    // scheduler (scheduling.md) — import it (and the realtime tee) whenever
-    // either is wired; the outbox-only helpers stay behind the outbox flag.
-    needsDispatcher
-      ? `${
-          withInProcess
-            ? `import { createInProcessDispatcher${
-                outboxRelay ? ", createOutboxDispatcher, startOutboxRelay" : ""
-              } } from "./http/workflows";\n`
-            : `import { NoopDomainEventDispatcher } from "./domain/events";\n${
-                // Pure producer of durable broker-bound events (M-T4.4):
-                // the outbox captures on save; the relay publishes on drain.
-                outboxRelay
-                  ? `import { createOutboxDispatcher, startOutboxRelay } from "./http/workflows";\n`
-                  : ""
-              }`
-        }${hasRealtime ? `import { realtimeTee } from "./http/realtime";\n` : ""}${
-          hasTimers ? `import { startTimerScheduler } from "./scheduler";\n` : ""
-        }${
-          hasChannels
-            ? `import { channelPublishTee, createChannelTransports${
-                hasChannelConsumers ? ", startChannelConsumers" : ", closeChannelTransports"
-              } } from "./http/channels";\n`
-            : ""
-        }`
-      : ""
-  }`;
-  // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
-  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
-  // The drizzle import header is kept byte-identical to the pre-mikroorm shape.
-  const importHeader = usingMikro
-    ? `import { serve } from "@hono/node-server";
-import { createApp } from "./http/index";
-${MIKRO_INDEX_IMPORTS.join("\n")}
-${dispatcherImports}${seedImport}${authStubImport}${orgPathImport}import { baseLogger } from "./obs/log";
-import { shutdownTracing } from "./obs/tracing";`
-    : `import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import { serve } from "@hono/node-server";
-import * as schema from "./db/schema";
-import { createApp } from "./http/index";
-${dispatcherImports}${migImport}${seedImport}${authStubImport}${orgPathImport}import { baseLogger } from "./obs/log";
-import { shutdownTracing } from "./obs/tracing";`;
-  const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
-    : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
-  // mikroorm bootstraps its schema inside the connection block (schema.update),
-  // so it never emits the drizzle boot-time migrate call.
-  const effectiveMigCall = usingMikro ? "" : migCall;
-  return `// Auto-generated.
-${importHeader}
-${resourceImportBlock}
-${connectionBlock}
-
-const port = Number(process.env.PORT ?? ${nativePort});
-baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
-${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
-  needsDispatcher
-    ? `${
+      ? `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
+      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: ${T.schema}.${orgPathRegistryTable}.dataKey })\n    .from(${T.schema}.${orgPathRegistryTable})\n    .where(${T.eq}(${T.schema}.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
+  // The in-process dispatcher is constructed once and shared by the outbox
+  // relay and/or the timer scheduler (scheduling.md).
+  const needsDispatcher = outboxRelay || hasTimers || hasChannels;
+  // `createInProcessDispatcher` exists in http/workflows.ts only when the
+  // deployable has channel-routed workflow subscriptions.  A pure-producer
+  // deployable (wires a broker channel, hosts no reactors) falls back to the
+  // always-exported Noop as the tee's inner dispatcher.
+  const withInProcess = outboxRelay || hasTimers || hasChannelConsumers;
+  // The dispatcher `createApp` gets on the request path — the isolating twin
+  // when there are reactors to isolate, else the shared instance.
+  const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
+  const wiring = !needsDispatcher
+    ? "const app = createApp(db);\n"
+    : `${
         outboxRelay
           ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
 // (channels with retention: log | work) are recorded in __loom_outbox by
@@ -2277,11 +2226,11 @@ ${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
       }const inProcessEvents = ${
         withInProcess
           ? hasRealtime
-            ? "realtimeTee(createInProcessDispatcher(db))"
-            : "createInProcessDispatcher(db)"
+            ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db))`
+            : `${T.createInProcessDispatcher}(db)`
           : hasRealtime
-            ? "realtimeTee(NoopDomainEventDispatcher)"
-            : "NoopDomainEventDispatcher"
+            ? `${T.realtimeTee}(${T.NoopDomainEventDispatcher})`
+            : `${T.NoopDomainEventDispatcher}`
       };
 ${
   withInProcess
@@ -2291,37 +2240,44 @@ ${
 // instance above keeps throwing: the relay / consumers / scheduler retry on it.
 const requestEvents = ${
         hasRealtime
-          ? "realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))"
-          : "createInProcessDispatcher(db, { isolateReactorFailures: true })"
+          ? `${T.realtimeTee}(${T.createInProcessDispatcher}(db, { isolateReactorFailures: true }))`
+          : `${T.createInProcessDispatcher}(db, { isolateReactorFailures: true })`
       };
 `
     : ""
 }${
   hasChannels
-    ? `// Broker transport (channels.md): one shared redis connection set
-// per LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to
-// the broker (co-located consumers receive them via the subscription, not
-// a local shortcut); the consumer loop feeds received envelopes into the
-// same in-process dispatcher local reactors use.
-const channelTransports = createChannelTransports();
+    ? `// Broker transport (channels.md): one shared connection set per
+// LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to the
+// broker (co-located consumers receive them via the subscription, not a
+// local shortcut); the consumer loop feeds received envelopes into the same
+// in-process dispatcher local reactors use.  \`infra: "in-process"\` puts
+// every binding on one in-memory transport instead — the browser has no
+// broker — and \`channelTransport\` plugs any other transport into the seam.
+const inProcessBroker = opts.infra === "in-process" ? ${T.createInProcessTransport}() : undefined;
+const channelTransports = ${T.createChannelTransports}(
+  opts.channelTransport ?? (inProcessBroker && (() => inProcessBroker)),
+);
 `
     : ""
 }const app = ${
         hasChannels
-          ? `createApp(db, channelPublishTee(channelTransports, ${
-              outboxRelay ? `createOutboxDispatcher(db, ${requestEventsVar})` : requestEventsVar
+          ? `createApp(db, ${T.channelPublishTee}(channelTransports, ${
+              outboxRelay
+                ? `${T.createOutboxDispatcher}(db, ${requestEventsVar})`
+                : requestEventsVar
             }))`
           : outboxRelay
-            ? `createApp(db, createOutboxDispatcher(db, ${requestEventsVar}))`
+            ? `createApp(db, ${T.createOutboxDispatcher}(db, ${requestEventsVar}))`
             : "createApp(db)"
       };
 ${
   hasChannelConsumers
-    ? // Awaited BEFORE `serve()`: the port opens — and /ready answers 200 —
-      // only once every binding is subscribed.  An envelope published into
-      // the gap is dropped by the broker on an ephemeral channel and never
-      // redelivered (java: #2350, elixir/dotnet/python: #2386).
-      "const stopChannelConsumers = await startChannelConsumers(channelTransports, inProcessEvents);\n"
+    ? // Awaited before `bootApp` resolves, so before `serve()`: the port
+      // opens — and /ready answers 200 — only once every binding is
+      // subscribed.  An envelope published into the gap is dropped by the
+      // broker on an ephemeral channel and never redelivered.
+      `const stopChannelConsumers = await ${T.startChannelConsumers}(channelTransports, inProcessEvents);\n`
     : ""
 }${
   outboxRelay
@@ -2330,48 +2286,140 @@ ${
 // durable events whose channel is broker-bound publish to the broker
 // (design §5 — outbox-drain → broker publish); the rest re-enter the
 // local chain.
-const stopOutboxRelay = startOutboxRelay(db, channelPublishTee(channelTransports, inProcessEvents, { fromRelay: true }));
+const stopOutboxRelay = ${T.startOutboxRelay}(db, ${T.channelPublishTee}(channelTransports, inProcessEvents, { fromRelay: true }));
 `
-      : "const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);\n"
+      : `const stopOutboxRelay = ${T.startOutboxRelay}(db, inProcessEvents);\n`
     : ""
 }${
   hasTimers
     ? `// Timer sources (scheduling.md): infrastructure fires tick events on a
 // wall-clock cadence.  cron: timers run on pg-boss (durable, retried,
-// single-fire across replicas); every: timers run in-process.
-const stopTimers = await startTimerScheduler(db, inProcessEvents);
+// single-fire across replicas); every: timers run in-process under an
+// advisory lock.  \`infra: "in-process"\` runs both in this process alone:
+// no pg-boss (it opens its own Postgres connection) and no lock.
+const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents, { infra: opts.infra });
 `
     : ""
-}`
-    : `const app = createApp(db);
-`
-}const server = serve({ fetch: app.fetch, port });
+}`;
+  // Teardown, in the order the deployed server always ran it: the relay, the
+  // timers, then the consumers (which close the transports they share with
+  // the publisher) — or the transports alone for a producer-only deployable.
+  const stopLines = [
+    outboxRelay ? "stopOutboxRelay();" : null,
+    hasTimers ? "await stopTimers();" : null,
+    hasChannelConsumers
+      ? "await stopChannelConsumers();"
+      : hasChannels
+        ? `await ${T.closeChannelTransports}(channelTransports);`
+        : null,
+  ].filter((l): l is string => l !== null);
+  const stopBody =
+    stopLines.length === 0
+      ? "  async stop() {},\n"
+      : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
+  const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
+  const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
+  // A deployable that wires nothing option-driven (no auth, no channels, no
+  // timers) never reads `opts`.
+  const optsParam = /\bopts\./.test(body) ? "opts" : "_opts";
+  return `// Auto-generated.
+// The deployable's start-up sequence.  The deployed server (index.ts) runs it
+// between migrations and \`serve()\`; the browser playground's runtime worker
+// runs the same function against PGlite.  Start-up wiring belongs here, never
+// in index.ts, so the two hosts cannot drift apart.
+import { createApp } from "./http/index";
+
+/** How the host wants the app booted.  Every option defaults to the deployed
+ *  behaviour; the browser playground sets them because it has no IdP, no
+ *  broker and no second Postgres connection. */
+export interface BootOptions {
+  /** \`"configured"\` (default): the verifier the model declares — OIDC for an
+   *  \`auth { oidc }\` block, otherwise the dev stub.  \`"dev-stub"\`: always the
+   *  dev stub. */
+  verifier?: "configured" | "dev-stub";
+  /** \`"external"\` (default): broker drivers from LOOM_CHANNEL_*_URL and
+   *  pg-boss for \`cron:\` timers.  \`"in-process"\`: one in-memory transport for
+   *  every channel binding and an in-process \`cron:\` loop — no durability,
+   *  no retry, no cross-replica single-fire. */
+  infra?: "external" | "in-process";${
+    hasChannels
+      ? `
+  /** The transport behind each channel binding, overriding both of the above
+   *  (an emulated broker plugs in here). */
+  channelTransport?: (binding: ${TT.ChannelBinding}) => ${TT.ChannelTransport};`
+      : ""
+  }
+}
+
+/** The booted app and the teardown of everything boot started. */
+export interface BootedApp {
+  app: ReturnType<typeof createApp>;
+  /** Stop the relay, the timers and the channel consumers / transports. */
+  stop(): Promise<void>;
+}
+
+export async function bootApp(
+  db: Parameters<typeof createApp>[0],
+  ${optsParam}: BootOptions = {},
+): Promise<BootedApp> {
+${indentBlock(body)}}
+`;
+}
+
+/** `index.ts` — the deployed server around `bootApp`: the database
+ *  connection, migrations, `serve()` and graceful shutdown.  Nothing else:
+ *  start-up wiring lives in `boot.ts`, which the playground runs too. */
+function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
+  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort } = cfg;
+  // Side-effect imports for the resource-client modules (objectStore /
+  // queue / api) so their clients instantiate at boot.  Empty for
+  // deployables with no such resources.
+  const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
+  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
+  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
+  const migImport = `${tsImportSlot("~/db/migrate")}\n`;
+  // mikroorm bootstraps its schema inside the connection block (schema.update),
+  // so it never emits the drizzle boot-time migrate call.
+  const migCall = runMigrationsAtBoot && !usingMikro ? renderHonoBootMigrate() : "";
+  // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
+  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
+  const importHeader = usingMikro
+    ? `import { serve } from "@hono/node-server";
+import { bootApp } from "./boot";
+${MIKRO_INDEX_IMPORTS.join("\n")}
+import { baseLogger } from "./obs/log";
+import { shutdownTracing } from "./obs/tracing";`
+    : `import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { serve } from "@hono/node-server";
+import * as schema from "./db/schema";
+import { bootApp } from "./boot";
+${migImport}import { baseLogger } from "./obs/log";
+import { shutdownTracing } from "./obs/tracing";`;
+  const connectionBlock = usingMikro
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
+    : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
+  return `// Auto-generated.
+${importHeader}
+${resourceImportBlock}
+${connectionBlock}
+
+const port = Number(process.env.PORT ?? ${nativePort});
+baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
+${migCall}
+// Start-up sequence (boot.ts): seeds, verifier, dispatchers, channel
+// consumers, outbox relay, timers — resolved before the port opens.
+const { app, stop } = await bootApp(db);
+const server = serve({ fetch: app.fetch, port });
 baseLogger.info({ event: "server_listening", port });
 
-// Graceful shutdown — close the HTTP server (stops accepting,
-// drains in-flight), then close the pg pool.  Without this SIGTERM
-// drops in-flight work and leaves pg connections lingering.  Both
+// Graceful shutdown — stop what boot started, close the HTTP server (stops
+// accepting, drains in-flight), then close the database.  Without this
+// SIGTERM drops in-flight work and leaves connections lingering.  Both
 // SIGTERM (orchestrator) and SIGINT (Ctrl-C) are handled.
 async function shutdown(signal: string): Promise<void> {
-  baseLogger.info({ event: "server_shutdown", signal });${
-    outboxRelay
-      ? `
-  stopOutboxRelay();`
-      : ""
-  }${
-    hasTimers
-      ? `
-  await stopTimers();`
-      : ""
-  }${
-    hasChannelConsumers
-      ? `
-  await stopChannelConsumers();`
-      : hasChannels
-        ? `
-  await closeChannelTransports(channelTransports);`
-        : ""
-  }
+  baseLogger.info({ event: "server_shutdown", signal });
+  await stop();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   baseLogger.info({ event: "server_drained" });
   // Flush buffered OTel spans to the collector before exit (no-op when no

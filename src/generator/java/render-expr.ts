@@ -10,6 +10,7 @@ import {
   upperFirst,
   workflowFnCamel,
 } from "../../util/naming.js";
+import { checkedBinaryKind, checkedUnaryKind, type IntegralKind } from "../_expr/checked-int.js";
 import { javaCodePointLength, javaCodePointSubstring } from "../_expr/code-point.js";
 import {
   type BinaryExpr,
@@ -292,6 +293,17 @@ function needsObjectsEquals(t: TypeIR | undefined, e: BinaryExpr): boolean {
   return t.kind === "id" || t.kind === "valueobject" || t.kind === "entity" || t.kind === "array";
 }
 
+/** An optional primitive (`bool?` / `int?` / `long?`) is a boxed
+ *  `Boolean`/`Integer`/`Long` in Java, where `==` is reference identity (and an
+ *  NPE-free `Objects.equals` is the null-safe value comparison).  `unwrapOptional`
+ *  hides the box from `needsObjectsEquals`, so the optionality is read off the
+ *  operand types directly. */
+function comparesBoxedPrimitive(e: BinaryExpr): boolean {
+  const boxed = (t: TypeIR | undefined): boolean =>
+    t?.kind === "optional" && t.inner.kind === "primitive";
+  return boxed(e.leftType) || boxed(e.rightType);
+}
+
 function comparesNullLiteral(e: BinaryExpr): boolean {
   const isNull = (x: ExprIR): boolean => x.kind === "literal" && x.lit === "null";
   return isNull(e.left) || isNull(e.right);
@@ -343,9 +355,13 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     // `Decimal.negate/1`).
     op === "-" && isMoneyLike(unwrapOptional(bodyTypeOf(e.operand)))
       ? `${operand}.negate()`
-      : `${op}${operand}`,
+      : javaUnaryInt(op, operand, checkedUnaryKind(e)),
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
+  // Left evaluated once; the fallback is a supplier, so it runs only when the
+  // left is null.
+  coalesce: (left, fallback) =>
+    `java.util.Optional.ofNullable(${left}).orElseGet(() -> ${fallback})`,
   convert: (value, e) => renderJavaConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -364,19 +380,33 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
     }
   },
   match(arms, otherwise) {
-    // Right-folded ternary chain, same semantics as the TS / C# leaves.
-    let out = otherwise ?? "null";
-    for (const arm of [...arms].reverse()) {
-      out = `(${arm.cond} ? ${arm.value} : ${out})`;
+    // With an `else`: a right-folded ternary chain, same semantics as the TS /
+    // C# leaves.
+    if (otherwise !== undefined) {
+      let out = otherwise;
+      for (const arm of [...arms].reverse()) {
+        out = `(${arm.cond} ? ${arm.value} : ${out})`;
+      }
+      return out;
     }
-    return out;
+    // Without an `else` the match is typed by its arms, so a `null` fallback is
+    // ill-typed for a primitive result (`int x = c ? 1 : null` unboxes null).
+    // `throw` is a statement in Java, not an expression, so the chain becomes a
+    // `yield` ladder inside a selector-less switch expression that ends in a
+    // throw — which types as whatever the arms yield, as `matchVariant`'s
+    // default arm does.
+    const ladder = arms.map((a) => `if (${a.cond}) yield ${a.value};`);
+    const fail = `throw new IllegalStateException("no match arm matched");`;
+    return `switch (0) { default -> { ${[...ladder, fail].join(" ")} } }`;
   },
   // Variant-`match` (variant-match.md) — Java 21 switch expression over the
   // sealed union interface.  Each variant's domain carrier is the record
   // `${unionName}_${tag}` (java/emit/unions.ts), so a `case ${Union}_${tag} b`
   // pattern binds the narrowed record; `b.field()` reads a component.  A
   // `default` arm always trails so a non-exhaustive match (validator *warns*,
-  // never errors) still compiles against the sealed type.
+  // never errors) still compiles against the sealed type.  Without an `else`
+  // the default throws: a `null` there does not type in a primitive-yielding
+  // switch (`int x = switch … default -> null`), and a throw types as anything.
   matchVariant(m) {
     // EVERY arm renders as its `<Union>_<Tag>` carrier pattern, error variants
     // included — an `error` arm binds a real payload (`NotFound n -> n.resource()`)
@@ -403,7 +433,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
       const binder = a.binding ?? "__unused";
       return `      case ${carrier} ${binder} -> ${a.value};`;
     });
-    const tail = `      default -> ${m.otherwise ?? "null"};`;
+    const tail = `      default -> ${m.otherwise ?? `throw new IllegalStateException(${JSON.stringify(`no ${m.unionName || "union"} variant arm matched`)})`};`;
     return `switch (${m.subject}) {\n${arms.join("\n")}\n${tail}\n    }`;
   },
   bindingRefText: (binding) => binding,
@@ -900,6 +930,18 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (temporal !== null) return temporal;
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
+    if (comparesBoxedPrimitive(e)) {
+      // `Objects.equals(Long, Integer)` is false for equal values — widen an
+      // `int` side when the other side is a `long`.
+      const isLong = (t: TypeIR | undefined): boolean => {
+        const u = unwrapOptional(t);
+        return u?.kind === "primitive" && u.name === "long";
+      };
+      const widen = (text: string, t: TypeIR | undefined): string =>
+        (isLong(e.leftType) || isLong(e.rightType)) && !isLong(t) ? `(long) (${text})` : text;
+      const eq = `${J.Objects}.equals(${widen(l, e.leftType)}, ${widen(r, e.rightType)})`;
+      return e.op === "==" ? eq : `!${eq}`;
+    }
     if (needsObjectsEquals(lt, e)) {
       return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }
@@ -920,7 +962,21 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
     if (e.op === ">") return `${l}.compareTo(${r}) > 0`;
     if (e.op === ">=") return `${l}.compareTo(${r}) >= 0`;
   }
-  return `${l} ${e.op} ${r}`;
+  return javaCheckedBinary(l, r, e);
+}
+
+/** An integer `+ - *` renders through `Math.*Exact`, which throws
+ *  `ArithmeticException` on int32 / int64 overflow instead of wrapping (RS-48);
+ *  the exception advice answers it as the domain floor's 422. */
+function javaCheckedBinary(l: string, r: string, e: BinaryExpr): string {
+  const kind = checkedBinaryKind(e);
+  if (kind === null) return `${l} ${e.op} ${r}`;
+  const fn = e.op === "+" ? "addExact" : e.op === "-" ? "subtractExact" : "multiplyExact";
+  return `Math.${fn}(${l}, ${r})`;
+}
+
+function javaUnaryInt(op: "-" | "!", operand: string, kind: IntegralKind | null): string {
+  return op === "-" && kind !== null ? `Math.negateExact(${operand})` : `${op}${operand}`;
 }
 
 /** The temporal `+`/`-`/`*` arms (A5), or null to fall through to the
@@ -1112,28 +1168,13 @@ export function boxedJavaType(t: TypeIR): string {
   return renderTypeWith(t, JAVA_TYPE_TARGET, "reference");
 }
 
-export function javaValueTypeForId(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "String";
-    default:
-      return "UUID";
-  }
+/** The Java type a strong id wraps — every identity is a guid. */
+export function javaValueTypeForId(): string {
+  return "UUID";
 }
 
-export function javaNewIdValue(idValueType: string): string {
-  switch (idValueType) {
-    case "int":
-    case "long":
-      return "0";
-    case "string":
-      // UUIDv7 (time-ordered) via java-uuid-generator — no JDK v7 factory.
-      return "Generators.timeBasedEpochGenerator().generate().toString()";
-    default:
-      return "Generators.timeBasedEpochGenerator().generate()";
-  }
+/** A fresh id value: UUIDv7 (time-ordered) via java-uuid-generator — no JDK
+ *  v7 factory. */
+export function javaNewIdValue(): string {
+  return "Generators.timeBasedEpochGenerator().generate()";
 }

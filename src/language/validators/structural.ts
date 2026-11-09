@@ -28,12 +28,15 @@ import {
   isDestroy,
   isEmitStmt,
   isEntityPart,
+  isEnumDecl,
+  isEventDecl,
   isFunctionDecl,
   isIdType,
   isInvariant,
   isNamedType,
   isOnDecl,
   isOperation,
+  isPayloadDecl,
   isPreconditionStmt,
   isPrimitiveType,
   isProperty,
@@ -44,7 +47,7 @@ import {
   isWorkflowCreateDecl,
   type WorkflowCreateDecl,
 } from "../generated/ast.js";
-import { inMatchArm } from "../handler-return.js";
+import { armLocalLetReads, inMatchArm, terminalMatchReturns } from "../handler-return.js";
 import {
   envForNode,
   isAssignable,
@@ -254,6 +257,44 @@ export function checkAmbiguousPartRefs(model: Model, accept: ValidationAcceptor)
   }
 }
 
+// `X id` names an identity: only an aggregate (abstract bases included) or an
+// entity part declares one.  `IdType.target` shares the `NamedDecl` cross-ref
+// type with bare type positions, so a value object, enum, event, payload
+// record or workflow resolves there too — and without this check lowering
+// turned `Pt id` into a strong id of a type that has no id column, no `<Pt>Id`
+// class and no table to reference.  The scope provider still resolves such a
+// name (it prefers an identity-bearing declaration on a name collision), so
+// the error names the kind the user actually wrote rather than reporting an
+// unresolved reference.
+export function checkIdTargets(model: Model, accept: ValidationAcceptor): void {
+  for (const node of AstUtils.streamAllContents(model)) {
+    if (!isIdType(node)) continue;
+    const target = node.target?.ref;
+    // Unresolved: the linker already reports it.
+    if (!target || isAggregate(target) || isEntityPart(target)) continue;
+    const kind = idTargetKindLabel(target);
+    const hint =
+      isValueObject(target) || isEnumDecl(target)
+        ? `, or hold the value itself: '${target.name}'`
+        : "";
+    accept("error", diagMessage("loom.id-target-not-identity", { name: target.name, kind, hint }), {
+      node,
+      property: "target",
+      code: "loom.id-target-not-identity",
+    });
+  }
+}
+
+/** The article-qualified source keyword of a non-identity `NamedDecl`. */
+function idTargetKindLabel(target: AstNode): string {
+  if (isValueObject(target)) return "a value object";
+  if (isEnumDecl(target)) return "an enum";
+  if (isEventDecl(target)) return "an event";
+  if (isWorkflow(target)) return "a workflow";
+  if (isPayloadDecl(target)) return `${/^[aeiou]/.test(target.kind) ? "an" : "a"} ${target.kind}`;
+  return `a ${target.$type}`;
+}
+
 export function checkContext(ctx: BoundedContext, accept: ValidationAcceptor): void {
   for (const member of ctx.members) {
     if (isAggregate(member)) checkAggregate(member, accept);
@@ -355,17 +396,47 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
   }
 }
 
-/** The result types a workflow `create(…): T` may declare today: an `X id`
- *  and the four scalars every backend serialises to the same JSON token
- *  (`"…"` / integer / `true|false`).  An aggregate / payload / value-object /
- *  decimal / money / datetime result needs a per-backend wire projection the
- *  workflow route does not have yet — refused honestly, not mis-serialised. */
-function isSupportedWorkflowResult(t: Ty): boolean {
+/** True for a `Ty` naming an `error` payload. */
+function isErrorTy(t: Ty): boolean {
+  return t.kind === "record" && t.shape.of === "payload" && t.shape.ref.kind === "error";
+}
+
+/** One result a routed command entry point can answer identically on all five
+ *  backends: an `X id` and the four scalars every backend serialises to the
+ *  same JSON token, a payload record, an aggregate (answered as its
+ *  `<Agg>Response`), and — for a workflow `create` — its own workflow (the
+ *  instance state the instance-read route serves).  A value-object / decimal /
+ *  money / datetime result needs a per-backend wire projection the route does
+ *  not have yet — refused honestly, not mis-serialised. */
+function isSupportedResultArm(t: Ty, wf: Workflow | undefined): boolean {
   if (t.kind === "id") return true;
-  return (
-    t.kind === "primitive" &&
-    (t.name === "string" || t.name === "int" || t.name === "long" || t.name === "bool")
-  );
+  if (t.kind === "primitive") {
+    return t.name === "string" || t.name === "int" || t.name === "long" || t.name === "bool";
+  }
+  if (t.kind !== "record") return false;
+  if (t.shape.of === "aggregate") return true;
+  if (t.shape.of === "payload") return t.shape.ref.variants.length === 0;
+  return t.shape.of === "workflow" && wf !== undefined && t.shape.ref === wf;
+}
+
+/** A routed entry point's declared result is supported when it is a scalar /
+ *  id or (a create's) its own workflow, or a union of supported values with at
+ *  least one `error` variant (an expected failure the route answers at its
+ *  mapped status), whose success variants may also be payloads and
+ *  aggregates. */
+export function isSupportedEntryResult(t: Ty, wf: Workflow | undefined): boolean {
+  if (t.kind !== "union") {
+    // A plain result: a scalar / id, or the create's own workflow.
+    if (t.kind === "record") return t.shape.of === "workflow" && t.shape.ref === wf;
+    return isSupportedResultArm(t, wf);
+  }
+  if (!t.variants.some(isErrorTy)) return false;
+  return t.variants.every((v) => isErrorTy(v) || isSupportedResultArm(v, wf));
+}
+
+/** True when the declared result is a union with an `error` variant. */
+export function declaresExpectedFailure(t: Ty): boolean {
+  return t.kind === "union" && t.variants.some(isErrorTy);
 }
 
 // `create(…): T { … return <expr> }` — a command-triggered starter's result
@@ -374,7 +445,10 @@ function isSupportedWorkflowResult(t: Ty): boolean {
 //   - a `: T` on an event-triggered (`by …`) starter has no caller to answer;
 //   - a `: T` needs a terminal `return`, and a `return` needs a `: T`;
 //   - the `return` is the LAST top-level statement (it is lowered apart from
-//     the body, so a mid-body or nested one would silently reorder effects);
+//     the body, so a mid-body or nested one would silently reorder effects) —
+//     or, for an expected-failure result (`T or E`), the last statement of
+//     every arm of a terminal `match` (`terminalMatchReturns`), whose value
+//     reads only the arm's binding and the lets declared before the `match`;
 //   - the returned value must be assignable to `T`, and `T` must be a type the
 //     route can serialise identically on all five backends.
 // Whether the create is the one the command route serves (a NAMED command
@@ -406,9 +480,14 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
     );
     return;
   }
+  const declared = c.returnType ? resolveTypeRef(c.returnType) : undefined;
+  const armForm =
+    declared && declaresExpectedFailure(declared) ? terminalMatchReturns(c.body) : undefined;
+  const allowed = new Set<AstNode>(armForm?.returns ?? []);
   const last = c.body[c.body.length - 1];
+  if (last && isReturnStmt(last)) allowed.add(last);
   for (const n of AstUtils.streamAst(c)) {
-    if (!isReturnStmt(n) || n === last) continue;
+    if (!isReturnStmt(n) || allowed.has(n)) continue;
     accept(
       "error",
       inMatchArm(n)
@@ -420,9 +499,26 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
       { node: n, code: "loom.workflow-return-not-last" },
     );
   }
-  const ret = last && isReturnStmt(last) ? last : undefined;
-  if (!c.returnType) {
-    if (ret) {
+  if (armForm) {
+    for (const ret of armForm.returns) {
+      const arm = armForm.match.varArms.find((a) => a.body.includes(ret));
+      const stmts = arm ? arm.body : armForm.match.elseBody;
+      for (const name of armLocalLetReads(ret, stmts)) {
+        accept(
+          "error",
+          diagMessage("loom.workflow-return-not-last#arm-local-let", {
+            workflow: wfName,
+            create: label,
+            name,
+          }),
+          { node: ret, property: "value", code: "loom.workflow-return-not-last" },
+        );
+      }
+    }
+  }
+  const returns = armForm ? armForm.returns : last && isReturnStmt(last) ? [last] : [];
+  if (!c.returnType || !declared) {
+    for (const ret of returns) {
       accept(
         "error",
         diagMessage("loom.workflow-return-untyped", { workflow: wfName, create: label }),
@@ -431,8 +527,7 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
     }
     return;
   }
-  const declared = resolveTypeRef(c.returnType);
-  if (declared.kind !== "unknown" && !isSupportedWorkflowResult(declared)) {
+  if (declared.kind !== "unknown" && !isSupportedEntryResult(declared, wf)) {
     accept(
       "error",
       diagMessage("loom.workflow-return-type-unsupported", {
@@ -443,7 +538,7 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
       { node: c, property: "returnType", code: "loom.workflow-return-type-unsupported" },
     );
   }
-  if (!ret) {
+  if (returns.length === 0) {
     accept(
       "error",
       diagMessage("loom.workflow-return-missing", { workflow: wfName, create: label }),
@@ -451,23 +546,25 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
     );
     return;
   }
-  const actual = typeOf(ret.value, envForNode(ret.value));
-  if (
-    declared.kind !== "unknown" &&
-    actual.kind !== "unknown" &&
-    !isAssignable(actual, declared) &&
-    !canPromoteLiteralTo(ret.value, declared)
-  ) {
-    accept(
-      "error",
-      diagMessage("loom.workflow-return-type-mismatch", {
-        workflow: wfName,
-        create: label,
-        actual: typeToString(actual),
-        declared: typeToString(declared),
-      }),
-      { node: ret, property: "value", code: "loom.workflow-return-type-mismatch" },
-    );
+  for (const ret of returns) {
+    const actual = typeOf(ret.value, envForNode(ret.value));
+    if (
+      declared.kind !== "unknown" &&
+      actual.kind !== "unknown" &&
+      !isAssignable(actual, declared) &&
+      !canPromoteLiteralTo(ret.value, declared)
+    ) {
+      accept(
+        "error",
+        diagMessage("loom.workflow-return-type-mismatch", {
+          workflow: wfName,
+          create: label,
+          actual: typeToString(actual),
+          declared: typeToString(declared),
+        }),
+        { node: ret, property: "value", code: "loom.workflow-return-type-mismatch" },
+      );
+    }
   }
 }
 

@@ -1,36 +1,22 @@
 // Transactional-outbox tier (dispatch-delivery-semantics.md): a channel with
 // `retention: log | work` makes its carried events durable — createApp's
 // default dispatcher records them in `__loom_outbox` (instead of dispatching
-// inline) and index.ts starts a polling relay that drains undispatched rows
+// inline) and boot.ts starts a polling relay that drains undispatched rows
 // through the in-process dispatcher (at-least-once; dead-letter after N
 // attempts via the `event_dead_lettered` catalog event).  An `ephemeral`
 // channel keeps the at-most-once inline path byte-identically.
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../../src/platform/hono/v5/pins.js";
+import { generateBackendFromFile } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
 
 async function generate(file: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(root, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errors.map((d) => d.message),
-    "fixture validation errors",
-  ).toEqual([]);
-  return generateTypeScript(doc.parseResult.value as Model, BACKEND_PINS);
+  return generateBackendFromFile(file, "node");
 }
 
 describe("transactional outbox emission (retention: log)", () => {
@@ -53,6 +39,11 @@ describe("transactional outbox emission (retention: log)", () => {
       "and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt))",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
+    // A poll failure is logged and retried next tick, never an unhandled
+    // rejection from the interval callback.
+    expect(wf).toMatch(
+      /\n {4}\} catch \(err\) \{\n {6}baseLogger\.warn\(\{ event: "outbox_relay_error"[^\n]*\n {4}\} finally \{\n {6}draining = false;/,
+    );
   });
 
   it("createApp defaults to the outbox-wrapped dispatcher; index starts/stops the relay", async () => {
@@ -63,7 +54,7 @@ describe("transactional outbox emission (retention: log)", () => {
     expect(idx).toContain(
       "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))),",
     );
-    const boot = files.get("index.ts") ?? "";
+    const boot = files.get("boot.ts") ?? "";
     expect(boot).toContain("const inProcessEvents = realtimeTee(createInProcessDispatcher(db));");
     expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
     expect(boot).toContain("stopOutboxRelay();");
@@ -76,21 +67,16 @@ describe("transactional outbox emission (retention: log)", () => {
     expect(files.get("http/index.ts") ?? "").toContain(
       "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
-    expect(files.get("index.ts") ?? "").not.toContain("startOutboxRelay");
+    expect(files.get("boot.ts") ?? "").not.toContain("startOutboxRelay");
   });
 });
 
 // ─── .NET slice (T3.8 slice 2) ──────────────────────────────────────────────
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 describe("transactional outbox emission — .NET (retention: log)", () => {
   async function dotnetFiles(file: string): Promise<Map<string, string>> {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-      URI.file(path.join(root, file)),
-    );
-    await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-    return generateDotnet(doc.parseResult.value as Model);
+    return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
   it("emits the OutboxMessage entity, dispatcher, relay, DbSet, and registrations", async () => {
@@ -113,8 +99,11 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
       "DbSet<OutboxMessage> LoomOutbox",
     );
     const prog = files.get("Program.cs") ?? "";
+    // The fixture's channel is `delivery: broadcast`, so IDomainEventDispatcher
+    // is the realtime tee wrapping the outbox dispatcher (as on Hono above).
+    expect(prog).toContain("builder.Services.AddScoped<OutboxDomainEventDispatcher>();");
     expect(prog).toContain(
-      "builder.Services.AddScoped<IDomainEventDispatcher, OutboxDomainEventDispatcher>();",
+      "new RealtimeDomainEventDispatcher(sp.GetRequiredService<OutboxDomainEventDispatcher>(),",
     );
     expect(prog).toContain("builder.Services.AddHostedService<OutboxRelayService>();");
   });
@@ -122,8 +111,10 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
   it("an ephemeral channel keeps the plain in-process registration (no outbox)", async () => {
     const files = await dotnetFiles("test/fixtures/dispatch-sample.ddd");
     expect(files.has("Infrastructure/Events/OutboxDomainEventDispatcher.cs")).toBe(false);
-    expect(files.get("Program.cs") ?? "").toContain(
-      "builder.Services.AddScoped<IDomainEventDispatcher, InProcessDomainEventDispatcher>();",
+    const prog = files.get("Program.cs") ?? "";
+    expect(prog).not.toContain("OutboxDomainEventDispatcher");
+    expect(prog).toContain(
+      "new RealtimeDomainEventDispatcher(sp.GetRequiredService<InProcessDomainEventDispatcher>(),",
     );
   });
 });
@@ -155,12 +146,7 @@ describe("idempotent-consumer markers — Hono", () => {
 
 describe("idempotent-consumer markers — .NET", () => {
   async function dotnetFiles2(file: string): Promise<Map<string, string>> {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-      URI.file(path.join(root, file)),
-    );
-    await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-    return generateDotnet(doc.parseResult.value as Model);
+    return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
   it("state entity + EF mapping + OutboxDelivery AsyncLocal + handler check/stamp", async () => {

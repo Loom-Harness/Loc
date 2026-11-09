@@ -248,6 +248,16 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
         return `${INDENT}return new ${variant}(${renderCsExpr(s.value, ctx)});`;
       }
       const member = ctx.returnUnion.members.find((m) => m.tag === s.variantTag);
+      // `return this` in the aggregate's own arm carries the aggregate's wire
+      // projection; a route or handler answering it re-reads the version the
+      // save advances to.
+      if (s.value.kind === "this") {
+        if (ctx.returnUnion.selfArgs !== undefined) {
+          return `${INDENT}return new ${variant}(${ctx.returnUnion.selfArgs});`;
+        }
+        const n = member && member.shape === "record" ? member.fields.length : 0;
+        return `${INDENT}return new ${variant}(${Array.from({ length: n }, () => "default!").join(", ")});`;
+      }
       const objFields = s.value.kind === "object" ? s.value.fields : [];
       const order = member && member.shape === "record" ? member.fields : [];
       const args = order.map((mf) => {

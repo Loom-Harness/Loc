@@ -14,8 +14,8 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { mikroOrmPersistenceAdapter } from "../../src/platform/hono/v4/adapters/mikroorm-persistence.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
-import { generateSystems } from "../../src/system/index.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** Lower + enrich + run parse diagnostics AND the IR validator (where
  *  `loom.mikroorm-unsupported` lives), then emit. */
@@ -29,7 +29,7 @@ async function emit(src: string): Promise<{ files: Map<string, string>; errors: 
     .map(diagText);
   const errors = [...parseErrors, ...irErrors];
   if (errors.length > 0) return { files: new Map(), errors };
-  return { files: generateSystems(doc.parseResult.value as Model).files, errors };
+  return { files: await generateSystemFiles(src), errors };
 }
 
 const sys = (persistence: string, body = "") => `
@@ -229,7 +229,7 @@ describe("mikroorm — context retrievals (DEBT-17)", () => {
     // sort → orderBy.
     expect(repo).toContain(
       'await em.find(OrderRow, { status: "Confirmed", quantity: { $gte: min } }, ' +
-        '{ limit: page?.limit, offset: page?.offset, orderBy: { placedAt: "desc" } });',
+        '{ limit: page?.limit, offset: page?.offset, orderBy: { placedAt: "desc", id: "asc" } });',
     );
     // Reuses the shared flat hydration seam (no bulk-load of containments).
     expect(repo).toContain("Order._rehydrate({");
@@ -296,7 +296,7 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
     const repo = files.get("api/db/repositories/order-repository.ts")!;
     // Each criterion's read (`find(C)` runs its `findAllBy<C>`) carries the
     // lowered FilterQuery.
-    const PAGE = "{ limit: page?.limit, offset: page?.offset }";
+    const PAGE = '{ limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } }';
     expect(repo).toContain(`await em.find(OrderRow, { active: true }, ${PAGE})`);
     expect(repo).toContain(`await em.find(OrderRow, { active: false }, ${PAGE})`);
     expect(repo).toContain(
@@ -355,7 +355,7 @@ describe("mikroorm — `filter` capability predicates", () => {
     expect(repo).toContain("await em.findOne(OrderRow, { id: id as string });");
     expect(repo).toContain("await em.find(OrderRow, { id: { $in: ids as string[] } });");
     expect(repo).toContain(
-      "await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
+      'await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     expect(repo).toContain("await em.find(OrderRow, {}, { limit: pageSize,");
     expect(repo).not.toContain('status: "Active"');
@@ -400,7 +400,7 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // …so the plain read states only its own where…
     expect(repo).toContain(
-      "async runFindAllByOrdersActive(customer: string, page?: { offset?: number; limit?: number }): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset });",
+      'async runFindAllByOrdersActive(customer: string, page?: { offset?: number; limit?: number }): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     // …and a read that bypasses it by name or with `*` switches that filter off.
     expect(repo).toContain(
@@ -450,7 +450,7 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
     const repo = files.get("api/db/repositories/account-repository.ts")!;
     expect(repo).toContain("await em.findOne(AccountRow, { id: id as string });");
     expect(repo).toContain(
-      "await em.find(AccountRow, { balance: { $gte: min } }, { limit: page?.limit, offset: page?.offset });",
+      'await em.find(AccountRow, { balance: { $gte: min } }, { limit: page?.limit, offset: page?.offset, orderBy: { id: "asc" } });',
     );
     expect(repo).not.toContain("requireCurrentUser");
     // The scope is a real FilterQuery, not a dropped/stubbed predicate.
@@ -593,8 +593,9 @@ describe("mikroorm — `seed` data", () => {
     // otherwise drop the `__loom_seed` marker it is about to write.
     expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
-    // Boot path runs the seeds after schema update.
-    expect(files.get("api/index.ts")).toContain("await runSeeds(db);");
+    // Boot path runs the seeds (in bootApp) after schema update.
+    expect(files.get("api/boot.ts")).toContain("await runSeeds(db);");
+    expect(files.get("api/index.ts")).toContain("await bootApp(db);");
   });
 });
 
@@ -1143,13 +1144,13 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(errors).toEqual([]);
   });
 
-  it("collapses the aggregate to a single (id, data, version) jsonb Row — no child/pivot tables", async () => {
+  it("collapses the aggregate to a single (id, data, row_version) jsonb Row — no child/pivot tables", async () => {
     const { files } = await emit(DOC_SRC);
     const entities = files.get("api/db/entities.ts")!;
     expect(entities).toContain("export class ArticleRow {");
     expect(entities).toContain('id: { type: "string", primary: true }');
     expect(entities).toContain('data: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('version: { type: "number" }');
+    expect(entities).toContain('rowVersion: { type: "number" }');
     // The contained Section part rides inside the blob — no relational child Row.
     expect(entities).not.toContain("SectionRow");
     expect(entities).toContain("export const entities = [ArticleRowSchema];");
@@ -1165,21 +1166,21 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(repo).toContain("function sectionToDoc");
     // Read casts the jsonb blob; the versioned root takes the authoritative
     // version COLUMN (not the stale blob copy).
-    expect(repo).toContain("articleFromDoc(row.data as ArticleDoc, row.version)");
+    expect(repo).toContain("articleFromDoc(row.data as ArticleDoc, row.rowVersion)");
     // Save is the version-CAS write over the blob (default-on versioning).
     expect(repo).toContain("const data = articleToDoc(aggregate);");
     expect(repo).toContain(
-      "await em.insert(ArticleRow, { id: aggregate.id as string, data, version: 1 });",
+      "await em.insert(ArticleRow, { id: aggregate.id as string, data, rowVersion: 1 });",
     );
     expect(repo).toContain(
-      "await em.nativeUpdate(ArticleRow, { id: aggregate.id as string, version: expected }, { data, version: expected + 1 })",
+      "await em.nativeUpdate(ArticleRow, { id: aggregate.id as string, rowVersion: expected }, { data, rowVersion: expected + 1 })",
     );
     expect(repo).toContain('throw new ConcurrencyError("Article", aggregate.id as string)');
   });
 
-  // #4405: a document criterion read (`Repo.find(C)` / `findAll(C)`) emits no
-  // repository method yet, so the in-app evaluation this pins has no site.
-  it.fails("evaluates finds in-app over the rehydrated read model (blob fields aren't columns) — #4405", async () => {
+  // A document criterion read (`Repo.find(C)` / `findAll(C)`) runs in-app over
+  // the id-ordered whole-table load.
+  it("evaluates finds in-app over the rehydrated read model (blob fields aren't columns)", async () => {
     const { files } = await emit(DOC_SRC);
     const repo = files.get("api/db/repositories/article-repository.ts")!;
     // The whole-table read carries `orderBy: id` — without it the rows come
@@ -1299,10 +1300,10 @@ describe("mikroorm — persist-time audit stamping", () => {
     // `nativeUpdate` whose `stampUpdate` only touches updatedAt/updatedBy, so the
     // create-only createdAt/createdBy stay at their loaded values (immutable).
     expect(repo).toMatch(
-      /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?version: 1 \}\)\);/,
+      /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?rowVersion: 1 \}\)\);/,
     );
     expect(repo).toMatch(
-      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdateOrder\([\s\S]*?version: expected \+ 1 \}\), \{ filters: false \}\);/,
+      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, rowVersion: expected \}, stampUpdateOrder\([\s\S]*?rowVersion: expected \+ 1 \}\), \{ filters: false \}\);/,
     );
   });
 

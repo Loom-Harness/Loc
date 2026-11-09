@@ -27,8 +27,6 @@ import {
   renderCanonicalInstantConverter,
   renderCommon,
   renderEnum,
-  renderEvent,
-  renderIDomainEvent,
   renderId,
   renderInProcessDispatcher,
   renderInt32RangeConverter,
@@ -82,12 +80,10 @@ export function emitIds(ctx: BoundedContextIR, ns: string, out: Map<string, stri
       : undefined;
     out.set(
       `Domain/Ids/${agg.name}Id.cs`,
-      tphRoot
-        ? renderTphConcreteIdAlias(agg.name, tphRoot, ns)
-        : renderId(agg.name, agg.idValueType, ns),
+      tphRoot ? renderTphConcreteIdAlias(agg.name, tphRoot, ns) : renderId(agg.name, ns),
     );
     for (const part of agg.parts) {
-      out.set(`Domain/Ids/${part.name}Id.cs`, renderId(part.name, agg.idValueType, ns));
+      out.set(`Domain/Ids/${part.name}Id.cs`, renderId(part.name, ns));
     }
   }
 }
@@ -119,18 +115,6 @@ export function emitValueObjects(
   }
 }
 
-export function emitEvents(
-  ctx: BoundedContextIR,
-  ns: string,
-  out: Map<string, string>,
-  hasSubscriptions = false,
-): void {
-  out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
-  for (const ev of ctx.events) {
-    out.set(`Domain/Events/${ev.name}.cs`, renderEvent(ev, ns));
-  }
-}
-
 export function emitCommon(
   ns: string,
   out: Map<string, string>,
@@ -139,6 +123,7 @@ export function emitCommon(
     file?: boolean;
     valueObjectInvariant?: boolean;
     domainFloorCodes?: boolean;
+    deferralKeepsFrame?: boolean;
   } = {},
 ): void {
   out.set(
@@ -148,6 +133,7 @@ export function emitCommon(
       file: opts.file,
       valueObjectInvariant: opts.valueObjectInvariant,
       domainFloorCodes: opts.domainFloorCodes,
+      deferralKeepsFrame: opts.deferralKeepsFrame,
     }),
   );
   // Canonical ISO-8601 UTC instant JSON converters (RS-4 temporal round-trip

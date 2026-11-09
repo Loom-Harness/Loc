@@ -35,10 +35,12 @@ import {
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
@@ -84,26 +86,16 @@ export interface ApiModuleOptions {
   pagedFindRoutes?: PagedFindRoutes;
 }
 
-/** The client-side path of a find's hook, relative to the api base: the
- *  explicit route that serves a synthesized paged find (`pagedFindRoutes` —
- *  never one with path tokens, so the arguments ride the query string), else
- *  the derived `/<plural>/<find>` route. */
-export function findHookPath(
-  tag: string,
-  find: { name: string },
-  route: { path: string } | null | undefined,
-): string {
-  return route ? route.path : `/${tag}/${snake(find.name)}`;
-}
-
-/** The finds a frontend emits a hook for: every declared find, and each
- *  synthesized paged find the target backend actually routes. */
-export function clientFinds<F extends { name: string; synthesized?: boolean }>(
+/** The finds a frontend emits a hook for: the auto-`all`, and each
+ *  synthesized paged find the target backend actually routes (its hook calls
+ *  that route — `pagedFindRoutes`, never one with path tokens, so the
+ *  arguments ride the query string). */
+export function clientFinds<F extends { name: string }>(
   aggName: string,
   finds: readonly F[],
   routes: PagedFindRoutes | undefined,
 ): F[] {
-  return finds.filter((f) => servedFindRoute(aggName, f, routes) !== undefined);
+  return finds.filter((f) => f.name === "all" || servedFindRoute(aggName, f, routes) !== undefined);
 }
 
 /** The client read-hook name for an aggregate's entity-history trail.
@@ -262,7 +254,7 @@ export function buildApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `${upperFirst(op.name)}${agg.name}Request`,
-        op.params.map((p) => ({ name: p.name, base: zodForRequest(p.type) })),
+        opRequestFields(op),
         opInvariants,
         new Set(op.params.map((p) => p.name)),
       ),
@@ -527,7 +519,9 @@ export function buildApiModule(
     // the key this hook already invalidates on success.  A cold cache (the form
     // was reached without reading the record) yields `undefined` → no header →
     // the previous behaviour, rather than a guess.
-    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    const occArg = sendsIfMatchPrecondition(agg, op)
+      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
+      : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", ${ID}]);`);
     }
@@ -579,6 +573,8 @@ export function buildApiModule(
   if (repo) {
     for (const find of repo.finds) {
       if (find.name === "all") continue;
+      const findRoute = servedFindRoute(agg.name, find, options.pagedFindRoutes);
+      if (!findRoute) continue;
       const findSnake = snake(find.name);
       const paged = pagedReturn(find.returnType);
       const isList = find.returnType.kind === "array";
@@ -624,9 +620,7 @@ export function buildApiModule(
         lines.push(
           `      const qs = new URLSearchParams(Object.entries(queryArgs.value).map(([k, v]) => [k, String(v)])).toString();`,
         );
-        lines.push(
-          `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
-        );
+        lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
         lines.push(`      return ${responseSchema}.parse(r);`);
         lines.push(`    },`);
         lines.push(`  });`);
@@ -646,9 +640,7 @@ export function buildApiModule(
         // Record<string,string> rejects under strict tsc.
         `      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(
-        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
-      );
+      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  });`);
@@ -921,6 +913,17 @@ export function dualTypeAliases(name: string): string[] {
   ];
 }
 
+/** The `<Op><Agg>Request` zod members — one per op param.  A masked
+ *  merge-patch key (`maskedPatchParams`) is optional: the generated form
+ *  leaves it out, and an absent key keeps the stored value. */
+export function opRequestFields(op: OperationIR): { name: string; base: string }[] {
+  const masked = maskedPatchParams(op);
+  return op.params.map((p) => ({
+    name: p.name,
+    base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
+  }));
+}
+
 function zodForRequest(t: TypeIR): string {
   const info = wireTypeInfo(t, "request");
   if (info.isNullable) return `${zodForRequest(peelNullable(t))}.nullish()`;
@@ -932,13 +935,10 @@ function zodForRequest(t: TypeIR): string {
       // Mirrors the server's request-side rule (`zodFor` in the Hono
       // routes-builder): a reference is a uuid on the wire, so the FORM
       // validator says so too and the caller is told at the field instead of
-      // by a server error.  Gated on the declared id value type — an
-      // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
+      // by a server error.
       // Tracks the shared `UUID_WIRE_PATTERN` so the form cannot refuse an id
       // the server accepts — see `zodForRequest` in ./zod-schemas.ts.
-      return info.idValueType === "guid"
-        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
-        : "z.string()";
+      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

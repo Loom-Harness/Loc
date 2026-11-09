@@ -11,9 +11,12 @@
 // backend's ORM mapping read the same accessor, so the table a migration
 // creates is the table the ORM reads.
 //
-// `test/system/storage-names-census.test.ts` forbids spelling a table or a
-// route by hand (`plural(snake(…))`, `snake(plural(…))`) in the generators,
-// the platforms and the migrations builder.
+// Emitters read a table only through these node accessors, never by calling
+// the name-keyed `tableNameFor` with a name they picked: the choice of which
+// declaration a table is spelled from is exactly the fact a backend must not
+// re-derive.  `test/system/storage-names-census.test.ts` enforces both that and
+// the ban on spelling a table or a route by hand (`plural(snake(…))`,
+// `snake(plural(…))`).
 
 import { workflowStateTableName } from "../../util/naming.js";
 import { routeSegmentFor, tableNameFor } from "../../util/storage-names.js";
@@ -22,9 +25,11 @@ import type {
   AssociationIR,
   EntityPartIR,
   ProjectionIR,
+  SystemIR,
   WorkflowIR,
 } from "../types/loom-ir.js";
-import { type AggPool, tableOwnerName } from "../util/inheritance.js";
+import { type AggPool, projectionSourceTable, tableOwnerName } from "../util/inheritance.js";
+import { hierarchyRegistry } from "../util/tenant-stance.js";
 
 export { routeSegmentFor, tableNameFor };
 
@@ -34,6 +39,36 @@ export { routeSegmentFor, tableNameFor };
  *  name. */
 export function aggregateTableName(agg: AggregateIR, pool: AggPool): string {
   return tableNameFor(tableOwnerName(agg, pool));
+}
+
+/** The table the rows of the aggregate named `name` live in, resolved in
+ *  `pool` (a seed row or a projection source names its aggregate).  A name
+ *  outside `pool` owns the table spelled from itself. */
+export function aggregateTableNameOf(name: string, pool: AggPool): string {
+  const agg = pool.find((a) => a.name === name);
+  return agg ? aggregateTableName(agg, pool) : tableNameFor(name);
+}
+
+/** The table a projection's `from <Source>` arm reads: its table owner's (a
+ *  TPH concrete's rows live in the root's shared table, scoped by `kind`).  A
+ *  source outside `pool` owns the table spelled from its own name. */
+export function projectionSourceTableName(source: string, pool: AggPool): string {
+  return tableNameFor(projectionSourceTable(source, pool).tableOwner);
+}
+
+/** The tenant registry's table, resolved in the context that declares it, or
+ *  undefined when the system has no hierarchical registry. */
+export function registryTableName(
+  sys: Pick<SystemIR, "tenancy" | "subdomains">,
+): string | undefined {
+  const reg = hierarchyRegistry(sys);
+  if (!reg) return undefined;
+  for (const mod of sys.subdomains) {
+    for (const ctx of mod.contexts) {
+      if (ctx.aggregates.includes(reg)) return aggregateTableName(reg, ctx.aggregates);
+    }
+  }
+  return undefined;
 }
 
 /** The child table of a contained entity part (`VariantSKU` → `variant_skus`). */

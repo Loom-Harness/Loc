@@ -28,18 +28,14 @@
 //      applier folds pure assignments / collection mutations / let bindings
 //      only; the event-sourcing discipline validator should have rejected this.
 //
-//    — the emitter naming the gate that did not exist. `node`, `java`,
-//    `python` and `dotnet` all emit the same model, which is exactly the
-//    contract `loom.elixir-if-stmt-unsupported` is for: the statement ships on
-//    the other four, so refusing it on the fifth is the honest half.
+//    — the emitter naming the gate that did not exist.  The fold now renders
+//    `if` (a value-producing branch that rebinds the folded state), so every
+//    backend accepts it.
 //
 // MUTATION PROOF (CLAUDE.md — a green first run proves nothing): revert either
 // fix and the matching case below fails.
 //   - restore `for (const stmt of ap.statements)` in structural-checks.ts →
 //       AssertionError: expected [] to include 'loom.applier-emits'
-//   - delete the `for (const ap of agg.appliers ?? [])` loop in
-//     if-stmt-checks.ts →
-//       AssertionError: expected [ … ] to include 'loom.elixir-if-stmt-unsupported'
 // Both reverted by file copy, never `git checkout --` (experience_gathered.md §84).
 //
 // THE TOP-LEVEL TWIN IS THE CONTROL. A gate that fires on the nested case but
@@ -135,26 +131,14 @@ describe("applier discipline reaches inside an `if` branch", () => {
   });
 });
 
-describe("the Elixir `if` gate covers applier bodies", () => {
+describe("an `if` in an applier is valid on every backend", () => {
   const PURE_IF = "if e.amount > 0 { balance := balance + e.amount }";
 
-  it("an `if` in an applier is refused on elixir", async () => {
-    expect(await errorCodes(sys(PURE_IF, "elixir"))).toContain("loom.elixir-if-stmt-unsupported");
-  });
-
-  // The other four render it, which is the whole reason this is a per-backend
-  // refusal rather than a language rule.
-  for (const platform of ["node", "java", "python", "dotnet"]) {
-    it(`control: the same applier is accepted on ${platform}`, async () => {
-      expect(await errorCodes(sys(PURE_IF, platform))).not.toContain(
-        "loom.elixir-if-stmt-unsupported",
-      );
+  // Every backend renders it — elixir's fold rebinds the folded state through
+  // a value-producing `if` (`fold-stmt-emit.ts`) — so no target refuses it.
+  for (const platform of ["node", "java", "python", "dotnet", "elixir"]) {
+    it(`accepts the applier on ${platform}`, async () => {
+      expect(await errorCodes(sys(PURE_IF, platform))).toEqual([]);
     });
   }
-
-  it("control: an applier with no `if` is untouched on elixir", async () => {
-    expect(await errorCodes(sys("balance := balance + e.amount", "elixir"))).not.toContain(
-      "loom.elixir-if-stmt-unsupported",
-    );
-  });
 });

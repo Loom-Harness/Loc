@@ -1,6 +1,7 @@
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a) — IR
-// side.  Covers lowering a postfix `paged` / `envelope` instantiation into a
-// `genericInstance` TypeIR and the stdlib shape registry.  (Every backend emits
+// side.  Covers lowering a postfix `paged` instantiation into a
+// `genericInstance` TypeIR (a refused `envelope` lowers as its argument) and
+// the stdlib shape registry.  (Every backend emits
 // generic carriers, so there is no per-backend emission gate.)
 
 import { describe, expect, it } from "vitest";
@@ -54,9 +55,9 @@ describe("generics — lowering (P3a)", () => {
     });
   });
 
-  it("lowers `string envelope` to an envelope instance", async () => {
+  it("lowers a refused `string envelope` as its argument", async () => {
     const t = await voFieldType(`context C { valueobject V { e: string envelope } }`, "V", "e");
-    expect(t).toMatchObject({ kind: "genericInstance", ctor: "envelope" });
+    expect(t).toEqual({ kind: "primitive", name: "string" });
   });
 
   it("keeps the array wrapper outside the carrier (`string paged[]`)", async () => {
@@ -68,19 +69,15 @@ describe("generics — lowering (P3a)", () => {
     });
   });
 
-  it("folds chained constructors left-associatively (`string envelope paged`)", async () => {
-    const t = await voFieldType(
-      `context C { valueobject V { x: string envelope paged } }`,
-      "V",
-      "x",
-    );
-    // paged(envelope(string))
+  it("folds chained constructors left-associatively (`string paged paged`)", async () => {
+    const t = await voFieldType(`context C { valueobject V { x: string paged paged } }`, "V", "x");
+    // paged(paged(string))
     expect(t).toMatchObject({
       kind: "genericInstance",
       ctor: "paged",
       arg: {
         kind: "genericInstance",
-        ctor: "envelope",
+        ctor: "paged",
         arg: { kind: "primitive", name: "string" },
       },
     });
@@ -99,19 +96,12 @@ describe("generics — stdlib shape registry (P3a)", () => {
     for (const f of fields.slice(1)) expect(f.type).toEqual({ kind: "primitive", name: "int" });
   });
 
-  it("envelope → id/ts/body with the argument in `body`", () => {
-    const fields = genericShape("envelope").fields({ kind: "primitive", name: "string" });
-    expect(fields.map((f) => f.name)).toEqual(["id", "ts", "body"]);
-    expect(fields[2]!.type).toEqual({ kind: "primitive", name: "string" });
-  });
-
   it("exposes exactly the blessed closed set", () => {
-    // `paged` / `envelope` are AUTHOR-WRITTEN carriers with a `GenericCtor`
-    // grammar arm; `provenanced` (M-T6.12) is the compiler-synthesized wire
+    // `paged` is the AUTHOR-WRITTEN carrier with a `GenericCtor` grammar arm; `provenanced` (M-T6.12) is the compiler-synthesized wire
     // carrier for a `provenanced` field — no grammar arm, stamped into
     // `wireShape` by `wireTypeForField` and rendered structurally rather than
     // monomorphized to a named payload.
-    expect(Object.keys(GENERIC_SHAPES).sort()).toEqual(["envelope", "paged", "provenanced"]);
+    expect(Object.keys(GENERIC_SHAPES).sort()).toEqual(["paged", "provenanced"]);
   });
 
   it("shapes `provenanced` as the value + nullable-lineage carrier", () => {
@@ -128,11 +118,9 @@ describe("generics — stdlib shape registry (P3a)", () => {
 describe("generics — naming (P3b)", () => {
   it("names instances <ArgName><Ctor>", () => {
     expect(genericInstanceName("paged", { kind: "primitive", name: "string" })).toBe("StringPaged");
-    expect(
-      genericInstanceName("paged", { kind: "id", targetName: "Order", valueType: "guid" }),
-    ).toBe("OrderIdPaged");
-    expect(genericInstanceName("envelope", { kind: "entity", name: "OrderPlaced" })).toBe(
-      "OrderPlacedEnvelope",
+    expect(genericInstanceName("paged", { kind: "id", targetName: "Order" })).toBe("OrderIdPaged");
+    expect(genericInstanceName("paged", { kind: "entity", name: "OrderPlaced" })).toBe(
+      "OrderPlacedPaged",
     );
   });
 });
@@ -153,7 +141,7 @@ describe("generics — pagedReturn helper (P3b)", () => {
     expect(
       pagedReturn({
         kind: "genericInstance",
-        ctor: "envelope",
+        ctor: "provenanced",
         arg: { kind: "primitive", name: "string" },
       }),
     ).toBeNull();

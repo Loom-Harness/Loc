@@ -104,8 +104,12 @@ system Demo {
     // not left to the domain floor.
     const updateBlock = routes.slice(routes.indexOf("class UpdateAccountRequest(BaseModel):"));
     expect(routes).toContain("class UpdateAccountRequest(BaseModel):");
-    expect(updateBlock).toContain("handle: WireStr = Field(min_length=1)");
-    expect(updateBlock).toContain("if not (self.handle != self.email):");
+    // The update is a merge patch (RS-47): the key is optional, and the
+    // cross-field rule runs only when the patch carries both members.
+    expect(updateBlock).toContain("handle: WireStr | None = Field(default=None, min_length=1)");
+    expect(updateBlock).toContain(
+      "if self.handle is not None and self.email is not None and not (self.handle != self.email):",
+    );
   });
 });
 

@@ -60,3 +60,21 @@ function entityForResponseName(name: string, ctx: BoundedContextIR): string | un
   if (ctx.aggregates.some((a) => a.parts.some((p) => p.name === stripped))) return stripped;
   return name;
 }
+
+/** True when a routed handler declares a single-row `T?` return over a domain
+ *  aggregate or part (`queryHandler ByCode(c): Order?`).  Its route answers a
+ *  miss as the find-absence 404 (`not_found` ProblemDetails) on every backend,
+ *  the status a `getBy…` miss and a remote api call's `T?` read already read as
+ *  absence (D-ABSENCE-MODEL) — never a projection of `null` (a node/python 500)
+ *  or an empty-bodied 200.  A scalar `T?` and an extern handler (its impl owns
+ *  the return shape) keep their value as-is. */
+export function routedAbsenceAnswers404(
+  h: { readonly extern?: boolean; readonly returnType?: TypeIR },
+  ctx: BoundedContextIR,
+): boolean {
+  if (h.extern || h.returnType?.kind !== "optional") return false;
+  const inner = normalizeHandlerReturn(h.returnType.inner, ctx);
+  if (inner?.kind !== "entity") return false;
+  const name = inner.name;
+  return ctx.aggregates.some((a) => a.name === name || a.parts.some((p) => p.name === name));
+}

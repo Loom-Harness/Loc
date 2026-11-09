@@ -51,7 +51,12 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import { entryResult } from "../../ir/util/entry-result.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import {
   pagedRunFindName,
@@ -62,6 +67,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
 import {
@@ -71,12 +77,18 @@ import {
   pythonWireNeedsAlias,
   snake,
 } from "../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
 import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
+import {
+  entryErrorPyLines,
+  entryErrorStatusesPy,
+  entryResultPyLines,
+} from "./entry-result-emit.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -216,7 +228,7 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
 
 /** The repos a handler body references (repo loads + exit-saves), keyed by
  *  repo name → aggregate name.  The handler constructs `<Agg>Repository(...)`
- *  for each and the workflow stmt target names the handle `snake(repoName)`.
+ *  for each and the workflow stmt target names the handle `pythonIdent(repoName)`.
  *  INSERTION ORDER is load-bearing (two call sites iterate `repos` directly
  *  to emit per-repo lines/params), so this keeps the original per-kind
  *  ordering exactly — `walkWorkflowStmtsDeep`'s uniform pre-order visits a
@@ -294,7 +306,7 @@ function renderPagedRunHandlerModule(
 ): string {
   const fnName = snake(h.name);
   const run = pagedRunStmt(h, ctx);
-  const repoVar = snake(run.repoName);
+  const repoVar = pythonIdent(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
   const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
@@ -416,7 +428,8 @@ function renderHandlerModule(
   // a COLLECTION return maps each element). When projecting, the annotation becomes
   // `dict[str, object]` (or `list[dict[str, object]]`), NOT the aggregate class
   // (which would need a domain import the module never made).
-  const normRet = normalizeHandlerReturn(h.returnType, ctx);
+  const er = entryResult(h, ctx);
+  const normRet = er ? undefined : normalizeHandlerReturn(h.returnType, ctx);
   let projectRepoHandle: string | undefined;
   let projectIsCollection = false;
   // A `mask unless` aggregate redacts its response fields fail-closed
@@ -431,7 +444,7 @@ function renderHandlerModule(
       if (projAgg && aggHasFieldMask(projAgg)) projectWire = "to_wire_masked";
       for (const [repo, agg] of repos) {
         if (agg === info.base) {
-          projectRepoHandle = snake(repo);
+          projectRepoHandle = pythonIdent(repo);
           break;
         }
       }
@@ -439,45 +452,89 @@ function renderHandlerModule(
       // construct a repo purely to project it, keyed by its plural name.
       if (!projectRepoHandle) {
         const repoName = plural(info.base);
-        projectRepoHandle = snake(repoName);
+        projectRepoHandle = pythonIdent(repoName);
         repos.set(repoName, info.base);
       }
     }
   }
-  const ret = projectRepoHandle
-    ? projectIsCollection
-      ? "list[dict[str, object]]"
-      : "dict[str, object]"
-    : normRet
-      ? renderPyType(normRet)
-      : "None";
+  // An expected-failure result's aggregate arms project through their repo.
+  if (er) {
+    for (const arm of er.arms) {
+      if (arm.kind === "aggregate" && ![...repos.values()].includes(arm.name)) {
+        repos.set(plural(arm.name), arm.name);
+      }
+    }
+  }
+  const ret = er
+    ? "dict[str, object]"
+    : projectRepoHandle
+      ? projectIsCollection
+        ? "list[dict[str, object]]"
+        : "dict[str, object]"
+      : normRet
+        ? renderPyType(normRet)
+        : "None";
   const repoLines = [...repos].map(
-    ([repo, agg]) => `    ${snake(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
+    ([repo, agg]) => `    ${pythonIdent(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
   );
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
   // returnValue's let refs into it (the shared collector only scans statements).
   const usedLets = collectLiveLetNames(h.statements, h.savesAtExit);
   walkExpr(h.returnValue, (n) => {
-    if (n.kind === "ref" && n.refKind === "let") usedLets.add(n.name);
+    if (n.kind === "ref" && (n.refKind === "let" || n.refKind === "match-binding")) {
+      usedLets.add(n.name);
+    }
   });
   const renderSave = pySaveRenderer(h.statements, ctx.aggregates);
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave),
+    pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave, writeScopeContext(h.statements, ctx)),
     "    ",
   ).flat();
   const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));
-  const returnExpr = h.returnValue
-    ? projectRepoHandle
-      ? projectIsCollection
-        ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${renderPyExpr(h.returnValue, rctx)}]`
-        : `${projectRepoHandle}.${projectWire}(${renderPyExpr(h.returnValue, rctx)})`
+  // A `T?` entity return answers its miss as the find-absence 404: bind the
+  // value once, refuse None, project the binding (`to_wire(None)` would raise).
+  const absentIs404 = !!projectRepoHandle && routedAbsenceAnswers404(h, ctx);
+  const returnValueExpr = h.returnValue
+    ? absentIs404
+      ? "__found"
       : renderPyExpr(h.returnValue, rctx)
     : null;
-  const returnLine = returnExpr ? `    return ${returnExpr}` : null;
+  const absentLines =
+    absentIs404 && h.returnValue
+      ? [
+          `    __found = ${renderPyExpr(h.returnValue, rctx)}`,
+          `    if __found is None:`,
+          `        raise ${H.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)})`,
+        ]
+      : [];
+  const returnExpr = returnValueExpr
+    ? projectRepoHandle
+      ? projectIsCollection
+        ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${returnValueExpr}]`
+        : `${projectRepoHandle}.${projectWire}(${returnValueExpr})`
+      : returnValueExpr
+    : null;
+  const returnLines =
+    er && h.returnType?.kind === "union"
+      ? [
+          ...entryResultPyLines(
+            er,
+            h.returnType,
+            (e) => renderPyExpr(e, rctx),
+            ctx,
+            "    ",
+            "handler_result",
+            (agg) => snake([...repos].find(([, a]) => a === agg)?.[0] ?? plural(agg)),
+          ),
+          "    return handler_result",
+        ]
+      : returnExpr
+        ? [`    return ${returnExpr}`]
+        : [];
 
-  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...(returnLine ? [returnLine] : [])];
+  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...absentLines, ...returnLines];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;
@@ -613,8 +670,12 @@ function routedResponsesKwarg(
   r: RouteIR,
   h: Handler,
   ctx: EnrichedBoundedContextIR,
+  /** The statuses an expected-failure result's error arms answer. */
+  extra: readonly number[] = [],
 ): string {
-  const statuses = routedErrorStatuses(r, h, ctx);
+  const routed = routedErrorStatuses(r, h, ctx);
+  const added = extra.filter((st) => !routed.includes(st));
+  const statuses = added.length > 0 ? [...routed, ...added].sort((a, b) => a - b) : routed;
   const entries = [
     ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
     ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
@@ -655,6 +716,9 @@ export function emitPyExplicitRouteRouter(
     }
 
     const usesUser = handlerUsesUser(h, ctx);
+    // An expected-failure result answers its error arms here, at their mapped
+    // status (the 4xx rolls the request's transaction back).
+    const er = h.extern ? undefined : entryResult(h, ctx);
     // Split params: those bound by a `{token}` in the route path stay URL path
     // params (wire type + call-site coercion); every other param rides in ONE
     // `body: <Handler>Body` request model. A bare Pydantic-model param would be
@@ -691,7 +755,7 @@ export function emitPyExplicitRouteRouter(
       ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
       ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
-      ...(usesUser ? [PY_REQUEST_PARAM] : []),
+      ...(usesUser || er ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
     ].join(", ");
     // Call args stay in flat declared order: path params coerce from the route
@@ -717,12 +781,24 @@ export function emitPyExplicitRouteRouter(
     const routeName = `${snake(h.name)}_route`;
 
     const responses = routedResponsesKwarg(
-      hasReturn && !h.extern ? routedResponseModel(h, ctx) : undefined,
+      hasReturn && !h.extern && !er ? routedResponseModel(h, ctx) : undefined,
       r,
       h,
       ctx,
+      er ? entryErrorStatusesPy(er, ctx) : [],
     );
-    if (hasReturn) {
+    if (er) {
+      routeBlocks.push(
+        lines(
+          `@router.${method}("${path}", operation_id="${opId}"${responses})`,
+          `async def ${routeName}(${sig}) -> ${ANY}:`,
+          usesUser ? PY_USER_BIND : null,
+          `    result = await ${handlerFnRef(h.name)}(${callArgs})`,
+          ...entryErrorPyLines(er, ctx, "result", H.JSONResponse, "    "),
+          `    return result`,
+        ),
+      );
+    } else if (hasReturn) {
       routeBlocks.push(
         lines(
           `@router.${method}("${path}", operation_id="${opId}"${responses})`,

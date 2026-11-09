@@ -1,3 +1,4 @@
+import { readSortFor } from "../../ir/enrich/read-scope.js";
 // spec-emit — reified retrievals as Ardalis `Specification<T>` objects (the
 // query *bundle*: where + sort). The headline reified-criteria payoff on
 // .NET: a `retrieval` becomes a constructed Specification consumed by the
@@ -15,6 +16,8 @@
 // criterion's `ToExpression`; otherwise it inlines the predicate.
 
 import type { BoundedContextIR, EnrichedAggregateIR, RetrievalIR } from "../../ir/types/loom-ir.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor, refsCurrentUser } from "./criteria-emit.js";
@@ -72,12 +75,50 @@ export function emitRetrievalSpecs(
   }
 }
 
+/** Does retrieval `r`'s `where` test a REFERENCE-collection membership
+ *  (`this.<refColl>.contains(x)` over an `X id[]` field)?  The field is not a
+ *  column: EF `Ignore`s it and stores it in the join entity, so the only
+ *  translatable form is the `_db.<JoinDbSet>.Any(...)` subquery — which needs
+ *  the DbContext.  A Domain-layer specification has none, so such a `where` is
+ *  applied by the EF repository's `Run<Name>Async` instead
+ *  ({@link retrievalWhereInRepository}); the spec keeps only the sort. */
+export function retrievalWhereInRepository(r: RetrievalIR, agg: EnrichedAggregateIR): boolean {
+  let found = false;
+  walkExprDeep(r.where, (e) => {
+    if (
+      e.kind === "method-call" &&
+      e.member === "contains" &&
+      e.receiverType.kind === "array" &&
+      e.receiverType.element.kind === "id" &&
+      e.args.length === 1
+    ) {
+      const field = refCollectionFieldName(e.receiver);
+      if (field && agg.associations.some((a) => a.fieldName === field)) found = true;
+    }
+  });
+  return found;
+}
+
+/** The repository-side `.Where(x => …)` of a retrieval whose `where` reads a
+ *  join table (see {@link retrievalWhereInRepository}). */
+export function retrievalRepositoryWhere(r: RetrievalIR, agg: EnrichedAggregateIR): string {
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  const refsPrincipal = refsCurrentUser(r.where);
+  return `.Where(${x} => ${renderCsExpr(r.where, {
+    thisName: x,
+    agg,
+    efQuery: true,
+    currentUserExpr: refsPrincipal ? AMBIENT_CURRENT_USER : undefined,
+  })})`;
+}
+
 function renderSpec(
   r: RetrievalIR,
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
   ns: string,
 ): string {
+  if (retrievalWhereInRepository(r, agg)) return renderSortOnlySpec(r, agg, ns);
   const reified = !!(r.criterionRef && canEmitToExpressionFor(r.criterionRef.name, ctx, agg.name));
   // A retrieval whose `where` references the principal (`currentUser.<field>`,
   // e.g. a tenancy criterion) is built once inside the `Specification<T>`
@@ -131,13 +172,37 @@ function renderSpec(
   );
 }
 
+/** The specification of a retrieval whose `where` the repository applies —
+ *  the sort alone, so it takes no parameters. */
+function renderSortOnlySpec(r: RetrievalIR, agg: EnrichedAggregateIR, ns: string): string {
+  return lines(
+    "// Auto-generated.",
+    "using Ardalis.Specification;",
+    "",
+    `namespace ${ns}.Domain.${plural(agg.name)};`,
+    "",
+    "/// <summary>The sort of the retrieval; its filter reads a join table, so the",
+    "/// repository applies it against the DbContext.</summary>",
+    `public sealed class ${specClassName(r.name)} : Specification<${agg.name}>`,
+    "{",
+    `    public ${specClassName(r.name)}()`,
+    "    {",
+    `        Query${orderByChain(r)};`,
+    "    }",
+    "}",
+  );
+}
+
 /** `.OrderBy(x => x.A).ThenByDescending(x => x.B)` for a retrieval's sort
- *  terms (empty when unsorted) — Ardalis's builder mirrors LINQ's names, so
+ *  terms plus the `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted
+ *  (`readSortFor`) — Ardalis's builder mirrors LINQ's names, so
  *  this is the same chain `find-emit.ts:orderByClauseFor` produces. Only the
  *  first path segment is used (a direct column), matching validateRetrievals. */
 function orderByChain(r: RetrievalIR): string {
-  if (r.sort.length === 0) return "";
-  return r.sort
+  // The lambda parameter yields to a same-named retrieval param, as the
+  // `where` lambda does (a param `x` would otherwise be shadowed).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return readSortFor(r.sort)
     .map((s, i) => {
       const col = upperFirst(s.path[0]!.name);
       const method =
@@ -148,7 +213,7 @@ function orderByChain(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(x => x.${col})`;
+      return `.${method}(${x} => ${x}.${col})`;
     })
     .join("");
 }

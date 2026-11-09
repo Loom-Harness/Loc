@@ -6,6 +6,9 @@
 //   loom.store-action-view-effect    — a store action calls a view-scoped
 //        effect (`navigate`/`toast`); those need a router/socket only a
 //        page/component has (§3.2).
+//   loom.store-init-not-constant      — a store field's initializer is not a
+//        constant the shared React/Vue/Svelte/Angular store renderer can emit
+//        (`ir/util/store-init.ts`); it would otherwise boot at the type's zero.
 //   loom.store-state-inline-write     — a page/component action writes a store
 //        field inline (`Cart.lines := …`); store state changes only inside
 //        store actions (§3.1, encapsulation).
@@ -40,6 +43,7 @@ import type { EnrichedLoomModel, StmtIR, StoreIR } from "../../types/loom-ir.js"
 import { classifyFelizAsyncEffect } from "../../util/feliz-async-effect.js";
 import { felizPersistCodec } from "../../util/feliz-persist-codec.js";
 import { type FlutterPersistTier, flutterPersistCodec } from "../../util/flutter-persist-codec.js";
+import { storeInitNonConstant } from "../../util/store-init.js";
 import { walkStmtsDeep } from "../../util/walk.js";
 
 /** A store's `lifetime` as the persist classifier's tier.  `memory` never
@@ -50,6 +54,12 @@ function flutterTierOf(lifetime: string): FlutterPersistTier {
 }
 
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { mountedUis } from "./ui-framework-checks.js";
+
+/** The frontends whose store fields boot through the shared JS store
+ *  renderer (`_frontend/store-field-init.ts`); Feliz, Flutter and LiveView
+ *  render a store initializer through their own expression emitters. */
+const JS_STORE_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular"]);
 
 // View-scoped effect builtins — illegal inside a store action (§3.2).  Mirrors
 // `VIEW_EFFECT_BUILTINS` in ui-checks.ts (a store has no router/socket).
@@ -83,6 +93,32 @@ function forEachStmt(stmts: readonly StmtIR[], visit: (s: StmtIR) => void): void
 
 export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
   for (const sys of loom.systems) {
+    // loom.store-init-not-constant — a store field on a JS-family frontend
+    // whose initializer the shared store renderer cannot emit as a constant.
+    const jsStoreUis = new Set<string>();
+    for (const d of sys.deployables)
+      for (const { ui, fw } of mountedUis(sys, d))
+        if (JS_STORE_FRAMEWORKS.has(fw)) jsStoreUis.add(ui.name);
+    for (const ui of sys.uis) {
+      if (!jsStoreUis.has(ui.name)) continue;
+      for (const store of ui.stores) {
+        for (const f of store.state) {
+          const bad = f.init ? storeInitNonConstant(f.init) : undefined;
+          if (!bad) continue;
+          const where = `store '${store.name}'`;
+          diags.push({
+            severity: "error",
+            code: "loom.store-init-not-constant",
+            message: diagMessage("loom.store-init-not-constant", {
+              name: f.name,
+              kind: bad.kind,
+            }),
+            source: where,
+          });
+        }
+      }
+    }
+
     // ui-name → its stores, for the deployable-pairing (LiveView) check.
     const storesByUi = new Map<string, StoreIR[]>();
     for (const ui of sys.uis) {

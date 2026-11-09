@@ -16,6 +16,7 @@ import {
   usedAggregates,
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
+import { javaCalendarDateParse } from "../codec-spelling.js";
 import { renderJavaExpr } from "../render-expr.js";
 
 const INSTANT = javaRef("java.time", "Instant");
@@ -142,11 +143,7 @@ function renderDatasetFn(
 ): string[] {
   const rowLines = entries.map((e) => {
     if (e.raw) {
-      const sql = renderSeedRowInsert(
-        e.row.aggregate,
-        e.row.fields,
-        sctx.schemaOf(e.row.aggregate),
-      );
+      const sql = renderSeedRowInsert(e.table, e.row.fields, sctx.schemaOf(e.row.aggregate));
       return `        jdbc.execute(${JSON.stringify(sql)});`;
     }
     const agg = aggByName.get(e.row.aggregate)!;
@@ -196,7 +193,7 @@ function renderSeedValue(value: ExprIR, fieldType: TypeIR): string {
     return `${INSTANT}.parse(${renderJavaExpr(value)})`;
   }
   if (t.kind === "primitive" && t.name === "date" && value.kind === "literal") {
-    return `java.time.LocalDate.parse(${renderJavaExpr(value)})`;
+    return javaCalendarDateParse(renderJavaExpr(value));
   }
   return renderJavaExpr(value);
 }

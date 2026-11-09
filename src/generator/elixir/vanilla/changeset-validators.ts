@@ -7,7 +7,7 @@ import { messageCode } from "../../../util/message-code.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
-import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 
 // ---------------------------------------------------------------------------
 // Shared Ecto-changeset validator rendering — the
@@ -209,28 +209,9 @@ export function voHasConstraints(vo: ValueObjectIR): boolean {
 export function voEctoType(t: TypeIR, enums: ReadonlyMap<string, EnumIR> = new Map()): string {
   switch (t.kind) {
     case "primitive":
-      switch (t.name) {
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          return LOOM_DATETIME_MODULE;
-        case "date":
-          return ":date";
-        case "guid":
-          return "Ecto.UUID";
-        case "json":
-          return ":map";
-        default:
-          return ":string";
-      }
+      return exEctoScalarType(t.name);
     case "id":
-      return ":binary_id";
+      return exEctoIdType();
     case "enum": {
       const en = enums.get(t.name);
       return en
@@ -238,7 +219,7 @@ export function voEctoType(t: TypeIR, enums: ReadonlyMap<string, EnumIR> = new M
         : ":string";
     }
     case "valueobject":
-      return ":map";
+      return exEctoJsonType();
     case "array":
       return `{:array, ${voEctoType(t.element, enums)}}`;
     case "optional":

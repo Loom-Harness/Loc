@@ -34,7 +34,7 @@ name: Schemathesis contract fuzzing
 #
 # Local: `npm run test:schemathesis` (node) and
 # `npm run test:schemathesis-{python,java,dotnet,elixir}` — each needs
-# `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` +
+# `uv tool install schemathesis==4.24.3 -c test/behavioral/schemathesis-constraints.txt` +
 # `cd test/behavioral && npm ci`, and the four
 # booted legs need a reachable Postgres.  Findings register:
 # https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
@@ -139,8 +139,7 @@ jobs:
       # Bump the two together.
       - name: Install schemathesis
         run: |
-          pipx install schemathesis==4.24.3
-          pipx inject schemathesis jsonschema-rs==0.49.1
+          pipx install schemathesis==4.24.3 --pip-args="-c test/behavioral/schemathesis-constraints.txt"
 
       # --- per-backend toolchains (the versions their behavioral legs use) ---
       - name: Set up uv (python backend)

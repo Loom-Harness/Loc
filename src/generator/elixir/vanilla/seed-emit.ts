@@ -262,7 +262,7 @@ function renderDatasetFn(
               .filter((c) => !e.row.fields.some((f) => snake(f.name) === c))
               .map((name) => ({ name, value: now })),
           ];
-      const sql = renderSeedRowInsert(e.row.aggregate, fields, schemaFor(e.row.aggregate));
+      const sql = renderSeedRowInsert(e.table, fields, schemaFor(e.row.aggregate));
       return `    Repo.query!(${elixirString(sql)})`;
     }
     const agg = aggByName.get(e.row.aggregate);

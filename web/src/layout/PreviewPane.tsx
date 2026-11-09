@@ -34,9 +34,10 @@ export function PreviewPane({ ctx }: Props): JSX.Element {
   // the browser can't host (.NET, Phoenix LiveView), explain why
   // Preview is grey — the user otherwise hits a generic "no React
   // frontend" message that hides the real reason.
+  const unhostable = unsupportedDeployables;
   const absentHint =
-    unsupportedDeployables.length > 0
-      ? `This example only declares ${formatUnsupportedDeployables(unsupportedDeployables)}, which the browser playground can't host.  Files-only — pick a system with a Hono + React deployable (e.g. Sales System) to use Preview.`
+    unhostable.length > 0
+      ? `This example only declares ${formatUnsupportedDeployables(unhostable)}, which the browser playground can't host.  Files-only — pick a system with a Hono + React deployable (e.g. Sales System) to use Preview.`
       : "This example has no React frontend.  Pick a system-mode example (e.g. Sales System) to use Preview.";
 
   return (

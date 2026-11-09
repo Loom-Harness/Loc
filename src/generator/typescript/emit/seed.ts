@@ -29,6 +29,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
+  asMoneySeedLiteral,
   type Entry,
   groupByDataset,
   seederAggregates,
@@ -163,7 +164,7 @@ function renderDatasetFn(
     e.raw
       ? // raw path (D-SEED-XREF): direct INSERT with explicit id + FK columns,
         // qualified with the aggregate's dataSource schema (see `SchemaFor`).
-        rawInsert(renderSeedRowInsert(e.row.aggregate, e.row.fields, schemaFor(e.row.aggregate)))
+        rawInsert(renderSeedRowInsert(e.table, e.row.fields, schemaFor(e.row.aggregate)))
       : `  await ${repoVar(e.row.aggregate)}.save(${e.row.aggregate}.create(${renderInput(e.row, typesByAgg.get(e.row.aggregate))}));`,
   );
   return lines(
@@ -199,7 +200,7 @@ function renderField(value: ExprIR, type: TypeIR | undefined): string {
   ) {
     return `new Date(${renderTsExpr(value)})`;
   }
-  return renderTsExpr(value);
+  return renderTsExpr(asMoneySeedLiteral(value, type));
 }
 
 function repoVar(agg: string): string {
@@ -295,7 +296,7 @@ function renderSeedCliFile(): string {
       `import { runSeeds } from "./seed";`,
       "",
       "// Standalone seeding (`npm run db:seed`) — the server boot path calls",
-      "// the exported `runSeeds(db)` from index.ts instead, after migrations.",
+      "// the exported `runSeeds(db)` from boot.ts instead, after migrations.",
       "async function main(): Promise<void> {",
       "  if (!process.env.DATABASE_URL) {",
       '    throw new Error("DATABASE_URL is required to run seeds.");',
@@ -397,7 +398,7 @@ function renderMikroSeedCliFile(): string {
       `import { runSeeds } from "./seed";`,
       "",
       "// Standalone seeding (`npm run db:seed`) — the server boot path calls",
-      "// the exported `runSeeds(db)` from index.ts instead, after schema update.",
+      "// the exported `runSeeds(db)` from boot.ts instead, after schema update.",
       "//",
       "// `safe: true` for the same reason the boot path uses it: `schema.update()`",
       "// defaults to `dropTables: true` over an unpruned introspection, so every",

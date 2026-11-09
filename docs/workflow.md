@@ -419,16 +419,77 @@ Rules (all compile-time errors):
 
 | Rule | Code |
 | --- | --- |
-| Result type is an `X id`, `string`, `int`, `long` or `bool` | `loom.workflow-return-type-unsupported` |
+| Result type is an `X id`, `string`, `int`, `long` or `bool`, the workflow itself (`return this`), or an expected failure `T or E` | `loom.workflow-return-type-unsupported` |
+| `return this` needs a correlated workflow (an id-shaped state field) | `loom.workflow-return-this-uncorrelated` |
 | The returned value is assignable to `T` | `loom.workflow-return-type-mismatch` |
 | `: T` needs a terminal `return`; a `return` needs `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
-| `return` is the last top-level statement | `loom.workflow-return-not-last` |
+| `return` is the last top-level statement — or, for `T or E`, the last statement of every arm of a terminal `match`, reading no arm-local `let` | `loom.workflow-return-not-last` |
 | Only the create the `POST` serves — not `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
 | Not on an `eventSourced` workflow (its create may only `emit`) | `loom.workflow-return-event-sourced` |
 
-Returning an aggregate, a payload or a value object is not supported yet
-(each needs the per-backend wire projection the `commandHandler` route
-has) — return the id and read the record back, or use a `commandHandler`.
+### `return this` — the instance state
+
+A correlated workflow's create may answer the workflow itself: the 200 body
+is the instance state in the `<Wf>InstanceResponse` shape
+`GET /api/workflows/<wf>/instances/{id}` serves, read after the body's saves.
+
+```ddd
+workflow Hold {
+  holdOf: Account id
+  amount: int
+  create(account: Account id, amt: int): Hold {
+    holdOf := account
+    amount := amt
+    return this
+  }
+}
+```
+
+```ts
+// node — the 200 is the saga row in the instance shape
+workflowResult = state;
+return httpCtx.json(workflowResult as z.infer<typeof HoldInstanceResponse>, 200);
+```
+
+### Expected failures — `create(…): T or E`
+
+The result may be a union with an `error` variant: the success arms answer
+200 tagged (payloads, aggregates as `<Agg>Response`, the workflow itself,
+ids, scalars), an error arm answers its `httpStatus` as problem+json, and an
+error answer rolls the WHOLE command back — every save, the saga row, the
+error arm's own writes, every event.  The body answers from a tail `return`
+or from the `return` ending each arm of its terminal `match`:
+
+```ddd
+workflow Pay {
+  create(account: Account id, amt: int): Receipt or PaymentDeclined {
+    let a = Accounts.get(account)
+    let r = a.withdraw(amt)
+    match r {
+      int left => { return Receipt { left: left } }
+      Insufficient e => { return PaymentDeclined { available: amt - e.needed } }
+    }
+  }
+}
+```
+
+```ts
+// node — one transaction; the error leaves it by throwing the rollback marker
+if (workflowResult.type === "PaymentDeclined") throw __rollback;
+…
+if (workflowResult.type === "PaymentDeclined") {
+  return httpCtx.json({ ...workflowResult, type: "/errors/payment-declined", title: "Payment Declined", status: 409, … }, 409, { "content-type": "application/problem+json" });
+}
+for (const ev of workflowEvents) await events.dispatch(ev);
+return httpCtx.json(workflowResult as unknown as z.infer<typeof ReceiptOrPaymentDeclinedSuccess>, 200);
+```
+
+`commandHandler` / `queryHandler` take the same `T or E` result.  Per-backend
+output (the .NET `IUnitOfWork` rollback, Java's `setRollbackOnly`, Python's
+4xx session rollback; Elixir refuses it, `loom.elixir-entry-result-unsupported`):
+[`language-reference/13-workflows.md`](language-reference/13-workflows.md#expected-failures).
+A value-object / money / datetime result is not answered yet — return it
+inside a payload.
 
 ## Save + event drain semantics
 
@@ -450,13 +511,60 @@ has) — return the id and read the record back, or use a `commandHandler`.
   `loom.workflow-uncorrelated-state-read`: there is no instance to read.
 - **A mutation needs a save.**  Every aggregate a body mutates must be one
   the exit save (or a loop's / branch's save) writes.  A mutating call
-  whose result is bound — `let r = a.withdraw(x)`, or
-  `let r = Transfer.run(src, dst, x)` on a `mutating` domain service — is
-  not saved yet, so it is an error, `loom.workflow-mutation-unsaved`;
-  write the call as its own statement.  The same code refuses a mutation
-  of a local that is neither created nor loaded from a repository, and an
-  aggregate passed to a mutating service as an expression rather than a
-  bound local.
+  written as a statement or bound with `let` to the call itself —
+  `let r = a.withdraw(x)`, or `let r = Transfer.run(src, dst, x)` on a
+  `mutating` domain service — is saved; one nested inside a larger
+  expression is not, and is an error, `loom.workflow-mutation-unsaved`.
+  The same code refuses a mutation of a local that is neither created nor
+  loaded from a repository, and an aggregate passed to a mutating service
+  as an expression rather than a bound local.
+- **A result that can be an error is matched before anything is saved.**
+  When the bound call's result has an `error` variant, the change is
+  tentative (an operation that answers its error leaves no trace,
+  D-FAILURE-MODEL): the body must `match` the result, the mutated
+  aggregate is saved — and its events published — at the end of each arm
+  that is not an error, and an error arm drops the change.  On .NET and
+  Java the error arm detaches the loaded entity through the repository's
+  `Discard` / `discard`, since EF Core and JPA would otherwise flush it;
+  node and python write only on a save.  Refused as
+  `loom.workflow-mutation-result-unmatched`: a result no `match` reads, an
+  `else` arm covering both a success and an error variant, and any other
+  change to the same aggregate in that body.  Elixir refuses the bound
+  form (`loom.elixir-bound-mutating-call-unsupported`).  See
+  [the language reference](language-reference/13-workflows.md#matching-a-mutating-calls-result)
+  for the generated shapes.
+
+  ```ddd
+  workflow Pay {
+    create(id: Account id, amt: int) {
+      let a = Accounts.get(id)
+      let r = a.withdraw(amt)        // int or Insufficient
+      match r {
+        int left => { }
+        Insufficient e => { notFound }
+      }
+    }
+  }
+  ```
+
+  ```csharp
+  // .NET — Application/Workflows/PayHandler.cs
+  var r = a.Withdraw(command.Amt);
+  switch (r)
+  {
+      case intOrInsufficient_int __leftCarrier:
+      {
+          var left = __leftCarrier.Value;
+          await _accounts.SaveAsync(a, cancellationToken);
+          break;
+      }
+      case intOrInsufficient_Insufficient e:
+      {
+          _accounts.Discard(a);
+          throw new AggregateNotFoundException("Resource not found");
+      }
+  }
+  ```
 - **Two spellings, one create.**  `Agg.create(a, b)` (positional) and
   `Agg.create(x: a, y: b)` (named) are the same factory call, created and
   saved alike; the record form `Agg.create({ x: a })` is retired

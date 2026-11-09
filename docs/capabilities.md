@@ -52,9 +52,10 @@ no `aggregate User` and none is needed. The two fields are `managed`, so they
 never appear as form inputs, and a scaffolded list/detail page renders them as
 read-only stamped values rather than as links to an aggregate detail route.
 
-`versioned` (optimistic concurrency) adds a single `version: int token = 1`
-field. Every backend's save path emits a guarded write
-(`UPDATE … WHERE id = $1 AND version = $2`, bumping `version`) and returns HTTP
+`versioned` (optimistic concurrency) adds a single `rowVersion: int token = 1`
+field (SQL column `row_version`, wire key `rowVersion`). Every backend's save
+path emits a guarded write (`UPDATE … WHERE id = $1 AND row_version = $2`,
+bumping `row_version`) and returns HTTP
 **409 Conflict** when zero rows match — a lost-update guard with no explicit
 version handling in the domain body. The counter counts **persisted commands**,
 not changed columns: a command that only mutates a `contains` child, or that
@@ -68,7 +69,24 @@ aggregate Order with versioned { subject: string }
 ```
 
 The predicate `aggregateIsVersioned()` (`src/ir/util/versioned-capability.ts`) is
-the shared gate the five backend repositories and the migrations builder read.
+the shared gate the five backend repositories and the migrations builder read;
+the counter's spellings come from one place, `src/util/row-version.ts`.
+
+The counter is deliberately **not** called `version`: `version` is an ordinary
+domain name (a rule set's version, a document revision), and a model may
+declare `version` with any type as plain data. A user field that would land on
+the counter's member or column — a non-`int` `rowVersion`, or another spelling
+that snake-cases to `row_version` — is the error `loom.version-field-collision`.
+The one exception is the exact field the capability splices, `rowVersion: int`:
+it is what the structural printer and the "unfold macro" action eject for an
+expanded aggregate, so it re-parses as the counter itself:
+
+```ddd
+aggregate RuleSet with crudish {
+  version: int immutable = 1   // plain data — fine
+  rowVersion: string           // loom.version-field-collision (`rowVersion: int` is the counter)
+}
+```
 
 **Two guards, not one.** The `UPDATE … WHERE version = $2` above is *write-time*
 CAS: it catches an interleave between the load and the save **inside one
@@ -86,11 +104,12 @@ rather than decide:
 
 | Write path | `checksVersion` | Guard |
 |---|---|---|
-| any named operation of a `versioned` aggregate — `update`, every other command, value-returning or not, any saving shape | `if-match` (the header, falling back to the loaded version) | the row's `version` column |
+| any named operation of a `versioned` aggregate — `update`, every other command, value-returning or not, any saving shape | `if-match` (the header, falling back to the loaded version) | the row's `row_version` column |
 | an operation of a `persistedAs: eventLog` aggregate | `handle` (the stream version the fold reached) | the `(stream_id, version)` key (RS-41) |
 | a workflow / handler save of a row or stream the body **loaded** | `handle` | as above |
 | a `create`, or a workflow save of a row the body **created** | `none` (an insert) | the primary key |
-| the canonical `destroy` | `none` today; **ruled** `if-match` for a `versioned` row (recorded as `pending`, implemented by #4341) | the row's `version` column, once implemented |
+| the canonical `destroy` of a `versioned` aggregate | `if-match` (a stale tag is a 409 before the delete; no tag, or `*`, checks against the loaded version) | the row's `row_version` column |
+| the canonical `destroy` of an event-sourced aggregate | `none` | — |
 
 A write that loses its check answers 409 whether or not it carried a tag; the
 client decides whether to retry, and the server never re-runs the command on its
@@ -512,3 +531,52 @@ A `capability` subsumes the field/filter/stamp macros: `auditable` and
   `stamp onCreate { createdBy := currentUser }` assigns `createdBy`
   requires every implementor to have a `createdBy: User id` field — a
   missing field is an IR-validation error.
+
+## Feature compositions
+
+A capability composes with how its aggregate persists and where the aggregate sits in an
+inheritance hierarchy. Each such pair has a verdict per backend in the capability table,
+`src/util/target-capabilities.ts` (`FEATURE_AXES` × `COMPOSING_AXES`). A pair is either
+supported, which means a behavioural corpus fixture runs it on that backend, or refused
+at the aggregate with `loom.target-unsupported`:
+
+| pair | verdict |
+|---|---|
+| `persistedAs: eventLog` with `versioned` | refused on every backend (`#feature-composition-broken`). The stream is the concurrency control, and nothing folds the spliced `version`. |
+| `persistedAs: eventLog` with `softDeletable` | refused on every backend (`#feature-composition-broken`). No event-sourced read filters `isDeleted`. |
+| `persistedAs: eventLog` with `auditable` / `tenantOwned` | refused by `loom.stamp-on-event-sourced-invalid`. |
+| `shape: document` with `softDeletable` | supported, except on elixir (`#feature-composition-broken`): the declared create there demands `isDeleted`. |
+| `persistedAs: eventLog` / `shape: document` with a `provenanced` field; `shape: document` with `auditable`; `auditable` or a `provenanced` field anywhere in a hierarchy; `softDeletable` on an abstract base | refused on every backend (`#feature-composition-unwitnessed`): no behavioural fixture runs the pair yet. |
+
+Every other pair of these axes is supported on all five backends.
+
+Pairs whose features meet at a deployable, a resource or a field, rather than on one aggregate, are rows of the same table (`BackendConstruct` / `RefusableUiConstruct`). Each is refused where noted:
+
+| pair | refused on |
+|---|---|
+| an event-sourced aggregate emitting an event a broker-bound channel carries | node, dotnet (the event append and the outbox row commit separately); python, java, elixir (unwitnessed) |
+| a `tenantOwned` aggregate on a deployable that does not host its `tenantRegistry` tree | every backend (the org-path resolver reads a table the deployable does not have) |
+| a typed `kind: api` resource calling an `auth: required` deployable | every backend (no credentials are forwarded) |
+| a `timerSource` whose event rides a broker-bound channel | node (the tick is dispatched in-process); the other four (unwitnessed) |
+| `allow deep` / `allow global` on a TPH subtype of a `tenantOwned` base | dotnet (the base filter pins the exact tenant); the other four (unwitnessed) |
+| a value-object collection on an entity part | node, dotnet, python, elixir (`loom.collection-field-unpersisted`); java (unwitnessed) |
+| a value object field whose type is a value object with an invariant | elixir (the inner invariant never runs) |
+| an event carrying a `mask unless` value on a channel | every backend (`loom.field-mask-event-channel`) |
+| a unique key over a `mask unless` field whose create is not gated on the mask | every backend (`loom.field-mask-unique-oracle`) |
+| an operation answering `<payload> or <error>`, served to a ui | react, vue, svelte, angular (the api client does not compile) |
+
+```ddd
+event Opened { account: Account id, owner: string }
+aggregate Account persistedAs: eventLog, with versioned {
+  owner: string
+  create open(owner: string) { emit Opened { account: id, owner: owner } }
+  apply(e: Opened) { owner := e.owner }
+}
+// loom.target-unsupported: aggregate 'Account' (`persistence:eventLog` with
+// `capability:versioned`) — deployable 'd' (backend 'node') generates code for
+// this combination that compiles but does not behave as either feature promises.
+```
+
+Nothing is generated for a refused pair. To support a pair on a backend, add a corpus fixture
+that reaches it and runs a `test e2e` block there. Then name the fixture in the cell.
+`test/system/feature-composition-table.test.ts` checks that the fixture reaches the pair.

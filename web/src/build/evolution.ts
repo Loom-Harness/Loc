@@ -33,8 +33,13 @@ import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { diagMessage } from "../../../src/diagnostics/messages.js";
-import { renderPgStep } from "../../../src/generator/sql-pg.js";
+import { NO_TRANSACTION_MARKER, renderPgStep } from "../../../src/generator/sql-pg.js";
 import {
+  migrationUnits,
+  STATEMENT_BREAKPOINT,
+} from "../../../src/generator/typescript/emit/migrations.js";
+import {
+  chainMigrations,
   EMPTY_CHAIN,
   entryFileName,
   headSnapshots,
@@ -42,27 +47,35 @@ import {
   MigrationChainError,
   parseChain,
   parseForkedChain,
-  recordGeneration,
   serializeEntry,
 } from "../../../src/system/migration-chain.js";
 import {
   evolveSystem,
-  pendingMigrations,
+  migrationStatus,
+  recordPendingMigrations,
   wireChangeEntity,
 } from "../../../src/system/migration-diff.js";
-import { MigrationDestructiveError } from "../../../src/system/migrations-builder.js";
+import {
+  MigrationDestructiveError,
+  MigrationShapeChangeError,
+} from "../../../src/system/migrations-builder.js";
+import { serviceSlug } from "../../../src/util/service-slug.js";
 import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
 import { loadProjectFromVfs } from "./project-loader.js";
+import type { MigrationUnitPlan, UnrecordedChanges } from "../runtime/protocol.js";
 import type {
   BuildDiagnostic,
   ChainStatusView,
   EvolutionParams,
   EvolutionResult,
   EvolutionTree,
+  MigrationPlanParams,
+  MigrationPlanResult,
   MigrationView,
   RecordMigrationParams,
+  StoragePlan,
   RecordMigrationResult,
   SchemaTableView,
   WireChangeView,
@@ -290,8 +303,8 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
 }
 
 /** Record the live edit's schema changes as the next entries of the chain
- *  its tree carries — the playground's `ddd migrate add`, on the same pure
- *  cores (`pendingMigrations` + `recordGeneration`).  Returns the new chain
+ *  its tree carries — the playground's `ddd migrate add`, on the CLI's core
+ *  (`recordPendingMigrations`).  Returns the new chain
  *  files for the caller to write; never throws on a refusal (an invalid or
  *  forked chain, a destructive change not allowed, a bad or taken name). */
 export async function recordMigration(
@@ -299,20 +312,19 @@ export async function recordMigration(
 ): Promise<RecordMigrationResult> {
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
-  const refuse = (message: string): RecordMigrationResult => ({
+  const refuse = (message: string, code?: string): RecordMigrationResult => ({
     ok: false,
     diagnostics: [
       ...loaded.diagnostics,
-      { severity: "error", message, source: "loom-migrations" },
+      { severity: "error", message, source: "loom-migrations", ...(code ? { code } : {}) },
     ],
   });
-  if (loaded.loom.systems.length === 0) return refuse(diagMessage("loom.no-system"));
+  if (loaded.loom.systems.length === 0) {
+    return refuse(diagMessage("loom.no-system"), "loom.no-system");
+  }
   try {
     const chain = loaded.chainFiles ? parseChain(loaded.chainFiles) : EMPTY_CHAIN;
-    const deltas = pendingMigrations(loaded.loom, chain, {
-      allowDestructive: params.allowDestructive,
-    });
-    const entries = recordGeneration(chain, deltas, {
+    const entries = recordPendingMigrations(loaded.loom, chain, {
       name: params.name,
       now: params.now,
       allowDestructive: params.allowDestructive,
@@ -327,9 +339,115 @@ export async function recordMigration(
     if (err instanceof MigrationChainError) {
       return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
     }
-    if (err instanceof MigrationDestructiveError) return refuse(err.message);
+    // The destructive gate's refusal keeps its own code, so a caller can tell
+    // "needs the acknowledgement" from any other refusal.
+    if (err instanceof MigrationDestructiveError || err instanceof MigrationShapeChangeError) {
+      return refuse(err.message, err.code);
+    }
     return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
   }
+}
+
+/** What a boot may do to the runtime's database — the recorded chain beside
+ *  the entry rendered to the migration files the generated Hono backend
+ *  carries (`migrationUnits`, the renderer `ddd generate system` writes
+ *  `db/migrations/` with), plus the changes the model has that the chain does
+ *  not record.  A workspace with no chain has no units and its whole schema
+ *  unrecorded: nothing creates the database until the initial migration is
+ *  recorded.  Never throws on a refusal (an invalid or forked chain, a model
+ *  that does not load). */
+export async function migrationPlan(params: MigrationPlanParams): Promise<MigrationPlanResult> {
+  const loaded = await loadEvolutionTree(params.current, { validate: true });
+  if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
+  if (loaded.loom.systems.length === 0) {
+    return { ok: true, plan: { kind: "unversioned" }, storages: [], diagnostics: loaded.diagnostics };
+  }
+  let chain: MigrationChain;
+  try {
+    chain = loaded.chainFiles ? parseChain(loaded.chainFiles) : EMPTY_CHAIN;
+  } catch (err) {
+    if (!(err instanceof MigrationChainError)) throw err;
+    return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
+  }
+  // `ddd migrate status`'s core: the steps recording would write, per module,
+  // with the destructive gate's verdict.
+  const modules: string[] = [];
+  let steps = 0;
+  let destructive = false;
+  try {
+    for (const m of migrationStatus(loaded.loom, chain).modules) {
+      if (m.unrecordedSteps === 0) continue;
+      modules.push(m.module);
+      steps += m.unrecordedSteps;
+      if (m.destructive) destructive = true;
+    }
+  } catch (err) {
+    return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
+  }
+  const unrecorded: UnrecordedChanges | null =
+    steps > 0 ? { initial: chain.entries.length === 0, modules, steps, destructive } : null;
+  const all = chainMigrations(chain);
+  const storages: StoragePlan[] = [];
+  for (const sys of loaded.loom.systems) {
+    for (const s of storageGroups(sys, serviceSlug)) {
+      const units = unitPlans(all.filter((m) => s.modules.has(m.module)));
+      storages.push({ key: s.key, deployables: s.deployables, plan: { kind: "chain", units, unrecorded } });
+    }
+  }
+  return {
+    ok: true,
+    plan: { kind: "chain", units: unitPlans(all), unrecorded },
+    storages,
+    diagnostics: loaded.diagnostics,
+  };
+}
+
+/** The chain's generations rendered to the migration files the generated
+ *  Hono backend carries. */
+function unitPlans(migrations: ReturnType<typeof chainMigrations>): MigrationUnitPlan[] {
+  return migrationUnits(migrations).map((u) => {
+    const transactional = !u.sql.startsWith(NO_TRANSACTION_MARKER);
+    const body = transactional ? u.sql : u.sql.slice(NO_TRANSACTION_MARKER.length);
+    return {
+      id: u.tag,
+      transactional,
+      statements: body
+        .split(STATEMENT_BREAKPOINT)
+        .map((stmt) => stmt.trim())
+        .filter((stmt) => stmt.length > 0),
+    };
+  });
+}
+
+type SystemOf = EnrichedLoomModel["systems"][number];
+
+/** The playground's databases for one system: the Node deployables grouped by
+ *  the postgres `storage` their data sources bind, each group carrying the
+ *  modules (subdomains) its deployables host — the same rule that decides
+ *  which migrations a generated backend carries.  A Node deployable bound to
+ *  no postgres storage gets a database of its own. */
+export function storageGroups(
+  sys: SystemOf,
+  slugOf: (deployableName: string) => string,
+): Array<{ key: string; deployables: string[]; modules: Set<string> }> {
+  const postgres = new Set(sys.storages.filter((st) => st.type === "postgres").map((st) => st.name));
+  const groups = new Map<string, { key: string; deployables: string[]; modules: Set<string> }>();
+  for (const d of sys.deployables) {
+    if (d.platform !== "node") continue;
+    const slug = slugOf(d.name);
+    const bound = d.dataSourceNames
+      .map((n) => sys.dataSources.find((ds) => ds.name === n)?.storageName ?? "")
+      .find((st) => postgres.has(st));
+    const key = bound ?? `deployable:${slug}`;
+    const group = groups.get(key) ?? { key, deployables: [], modules: new Set<string>() };
+    group.deployables.push(slug);
+    const hosted = new Set(d.contextNames);
+    for (const sd of sys.subdomains) {
+      if (sd.contexts.some((c) => hosted.has(c.name))) group.modules.add(sd.name);
+    }
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 /** The bare table a migration step targets, or `undefined` for the ops that

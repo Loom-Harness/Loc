@@ -65,6 +65,6 @@ describe("vanilla run/1 destructure sees a param read inside a duration", () => 
   it("handler: a record field used only as `days(cmd.n)` is destructured", async () => {
     const h = fileEndingWith(await generateSystemFiles(SRC), "handlers/extend_it.ex");
     expect(h).toContain("((n) * 86400000)");
-    expect(h).toContain('%{"order_id" => order_id, "n" => n} = params');
+    expect(h).toContain('%{"orderId" => order_id, "n" => n} = params');
   });
 });

@@ -11,8 +11,7 @@
 // assertions on the exact emitted text.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../../src/generator/dotnet/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFromSource } from "../../_helpers/generate.js";
 
 describe(".NET value-object emitter — usings derived from FIELD types", () => {
   const SRC = `
@@ -43,7 +42,7 @@ describe(".NET value-object emitter — usings derived from FIELD types", () => 
   `;
 
   it("an enum-typed field pulls in `using <ns>.Domain.Enums;`", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     const address = files.get("Domain/ValueObjects/Address.cs");
     expect(address, "Address.cs not emitted").toBeDefined();
     // The property, the ctor parameter and the assignment all render a BARE
@@ -53,7 +52,7 @@ describe(".NET value-object emitter — usings derived from FIELD types", () => 
   });
 
   it("reaches an enum through `optional` and `array` wrappers", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     const routing = files.get("Domain/ValueObjects/Routing.cs");
     expect(routing, "Routing.cs not emitted").toBeDefined();
     expect(routing).toContain("using Catalog.Domain.Enums;");
@@ -62,7 +61,7 @@ describe(".NET value-object emitter — usings derived from FIELD types", () => 
   it("a value object with no enum field keeps a using-clean header", async () => {
     // CS8019 (unnecessary using) is fatal in the generated projects'
     // `/warnaserror` build, so the using is COLLECTED, never unconditional.
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     const weight = files.get("Domain/ValueObjects/Weight.cs");
     expect(weight, "Weight.cs not emitted").toBeDefined();
     expect(weight).not.toContain("Domain.Enums");
@@ -98,7 +97,7 @@ describe(".NET request validators — gated by what emits the create RECORD", ()
   `;
 
   it("an aggregate with no canonical create emits neither the record nor its validator", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     const requests = files.get("Application/Employees/Requests/EmployeeRequests.cs");
     const validators = files.get("Application/Employees/Requests/EmployeeRequestValidators.cs");
     // The validators FILE still exists — the rule-bearing VO earns its own
@@ -110,7 +109,7 @@ describe(".NET request validators — gated by what emits the create RECORD", ()
   });
 
   it("an aggregate that DOES declare a create keeps both halves", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     const requests = files.get("Application/Contractors/Requests/ContractorRequests.cs");
     const validators = files.get("Application/Contractors/Requests/ContractorRequestValidators.cs");
     expect(requests).toContain("record CreateContractorRequest");
@@ -136,7 +135,7 @@ describe(".NET ambient-kernel pruning", () => {
   `;
 
   it("drops the root enums / value objects no other file in the project names", async () => {
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     expect(files.has("Domain/Enums/UsedStatus.cs")).toBe(true);
     expect(files.has("Domain/ValueObjects/UsedTag.cs")).toBe(true);
     expect(files.has("Domain/Enums/GhostStatus.cs")).toBe(false);
@@ -146,7 +145,7 @@ describe(".NET ambient-kernel pruning", () => {
   it("keeps the namespace markers, so `using <ns>.Domain.Enums;` still resolves", async () => {
     // Emitters elsewhere write that using unconditionally; the marker is what
     // makes it legal in a project whose enums were all pruned.
-    const files = generateDotnet(await parseValid(SRC));
+    const files = await generateBackendFromSource(SRC, "dotnet");
     expect(files.has("Domain/Enums/_namespace.cs")).toBe(true);
     expect(files.has("Domain/ValueObjects/_namespace.cs")).toBe(true);
   });
@@ -154,15 +153,16 @@ describe(".NET ambient-kernel pruning", () => {
   it("keeps an enum reached only THROUGH a kept value object", async () => {
     // The fixpoint: `Shade` is named by nothing but `UsedTag`'s own file, and
     // `UsedTag` survives only because the aggregate names it.
-    const files = generateDotnet(
-      await parseValid(`
+    const files = await generateBackendFromSource(
+      `
         enum Shade { Light, Dark }
         valueobject UsedTag { label: string  shade: Shade }
         context Shop {
           aggregate Item { tag: UsedTag }
           repository Items for Item {}
         }
-      `),
+      `,
+      "dotnet",
     );
     expect(files.has("Domain/ValueObjects/UsedTag.cs")).toBe(true);
     expect(files.has("Domain/Enums/Shade.cs")).toBe(true);

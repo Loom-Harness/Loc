@@ -35,7 +35,12 @@ import {
   type Statement,
   type TypeRef,
 } from "../generated/ast.js";
-import { allowedHandlerReturns, inMatchArm } from "../handler-return.js";
+import {
+  allowedHandlerReturns,
+  armLocalLetReads,
+  inMatchArm,
+  terminalMatchReturns,
+} from "../handler-return.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
 import type { Ty } from "../typing/ty.js";
 import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
@@ -45,6 +50,7 @@ import {
   checkExprCallArgs,
   checkWorkflowBodyCallStmts,
 } from "./statements.js";
+import { declaresExpectedFailure, isSupportedEntryResult } from "./structural.js";
 
 type Callable = Operation | DomainServiceOperation | CommandHandler | QueryHandler;
 
@@ -160,6 +166,50 @@ function checkHandlerReturnPlacement(
   accept: ValidationAcceptor,
 ): void {
   const allowed = allowedHandlerReturns(h.body);
+  // An expected-failure result (`T or E`) may also answer from the last
+  // statement of every arm of a terminal `match` (`terminalMatchReturns`).
+  const declared = h.returnType ? resolveTypeRef(h.returnType) : undefined;
+  const armForm =
+    declared && declaresExpectedFailure(declared) ? terminalMatchReturns(h.body) : undefined;
+  if (armForm) {
+    if (declared && declared.kind !== "unknown" && !isSupportedEntryResult(declared, undefined)) {
+      accept(
+        "error",
+        diagMessage("loom.workflow-return-type-unsupported#handler", {
+          label: callableLabel(h),
+          declared: typeToString(declared),
+        }),
+        { node: h, property: "returnType", code: "loom.workflow-return-type-unsupported" },
+      );
+    }
+    for (const ret of armForm.returns) {
+      allowed.add(ret);
+      const arm = armForm.match.varArms.find((a) => a.body.includes(ret));
+      for (const name of armLocalLetReads(ret, arm ? arm.body : armForm.match.elseBody)) {
+        accept(
+          "error",
+          diagMessage("loom.handler-return-not-last#arm-local-let", {
+            label: callableLabel(h),
+            name,
+          }),
+          { node: ret, property: "value", code: "loom.handler-return-not-last" },
+        );
+      }
+    }
+  } else if (
+    declared &&
+    declaresExpectedFailure(declared) &&
+    !isSupportedEntryResult(declared, undefined)
+  ) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-type-unsupported#handler", {
+        label: callableLabel(h),
+        declared: typeToString(declared),
+      }),
+      { node: h, property: "returnType", code: "loom.workflow-return-type-unsupported" },
+    );
+  }
   for (const n of AstUtils.streamAllContents(h)) {
     if (!isReturnStmt(n) || owningCallable(n) !== h || allowed.has(n)) continue;
     accept(

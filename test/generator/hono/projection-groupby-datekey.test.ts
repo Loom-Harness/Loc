@@ -11,8 +11,7 @@
 // string.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Orders {
@@ -40,7 +39,7 @@ const SRC = `
 const KEY_SQL = "sql`date_trunc('day', ${schema.orders.placedAt})`";
 
 async function routes(): Promise<string> {
-  const files = await generateHono(await parseValid(SRC));
+  const files = await generateBackendFiles(SRC, "node");
   return files.get("http/query-projections.ts")!;
 }
 

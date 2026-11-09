@@ -34,6 +34,7 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, normalize, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 import { parseRawResult, parseString } from "../_helpers/parse.js";
 
 const REPO = resolve(import.meta.dirname, "..", "..");
@@ -213,6 +214,14 @@ const DELIBERATELY_INVALID = [
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
+  // Probes that read `currentUser.id` in a bare context with no `user { }`
+  // block: the principal declares no claim, so the read is refused
+  // (`loom.unknown-user-claim`).  Typed, each also compares a `Member id` /
+  // `Patient` field with the principal's id — a mismatch the untyped read hid.
+  "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join.ddd",
+  "test/fixtures/eval-models/eval/probe/feed-a.ddd",
+  "test/fixtures/eval-models/eval/probe/visibility2.ddd",
+  "test/fixtures/eval-models/eval/probe/visibility3.ddd",
   // `test/fixtures/eval-models/eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
@@ -282,7 +291,7 @@ describe("`.ddd` source census — every tracked file, not a hand-kept list", ()
   it("finds the whole population (the census must not silently shrink)", () => {
     // Guards the scanner itself: a broken `git ls-files` or glob would make
     // every assertion below pass vacuously.
-    expect(files.length).toBeGreaterThan(300);
+    expectReach("tracked .ddd files", files.length, 577);
     expect(files).toContain("test/fixtures/corpus/core-domain.ddd");
     expect(files).toContain("examples/acme.ddd");
   });

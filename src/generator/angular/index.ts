@@ -11,7 +11,7 @@ import type {
   SystemIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { contextUsesMoney } from "../../ir/types/loom-ir.js";
+import { contextUsesMoney, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -45,6 +45,8 @@ import {
   renderTranslatedCatalogs,
   type TranslationCatalogs,
 } from "../_frontend/i18n-runtime.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -59,7 +61,7 @@ import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
@@ -69,6 +71,12 @@ import {
   renderAngularExternComponentProps,
   renderAngularExternComponentShim,
 } from "./extern-components.js";
+import {
+  ANGULAR_LOCALE_SIGNAL_PATH,
+  ANGULAR_LOCALE_SWITCHER_PATH,
+  renderAngularLocaleSignal,
+  renderAngularLocaleSwitcher,
+} from "./locale-switcher.js";
 import { buildAngularProjectionsModule, hasReadableProjections } from "./projections-module.js";
 import {
   buildAngularRealtimeHandlers,
@@ -78,7 +86,7 @@ import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.j
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
 import { ANGULAR_SERVER_ERRORS_TS } from "./server-errors.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
-import { angularTargetFor } from "./walker/angular-target.js";
+import { angularTarget, angularTargetFor } from "./walker/angular-target.js";
 import {
   pageComponentName,
   pageNeedsDeferredFeatures,
@@ -261,32 +269,59 @@ export function generateAngularForContexts(
   // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
   // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
   // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
-  // `../../lib/i18n` in page-shell, and `t` is re-exposed as a component member
+  // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,
+  // so a locale switch re-renders OnPush views), and `t` is re-exposed as a component member
   // (Angular templates resolve interpolations against the instance).  A
   // string-less ui emits neither the runtime nor a prefix → byte-identical.
-  const i18nEnabled = ui ? collectUiMessages(ui).length > 0 : false;
+  const i18nEnabled = ui
+    ? collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
+    : false;
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // carries the `LocaleSwitcher` and reads the `locale` signal.  Set where the
+  // translated catalogs are emitted, below.
+  let localeSwitchable = false;
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   // The format helpers carry pack chrome (a bool cell's Yes / No), so they
   // render only once the pack's chrome binding knows the i18n state.
-  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
+  out.set(
+    "src/lib/format.ts",
+    pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
+  );
   if (i18nEnabled && ui) {
+    // The Angular forms are hand-built (`form-fields.ts`), so no pack sentence
+    // chrome (`addItem`, `operationSucceeded`) is rendered — only the
+    // identity-keyed model text of the forms' labels, options and buttons.
+    const formScope = {
+      contexts,
+      sentences: [],
+      implicitModelText: angularTarget.modelTextImplicitSites === true,
+    };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/lib/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
+      formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
+    // The Angular binding of that store (`locale` signal, `LocaleSwitcher`).
+    out.set(ANGULAR_LOCALE_SIGNAL_PATH, renderAngularLocaleSignal());
+    out.set(ANGULAR_LOCALE_SWITCHER_PATH, renderAngularLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== sourceLocaleOf(sys));
   }
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
@@ -384,6 +419,7 @@ export function generateAngularForContexts(
       externFunctions: externFunctionNames,
       authUi,
       i18nEnabled,
+      uiName: ui?.name ?? "",
     },
   );
   // The chart runtime is emitted once per app, the first time ANY walked
@@ -451,7 +487,7 @@ export function generateAngularForContexts(
         authUi,
         // i18n key prefix — `page.<Name>` matches the catalog; undefined when
         // the ui has no extractable strings (byte-identical to pre-i18n).
-        i18nEnabled ? `page.${page.name}` : undefined,
+        i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
       );
       // A stub page discards the walk, so its hoisted files go with it.
       hoistedComponentFiles = pageNeedsDeferredFeatures(result)
@@ -476,6 +512,7 @@ export function generateAngularForContexts(
             // The route table an action body's `navigate(<Page>)` resolves
             // against (the body walk above already receives it).
             pageRoutes,
+            i18nPrefix: i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
           });
     }
     const pagePath = `src/app/pages/${slug}.component.ts`;
@@ -605,7 +642,7 @@ export function generateAngularForContexts(
   // The app shell (Material toolbar + sidenav).  Pack-chrome (M-T1.11): the
   // baked-in skip-to-content link binds through `t()` when the ui is
   // i18n-enabled, else stays the raw source string (byte-identical).  When
-  // enabled, `app.component.ts` (at `src/app/`) also gets the `../lib/i18n`
+  // enabled, `app.component.ts` (at `src/app/`) also gets the `../lib/locale`
   // import + the `protected readonly t = t;` member so the Angular
   // interpolation resolves against the component instance — the same lift the
   // page shell applies (page-shell.ts), one hop shallower.
@@ -667,6 +704,7 @@ export function generateAngularForContexts(
       shellUsesSession,
       hasRealtimeHandlers,
       i18nEnabled,
+      localeSwitchable,
       skipToContentText,
       primaryNavAria,
       // The fallback the root ErrorHandler's signal drives.  Built here rather
@@ -707,6 +745,10 @@ export function generateAngularForContexts(
     "src/index.html",
     pack.render("index-html", {
       title: humanize(sys.name),
+      lang: sourceLocaleOf(sys),
+      // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+      // app with no locale model keeps its markup byte-identical.
+      ...(i18nEnabled ? { dir: localeDir(sourceLocaleOf(sys)) } : {}),
       baseHref,
       description: undefined,
       ogImage: undefined,
@@ -715,7 +757,16 @@ export function generateAngularForContexts(
       usesFileUpload: false,
     }),
   );
-  out.set("src/api/client.ts", pack.render("api-client", { hasDelete, hasAuthUi: authUi }));
+  out.set(
+    "src/api/client.ts",
+    pack.render("api-client", {
+      hasDelete,
+      hasAuthUi: authUi,
+      i18nEnabled,
+      // `src/api/client.ts` reaches the runtime at `src/lib/i18n.ts`.
+      i18nImportPath: "../lib/i18n",
+    }),
+  );
   out.set("src/api/config.ts", pack.render("api-config", { apiBaseUrl }));
 
   // Per-aggregate API modules — the idiomatic-Angular `@Injectable` service +
@@ -841,7 +892,7 @@ function renderNotFoundComponent(i18nEnabled: boolean): string {
   return `// Auto-generated.
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
-${i18nEnabled ? 'import { t } from "../lib/i18n";\n' : ""}
+${i18nEnabled ? 'import { t } from "../lib/locale";\n' : ""}
 @Component({
   selector: "app-not-found",
   imports: [RouterLink],

@@ -7,4 +7,4 @@ using Api.Domain.Common;
 
 namespace Api.Application.Orders.Commands;
 
-public sealed record UpdateCommand(OrderId Id, string CustomerId, OrderStatus Status, DateTime PlacedAt) : ICommand;
+public sealed record UpdateCommand(OrderId Id, string CustomerId, OrderStatus Status, DateTime PlacedAt, IReadOnlySet<string> PatchedKeys) : ICommand;

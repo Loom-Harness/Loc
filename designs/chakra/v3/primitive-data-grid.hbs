@@ -30,7 +30,6 @@
                         variant="plain"
                         size="xs"
                         onClick={h.column.getToggleSortingHandler()}
-                        {{{sortByAria}}}
                       >
                         {flexRender(h.column.columnDef.header, h.getContext())}
                         {h.column.getIsSorted() === "asc" ? " ↑" : h.column.getIsSorted() === "desc" ? " ↓" : ""}

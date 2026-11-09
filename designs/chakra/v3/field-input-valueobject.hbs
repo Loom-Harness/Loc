@@ -1,5 +1,5 @@
 <Box as="fieldset" borderWidth="1px" borderColor="border" borderRadius="md" p={4} mt={1} data-testid="{{testId}}">
-          <Box as="legend" px={2} color="fg.muted" fontSize="sm">{{label}}</Box>
+          <Box as="legend" px={2} color="fg.muted" fontSize="sm">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</Box>
           <VStack align="stretch" gap={3}>
             {{{innerHtml}}}
           </VStack>

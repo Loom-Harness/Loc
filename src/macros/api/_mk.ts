@@ -50,8 +50,10 @@ import type {
   LValue,
   MatchArm,
   MatchExpr,
+  MatchStmt,
   MemberSuffix,
   MenuMetaEntry,
+  ModelText,
   NamedType,
   NameRef,
   NotFoundStmt,
@@ -82,8 +84,10 @@ import type {
   StringLit,
   TernaryExpr,
   ThisRef,
+  TypeAtom,
   TypeRef,
   UnaryExpr,
+  VariantStmtArm,
 } from "../../language/generated/ast.js";
 
 /** Shape of a literal that callers may supply to a `mk<X>` builder.
@@ -259,6 +263,18 @@ export function mkMatchArm(shape: AstLiteral<MatchArm>): MatchArm {
   return mkAst<MatchArm>(shape);
 }
 
+export function mkMatchStmt(shape: AstLiteral<MatchStmt>): MatchStmt {
+  return mkAst<MatchStmt>(shape);
+}
+
+export function mkVariantStmtArm(shape: AstLiteral<VariantStmtArm>): VariantStmtArm {
+  return mkAst<VariantStmtArm>(shape);
+}
+
+export function mkTypeAtom(shape: AstLiteral<TypeAtom>): TypeAtom {
+  return mkAst<TypeAtom>(shape);
+}
+
 export function mkThisRef(shape: AstLiteral<ThisRef>): ThisRef {
   return mkAst<ThisRef>(shape);
 }
@@ -293,6 +309,10 @@ export function mkBoolLit(shape: AstLiteral<BoolLit>): BoolLit {
 
 export function mkNowExpr(shape: AstLiteral<NowExpr>): NowExpr {
   return mkAst<NowExpr>(shape);
+}
+
+export function mkModelText(shape: AstLiteral<ModelText>): ModelText {
+  return mkAst<ModelText>(shape);
 }
 
 export function mkIntLit(shape: AstLiteral<IntLit>): IntLit {

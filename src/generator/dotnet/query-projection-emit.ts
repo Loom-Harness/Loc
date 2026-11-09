@@ -1,3 +1,4 @@
+import { projectionSourceTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -24,18 +25,19 @@ import {
   isValueObjectLeaf,
   type ProjectionColumn,
 } from "../../ir/util/projection-column.js";
+import { projectionSourceContext } from "../../ir/util/projection-source.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
 import { efReadSource } from "./ef-read-source.js";
 import {
   collectFilterPrincipalRefs,
   type DapperColumn,
-  dapperAggregateTable,
   fieldColumn,
   principalFields,
   sqlIdent,
@@ -86,11 +88,41 @@ import {
 // to join (after node/python/elixir/java).
 // ---------------------------------------------------------------------------
 
+/** `ctx` as the handler of `proj` reads it: when the projection's `from` source
+ *  is declared in another hosted context, that context's declarations come
+ *  first, so every lookup of the source — its scope, its table, its `ignoring`
+ *  filters — answers from the HOME context rather than finding nothing. */
+function withSourceHome(
+  proj: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+  contexts: readonly EnrichedBoundedContextIR[],
+): EnrichedBoundedContextIR {
+  const home = projectionSourceContext(proj, ctx, contexts);
+  if (!home || home === ctx) return ctx;
+  const first = <T extends { name: string }>(own: readonly T[], src: readonly T[]): T[] => {
+    const names = new Set(src.map((x) => x.name));
+    return [...src, ...own.filter((x) => !names.has(x.name))];
+  };
+  return {
+    ...ctx,
+    aggregates: first(ctx.aggregates, home.aggregates),
+    workflows: first(ctx.workflows, home.workflows),
+    projections: first(ctx.projections, home.projections),
+  };
+}
+
 export function emitQueryProjections(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
-  options?: { routePrefix?: string; sourcemap?: SourceMapRecorder; usingDapper?: boolean },
+  options?: {
+    routePrefix?: string;
+    sourcemap?: SourceMapRecorder;
+    usingDapper?: boolean;
+    /** The deployable's hosted contexts — a projection's `from` source may be
+     *  declared in another one of them than the projection itself. */
+    contexts?: readonly EnrichedBoundedContextIR[];
+  },
 ): void {
   const projections = (ctx.projections ?? []).filter(isQueryTimeProjection);
   if (projections.length === 0) return;
@@ -109,7 +141,12 @@ export function emitQueryProjections(
     sourcemap?.file(queryPath, queryContent, proj.origin, construct);
 
     const handlerPath = `Application/Projections/${upperFirst(proj.name)}QpHandler.cs`;
-    const handlerContent = renderHandler(proj, ctx, ns, usingDapper);
+    const handlerContent = renderHandler(
+      proj,
+      withSourceHome(proj, ctx, options?.contexts ?? [ctx]),
+      ns,
+      usingDapper,
+    );
     out.set(handlerPath, handlerContent);
     sourcemap?.file(handlerPath, handlerContent, proj.origin, construct);
   }
@@ -360,10 +397,7 @@ function renderHandler(
   ].filter((u) => u !== sourceUsing);
   // Each foreign aggregate's Domain namespace so `IXRepository` resolves; plural
   // via the same naming the repository interface lives under.
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
@@ -414,11 +448,6 @@ ${auxLines.join("\n")}${auxLines.length > 0 ? "\n" : ""}        return domain.Se
 // this adapter has (finds, retrievals and capability filters all go through
 // it).  Writing a second one here is how two dialects start disagreeing.
 // ---------------------------------------------------------------------------
-
-/** The persistence `using`s a direct-table handler needs. */
-function qpPersistenceUsings(usingDapper: boolean): string {
-  return usingDapper ? "using Dapper;\nusing Npgsql;" : "using Microsoft.EntityFrameworkCore;";
-}
 
 /** The `currentUser.<claim>` bindings a Dapper-rendered `where` needs.
  *
@@ -549,7 +578,7 @@ function dapperAggregationWhere(
  *  OWNER of the source (a TPH concrete owns none — its rows live in the root's
  *  shared table, scoped by `dapperAggregationWhere`'s `kind` conjunct). */
 function dapperProjectionTable(source: string, ctx: EnrichedBoundedContextIR): string {
-  return dapperAggregateTable(projectionSourceTable(source, ctx.aggregates).tableOwner);
+  return projectionSourceTableName(source, ctx.aggregates);
 }
 
 /** True when this aggregate's DECLARED wire field crosses as a float64.
@@ -796,7 +825,7 @@ function renderAggregateHandler(
   }
   const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps);
 
-  const dbType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
   const ctorParams: string[] = [`${dbType} db`];
   const ctorAssigns: string[] = [`_db = db`];
@@ -824,9 +853,6 @@ function renderAggregateHandler(
   if (seam.needsPrincipal && !gateUsesUser)
     gate += `        var currentUser = _currentUser.User;\n`;
 
-  const anyMoney = aggregates.some((s) => aggregateCoercion(s).asString);
-  if (anyMoney) usings.add("System.Globalization");
-
   let members: string;
   let body: string;
   if (usingDapper) {
@@ -852,7 +878,7 @@ function renderAggregateHandler(
       .join(", ");
     body =
       `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);\n` +
-      `        var agg = await conn.QuerySingleAsync<AggRow>(new CommandDefinition("${sql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
+      `        var agg = await conn${CS.Dapper}.QuerySingleAsync<AggRow>(new CommandDefinition("${sql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
       `        return new ${rowName}(${args});\n`;
   } else {
     // The anonymous projection the grouped query selects; each member is named
@@ -865,7 +891,7 @@ function renderAggregateHandler(
       .join(", ");
     members = "";
     body =
-      `        var agg = await _db.${dbSet}.AsNoTracking()${efIgnore}${where ? `.Where(o => ${where})` : ""}\n` +
+      `        var agg = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${efIgnore}${where ? `.Where(o => ${where})` : ""}\n` +
       `            .GroupBy(_ => 1)\n` +
       `            .Select(g => new { ${anon} })\n` +
       `            .FirstOrDefaultAsync(cancellationToken);\n` +
@@ -875,15 +901,12 @@ function renderAggregateHandler(
     ? `    private sealed class AggRow\n    {\n${members}\n    }\n\n`
     : "";
 
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;${extraUsings ? "\n" + extraUsings : ""}
-${qpPersistenceUsings(usingDapper)}
+${CS_PERSISTENCE_USINGS}
 using Mediator;
 using ${ns}.Domain.${plural(source)};
 using ${ns}.Domain.Ids;
@@ -995,7 +1018,7 @@ function renderGroupedHandler(
   }
   const seam = dapperFilterSeam(usingDapper, filter, ns, usings, caps);
 
-  const dbType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
   const ctorParams: string[] = [`${dbType} db`];
   const ctorAssigns: string[] = [`_db = db`];
@@ -1064,8 +1087,6 @@ function renderGroupedHandler(
       );
     return "default!";
   });
-  const anyMoney = grouped.aggregates.some((s) => aggregateCoercion(s).asString);
-  if (anyMoney) usings.add("System.Globalization");
 
   // The raw-SQL grouped query: SELECT the keys that are projected plus every
   // aggregate, GROUP BY / ORDER BY the grouping EXPRESSIONS themselves (not the
@@ -1105,24 +1126,21 @@ function renderGroupedHandler(
     : "";
   const groupBody = usingDapper
     ? `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);\n` +
-      `        var groups = await conn.QueryAsync<GroupRow>(new CommandDefinition("${groupSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
+      `        var groups = await conn${CS.Dapper}.QueryAsync<GroupRow>(new CommandDefinition("${groupSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
       `        return groups.Select(r => new ${rowName}(${args.join(", ")})).ToList();\n`
-    : `        var groups = await _db.${dbSet}.AsNoTracking()${efIgnore}${where ? `.Where(o => ${where})` : ""}\n` +
+    : `        var groups = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${efIgnore}${where ? `.Where(o => ${where})` : ""}\n` +
       `            .GroupBy(o => new { ${cols.map((c) => c.decl).join(", ")} })\n` +
       `            .Select(g => new { ${members} })\n` +
       `            ${orderBy}\n` +
       `            .ToListAsync(cancellationToken);\n` +
       `        return groups.Select(x => new ${rowName}(${args.join(", ")})).ToList();\n`;
 
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;${extraUsings ? "\n" + extraUsings : ""}
-${qpPersistenceUsings(usingDapper)}
+${CS_PERSISTENCE_USINGS}
 using Mediator;
 using ${ns}.Domain.${plural(source)};
 using ${ns}.Domain.Ids;
@@ -1194,8 +1212,8 @@ function csCoerce(
   }
   if (c.asString) {
     return c.optional
-      ? `${read} is null ? null : ${read}!.Value.ToString(CultureInfo.InvariantCulture)`
-      : `(${read} ?? 0m).ToString(CultureInfo.InvariantCulture)`;
+      ? `${read} is null ? null : ${read}!.Value.ToString(${CS.CultureInfo}.InvariantCulture)`
+      : `(${read} ?? 0m).ToString(${CS.CultureInfo}.InvariantCulture)`;
   }
   // LINQ picks the aggregate's OWN result type, which need not be the row's:
   // `Average` over an `int` column returns `double`, and a row field declared
@@ -1283,7 +1301,7 @@ function renderWorkflowHandler(
 
   // Ctor injects the persistence handle (not an aggregate repo), plus the
   // request principal when a `currentUser` gate is present.
-  const dbType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
   const ctorParams: string[] = [`${dbType} db`];
   const ctorAssigns: string[] = [`_db = db`];
@@ -1321,20 +1339,17 @@ function renderWorkflowHandler(
   }`;
   const body = usingDapper
     ? `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);\n` +
-      `        var __rows = await conn.QueryAsync<StateDbRow>(new CommandDefinition("${stateSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
+      `        var __rows = await conn${CS.Dapper}.QueryAsync<StateDbRow>(new CommandDefinition("${stateSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
       `        return __rows.Select(MapState).Select(r => ${projection}).ToList();\n`
-    : `        var rows = await _db.${dbSet}.AsNoTracking()${where ? `.Where(r => ${where})` : ""}.ToListAsync(cancellationToken);\n` +
+    : `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${where ? `.Where(r => ${where})` : ""}.ToListAsync(cancellationToken);\n` +
       `        return rows.Select(r => ${projection}).ToList();\n`;
 
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;${extraUsings ? "\n" + extraUsings : ""}
-${qpPersistenceUsings(usingDapper)}
+${CS_PERSISTENCE_USINGS}
 using Mediator;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
@@ -1419,7 +1434,7 @@ function renderProjectionSourceHandler(
 
   // Ctor injects the persistence handle (not an aggregate repo), plus the
   // request principal when a `currentUser` gate is present.
-  const dbType = usingDapper ? "NpgsqlDataSource" : "AppDbContext";
+  const dbType = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   const fields: string[] = [`    private readonly ${dbType} _db;`];
   const ctorParams: string[] = [`${dbType} db`];
   const ctorAssigns: string[] = [`_db = db`];
@@ -1457,20 +1472,17 @@ function renderProjectionSourceHandler(
   }`;
   const body = usingDapper
     ? `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);\n` +
-      `        var __rows = await conn.QueryAsync<SourceDbRow>(new CommandDefinition("${srcSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
+      `        var __rows = await conn${CS.Dapper}.QueryAsync<SourceDbRow>(new CommandDefinition("${srcSql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
       `        return __rows.Select(MapSource).Select(r => ${projection}).ToList();\n`
-    : `        var rows = await _db.${dbSet}.AsNoTracking()${where ? `.Where(r => ${where})` : ""}.ToListAsync(cancellationToken);\n` +
+    : `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${where ? `.Where(r => ${where})` : ""}.ToListAsync(cancellationToken);\n` +
       `        return rows.Select(r => ${projection}).ToList();\n`;
 
-  const extraUsings = [...usings]
-    .sort()
-    .map((n) => `using ${n};`)
-    .join("\n");
+  const extraUsings = sortedCsUsings(usings).join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;${extraUsings ? "\n" + extraUsings : ""}
-${qpPersistenceUsings(usingDapper)}
+${CS_PERSISTENCE_USINGS}
 using Mediator;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;

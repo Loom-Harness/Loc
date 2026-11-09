@@ -109,7 +109,7 @@ expand({ target, args, origin, invokeMacro }): MemberTypeOf[T][]
 |---|---|
 | `target` | The host AST node (typed against `MacroTarget`). |
 | `args` | Parsed, type-checked, default-filled argument bag. |
-| `origin` | Opaque tag attached to every synthesised member by the factories so diagnostics on synthesised code can point back at the `with` call site. |
+| `origin` | Opaque tag attached to every synthesised member by the factories so diagnostics on synthesised code point back at the `with` call site: a check that fails inside a synthesised body is reported on the macro's name in that clause, with `(in code synthesised by '<macro>')` appended to its message. |
 | `invokeMacro(name, { target, args? })` | Programmatic invocation of another registered macro.  Used by composer macros (`scaffoldContext` calls `scaffoldAggregate`; `softDeleteByDefault` calls `softDelete` per aggregate).  The returned nodes are tagged with the passed target, not the caller's host — splice-time descendant checks reject inside-out invocation (an aggregate macro can't call a context macro). |
 
 The returned array's element type is enforced at the TS level:

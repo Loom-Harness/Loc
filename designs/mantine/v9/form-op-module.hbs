@@ -19,7 +19,7 @@ function {{opPascal}}Form({ mut,{{#if recordVar}} record,{{/if}} onClose }: { mu
       onSubmit={handleSubmit(async (vals) => {
         try {
           await mut.mutateAsync(vals);
-          notifications.show({ color: "green", message: {{{chromeValue "operationSucceeded" operation=humanOp}}} });
+          notifications.show({ color: "green", message: {{{successMessage}}} });
           onClose();
         } catch (e) {
           const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
@@ -36,7 +36,7 @@ function {{opPascal}}Form({ mut,{{#if recordVar}} record,{{/if}} onClose }: { mu
         {{/each}}{{else}}<Text c="dimmed">{{{chrome "noParameters"}}}</Text>
         {{/if}}<Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{{{cancelLabel}}}</Button>
-          <Button type="submit" loading={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{humanOp}}</Button>
+          <Button type="submit" loading={mut.isPending} data-testid="{{slug}}-op-{{opName}}-submit">{{{humanOp}}}</Button>
         </Group>
       </Stack>
     </form>
