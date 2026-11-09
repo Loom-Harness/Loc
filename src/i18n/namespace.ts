@@ -35,7 +35,9 @@ const SYSTEM_NS = SYSTEM_TEXT_NS;
  *  context or ui happens to share the name. */
 const CHROME_PREFIXES: readonly string[] = ["chrome", "pack", "field", "problem"];
 
-/** The `_stale.` shadow a `--keep-stale` merge parks a dropped key under. */
+/** The in-band `_stale.` shadow an older `--keep-stale` merge parked a dropped
+ *  key under.  Current trees park them out of band (`locales/.loom/stale/`); the
+ *  prefix is understood only so a legacy tree can be read and migrated by `sync`. */
 const STALE_PREFIX = "_stale.";
 
 /** Everything a key can be filed under besides {@link CHROME_NS}: the system's

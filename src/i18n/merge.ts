@@ -167,8 +167,8 @@ export function normalizeLegacy(ours: Catalog): LegacyNormalization {
 //
 // It does mean a pack SWAP (`design: shadcn@v4` → `mui@v7`) re-keys every
 // chrome string the two packs spell identically — `pack.shadcn.removeItem.k9d`
-// → `pack.mui.removeItem.k9d`.  Case 2 then drops the old key and case 1 writes
-// `TODO: Remove` over a finished translation, even though the equal `<hash>`
+// → `pack.mui.removeItem.k9d`.  Case 2 then drops the old key and case 1 leaves
+// the new key untranslated (absent), losing a finished translation, even though the equal `<hash>`
 // PROVES the English is character-for-character the same.  Nothing about the
 // string changed; only which pack renders it.
 //
@@ -197,17 +197,16 @@ export function normalizeLegacy(ours: Catalog): LegacyNormalization {
 // dropped families offering one translation each for one new key (which
 // translator's wording wins?), or one dropped family whose single translation
 // two new families both want (which pack's UI was it reviewed against?), are
-// both left alone — every candidate key falls back to case 1 and its `TODO:`.
-// Guessing here would be worse than the loss this case exists to prevent,
-// because a guess is SILENT: a `TODO:` is a visible request to translate one
-// string, while a wrong carry ships wrong text and reports itself as `kept`.
+// both left alone — every candidate key falls back to case 1 and stays
+// untranslated (absent).  Guessing here would be worse than the loss this case
+// exists to prevent, because a guess is SILENT: an untranslated key is a visible
+// request to translate one string (`check` lists it), while a wrong carry ships wrong text and reports itself as `kept`.
 //
 // WHY THE CARRIED VALUE IS NOT MARKED IN THE FILE.  A reviewed-against-shadcn
 // translation may read differently in mui's UI, so the carry is worth a look —
-// but the value itself must stay a clean translation.  `TODO: ` would be a lie
-// about a human-written string AND is the marker codegen strips when it ships
-// locale catalogs into the app, so marking it would put ENGLISH in front of
-// users — the exact loss this case removes, moved one step later.  Conflict
+// but the value itself must stay a clean translation.  A placeholder value would
+// be a lie about a human-written string, so marking it would put ENGLISH in front
+// of users — the exact loss this case removes, moved one step later.  Conflict
 // markers would fail `check --strict` for a non-conflict.  Any NEW in-value
 // marker is a string the generated `t()` runtime knows nothing about and would
 // render verbatim to an end user.  The review signal therefore lives where a

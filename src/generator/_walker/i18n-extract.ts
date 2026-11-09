@@ -27,9 +27,10 @@
 // the emitted `<FormattedMessage id>` must line up with the catalog key.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { ActionIR, ExprIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
 import { explicitMenuReadsPageLabel } from "../../ir/util/page-menu.js";
-import { walkExprDeep } from "../../ir/util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { contentHash } from "../../util/content-hash.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { chromeEntriesFor } from "./i18n-chrome.js";
@@ -48,6 +49,15 @@ export interface MessageEntry {
    *  plain-literal one must not pay for it (D-I18N-HEEX-ICU).  Marked here, at
    *  the one place that already knows, rather than re-derived by re-walking. */
   icu?: true;
+  /** Where in the `.ddd` source the string was written — the expression that
+   *  carries it, or the page it belongs to when the slot has no span of its
+   *  own.  Absent for text no source construct wrote (design-pack chrome). */
+  origin?: OriginRef;
+}
+
+/** The origin an expression node carries, when it carries one. */
+function originOfExpr(e: ExprIR | undefined): OriginRef | undefined {
+  return (e as { origin?: OriginRef } | undefined)?.origin;
 }
 
 /** The plain-string value of an expression, or undefined when it is not a
@@ -209,44 +219,65 @@ export function icuFromConcat(expr: ExprIR | undefined): IcuMessage | undefined 
 /** Collect the user-visible strings from one render-body expression tree,
  *  keyed under `<prefix>` (e.g. `page.OrderList` / `component.OrderCard`). */
 function collectBody(body: ExprIR | undefined, prefix: string, out: MessageEntry[]): void {
-  walkExprDeep(body, (e) => {
-    // `label(…)` / `plural(…)` — keyed by model identity, with no page prefix,
-    // so every page naming the same fact shares one catalog entry.
-    if (e.kind === "modelText") {
-      out.push({ key: e.key, message: e.defaultText });
-      return;
+  walkExprDeep(body, (e) => collectExpr(e, prefix, out));
+}
+
+/** Collect the user-visible strings from the named actions of a page,
+ *  component or store.  An action body is a statement block, so its text
+ *  (`toast(label(Task))`) is reachable only through the statement walkers. */
+function collectActions(
+  actions: readonly ActionIR[] | undefined,
+  prefix: string,
+  out: MessageEntry[],
+): void {
+  for (const action of actions ?? []) {
+    for (const stmt of action.body) walkStmtExprsDeep(stmt, (e) => collectExpr(e, prefix, out));
+  }
+}
+
+/** The catalog entries one expression node contributes (the visitor the body
+ *  and action walks share). */
+function collectExpr(e: ExprIR, prefix: string, out: MessageEntry[]): void {
+  // `label(…)` / `plural(…)` — keyed by model identity, with no page prefix,
+  // so every page naming the same fact shares one catalog entry.
+  if (e.kind === "modelText") {
+    out.push({ key: e.key, message: e.defaultText, origin: e.origin });
+    return;
+  }
+  if (e.kind !== "call") return;
+  // Pack-chrome: a primitive that renders design-pack-baked user-visible text
+  // (a `Loader()`'s `aria-label="Loading"`, a `DataGrid()`'s pager) contributes
+  // its stable `chrome.<name>` catalog entries wherever it appears —
+  // used-only, keyed IDENTICALLY to what the `localizedChrome*` helpers emit
+  // (M-T1.11).  Resolved against the CALL NODE, because a grid's per-column
+  // "Filter" placeholder depends on whether a column is filterable.
+  out.push(...chromeEntriesFor(e));
+  const slots = USER_VISIBLE_SLOTS[e.name];
+  if (!slots) return;
+  const positionals = positionalArgs(e);
+  for (const slot of slots) {
+    const arg = slot.kind === "positional" ? positionals[slot.index] : namedArgValue(e, slot.name);
+    const message = literalString(arg);
+    if (message !== undefined) {
+      out.push({
+        key: messageKey(prefix, slot.role, message),
+        message,
+        origin: originOfExpr(arg) ?? originOfExpr(e),
+      });
+      continue;
     }
-    if (e.kind !== "call") return;
-    // Pack-chrome: a primitive that renders design-pack-baked user-visible text
-    // (a `Loader()`'s `aria-label="Loading"`, a `DataGrid()`'s pager) contributes
-    // its stable `chrome.<name>` catalog entries wherever it appears —
-    // used-only, keyed IDENTICALLY to what the `localizedChrome*` helpers emit
-    // (M-T1.11).  Resolved against the CALL NODE, because a grid's per-column
-    // "Filter" placeholder depends on whether a column is filterable.
-    out.push(...chromeEntriesFor(e));
-    const slots = USER_VISIBLE_SLOTS[e.name];
-    if (!slots) return;
-    const positionals = positionalArgs(e);
-    for (const slot of slots) {
-      const arg =
-        slot.kind === "positional" ? positionals[slot.index] : namedArgValue(e, slot.name);
-      const message = literalString(arg);
-      if (message !== undefined) {
-        out.push({ key: messageKey(prefix, slot.role, message), message });
-        continue;
-      }
-      // Interpolated slot → an ICU entry keyed by its positional form, stored as
-      // the named display form (the React emitter derives the identical key).
-      const icu = icuFromConcat(arg);
-      if (icu) {
-        out.push({
-          key: messageKey(prefix, slot.role, icu.positional),
-          message: icu.display,
-          icu: true,
-        });
-      }
+    // Interpolated slot → an ICU entry keyed by its positional form, stored as
+    // the named display form (the React emitter derives the identical key).
+    const icu = icuFromConcat(arg);
+    if (icu) {
+      out.push({
+        key: messageKey(prefix, slot.role, icu.positional),
+        message: icu.display,
+        icu: true,
+        origin: originOfExpr(arg) ?? originOfExpr(e),
+      });
     }
-  });
+  }
 }
 
 /** Extract every user-visible source-language string from a UI declaration.
@@ -263,11 +294,22 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
     // records exist, so it cannot format ICU holes).  `localizedPageTitle`
     // (`i18n-emit.ts`) reads the literal back under the same `title` role.
     const title = literalString(page.title);
-    if (title !== undefined) out.push({ key: messageKey(prefix, "title", title), message: title });
+    if (title !== undefined) {
+      out.push({
+        key: messageKey(prefix, "title", title),
+        message: title,
+        origin: originOfExpr(page.title) ?? page.origin,
+      });
+    }
     if (page.title?.kind === "modelText") {
-      out.push({ key: page.title.key, message: page.title.defaultText });
+      out.push({
+        key: page.title.key,
+        message: page.title.defaultText,
+        origin: page.title.origin ?? page.origin,
+      });
     }
     collectBody(page.body, prefix, out);
+    collectActions(page.actions, prefix, out);
 
     // Per-page sidebar chrome — `menu { section: "…", label: "…" }` metadata.
     // An explicit ui `menu { … }` replaces the page-derived sidebar, so there a
@@ -276,17 +318,29 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
       if (entry.name !== "section" && entry.name !== "label") continue;
       if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
       if (entry.value.kind === "modelText") {
-        out.push({ key: entry.value.key, message: entry.value.defaultText });
+        out.push({
+          key: entry.value.key,
+          message: entry.value.defaultText,
+          origin: entry.value.origin ?? page.origin,
+        });
         continue;
       }
       const message = literalString(entry.value);
       if (message === undefined) continue;
-      out.push({ key: messageKey(prefix, `menu.${entry.name}`, message), message });
+      out.push({
+        key: messageKey(prefix, `menu.${entry.name}`, message),
+        message,
+        origin: originOfExpr(entry.value) ?? page.origin,
+      });
     }
   }
 
   for (const component of ui.components) {
     collectBody(component.body, componentKeyPrefix(ui, component), out);
+    collectActions(component.actions, componentKeyPrefix(ui, component), out);
+  }
+  for (const store of ui.stores) {
+    collectActions(store.actions, `${ui.name}.store.${store.name}`, out);
   }
 
   // UI-level `menu { section "…" { link "L" -> "url" } }` chrome.

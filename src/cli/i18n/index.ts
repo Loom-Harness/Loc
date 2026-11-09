@@ -47,7 +47,12 @@ import {
 } from "../../i18n/merge.js";
 import { joinCatalog, runtimeKeyOf, splitCatalog } from "../../i18n/namespace.js";
 import { PSEUDO_LOCALE, pseudoCatalog } from "../../i18n/pseudo.js";
-import { detectRenames, type KeyMove, moveKeys } from "../../i18n/renames.js";
+import {
+  type AmbiguousRename,
+  detectRenamesReport,
+  type KeyMove,
+  moveKeys,
+} from "../../i18n/renames.js";
 import { extractProject } from "./extract.js";
 import { type LocaleEntry, type LocaleFilter, openReviewKeys, openTree, relPath } from "./open.js";
 import {
@@ -170,6 +175,25 @@ function reportMoves(moved: readonly AppliedMove[]): void {
   }
 }
 
+/** Name every declared rename left unresolved because it could mean several contexts. */
+function reportAmbiguous(ambiguous: readonly AmbiguousRename[]): void {
+  for (const a of ambiguous) {
+    console.log(
+      `  ambiguous rename: ${a.from} -> ${a.to} matches ${a.contexts.join(", ")}; no translation carried. Qualify the migration step (Ctx.${a.from} -> Ctx.${a.to}).`,
+    );
+  }
+}
+
+/** The moves that land on a key present in `files`, as the `from -> to` map
+ *  `moveKeys` takes; skips a move whose target already holds an entry. */
+function movesInto(
+  files: ReadonlyMap<string, Record<string, unknown>>,
+  moves: readonly KeyMove[],
+): Map<string, string> {
+  const flat = joinCatalog(files as ReadonlyMap<string, Catalog>);
+  return new Map(moves.filter((m) => m.from in flat && !(m.to in flat)).map((m) => [m.from, m.to]));
+}
+
 /** Merge one locale namespace by namespace, reporting in runtime keys. */
 function mergeLocale(
   baseIn: ReadonlyMap<string, Catalog>,
@@ -182,6 +206,8 @@ function mergeLocale(
   stale: Map<string, Catalog>;
   report: MergeReport;
   moved: AppliedMove[];
+  /** Parked (`--keep-stale`) translations re-keyed to a renamed element. */
+  staleMoved: number;
 } {
   // Re-key the translations whose model element was renamed or moved, in OURS,
   // BASE and the review state alike, so the per-key merge below sees one key.
@@ -201,6 +227,12 @@ function mergeLocale(
       files: moveKeys(entryIn.files, map, options.names),
       review: moveKeys(entryIn.review, map, options.names),
     };
+  }
+  // The parked translations follow their element too, or a restored key would
+  // find nothing under its new name.
+  const staleMap = movesInto(entry.stale, options.moves ?? []);
+  if (staleMap.size > 0 && options.names) {
+    entry = { ...entry, stale: moveKeys(entry.stale, staleMap, options.names) };
   }
   const merged = new Map<string, Catalog>();
   const review = new Map<string, Record<string, ReviewEntry>>();
@@ -240,7 +272,7 @@ function mergeLocale(
       ...result.report.carried.map((c) => ({ key: key(c.key), from: key(c.from) })),
     );
   }
-  return { merged, review, stale, report, moved };
+  return { merged, review, stale, report, moved, staleMoved: staleMap.size };
 }
 
 function reportMigration(): void {
@@ -269,8 +301,32 @@ export async function runI18nSync(
   file: string,
   options: DirOption & LocaleFilter & { keepStale?: boolean },
 ): Promise<void> {
-  const { dir, theirs, tree, source, catalog, names, renames } = await openTree(file, options);
-  const moves = detectRenames(joinCatalog(tree.base), catalog, renames);
+  let opened = await openTree(file, options);
+  let { moves, ambiguous } = detectRenamesReport(
+    joinCatalog(opened.tree.base),
+    opened.catalog,
+    opened.renames,
+  );
+
+  // The source language's overrides are keyed like everything else: carry them
+  // to the renamed key and extract again, so THEIRS (and the lock) hold the
+  // override's text under its new key.
+  const rekeyed = movesInto(opened.tree.overrides, moves);
+  if (rekeyed.size > 0) {
+    const overrideDir = path.join(opened.dir, opened.source);
+    writeNamespaceDir(overrideDir, moveKeys(opened.tree.overrides, rekeyed, opened.names));
+    if (opened.tree.overridesFromFlat) {
+      fs.rmSync(path.join(opened.dir, `${opened.source}.json`));
+    }
+    console.log(`  ${opened.source} (source): ${rekeyed.size} override(s) re-keyed`);
+    opened = await openTree(file, options);
+    ({ moves, ambiguous } = detectRenamesReport(
+      joinCatalog(opened.tree.base),
+      opened.catalog,
+      opened.renames,
+    ));
+  }
+  const { dir, theirs, tree, source, catalog, names } = opened;
 
   if (tree.locales.length === 0) {
     console.error(
@@ -278,6 +334,7 @@ export async function runI18nSync(
     );
     process.exit(1);
   }
+  reportAmbiguous(ambiguous);
 
   if (tree.migrationPending) reportMigration();
   reportLegacy(tree);
@@ -318,8 +375,8 @@ export async function runI18nStatus(
   file: string,
   options: DirOption & LocaleFilter,
 ): Promise<void> {
-  const { theirs, tree, catalog, names, renames } = await openTree(file, options);
-  const moves = detectRenames(joinCatalog(tree.base), catalog, renames);
+  const { theirs, tree, catalog, names, renames, source } = await openTree(file, options);
+  const { moves, ambiguous } = detectRenamesReport(joinCatalog(tree.base), catalog, renames);
 
   if (tree.locales.length === 0) {
     console.log("No locale files — nothing to sync.");
@@ -327,6 +384,12 @@ export async function runI18nStatus(
   }
 
   let pending = false;
+  reportAmbiguous(ambiguous);
+  const overrideMoves = movesInto(tree.overrides, moves);
+  if (overrideMoves.size > 0) {
+    console.log(`  ${source} (source): ${overrideMoves.size} override(s) to re-key`);
+    pending = true;
+  }
   if (tree.migrationPending) {
     reportMigration();
     pending = true;
@@ -344,11 +407,14 @@ export async function runI18nStatus(
       if (stale) pending = true;
       continue;
     }
-    const { report, moved } = mergeLocale(tree.base, entry, theirs, { moves, names });
+    const { report, moved, staleMoved } = mergeLocale(tree.base, entry, theirs, { moves, names });
     console.log(summarize(entry.locale, report, moved.length));
     reportMoves(moved);
     reportCarried(report);
-    if (reportHasPending(report) || moved.length > 0) pending = true;
+    if (staleMoved > 0) {
+      console.log(`      ${staleMoved} parked translation(s) to re-key`);
+    }
+    if (reportHasPending(report) || moved.length > 0 || staleMoved > 0) pending = true;
   }
   if (pending) {
     console.error("\nPending changes — run `ddd i18n sync`.");

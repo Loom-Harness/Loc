@@ -253,9 +253,9 @@ $ ddd i18n sync app.ddd
 The carry is deliberately narrow: same `<role>`, same `<hash>`, the old key gone
 from the fresh extraction, the new key untranslated, the lock
 (`locales/.loom/source.lock/<ns>.json`) proving the English is byte-identical, and the
-donor a real translation rather than a `TODO:`/conflicted value. Anything
+donor a real translation rather than a legacy `TODO:`/conflicted value. Anything
 ambiguous — two dropped families offering one wording, or two new families
-wanting one — carries **nothing** and falls back to a `TODO:`. A role the new
+wanting one — carries **nothing**; the new key stays untranslated (absent). A role the new
 pack spells differently has a different hash and still re-keys, which is the
 whole point of hashing the message.
 
