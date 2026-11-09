@@ -102,7 +102,10 @@ function prebuildBehindProxy(out: string, project: string): string {
     const text = fs.readFileSync(dockerfile, "utf8");
     if (text.includes("gradle")) {
       const url = new URL(proxy);
-      fs.writeFileSync(dockerfile, text.replace(/^(FROM .* AS build)$/m, "$1\nARG JAVA_TOOL_OPTIONS"));
+      fs.writeFileSync(
+        dockerfile,
+        text.replace(/^(FROM .* AS build)$/m, "$1\nARG JAVA_TOOL_OPTIONS"),
+      );
       args.push(
         `--build-arg JAVA_TOOL_OPTIONS="-Dhttps.proxyHost=${url.hostname} -Dhttps.proxyPort=${url.port}"`,
       );
