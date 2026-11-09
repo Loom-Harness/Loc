@@ -203,7 +203,14 @@ describe("httpMock", () => {
 describe("registry", () => {
   it("rejects an unknown service", async () => {
     await expect(callService("nope", "x", {})).rejects.toThrow(/Unknown infra service/);
-    expect([...services.keys()].sort()).toEqual(["disk", "httpMock", "mailbox", "s3", "ses"]);
+    expect([...services.keys()].sort()).toEqual([
+      "broker",
+      "disk",
+      "httpMock",
+      "mailbox",
+      "s3",
+      "ses",
+    ]);
   });
 });
 
