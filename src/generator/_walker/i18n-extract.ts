@@ -91,7 +91,13 @@ export function inlineComponentKeyPrefix(parentPrefix: string, componentName: st
  *  For an ICU message the hash input is the POSITIONAL-normalized form
  *  (`"Order {0}"`, {@link IcuMessage.positional}), not the named display form —
  *  so renaming a field (`{id}` → `{number}`) keeps the same key and preserves
- *  the translation (i18n-strings.md Option B). */
+ *  the translation (i18n-strings.md Option B).
+ *
+ *  A `plural` / `select` / `selectordinal` hole is hashed WHOLE: the positional
+ *  form keeps its complete ICU body (`"You have {0, plural, one {# order}
+ *  other {# orders}}"`), so editing any branch's English re-keys the message —
+ *  every translation's branches were written against the old English and must
+ *  be re-done — while renaming the counted value does not. */
 export function messageKey(prefix: string, role: string, message: string): string {
   return `${prefix}.${role}.${contentHash(message)}`;
 }
