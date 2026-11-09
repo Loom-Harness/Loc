@@ -1,8 +1,7 @@
 import type { ExprIR } from "./expr.js";
 import type { FieldIR, ParamIR, WireField } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 /** A `projection <Name> keyed by <field> { … }` read model (projection.md) —
  *  the passive read-half of an event-sourced workflow.  Declared state fields
@@ -12,7 +11,7 @@ import type { TypeIR } from "./types.js";
  *  only reflects an event stream into a queryable table.  Reuses the
  *  event-triggered saga machinery (load-or-allocate on every handler,
  *  `wireShape` read surface, state-table migration). */
-export interface ProjectionIR {
+export interface ProjectionIR extends Sourced {
   name: string;
   /** Query parameters — a query-time projection may be parameterised
    *  (`projection OrdersInRegion(region: string) …`), exactly like a
@@ -50,8 +49,6 @@ export interface ProjectionIR {
    *  backend emitting one context cannot see; consume it only through
    *  `foldTenancyFor`.  Absent ⇒ the fold is unscoped. */
   foldTenantClaim?: string;
-  /** Provenance chain back to the `.ddd` source. */
-  origin?: OriginRef;
 }
 
 /** The query-time comprehension clauses of a generalised projection

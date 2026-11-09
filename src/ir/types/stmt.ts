@@ -1,14 +1,13 @@
 import type { ExprIR } from "./expr.js";
 import type { MessageIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Statements
 // ---------------------------------------------------------------------------
 
-export type StmtIR =
-  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
+export type StmtIR = (
+  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR }
   | {
       kind: "requires";
       expr: ExprIR;
@@ -20,16 +19,14 @@ export type StmtIR =
        *  is not the operation's own exposure gate (`validateDefaultDeny`) and
        *  not a client-evaluable action gate. */
       maskWriteOf?: string;
-      origin?: OriginRef;
     }
-  | { kind: "let"; name: string; expr: ExprIR; type: TypeIR; origin?: OriginRef }
+  | { kind: "let"; name: string; expr: ExprIR; type: TypeIR }
   | {
       kind: "assign";
       target: PathIR;
       value: ExprIR;
       targetType: TypeIR;
       prov?: ProvSite;
-      origin?: OriginRef;
     }
   | {
       kind: "add";
@@ -42,7 +39,6 @@ export type StmtIR =
        *  walker reads this to choose `[...xs, v]` vs `x + v`. */
       collection: boolean;
       prov?: ProvSite;
-      origin?: OriginRef;
     }
   | {
       kind: "remove";
@@ -53,13 +49,11 @@ export type StmtIR =
        *  a scalar compound `-=` (arithmetic). */
       collection: boolean;
       prov?: ProvSite;
-      origin?: OriginRef;
     }
   | {
       kind: "emit";
       eventName: string;
       fields: { name: string; value: ExprIR }[];
-      origin?: OriginRef;
     }
   | {
       kind: "call";
@@ -74,14 +68,13 @@ export type StmtIR =
        *  of the target sibling operation (see the ExprIR `call` node's
        *  `targetPrivate`).  Absent (⇒ public) for `function` and the rest. */
       targetPrivate?: boolean;
-      origin?: OriginRef;
     }
   /**
    * Bare expression-statement.  Used when a chained call like
    * `a.b.c(args)` appears as an operation- or test-body statement.
    * Renderers emit `<expr>;` (TS / e2e) or `<expr>;` (C#).
    */
-  | { kind: "expression"; expr: ExprIR; origin?: OriginRef }
+  | { kind: "expression"; expr: ExprIR }
   /**
    * Effect-form variant `match` — a `match SUBJECT { Variant b => <stmts> }`
    * used for its side effects, where each arm runs a statement block rather
@@ -115,7 +108,6 @@ export type StmtIR =
         isError?: boolean;
       }[];
       elseBody?: StmtIR[];
-      origin?: OriginRef;
     }
   /**
    * `if <cond> { … } else { … }` — the plain boolean conditional.  One of the
@@ -133,7 +125,6 @@ export type StmtIR =
       cond: ExprIR;
       thenBody: StmtIR[];
       elseBody?: StmtIR[];
-      origin?: OriginRef;
     }
   /**
    * `return <expr>` — an operation's designed-in outcome
@@ -163,8 +154,9 @@ export type StmtIR =
        * into one tagged `return` per arm.
        */
       armVariants?: ReturnVariantIR[];
-      origin?: OriginRef;
-    };
+    }
+) &
+  Sourced;
 
 /** The union variant a `return` produces: its wire discriminator and how the
  *  value carries on the wire (see the `return` statement). */

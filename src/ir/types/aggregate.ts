@@ -15,8 +15,9 @@ import type {
 } from "./members.js";
 import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
+import type { Sourced } from "./types.js";
 
-export interface AggregateIR {
+export interface AggregateIR extends Sourced {
   name: string;
   fields: FieldIR[];
   contains: ContainmentIR[];
@@ -173,10 +174,6 @@ export interface AggregateIR {
    * A `persistedAs: eventLog` / `shape: document` concrete of a `sharedTable`
    * base is forced to `ownTable` (D-ES-TPH; enforced by the validator). */
   inheritanceUsing?: InheritanceLayout;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** Inheritance table layout — the aggregate-inheritance layout axis
@@ -229,12 +226,8 @@ export interface ContextStampAssignmentIR {
   value: ExprIR;
 }
 
-export interface TestIR {
+export interface TestIR extends Sourced {
   name: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
-   * diagnostic about this node print `path:line:col`. */
-  origin?: OriginRef;
   statements: TestStmtIR[];
   /** Traceability back-link: the `verifies <TC-id>` clause
    *  naming the TestCase this executable test realises.  Undefined when
@@ -252,16 +245,14 @@ export interface TestIR {
  *  field name.  Every value is fixed data — a string, or a list of strings
  *  for a `string[]` claim — so each backend renders it as a literal of the
  *  claim's declared type, read off the system's user block. */
-export interface TestPrincipalIR {
+export interface TestPrincipalIR extends Sourced {
   claims: TestPrincipalClaimIR[];
-  origin?: OriginRef;
 }
 
-export interface TestPrincipalClaimIR {
+export interface TestPrincipalClaimIR extends Sourced {
   /** The `user { … }` field the claim sets. */
   name: string;
   value: string | readonly string[];
-  origin?: OriginRef;
 }
 
 export type TestStmtIR =
