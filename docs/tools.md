@@ -302,7 +302,7 @@ the `.ddd` source — pinning them defeats the point of the generator.
 
 ### Discovering the pin set
 
-`ddd generate ... --dry-run` prints, for every generated path,
+`ddd generate system <file> -o <out> --dry-run` prints, for every generated path,
 whether it would be `write`-en or `skip`-ped via `.loomignore`:
 
 ```

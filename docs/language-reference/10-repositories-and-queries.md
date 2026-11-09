@@ -122,8 +122,8 @@ repository Products for Product
 let p = Products.getBy(sku: s)                        // Product — a miss answers the standard 404
 if let q = Products.findBy(name: n, region: r) { … }  // Product? — any argument order
 let a = Products.getBy(sku: s) ignoring *             // past the softDeletable filter
-Products.findBy(name: n)        // loom.repo-key-incomplete: (region, name) misses 'region'
-Products.findBy(price: x)       // loom.repo-key-not-unique, with a did-you-mean over the declared keys
+let b = Products.findBy(name: n)    // loom.repo-key-incomplete: (region, name) misses 'region'
+let c = Products.findBy(price: x)   // loom.repo-key-not-unique, with a did-you-mean over the declared keys
 ```
 
 The rules:

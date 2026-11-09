@@ -10,10 +10,10 @@
 |---|---|
 | `ddd parse <file>` | parse + validate; non-zero exit on diagnostics |
 | `ddd generate system <file> -o <out>` | full multi-deployable tree + `docker-compose.yml` |
-| `ddd verify <file> -o <out>` | run generated suites → traceability rollup → `.loom/verification.{json,md}` |
+| `ddd verify <file> --results <results.json> [--out <dir>]` | join an existing test-results JSON onto the requirements graph → `.loom/verification.{json,md}` (does not run the suites) |
 | `ddd snapshot <file> -o <out>` | capture immutable provenance rule snapshot under `.loom/snapshots/` |
 
-Common flags: `-o/--out`, `-w/--watch` (legacy generate only),
+Common flags: `-o/--out`, `-w/--watch` (`generate system`),
 `--dry-run` (print the `write`/`skip` plan, touch nothing).
 
 ## Command taxonomy

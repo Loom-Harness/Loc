@@ -4556,7 +4556,7 @@ defect further, and it cannot be done byte-identically in any case.
 - `.loom/wire-spec.json` does **not** retire (proposal step 8). #1937 already
   took the proposal's option 3 — keep the artefact, derive it from
   `wireFieldsFor` — and the conformance-parity tier reads it. Options 1+2
-  ("drop entirely, `ddd snapshot --wire` as the escape hatch") presuppose that
+  ("drop entirely, a `--wire` snapshot flag as the escape hatch") presuppose that
   contract source is the diffable artefact, which fact 2 says it is not.
 - The retirement is re-scoped as **M-T5.40** and inverted: first make the
   record reproduce the derived shape (closing the 25 rows, which fixes real

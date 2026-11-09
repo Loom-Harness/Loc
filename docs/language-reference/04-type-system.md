@@ -783,36 +783,41 @@ return httpCtx.json(orders.toWire(o) as z.infer<typeof OrderResponse>, 200);
 `T option` is a deprecated spelling of `T?` (D-ABSENCE-MODEL). It lowers to the one nullable shape, so `Order option`, `Order or none` and `Order?` are the same type, and `T?` is legal in every position `option` was. The keyword warns (`loom.option-deprecated`) and the quick fix rewrites it:
 
 ```ddd
-repository OrderRepo for Order {
-  find byRef(ref: string): Order option where this.ref == ref   // warning: write `Order?`
-  find byRef(ref: string): Order? where this.ref == ref         // the fix
+context Sales {
+  aggregate Order with crudish { ref: string }
+  repository Orders for Order { }
+  criterion ByRef(ref: string) of Order = this.ref == ref
+  queryHandler OrderByRef(ref: string): Order option {   // warning: write `Order?`
+    return Orders.find(ByRef(ref))
+  }
 }
 ```
 
-As a find return it answers the success body at `200` and a `404` ProblemDetails on a miss. As a payload field it is `null` when absent, never a tagged `{ "type": "none" }` object. A `none` stays a tagged variant only beside two or more present variants (`string or int option` is `union[string, int, none]`).
+As a query return it answers the success body at `200` and a `404` ProblemDetails on a miss. As a payload field it is `null` when absent, never a tagged `{ "type": "none" }` object. A `none` stays a tagged variant only beside two or more present variants (`string or int option` is `union[string, int, none]`).
 
 ::: tabs backend
 == node
 ```ts
-// http/order.routes.ts — 200 OrderResponse | 404, no discriminator
-const result = await repo.byRef(params.ref);
-if (result == null) throw new AggregateNotFoundError("not_found");
-return c.json(repo.toWire(result) as z.infer<typeof OrderResponse>, 200);
+// http/salesApi-routes.ts — 200 OrderResponse | 404, no discriminator
+const readOrders = (await orders.runFindAllByByRef(ref, { limit: 1 }))[0] ?? null;
+const __found = readOrders;
+if (__found == null) throw new AggregateNotFoundError("not_found");
+return httpCtx.json(orders.toWire(__found) as z.infer<typeof OrderResponse>, 200);
 ```
 == python
 ```python
-# app/http/order_routes.py
-found = await repo.by_ref(ref)
-if found is None:
+# app/application/order_by_ref.py
+read_orders = __read_orders_hits[0] if __read_orders_hits else None
+__found = read_orders
+if __found is None:
     raise AggregateNotFoundError("not_found")
-return repo.to_wire(found)
 ```
 == java
 ```java
-// features/orders/OrdersController.java
-var response = service.byRef(ref);
-if (response == null) throw new AggregateNotFoundException("not_found");
-return ResponseEntity.ok(response);
+// api/SalesApiRoutesController.java
+var result = orderByRefHandler.handle(ref);
+if (result == null) throw new AggregateNotFoundException("not_found");
+return ResponseEntity.ok(result == null ? null : (result) == null ? null : OrderResponse.from((result)));
 ```
 ::: end
 

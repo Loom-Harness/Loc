@@ -967,7 +967,7 @@ ElevatedButton(onPressed: () => showDialog(context: context, builder: (dialogCon
 The dialog's submit button names the operation, and no other control in the dialog shares its accessible name. Where the target renders a dismiss button beside it (the React, Svelte and Angular packs), that button says **Cancel**, or **Go back** when the operation is itself named `cancel`. Where the pack's dialog has a corner close icon (mantine, shadcn, shadcnVue, chakra v2, and the HEEx `.modal`), the icon is named **Close**, or **Close dialog** when the operation is itself named `close`. All four labels are catalogued chrome (`chrome.cancel`, `chrome.goBack`, `chrome.close`, `chrome.closeDialog`), derived by one rule (`opDialogChrome`).
 
 ```ddd
-aggregate Appointment { … operation cancel(reason: string) when status == Requested { … } }
+aggregate Appointment { … operation cancel(reason: string) when status == Requested { status := Cancelled } }
 ```
 
 ```tsx
