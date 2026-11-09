@@ -76,7 +76,10 @@ export interface DataSourceIR {
   /** Snapshot policy: retain at most N snapshots per stream. */
   retain?: number;
   isolationLevel?: "readUncommitted" | "readCommitted" | "repeatableRead" | "serializable";
-  readonly: boolean;
+  /** Set only when the resource declares `readonly:` — absence is "not
+   *  declared", which the target-capability check tells apart from a
+   *  declared knob no backend realizes. */
+  readonly?: boolean;
   /** Saving shape of the materialised read model this binding routes
    *  (D-DOCUMENT-AXIS, `shape:` knob).  Per-projection override of the
    *  aggregate header's `shape: …` (see {@link SavingShape} /

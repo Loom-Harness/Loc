@@ -851,7 +851,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
               isolationLevel: d.isolationLevel as DataSourceIR["isolationLevel"],
             }
           : {}),
-        readonly: !!d.readonly,
+        ...(d.readonly ? { readonly: true } : {}),
         ...(d.shape == null ? {} : { shape: d.shape as DataSourceIR["shape"] }),
         ...(d.indexes.length
           ? {
