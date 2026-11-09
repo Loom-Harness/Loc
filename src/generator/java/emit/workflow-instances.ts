@@ -1,4 +1,4 @@
-import { observableWorkflows } from "../../../ir/plan/index.js";
+import { eventSourcedWorkflows, observableWorkflows } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
@@ -121,7 +121,7 @@ function renderInstancesController(
   const forbidden = javaRef(`${wctx.basePkg}.domain.common`, "ForbiddenException");
   const accessor = javaRef(`${wctx.basePkg}.auth`, "CurrentUserAccessor");
   const stateWfs = workflows.filter((wf) => !wf.eventSourced);
-  const esWfs = workflows.filter((wf) => wf.eventSourced);
+  const esWfs = eventSourcedWorkflows(workflows);
   // ES instance reads fold the `<wf>_events` stream over a shared JdbcTemplate
   // (no mutable state repo); needs `ArrayList` for the fold accumulator.
   const esPresent = esWfs.length > 0;
