@@ -80,7 +80,9 @@ describe("feliz auth gate", () => {
     );
     expect(app).toContain("| Authed -> appView model dispatch");
     // The sign-in prompt dispatches the redirect.
-    expect(app).toContain('prop.onClick (fun _ -> Auth.signIn ()); prop.text "Sign in"');
+    expect(app).toContain(
+      'prop.onClick (fun _ -> Auth.signIn ()); prop.text (I18n.t "chrome.signIn" "Sign in")',
+    );
     // Program runs `safeView` (M-T1.8 error boundary), whose try body calls
     // the (gate) `view` — see `test/generator/feliz/error-boundary.test.ts`.
     expect(app).toContain("Program.mkProgram init update safeView");

@@ -122,8 +122,11 @@ export function renderFelizI18nModule(
   contexts: readonly BoundedContextIR[] = [],
   /** Translated catalogs from the `ddd i18n` translator tree. */
   translations?: TranslationCatalogs,
+  /** The app draws the generated session gate, so its sign-in / forbidden
+   *  chrome joins the runtime catalog. */
+  authGate = false,
 ): string {
-  const scope = { contexts, sentences: [], implicitModelText: true };
+  const scope = { contexts, sentences: [], implicitModelText: true, authGate };
   const catalog = buildUiCatalog(ui, {}, scope);
   // `renderTranslatedCatalogs` scopes each locale to THIS ui's keys, exactly as
   // the source catalog is (a translated catalog never carries another app's

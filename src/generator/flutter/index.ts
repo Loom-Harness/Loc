@@ -275,7 +275,7 @@ export function generateFlutterForContexts(
   if (ui && i18nEnabled) {
     out.set(
       "lib/i18n.dart",
-      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations),
+      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations, authUi),
     );
   }
   if (forms.length > 0) {
@@ -370,7 +370,8 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient));
+  if (authUi && sys.user)
+    out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient, uiI18n));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -1072,6 +1073,13 @@ interface ConsumerBindings {
   localeSwitcher: boolean;
 }
 
+/** The app bar's title widget: the page's authored `title:` — the same
+ *  expression the document title uses, a catalog lookup under i18n — else the
+ *  page's name, which has no catalog entry to translate. */
+function appBarTitle(pageName: string, titleDart: string | undefined): string {
+  return titleDart === undefined ? `const Text('${escapeDart(pageName)}')` : `Text(${titleDart})`;
+}
+
 /** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
 function appBarLocale(localeSwitcher: boolean): string {
   return localeSwitcher ? ", actions: const <Widget>[LocaleSwitcher()]" : "";
@@ -1201,7 +1209,7 @@ function renderStatelessPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart)}${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${indentContinuation(bodyWidget, 8)},`,
         "      ),",
@@ -1429,7 +1437,7 @@ function renderConsumerPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart)}${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${guarded},`,
         "      ),",

@@ -110,6 +110,19 @@ function implicitModelTextFormats(sys: EnrichedSystemIR, ui: UiIR): Set<string> 
   return out;
 }
 
+/** Whether a Feliz or Flutter deployable rendering `ui` draws the generated
+ *  session gate: it opts in with `auth: ui`, its target backend enforces auth,
+ *  and the system declares a `user { }` claim shape — the conjunction those two
+ *  generators call `authUi`. */
+function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return sys.deployables.some((dep) => {
+    if (dep.platform !== "feliz" && dep.platform !== "flutter") return false;
+    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
+    const target = sys.deployables.find((d) => d.name === dep.targetName);
+    return !!(dep.auth?.ui && target?.auth?.required && sys.user);
+  });
+}
+
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
 export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, string> {
   const byKey = new Map<string, string>();
@@ -138,6 +151,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // The HEEx create form renders optional inputs too (it has no update
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
+        authGate: uiDrawsAuthGate(sys, ui),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

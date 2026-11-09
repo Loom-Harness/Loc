@@ -235,6 +235,9 @@ export interface FormSentenceScope {
   /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
    *  no update flow to defer them to), so their labels are catalogued too. */
   readonly optionalCreateInputs?: boolean;
+  /** The rendering frontend draws its own session gate (sign-in prompt,
+   *  forbidden view), so {@link AUTH_GATE_CHROME} belongs in the catalog. */
+  readonly authGate?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -446,6 +449,28 @@ export const FORM_CHROME: Record<string, string> = {
   [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
 
+/** Chrome the generated session gate renders — the sign-in prompt and its
+ *  button, and the forbidden view a `requires`-gated page falls back to.
+ *  Merged only for a frontend that draws that gate itself
+ *  (`FormSentenceScope.authGate`) and, like the other tables, only when the UI
+ *  is already i18n-enabled.  The Feliz prompt sentence is the server's
+ *  `problem.unauthenticated` text, so it reads that key rather than a copy. */
+export const AUTH_GATE_CHROME: Record<string, string> = {
+  [chromeKey("signIn")]: "Sign in",
+  [chromeKey("notSignedIn")]: "You are not signed in.",
+  [chromeKey("forbiddenTitle")]: "Forbidden",
+  [chromeKey("forbiddenBody")]: "You do not have access to this page.",
+};
+
+/** The source-language text of a session-gate chrome string, as the emitted
+ *  `t(key, default)` carries it (the translator's source override applies). */
+export function authGateMessage(name: string): string {
+  const key = chromeKey(name);
+  const message = AUTH_GATE_CHROME[key];
+  if (message === undefined) throw new Error(`i18n-chrome: unknown auth-gate string "${name}"`);
+  return sourceText(key, message);
+}
+
 /** Chrome a `Table`'s CONTROLS render — the pager's "Prev" / "Next" / position
  *  counter,
  *
@@ -485,6 +510,7 @@ export function chromeMergedWhenEnabled(
     // them, and none is the reason a UI turns translatable.
     ...WIRE_ERROR_MESSAGES,
   };
+  if (scope?.authGate) Object.assign(out, AUTH_GATE_CHROME);
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
