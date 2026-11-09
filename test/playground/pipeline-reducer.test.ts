@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { initialPipelineState, pipelineReducer } from "../../web/src/pipeline/reducer.js";
 import {
+  bootDeployables,
   bootError,
   bootedDDL,
+  bootFailAt,
   bootPending,
+  bootStorages,
   type PipelineState,
   pendingMigration,
 } from "../../web/src/pipeline/state.js";
@@ -64,6 +67,8 @@ function bootedState(persistent: boolean) {
     persistent,
     applied: [],
     backends: ["api"],
+    deployables: [{ slug: "api", storage: "db" }],
+    storages: ["db"],
     head: null,
   });
   s = pipelineReducer(s, { type: "DISPATCH_START" });
@@ -182,6 +187,8 @@ describe("pendingMigration", () => {
       backends: ["api"],
       persistent: true,
       applied: [],
+      deployables: [{ slug: "api", storage: "db" }],
+      storages: ["db"],
       head,
     });
 
@@ -290,6 +297,8 @@ describe("pendingMigration", () => {
       backends: ["api"],
       persistent: false,
       applied: [],
+      deployables: [{ slug: "api", storage: "db" }],
+      storages: ["db"],
       head: "a",
     });
     mem = pipelineReducer(mem, { type: "RUNTIME_LOST" });
@@ -300,5 +309,37 @@ describe("pendingMigration", () => {
     const s = pipelineReducer(boot(check(["a"]), "a"), { type: "RESET" });
     expect(s.migrationCheck).toEqual({ kind: "none" });
     expect(s.database).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("pipelineReducer — boot topology", () => {
+  it("keeps where a failed boot stopped, and the bindings of a good one", () => {
+    let s = pipelineReducer(initialPipelineState, { type: "BOOT_START" });
+    s = pipelineReducer(s, {
+      type: "BOOT_FAIL",
+      message: "storefront: boom",
+      at: { deployable: "storefront" },
+    });
+    expect(bootFailAt(s)).toEqual({ deployable: "storefront" });
+    s = pipelineReducer(s, { type: "BOOT_START" });
+    expect(bootFailAt(s)).toBeNull();
+    s = pipelineReducer(s, {
+      type: "BOOT_OK",
+      ddl: "",
+      persistent: false,
+      applied: [],
+      backends: ["admin", "storefront"],
+      deployables: [
+        { slug: "admin", storage: "primary" },
+        { slug: "storefront", storage: "replica" },
+      ],
+      storages: ["primary", "replica"],
+      head: null,
+    });
+    expect(bootDeployables(s)).toEqual([
+      { slug: "admin", storage: "primary" },
+      { slug: "storefront", storage: "replica" },
+    ]);
+    expect(bootStorages(s)).toEqual(["primary", "replica"]);
   });
 });

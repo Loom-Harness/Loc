@@ -85,6 +85,8 @@ export function pipelineReducer(
           persistent: action.persistent,
           applied: action.applied,
           backends: action.backends,
+          deployables: action.deployables,
+          storages: action.storages,
         },
         database: { kind: "at", head: action.head },
       };
@@ -104,7 +106,7 @@ export function pipelineReducer(
       return {
         ...state,
         booting: false,
-        boot: { kind: "fail", message: action.message },
+        boot: { kind: "fail", message: action.message, ...(action.at ? { at: action.at } : {}) },
       };
 
     // ---- Migration chain check ----------------------------------------

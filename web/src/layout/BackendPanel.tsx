@@ -32,6 +32,8 @@ import {
 } from "./vocabulary";
 import { ConfirmAction, confirmSites } from "../util/confirm";
 import { OutputStreamLink } from "./OutputStreamLink";
+import { deployableRows } from "../backend/deployable-rows";
+import { DeploymentStatus, StorageSelect } from "../backend/DeploymentStatus";
 
 interface Props {
   ctx: LayoutCtx;
@@ -97,6 +99,12 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     bootPending,
     bootErrorMessage,
     bootedBackends,
+    bootedDeployables,
+    bootedStorages,
+    bootFailAt,
+    bundledDeployables,
+    dbTarget,
+    setDbTarget,
     reqTarget,
     setReqTarget,
     reqMethod,
@@ -144,6 +152,10 @@ export function BackendBody({ ctx }: Props): JSX.Element {
         ]
       : [];
 
+  const rows = deployableRows(bundledDeployables, bootedDeployables, bootFailAt);
+  const reqSlug = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : (bootedBackends[0] ?? null);
+  const reqStorage = bootedDeployables.find((d) => d.slug === reqSlug)?.storage ?? null;
+
   const showBody =
     reqMethod === "POST" || reqMethod === "PUT" || reqMethod === "PATCH";
 
@@ -187,6 +199,11 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             </Group>
           )}
         </Stack>
+      )}
+      {rows.length > 1 && (
+        <Box mb="xs">
+          <DeploymentStatus rows={rows} />
+        </Box>
       )}
       {bootPending && (
         <Stack gap={6} mb="xs" data-testid="boot-migration-pending" data-kind={bootPending.migration.kind}>
@@ -254,6 +271,9 @@ export function BackendBody({ ctx }: Props): JSX.Element {
               runWipe={runWipe}
               runQuery={runQuery}
               isDesktop={isDesktop}
+              storages={bootedStorages}
+              dbTarget={dbTarget}
+              setDbTarget={setDbTarget}
             />
           ) : subview === "tables" ? (
             <TablesView ctx={ctx} />
@@ -279,13 +299,13 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             {bootedBackends.length > 1 && (
               <Select
                 size="xs"
-                value={reqTarget ?? bootedBackends[0] ?? null}
+                value={reqSlug}
                 onChange={(v) => setReqTarget(v)}
                 data={bootedBackends}
                 allowDeselect={false}
                 w={isDesktop ? 130 : "100%"}
                 styles={mobileInputStyles}
-                aria-label="Backend"
+                aria-label="Deployable"
                 data-testid="req-target"
               />
             )}
@@ -318,6 +338,13 @@ export function BackendBody({ ctx }: Props): JSX.Element {
               Send
             </Button>
           </Group>
+          {bootedBackends.length > 1 && reqSlug && (
+            <Text size="xs" c="dimmed" data-testid="req-target-caption">
+              Sends to {reqSlug}
+              {reqStorage ? ` · storage ${reqStorage}` : ""}
+              {reqSlug === bootedBackends[0] ? " · default (the frontend's backend)" : ""}
+            </Text>
+          )}
           {selectedEndpoint && selectedEndpoint.pathParams.length > 0 && (
             <Group gap={6} wrap="wrap">
               {selectedEndpoint.pathParams.map((name) => (
@@ -466,6 +493,9 @@ interface DatabaseViewProps {
   runWipe: () => void;
   runQuery: LayoutCtx["runQuery"];
   isDesktop: boolean;
+  storages: string[];
+  dbTarget: string | null;
+  setDbTarget: (v: string | null) => void;
 }
 
 // The Database sub-view: a plain-language account of where the data
@@ -476,6 +506,9 @@ function DatabaseView({
   runWipe,
   runQuery,
   isDesktop,
+  storages,
+  dbTarget,
+  setDbTarget,
 }: DatabaseViewProps): JSX.Element {
   return (
     <Stack gap="md">
@@ -508,9 +541,11 @@ function DatabaseView({
         )}
       </Stack>
 
+      <StorageSelect storages={storages} value={dbTarget} onChange={setDbTarget} />
+
       <SqlConsole runQuery={runQuery} isDesktop={isDesktop} />
 
-      <ResetDatabase runWipe={runWipe} />
+      <ResetDatabase runWipe={runWipe} storage={storages.length > 1 ? (dbTarget ?? storages[0] ?? null) : null} />
     </Stack>
   );
 }
@@ -520,10 +555,11 @@ function DatabaseView({
 // the button so it is read before, not after, the action.  The two-step
 // itself is the shared `ConfirmAction` (inline shape) — the same control
 // every other destructive action in the playground uses.
-function ResetDatabase({ runWipe }: { runWipe: () => void }): JSX.Element {
+function ResetDatabase({ runWipe, storage }: { runWipe: () => void; storage: string | null }): JSX.Element {
   return (
     <Stack gap={4}>
       <Text size="xs" c="dimmed">
+        {storage ? `Reset acts on storage ${storage} only. ` : ""}
         Reset drops every row and rebuilds the schema from the recorded migrations. The table structure stays — only your data is cleared.
       </Text>
       <ConfirmAction

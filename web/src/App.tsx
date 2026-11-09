@@ -150,6 +150,9 @@ import {
   bootedDDL as selBootedDDL,
   generateOk as selGenerateOk,
   bootBackends as selBootBackends,
+  bootDeployables as selBootDeployables,
+  bootFailAt as selBootFailAt,
+  bootStorages as selBootStorages,
   honoBundleOk as selHonoBundleOk,
   honoBundleResult as selHonoBundleResult,
   backendBundlesOk as selBackendBundlesOk,
@@ -324,6 +327,8 @@ export default function App(): JSX.Element {
   const [reqMethod, setReqMethod] = useState<string>("GET");
   /** The deployable the HTTP console sends to; null = the default target. */
   const [reqTarget, setReqTarget] = useState<string | null>(null);
+  /** The storage the SQL console and Reset act on; null = the first one. */
+  const [dbTarget, setDbTarget] = useState<string | null>(null);
   // Generated backends mount domain routes under `/api` (`app.route("/api/products", …)`),
   // matching the frontend client's `API_BASE_URL` (= `/api`).  The HTTP-console
   // default must include that prefix or the first dispatch 404s.
@@ -1207,6 +1212,14 @@ export default function App(): JSX.Element {
   const persistent = selBootPersistent(pipeline);
   const appliedMigrations = selBootApplied(pipeline);
   const bootedBackends = selBootBackends(pipeline);
+  const bootedDeployables = selBootDeployables(pipeline);
+  const bootedStorages = selBootStorages(pipeline);
+  const bootFailAt = selBootFailAt(pipeline);
+  // Every deployable the last bundle produced, booted or not — the status
+  // rows show the ones a failed boot never started too.
+  const bundledDeployables =
+    pipeline.bundle.kind === "result" ? pipeline.bundle.backends.map((b) => b.slug) : [];
+  const dbStorage = dbTarget && bootedStorages.includes(dbTarget) ? dbTarget : undefined;
   const bootPending = selBootPending(pipeline);
   // Memoised on the two slots it reads: a fresh object per render would make
   // the `ctx` memo miss on every render.
@@ -1556,14 +1569,12 @@ export default function App(): JSX.Element {
   // Best-effort: fetch the booted backend's OpenAPI document and turn it
   // into the endpoint list that drives the Backend console's picker.  On
   // any failure we clear the spec so the panel falls back to manual mode.
-  async function loadOpenApiSpec(engine: RuntimeEngine): Promise<void> {
+  async function loadOpenApiSpec(engine: RuntimeEngine, target?: string): Promise<void> {
     try {
-      const res = await engine.dispatch({
-        url: "http://localhost/openapi.json",
-        method: "GET",
-        headers: {},
-        body: null,
-      });
+      const res = await engine.dispatch(
+        { url: "http://localhost/openapi.json", method: "GET", headers: {}, body: null },
+        target,
+      );
       if (res.ok && res.response.status < 400 && res.response.body) {
         const doc = JSON.parse(res.response.body) as OpenApiDoc;
         setOpenApiSpec(doc);
@@ -1576,6 +1587,17 @@ export default function App(): JSX.Element {
     setOpenApiSpec(null);
     setApiEndpoints([]);
   }
+
+  // Several deployables serve different routes: the endpoint picker follows
+  // the deployable the console targets, not the first one booted.
+  const specTarget = bootedBackends.length > 1 ? (reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : bootedBackends[0]) : undefined;
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || specTarget === undefined) return;
+    setSelectedOpId(null);
+    void loadOpenApiSpec(engine, specTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOpenApiSpec only reads setters
+  }, [specTarget]);
 
   async function runBootStep(
     backends: BootableBackend[],
@@ -1677,6 +1699,8 @@ export default function App(): JSX.Element {
           persistent: res.persistent,
           applied: res.applied,
           backends: res.backends,
+          deployables: res.deployables,
+          storages: res.storages.map((s) => s.key),
           head,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
@@ -1696,7 +1720,7 @@ export default function App(): JSX.Element {
       dispatch(
         res.pending
           ? { type: "BOOT_PENDING", migration: res.pending, message: res.message }
-          : { type: "BOOT_FAIL", message: res.message },
+          : { type: "BOOT_FAIL", message: res.message, ...(res.at ? { at: res.at } : {}) },
       );
       clearPhase();
       return false;
@@ -1960,7 +1984,7 @@ export default function App(): JSX.Element {
   async function runWipe(): Promise<void> {
     const engine = engineRef.current;
     if (!engine || ddl === null) return;
-    await engine.wipe();
+    await engine.wipe(dbStorage);
     dispatch({ type: "DISPATCH_CLEAR" });
   }
 
@@ -2045,7 +2069,7 @@ export default function App(): JSX.Element {
     if (!engine || ddl === null) {
       return { ok: false, message: "Runtime not booted — boot first." };
     }
-    return engine.query(sql);
+    return engine.query(sql, dbStorage);
   }
 
   // Rename a `.ddd` source: write the new path with the old content,
@@ -3110,6 +3134,12 @@ export default function App(): JSX.Element {
       sourceBands: correspondenceBands,
       selectResult,
       bootedBackends,
+      bootedDeployables,
+      bootedStorages,
+      bootFailAt,
+      bundledDeployables,
+      dbTarget,
+      setDbTarget,
       reqTarget,
       setReqTarget,
       reqMethod,
@@ -3213,6 +3243,11 @@ export default function App(): JSX.Element {
       correspondenceBands,
       selectResult,
       bootedBackends,
+      bootedDeployables,
+      bootedStorages,
+      bootFailAt,
+      bundledDeployables,
+      dbTarget,
       reqTarget,
       reqMethod,
       reqPath,
