@@ -1,10 +1,31 @@
 # Loom — documentation index
 
 This directory holds the reference and technical docs for Loom.  The
-files are organised by audience, not by alphabetical order; pick the
-section that matches what you need.
+first half is for **using** Loom; the [maintainer section](#working-on-loom-maintainers)
+at the end is for working on the toolchain itself.
 
-## Start here
+## Start here — your first hour
+
+1. **Install** &mdash; Node 22.12+ and Docker; clone and `npm install`
+   ([README → Quickstart](../README.md#quickstart)).
+2. **Scaffold** &mdash; `node bin/cli.js new demo --platform node` writes a
+   valid starter `main.ddd` and a README with its run steps
+   ([`tools.md` → `new`](tools.md#new--scaffold-a-starter-project)).
+3. **Generate** &mdash; `node bin/cli.js generate system main.ddd -o .` writes
+   every deployable plus `docker-compose.yml`
+   ([`tools.md`](tools.md), [`architecture.md`](architecture.md)).
+4. **Run** &mdash; `docker compose up --build`; the UI is on `:3001`, the API on
+   `:3000` under `/api`, its surface at `/openapi.json`.
+5. **Customize** &mdash; edit the model and regenerate; pin hand-edited files
+   in `.loomignore`, and walk from scaffolded to hand-written UI with the
+   [customization gradient](customization-gradient.md).  Schema changes
+   become migrations with `ddd migrate add` ([`migrations.md`](migrations.md)).
+
+A larger worked model: [`examples/acme.ddd`](../examples/acme.ddd) and its
+[annotated walkthrough](../examples/acme.md).  Before adopting, read the
+[maturity & known limitations](../README.md#maturity--known-limitations).
+
+## Reference
 
 | Doc | When to read |
 | --- | --- |
@@ -13,7 +34,7 @@ section that matches what you need.
 | [`page-metamodel.md`](page-metamodel.md) | You're writing `ui` / `page` / `component` blocks. |
 | [`customization-gradient.md`](customization-gradient.md) | You want the path from a fully-scaffolded UI to a fully hand-written one — override-by-name, unfold, and mixing rungs per page. The "no-code → no excuses" walkthrough. |
 | [`architecture.md`](architecture.md) | You want to know how `module`, `deployable`, `api`, `storage`, and `ui` compose into a runnable system. |
-| [`tools.md`](tools.md) | You're using the `ddd` CLI (`generate`, `verify`, `snapshot`, `patch`, `trace`), `.loomignore`, watch mode, the docker workflow, or the OpenAPI parity check. |
+| [`tools.md`](tools.md) | You're using the `ddd` CLI (`new`, `generate`, `migrate`, `diff`, `verify`, `snapshot`, `patch`, `trace`, `breakpoints`, `i18n`), `.loomignore`, watch mode, the docker workflow, or the OpenAPI parity check. |
 | [`generators.md`](generators.md) | You want to know exactly what each backend (Hono, .NET, Phoenix LiveView, Java, Python) or frontend (React, Vue, Svelte, Angular, Feliz, Flutter) emits for a given DSL construct. |
 | [`kubernetes.md`](kubernetes.md) | You want to deploy the generated system to a cluster — the opt-in `generate system --k8s` Helm chart + raw manifests. |
 | [`playground.md`](playground.md) | You want to know what the browser playground is — the typed editor, visual builders, live preview, and in-browser PGlite test runner at loom-harness.github.io/Loc/playground. |
@@ -27,7 +48,7 @@ These cover a single language feature each.  Each one is self-contained.
 | [`actions.md`](actions.md) | Page/component `action`s — named handlers, `match await` on a remote command, single- and multi-error-variant handling. |
 | [`auth.md`](auth.md) | `user` block, `auth: required`, `currentUser`, `requires`, row-level permissions. |
 | [`payloads.md`](payloads.md) | `payload` / `command` / `query` / `response` / `error` records, the generic carrier `paged`, and discriminated unions (`A or B`, `payload Foo = A \| B`, `T option`) with their tagged `type` wire. Also the numeric wire split — `money` is a fixed-scale string, `decimal` a JSON number. |
-| [`inheritance.md`](inheritance.md) | `abstract aggregate`, `extends`, `inheritanceUsing: sharedTable\|ownTable` — TPC (all backends) vs TPH (Hono only), and the polymorphic `find all <Base>` reader. |
+| [`inheritance.md`](inheritance.md) | `abstract aggregate`, `extends`, `inheritanceUsing: sharedTable\|ownTable` — TPC vs TPH (both on every backend), and the polymorphic `find all <Base>` reader. |
 | [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md#choosing-a-callable-kind) | **Choosing a callable kind** — decision table: `operation` vs `create`/`destroy` vs `apply` vs `function` vs `domainService` vs `workflow` vs `commandHandler`/`queryHandler` vs page `action`. |
 | [`workflow.md`](workflow.md) | `workflow` blocks, transactional vs non-transactional, isolation levels, event drain semantics. |
 | [`channels.md`](channels.md) | `channel` / `channelSource` / the deployable `channels:` clause — cross-deployable eventing over redis/rabbitmq/kafka brokers, the CloudEvents envelope, outbox-relayed publishing, per-broker topology and auth. |
@@ -37,14 +58,13 @@ These cover a single language feature each.  Each one is self-contained.
 | [`capabilities.md`](capabilities.md) | `filter`, `stamp`, `implements` — cross-aggregate behaviours like soft-delete, audit, tenant-ownership, and optimistic concurrency (`versioned`). |
 | [`tenancy.md`](tenancy.md) | Multi-tenancy — `tenancy by user.<claim> of <Registry>`, the `tenantOwned` capability, `crossTenant`, and the explicit-stance rule. |
 | [`domain-services.md`](domain-services.md) | `domainService` — stateless cross-aggregate pure calculators, the no-infra contract, and per-backend emission. |
-| [`scaffold-macros.md`](scaffold-macros.md) | The `scaffold`, `crudish`, `audit`, and `softDelete` macros — what they expand to. |
+| [`scaffold-macros.md`](scaffold-macros.md) | The `scaffold`, `crudish`, and `softDelete` macros — what they expand to (auditing is the `auditable` capability). |
 | [`stdlib.md`](stdlib.md) | The standard library — Layer-0 scalar intrinsics, collection operations, and the ambient prelude. Generated from the registries. |
+| [`tools.md` → i18n](tools.md#i18n-translator-workflow-ddd-i18n) | Translating a generated app — the extracted string catalog, `t()` at runtime, and the `ddd i18n` translator workflow. |
 | [`audit.md`](audit.md) | `audited` — the append-only command trail, and the derived entity-history read (`GET /<agg>/{id}/history`): the read-time field diff, what it excludes, and how the read gate, capability filters and `mask unless` compose onto it. |
 | [`provenance.md`](provenance.md) | `provenanced` field modifier, the `ddd snapshot` capture step, and the Hono runtime trace SDK. |
 | [`observability.md`](observability.md) | The catalog envelope, per-backend log emission, the catalog extension surface. |
 | [`traceability.md`](traceability.md) | `requirement` / `solution` / `testCase` artefacts and the generated coverage report. |
-| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the nine dimensions, strict vs report-only mode (the **structural** wire contract). |
-| [`conformance-semantics.md`](conformance-semantics.md) | The **runtime-value** contract the spec-diff is blind to — named RS-rules (camelCase keys, enum casing, no leaked timestamps, association round-trip) seeded from the #1620–#1660 wire-parity sweep. |
 | [`migrations.md`](migrations.md) | `MigrationsIR` — the phase-⑨ schema-delta IR derived once and shared by every DB backend: how IR maps to tables/columns/join-tables, `migrationsOwner`, the shared Postgres SQL renderer, and where each backend applies migrations. |
 | [`verify.md`](verify.md) | The `ddd verify` gate — joins a test-results JSON onto the requirements graph for per-requirement Definition-of-Done verdicts (VERIFIED / FAILING / UNVERIFIED / UNTESTED); CLI flags, `results.json` contract, and the emitted `.loom/verification.*`. |
 | [`debugging.md`](debugging.md) | You want to debug a generated app back to `.ddd` — the `--sourcemap` metadata (Source Map v3 / `#line`→PDB / JSR-45 SMAP), the emitted `.vscode/launch.json` for native editor debugging, the `ddd trace` / `ddd breakpoints` CLI, and the `ddd-dap` debug adapter. |
@@ -56,7 +76,18 @@ These cover a single language feature each.  Each one is self-contained.
 | [`platforms.md`](platforms.md) | You want to know which `platform:` values exist, how `family@version` pins resolve, and what the `PlatformSurface` contract is. |
 | [`design-packs.md`](design-packs.md) | You're authoring a design pack (Mantine / shadcn / MUI / Chakra / Vuetify / shadcnVue / shadcnSvelte / flowbite / angularMaterial / primeng / spartanNg / coreComponents / daisyui). Covers manifest, stacks (v1/v3/vue1/sv1/ng1 framework baselines), required emits, template language, validation, and the recipe for adding a new pack version. |
 
-## Internals
+## Operational / legal
+
+| Doc | When to read |
+| --- | --- |
+| [`license-faq.md`](license-faq.md) | "Is it OK to use Loom in production?", what counts as Competing Use, generator vs. generated-code licensing. |
+
+## Working on Loom (maintainers)
+
+Everything below is about the toolchain itself — its pipeline, tests, CI and
+design record.  You do not need it to use Loom.
+
+### Internals
 
 | Doc | When to read |
 | --- | --- |
@@ -67,20 +98,17 @@ These cover a single language feature each.  Each one is self-contained.
 | [`loom-artifacts.md`](loom-artifacts.md) | The `.loom/` output directory — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
 | [`api-toolkit.md`](api-toolkit.md) | The transport-neutral `src/api/` toolkit (`validate` / `generate` / `outline` / `applyPatches` + nav/refactor) and the `src/diagnostics/contract.ts` wire shapes — one browser-safe core behind the CLI, MCP, LSP, and playground. |
 | [`mcp.md`](mcp.md) | The MCP stdio server (`ddd-mcp`) + the transport-neutral `loom_*` agent-tool catalog — the three-layer tools/api/mcp stack and how to wire it into an MCP host. |
+| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the nine dimensions, strict vs report-only mode (the **structural** wire contract). |
+| [`conformance-semantics.md`](conformance-semantics.md) | The **runtime-value** contract the spec-diff is blind to — named RS-rules (camelCase keys, enum casing, no leaked timestamps, association round-trip) seeded from the #1620–#1660 wire-parity sweep. |
+| [`agent-runbook.md`](agent-runbook.md) | How a work session picks up, claims and lands one GitHub issue (also the train protocol for fleets). |
 
-## Operational / legal
-
-| Doc | When to read |
-| --- | --- |
-| [`license-faq.md`](license-faq.md) | "Is it OK to use Loom in production?", what counts as Competing Use, generator vs. generated-code licensing. |
-
-## Subdirectories
+### Subdirectories
 
 - [`architecture/`](architecture/) — cross-cutting design specs shared by several proposals (`RequestContext`, wire envelope, modifier propagation, diagnostic catalog, CLI surface, fixture re-baseline).  Pin shapes that multiple features consume; back the `D-*` decisions in [`decisions.md`](decisions.md).
 - [`decisions.md`](decisions.md) — pinned cross-proposal decisions (the `D-*` tags).  The binding answer when a proposal cites a tag.
 - Legacy design record (plans, proposals, audits, the mission plan) — removed from the tree; browse it at [https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs).  Work state lives in [GitHub issues](https://github.com/Loom-Harness/Loc/issues).
 
-## See also
+### See also
 
 - [`../experience_gathered.md`](../experience_gathered.md) — running retrospective of design choices, language and IR gotchas, and lessons learned across iterations.  Worth a read before non-trivial changes.
 - [`../CLAUDE.md`](../CLAUDE.md) — short orientation for automated agents; mirrors the structure above.

@@ -381,7 +381,7 @@ user {
   permissions: string[]
 }
 auth {
-  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") }
 }
 \`\`\`
 
@@ -412,7 +412,7 @@ say so explicitly:
 \`\`\`ddd
 auth {
   enforcement: opt
-  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") }
 }
 \`\`\`
 

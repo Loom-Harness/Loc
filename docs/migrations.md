@@ -1664,7 +1664,7 @@ node scripts/codemod-enforcement-opt.mjs --check .    # exit 1 while any block s
 auth {
   enforcement: opt          // inserted by the codemod
   provider: keycloak
-  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") }
 }
 ```
 
