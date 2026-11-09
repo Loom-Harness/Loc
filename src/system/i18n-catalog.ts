@@ -10,6 +10,7 @@ import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { isMacroEmitted, type OriginRef, type SourceRef } from "../ir/types/origin.js";
 import { factsFor } from "../platform/metadata.js";
+import { frameworkFacts, frameworkFactsForPackFormat } from "../platform/target-facts.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
 import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
 
@@ -69,10 +70,15 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     const design = dep.design;
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    // Feliz and the Angular packs build their dynamic-row and form sentences
-    // by hand, not from a pack's `sentenceChrome`.
-    const selfRendered = factsFor(dep.platform)?.selfRenderedUiFormat;
-    if (selfRendered === "feliz" || packFormatForBuiltin(design) === "angular") {
+    // Some frameworks (Feliz, Angular) build their dynamic-row and form
+    // sentences by hand, not from a pack's `sentenceChrome`.
+    const facts = factsFor(dep.platform);
+    const selfRendered = facts?.selfRenderedUiFormat;
+    const framework =
+      selfRendered !== undefined
+        ? frameworkFacts(facts?.defaultUiFramework)
+        : frameworkFactsForPackFormat(packFormatForBuiltin(design));
+    if (framework?.handBuiltFormSentences) {
       for (const base of HAND_BUILT_FORM_SENTENCES) out.add(base);
       continue;
     }
@@ -128,7 +134,7 @@ function implicitModelTextFormats(sys: EnrichedSystemIR, ui: UiIR): Set<string> 
  *  generators call `authUi`. */
 function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
   return sys.deployables.some((dep) => {
-    if (dep.platform !== "feliz" && dep.platform !== "flutter") return false;
+    if (factsFor(dep.platform)?.selfRenderedUiFormat === undefined) return false;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
     const target = sys.deployables.find((d) => d.name === dep.targetName);
     return !!(dep.auth?.ui && target?.auth?.required && sys.user);
