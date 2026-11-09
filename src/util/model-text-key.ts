@@ -102,6 +102,25 @@ export function modelTextEntry(ref: ModelTextRef): ModelTextEntry {
   return { key: modelTextKey(ref), defaultText: modelTextDefault(ref) };
 }
 
+/** The {@link ModelTextRef} a model-identity key names — the inverse of
+ *  {@link modelTextKey}.  Throws when `key` is not an identity key, so a caller
+ *  holding only keys (an enum's option keys) derives the English default through
+ *  the same shape check the constructor applies. */
+export function modelTextRefOfKey(key: string): ModelTextRef {
+  if (!isModelTextKey(key)) throw new Error(`model-text-key: "${key}" is not an identity key`);
+  const [ns, type, facet, member] = key.split(".") as [string, string, string, string | undefined];
+  const ctx = ns === SYSTEM_TEXT_NS ? undefined : ns;
+  if (facet === "name") {
+    return { ctx, type, facet: key.endsWith(".one") ? "name.one" : "name.other" };
+  }
+  return { ctx, type, facet: facet as ModelTextFacet, ...(member !== undefined ? { member } : {}) };
+}
+
+/** The English default of the fact an identity key names. */
+export function modelTextDefaultOfKey(key: string): string {
+  return modelTextDefault(modelTextRefOfKey(key));
+}
+
 /** True when `key` is a model-identity key (as opposed to a page-scoped
  *  content-hash key or a `chrome.*` key) — i.e. its third segment is a facet. */
 export function isModelTextKey(key: string): boolean {

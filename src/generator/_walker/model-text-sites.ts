@@ -33,7 +33,7 @@ import type {
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
-import { modelTextDefault, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
+import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import { localizedModelText } from "./i18n-emit.js";
 import type { MessageEntry } from "./i18n-extract.js";
@@ -52,8 +52,7 @@ export function implicitModelTextOn(ctx: WalkContext): boolean {
  *  and renders as the empty string there.  `keys` parallels `values`. */
 function enumLabelFn(ctx: WalkContext, values: readonly string[], keys: readonly string[]): string {
   const entries = values.map((v, i) => {
-    const text = modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v });
-    return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, text)}`;
+    return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, modelTextDefaultOfKey(keys[i]!))}`;
   });
   return `((v: string | null | undefined): string => v == null ? "" : ({ ${entries.join(", ")} } as Record<string, string>)[v] ?? v)`;
 }
@@ -67,11 +66,7 @@ export function enumLabelEntries(
 ): Array<{ value: string; label: string }> {
   return values.map((v, i) => ({
     value: v,
-    label: localizedModelText(
-      ctx,
-      keys[i]!,
-      modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v }),
-    ),
+    label: localizedModelText(ctx, keys[i]!, modelTextDefaultOfKey(keys[i]!)),
   }));
 }
 
