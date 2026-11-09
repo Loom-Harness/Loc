@@ -5,8 +5,8 @@ import type { LogLine } from "../util/log-line.js";
 //
 // One runtime worker per Node deployable.  Once booted it holds the
 // deployable's imported bundle, the bootstrapped Hono `app`, and a
-// `PGliteWorker` connection to its storage (the database itself runs in the
-// infra worker — see infra-protocol.ts).  Each `dispatch` request transports a
+// `StorageClient` on its storage port (the database itself runs in a storage
+// host under the infra worker — see infra-protocol.ts and storage-wire.ts).  Each `dispatch` request transports a
 // serialised Request → the worker reconstructs it, calls `app.fetch`, and
 // returns a serialised Response.
 
@@ -117,11 +117,10 @@ export interface LoadRequest {
 
 export type LoadResult = { ok: true; ddl?: string } | { ok: false; message: string };
 
-/** A deployable worker's second boot step: connect to the storage the infra
- *  worker opened (its `channel`) and start the app on it. */
-export interface StartRequest {
-  channel: string;
-}
+/** A deployable worker's second boot step: connect to its storage over the
+ *  storage port (transferred with the request, ahead of the infra port) and
+ *  start the app on it. */
+export type StartRequest = Record<string, never>;
 
 export type StartResult = { ok: true } | { ok: false; message: string };
 

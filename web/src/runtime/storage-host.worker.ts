@@ -1,12 +1,13 @@
 /// <reference lib="webworker" />
 // One storage's database: a PGlite instance, served to every deployable worker
-// bound to the storage through PGlite's stock `worker({ init })` leader half
-// (the deployables connect with `PGliteWorker`, see `storage-client.ts`).
+// bound to the storage over a storage port each (`storage-server.ts`; the
+// deployables hold a `StorageClient`, see `storage-client.ts`).
 //
-// Spawned and owned by the infra worker, one per storage.  Besides the stock
-// handshake, the infra worker drives it with `HostRequest`s: migrate, the
-// Database console's query, Reset.  Those touch PGlite directly; everything a
-// deployable runs arrives over PGlite's own broadcast channel.
+// Spawned and owned by the infra worker, one per storage, which drives it
+// with `HostRequest`s: attach / detach a deployable's port, migrate, the
+// Database console's query, Reset.  Every one of them, and every statement a
+// deployable sends, runs through the server's scheduler — the one place that
+// decides whose turn it is on PGlite's single session.
 
 import { pgliteAssetUrl, pgliteModuleUrl } from "../bundle/plugin.js";
 import { fnv1a32 } from "../util/hash.js";
@@ -31,6 +32,7 @@ import {
 } from "./migrate.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 import type { StorageMigrateResult } from "./infra-protocol.js";
+import { type PgliteProtocolModule, type PgliteSession, pgliteEngine, StorageServer } from "./storage-server.js";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -48,12 +50,8 @@ interface Pglite {
   close(): Promise<void>;
 }
 
-interface PgliteModule {
-  PGlite: new (dataDirOrOptions?: unknown, options?: unknown) => Pglite;
-}
-
-interface PgliteWorkerModule {
-  worker(opts: { init: (options: HostInitOptions) => Promise<Pglite> }): Promise<void>;
+interface PgliteModule extends PgliteProtocolModule {
+  PGlite: new (dataDirOrOptions?: unknown, options?: unknown) => Pglite & PgliteSession;
 }
 
 const QUERY_TIMEOUT_MS = 30_000;
@@ -83,19 +81,26 @@ async function loadAssets(): Promise<Record<string, unknown>> {
   return { pgliteWasmModule, initdbWasmModule, fsBundle };
 }
 
+interface Opened {
+  pg: Pglite;
+  persistent: boolean;
+  server: StorageServer;
+}
+
 /** Settles once `init` has run: the open database, or why it did not open. */
-let opened: Promise<{ pg: Pglite; persistent: boolean }>;
+let opened: Promise<Opened>;
 /** What Reset rebuilds the schema from — the plan the last migrate applied. */
 let schema: StorageSchemaPlan | null = null;
 
-async function open(options: HostInitOptions): Promise<{ pg: Pglite; persistent: boolean }> {
+async function open(options: HostInitOptions): Promise<Opened> {
   progress("pglite-assets");
-  const [{ PGlite }, assets] = await Promise.all([
+  const [mod, assets] = await Promise.all([
     import(/* @vite-ignore */ pgliteModuleUrl("index.js")) as Promise<PgliteModule>,
     loadAssets(),
   ]);
+  const { PGlite } = mod;
   progress("pglite-construct");
-  let pg: Pglite;
+  let pg: Pglite & PgliteSession;
   let persistent = false;
   if (options.dataDir && options.dataDir !== ":memory:") {
     try {
@@ -118,7 +123,7 @@ async function open(options: HostInitOptions): Promise<{ pg: Pglite; persistent:
     await pg.exec(dropUserSchemasSql(true));
   }
   await pg.waitReady;
-  return { pg, persistent };
+  return { pg, persistent, server: new StorageServer(pgliteEngine(pg, mod)) };
 }
 
 async function migrate(pg: Pglite, plan: StorageSchemaPlan): Promise<StorageMigrateResult> {
@@ -198,32 +203,45 @@ async function wipe(pg: Pglite): Promise<WipeResult> {
   }
 }
 
-async function control(req: HostRequest): Promise<unknown> {
-  const { pg, persistent } = await opened;
+async function control(req: HostRequest, ports: readonly MessagePort[]): Promise<unknown> {
+  const { pg, persistent, server } = await opened;
   switch (req.op) {
     case "status":
       return { persistent };
+    case "attach": {
+      const port = ports[0];
+      if (!port) throw new Error("attach needs a transferred MessagePort.");
+      server.attach(req.client, port);
+      return { ok: true };
+    }
+    case "detach":
+      server.detach(req.client);
+      return { ok: true };
+    // Host jobs wait their turn like any client's statement: never inside
+    // a deployable's open transaction.
     case "migrate":
-      return migrate(pg, req.plan);
+      return server.scheduler.exclusive(() => migrate(pg, req.plan));
     case "query":
-      return query(pg, req.sql);
+      return server.scheduler.exclusive(() => query(pg, req.sql));
     case "wipe":
-      return wipe(pg);
+      return server.scheduler.exclusive(() => wipe(pg));
     case "close":
+      // Every deployable is cut off first, so the no-op host job below is
+      // the last job: once it ran, nothing is left in flight.
+      server.detachAll();
+      await server.scheduler.exclusive(async () => undefined);
       await pg.close();
       return { ok: true };
   }
 }
 
-// Our own listener first: it sees the stock `init` too, and starts the open
-// the stock `init` callback then hands to PGlite's leader half.
 let resolveInit!: (options: HostInitOptions) => void;
 const initOptions = new Promise<HostInitOptions>((resolve) => {
   resolveInit = resolve;
 });
 opened = initOptions.then(open);
 // An open that fails is reported by the `status` the infra worker sends right
-// after the handshake; keep it from also surfacing as an unhandled rejection.
+// after `init`; keep it from also surfacing as an unhandled rejection.
 opened.catch(() => undefined);
 
 self.addEventListener("message", (ev: MessageEvent) => {
@@ -234,18 +252,11 @@ self.addEventListener("message", (ev: MessageEvent) => {
   }
   if (msg?.type !== "loom-host") return;
   const req = msg as HostRequest;
-  control(req).then(
+  control(req, ev.ports).then(
     (result) => self.postMessage({ type: "loom-host-ret", id: req.id, result } satisfies HostResponse),
     (err) => self.postMessage({ type: "loom-host-ret", id: req.id, error: errText(err) } satisfies HostResponse),
   );
 });
 
-// PGlite's leader half announces `here` once loaded; the infra worker answers
-// with the init options.  (No top-level await: the worker bundle's target
-// predates it.)
-void (async () => {
-  const { worker } = (await import(
-    /* @vite-ignore */ pgliteModuleUrl("worker/index.js")
-  )) as PgliteWorkerModule;
-  await worker({ init: async () => (await opened).pg });
-})();
+// Loaded: ask the infra worker for the init options.
+self.postMessage({ type: "here" });

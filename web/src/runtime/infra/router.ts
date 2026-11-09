@@ -15,8 +15,11 @@ export type InfraServices = Map<string, InfraService<any>>;
 export interface InfraRouterOptions {
   /** Build the registered services; `host` pushes to connected deployables. */
   createServices(host: InfraServiceHost): InfraServices;
-  /** The storage service (it predates the registry). */
-  storage(req: StorageOp): Promise<unknown>;
+  /** The storage service (it predates the registry); `attach` carries a
+   *  transferred port. */
+  storage(req: StorageOp, ports: readonly MessagePort[]): Promise<unknown>;
+  /** Drop a deployable's storage clients, rolling back what they left open. */
+  detachStorages?(client: string): Promise<void>;
   /** `infra.reset`: close every storage. */
   closeStorages(): Promise<void>;
 }
@@ -53,8 +56,8 @@ export class InfraRouter {
 
   private async handle(req: InfraRequest, client: string | null, ports: readonly MessagePort[]): Promise<unknown> {
     if (req.service === "storage") {
-      if (client !== null) throw new Error("A deployable reaches its storage through PGliteWorker, not the infra port.");
-      return this.opts.storage(req);
+      if (client !== null) throw new Error("A deployable reaches its storage through its storage port, not the infra port.");
+      return this.opts.storage(req, ports);
     }
     if (req.service === "infra") {
       if (client !== null) throw new Error(`infra.${req.op} is for the main thread only.`);
@@ -75,6 +78,7 @@ export class InfraRouter {
         }
         case "disconnect":
           this.disconnect(req.params.client);
+          await this.opts.detachStorages?.(req.params.client);
           return { ok: true };
       }
     }

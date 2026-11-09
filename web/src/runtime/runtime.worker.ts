@@ -12,7 +12,7 @@ import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./
 import { InfraPort } from "./infra-port.js";
 import { serviceFetch } from "./service-fetch.js";
 import { connectResourceFakes, prepareResourceFakes, setRoutedHosts } from "./resource-fakes.js";
-import { StorageHostHandle } from "./storage-client.js";
+import { StorageClient } from "./storage-client.js";
 import type {
   DispatchResult,
   HttpCall,
@@ -66,17 +66,9 @@ interface BundleModule {
   ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
   schema: Record<string, unknown>;
   drizzle: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
-  /** `@electric-sql/pglite/worker`'s client: the deployable's connection to
-   *  its storage, which runs in the infra worker (see storage-client.ts). */
-  PGliteWorker: new (worker: unknown, options?: unknown) => StorageConnection;
   is: (value: unknown, type: unknown) => boolean;
   Table: unknown;
   getTableConfig: (t: unknown) => never;
-}
-
-interface StorageConnection {
-  waitReady: Promise<void>;
-  close(): Promise<void>;
 }
 
 /** The imported bundle, between `load` and `start`. */
@@ -93,7 +85,7 @@ interface Started {
    *  relay) — run before the storage connection closes on Reset and
    *  re-boot. */
   stop: () => Promise<void>;
-  storage: StorageConnection;
+  storage: StorageClient;
   /** The line to the infra services (the broker) — closed after `stop`. */
   infra: InfraPort | null;
 }
@@ -197,24 +189,25 @@ async function load(
   }
 }
 
-/** Connect to the storage and start the app on it.  `infraPort`, when the
- *  engine attached the deployable to the infra services, carries the
- *  channel bindings to the emulated broker. */
-async function start(channel: string, infraPort: MessagePort | undefined): Promise<StartResult> {
+/** Connect to the storage over `storagePort` and start the app on it.
+ *  `infraPort`, when the engine attached the deployable to the infra
+ *  services, carries the channel bindings to the emulated broker. */
+async function start(storagePort: MessagePort | undefined, infraPort: MessagePort | undefined): Promise<StartResult> {
   const infra = infraPort ? new InfraPort(infraPort) : null;
-  if (!loaded) {
+  if (!loaded || !storagePort) {
     infra?.close();
-    return { ok: false, message: "No bundle loaded — load first." };
+    storagePort?.close();
+    return { ok: false, message: loaded ? "No storage port — attach first." : "No bundle loaded — load first." };
   }
   const { mod } = loaded;
   progress("storage-connect");
   connectResourceFakes(infra);
-  let storage: StorageConnection;
+  const storage = new StorageClient(storagePort);
   try {
-    storage = new mod.PGliteWorker(new StorageHostHandle(channel));
     await storage.waitReady;
   } catch (err) {
     infra?.close();
+    await storage.close();
     return { ok: false, message: `Storage connection failed: ${errText(err)}` };
   }
   try {
@@ -319,7 +312,7 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
         response.result = await load(req.params.bundleCode, req.params.synthDdl, req.params.env, req.params.serviceHosts);
         break;
       case "start":
-        response.result = await start(req.params.channel, ev.ports[0]);
+        response.result = await start(ev.ports[0], ev.ports[1]);
         break;
       case "dispatch":
         response.result = await dispatch(req.params);

@@ -31,6 +31,10 @@ export interface LoomRuntimeClientOptions {
   /** The deployable this worker runs; stamped on every captured line so the
    *  Output panel can tell the backends of one system apart. */
   source?: string;
+  /** Fired whenever this client terminates its worker (respawn, dispose), so
+   *  the engine can tell the infra worker at once: a storage transaction the
+   *  worker left open must roll back before anyone else's statement runs. */
+  onTerminate?: () => void;
 }
 
 export class LoomRuntimeClient {
@@ -44,6 +48,7 @@ export class LoomRuntimeClient {
   private readonly onLog?: (lines: LogLine[]) => void;
   private readonly onHttpCall?: LoomRuntimeClientOptions["onHttpCall"];
   private readonly source?: string;
+  private readonly onTerminate?: () => void;
   private disposed = false;
 
   constructor(opts: LoomRuntimeClientOptions = {}) {
@@ -51,6 +56,7 @@ export class LoomRuntimeClient {
     this.onLog = opts.onLog;
     this.onHttpCall = opts.onHttpCall;
     this.source = opts.source;
+    this.onTerminate = opts.onTerminate;
     this.spawn();
   }
 
@@ -126,10 +132,14 @@ export class LoomRuntimeClient {
     return this.send<LoadResult>({ method: "load", params: req });
   }
 
-  /** Connect to the storage on `channel` and start the app.  `infraPort` is
-   *  the deployable's end of its line to the infra services (transferred). */
-  start(channel: string, infraPort?: MessagePort): Promise<StartResult> {
-    return this.send<StartResult>({ method: "start", params: { channel } }, infraPort ? [infraPort] : []);
+  /** Connect to the storage over `storagePort` and start the app.
+   *  `infraPort` is the deployable's end of its line to the infra services.
+   *  Both are transferred. */
+  start(storagePort: MessagePort, infraPort?: MessagePort): Promise<StartResult> {
+    return this.send<StartResult>(
+      { method: "start", params: {} },
+      infraPort ? [storagePort, infraPort] : [storagePort],
+    );
   }
 
   dispatch(req: SerializedRequest): Promise<DispatchResult> {
@@ -179,6 +189,7 @@ export class LoomRuntimeClient {
       slot.reject(new Error("Runtime worker respawned; retry the operation."));
     }
     this.pending.clear();
+    this.onTerminate?.();
     this.spawn();
     if (!silent) this.onRespawn?.();
   }
@@ -194,5 +205,6 @@ export class LoomRuntimeClient {
       slot.reject(new Error("Runtime client disposed"));
     }
     this.pending.clear();
+    this.onTerminate?.();
   }
 }

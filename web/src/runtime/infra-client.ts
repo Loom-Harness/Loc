@@ -65,8 +65,9 @@ export class InfraClient {
     return port2;
   }
 
-  /** Detach a stopped deployable: its subscriptions end and its unacked
-   *  deliveries return to their queues. */
+  /** Detach a stopped deployable: its subscriptions end, its unacked
+   *  deliveries return to their queues, and its storage clients are dropped
+   *  (an open transaction rolls back before anyone else's statement). */
   disconnect(client: string): Promise<{ ok: true }> {
     return this.send({ service: "infra", op: "disconnect", params: { client } });
   }
@@ -74,6 +75,14 @@ export class InfraClient {
   /** The broker's state and journal (the Events view; tests). */
   inspectBroker(): Promise<BrokerInspectResult> {
     return this.send({ service: "broker", op: "inspect", params: {} });
+  }
+
+  /** Attach a deployable to a storage: returns the deployable's end of its
+   *  storage port, to transfer into its runtime worker. */
+  async attachStorage(key: string, client: string): Promise<MessagePort> {
+    const { port1, port2 } = new MessageChannel();
+    await this.send({ service: "storage", op: "attach", params: { key, client } }, [port1]);
+    return port2;
   }
 
   openStorage(params: StorageOpenParams): Promise<StorageOpenResult> {

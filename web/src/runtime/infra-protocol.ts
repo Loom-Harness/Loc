@@ -5,10 +5,10 @@
 //                    └─ registered services (infra/services.ts)
 //   deployable worker ── InfraPort (MessagePort) ──► infra worker
 //
-// Deployable workers reach a storage directly: each opens a `PGliteWorker`
-// client on the storage's `channel` (see `storage-client.ts`), and the storage
-// host serves it with PGlite's own leader half.  The infra worker only owns
-// lifecycle and the operations no deployable performs: opening a database,
+// Deployable workers reach a storage directly, over a storage port of their
+// own that `storage.attach` hands to the storage host (see `storage-wire.ts`).
+// The infra worker only owns lifecycle and the operations no deployable
+// performs: opening a database, attaching and detaching its clients,
 // migrating it, the Database console, Reset.
 //
 // Every message is plain, structured-clone data, so the same protocol can move
@@ -38,8 +38,6 @@ export interface StorageOpenParams {
 
 export interface StorageOpenOk {
   ok: true;
-  /** What a deployable worker passes to its `PGliteWorker` client. */
-  channel: string;
   /** False when the persistent data dir was refused and the storage fell back
    *  to memory. */
   persistent: boolean;
@@ -59,6 +57,10 @@ export type StorageMigrateResult = StorageMigrateOk | BootFail;
 
 export type StorageOp =
   | { op: "open"; params: StorageOpenParams }
+  /** Attach a deployable to the storage: the request carries one end of a
+   *  `MessageChannel` (transferred) for the storage host; the deployable
+   *  holds the other as its `StorageClient`. */
+  | { op: "attach"; params: { key: string; client: string } }
   | { op: "migrate"; params: { key: string; plan: StorageSchemaPlan } }
   | { op: "query"; params: { key: string; sql: string } }
   | { op: "wipe"; params: { key: string } }
@@ -69,6 +71,8 @@ export type InfraOp =
   /** Attach a deployable: the request carries one end of a `MessageChannel`
    *  (transferred); the deployable holds the other as its `InfraPort`. */
   | { op: "connect"; params: { client: string } }
+  /** The deployable stopped or its worker ended: its infra port closes and
+   *  its storage clients are dropped (an open transaction rolls back). */
   | { op: "disconnect"; params: { client: string } };
 
 /** Every service's ops, by service name.  A new infra service adds one line
@@ -107,12 +111,14 @@ export interface InfraProgress {
 }
 
 // -- infra worker ↔ storage host ---------------------------------------------
-// The host runs PGlite's stock `worker({ init })`, whose handshake (`here`,
-// `init`, `ready`, `leader-now`) shares the port; these carry a distinct
-// `type` so neither side mistakes the other's messages.
+// The host announces `here` once loaded and opens the database on `init`;
+// every later message is a `HostRequest`.
 
 export type HostControl =
   | { op: "status" }
+  /** Carries the deployable's storage port (transferred). */
+  | { op: "attach"; client: string }
+  | { op: "detach"; client: string }
   | { op: "migrate"; plan: StorageSchemaPlan }
   | { op: "query"; sql: string }
   | { op: "wipe" }
@@ -133,10 +139,8 @@ export interface HostProgress {
   note?: string;
 }
 
-/** Init options the infra worker hands the host through PGlite's `init`
- *  message.  `id` is PGlite's broadcast id — the storage's `channel`. */
+/** Init options the infra worker hands the host in its `init` message. */
 export interface HostInitOptions {
-  id: string;
   dataDir?: string;
   fresh?: boolean;
 }
