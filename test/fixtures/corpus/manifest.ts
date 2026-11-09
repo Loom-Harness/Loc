@@ -373,6 +373,12 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "saga-durable-cross-context",
+    title: "saga consumer of a durable channel declared by another context — the migration must create the `last_event_id` marker the ORM maps",
+    doc: "workflow",
+    backends: ALL,
+  },
+  {
     id: "reactor-failure",
     title:
       "a reactor that throws AFTER its triggering command committed — the command keeps its 2xx, the failure is isolated + logged `reactor_failed`",
