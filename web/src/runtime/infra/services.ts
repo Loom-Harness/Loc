@@ -2,10 +2,19 @@
 // `service.ts`).  `storage` predates the registry and is routed by
 // `router.ts` directly.
 
+import { s3Service, sesService } from "./aws-fake.js";
 import { createBrokerService } from "./broker.service.js";
+import { diskService } from "./disk.js";
+import { httpMockService } from "./http-mock.js";
+import { mailboxService } from "./mailbox.js";
 import type { InfraServices } from "./router.js";
 import type { InfraServiceHost } from "./service.js";
 
 export function createServices(host: InfraServiceHost): InfraServices {
-  return new Map([["broker", createBrokerService(host)]]);
+  return new Map([
+    ["broker", createBrokerService(host)],
+    ...[s3Service, sesService, mailboxService, diskService, httpMockService].map(
+      (s): [string, typeof s] => [s.name, s],
+    ),
+  ]);
 }

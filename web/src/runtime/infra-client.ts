@@ -13,6 +13,9 @@ import type {
 import type { BrokerInspectResult } from "./infra/broker-protocol.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 
+/** The resource-fake services of `infra/services.ts`. */
+export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock";
+
 type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
 
 export class InfraClient {
@@ -87,6 +90,11 @@ export class InfraClient {
 
   wipe(key: string): Promise<WipeResult> {
     return this.send({ service: "storage", op: "wipe", params: { key } });
+  }
+
+  /** Call a resource-fake service (see `infra/services.ts`). */
+  service<T = unknown>(service: ResourceService, op: string, params: unknown = {}): Promise<T> {
+    return this.send({ service, op, params } as DistributiveOmit<InfraRequest, "id">);
   }
 
   /** Close every storage. */

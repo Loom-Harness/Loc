@@ -172,6 +172,26 @@ queues). The browser console reads the whole state as
 `await __loomInspectBroker()`: queues, topics, group offsets, dead-letter
 contents and a journal of who received and acknowledged each envelope.
 
+### Resource fakes
+
+`objectStore`, `mailer` and `api` resources are answered inside the browser.
+All state lives in the infra worker (`src/runtime/infra/`, one module per
+service, registered in `infra/services.ts`); a deployable worker carries only
+facades that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
+`examples/resource-fakes-system.ddd` wires every kind.
+
+| sourceType | In the bundle | In the infra worker |
+|---|---|---|
+| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an in-memory object map |
+| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one in-memory tree, shared by every deployable |
+| `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
+| `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
+| `restApi` | the generated `fetch` → the `httpMock` service | echo response, or sample data from a registered OpenAPI document (`openapi-sampler`) |
+
+The AWS SDKs get dummy credentials (`adaptResourceSource` in
+`src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
+files and mail live as long as the infra worker: Reset or a re-boot empties them.
+
 ### In-browser test runner
 
 The Postgres is **PGlite** — a WebAssembly Postgres — one database per

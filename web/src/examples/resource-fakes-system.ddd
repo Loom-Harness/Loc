@@ -1,0 +1,103 @@
+// Resource fakes: one Node backend wired to every emulated resource kind.
+// The playground has no S3, SMTP, SES, SendGrid or external REST API, so each
+// is answered inside the browser: objects and files live in the infra worker,
+// mail lands in its Mailbox, and the `rates` API is a mock.
+//
+//   POST /notes/{name}      — put an object (s3), send mail (smtp), read `rates`
+//   GET  /notes/{name}      — read the object back (s3)
+//   GET  /notes/{name}/link — a presigned URL for it
+//   POST /vault/{name}      — write a file (localDisk), send mail (ses)
+//   POST /campaign/{name}   — send mail (sendgrid)
+//
+// A deployable binds one resource per (context, kind), hence three contexts.
+
+system ResourceFakes {
+  subdomain Desk {
+    context Desk {
+      aggregate Note with crudish {
+        name: string
+      }
+      repository Notes for Note { }
+
+      commandHandler RunNote(name: string): int {
+        files.put("notes/" + name, name)
+        mail.send("ada@example.test", "smtp: " + name, "Note " + name + " via smtp")
+        let fx = rates.get("/rate/usd")
+        return 1
+      }
+
+      queryHandler PeekNote(name: string): int {
+        let stored = files.get("notes/" + name)
+        return 1
+      }
+
+      queryHandler NoteLink(name: string): string {
+        let url = files.signedUrl("notes/" + name)
+        return url
+      }
+    }
+
+    context Vault {
+      aggregate Doc with crudish {
+        name: string
+      }
+      repository Docs for Doc { }
+
+      commandHandler Archive(name: string): int {
+        disk.put("docs/" + name, name)
+        sesMail.send("ada@example.test", "ses: " + name, "Doc " + name + " via ses")
+        return 1
+      }
+    }
+
+    context Campaign {
+      aggregate Blast with crudish {
+        name: string
+      }
+      repository Blasts for Blast { }
+
+      commandHandler Announce(name: string): int {
+        sgMail.send("ada@example.test", "sendgrid: " + name, "Blast " + name + " via sendgrid")
+        return 1
+      }
+    }
+  }
+
+  api DeskApi from Desk {
+    route POST "/notes/{name}" -> Desk.RunNote
+    route GET  "/notes/{name}" -> Desk.PeekNote
+    route GET  "/notes/{name}/link" -> Desk.NoteLink
+  }
+  api VaultApi from Desk {
+    route POST "/vault/{name}" -> Vault.Archive
+  }
+  api CampaignApi from Desk {
+    route POST "/campaign/{name}" -> Campaign.Announce
+  }
+
+  storage pg { type: postgres }
+  storage bucket { type: s3, config: { bucket: "desk-files", region: "us-east-1" } }
+  storage scratch { type: localDisk }
+  storage smtpServer { type: smtp, config: { from: "desk@example.test" } }
+  storage sesServer { type: ses, config: { from: "desk@example.test", region: "us-east-1" } }
+  storage sgServer { type: sendgrid, config: { from: "desk@example.test" } }
+  storage fxApi { type: restApi, config: { baseUrl: "https://fx.example.test" } }
+
+  resource deskState { for: Desk, kind: state, use: pg }
+  resource vaultState { for: Vault, kind: state, use: pg }
+  resource campaignState { for: Campaign, kind: state, use: pg }
+  resource files { for: Desk, kind: objectStore, use: bucket }
+  resource disk { for: Vault, kind: objectStore, use: scratch }
+  resource mail { for: Desk, kind: mailer, use: smtpServer }
+  resource sesMail { for: Vault, kind: mailer, use: sesServer }
+  resource sgMail { for: Campaign, kind: mailer, use: sgServer }
+  resource rates { for: Desk, kind: api, use: fxApi }
+
+  deployable desk {
+    platform: node
+    contexts: [Desk, Vault, Campaign]
+    dataSources: [deskState, vaultState, campaignState, files, disk, mail, sesMail, sgMail, rates]
+    serves: DeskApi, VaultApi, CampaignApi
+    port: 3000
+  }
+}

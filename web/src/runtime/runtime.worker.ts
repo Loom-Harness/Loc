@@ -11,6 +11,7 @@ import { errText } from "./migrate.js";
 import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
 import { InfraPort } from "./infra-port.js";
 import { serviceFetch } from "./service-fetch.js";
+import { connectResourceFakes, prepareResourceFakes, setRoutedHosts } from "./resource-fakes.js";
 import { StorageHostHandle } from "./storage-client.js";
 import type {
   DispatchResult,
@@ -48,6 +49,7 @@ function progress(phase: RuntimeProgress["phase"], note?: string): void {
 // boot) routes through it for the lifetime of the worker.  See
 // console-tee.ts for why a per-RPC patch lost every structured line.
 installConsoleTee();
+prepareResourceFakes();
 
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
@@ -122,6 +124,7 @@ function installEnv(env: Record<string, string> | undefined, hosts: readonly str
   const g = globalThis as unknown as { process?: { env?: Record<string, string> } };
   g.process = { ...(g.process ?? {}), env: { ...(env ?? {}) } };
   globalThis.fetch = serviceFetch(new Set(hosts), forwardHttp, realFetch);
+  setRoutedHosts(new Set(hosts));
 }
 
 let loaded: Loaded | null = null;
@@ -205,6 +208,7 @@ async function start(channel: string, infraPort: MessagePort | undefined): Promi
   }
   const { mod } = loaded;
   progress("storage-connect");
+  connectResourceFakes(infra);
   let storage: StorageConnection;
   try {
     storage = new mod.PGliteWorker(new StorageHostHandle(channel));

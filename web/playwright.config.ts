@@ -25,6 +25,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/multi-backend-runtime.spec.ts",
   "**/channels-broker.spec.ts",
   "**/cross-deployable-runtime.spec.ts",
+  "**/resource-fakes.spec.ts",
 ];
 
 export default defineConfig({
