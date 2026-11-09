@@ -65,6 +65,7 @@ import {
   type EnrichedBoundedContextIR,
   type ExprIR,
   exprUsesCurrentUser,
+  type IsolationLevel,
   type TypeIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -214,6 +215,12 @@ export function buildWorkflowsFile(
    *  the system principal of that origin (`auth/middleware.ts`
    *  `runAsEventOrigin`).  Auth-less output is unchanged. */
   carriesOrigin = false,
+  /** The isolation level a `transactional` workflow opens its transaction
+   *  with: its own `transactional(<level>)`, else its OWNING context's state
+   *  dataSource `isolationLevel` (`resolveWorkflowIsolation`).  The caller
+   *  resolves it because a merged multi-context deployable's `ctx` is not the
+   *  workflow's owning context.  Absent → the workflow's own level only. */
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -417,6 +424,7 @@ export function buildWorkflowsFile(
         reqNameFor({ kind: "workflow", workflow: wf.name }),
         opFragments,
         usingMikro,
+        resolveIsolation,
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -955,6 +963,7 @@ function emitWorkflowRoute(
    *  property under a durable channel; the allocate literal must spell it out.
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1259,10 +1268,14 @@ function emitWorkflowRoute(
     // EntityManager has no `transaction` (TS2551).  The isolation option is
     // spelled per adapter too: drizzle takes the space-cased string, MikroORM
     // its `IsolationLevel` enum (a bare string literal is not assignable).
-    const txOpts = wf.isolation
+    // Only a `transactional` workflow pins a level; the implicit transaction
+    // an entry result or a write-scope re-check opens keeps the connection
+    // default — the same rule as the .NET `BeginTransactionAsync` path.
+    const isolation = wf.transactional ? resolveIsolation(wf) : undefined;
+    const txOpts = isolation
       ? usingMikro
-        ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
-        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
+        ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`
+        : `, { isolationLevel: "${pgIsolationLevel(isolation)}" }`
       : ``;
     // Aggregate events (an operation's `emit`) drain at each repository
     // `save()`, which here runs on the OUTER `tx` — its own
@@ -3243,7 +3256,7 @@ export function collectReposForWorkflow(wf: {
 /** MikroORM's `IsolationLevel` enum member for an IR isolation level — the
  *  mikroorm twin of `pgIsolationLevel` (`transactional`'s option is typed by
  *  the enum, so the string spelling does not type-check). */
-function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+function mikroIsolationLevel(level: IsolationLevel): string {
   switch (level) {
     case "readUncommitted":
       return "IsolationLevel.READ_UNCOMMITTED";
@@ -3256,7 +3269,7 @@ function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").Isola
   }
 }
 
-function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+function pgIsolationLevel(level: IsolationLevel): string {
   switch (level) {
     case "readUncommitted":
       return "read uncommitted";
