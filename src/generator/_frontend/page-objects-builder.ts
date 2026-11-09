@@ -264,16 +264,19 @@ export type SelectStyle = "combobox" | "native";
 /** A framework-robust text fill.  A design pack may put the field's `data-testid`
  *  on the actual `<input>` (Mantine) or on a wrapper that CONTAINS it (Vuetify's
  *  `v-text-field` forwards attrs to its root `<div>`, so `getByTestId(id).fill()`
- *  hits the div and Playwright errors "Element is not an <input>").  Prefer a
- *  fillable descendant when present, else the testid element itself — so the
- *  SHARED page objects drive any pack.  Caught by the nightly frontend-fullstack
- *  matrix (a Vue round-trip), invisible to the React-only per-PR UI cell. */
+ *  hits the div and Playwright errors "Element is not an <input>").  The target
+ *  is one locator matching either a fillable descendant or the testid element
+ *  when it is itself the input, so `fill` auto-waits until one has rendered —
+ *  a `count()` probe does not wait, and before the pack renders its inner
+ *  `<input>` it would pick the wrapper.  The SHARED page objects drive any pack
+ *  this way; the nightly frontend-fullstack matrix's Vue round-trip is the leg
+ *  that exercises the wrapper shape. */
 function robustFill(testId: string, valueExpr: string): string[] {
   return [
     `  {`,
     `    const __f = this.page.getByTestId("${testId}");`,
-    `    const __i = __f.locator("input, textarea");`,
-    `    await ((await __i.count()) ? __i.first() : __f).fill(${valueExpr});`,
+    `    const __input = this.page.locator("input, textarea");`,
+    `    await __f.locator(__input).or(__f.and(__input)).first().fill(${valueExpr});`,
     `  }`,
   ];
 }
