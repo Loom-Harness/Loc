@@ -64,7 +64,13 @@
 // stays out of scope, per the design brief, and is the natural pickup point
 // once either escape hatch above exists.
 import { expect, test } from "@playwright/test";
-import { browserCanReachNetwork, selectExample, waitForBundle, waitForPlaygroundReady } from "./_helpers";
+import {
+  browserCanReachNetwork,
+  recordInitialMigration,
+  selectExample,
+  waitForBundle,
+  waitForPlaygroundReady,
+} from "./_helpers";
 
 interface DecodedMap {
   version: number;
@@ -162,6 +168,8 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
   }
 
   await test.step("Generate", async () => {
+    // Boot is blocked until the initial migration is recorded.
+    await recordInitialMigration(page);
     await page.getByTestId("btn-generate").click();
     await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
   });
