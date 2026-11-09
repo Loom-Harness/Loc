@@ -687,6 +687,13 @@ export function renderDockerfile(
       ? `COPY --from=spa-build /spa/${options.spaOutDir ?? "dist"} /app/ui`
       : null,
     `ENV SERVER_PORT=8080`,
+    `# Run unprivileged, by number so a k8s \`runAsNonRoot\` check can verify it.`,
+    `# The jar stays root-owned and read-only to it; data/ is the one directory`,
+    `# the process writes (local object-store resources default there).`,
+    `RUN groupadd --system --gid 10001 app \\`,
+    `    && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /app app \\`,
+    `    && mkdir -p /app/data && chown 10001:10001 /app/data`,
+    `USER 10001:10001`,
     `EXPOSE 8080`,
     `ENTRYPOINT ["java", "-jar", "app.jar"]`,
     ``,

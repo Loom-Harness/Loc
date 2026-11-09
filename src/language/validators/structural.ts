@@ -1115,7 +1115,14 @@ export function checkValueObject(vo: ValueObject, accept: ValidationAcceptor): v
     }
     if (isInvariant(m)) checkInvariant(m, envForValueObject(vo), accept);
     if (isProperty(m) && m.check) checkPropertyCheck(m, envForValueObject(vo), accept);
-    if (isProperty(m) && m.maskUnless) checkPropertyMask(m, envForValueObject(vo), accept);
+    if (isProperty(m) && m.maskUnless) {
+      checkPropertyMask(m, envForValueObject(vo), accept);
+      accept(
+        "error",
+        diagMessage("loom.field-mask-on-value-object", { vo: vo.name, field: m.name }),
+        { node: m, property: "maskUnless", code: "loom.field-mask-on-value-object" },
+      );
+    }
     if (isDerivedProp(m)) {
       checkDerived(m, envForValueObject(vo), accept);
       if (m.name === "display" || m.name === "inspect") {

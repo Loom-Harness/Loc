@@ -1186,6 +1186,40 @@ npx playwright install --with-deps chromium
 npx playwright test
 ```
 
+### Security response headers
+
+Every generated backend puts the same baseline headers on every response —
+API answers, problem documents, health probes, the OpenAPI document, Swagger
+UI, LiveView pages and an embedded SPA alike:
+
+| Header | Value |
+| ------ | ----- |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| `Strict-Transport-Security` | `max-age=31536000` — only while `LOOM_SECURE_TRANSPORT` is on |
+
+Each backend sets them through its own idiom: hono's `secureHeaders`
+middleware, an ASP.NET `Response.OnStarting` middleware, a Spring servlet
+filter, a pure-ASGI Starlette middleware, and a Phoenix endpoint plug (whose
+`before_send` values also win over the `:browser` pipeline's
+`put_secure_browser_headers` defaults). No `Content-Security-Policy` is sent:
+Swagger UI, LiveView and the embedded SPAs load inline scripts and styles a
+strict policy would block.
+
+`LOOM_SECURE_TRANSPORT` is the deploy flag that says the service is reached
+over TLS (directly or behind a TLS-terminating proxy). It is on unless set to
+`false`, `0`, `off` or `no`; it also gates the `Secure` attribute on the OIDC
+cookies ([`auth.md`](auth.md)). The generated `docker-compose.yml` serves
+plain http on localhost and sets it `false`; the k8s chart and a bare
+`docker run` keep the default. HSTS received over plain http is ignored by
+browsers (RFC 6797 §8.1), so the default is harmless on an http listener.
+
+Every backend image also runs its process as a non-root user (by numeric uid,
+so a k8s `runAsNonRoot` check can verify it); `data/` under the app directory —
+where local object-store resources write by default — is owned by that user.
+
 ### Proxy CAs (sandboxed builds)
 
 Each generated deployable contains an empty `certs/` directory (with a

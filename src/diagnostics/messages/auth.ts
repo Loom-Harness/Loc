@@ -339,6 +339,17 @@ export const messages = {
     `deployable hosts this context, so read-mask redaction is not emitted and the field would ` +
     `ship unredacted. Host the context on a backend deployable, or drop the \`mask unless\` ` +
     `clause (authorization.md §5).`,
+  "loom.field-mask-on-part": (p: { part: unknown; derived: unknown; field: unknown }) =>
+    `entity part '${p.part}' derived '${p.derived}' reads '${p.field}', a \`mask unless\` ` +
+    `member of another contained part — a part's projection redacts only its own members, so ` +
+    `this value would ship unredacted. Compute it on the aggregate root (a root \`derived\` ` +
+    `inherits the mask of every part member it reads), or on the part that owns the field.`,
+  "loom.field-mask-on-value-object": (p: { vo: unknown; field: unknown }) =>
+    `value object '${p.vo}' field '${p.field}' declares \`mask unless\`, but a value object ` +
+    `has no read boundary of its own — the same value travels in events, command inputs, ` +
+    `payloads and every aggregate that holds it, so no serializer could apply the mask ` +
+    `everywhere it goes. Mask the aggregate or entity field that holds the value object ` +
+    `instead (\`address: ${p.vo} mask unless …\`).`,
   "loom.field-mask-event-channel": (p: { event: unknown; channel: unknown; field: unknown }) =>
     `event '${p.event}' carries the \`mask unless\` field '${p.field}' and is published on ` +
     `channel '${p.channel}' — a channel message is delivered to every subscriber unredacted (no ` +
