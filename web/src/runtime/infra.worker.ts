@@ -1,11 +1,13 @@
 /// <reference lib="webworker" />
 // The playground's shared infrastructure — what `docker-compose.yml` runs
-// beside the application services.  Today: one database per `storage`, each in
-// its own storage host worker (`storage-host.worker.ts`).  Broker state and the
-// resource fakes join here as further `service`s of the same protocol.
+// beside the application services: one database per `storage`, each in its
+// own storage host worker (`storage-host.worker.ts`), and the services of
+// `infra/services.ts`.
 //
 // Deployable workers hold no infrastructure state: they reach a storage
-// through the `channel` its `open` returns.  See `infra-protocol.ts`.
+// through the `channel` its `open` returns, and every other service through
+// their `InfraPort` — the `MessagePort` the `connect` op hands over (routing:
+// `infra/router.ts`).  See `infra-protocol.ts`.
 
 import type {
   HostControl,
@@ -15,10 +17,11 @@ import type {
   HostResponse,
   InfraProgress,
   InfraRequest,
-  InfraResponse,
   StorageOp,
   StorageOpenResult,
 } from "./infra-protocol.js";
+import { InfraRouter } from "./infra/router.js";
+import { createServices } from "./infra/services.js";
 import { errText } from "./migrate.js";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -105,7 +108,7 @@ function host(key: string): StorageHost {
   return h;
 }
 
-async function storage(req: StorageOp): Promise<InfraResponse["result"]> {
+async function storage(req: StorageOp): Promise<unknown> {
   switch (req.op) {
     case "open": {
       const { key, dataDir, fresh } = req.params;
@@ -143,19 +146,13 @@ async function storage(req: StorageOp): Promise<InfraResponse["result"]> {
   }
 }
 
-self.onmessage = async (ev: MessageEvent<InfraRequest>) => {
-  const req = ev.data;
-  const response: InfraResponse = { id: req.id };
-  try {
-    if (req.service === "storage") {
-      response.result = await storage(req);
-    } else if (req.op === "reset") {
-      await Promise.all([...storages.values()].map((h) => h.close()));
-      storages.clear();
-      response.result = { ok: true };
-    }
-  } catch (err) {
-    response.error = { message: errText(err) };
-  }
-  self.postMessage(response);
-};
+const router = new InfraRouter({
+  createServices,
+  storage,
+  async closeStorages() {
+    await Promise.all([...storages.values()].map((h) => h.close()));
+    storages.clear();
+  },
+});
+
+self.onmessage = (ev: MessageEvent<InfraRequest>) => void router.serve(ev.data, null, ev.ports, self);

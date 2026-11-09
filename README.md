@@ -55,10 +55,39 @@ everything turns into a check mark:
 
 Full feature-by-feature comparison: <https://loom-harness.github.io/Loc/#compare>.
 
+## Quickstart
+
+You need **Node 22.12+** and **Docker** (with `docker compose`).
+
+```bash
+git clone https://github.com/Loom-Harness/Loc.git && cd Loc
+npm install                                   # also builds the CLI (the `prepare` script)
+node bin/cli.js new demo --platform node      # writes ./demo/main.ddd + a README with run steps
+cd demo
+node ../bin/cli.js generate system main.ddd -o .
+docker compose up --build
+```
+
+Open <http://localhost:3001> for the generated React UI (the API is on
+<http://localhost:3000>, its surface at `/openapi.json`).  `--platform`
+takes `node`, `dotnet`, `elixir`, `java` or `python`; `--template blank`
+starts from an empty system instead of the CRUD starter.  Behind a
+TLS-intercepting proxy, the generated Dockerfiles need its CA first &mdash;
+see [Proxy CAs](docs/tools.md#proxy-cas-sandboxed-builds).
+
+**There is no global `ddd` on your PATH after this** — `npm install` in a
+clone does not link the bin.  Every command below is spelled
+`node bin/cli.js <args>` from the repo root; `npx ddd <args>` works too,
+but only inside the clone &mdash; anywhere else it fetches an unrelated npm
+package named `ddd` (Loom is not published to npm).  Add
+`alias ddd='node "$PWD/bin/cli.js"'` if you want the short form in a shell
+session.
+
 ## Quick example
 
 A complete `.ddd` source &mdash; domain, deployables across three
-runtimes, an end-to-end test:
+runtimes, an end-to-end test.  It ships as
+[`examples/quickstart.ddd`](examples/quickstart.ddd):
 
 ```ddd
 system Acme {
@@ -158,10 +187,14 @@ system Acme {
 }
 ```
 
-`node bin/cli.js generate system acme.ddd -o ./out` → runnable
-multi-project tree + `docker-compose.yml` + healthchecks + generated
-migrations + e2e suite.  `docker compose up -d` → everything running on
-ports 3000 / 8080 / 4000 / 3001.
+```bash
+node bin/cli.js generate system examples/quickstart.ddd -o ./out
+cd out && docker compose up -d --build
+```
+
+The first command writes a runnable multi-project tree +
+`docker-compose.yml` + healthchecks + generated migrations + e2e suite;
+the second starts everything on ports 3000 / 8080 / 4000 / 3001.
 
 **Every REST route the backends serve is mounted under `/api`**, named by
 the aggregate's snake_cased plural — so it is
@@ -169,27 +202,10 @@ the aggregate's snake_cased plural — so it is
 `/orders`.  The full surface of a generated backend is always its own
 `GET /openapi.json`.
 
-## Install
-
-```bash
-npm install
-npm run langium:generate    # generate the parser from src/language/ddd.langium
-npm run build               # tsc -b
-```
-
-Requires Node 20+.
-
-**There is no global `ddd` on your PATH after this** — `npm install` in a
-clone does not link the bin.  Every command below is spelled
-`node bin/cli.js <args>` from the repo root; `npx ddd <args>` works too,
-but only inside the clone &mdash; anywhere else it fetches an unrelated npm
-package named `ddd` (Loom is not published to npm).  Add
-`alias ddd='node "$PWD/bin/cli.js"'` if you want the short form in a shell
-session.
-
 ## CLI
 
 ```bash
+node bin/cli.js new <name> [--platform node|dotnet|elixir|java|python] [--template blank|crud]  # scaffold a starter project
 node bin/cli.js parse <file.ddd>                       # parse + validate, exit non-zero on errors
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
@@ -374,7 +390,41 @@ Plus [`experience_gathered.md`](experience_gathered.md) &mdash; running
 retrospective of design choices and gotchas; worth reading before
 non-trivial changes.
 
-## Status
+## Maturity & known limitations
+
+Loom is **pre-1.0** (`0.1.0`), not yet published to npm.  Read this before
+adopting it:
+
+- **The language is still moving.** Surface syntax changes between
+  releases (removed clauses stop parsing; codemods and diagnostics name
+  the replacement), and parts of it are being redesigned &mdash; see the
+  [`vision`](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Avision) issues.
+- **A valid model is not yet a guarantee of valid output.** `ddd parse`
+  catches what the validators know about, but a model can still be
+  misgenerated on some targets.  Treat `generate` **plus the target
+  toolchain's own build** (and the generated e2e suite) as the real gate.
+- **Targets are not equally mature.** The Hono (`node`) backend with the
+  React frontend is the most-exercised path.  Compare open bugs per
+  target: [node](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Anode) ·
+  [dotnet](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Adotnet) ·
+  [elixir](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Aelixir) ·
+  [java](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Ajava) ·
+  [python](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Apython) ·
+  [frontend](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug+label%3Aarea%3Afrontend).
+- **Open defects in generated code** are tracked, not hidden:
+  [`security`](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity) ·
+  [`P0`](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3AP0) ·
+  [all open bugs](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Abug).
+- **The escape hatch is narrow.** An [`extern`](docs/extern.md) hook
+  reaches its aggregate's own state, but gets no database, unit-of-work
+  or principal context and no channel to inject your own services;
+  anything richer means pinning hand-written files in `.loomignore`
+  (see [the customization gradient](docs/customization-gradient.md)).
+
+These links are live queries &mdash; status lives on the issues, not in
+this file.
+
+## Test suite
 
 - **1,300+ test files / 9,000+ tests** cover parsing, validation, all
   five backends and six frontends, the system orchestrator, the CLI,

@@ -1,177 +1,247 @@
 # Demo: Acme — product catalog + sales orders, end to end
 
-Five-minute tour of what Loom can do.  The source is
-[`acme.ddd`](acme.ddd) — 158 lines that produce a multi-deployable
-system with .NET + Hono backends, a React frontend, a docker-compose
-stack, DSL-level e2e tests, and Playwright UI specs.
+A short tour of what Loom does with one model.  The source is
+[`acme.ddd`](acme.ddd): three subdomains, four deployables on three
+platforms (.NET, Hono, React), a docker-compose stack, DSL-level e2e
+tests, Playwright UI specs and requirement traceability.
 
-## 60-second tour
+## The tour
+
+Run these from the repository root after the README's
+[Quickstart](../README.md#quickstart) setup (`npm install`):
 
 ```sh
-# Build Loom + generate the Acme system into /tmp/acme.
-npm install
-npm run build
-node bin/cli.js generate system examples/acme.ddd -o /tmp/acme
+# Generate the Acme system into ./acme-out.
+node bin/cli.js generate system examples/acme.ddd -o ./acme-out
 
-# Bring it up.  First boot ~90s for image builds; second ~10s.
-cd /tmp/acme
-docker compose up -d --wait
+# Bring it up.  The first boot builds every image and takes a few minutes.
+cd acme-out
+docker compose up -d --build --wait
 
-# Hit the API.
-curl -X POST http://localhost:8080/products \
+# Hit the .NET API.  Every route is under /api.
+curl -X POST http://localhost:8080/api/products \
     -H 'Content-Type: application/json' \
     -d '{"sku":"WIDGET-1","price":{"amount":9.99,"currency":"USD"}}'
+curl http://localhost:8080/api/products
 
-# Open the React frontend.
-open http://localhost:3001
+# The React frontend.
+open http://localhost:3001     # or xdg-open, or just paste it in a browser
 ```
 
-That's it.  No hand-written controllers, no migrations, no Mantine
-forms.  The .ddd source is the single source of truth.
+No hand-written controllers, migrations or forms: the `.ddd` source is the
+single source of truth.  Each backend's full surface is `GET /openapi.json`.
 
 ## What's in the source
 
-`acme.ddd` declares a `system` with two **modules**, four
-**deployables**, and a handful of **e2e tests**.  Each part of the
-file maps to something concrete in the output:
+`acme.ddd` declares one `system` with three **subdomains** (`Catalog`,
+`Sales`, `CustomerMgmt`), each holding one bounded **context**, plus the
+`api`s, `storage`, `resource`s and **deployables** that ship them.
 
-### Module: Catalog
+### Catalog — a value object and an aggregate
 
 ```ddd
-valueobject Money {
-    amount: decimal
-    currency: string
-    invariant amount >= 0
-    invariant currency.length == 3
-}
+context Products {
 
-aggregate Product {
-    sku: string
-    price: Money
-    invariant sku.length > 0
-}
+    valueobject Money {
+        amount: decimal
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+    }
 
-repository Products for Product { }
-criterion ProductsBySku(sku: string) of Product = this.sku == sku
+    aggregate Product with crudish {
+        sku: string
+        price: Money
+        invariant sku.length > 0
+        derived display: string = sku
+    }
+
+    repository Products for Product { }
+    criterion ProductsBySku(sku: string) of Product = this.sku == sku
+}
 ```
 
-What you get from these 13 lines:
+What you get, on the Hono deployable (`catalog_web/`):
 
-| File (TS, Hono backend) | Role |
+| File | Role |
 | --- | --- |
-| `domain/value-objects.ts` | `Money` class with constructor-checked invariants |
-| `domain/product.ts` | `Product` class with private setters + `Product.create({sku, price})` factory |
-| `domain/ids.ts` | Branded `ProductId` type + `newProductId()` smart constructor |
-| `db/schema.ts` | Drizzle `pgTable` with `id`, `sku`, `price_amount`, `price_currency` columns |
-| `db/repositories/product-repository.ts` | `findById`, `findBySku`, `save`, `findAll` (the auto-included `all`) |
-| `http/product.routes.ts` | OpenAPI-typed `POST /products`, `GET /products/:id`, `GET /products/by_sku?sku=…` |
+| `domain/value-objects.ts` | `Money` with constructor-checked invariants |
+| `domain/product.ts` | `Product` with private setters and a `create` factory |
+| `domain/ids.ts` | Branded `ProductId` |
+| `db/schema.ts` | Drizzle table: `id`, `sku`, `price_amount`, `price_currency` |
+| `db/repositories/` | `findById`, `save`, `findAll`, … |
+| `http/product.routes.ts` | OpenAPI-typed `POST /api/products`, `GET /api/products`, `GET /api/products/{id}`, plus the `crudish` update and destroy routes |
 
-The .NET deployable produces the same wire shape against EF Core +
-ASP.NET + Mediator command/query handlers.
+`with crudish` is a macro that adds the create / update / destroy
+lifecycle.  The .NET deployables produce the same wire shape on EF Core,
+ASP.NET controllers and Mediator command/query handlers.
 
-### Module: Sales
+### Sales — parts, operations, events, a query and a workflow
 
 ```ddd
-enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
+context Orders {
 
-event OrderConfirmed { order: Id<Order>, at: datetime }
+    enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
 
-aggregate Order {
-    customerId: string
-    status: OrderStatus
-    placedAt: datetime
-    contains lines: OrderLine[]
+    event OrderConfirmed { order: Order id, at: datetime }
 
-    invariant lines.count > 0 when status == Confirmed
+    aggregate Order with crudish {
+        customerId: string
+        status: OrderStatus
+        placedAt: datetime
+        contains lines: OrderLine[]
 
-    function isMutable(): bool = status == Draft
+        invariant lines.count > 0 when status == Confirmed
 
-    operation addLine(productId: Id<Product>, qty: int) {
-        precondition isMutable()
-        precondition qty > 0
-        lines += new OrderLine {
-            productId: productId, quantity: qty
+        function isMutable(): bool = status == Draft
+
+        operation addLine(productId: Product id, qty: int) {
+            precondition isMutable()
+            precondition qty > 0
+            lines += OrderLine {
+                productId: productId, quantity: qty
+            }
+        }
+
+        operation confirm() {
+            precondition isMutable()
+            precondition lines.count > 0
+            status := Confirmed
+            emit OrderConfirmed { order: id, at: now() }
+        }
+
+        entity OrderLine {
+            productId: Product id
+            quantity: int
+            invariant quantity > 0
         }
     }
 
-    operation confirm() {
-        precondition isMutable()
-        precondition lines.count > 0
-        status := Confirmed
-        emit OrderConfirmed { order: id, at: now() }
+    repository Orders for Order { }
+    criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
+    queryHandler ListOrdersByCustomer(customerId: string): Order[] {
+      let r = Orders.all(OrdersByCustomer(customerId))
+      return r
     }
 
-    entity OrderLine {
-        productId: Id<Product>
-        quantity: int
-        invariant quantity > 0
+    workflow placeOrder {
+      create(customerId: string, productId: Product id, quantity: int) {
+        precondition quantity > 0
+          let order = Order.create(
+              customerId: customerId,
+              status: Draft,
+              placedAt: now()
+          )
+          order.addLine(productId, quantity)
+      }
     }
 }
 ```
 
 Highlights:
 
-- **`contains lines: OrderLine[]`** introduces an entity-part.  Loom
-  generates the parent FK, the join, the upsert in `save`, and the
-  whole-tree load in `findById` — no `OrderLineId` plumbing in the
-  source.
-- **Invariants** check at every state transition.  The
-  `lines.count > 0 when status == Confirmed` guard runs on every
-  mutator; violations throw `DomainException` (mapped to HTTP 400).
-- **`function`** is pure — usable from invariants, derived, other
-  operations.
-- **`operation`** is the only thing that mutates state.  Each one
-  becomes a `POST /orders/:id/<op>` endpoint with a Zod-validated
-  request body.
-- **`emit`** populates a `_domainEvents` list drained by the
-  repository on `save` and dispatched to a configurable bus.
+- **`contains lines: OrderLine[]`** declares an entity part.  Loom
+  generates the parent foreign key, the upsert in `save` and the
+  whole-tree load in `findById`.
+- **Invariants** are checked after every mutation.  A failed invariant
+  or `precondition` is a domain error, answered with HTTP 422.
+- **`function`** is pure: usable from invariants, derived fields and
+  other operations.
+- **`operation`** is what mutates state.  Each one becomes
+  `POST /api/orders/{id}/<op>` (`/api/orders/{id}/add_line`,
+  `/api/orders/{id}/confirm`) with a validated request body.
+- **`emit`** records a domain event that is dispatched when the
+  aggregate is saved.
+- **`queryHandler`** is a named read; the `SalesApi` contract routes it
+  as `GET /api/orders/by_customer/{customerId}`.
+- **`workflow`** orchestrates several steps in one transaction and is
+  served as `POST /api/workflows/place_order`; the frontend gets a page
+  for it.
 
 ### Cross-aggregate references — by id only
 
+Aggregates reference each other by id: `productId: Product id` is a
+typed foreign key.  Writing `productId: Product` instead is rejected
+(`loom.bare-aggregate-in-type`).  This is the DDD rule "aggregates
+compose by id, not by reference", enforced by the validator.
+
+### CustomerMgmt — validation rules at every layer
+
+The `Customer` aggregate shows the wire-boundary validation: a `check`
+on a property (`age: int check age >= 18 && age <= 150`) or an
+`invariant` is enforced in the React form, at the backend route, and in
+the domain model.  A `private invariant` stays out of the wire layers
+and is enforced only in the domain.  The comments in `acme.ddd` walk
+through each rule.
+
+### Deployables — one source, three runtimes
+
 ```ddd
-entity OrderLine {
-    productId: Id<Product>   // not `product: Product`
-    quantity: int
+api CatalogApi      from Catalog
+api SalesApi        from Sales {
+  route GET "/orders/by_customer/{customerId}" -> Orders.ListOrdersByCustomer
+}
+api CustomerMgmtApi from CustomerMgmt
+
+storage primarySql { type: postgres }
+resource productsState  { for: Products, kind: state, use: primarySql }
+resource ordersState    { for: Orders, kind: state, use: primarySql }
+resource customersState { for: Customers, kind: state, use: primarySql }
+
+deployable api {
+    platform: dotnet
+    contexts: [Products, Orders, Customers]
+    dataSources: [productsState, ordersState, customersState]
+    serves: CatalogApi, SalesApi, CustomerMgmtApi
+    port: 8080
+}
+
+deployable catalogWeb {
+    platform: node
+    contexts: [Products, Customers]
+    dataSources: [productsState, customersState]
+    serves: CatalogApi, CustomerMgmtApi
+    port: 3000
+}
+
+deployable catalogApi {
+    platform: dotnet
+    contexts: [Products, Customers]
+    dataSources: [productsState, customersState]
+    serves: CatalogApi, CustomerMgmtApi
+    port: 8081
+}
+
+deployable webApp {
+    platform: static
+    targets: api
+    ui: WebApp { Catalog: api, Sales: api, CustomerMgmt: api }
+    port: 3001
 }
 ```
 
-Aggregates only reference each other by id.  The DSL enforces this:
-write `Id<Product>` and you get a typed FK; write `Product` and the
-validator stops you.  This is the DDD invariant ("aggregates compose
-by id, not by reference") baked into the grammar.
+One `docker-compose.yml` wires the four projects to a shared Postgres
+(`8080`, `3000`, `8081` and `3001` on the host).  Three things to notice:
 
-### Deployables — one source, three runtime shapes
-
-```ddd
-deployable api          { platform: dotnet, modules: Catalog, Sales, port: 8080 }
-deployable catalogApi   { platform: dotnet, modules: Catalog,         port: 8081 }
-deployable catalogWeb   { platform: node,   modules: Catalog,         port: 3000 }
-deployable webApp       { platform: react,  targets: api,             port: 3001 }
-```
-
-Three platforms, four projects, one `docker-compose.yml` that wires
-them together with a shared postgres.  Three notable wrinkles:
-
-1. **`api` and `catalogApi` are both .NET, but with different module
-   sets.**  Loom's per-deployable module restriction means `api`
-   compiles in `Sales.OrderConfirmed` while `catalogApi` doesn't —
-   the same `.ddd` source produces different binaries by slicing.
+1. **`api` and `catalogApi` are both .NET, with different `contexts:`.**
+   Each deployable compiles only the contexts it lists, so the same
+   source produces different binaries.
 2. **`catalogApi` (.NET) and `catalogWeb` (Hono) serve the same
-   bounded context on different runtimes.**  Loom's
-   `<outdir>/.loom/wire-spec.json` artifact + the cross-platform
-   contract check in CI guarantee both backends emit identical wire
-   shapes.
-3. **`webApp` declares `targets: api`** — it inherits its module
-   set from the backend it talks to.  Pages, hooks, and types
-   (Zod schemas + page objects) cover Catalog *and* Sales because
-   `api` does.
+   contracts on different runtimes.**  The `.loom/wire-spec.json`
+   artifact and the cross-platform OpenAPI check in CI keep their wire
+   shapes identical.
+3. **`webApp` targets `api`** and binds each of the `WebApp` ui's api
+   parameters to it.  `platform: static` builds the ui's framework
+   (React with Mantine by default) into a static bundle; the
+   `scaffold(subdomains: …)` macro on `ui WebApp` generates its list,
+   detail and form pages.
 
 ## Tests — declared in `.ddd`, run against the live stack
 
 ```ddd
 test e2e "create then confirm an order with one line" against api {
-    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.0, currency: "USD" } })
-    let ord  = api.orders.create({ customerId: "cust-001", status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
+    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" } })
+    let ord = api.orders.create({ customerId: "cust-001", status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
     api.orders.addLine(ord, { productId: prod.id, qty: 3 })
     api.orders.confirm(ord)
     let read = api.orders.getById(ord)
@@ -180,140 +250,113 @@ test e2e "create then confirm an order with one line" against api {
 }
 ```
 
-This lowers to a vitest spec at `e2e/Acme.e2e.test.ts` that talks
-HTTP+JSON to the `api` deployable.  The magic identifier `api`
-resolves to whichever deployable the test is `against`; method calls
-on `api.<aggregate>.<verb>(...)` lower to typed `fetch` calls keyed
-off the same Zod schemas the backend emits.
+The tests sit in `system Acme`, next to the deployables they target.
+This one lowers to
+a vitest spec, `e2e/Acme.e2e.test.ts`, that talks HTTP+JSON to the `api`
+deployable.  `api.<aggregate>.<verb>(…)` lowers to typed `fetch` calls
+built from the same schemas the backend emits.
 
-UI tests targeting the `webApp` deployable lower to Playwright via
-auto-generated page objects:
+A test whose target is the frontend deployable lowers to Playwright
+through generated page objects instead:
 
 ```ddd
 test e2e "create then confirm an order via UI" against webApp {
     let prod = ui.products.create({ sku: "WIDGET-UI-1", price: { amount: 5.0, currency: "USD" } })
-    let ord  = ui.orders.create({ customerId: "cust-ui", status: "Draft", placedAt: "2024-01-01T00:00" })
+    let ord = ui.orders.create({ customerId: "cust-ui", status: "Draft", placedAt: "2024-01-01T00:00" })
     ui.orders.addLine(ord, { productId: prod.id, qty: 3 })
     ui.orders.confirm(ord)
     let read = ui.orders.getById(ord)
-    expect(read.status).toBe("Confirmed")
-    expect(read.lines.length).toBe(1)
+    expect(read.status).toHaveText("Confirmed")
+    expect(read.lines).toHaveCount(1)
 }
 ```
 
-Becomes `web_app/e2e/Acme.ui.spec.ts`.  No selectors, no waits,
-no fixture juggling — `ui.<aggregate>` resolves to a generated page
-object with type-safe `.fill(...)` / `.submit()` / `.expect*(...)`
-methods.
+It becomes `web_app/e2e/Acme.ui.spec.ts`: no selectors and no waits,
+because `ui.<aggregate>` resolves to a generated page object.
+
+Unit tests can sit on the aggregate itself (`test "confirming an order
+with no lines is rejected" … { … }` inside `Order`), and the
+`requirement` / `solution` / `testCase` blocks at the top and bottom of
+`acme.ddd` link every test back to a user story — see
+[`docs/traceability.md`](../docs/traceability.md).
 
 ## Try the inner loop
 
-Edit `examples/acme.ddd` and re-generate with `--watch`:
+Edit `examples/acme.ddd` and regenerate on every save:
 
 ```sh
-node bin/cli.js generate system examples/acme.ddd -o /tmp/acme --watch
-# > Watching examples/acme.ddd for changes…
-# (edit acme.ddd: rename a property, save)
-# > Wrote 16 file(s) in /tmp/acme, unchanged: 116
-# (edit acme.ddd: only fix a comment, save)
-# > Wrote 0 file(s) in /tmp/acme, unchanged: 132
+node bin/cli.js generate system examples/acme.ddd -o ./acme-out --watch
 ```
 
-Loom diffs every generated file against what's already on disk and
-only rewrites the ones that *actually* changed.  Vite + `dotnet
-watch` running in the compose stack see only the mtimes that
-moved and reload precisely those modules — typically <1s from save
-to "the page reflects your edit".
+Loom compares every generated file with what is already on disk and
+rewrites only the ones that changed, so the summary after a small edit
+lists a handful of written files and the rest `unchanged`.  If an edit
+does not parse, the watch loop prints the error and keeps watching;
+fix it, save again, and generation resumes.
 
-If your edit fails to parse, the watch loop reports the error and
-keeps watching:
+## Editor support
 
-```
-> Watching examples/acme.ddd for changes…
-examples/acme.ddd:42:13 error: Could not resolve reference to NamedDecl named 'Producrt'.
-1 error(s), 0 warning(s).
-> Watching examples/acme.ddd for changes…
-```
-
-Fix the typo, save again, and Loom regenerates from the next
-successful parse.
-
-## VS Code experience
-
-Install the [`vscode/`](../vscode/) extension and open `acme.ddd`
-in VS Code:
-
-- **Hover** any reference (`Id<Product>`, `OrderLine`, `Money`,
-  `OrderStatus.Confirmed`) to see its inferred type.
-- **Cmd+click** any cross-reference or member access (`order.lines`)
-  to jump to its declaration.
-- **Type `.`** on a typed receiver to see its members.  Try it on
-  `this.lines.` inside an Order operation — you'll see `count`,
-  `sum`, `all`, `any`, `where`, `first`, `firstOrNull`.
-- **Cmd+T** finds aggregates / parts / value objects / enums across
-  every `.ddd` file in the workspace.
-- **Cmd+Shift+P → "Loom: Generate from current file"** runs the CLI
-  against the current `.ddd` source.
+Install the [`vscode/`](../vscode/) extension and open `acme.ddd`:
+hover a reference (`Product id`, `OrderLine`, `Money`) for its type,
+Cmd/Ctrl+click to jump to a declaration, type `.` after a typed
+receiver (`this.lines.`) for its members, and use Cmd/Ctrl+T to find
+declarations across the workspace.
 
 ## What the generated tree looks like
 
 ```
-/tmp/acme/
-├── docker-compose.yml          # 4 services + postgres + db-init
-├── db-init/00-create-databases.sql
-├── .loom/wire-spec.json        # diffable wire contract
+acme-out/
+├── docker-compose.yml          # db + 4 services (+ docker-compose.obs.yml)
+├── db-init/                    # one database per backend
+├── .loom/                      # wire-spec.json, diagrams, traceability
 │
-├── api/                        # .NET — full module set
-│   ├── Domain/Products/        # Product aggregate, ProductId, Money
-│   ├── Domain/Orders/          # Order, OrderLine, OrderConfirmed event
-│   ├── Application/            # Mediator commands + handlers
+├── api/                        # .NET — all three contexts
+│   ├── Domain/                 # aggregates, ids, value objects, events
+│   ├── Application/            # Mediator commands, queries, workflows
 │   ├── Infrastructure/         # EF DbContext, repositories
 │   ├── Api/                    # ASP.NET controllers
-│   ├── Program.cs              # DI + hosting
+│   ├── Migrations/
+│   ├── Program.cs
 │   └── Api.csproj
 │
-├── catalog_api/                # .NET — Catalog only
-├── catalog_web/                # Hono — Catalog only (TS+Drizzle)
+├── catalog_api/                # .NET — Products + Customers
+├── catalog_web/                # Hono — Products + Customers (TS + Drizzle)
 │
-├── web_app/                    # React + Vite + RQ + Mantine
-│   ├── src/api/                # generated hooks + Zod schemas
-│   ├── src/pages/              # one page per aggregate
+├── web_app/                    # React + Vite + React Query + Mantine
+│   ├── src/api/                # generated hooks + schemas
+│   ├── src/pages/              # list / detail / form pages
 │   ├── e2e/pages/              # Playwright page objects
-│   └── e2e/Acme.ui.spec.ts     # generated UI test
+│   └── e2e/Acme.ui.spec.ts     # the UI tests
 │
 └── e2e/                        # vitest e2e against the API
     └── Acme.e2e.test.ts
 ```
 
-132 files, zero hand-written.
+About 300 files, none hand-written.
 
 ## Pinning customizations: `.loomignore`
 
-When you do hand-edit a generated file, list it in `.loomignore`
-(gitignore syntax) at the system root and Loom won't overwrite it on
-the next regen.  Example:
+When you hand-edit a generated file, list it in `.loomignore`
+(gitignore syntax) in the output directory and Loom leaves it alone on
+the next regeneration:
 
 ```
 api/Program.cs           # custom DI
 web_app/src/pages/       # bespoke page layouts
 ```
 
-Anything matching the patterns is reported as `skipped (.loomignore)`
-in the regen summary.
+The regeneration summary reports those files as skipped.
 
 ## Going further
 
-- [`docs/language.md`](../docs/language.md) — formal grammar
-  reference.
-- [`docs/generators.md`](../docs/generators.md) — per-platform
-  feature matrix.
-- [`docs/technical.md`](../docs/technical.md) — pipeline architecture
-  (parse → IR → enrichment → generation → write).
-- [`docs/tools.md`](../docs/tools.md) — CLI deep-dive: `.loomignore`,
-  watch mode, migration workflow, OpenAPI cross-check, Playwright
-  setup, proxy CAs.
-- Other examples:
-  [`sales.ddd`](sales.ddd) (single context, every grammar
-  construct), [`banking.ddd`](banking.ddd) (cross-aggregate
-  references with richer `where` filters), [`inventory.ddd`](inventory.ddd)
-  (smallest valid system).
+- [`docs/language.md`](../docs/language.md) — the language reference.
+- [`docs/generators.md`](../docs/generators.md) — what each backend and
+  frontend emits.
+- [`docs/customization-gradient.md`](../docs/customization-gradient.md)
+  — from scaffolded pages to hand-written ones.
+- [`docs/tools.md`](../docs/tools.md) — the CLI: `.loomignore`, watch
+  mode, migrations, the OpenAPI cross-check, proxy CAs.
+- Other examples: [`sales.ddd`](sales.ddd) (one context, the DDD
+  basics), [`banking.ddd`](banking.ddd) (cross-aggregate references with
+  richer `where` filters), [`inventory.ddd`](inventory.ddd) (nested
+  parts).

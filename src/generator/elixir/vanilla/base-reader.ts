@@ -42,6 +42,14 @@ function concretesOf(base: AggregateIR, ctx: BoundedContextIR): AggregateIR[] {
     : tpcConcretesOf(base, ctx.aggregates);
 }
 
+/** Does `base`'s polymorphic reader answer any concrete row?  A shared-table
+ *  base whose only subtypes keep their own table (a `shape: document` subtype
+ *  cannot share one) has none: its reader is empty, and a controller over it
+ *  would have no `serialize/1` clause to project a row through. */
+export function hasPolymorphicConcretes(base: AggregateIR, ctx: BoundedContextIR): boolean {
+  return concretesOf(base, ctx).length > 0;
+}
+
 /** True when `base`'s polymorphic read is routed (`GET /<bases>`, and on TPH
  *  `GET /<bases>/{id}`).
  *

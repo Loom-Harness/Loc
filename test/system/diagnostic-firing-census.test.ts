@@ -554,6 +554,46 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An event reactor calls an api whose server requires auth: it has no
+  // caller credential to forward.
+  "loom.api-call-principal-unsupported": `
+system S {
+  user { id: string  tenantId: string }
+  subdomain Net { context Orgs { aggregate Org with crudish { name: string }  repository Orgs for Org { } } }
+  subdomain Shop { context Sales {
+    aggregate Sale with crudish { label: string }
+    repository Sales for Sale { }
+    event Poked { org: Org id, at: datetime }
+    workflow onPoke { org: Org id  create(p: Poked) by p.org { let o = orgs.getOrgById(p.org) } } } }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource saleState { for: Sales, kind: state, use: pg }
+  resource orgs { for: Sales, kind: api, use: NetApi }
+  deployable netSvc { platform: python contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
+  deployable shopSvc { platform: node contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required port: 3001 }
+}`,
+  // A tenant-owned context on a deployable that does not host the hierarchy
+  // registry: its database has no registry table to resolve `orgPath` from.
+  "loom.tenancy-registry-remote-unsupported": `
+system H {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Net { context Orgs {
+    aggregate Org with crudish { name: string  implements tenantRegistry }
+    repository Orgs for Org { } } }
+  subdomain Shop { context Sales {
+    aggregate Sale with tenantOwned, crudish { label: string }
+    repository Sales for Sale { } } }
+  api NetApi from Net
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource orgState { for: Orgs, kind: state, use: pg }
+  resource saleState { for: Sales, kind: state, use: pg }
+  deployable netSvc { platform: node contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
+  deployable shopSvc { platform: python contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
+}`,
   // A masked value emitted on an event a channel publishes: every subscriber
   // would receive it in the clear.
   "loom.field-mask-event-channel": `

@@ -1662,6 +1662,75 @@ with :ok <- audience_configured(),
 (`if (AUDIENCE == null || AUDIENCE.isEmpty()) { …; return null; }`) put the same
 guard ahead of token validation.
 
+## Calling an api that requires auth
+
+A typed call to an api served by another deployable carries the **caller's own
+credential**. When the callee declares `auth: required`, the request that made
+the call forwards its bearer token, so the callee authenticates the same
+principal. The token comes from the `Authorization` header, or else the HttpOnly
+`session` cookie. Under the dev stub, the `x-loom-dev-claims` override is
+forwarded too. A callee without `auth: required` gets no credential.
+
+```ddd
+resource orgs { for: Sales, kind: api, use: NetApi }
+deployable netSvc  { platform: python contexts: [Orgs]  serves: NetApi  auth: required }
+deployable shopSvc { platform: node   contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required }
+```
+
+```ts
+// generated (node) — resources/api-clients.ts
+export const forwardCallerCredential = createMiddleware(async (c, next) => {
+  const headers: Record<string, string> = {};
+  const authorization = c.req.header("authorization");
+  const session = authorization ? null : sessionCookie(c.req.header("cookie"));
+  if (authorization) headers.authorization = authorization;
+  else if (session) headers.authorization = `Bearer ${session}`;
+  const devClaims = c.req.header("x-loom-dev-claims");
+  if (devClaims) headers["x-loom-dev-claims"] = devClaims;
+  await callerCredential.run(headers, next);
+});
+// …
+const res = await fetch(url, {
+  method: "POST",
+  headers: { ...callerCredentialHeaders(), "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+```
+
+Each backend keeps the credential in its request-scoped carrier and copies it
+onto the call:
+
+| backend | carrier |
+|---|---|
+| node | `AsyncLocalStorage`, set by a Hono middleware |
+| python | a `ContextVar`, set by an ASGI middleware |
+| .NET | `IHttpContextAccessor` |
+| java | Spring `RequestContextHolder` |
+| elixir | the process dictionary, set by the auth plug; a LiveView reads it from the Phoenix session |
+
+**The token must pass the callee's `aud` check.** It does in compose, because
+every backend service gets the same `OIDC_AUDIENCE` (see
+[Token audience](#token-audience-aud)). If a deploy gives each service its own
+audience, a forwarded token is rejected with 401.
+
+**Forwarding is the only principal for now.** A call that has no request
+principal to forward is refused at compile time with
+`loom.api-call-principal-unsupported`:
+
+- a reactor (a workflow `on` an event, a timer tick) calling an auth-required api;
+- a deployable without `auth: required` binding an api whose server requires it.
+
+```text
+loom.api-call-principal-unsupported S/shopSvc: 'onPoke.create(p: Poked)' on deployable 'shopSvc'
+calls 'orgs', which 'netSvc' serves with 'auth: required'.  A typed call forwards the
+caller's own credential, and an event reactor (…) has none, so the call would answer 401.
+Make the call from a command workflow or handler, or drop 'auth: required' on 'netSvc'.
+A service credential for reactor callers is tracked in #4804.
+```
+
+A service credential for these callers, and how it carries tenancy and
+`causedBy`, is tracked in [#4804](https://github.com/Loom-Harness/Loc/issues/4804).
+
 ## Auth routes
 
 Every backend mounts its auth routes under the shared API base, i.e.

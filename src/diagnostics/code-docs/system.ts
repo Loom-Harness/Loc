@@ -5,6 +5,7 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
+  "loom.api-call-principal-unsupported": "../auth.md#calling-an-api-that-requires-auth",
   // --- src/language/ddd-validator.ts (M-T9.56 drain) ----------------------
   "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
 

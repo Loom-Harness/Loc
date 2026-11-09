@@ -566,8 +566,9 @@ export function buildJavaOpenApiContract(
 
   // Explicit routes.  The routes controller returns `ResponseEntity<?>`, so
   // springdoc infers neither the success body nor the error set; both are
-  // pinned: the `<Agg>Response` of a single entity return (any other return
-  // stays untyped), 204 for a void command, then the shared
+  // pinned: the `<Agg>Response` of a single entity return, the
+  // `<Agg>ListResponse` array wrapper of an entity collection (any other
+  // return stays untyped), 204 for a void command, then the shared
   // `routedErrorStatuses` set every backend publishes for the route.
   const byCtx = new Map(contexts.map((c) => [c.name, c]));
   for (const r of explicitRoutes) {
@@ -581,6 +582,7 @@ export function buildJavaOpenApiContract(
     const statuses = routedErrorStatuses(r, h, ctx);
     const ret = normalizeHandlerReturn(h.returnType, ctx);
     let successRef: string | undefined;
+    let listWrapper: string | undefined;
     const hSplit =
       !h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)
         ? pinEntrySplit(h.returnType.variants, ctx, r.method.toLowerCase(), explicitRoutePath(r))
@@ -592,16 +594,22 @@ export function buildJavaOpenApiContract(
     } else if (ret && !h.extern && !paged) {
       const info = wireTypeInfo(ret, "response");
       const owning =
-        info.refKind === "entity" && !info.isCollection
+        info.refKind === "entity"
           ? (ctx.aggregates.find((a) => a.name === info.base) ??
             ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base)))
           : undefined;
-      if (owning) successRef = `${info.base}Response`;
+      if (owning && info.isCollection) {
+        // The bare `List<…>` behind `ResponseEntity<?>` would publish as
+        // `{type: object}`; pin the same named array wrapper a list read uses.
+        listWrapper = `${info.base}ListResponse`;
+        wrappers.set(listWrapper, `${info.base}Response`);
+      } else if (owning) successRef = `${info.base}Response`;
     }
     routes.push({
       method: r.method.toLowerCase(),
       path: explicitRoutePath(r),
       ...(successRef ? { successRef } : {}),
+      ...(listWrapper ? { listWrapper } : {}),
       errors: err(statuses),
       ...(ret ? {} : { successStatus: 204 }),
     });

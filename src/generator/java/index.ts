@@ -1,3 +1,4 @@
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import {
   aggregateTableName,
   partTableName,
@@ -65,7 +66,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -1470,7 +1470,10 @@ function emitProjectFromContexts(
     // `currentUser.orgPath` reads the registry's `data_key` per request;
     // otherwise the claim-copy accessor stands.
     let orgPathRegistry: { table: string } | undefined;
-    const reg = hierarchyRegistry(system.sys);
+    const reg = hostedHierarchyRegistry(
+      system.sys,
+      contexts.map((c) => c.name),
+    );
     if (reg) {
       for (const ctx of contexts) {
         const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
