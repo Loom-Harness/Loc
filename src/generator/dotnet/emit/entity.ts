@@ -32,6 +32,7 @@ import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, factoryLocal, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
@@ -45,6 +46,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { csRuleParams } from "../wire-policy-cs.js";
 import { CS_STATE_HOLDER } from "./state-holder.js";
 
 /** One operation body's exact emitted text plus its per-statement
@@ -538,7 +540,7 @@ export function renderEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderCsExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
-          disallowedDetail(op.name, entity.name, op.whenSource),
+          disallowedDetail(op.name, entity.name),
         )});`
       : null;
   for (const op of operations) {
@@ -799,15 +801,13 @@ export function renderEntity(
   // comes from the `__op` parameter on the trace-on AssertInvariants
   // signature.
   const invariantLines = entity.invariants.flatMap((inv, i) => {
-    // Author `message "..."` becomes the domain-floor detail; else the default.
-    // A MESSAGED rule carries its wire code + pointer THROUGH the throw
-    // (M-T1.11 (c)); a message-less one keeps the text-only throw.
+    // A NAMED rule carries its wire code + pointer THROUGH the throw; an
+    // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
-    const text = JSON.stringify(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
+    const text = JSON.stringify(floorRuleText(inv));
+    const params = code ? csRuleParams(inv, (e) => renderCsExpr(e, renderCtx)) : undefined;
     const thrown = code
-      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""})`
       : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard

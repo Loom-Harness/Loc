@@ -156,7 +156,7 @@ describe("deployment.mmd", () => {
 // `wf.statements` (`repo-let` / `factory-let` / `op-call`) while the message
 // walker recurses over eleven kinds.  Every lifeline reached through
 // `repo-run`, `repo-delete`, `if-let`, a resource / domain-service call, or
-// anything nested inside a `for-each` body was messaged but never declared —
+// anything nested inside a `for-each` body was named but never declared —
 // mermaid then auto-creates it and appends it at the FAR RIGHT of the diagram,
 // which is exactly what the declaration block exists to prevent.
 //
@@ -206,14 +206,14 @@ describe("sequence.mmd participants", () => {
     const out = buildSequenceDiagram(sys);
 
     const declared = new Set([...out.matchAll(/^ {2}participant (\S+)/gm)].map((m) => m[1]!));
-    const messaged = new Set(
+    const named = new Set(
       [...out.matchAll(/^ {2}(\S+?)--?>>(\S+?):/gm)].flatMap((m) => [m[1]!, m[2]!]),
     );
 
     // Both halves of the defect: `StockItems` arrives via `repo-run`,
     // `StockItem` via an `op-call` nested in a `for-each` body.
-    expect(messaged).toContain("StockItems");
-    expect(messaged).toContain("StockItem");
-    for (const lifeline of messaged) expect([...declared]).toContain(lifeline);
+    expect(named).toContain("StockItems");
+    expect(named).toContain("StockItem");
+    for (const lifeline of named) expect([...declared]).toContain(lifeline);
   });
 });

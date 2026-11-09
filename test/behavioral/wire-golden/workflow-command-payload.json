@@ -31,10 +31,15 @@
       "path": "/api/workflows/claim_handling",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.money-grammar",
             "message": "Invalid decimal: \"1.2.3\"",
+            "params": {
+              "value": "1.2.3"
+            },
             "pointer": "/c/amount"
           }
         ],
@@ -221,6 +226,7 @@
       "path": "/api/cargos",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/cargos",
         "instance": "/api/cargos",
         "status": 405,
@@ -234,6 +240,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -247,6 +254,7 @@
       "path": "/api/cargos",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/cargos",
         "status": 400,
@@ -260,6 +268,7 @@
       "path": "/api/cargos/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Cargo {id} not found",
         "instance": "/api/cargos/{id}/update",
         "status": 404,

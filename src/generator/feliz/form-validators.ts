@@ -1,5 +1,7 @@
+import type { FieldLimitCheck } from "../../ir/enrich/wire-policy.js";
 import type { ExprIR, InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { clientLimitChecks } from "../_frontend/error-codes.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,12 @@ export interface FelizFieldRule {
   /** The inline message — rule-specific, not the flat "Required" this
    *  frontend used to be limited to. */
   message: string;
+  /** The catalog code the message renders under (a named rule's identity key,
+   *  an unnamed limit's `field.<reason>`): the view translates it with
+   *  `I18n.tf code message params` when it RENDERS. */
+  code: string;
+  /** The values the code's catalog text names (a limit's bound). */
+  params: Readonly<Record<string, number>>;
 }
 
 /** F# code-point length of a string expression.  `Seq.length` over an F#
@@ -78,71 +86,58 @@ function dec(n: number): string {
   return Number.isInteger(n) ? `${n}` : `${n}`;
 }
 
-/** Map one recognised single-field pattern onto its Feliz rule(s) — the direct
- *  twin of `validatorsForPattern` (Angular) and `chainSingleFieldNative` (zod).
- *  A `between` / length range expands to a low+high pair, mirroring the two
- *  chained zod calls. */
-function rulesForPattern(p: SingleFieldPattern, access: string): FelizFieldRule[] {
-  switch (p.kind) {
-    case "min": {
-      // `violated` is the NEGATION of the bound, so an unparseable / blank cell
-      // (which `numericGuard` answers `false` for) is never reported here.
-      const cmp = p.exclusive ? "<=" : "<";
-      const word = p.exclusive ? "greater than" : "at least";
-      return [{ violated: numericGuard(access, cmp, p.n), message: `Must be ${word} ${dec(p.n)}` }];
-    }
-    case "max": {
-      const cmp = p.exclusive ? ">=" : ">";
-      const word = p.exclusive ? "less than" : "at most";
-      return [{ violated: numericGuard(access, cmp, p.n), message: `Must be ${word} ${dec(p.n)}` }];
-    }
-    case "between":
-      return [
-        {
-          violated: `(${numericGuard(access, "<", p.lo)} || ${numericGuard(access, ">", p.hi)})`,
-          message: `Must be between ${dec(p.lo)} and ${dec(p.hi)}`,
-        },
-      ];
-    case "len-min":
-      return [
-        {
-          violated: lengthViolation(access, "<", p.n),
-          message: `Must be at least ${p.n} character${p.n === 1 ? "" : "s"}`,
-        },
-      ];
-    case "len-max":
-      return [
-        {
-          violated: lengthViolation(access, ">", p.n),
-          message: `Must be at most ${p.n} character${p.n === 1 ? "" : "s"}`,
-        },
-      ];
-    case "len-eq":
-      return [
-        {
-          violated: `(not (System.String.IsNullOrEmpty ${access}) && cpLength ${access} <> ${p.n})`,
-          message: `Must be exactly ${p.n} character${p.n === 1 ? "" : "s"}`,
-        },
-      ];
-    case "len-range":
-      return [
-        {
-          violated: `(${lengthViolation(access, "<", p.lo)} || ${lengthViolation(access, ">", p.hi)})`,
-          message: `Must be between ${p.lo} and ${p.hi} characters`,
-        },
-      ];
-    case "regex":
+/** Map one recognised single-field pattern onto its Feliz rules, one per side
+ *  of the limit (`clientLimitChecks`) — the direct twin of
+ *  `chainSingleFieldNative` (zod), so a cell refuses with the code and bound
+ *  the other frontends and the server answer. */
+function rulesForPattern(
+  inv: InvariantIR,
+  p: SingleFieldPattern,
+  access: string,
+): FelizFieldRule[] {
+  return clientLimitChecks(inv, p).map(({ check, code, params }) => ({
+    ...plainRule(check, access),
+    code,
+    params,
+  }));
+}
+
+function plainRule(
+  check: FieldLimitCheck,
+  access: string,
+): Pick<FelizFieldRule, "violated" | "message"> {
+  const n = check.bound ?? 0;
+  const chars = `${n} character${n === 1 ? "" : "s"}`;
+  // `violated` is the NEGATION of the bound, so an unparseable / blank cell
+  // (which `numericGuard` answers `false` for) is never reported here.
+  switch (check.reason) {
+    case "min":
+      return { violated: numericGuard(access, "<", n), message: `Must be at least ${dec(n)}` };
+    case "greater-than":
+      return { violated: numericGuard(access, "<=", n), message: `Must be greater than ${dec(n)}` };
+    case "max":
+      return { violated: numericGuard(access, ">", n), message: `Must be at most ${dec(n)}` };
+    case "less-than":
+      return { violated: numericGuard(access, ">=", n), message: `Must be less than ${dec(n)}` };
+    case "min-length":
+      return { violated: lengthViolation(access, "<", n), message: `Must be at least ${chars}` };
+    case "max-length":
+      return { violated: lengthViolation(access, ">", n), message: `Must be at most ${chars}` };
+    case "length":
+      return {
+        violated: `(not (System.String.IsNullOrEmpty ${access}) && cpLength ${access} <> ${n})`,
+        message: `Must be exactly ${chars}`,
+      };
+    case "pattern":
       // `System.Text.RegularExpressions.Regex` is Fable-supported and compiles
-      // the pattern to a JS RegExp — the same engine the zod `.regex(…)` chain
-      // runs, so an author's pattern behaves identically on both frontends.
-      // The source is parse-time validated (`new RegExp`) before it reaches
-      // here, and F# verbatim strings need no escaping beyond `"` doubling.
-      return [
-        {
-          violated: `(not (System.String.IsNullOrEmpty ${access}) && not (System.Text.RegularExpressions.Regex.IsMatch(${access}, ${fsVerbatim(p.pattern)})))`,
-          message: "Does not match the required format",
-        },
-      ];
+      // the pattern to a JS RegExp — the same engine the zod chain runs, so an
+      // author's pattern behaves identically on both frontends.  The source is
+      // parse-time validated (`new RegExp`) before it reaches here, and F#
+      // verbatim strings need no escaping beyond `"` doubling.
+      return {
+        violated: `(not (System.String.IsNullOrEmpty ${access}) && not (System.Text.RegularExpressions.Regex.IsMatch(${access}, ${fsVerbatim(check.regex ?? "")})))`,
+        message: "Not in the expected format",
+      };
   }
 }
 
@@ -155,7 +150,7 @@ function lengthViolation(access: string, cmp: "<" | ">", n: number): string {
 
 /** An F# VERBATIM string literal (`@"…"`), in which the only escape is a
  *  doubled quote — so a regex source's backslashes survive intact. */
-export function fsVerbatim(s: string): string {
+function fsVerbatim(s: string): string {
   return `@"${s.replace(/"/g, '""')}"`;
 }
 
@@ -189,7 +184,7 @@ export function felizFieldRules(
     const guarded = unguardedOptional(inv);
     const taken = takeSingleFieldChain(guarded.inv, ctx);
     if (!taken || (guarded.field !== undefined && taken.field !== guarded.field)) continue;
-    const rules = rulesForPattern(taken.pattern, accessFor(taken.field));
+    const rules = rulesForPattern(inv, taken.pattern, accessFor(taken.field));
     if (rules.length === 0) continue;
     out.set(taken.field, [...(out.get(taken.field) ?? []), ...rules]);
   }

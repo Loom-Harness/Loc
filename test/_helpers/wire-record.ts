@@ -525,6 +525,12 @@ export interface WireWaiver {
    *  `errors[*].message` path holds every rule's sentence, not just the one a
    *  waiver is about. */
   readonly values?: { readonly golden: string; readonly actual: string };
+  /** A regex source the GOLDEN value at that path must match (a string; any
+   *  other golden never matches) — for a divergence whose backend side is
+   *  absent, where `values` cannot apply.  Lets `**.code` mean "a wire error
+   *  code" without also covering a domain field that happens to be named
+   *  `code`. */
+  readonly goldenValues?: string;
   /** Why this is tolerated AND what closes it — an RS-rule id or a mission id. */
   readonly reason: string;
 }
@@ -570,6 +576,11 @@ export function waiverCovers(
   if (w.kinds && !w.kinds.includes(d.kind)) return false;
   if (w.request && !requestMatches(w.request, d.request)) return false;
   if (w.values && !valuesMatch(w.values, d)) return false;
+  if (
+    w.goldenValues !== undefined &&
+    !(typeof d.golden === "string" && new RegExp(w.goldenValues).test(d.golden))
+  )
+    return false;
   return pathMatches(w.path, d.path);
 }
 

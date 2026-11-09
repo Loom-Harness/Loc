@@ -70,8 +70,12 @@ describe("vanilla extern seam", () => {
     expect(impl).toContain("@behaviour Api.C.OrderExtern");
     expect(impl).toContain("@impl true");
     // Loud failure when unimplemented — NOT a silent success.
-    expect(impl).toContain('raise "extern operation `confirm` on Order is not implemented');
-    expect(impl).toContain('raise "extern operation `flag` on Order is not implemented');
+    expect(impl).toContain(
+      'raise Api.NotImplementedError,\n          "extern operation `confirm` on Order is not implemented',
+    );
+    expect(impl).toContain(
+      'raise Api.NotImplementedError,\n          "extern operation `flag` on Order is not implemented',
+    );
   });
 
   it("delegates the extern op from the context and persists the mutated struct", async () => {

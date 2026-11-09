@@ -1411,6 +1411,8 @@ defmodule ${webModule}.Api.Schemas.ProblemDetails do
       status: %OpenApiSpex.Schema{type: :integer},
       detail: %OpenApiSpex.Schema{type: :string},
       instance: %OpenApiSpex.Schema{type: :string},
+      code: %OpenApiSpex.Schema{type: :string},
+      params: %OpenApiSpex.Schema{type: :object, additionalProperties: true, nullable: true},
       errors: %OpenApiSpex.Schema{
         type: :array,
         items: %OpenApiSpex.Schema{
@@ -1418,7 +1420,9 @@ defmodule ${webModule}.Api.Schemas.ProblemDetails do
           required: [:pointer, :message],
           properties: %{
             pointer: %OpenApiSpex.Schema{type: :string},
-            message: %OpenApiSpex.Schema{type: :string}
+            message: %OpenApiSpex.Schema{type: :string},
+            code: %OpenApiSpex.Schema{type: :string},
+            params: %OpenApiSpex.Schema{type: :object, additionalProperties: true, nullable: true}
           }
         }
       }

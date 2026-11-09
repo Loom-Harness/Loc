@@ -38,7 +38,7 @@ public sealed class OrdersController : ControllerBase
             request.Status,
             DateTime.TryParse(request.PlacedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt)
                 ? __wp_request_PlacedAt.AddTicks(-(__wp_request_PlacedAt.Ticks % TimeSpan.TicksPerMillisecond))
-                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt}\"")
+                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt}\"", "field.rule")
         );
         var id = await _mediator.Send(cmd);
         _log.LogInformation("{Event} aggregate={Aggregate} id={Id}", "aggregate_created", "Order", id.Value);
@@ -70,7 +70,7 @@ public sealed class OrdersController : ControllerBase
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
-            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Order is still referenced and cannot be deleted." });
+            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Order is still referenced and cannot be deleted.", Type = "about:blank", Instance = HttpContext.Request.Path, Extensions = { ["code"] = "problem.referenced-in-use" } });
         }
         return NoContent();
     }
@@ -128,7 +128,7 @@ public sealed class OrdersController : ControllerBase
             (request.Status is null ? default! : request.Status!.Value),
             (request.PlacedAt is null ? default! : DateTime.TryParse(request.PlacedAt!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt_)
                 ? __wp_request_PlacedAt_.AddTicks(-(__wp_request_PlacedAt_.Ticks % TimeSpan.TicksPerMillisecond))
-                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt!}\"")),
+                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt!}\"", "field.rule")),
             request.PatchedKeys()
         );
         await _mediator.Send(cmd);

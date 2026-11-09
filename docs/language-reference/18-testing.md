@@ -650,7 +650,7 @@ expect(read.status).toHaveText("Draft")
 
 A bare `toThrow()` asserts only that *something* threw, and the domain floor has more than one rung. The 2026-09-13 testability audit found out the hard way: it deleted a `precondition` from a generated aggregate as a mutation probe and **the test stayed green**, because a guarded collection `invariant` threw in its place. A test named *"a fresh work order cannot be completed"* went on claiming something it no longer proved (F11).
 
-The single-argument **kind** form pins the rung. It is legal only in a unit `test`. The rung is **structural** on every backend — the domain error carries it as a field (`DomainError.kind` on node / python, `DomainException.getKind()` on java, `DomainException.Kind` on .NET, `GuardError.kind` on elixir), never inferred from the message text — so a rule with an authored `message "…"` is asserted exactly like one without, and the HTTP answer is unchanged (the 422 problem's `detail` is the authored message).
+The single-argument **kind** form pins the rung. It is legal only in a unit `test`. The rung is **structural** on every backend — the domain error carries it as a field (`DomainError.kind` on node / python, `DomainException.getKind()` on java, `DomainException.Kind` on .NET, `GuardError.kind` on elixir), never inferred from the message text — so a named rule is asserted exactly like an unnamed one, and the HTTP answer is unchanged (the 422 problem's `detail` is the rule's text).
 
 ```ddd
 test "a fresh work order cannot be completed" {
@@ -665,7 +665,7 @@ test "a fresh work order cannot be completed" {
 
 | Code | When | Why |
 |---|---|---|
-| `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which an authored `message "…"` on the rule overwrites. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
+| `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which the rule's name-keyed text (a `locales/en` override) replaces. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
 | `loom.throw-kind-integration-unsupported` | in a context-integration `test` | That rung renders through each backend's separate `integration-tests.ts`, which carries no rung — the argument would be dropped and the test would quietly assert only that something threw. |
 
 ::: tabs backend

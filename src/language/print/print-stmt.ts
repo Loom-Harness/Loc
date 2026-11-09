@@ -35,7 +35,7 @@ function stmtBlock(head: string, stmts: Statement[]): string {
 export function printStmt(node: Statement): string {
   switch (node.$type) {
     case "PreconditionStmt":
-      return `precondition ${printExpr(node.expr)}${node.message ? ` message ${JSON.stringify(node.message)}` : ""}`;
+      return `precondition ${node.name ? `${node.name}: ` : ""}${printExpr(node.expr)}${node.message ? ` message ${JSON.stringify(node.message)}` : ""}`;
     case "RequiresStmt":
       return `requires ${printExpr(node.expr)}`;
     case "LetStmt":

@@ -11,6 +11,8 @@ public sealed class CreateProductCommandValidator : AbstractValidator<CreateProd
     public CreateProductCommandValidator()
     {
         RuleFor(x => x.Sku).Must(v => v == null || v.EnumerateRunes().Count() >= 1)
-            .WithMessage("Sku must be at least 1 character");
+            .WithMessage("Sku must be at least 1 character")
+            .WithErrorCode("field.min-length")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 1 });
     }
 }

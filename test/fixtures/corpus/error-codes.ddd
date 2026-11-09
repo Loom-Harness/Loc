@@ -1,0 +1,93 @@
+// Every refusal carries the catalog `code` a client localizes it by (#4473).
+//
+// The other fixtures' goldens already pin most codes (field.missing, a named
+// and an unnamed rule, problem.not-found, problem.state-gate, the declared
+// error variants, the 500's `{ requestId }`).  This one reaches the refusals
+// no other booted fixture asks for — an out-of-range money, an `extern`
+// stub's 501, a still-referenced delete, each side of a declared field
+// limit (`field.min` … `field.pattern`, the bound in `params`), and integer
+// arithmetic past its declared range (`problem.arithmetic-overflow`, RS-48) —
+// so the golden shows their codes too.  It runs on the backends whose `error-code-rows.ts` row is `done`;
+// a fan-out backend joins `backends` when it flips its row.
+system ErrorCodes {
+  subdomain Shop {
+    context Shop {
+      aggregate Category with crudish {
+        name: string
+      }
+      aggregate Product with crudish {
+        name: string
+        price: money
+        category: Category id
+        operation ship() extern { }
+      }
+      // One field per field-limit reason (`fieldLimitChecks`): an unnamed
+      // single-field check is a native bound, refused with its own code.
+      aggregate Ticket with crudish {
+        priority: int check priority > 0
+        seats: int check seats <= 10
+        weight: decimal check weight > 0.5
+        ratio: decimal check ratio < 9.5
+        code: string check code.length >= 2
+        title: string check title.length <= 5
+        pin: string check pin.length == 4
+        email: string check email.matches("^[^@]+@[^@]+$")
+        operation escalate(by: int) {
+          priority := priority + by
+        }
+      }
+      repository Categories for Category { }
+      repository Tickets for Ticket { }
+      repository Products for Product { }
+    }
+  }
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "every refusal answers its catalog code" against d {
+    let tools = api.categories.create({ name: "Tools" })
+    let saw = api.products.create({ name: "Saw", price: money("9.99"), category: tools.id })
+    // field.money-range — a well-formed decimal too large for the column.
+    expect(api.products.create({ name: "Big", price: "1234567890123456789012345678901234567890", category: tools.id })).toThrow(422)
+    // problem.not-implemented — the `extern` operation's stub was never filled in.
+    expect(api.products.ship(saw)).toThrow(501)
+    // problem.referenced-in-use — a category a product still points at.
+    expect(api.categories.destroy(tools)).toThrow(409)
+    expect(api.products.getById(saw).name).toBe("Saw")
+    // field.malformed-id — a reference that is not a uuid.
+    expect(api.products.create({ name: "Nail", price: money("0.10"), category: "not-a-uuid" })).toThrow(422)
+    // Each side of a declared field limit answers its own code and bound.
+    let ok = api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "a@b" })
+    expect(api.tickets.create({ priority: 0, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 11, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.5, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.5, code: "ab", title: "short", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "a", title: "short", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "too long", pin: "1234", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "123", email: "a@b" })).toThrow(422)
+    expect(api.tickets.create({ priority: 1, seats: 10, weight: 0.75, ratio: 9.25, code: "ab", title: "short", pin: "1234", email: "nope" })).toThrow(422)
+    expect(api.tickets.escalate(ok, { by: 2147483647 })).toThrow(422)
+    expect(api.tickets.getById(ok).pin).toBe("1234")
+    expect(api.tickets.getById(ok).priority).toBe(1)
+    // The rest of the route surface, so every derived operation has a caller.
+    api.categories.update(tools, { name: "Hand tools" })
+    expect(api.categories.getById(tools).name).toBe("Hand tools")
+    expect(api.categories.all().total).toBe(1)
+    api.products.update(saw, { name: "Saw", price: money("8.99"), category: tools.id })
+    expect(api.products.all().total).toBe(1)
+    api.products.destroy(saw)
+    expect(api.products.all().total).toBe(0)
+    api.tickets.update(ok, { priority: 2, seats: 9, weight: 1.5, ratio: 1.5, code: "xyz", title: "t", pin: "4321", email: "c@d" })
+    expect(api.tickets.all().total).toBe(1)
+    api.tickets.destroy(ok)
+    expect(api.tickets.all().total).toBe(0)
+  }
+}

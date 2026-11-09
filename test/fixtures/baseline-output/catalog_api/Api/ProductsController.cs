@@ -68,7 +68,7 @@ public sealed class ProductsController : ControllerBase
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
-            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Product is still referenced and cannot be deleted." });
+            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Product is still referenced and cannot be deleted.", Type = "about:blank", Instance = HttpContext.Request.Path, Extensions = { ["code"] = "problem.referenced-in-use" } });
         }
         return NoContent();
     }

@@ -353,7 +353,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "an `operation … when <pred>` invoked in a state the predicate rejects — the 409 rung of the denial ladder",
     observable:
-      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg> (when <predicate source>).", built once by `disallowedDetail` (src/ir/util/denial-detail.ts). The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
+      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg>." — never the predicate source — and the code `problem.state-gate`, built once by `disallowedDetail` (src/ir/util/denial-detail.ts). The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
     // Two independent divergences, and the split was NOT the one first recorded.
     //   * `detail` — elixir alone sent a fixed sentence ("Operation not allowed
     //     in the current state") because `:disallowed` was a bare atom carrying
@@ -952,9 +952,9 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // side could not legally serve (schemathesis F5).
     //
     // Both length CARRIERS are in scope, because they are separate code paths:
-    // a message-less single-field shape rides each backend's native validator
+    // an unnamed single-field shape rides each backend's native validator
     // chain (zod `.min`/`.max`, FluentValidation `.MinimumLength`, …), while a
-    // messaged rule and the domain floor ride the expression renderer.  A fix
+    // named rule and the domain floor ride the expression renderer.  A fix
     // to one carrier alone leaves the other wrong, which is why the pinned case
     // exercises both directions.
     //
@@ -1046,7 +1046,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // persists as one jsonb `:map` column and is checked by
     // `validate_change/3`, so there is no child changeset for the walk to find.
     // It has to forward its own errors explicitly — inner field path AND
-    // authored message AND the `loom_code` the i18n catalog is keyed by.
+    // rule text AND the `loom_code` the i18n catalog is keyed by.
     // Collapsing it to `[{field, "is invalid"}]` discarded all three.
     //
     // Java's bracket spelling is closed: its advice routes every `errors[]`
@@ -1058,7 +1058,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "ledger rows `F2-W-03` and `nested-errors-pointer-shape`",
       "elixir arm fixed in the W1b elixir packet (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`), pinned by test/generator/elixir/nested-error-pointers.test.ts",
-      'elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{"sku":{"code":"ab"}}` create with `422 {"errors":[{"pointer":"/sku/code","message":"SKU code needs at least 3 characters"}]}`; with `validate_vo/3` reverted the same request answers `{"pointer":"/sku","message":"is invalid"}` — inner field, authored text and wire code all gone',
+      'elixir RUNTIME-PROVEN: a booted Phoenix app answers a `{"sku":{"code":"ab"}}` create with `422 {"errors":[{"pointer":"/sku/code","message":"SKU code needs at least 3 characters"}]}`; with `validate_vo/3` reverted the same request answers `{"pointer":"/sku","message":"is invalid"}` — inner field, rule text and wire code all gone',
       "java arm closed under M-T9.25 / F1 nested-errors-pointer-shape: `pointerOf` in src/generator/java/emit/api.ts, wired at every `errors[]` call site, pinned by test/generator/java/errors-pointer-rfc6901.test.ts (`lineTotals[0].unitPrice` → `/lineTotals/0/unitPrice`, consecutive indexers, both RFC 6901 escapes, and the raw-concatenation form asserted GONE)",
       'node `pointerOf(issue.path)` (src/platform/hono/v4/emit.ts, shared emitter), .NET `ValidationProblem.PointerOf` (src/generator/dotnet/emit/api.ts), python `_pointer(tuple(e["loc"]))` (src/generator/python/index.ts) were correct from the start',
     ],
@@ -1451,11 +1451,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-43",
-    title: "A message-less rule's 422 carries node's sentence on every backend",
+    title: "An unnamed rule's 422 carries node's sentence on every backend",
     trigger:
       '`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: "abc")` against a regex precondition) and `intrinsics.ddd`\'s blank-name create against `invariant name.trim().length > 0`',
     observable:
-      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
+      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), the generic `ruleText` ("Business rule violated" — never the rule source) at the `pickErrorPath` pointer otherwise; no `errors[].code`',
     // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
     // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
     // TARGET, not a conformer: its operation rung and its create/update
@@ -1465,7 +1465,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     targets: ["elixir"],
     provenance: [
       "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
-      "seams pinned in test/conformance/message-less-rule-message.test.ts (node's sentence set derived from its emitted routes)",
+      "seams pinned in test/conformance/unnamed-rule-message.test.ts (node's sentence set derived from its emitted routes)",
     ],
     tier: "behavioral",
   },
@@ -1568,12 +1568,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "`stock + n`, `a * b`, `a - b` or `-n` over `int` / `long` operands in an aggregate operation, workflow, handler or domain service, with a result outside int32 (`int`) or int64 (`long`)",
     observable:
-      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity" and `detail` "Value out of range" (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
+      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity", `detail` "Value out of range" and `code` "problem.arithmetic-overflow", no `errors[]` (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
     // One predicate decides which nodes are checked for every backend
     // (`checkedBinaryKind` / `checkedUnaryKind`, src/generator/_expr/checked-int.ts);
     // the fact is the `arithmetic-overflow` rejection class of wirePolicy.  node
-    // and python compare the result against the bound, elixir raises the typed
-    // GuardError from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
+    // and python compare the result against the bound and raise their overflow
+    // carrier (`DomainError.arithmeticOverflow()` / `ArithmeticOverflowError`),
+    // elixir raises the typed GuardError with kind `:overflow` from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
     // the last two mapped from ArithmeticException / OverflowException by their
     // exception advice / filter.  Before the ruling node, python and elixir
     // persisted an out-of-range value (a 500 from the database CHECK) and java and

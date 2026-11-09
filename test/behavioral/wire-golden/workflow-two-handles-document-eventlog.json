@@ -55,6 +55,7 @@
       "path": "/api/workflows/hit_twice",
       "status": 409,
       "body": {
+        "code": "problem.version-conflict",
         "detail": "Note {id} was modified by another request",
         "instance": "/api/workflows/hit_twice",
         "status": 409,
@@ -125,6 +126,7 @@
       "path": "/api/workflows/withdraw_twice",
       "status": 409,
       "body": {
+        "code": "problem.version-conflict",
         "detail": "Account {id} was modified by another request",
         "instance": "/api/workflows/withdraw_twice",
         "status": 409,
@@ -211,6 +213,7 @@
       "path": "/api/notes",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/notes",
         "instance": "/api/notes",
         "status": 405,
@@ -224,6 +227,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -237,6 +241,7 @@
       "path": "/api/notes",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/notes",
         "status": 400,
@@ -250,6 +255,7 @@
       "path": "/api/notes/{id}/hit",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/hit",
         "status": 404,
@@ -263,6 +269,7 @@
       "path": "/api/notes/{id}/hit",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/hit",
         "status": 404,
@@ -276,6 +283,7 @@
       "path": "/api/notes/{id}/hit",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/notes/{id}/hit",
         "status": 415,
@@ -289,9 +297,11 @@
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "amount is required",
             "pointer": "/amount"
           }

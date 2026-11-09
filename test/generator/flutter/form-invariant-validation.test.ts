@@ -39,7 +39,7 @@ system Inv {
       invariant priority <= 5
       invariant code.length == 6
       invariant weight > 0.5
-      invariant email.matches("^[^@]+@[^@]+$") message "Email must look like an address"
+      invariant emailAddress: email.matches("^[^@]+@[^@]+$")
       operation reprioritize(newPriority: int) {
         precondition newPriority >= 1
         priority := newPriority
@@ -67,10 +67,13 @@ async function formsDart(): Promise<string> {
 }
 
 describe("flutter forms — invariant-derived client validation (M-T1.16)", () => {
-  it("a length RANGE becomes one code-point guard with the shared sentence", async () => {
+  it("a length RANGE becomes one code-point guard per side, each under its own code", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (s.runes.length < 3 || s.runes.length > 40) { return 'Title must be 3 to 40 characters'; }",
+      "if (s.runes.length < 3) { return t('field.min-length', 'Title must be 3 to 40 characters', <String, Object>{'min': 3}); }",
+    );
+    expect(src).toContain(
+      "if (s.runes.length > 40) { return t('field.max-length', 'Title must be 3 to 40 characters', <String, Object>{'max': 40}); }",
     );
     // `s.length` counts UTF-16 code units in Dart; the same constraint is
     // published to the JSON Schema in CODE POINTS, so `.runes.length` is
@@ -82,36 +85,46 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
   it("a length EQUALITY becomes a single `!=` guard", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (s.runes.length != 6) { return 'Code must be exactly 6 characters'; }",
+      "if (s.runes.length != 6) { return t('field.length', 'Code must be exactly 6 characters', <String, Object>{'length': 6}); }",
     );
   });
 
   it("numeric bounds parse first, then compare — both bounds on one field", async () => {
     const src = await formsDart();
-    expect(src).toContain("final n = int.tryParse(s); if (n == null) { return 'Enter a number'; }");
-    expect(src).toContain("if (n < 1) { return 'Priority must be at least 1'; }");
-    expect(src).toContain("if (n > 5) { return 'Priority must be at most 5'; }");
+    expect(src).toContain(
+      "final n = int.tryParse(s); if (n == null) { return t('field.type-mismatch', 'Enter a number'); }",
+    );
+    expect(src).toContain(
+      "if (n < 1) { return t('field.min', 'Priority must be at least 1', <String, Object>{'min': 1}); }",
+    );
+    expect(src).toContain(
+      "if (n > 5) { return t('field.max', 'Priority must be at most 5', <String, Object>{'max': 5}); }",
+    );
   });
 
   it("an EXCLUSIVE bound on a decimal renders `<=`, not `<`", async () => {
     const src = await formsDart();
     // `weight > 0.5` is violated by `n <= 0.5`.  Rendering `n < 0.5` would
     // silently accept exactly 0.5, which the server then refuses.
-    expect(src).toContain("if (n <= 0.5) { return 'Weight must be greater than 0.5'; }");
+    expect(src).toContain(
+      "if (n <= 0.5) { return t('field.greater-than', 'Weight must be greater than 0.5', <String, Object>{'min': 0.5}); }",
+    );
   });
 
-  it("a regex rides a Dart RAW string, and an AUTHORED message wins", async () => {
+  it("a regex rides a Dart RAW string, and a NAMED rule answers its own text", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return 'Email must look like an address'; }",
+      "if (!RegExp(r'^[^@]+@[^@]+$').hasMatch(s)) { return t('C.Ticket.rule.emailAddress', 'Email address'); }",
     );
-    // Not the derived fallback — the author wrote a message.
+    // Not the derived fallback — the rule is named.
     expect(src).not.toContain("Email is not in the expected format");
   });
 
   it("an operation's PRECONDITION validates its own param", async () => {
     const src = await formsDart();
-    expect(src).toContain("if (n < 1) { return 'New Priority must be at least 1'; }");
+    expect(src).toContain(
+      "if (n < 1) { return t('field.min', 'New Priority must be at least 1', <String, Object>{'min': 1}); }",
+    );
   });
 
   it("a field with NO rule keeps the byte-identical one-liner validator", async () => {
@@ -119,7 +132,7 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     // `plain: string` is constrained by nothing — the pre-M-T1.16 arrow form,
     // unchanged.  This is the floor that keeps the change additive.
     expect(src).toContain(
-      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null)",
+      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')), validator: (v) => (v == null || v.trim().isEmpty) ? t('field.missing', 'Required') : null)",
     );
   });
 

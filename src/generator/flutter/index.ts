@@ -279,7 +279,7 @@ export function generateFlutterForContexts(
     );
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms, apiClient));
+    out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n));
   }
   const gates = renderGatesFile(
     contexts.flatMap((c) => c.aggregates),

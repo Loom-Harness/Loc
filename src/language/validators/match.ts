@@ -224,8 +224,8 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     // UNIT TIER ONLY.  In-process the rung is observable: elixir carries a
     // structural `:kind` on `GuardError`, the other four a stable message
     // prefix.  Over HTTP both rungs are a 422 whose only discriminator is the
-    // RFC 7807 `detail` sentence — which an authored `message "..."` on the
-    // rule overwrites.  Allowing both tiers would make ONE matcher mean two
+    // RFC 7807 `detail` sentence — which the rule's own text
+    // overwrites.  Allowing both tiers would make ONE matcher mean two
     // strengths of claim, which is exactly the defect #2959 fixed on the ui
     // side (`toThrow(422)` silently meaning something weaker there).  The e2e
     // body keeps the wire-level form, `toThrow(<status>)`.

@@ -50,7 +50,7 @@ describe("vanilla Phoenix — single-row read absence → 404", () => {
     expect(ctrl).toContain("respond(conn, D.Catalog.Handlers.GetItemByItemsBySku.run(params))");
     // …whose not-found clause is the shared 404 producer, `detail` passed through.
     expect(ctrl).toMatch(
-      /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, 404, "Not Found", detail\)/,
+      /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, 404, "Not Found", detail, "problem\.not-found"\)/,
     );
     // Neither the schema-invalid 200 null body nor the old sentence spelling.
     expect(ctrl).not.toContain("json(conn, nil)");

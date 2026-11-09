@@ -130,9 +130,11 @@
       "path": "/api/memos/{id}/update",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "title is required",
             "pointer": "/title"
           }
@@ -149,9 +151,11 @@
       "path": "/api/memos/{id}/update",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "pages is required",
             "pointer": "/pages"
           }
@@ -168,11 +172,15 @@
       "path": "/api/memos/{id}/update",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.cbw5sm",
+            "code": "Desk.Memo.rule.pagesCannotNegative",
             "message": "Pages cannot be negative",
+            "params": {
+              "pages": -1
+            },
             "pointer": "/pages"
           }
         ],
@@ -188,15 +196,24 @@
       "path": "/api/memos/{id}/update",
       "status": 422,
       "body": {
+        "code": "Desk.Memo.rule.memoHasAtLeast",
         "detail": "A memo has at least its minimum pages",
         "errors": [
           {
-            "code": "msg.vdy8wk",
+            "code": "Desk.Memo.rule.memoHasAtLeast",
             "message": "A memo has at least its minimum pages",
+            "params": {
+              "minPages": 5,
+              "pages": 3
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/memos/{id}/update",
+        "params": {
+          "minPages": 5,
+          "pages": 3
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -270,6 +287,7 @@
       "path": "/api/memos/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}",
         "status": 404,
@@ -283,6 +301,7 @@
       "path": "/api/memos",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/memos",
         "instance": "/api/memos",
         "status": 405,
@@ -296,6 +315,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -309,6 +329,7 @@
       "path": "/api/memos",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/memos",
         "status": 400,
@@ -322,6 +343,7 @@
       "path": "/api/memos/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
         "status": 404,
@@ -335,6 +357,7 @@
       "path": "/api/memos/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
         "status": 404,
@@ -348,6 +371,7 @@
       "path": "/api/memos/{id}/update",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/memos/{id}/update",
         "status": 415,
@@ -361,6 +385,7 @@
       "path": "/api/memos/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
         "status": 404,

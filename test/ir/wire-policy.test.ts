@@ -7,8 +7,12 @@
 import { describe, expect, it } from "vitest";
 import {
   errorVariantResponse,
+  FIELD_LIMIT_REASONS,
   FIELD_REASONS,
+  fieldCode,
   fieldFixedMessage,
+  fieldLimitChecks,
+  fieldParams,
   ingressFor,
   MALFORMED_BODY_DETAIL,
   missingFieldMessage,
@@ -24,6 +28,7 @@ import {
   wireTitle,
 } from "../../src/ir/enrich/wire-policy.js";
 import type { InvariantIR, OperationIR } from "../../src/ir/types/loom-ir.js";
+import type { SingleFieldPattern } from "../../src/ir/validate/invariant-classify.js";
 import { UUID_WIRE_MESSAGE } from "../../src/util/uuid-wire.js";
 import { buildLoomModel, enrichedContexts } from "../_helpers/index.js";
 
@@ -240,4 +245,68 @@ it("MALFORMED_BODY_DETAIL is the text hono's json validator raises", async () =>
     "utf8",
   );
   expect(src).toContain(JSON.stringify(MALFORMED_BODY_DETAIL));
+});
+
+// A declared field limit answers one code per side, the bound in `params`
+// (#4473, owner decision 2026-11-08).  `fieldLimitChecks` is the one mapping
+// every backend and client validator reads.
+describe("field limits — fieldLimitChecks", () => {
+  const codes = (p: SingleFieldPattern) =>
+    fieldLimitChecks(p).map((c) => ({ code: fieldCode(c.reason), params: c.params }));
+
+  it("maps each single-field pattern onto its sides", () => {
+    expect(codes({ kind: "min", n: 1 })).toEqual([{ code: "field.min", params: { min: 1 } }]);
+    expect(codes({ kind: "min", n: 0.5, exclusive: true })).toEqual([
+      { code: "field.greater-than", params: { min: 0.5 } },
+    ]);
+    expect(codes({ kind: "max", n: 10 })).toEqual([{ code: "field.max", params: { max: 10 } }]);
+    expect(codes({ kind: "max", n: 9.5, exclusive: true })).toEqual([
+      { code: "field.less-than", params: { max: 9.5 } },
+    ]);
+    expect(codes({ kind: "between", lo: 1, hi: 10 })).toEqual([
+      { code: "field.min", params: { min: 1 } },
+      { code: "field.max", params: { max: 10 } },
+    ]);
+    expect(codes({ kind: "len-min", n: 2 })).toEqual([
+      { code: "field.min-length", params: { min: 2 } },
+    ]);
+    expect(codes({ kind: "len-max", n: 5 })).toEqual([
+      { code: "field.max-length", params: { max: 5 } },
+    ]);
+    expect(codes({ kind: "len-eq", n: 4 })).toEqual([
+      { code: "field.length", params: { length: 4 } },
+    ]);
+    expect(codes({ kind: "len-range", lo: 2, hi: 5 })).toEqual([
+      { code: "field.min-length", params: { min: 2 } },
+      { code: "field.max-length", params: { max: 5 } },
+    ]);
+    expect(codes({ kind: "regex", pattern: "^a$" })).toEqual([
+      { code: "field.pattern", params: {} },
+    ]);
+  });
+
+  it("every check carries exactly the params its reason names, and its bound", () => {
+    const all: SingleFieldPattern[] = [
+      { kind: "min", n: 1 },
+      { kind: "min", n: 1, exclusive: true },
+      { kind: "max", n: 1 },
+      { kind: "max", n: 1, exclusive: true },
+      { kind: "between", lo: 1, hi: 2 },
+      { kind: "len-min", n: 1 },
+      { kind: "len-max", n: 1 },
+      { kind: "len-eq", n: 1 },
+      { kind: "len-range", lo: 1, hi: 2 },
+      { kind: "regex", pattern: "x" },
+    ];
+    const reached = new Set<string>();
+    for (const p of all)
+      for (const c of fieldLimitChecks(p)) {
+        reached.add(c.reason);
+        expect(Object.keys(c.params).sort()).toEqual([...fieldParams(c.reason)].sort());
+        if (c.reason === "pattern") expect(c.regex).toBe("x");
+        else expect(Object.values(c.params)).toEqual([c.bound]);
+        expect(FIELD_REASONS[c.reason]).toEqual({ kind: "limit" });
+      }
+    expect([...reached].sort()).toEqual([...FIELD_LIMIT_REASONS].sort());
+  });
 });

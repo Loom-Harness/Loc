@@ -88,7 +88,9 @@ describe("an unimplemented `extern` operation answers 501, not 500 `internal`", 
     const routes = fileEndingWith(files, "order.routes.ts");
     expect(routes).toContain("NotImplementedError");
     expect(routes).toContain("if (err instanceof NotImplementedError) {");
-    expect(routes).toContain('return problem(501, "Not Implemented", err.message);');
+    expect(routes).toContain(
+      'return problem(501, "Not Implemented", "This operation is not implemented.", "problem.not-implemented");',
+    );
     // …and 501 must be in the `problem()` helper's status union, or the emitted
     // project does not type-check.
     expect(routes).toMatch(/const problem = \(status: [^)]*\b501\b/);

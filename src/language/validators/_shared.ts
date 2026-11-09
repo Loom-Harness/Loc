@@ -21,17 +21,21 @@ import type { AstNode } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { aggregateServesHistory } from "../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { SYSTEM_TEXT_NS } from "../../util/model-text-key.js";
+import { dedupeRuleName, deriveRuleName } from "../../util/rule-name.js";
 import {
   type Aggregate,
   type DerivedProp,
   type EntityPart,
   type FunctionDecl,
+  type Invariant,
   isBoundedContext,
   isContainment,
   isCriterion,
   isDecLit,
   isDerivedProp,
   isIntLit,
+  isInvariant,
   isNamedType,
   isProperty,
   isRetrieval,
@@ -39,6 +43,7 @@ import {
   type Subdomain,
   type ValueObject,
 } from "../generated/ast.js";
+import { declaredRuleName, type RuleNode, ruleContext, ruleOwner, rulesOf } from "../rule-names.js";
 import {
   type Env,
   makeEnv,
@@ -370,26 +375,111 @@ export function pagePropDisplayName(typeName: string): string {
   }
 }
 
-/** `loom.blank-message` — reject an empty or whitespace-only `message "..."`
- *  clause on an `invariant` / property `check` / `precondition`.  A blank
- *  message renders an empty user-facing error string, which is useless and
- *  almost always a typo (`message ""`).  (It also feeds the per-error wire
- *  `code`, which is content-hashed from the message text per D-I18N-KEY, so a
- *  blank message degenerates that key too — but the empty display string is
- *  the real problem.)  `STRING` strips its delimiters, so `message ""` reaches
- *  here as `""`.  Shared by `types.ts` (invariant / property check) and
- *  `statements.ts` (precondition). */
-export function checkBlankMessage(
-  node: AstNode,
-  message: string | undefined,
+/** Words that open an expression without naming a field the rule reads. */
+const NOT_A_FIELD = new Set([
+  "true",
+  "false",
+  "null",
+  "this",
+  "not",
+  "currentUser",
+  "now",
+  "today",
+]);
+
+/** Name for a rule whose `message` carries no words (`message ""`): there is no
+ *  text to derive from, so it comes from what the rule reads — the first field
+ *  its expression names, plus `Valid` (`qtyValid`) — and from its position among
+ *  the owner's rules (`invariant2`) when it names no field at all. */
+function fallbackRuleName(node: RuleNode, position: number): string {
+  const expr = isProperty(node) ? node.check : node.expr;
+  const idents = expr?.$cstNode?.text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+  const field = idents.find((w) => !NOT_A_FIELD.has(w));
+  if (isProperty(node)) return `${node.name}Valid`;
+  if (field) return `${field[0]!.toLowerCase()}${field.slice(1)}Valid`;
+  return `${isInvariant(node) ? "invariant" : "precondition"}${position + 1}`;
+}
+
+/** The suggested name for `text` (the rule's message), or — when it has no
+ *  words to derive from — one read off the rule itself. */
+function ruleNameFrom(node: RuleNode, text: string, position: number): string {
+  return /[A-Za-z0-9]/.test(text) ? deriveRuleName(text) : fallbackRuleName(node, position);
+}
+
+/** The name `scripts/codemod-rule-names.mjs` gives the unnamed rule `node`
+ *  carrying `message "…"`: the derived name, deduplicated against every declared
+ *  name in the owner and the names it hands the owner's earlier named rules.
+ *  A `message ""` has no words, so it takes {@link fallbackRuleName} instead.
+ *  Only the diagnostic's hint reads it — a message never names a rule. */
+function suggestedRuleName(node: RuleNode, message: string): string {
+  const owner = ruleOwner(node);
+  if (!owner) return ruleNameFrom(node, message, 0);
+  const rules = rulesOf(owner);
+  const taken = new Set<string>();
+  for (const r of rules) {
+    const d = declaredRuleName(r);
+    if (d !== undefined) taken.add(d);
+  }
+  for (const [i, r] of rules.entries()) {
+    if (
+      declaredRuleName(r) !== undefined ||
+      r.message === undefined ||
+      (r.message.trim() === "" && r !== node)
+    )
+      continue;
+    const name = dedupeRuleName(ruleNameFrom(r, r.message, i), taken);
+    if (r === node) return name;
+  }
+  return ruleNameFrom(node, message, rules.indexOf(node));
+}
+
+/** The rule-naming checks every `invariant` / field `check` / `precondition`
+ *  runs (`src/language/rule-names.ts`):
+ *
+ *   - `loom.rule-message-removed` — the removed `message "…"` clause, with the
+ *     name the codemod would give the rule and the `locales/en/<Ctx>.json` line
+ *     its text moves to.
+ *   - `loom.rule-name-duplicate` — a declared name another rule of the same
+ *     owner declared first (invariants, checks and preconditions share one
+ *     namespace per owner: the name is the i18n key). */
+export function checkRuleNaming(
+  node: RuleNode,
   accept: import("langium").ValidationAcceptor,
 ): void {
-  if (message !== undefined && message.trim() === "") {
-    accept("error", diagMessage("loom.blank-message"), {
-      node,
-      property: "message",
-      code: "loom.blank-message",
-    });
+  const message = node.message;
+  if (message !== undefined) {
+    const owner = ruleOwner(node);
+    const ctx = ruleContext(node);
+    const name = suggestedRuleName(node, message);
+    accept(
+      "error",
+      diagMessage("loom.rule-message-removed", {
+        rule: isProperty(node) ? "check" : isInvariant(node) ? "invariant" : "precondition",
+        name,
+        file: `locales/en/${ctx ?? SYSTEM_TEXT_NS}.json`,
+        key: `${owner?.name ?? "Owner"}.rule.${name}`,
+        text: message,
+      }),
+      { node, property: "message", code: "loom.rule-message-removed" },
+    );
+  }
+  const declared = declaredRuleName(node);
+  const owner = ruleOwner(node);
+  if (declared === undefined || !owner) return;
+  const first = rulesOf(owner).find((r) => declaredRuleName(r) === declared);
+  if (first !== undefined && first !== node) {
+    // The name is on `checkName` for a field check, `name` otherwise.
+    const at = (
+      isProperty(node) ? { node, property: "checkName" } : { node, property: "name" }
+    ) as {
+      node: Invariant;
+      property: "name";
+    };
+    accept(
+      "error",
+      diagMessage("loom.rule-name-duplicate", { name: declared, owner: owner.name }),
+      { ...at, code: "loom.rule-name-duplicate" },
+    );
   }
 }
 

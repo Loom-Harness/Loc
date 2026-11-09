@@ -82,7 +82,7 @@ function nodeMessages(fs: Map<string, string>): Set<string> {
   return out;
 }
 
-describe("python — a message-less single-field rule answers node's message (#15d, D10)", () => {
+describe("python — an unnamed single-field rule answers node's message (#15d, D10)", () => {
   it("re-words the regex constraint instead of leaking the pattern", async () => {
     const routes = find(await generateSystemFiles(fixture("python")), "http/customer_routes.py");
     // The check itself is still the native, schema-publishing constraint.
@@ -92,9 +92,13 @@ describe("python — a message-less single-field rule answers node's message (#1
       '@field_validator("billingEmail", "seats", "discount", "tag", "handle", "contact", mode="wrap")',
     );
     expect(routes).toContain(
-      '("billingEmail", "string_pattern_mismatch"): "Billing Email is not in the expected format",',
+      '("billingEmail", "string_pattern_mismatch"): ("field.pattern", "Billing Email is not in the expected format", {}),',
     );
-    expect(routes).toContain('raise PydanticCustomError(e["type"], hit) from None');
+    // Re-raised under the limit's catalog code, its bound as `loomParams`.
+    expect(routes).toContain("code, message, params = hit");
+    expect(routes).toContain(
+      'raise PydanticCustomError(code, message, {"loomParams": params} if params else None) from None',
+    );
     // Only the errors the table arms are rewritten; a type error re-raises.
     expect(routes).toContain('if hit is not None and not e["loc"]:');
     expect(routes).toMatch(
@@ -106,27 +110,28 @@ describe("python — a message-less single-field rule answers node's message (#1
     const py = await generateSystemFiles(fixture("python"));
     const routes = find(py, "http/customer_routes.py");
     for (const entry of [
-      // A recognised compound is ONE node sentence, though two pydantic kwargs.
-      '("seats", "greater_than_equal"): "Seats must be between 1 and 500",',
-      '("seats", "less_than_equal"): "Seats must be between 1 and 500",',
-      '("discount", "greater_than"): "Discount must be greater than 0.5",',
-      '("tag", "string_too_short"): "Tag must be exactly 3 characters",',
-      '("tag", "string_too_long"): "Tag must be exactly 3 characters",',
-      '("handle", "string_too_short"): "Handle must be 2 to 20 characters",',
-      '("handle", "string_too_long"): "Handle must be 2 to 20 characters",',
+      // A recognised compound is ONE node sentence, though two pydantic
+      // kwargs — each side under its own field-limit code and bound.
+      '("seats", "greater_than_equal"): ("field.min", "Seats must be between 1 and 500", {"min":1}),',
+      '("seats", "less_than_equal"): ("field.max", "Seats must be between 1 and 500", {"max":500}),',
+      '("discount", "greater_than"): ("field.greater-than", "Discount must be greater than 0.5", {"min":0.5}),',
+      '("tag", "string_too_short"): ("field.length", "Tag must be exactly 3 characters", {"length":3}),',
+      '("tag", "string_too_long"): ("field.length", "Tag must be exactly 3 characters", {"length":3}),',
+      '("handle", "string_too_short"): ("field.min-length", "Handle must be 2 to 20 characters", {"min":2}),',
+      '("handle", "string_too_long"): ("field.max-length", "Handle must be 2 to 20 characters", {"max":20}),',
       // A message-less precondition rides the op request's own table.
-      '("count", "greater_than_equal"): "Count must be at least 1",',
+      '("count", "greater_than_equal"): ("field.min", "Count must be at least 1", {"min":1}),',
       // A conjunction node does NOT chain natively rides its zod refine, whose
-      // message is the derived default — python sends that, not a per-conjunct
-      // sentence node never sends.
-      '("contact", "string_pattern_mismatch"): "Invariant violated: contact.matches(\\"^[a-z]+$\\") && contact.length <= 12",',
-      '("contact", "string_too_long"): "Invariant violated: contact.matches(\\"^[a-z]+$\\") && contact.length <= 12",',
+      // message and code are the generic rule's — python sends those, not a
+      // per-conjunct sentence or limit node never sends.
+      '("contact", "string_pattern_mismatch"): ("problem.domain-floor", "Business rule violated", {}),',
+      '("contact", "string_too_long"): ("problem.domain-floor", "Business rule violated", {}),',
     ]) {
       expect(routes).toContain(entry);
     }
     // The value-object wire model carries its own table.
     expect(find(py, "http/wire_models.py")).toContain(
-      '("code", "string_too_short"): "Code must be 4 to 10 characters",',
+      '("code", "string_too_short"): ("field.min-length", "Code must be 4 to 10 characters", {"min":4}),',
     );
   });
 
@@ -136,7 +141,7 @@ describe("python — a message-less single-field rule answers node's message (#1
     const pyText = find(py, "http/customer_routes.py") + find(py, "http/wire_models.py");
     // The derived set must be non-trivial, or this asserts nothing.
     expect(node.size).toBeGreaterThanOrEqual(8);
-    for (const msg of node) expect(pyText).toContain(`: ${JSON.stringify(msg)},`);
+    for (const msg of node) expect(pyText).toContain(`, ${JSON.stringify(msg)}, {`);
   });
 
   it("emits no wrap validator for a model with no single-field constraint", async () => {

@@ -99,6 +99,7 @@
       "path": "/api/gadgets/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Gadget {id} not found",
         "instance": "/api/gadgets/{id}",
         "status": 404,
@@ -119,6 +120,7 @@
       "path": "/api/widgets/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Widget {id} not found",
         "instance": "/api/widgets/{id}",
         "status": 404,
@@ -132,6 +134,7 @@
       "path": "/api/widgets",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/widgets",
         "instance": "/api/widgets",
         "status": 405,
@@ -145,6 +148,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -158,6 +162,7 @@
       "path": "/api/widgets",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/widgets",
         "status": 400,

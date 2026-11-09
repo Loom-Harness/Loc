@@ -380,14 +380,16 @@ export interface StoreIR {
   actions: ActionIR[];
 }
 
-/** An author-written, user-facing validation message attached to a rule via a
- *  `message "..."` clause. A descriptor (not a bare string) so the i18n mission
- *  can later add `key`/`args` without changing the shape every emitter reads;
- *  v1 carries only `text` (the one genuine input). The wire/i18n `code` is a
- *  pure content-hash of `text` — derived on demand via `messageCode`
- *  (`src/util/message-code.ts`), never stored (derive, don't stamp). */
+/** The user-facing text identity of a NAMED rule (`invariant nameRequired: …`).
+ *  Lowering resolves it like any other name (`src/ir/lower/rule-message.ts`), so
+ *  no backend re-derives the owner / context a key needs. */
 export interface MessageIR {
-  /** The author-written text, shown to the user (STRING-terminal-stripped). */
+  /** The rule's identity key `<Ctx>.<Owner>.rule.<name>` — the wire
+   *  `errors[].code`, and the catalog key, on every backend. */
+  key: string;
+  /** The English default: the sentence form of the name ("Name required"), or
+   *  the removed `message "…"` text a not-yet-migrated rule still carries.
+   *  Emitters read it through `ruleText` so a `locales/en/` override applies. */
   text: string;
 }
 
@@ -395,8 +397,8 @@ export interface InvariantIR {
   expr: ExprIR;
   guard?: ExprIR;
   source: string;
-  /** When present, a `message "..."` clause forces this rule onto the wire/refine
-   *  carrier (never the native-chain optimisation) so the text reaches the
+  /** Present for a NAMED rule.  It forces the rule onto the wire/refine
+   *  carrier (never the native-chain optimisation) so its key and text reach the
    *  frontend inline error, the wire 422 `errors[]`, and the domain floor. */
   message?: MessageIR;
   /** When `"server-only"`, the invariant skips wire-boundary
@@ -497,8 +499,8 @@ export interface OperationIR {
    * backend. */
   when?: ExprIR;
   /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
-   *  in the 409 Disallowed `detail` by `disallowedDetail`
-   *  (src/ir/util/denial-detail.ts) on every backend.  Absent when `when` is. */
+   *  by compile-time diagnostics such as `loom.loop-gate-not-implied`.  Never
+   *  on the wire: the 409 detail is constant.  Absent when `when` is. */
   whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely

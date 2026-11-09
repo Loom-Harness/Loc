@@ -37,7 +37,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.backfill-type-mismatch",
   "loom.backfill-unknown-field",
   "loom.bare-collection-accessor",
-  "loom.blank-message",
   "loom.call-arg-count",
   "loom.call-arg-type",
   "loom.capability-host-invalid",

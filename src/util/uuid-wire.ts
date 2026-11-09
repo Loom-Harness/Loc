@@ -39,7 +39,7 @@ export const UUID_WIRE_REGEX_LITERAL = `/${UUID_WIRE_PATTERN}/`;
 /** The `errors[].message` a value that fails {@link UUID_WIRE_PATTERN} earns —
  *  in a path `{id}`, a query parameter or a body `X id` field alike.  The
  *  regex never leaves the server (the same rule D-MESSAGELESS-RULE-WIRE-MESSAGE
- *  applies to a message-less pattern rule): a client gets a sentence, not
+ *  applies to an unnamed pattern rule): a client gets a sentence, not
  *  `Invalid string: must match pattern /^[0-9a-fA-F]{8}-…$/`.  It is the text
  *  java's `MethodArgumentTypeMismatchException` arm and elixir's path-id plug
  *  already send, so node and python answer a malformed id the same way. */

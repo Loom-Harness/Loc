@@ -1,0 +1,4 @@
+{
+  "Memo.rule.memoHasAtLeast": "A memo has at least its minimum pages",
+  "Memo.rule.pagesCannotNegative": "Pages cannot be negative"
+}

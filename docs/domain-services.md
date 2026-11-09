@@ -127,7 +127,7 @@ workflow Move transactional {
 const src = await accounts.getById(s);
 const dst = await accounts.getById(d);
 const moved = Transfer.run(src, dst, amt);
-if (!(moved > 0)) throw new DomainError("Precondition failed: moved > 0", "precondition");
+if (!(moved > 0)) throw new DomainError("Invalid value", "precondition");
 await accounts.save(src);
 await accounts.save(dst);
 ```

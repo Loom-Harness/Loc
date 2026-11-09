@@ -58,6 +58,8 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "read through `foldTenancyFor` in `src/ir/enrich/fold-tenancy.ts` (an enrich helper the scan does not cover), which every backend's projection emitter and the migrations builder import",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
+  whenSource:
+    "diagnostic text only: `loom.loop-gate-not-implied` names the gate; the 409 detail is constant, so no target may echo it",
 };
 
 /**

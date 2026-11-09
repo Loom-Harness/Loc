@@ -18,7 +18,7 @@ import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
 import { lines } from "../../util/code-builder.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { renderFlutterGate } from "./auth-gate.js";
 import { dartStringLit } from "./i18n.js";
 

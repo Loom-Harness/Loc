@@ -1,31 +1,41 @@
 // Auto-generated.
 /** Which rung of the domain floor refused a call: a `precondition` of the
  *  operation, or an `invariant` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored `message "..."` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 export class DomainError extends Error {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  constructor(message: string, kind?: DomainErrorKind) {
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, problemCode: string = "problem.domain-floor") {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError("Value out of range", undefined, "problem.arithmetic-overflow");
   }
 }
 /** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
-  constructor(valueObject: string, message: string, code?: string) {
+  readonly params: Record<string, unknown> | undefined;
+  constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
     super(message, "invariant");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
     this.code = code;
+    this.params = params;
   }
 }
 export class AggregateNotFoundError extends Error {
@@ -37,7 +47,8 @@ export class AggregateNotFoundError extends Error {
  *  HTTP 403 (Forbidden).
  *
  *  `message` names the failed gate and goes to the `forbidden` log line;
- *  `detail` is the 403 body's `detail` — the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log. */
+ *  `detail` is the 403 body's `detail` — the constant `Forbidden`: the
+ *  predicate is DSL source and stays in the server log. */
 export class ForbiddenError extends Error {
   readonly detail: string;
   constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = "Forbidden"; }

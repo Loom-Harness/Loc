@@ -345,7 +345,7 @@ aggregate.close();
 ```ts
 // domain/ticket.ts — the entity method carries the precondition only
 public close(): void {
-  if (!(this._status !== TicketStatus.Closed)) throw new DomainError("Precondition failed: status != Closed");
+  if (!(this._status !== TicketStatus.Closed)) throw new DomainError("Business rule violated");
   this._status = TicketStatus.Closed;
   this._assertInvariants();
 }
@@ -390,7 +390,7 @@ def close_ticket(%Ticket{} = record, params, current_user \\ nil) when is_map(pa
   with :ok <- ensure(current_user.role == "agent" or Enum.member?(current_user.permissions, "support.ticketsClose")
                      or Enum.member?(current_user.permissions, "support.ticketsAdmin") and record.priority < 10,
                      {:forbidden, "Forbidden: IsAgent() || CanClose(priority)"}),
-       :ok <- ensure(record.status != :Closed, {:precondition_failed, "Precondition failed: status != Closed"}) do
+       :ok <- ensure(record.status != :Closed, {:precondition_failed, "Business rule violated"}) do
     # … perform the update
   end
 end

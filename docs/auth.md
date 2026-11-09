@@ -555,23 +555,22 @@ public cancel(reason: string): void {
 }
 ```
 
-**What the 403 says (ruling D4, eval-closure #20).** The thrown message names
-the failed gate, and every backend writes it to its `forbidden` log line. Whether
-the RFC 7807 **body** repeats it depends on the verifier the deployable ships:
+**What the 403 says (ruling D4, amended 2026-11-03).** The thrown message names
+the failed gate, and every backend writes it to its `forbidden` log line. The
+RFC 7807 **body** never repeats it: DSL source does not appear in a response,
+under any verifier.
 
-| Verifier | 403 `detail` | Server log `forbidden` line |
-|---|---|---|
-| dev stub (`auth: required`, a `user { … }` block, no `auth { oidc … }`) | `Forbidden: currentUser.role == "manager" && reason != ""` | same text |
-| a real verifier (`auth { oidc … }`), or no verifier at all | `Forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
+| Verifier | 403 `detail` | `code` | Server log `forbidden` line |
+|---|---|---|---|
+| any (dev stub, `auth { oidc … }`, or none) | `Forbidden` | `problem.forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
 
-So a production caller learns that it was forbidden, not which predicate it
-failed; the dev stub keeps the echo because naming the gate is the useful answer
-while you are wiring claims. One helper per backend decides it from the same two
-facts that pick the verifier (`echoesDenialDetail`, `src/ir/util/denial-detail.ts`):
-node's `ForbiddenError.detail` (read by every `onError` arm), .NET's
-`DomainExceptionFilter`, Java's `ApiExceptionAdvice`, Python's
-`install_error_handlers`, and Phoenix's `ProblemDetails.problem_response/4` (plus
-the LiveView create form's flash).
+So a caller learns that it was forbidden, not which predicate it failed; the
+developer wiring claims reads the predicate from the server log. Node's
+`ForbiddenError.detail` (read by every `onError` arm), .NET's
+`DomainExceptionFilter` and Python's `install_error_handlers` carry the constant
+today; Java's `ApiExceptionAdvice` and Phoenix's `ProblemDetails.problem_response/4`
+(plus the LiveView create form's flash) still echo under the dev stub until their
+#4473 slices land.
 
 Consequences worth knowing:
 

@@ -34,7 +34,7 @@ system IfBranches {
           if status == Shipped {
             return AlreadyShipped { code: code }
           }
-          precondition stock > 0 message "out of stock"
+          precondition outOfStock: stock > 0
           stock := stock - 1
           status := Shipped
           emit OrderShipped { order: id }
@@ -51,7 +51,7 @@ system IfBranches {
 
         operation restock(n: int) {
           if n > 100 {
-            precondition stock < 10 message "too much stock for a bulk restock"
+            precondition bulkRestockLimit: stock < 10
           }
           stock := stock + n
         }
@@ -129,7 +129,7 @@ system IfBranches {
         }
         operation withdraw(amount: int) {
           if amount > 50 {
-            precondition balance >= amount * 2 message "a large withdrawal needs twice the amount"
+            precondition largeWithdrawalCover: balance >= amount * 2
           }
           emit Withdrawn { account: id, amount: amount }
         }

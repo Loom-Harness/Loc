@@ -1,4 +1,9 @@
-import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
+import {
+  wireCode,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {
@@ -428,27 +433,27 @@ export function renderHttpIndex(
     // from a mounted sub-app has a request id to correlate on — same read, same
     // cast bridge as the sub-routers use.
     `    const trace_id = c.get("requestId") ?? "";`,
-    `    const problem = (status: ${rootProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${rootProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
     "    if (err instanceof ForbiddenError) {",
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
-    // `err.detail` (ruling D4, #20): echoed only under the dev-stub verifier.
-    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail);`,
+    // `err.detail` (ruling D4): the constant `Forbidden`, never the gate source.
+    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
     "    }",
     "    if (err instanceof DisallowedError) {",
     `      ${renderHonoBaseLogCall("disallowed", `message: err.message, status: ${rootDisallowedStatus}`)}`,
     '      recordDomainFault("disallowed");',
-    `      return problem(${rootDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+    `      return problem(${rootDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
     "    }",
     "    if (err instanceof DomainError) {",
     `      ${renderHonoBaseLogCall("domainError", `message: err.message, status: ${rootDomainStatus}`)}`,
     '      recordDomainFault("domain_error");',
-    `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message);`,
+    `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
     "    }",
     "    if (err instanceof AggregateNotFoundError) {",
     `      ${renderHonoBaseLogCall("notFound", `status: ${rootNotFoundStatus}`)}`,
     '      recordDomainFault("not_found");',
-    `      return problem(${rootNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
+    `      return problem(${rootNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
     "    }",
     ...(rootHasUniqueKeys
       ? [
@@ -457,7 +462,7 @@ export function renderHttpIndex(
           `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) {`,
           `      ${renderHonoBaseLogCall("disallowed", `message: (err as { constraint?: string }).constraint ?? (err as { cause?: { constraint?: string } }).cause?.constraint ?? "unique_violation", status: ${rootUniquenessStatus}`)}`,
           '      recordDomainFault("disallowed");',
-          `      return problem(${rootUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
+          `      return problem(${rootUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
           "    }",
         ]
       : []),
@@ -466,7 +471,7 @@ export function renderHttpIndex(
           "    if (err instanceof ConcurrencyError) {",
           `      ${renderHonoBaseLogCall("conflict", `message: err.message, status: ${rootConcurrencyStatus}`)}`,
           '      recordDomainFault("conflict");',
-          `      return problem(${rootConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+          `      return problem(${rootConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
           "    }",
         ]
       : []),
@@ -474,7 +479,7 @@ export function renderHttpIndex(
     `      ${renderHonoBaseLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")}`,
     // RS-28 — sanitized: the operator gets op + aggregate + the inner message on
     // the log line; the wire gets the same "internal" every other 500 sends.
-    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
     "    }",
   ];
   return (

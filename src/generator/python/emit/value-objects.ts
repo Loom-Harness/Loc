@@ -1,12 +1,13 @@
 import type { BoundedContextIR, EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { pythonIdent, pythonWireIdent } from "../../../util/naming.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
+import { pyRuleParams } from "../wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // `app/domain/value_objects.py` — enums as `StrEnum` subclasses (member
@@ -59,10 +60,12 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
     const cond = inv.guard
       ? `(${renderPyExpr(inv.guard, VO_CTX)}) and ${renderPyNegatedGuard(inv.expr, VO_CTX)}`
       : renderPyNegatedGuard(inv.expr, VO_CTX);
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // M-T5.1 — a DomainError subclass the handlers answer with an errors[]
-    // entry; a messaged rule carries the wire rung's content-hash code.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
+    const text = ruleText(inv);
+    // A DomainError subclass the handlers answer with an errors[] entry; it
+    // carries the same `code` the wire rung does (a named rule's identity key,
+    // else the generic key of an unnamed one) and a named rule's read values.
+    const params = inv.message ? pyRuleParams(inv, (e) => renderPyExpr(e, VO_CTX)) : undefined;
+    const code = `, ${JSON.stringify(ruleCode(inv))}${params ? `, ${params}` : ""}`;
     return [
       `        if ${cond}:`,
       `            raise ${PY.ValueObjectInvariantError}(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,

@@ -302,7 +302,7 @@ aggregate Patient {
   derived birthYear: int = birthDate.year()
   derived daysToVisit: int = birthDate.daysUntil(nextVisit ?? birthDate)
   operation book(visit: date) {
-    precondition birthDate <= today() message "A birth date cannot be in the future"
+    precondition birthDateNotFuture: birthDate <= today()
     nextVisit := visit
   }
 }

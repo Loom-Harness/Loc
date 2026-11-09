@@ -20,8 +20,9 @@ import {
   type EntryResultLeaf,
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
-import { unionMembers } from "../../_payload/union-wire.js";
+import { RFC7807_MEMBERS, unionMembers } from "../../_payload/union-wire.js";
 import { jid } from "../java-ident.js";
+import { javaErrorVariantExt } from "../wire-policy-java.js";
 import { type JavaReturnUnionSpec, renderJavaUnionWireFiles, type UnionFile } from "./unions.js";
 import { domainToWire } from "./wire.js";
 
@@ -163,8 +164,6 @@ export function entryErrorTestJava(er: EntryResult, t: TypeIR, v: string): strin
     .join(" || ");
 }
 
-const RFC7807: ReadonlySet<string> = new Set(["type", "title", "status", "detail", "instance"]);
-
 /** The controller's answer for an entry result held in `v`: each error record
  *  as problem+json at its mapped status, anything else at 200. */
 export function entryControllerJava(
@@ -181,7 +180,8 @@ export function entryControllerJava(
     const r = errorVariantResponse(tag, ctx.errorStatusOverrides);
     const d = errorVariantResponse(tag);
     const m = members.find((mm) => mm.tag === tag);
-    const fields = m?.shape === "record" ? m.fields.filter((f) => !RFC7807.has(f.name)) : [];
+    const fields =
+      m?.shape === "record" ? m.fields.filter((f) => !RFC7807_MEMBERS.has(f.name)) : [];
     out.push(
       `${indent}if (${v} instanceof ${entryUnionJava(t)}_${tag} __e) {`,
       `${indent}    var problem = ${refs.problemDetail}.forStatus(${r.status});`,
@@ -191,6 +191,7 @@ export function entryControllerJava(
       ...fields.map(
         (f) => `${indent}    problem.setProperty(${JSON.stringify(f.name)}, __e.${jid(f.name)}());`,
       ),
+      ...javaErrorVariantExt(ctx, tag, `${indent}    `, (name) => `__e.${jid(name)}()`),
       `${indent}    return ${refs.responseEntity}.status(${r.status}).contentType(${refs.mediaType}.APPLICATION_PROBLEM_JSON).body(problem);`,
       `${indent}}`,
     );

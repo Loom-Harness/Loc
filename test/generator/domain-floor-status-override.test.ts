@@ -71,10 +71,13 @@ async function emit(platform: string, apiBody: string): Promise<string> {
 /** The RUNTIME exception-handler arm each backend answers a `DomainError` with,
  *  as a literal fragment of its emitted source: `(status, title, …)`. */
 const RUNTIME_ARM: Record<string, (status: number, title: string) => string> = {
-  node: (s, t) => `return problem(${s}, "${t}", err.message);`,
-  dotnet: (s, t) => `Problem(context, ${s}, "${t}", de.Message, trace_id);`,
-  java: (s, t) => `return respond(problem(${s}, "${t}", e.getMessage(), request), ${s});`,
-  python: (s, t) => `return problem(request, ${s}, "${t}", str(err))`,
+  // The class code rides the error (`problem.domain-floor`, or the
+  // arithmetic-overflow class a checked integer result raises).
+  node: (s, t) => `return problem(${s}, "${t}", err.message, err.problemCode);`,
+  dotnet: (s, t) => `Problem(context, ${s}, "${t}", de.Message, trace_id, "problem.domain-floor");`,
+  java: (s, t) =>
+    `return respond(problem(${s}, "${t}", e.getMessage(), "problem.domain-floor", request), ${s});`,
+  python: (s, t) => `return problem(request, ${s}, "${t}", str(err), code="problem.domain-floor")`,
 };
 
 /** The DECLARED response for that same status, per backend spelling. */
@@ -131,10 +134,12 @@ describe("M-T5.20 — the `Forbidden` rung resolves the same way", () => {
     it(`${platform}: \`httpStatus Forbidden -> 402\` moves the runtime arm AND the declaration`, async () => {
       const out = await emit(platform, "{ httpStatus Forbidden -> 402 }");
       const arm: Record<string, string> = {
-        node: 'return problem(402, "Payment Required", err.detail);',
-        dotnet: 'Problem(context, 402, "Payment Required", fe.Message, trace_id);',
-        java: 'return respond(problem(402, "Payment Required", e.getMessage(), request), 402);',
-        python: 'return problem(request, 402, "Payment Required", str(err))',
+        node: 'return problem(402, "Payment Required", err.detail, "problem.forbidden");',
+        dotnet:
+          'Problem(context, 402, "Payment Required", "Forbidden", trace_id, "problem.forbidden");',
+        java: 'return respond(problem(402, "Payment Required", "Forbidden", "problem.forbidden", request), 402);',
+        python:
+          'return problem(request, 402, "Payment Required", "Forbidden", code="problem.forbidden")',
       };
       expect(out).toContain(arm[platform]);
       // The `requires`-guarded operation declares the authorization outcome at

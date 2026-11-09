@@ -36,16 +36,16 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { ariaLabelAttr, escapeHtmlAttr } from "./a11y-emit.js";
 import { chromeKey, chromeMessage } from "./i18n-chrome.js";
 import { icuFromConcat, literalString, messageKey } from "./i18n-extract.js";
 import { registerI18nImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
-import { sourceText } from "./source-text.js";
 import type { StringPart } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
 
-export { sourceText, withSourceOverrides } from "./source-text.js";
+export { sourceText, withSourceOverrides } from "../_i18n/source-text.js";
 
 /** `t()` always returns a `string`, so the interpolation seam is told so.  The
  *  four JSX/markup targets ignore `exprType` (interpolation auto-coerces), which
@@ -103,8 +103,14 @@ function translateExpr(
  *  (`t("Projects.Task.name.other", "Tasks")`); with i18n off it is the English
  *  default as a string literal.  Expression position: a JSX/markup caller wraps
  *  it with `renderInterpolation` (text) or `renderAttrBinding` (attribute). */
-export function localizedModelText(ctx: WalkContext, key: string, defaultText: string): string {
-  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText);
+export function localizedModelText(
+  ctx: WalkContext,
+  key: string,
+  defaultText: string,
+  /** Placeholder values the catalog text names (`{ min: 1 }`), as expressions. */
+  values?: ReadonlyArray<{ name: string; expr: string }>,
+): string {
+  if (ctx.i18nPrefix) return translateCall(ctx, key, defaultText, values);
   return ctx.target.exprLiteral("string", sourceText(key, defaultText));
 }
 

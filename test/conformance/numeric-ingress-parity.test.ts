@@ -160,7 +160,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     {
       why: "typed WireFormatException with a JSON pointer",
       shape:
-        /throw new global::Api1\.Domain\.Common\.WireFormatException\("\/price", \$"Invalid decimal: \\"\{request\.Price\}\\""\)/,
+        /new global::Api1\.Domain\.Common\.WireFormatException\("\/price", \$"Invalid decimal: \\"\{request\.Price\}\\"", "field\.money-grammar", new System\.Collections\.Generic\.Dictionary<string, object\?> \{ \["value"\] = request\.Price \}\)/,
       file: /Controller\.cs$/,
     },
     // A nested value object's money is a separate emission path and was the
@@ -180,12 +180,13 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
       why: "WireFormatException arm in the exception filter",
       shape: /context\.Exception is WireFormatException wfe/,
     },
-    { why: "pointer reaches the body", shape: /pointer = wfe\.FieldPointer/ },
+    { why: "pointer reaches the body", shape: /\["pointer"\] = wfe\.FieldPointer/ },
   ],
   java: [
     {
       why: "money guard helper",
-      shape: /throw new WireFormatException\(pointer, "Invalid decimal: " \+ quote\(value\)\)/,
+      shape:
+        /throw new WireFormatException\(pointer, "Invalid decimal: " \+ quote\(value\), "field\.money-grammar"/,
     },
     {
       why: "request money goes through it",
@@ -208,7 +209,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     },
     {
       why: "typed pydantic error, not a raise",
-      shape: /"money_format", "Invalid decimal: \{value\}"/,
+      shape: /"field\.money-grammar", "Invalid decimal: \{value\}"/,
     },
     {
       why: "MoneyStr annotation",
@@ -238,7 +239,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     },
     {
       why: "renders as the standard changeset 422",
-      shape: /defp __loom_param_error\(record, field, value, message\) do/,
+      shape: /defp __loom_param_error\(record, field, value, message, code, params\) do/,
     },
     // The create/update path's guard is the Ecto field TYPE: cast/3 answers
     // :error for a non-decimal string and the changeset renders 422.  Widening
@@ -325,7 +326,8 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
     },
     {
       why: "everything else is a typed error",
-      shape: /__loom_param_error\(record, field, value, "Invalid integer"\)/,
+      shape:
+        /__loom_param_error\(record, field, value, "Invalid integer", "field\.type-mismatch", nil\)/,
     },
     {
       why: "guard is in the with-chain",
@@ -402,12 +404,13 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
     },
     {
       why: "its own WireFormatException message",
-      shape: /throw new WireFormatException\(pointer, "Money out of range: " \+ quote\(value\)\)/,
+      shape:
+        /throw new WireFormatException\(pointer, "Money out of range: " \+ quote\(value\), "field\.money-range"/,
     },
   ],
   python: [
     { why: "integer-digit bound in _money_str", shape: /\) > 15:/ },
-    { why: "its own PydanticCustomError code", shape: /"money_range", "Money out of range/ },
+    { why: "its own PydanticCustomError code", shape: /"field\.money-range", "Money out of range/ },
   ],
   elixir: [
     // Elixir has TWO wire paths into a money column and they share no code:
@@ -419,7 +422,8 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
     },
     {
       why: "op-param refusal message",
-      shape: /__loom_param_error\(record, field, value, "Money out of range"\)/,
+      shape:
+        /__loom_param_error\(record, field, value, "Money out of range", "field\.money-range", %\{value: value\}\)/,
     },
     {
       why: "changeset-path validate_change on the money column",
@@ -470,7 +474,7 @@ const INT32_OVERFLOW: Record<Platform, Seam[]> = {
     {
       why: "the unreadable-body arm lifts Jackson's coercion failure to the field",
       shape:
-        /var overflow = integerOverflowPointer\(e\);\s+if \(overflow != null\) \{\s+return onWireFormat\(new WireFormatException\(overflow, "Integer out of range"\), request\);/,
+        /var overflow = integerOverflowPointer\(e\);\s+if \(overflow != null\) \{\s+return onWireFormat\(new WireFormatException\(overflow, "Integer out of range", "field\.integer-range", java\.util\.Map\.of\("min", -2147483648, "max", 2147483647\)\), request\);/,
     },
     {
       why: "only an InputCoercionException with a path qualifies",
@@ -480,7 +484,7 @@ const INT32_OVERFLOW: Record<Platform, Seam[]> = {
   python: [
     {
       why: "Int32's bound raises the range sentence",
-      shape: /raise PydanticCustomError\("int_range", "Integer out of range"\)/,
+      shape: /raise PydanticCustomError\("field\.integer-range", "Integer out of range"/,
     },
     {
       why: "Int32 carries the check",
@@ -495,12 +499,11 @@ const INT32_OVERFLOW: Record<Platform, Seam[]> = {
     {
       why: "the op-param guard sends the sentence bare",
       shape:
-        /defp __loom_int32_param\(record, field, value\) when is_integer\(value\),\s+do: \{:error, Ecto\.Changeset\.add_error\(Ecto\.Changeset\.change\(record, %\{\}\), field, "Integer out of range"\)\}/,
+        /defp __loom_int32_param\(record, field, value\) when is_integer\(value\),\s+do: \{:error, Ecto\.Changeset\.add_error\(Ecto\.Changeset\.change\(record, %\{\}\), field, "Integer out of range", loom_code: "field\.integer-range", loom_params: %\{min: -2147483648, max: 2147483647\}\)\}/,
     },
     {
       why: "the changeset path sends it too",
-      shape:
-        /validate_number\(:qty, greater_than_or_equal_to: -2147483648, less_than_or_equal_to: 2147483647, message: "Integer out of range"\)/,
+      shape: /\|> validate_change\(:qty, &__loom_int32_range\/2\)/,
     },
   ],
 };

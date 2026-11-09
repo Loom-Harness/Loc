@@ -412,7 +412,7 @@ export function renderTestStmt(
     const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
     // `toThrow(<kind>)` — catch the `DomainError` (a value object's
     // `ValueObjectInvariantError` subclasses it) and assert its structural
-    // `kind`, never its message, which an authored `message "..."` replaces.
+    // `kind`, never its message, which a rule's own text replaces.
     // `rejected` is rebound by each assertion, so several in one test body
     // don't collide.
     if (s.throwKind) {

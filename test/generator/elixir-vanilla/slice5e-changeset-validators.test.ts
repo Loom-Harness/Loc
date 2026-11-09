@@ -31,19 +31,24 @@ system S {
 `;
 
 describe("vanilla — T2.i changeset field-constraint validators", () => {
-  it("maps single-field invariants to validate_number/length/format", async () => {
+  it("maps single-field invariants to one coded check per side of each limit", async () => {
     const files = await generateSystemFiles(SRC);
     const cs = files.get([...files.keys()].find((k) => k.endsWith("/shop/product_changeset.ex"))!)!;
+    // Each side of a declared limit is a `validate_change` closure whose error
+    // carries its `field.<limit>` code and bound — Ecto's `validate_number` /
+    // `validate_format` cannot attach either.
+    expect(cs).toContain("|> validate_change(:price, fn _, value ->");
     expect(cs).toContain(
-      '|> validate_number(:price, greater_than_or_equal_to: 0, message: "Price must be at least 0")',
+      '{"Price must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
     );
     // Length is the one pattern that is NOT a native Ecto validator: Ecto counts
     // GRAPHEMES and has no `:codepoints` option, so a length bound rides a
     // `validate_change/3` closure over the shared code-point count (RS-31).
     expect(cs).toContain("|> validate_change(:name, fn _, value ->");
     expect(cs).toContain("length(String.to_charlist(value)) <= 50");
+    expect(cs).toContain("if value =~ ~r/[A-Z]{3}/,");
     expect(cs).toContain(
-      '|> validate_format(:sku, ~r/[A-Z]{3}/, message: "Sku is not in the expected format")',
+      '{"Sku is not in the expected format", validation: :format, loom_code: "field.pattern"}',
     );
   });
 
@@ -62,7 +67,7 @@ describe("vanilla — T2.i changeset field-constraint validators", () => {
     expect(repo).toMatch(/def update\([\s\S]*?update_changeset\(/);
     const cs = files.get([...files.keys()].find((k) => k.endsWith("/shop/product_changeset.ex"))!)!;
     expect(cs).toMatch(
-      /def update_changeset\([\s\S]*?validate_number\(:price, greater_than_or_equal_to: 0, message: "Price must be at least 0"\)/,
+      /def update_changeset\([\s\S]*?validate_change\(:price, fn _, value ->[\s\S]*?loom_code: "field\.min"/,
     );
   });
 
@@ -86,7 +91,7 @@ system P {
     // No INVARIANT-derived validator: nothing on `title`, no `validate_change`,
     // no `validate_format`.
     expect(cs).not.toContain("validate_format");
-    expect(cs).not.toContain("validate_change");
+    expect(cs).not.toContain("validate_change(:title");
     expect(cs).not.toContain("validate_number(:title");
     // The one `validate_number` that IS here is type-derived, not
     // invariant-derived: the default-on `version` token is an `int`, so it is a
@@ -95,10 +100,10 @@ system P {
     // client-supplied version past 2147483647 reaches the column and the
     // DATABASE answers 500 for what is a client fault.  Asserted exactly, so
     // an invariant leaking in here would still fail this test.
-    const VERSION_BOUND =
-      "|> validate_number(:row_version, greater_than_or_equal_to: -2147483648, " +
-      'less_than_or_equal_to: 2147483647, message: "Integer out of range")';
-    const numberLines = cs.split("\n").filter((l) => l.includes("validate_number"));
+    // …carried by a `validate_change` closure rather than `validate_number`, so
+    // the error can name its catalog code and bounds (`field.integer-range`).
+    const VERSION_BOUND = "|> validate_change(:row_version, &__loom_int32_range/2)";
+    const numberLines = cs.split("\n").filter((l) => l.includes("__loom_int32_range/2"));
     // Once per changeset that casts the column — this aggregate emits the base
     // one and the versioned update one, and both take client attrs.
     expect(numberLines.map((l) => l.trim())).toEqual([VERSION_BOUND, VERSION_BOUND]);

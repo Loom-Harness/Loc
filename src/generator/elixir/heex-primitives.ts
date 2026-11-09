@@ -30,6 +30,7 @@ import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -45,7 +46,6 @@ import { paramLabelOwner } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
 import { gridCols, slugify } from "../_walker/shared/args.js";
-import { sourceText } from "../_walker/source-text.js";
 import {
   enumLabelLookup,
   enumOptionTuples,

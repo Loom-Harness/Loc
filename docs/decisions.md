@@ -4627,7 +4627,7 @@ deployable replaying the whole history is a semantic change of its own
 
 **Status:** decided (owner ruling D10 of the 2026-09-28 eval-closure review, item #15d).
 
-**Question.** A rule with no `message "…"` clause that is a single-field shape
+**Question.** An unnamed rule (no `name:`, so no `message`) that is a single-field shape
 (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) rides each
 backend's NATIVE wire constraint, and the native constraint's text is whatever
 the framework says. On python that was pydantic's default —
@@ -4653,7 +4653,7 @@ Only errors the table arms are re-raised as `PydanticCustomError(<type>,
 model rather than the `RequestValidationError` handler because the handler sees
 only a `loc`, and one field name can carry different bounds on two models.
 
-**Consequences.** Pinned by `test/generator/python/message-less-wire-message.test.ts`
+**Consequences.** Pinned by `test/generator/python/unnamed-wire-message.test.ts`
 (derives node's message set and requires each in python's tables) and by the
 `validation-messages` wire golden (seq 14/15). .NET, Java and Elixir send the
 same sentence since [D-MESSAGELESS-DEFAULT](#d-messageless-default--every-message-less-wire-rule-answers-nodes-sentence-on-every-backend),
@@ -4665,7 +4665,7 @@ which extends this ruling to every backend and every message-less rule.
 Taken as the owner default recorded for wave C3F ("node's sentence is
 canonical", [`wave-c3f.md`](https://github.com/Loom-Harness/Loc/blob/609a44bc8a2f7f7e6215ac99e2cc9858302c0f4d/docs/new-plan/waves/wave-c3f.md)) and built by its packet F4.
 
-**Question.** A rule with no `message "…"` clause still refuses a request, and
+**Question.** An unnamed rule still refuses a request, and
 the refusal is one `errors[].message` wire field. Before this ruling it had a
 value per framework: FluentValidation's `'Amount' must be greater than or
 equal to '1'.`, java's generic `Invariant violated: amount >= 1` for a shape it
@@ -4707,24 +4707,27 @@ field's `loc` and no "Value error, " prefix (`python/emit/wire-constraints.ts`).
 Pinned by RS-43 and the `validation-messages` / `intrinsics` wire goldens; the
 four `M-T6.86` waivers are deleted.
 
-## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
+## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 never names its gate; a malformed dev-claims header is a 400
 
 **Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
-and #23).
+and #23). **D4 amended 2026-11-03 (#4473): DSL source never appears in a
+response, under any verifier.** Node, .NET and Python have dropped the dev-stub
+echo; Java and Phoenix follow in their #4473 fan-out slices, and until they land
+they still echo under the dev stub.
 
 **D4 — the 403 body.** Every `requires` gate throws `Forbidden: <gate source>`.
-That text always goes to the backend's `forbidden` log line. The RFC 7807
-`detail` repeats it **only** when the deployable runs the dev-stub verifier
-(`auth: required` + a `user { … }` block + no `auth { oidc … }` block); under a
-real verifier — and on a deployable with no verifier at all — the body is the
-constant `Forbidden`. One compile-time predicate decides it for all five
-backends, `echoesDenialDetail` (`src/ir/util/denial-detail.ts`), derived from
-the same facts that choose the verifier, so the body cannot disagree with the
-verifier actually shipped. Every forbidden response funnels through one place
-per backend (node `ForbiddenError.detail`, .NET `DomainExceptionFilter`, Java
-`ApiExceptionAdvice`, Python `install_error_handlers`, Phoenix
-`ProblemDetails.problem_response/4`); the ~21 throw sites are unchanged.
-Wire-visible: `test/behavioral/wire-golden/auth-oidc.json` was re-baselined.
+That text goes to the backend's `forbidden` log line and nowhere else. The RFC
+7807 `detail` is the constant `Forbidden` on every deployable — dev-stub,
+real verifier, or none — and the body carries the catalog `code`
+`problem.forbidden` for a client to localize by. (The original ruling echoed the
+gate under the dev-stub verifier, where naming the predicate is a useful
+debugging answer; the owner withdrew that because a `.ddd` predicate is the
+model's internals and the log line already serves a developer.) Every forbidden
+response funnels through one place per backend (node `ForbiddenError.detail`,
+.NET `DomainExceptionFilter`, Java `ApiExceptionAdvice`, Python
+`install_error_handlers`, Phoenix `ProblemDetails.problem_response/4`); the ~21
+throw sites are unchanged. `echoesDenialDetail` (`src/ir/util/denial-detail.ts`)
+remains only for the backends still echoing; it is deleted with the last one.
 
 **D6 — the dev-claims header.** A present, non-empty `x-loom-dev-claims` header
 that does not decode to a base64 JSON **object** answers `400 Bad Request` with
@@ -4732,9 +4735,8 @@ the detail `malformed x-loom-dev-claims header: expected a base64-encoded JSON
 object` on all five dev stubs, including a stub whose user shape has no
 carryable claim. It used to fall back silently to the built-in identity.
 
-**Scope choices recorded with them.** "Otherwise" in D4 includes the
-no-verifier deployable (not dev-stub auth, so no echo). The Phoenix LiveView
-create form's denial flash follows the same rule as the HTTP body.
+**Scope choices recorded with them.** The Phoenix LiveView create form's denial
+flash follows the same rule as the HTTP body.
 
 **Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,

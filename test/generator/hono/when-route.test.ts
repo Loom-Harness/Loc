@@ -29,7 +29,7 @@ describe("hono routes — when canCommand gate", () => {
   it("gates the operation route with DisallowedError before the body", async () => {
     const r = await routes();
     expect(r).toContain(
-      "if (!(aggregate.status !== OrderStatus.Shipped && aggregate.status !== OrderStatus.Cancelled)) throw new DisallowedError(\"operation 'cancel' is not allowed in the current state of Order (when this.status != Shipped && this.status != Cancelled).\");",
+      "if (!(aggregate.status !== OrderStatus.Shipped && aggregate.status !== OrderStatus.Cancelled)) throw new DisallowedError(\"operation 'cancel' is not allowed in the current state of Order.\");",
     );
     // The route declares the 409 outcome.
     expect(r).toContain(
@@ -49,7 +49,7 @@ describe("hono routes — when canCommand gate", () => {
   it("maps DisallowedError to a 409 Disallowed ProblemDetails in onError", async () => {
     const r = await routes();
     expect(r).toContain("if (err instanceof DisallowedError) {");
-    expect(r).toContain('return problem(409, "Disallowed", err.message);');
+    expect(r).toContain('return problem(409, "Disallowed", err.message, "problem.state-gate");');
   });
 
   it("an ungated operation emits no gate, can-route, or 409", async () => {

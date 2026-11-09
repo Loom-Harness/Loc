@@ -127,7 +127,7 @@ describe("the API client surfaces ProblemDetails `detail`, not the status text",
     // `detail` must be declared on the decoded shape…
     expect(acl).toContain("detail?: string;");
     // …and preferred over `title` for the global outcome.
-    expect(acl).toContain("const globalMessage = pd.detail || pd.title;");
+    expect(acl).toContain("const english = pd.detail || pd.title;");
     expect(acl).not.toContain('return pd.title ? { kind: "global", title: pd.title }');
   });
 

@@ -48,6 +48,7 @@ import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../i
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { sourceText } from "../_i18n/source-text.js";
 import {
   APP_SHELL_CHROME,
   chromeKey,
@@ -55,7 +56,6 @@ import {
   type FormSentenceScope,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { sourceText } from "../_walker/source-text.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */
@@ -287,7 +287,7 @@ export function renderGettextBackend(appName: string, appModule: string): string
 export function renderGettextCatalog(
   ui: UiIR | undefined,
   kind: "pot" | "po",
-  /** Backend validation messages (M-T1.11) — `msg.<hash>` → authored English,
+  /** Backend validation messages (M-T1.11) — `<Ctx>.<Owner>.rule.<name>` → authored English,
    *  from `collectWireValidationMessages`. Merged into the SAME `.po` tree as the
    *  ui strings: a Loom key is globally unique and always the `msgctxt`, so one
    *  domain carries both halves and `mix gettext.merge` sees one catalog. An

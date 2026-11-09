@@ -210,7 +210,8 @@ const GATE: Record<(typeof BACKENDS)[number], string> = {
   python: 'raise ForbiddenError("Forbidden: Staff()")',
   java: 'throw new ForbiddenException("Forbidden: Staff()")',
   dotnet: 'throw new ForbiddenException("Forbidden: Staff()")',
-  elixir: 'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: Staff()")',
+  elixir:
+    'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: Staff()", "problem.forbidden")',
 };
 
 /** Each backend's paged-route `sort` default — the empty string every paged

@@ -46,9 +46,13 @@ async function catalogOf(source: string): Promise<Record<string, string>> {
   const full = buildMessageCatalog(enrichLoomModel(lowerModel(model)).systems[0]!);
   // These tests assert PAGE/component/menu string extraction + keying.  An
   // i18n-enabled system also merges the always-rendered app-shell chrome
-  // (`chrome.*`, M-T1.11) — filtered here so the page-keying assertions below
+  // (`chrome.*`) and the server-error codes (`problem.*` / `field.*`) — filtered here so the page-keying assertions below
   // stay focused; shell chrome is covered in pack-chrome-i18n.test.ts.
-  return Object.fromEntries(Object.entries(full).filter(([k]) => !k.startsWith("chrome.")));
+  return Object.fromEntries(
+    Object.entries(full).filter(
+      ([k]) => !k.startsWith("chrome.") && !k.startsWith("problem.") && !k.startsWith("field."),
+    ),
+  );
 }
 
 const wrap = (uiBody: string) => `

@@ -39,6 +39,7 @@ import {
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
+import { lowerRuleMessage } from "./rule-message.js";
 
 /** Lower a block of statements, threading the env so a `let` binds for the
  *  statements after it.  Used for match-arm / else bodies (Stage 2); the
@@ -93,7 +94,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
         kind: "precondition",
         expr: lowerExpr(stmt.expr, env),
         source: cstText(stmt.expr),
-        message: stmt.message ? { text: stmt.message } : undefined,
+        message: lowerRuleMessage(stmt),
       },
       envAfter: env,
     };

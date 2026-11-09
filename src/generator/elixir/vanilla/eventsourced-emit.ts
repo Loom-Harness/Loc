@@ -54,7 +54,6 @@ import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js"
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { messageCode } from "../../../util/message-code.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -64,6 +63,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -79,6 +79,7 @@ import {
   denialTerm,
   deniesAtWire,
   disallowedTerm,
+  exRuleParams,
 } from "./denial.js";
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
@@ -147,10 +148,10 @@ function esHasCommands(agg: AggregateIR): boolean {
  *  short-circuits to.  The denial rides the `precondition_failed` rung, the
  *  domain floor (RS-15): 422 "Unprocessable Entity" with the rule's message as
  *  `detail`, which is what the other four backends' `DomainError` answers.  A
- *  MESSAGED rule carries its `msg.<hash>` code and pointer in a map detail, so
+ *  NAMED rule carries its identity-key code and pointer in a map detail, so
  *  ProblemDetails adds the one `errors[]` entry the other backends' coded throw
- *  gets; a message-less rule's detail is the derived `Invariant violated:
- *  <source>`, byte-identical to theirs. */
+ *  gets; an unnamed rule's detail is the generic `ruleText`, byte-identical to
+ *  theirs. */
 export interface EsInvariantCheck {
   readonly predicate: string;
   readonly term: string;
@@ -176,11 +177,12 @@ export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantC
   return esEnforcedInvariants(agg).map((inv) => {
     const rule = renderExpr(inv.expr, ctx);
     const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
-    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const message = floorRuleText(inv);
+    const params = inv.message ? exRuleParams(inv, (e) => renderExpr(e, ctx)) : undefined;
     const term = inv.message
       ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
-          messageCode(inv.message.text),
-        )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
+          inv.message.key,
+        )}, pointer: ${elixirString(domainFloorPointer(inv))}${params ? `, params: ${params}` : ""}}}`
       : `{:precondition_failed, ${elixirString(message)}}`;
     return { predicate, term, message };
   });
@@ -1094,7 +1096,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // other four backends send.
   const params = new Set(c.op.params.map((p) => p.name));
   const guardClause = (s: Extract<StmtIR, { kind: "precondition" | "requires" }>): string =>
-    `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${deniesAtWire(s, params) ? denialTerm(s) : denialTerm(s, params)})`;
+    `:ok <- ensure(${renderExpr(s.expr, exprCtx)}, ${denialTerm(s, deniesAtWire(s, params) ? undefined : params, (e) => renderExpr(e, exprCtx))})`;
   const letLine = (s: Extract<StmtIR, { kind: "let" }>): string =>
     `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, exprCtx)}`;
   const sortPath = (stmts: readonly StmtIR[]) => {

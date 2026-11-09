@@ -72,6 +72,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -312,7 +313,9 @@ function renderDocDataSchema(appModule: string, ctxModule: string, agg: Aggregat
   const validatorLines = (agg.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => castFieldSet.has(snake(c.field)))
-      .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      .map((c) =>
+        ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+      ),
   );
   const validatorBlock = validatorLines.length > 0 ? `\n${validatorLines.join("\n")}` : "";
   const requiredBlock = requiredCols ? `\n    |> validate_required([${requiredCols}])` : "";

@@ -87,6 +87,7 @@
       "path": "/api/products/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
         "status": 404,
@@ -201,6 +202,7 @@
       "path": "/api/orders/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
         "status": 404,
@@ -255,6 +257,7 @@
       "path": "/api/customers/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}",
         "status": 404,
@@ -342,6 +345,7 @@
       "path": "/api/products",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/products",
         "instance": "/api/products",
         "status": 405,
@@ -355,6 +359,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -368,6 +373,7 @@
       "path": "/api/products",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/products",
         "status": 400,
@@ -381,6 +387,7 @@
       "path": "/api/orders/{id}/confirm",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
         "status": 404,
@@ -394,6 +401,7 @@
       "path": "/api/orders/{id}/confirm",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
         "status": 404,
@@ -407,6 +415,7 @@
       "path": "/api/orders/{id}/confirm",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/orders/{id}/confirm",
         "status": 415,

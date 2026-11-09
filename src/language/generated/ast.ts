@@ -1774,6 +1774,7 @@ export interface Invariant extends langium.AstNode {
     expr: Expression;
     guard?: Expression;
     message?: string;
+    name?: string;
     serverOnly: boolean;
 }
 
@@ -1782,6 +1783,7 @@ export const Invariant = {
     expr: 'expr',
     guard: 'guard',
     message: 'message',
+    name: 'name',
     serverOnly: 'serverOnly'
 } as const;
 
@@ -2873,12 +2875,14 @@ export interface PreconditionStmt extends langium.AstNode {
     readonly $type: 'PreconditionStmt';
     expr: Expression;
     message?: string;
+    name?: string;
 }
 
 export const PreconditionStmt = {
     $type: 'PreconditionStmt',
     expr: 'expr',
-    message: 'message'
+    message: 'message',
+    name: 'name'
 } as const;
 
 export function isPreconditionStmt(item: unknown): item is PreconditionStmt {
@@ -3038,6 +3042,7 @@ export interface Property extends langium.AstNode {
     readonly $type: 'Property';
     access?: FieldAccess;
     check?: Expression;
+    checkName?: string;
     default?: Expression;
     maskUnless?: Expression;
     message?: string;
@@ -3051,6 +3056,7 @@ export const Property = {
     $type: 'Property',
     access: 'access',
     check: 'check',
+    checkName: 'checkName',
     default: 'default',
     maskUnless: 'maskUnless',
     message: 'message',
@@ -5970,6 +5976,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     name: Invariant.message,
                     optional: true
                 },
+                name: {
+                    name: Invariant.name,
+                    optional: true
+                },
                 serverOnly: {
                     name: Invariant.serverOnly,
                     defaultValue: false,
@@ -6841,6 +6851,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 message: {
                     name: PreconditionStmt.message,
                     optional: true
+                },
+                name: {
+                    name: PreconditionStmt.name,
+                    optional: true
                 }
             },
             superTypes: [Statement.$type, TestStatement.$type]
@@ -7004,6 +7018,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 check: {
                     name: Property.check,
+                    optional: true
+                },
+                checkName: {
+                    name: Property.checkName,
                     optional: true
                 },
                 default: {

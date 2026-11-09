@@ -1,3 +1,4 @@
+import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
 import {
@@ -579,7 +580,7 @@ export function renderAuthFiles(
       `        response.getWriter().write(`,
       `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Unauthorized\\",\\"status\\":401,\\"detail\\":\\""`,
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
-      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
+      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("unauthenticated")}\\"}");`,
       `    }`,
       ``,
       `    /** RFC 7807 400 for a present-but-undecodable dev-claims header. */`,
@@ -591,7 +592,7 @@ export function renderAuthFiles(
       `        response.getWriter().write(`,
       `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Bad Request\\",\\"status\\":400,\\"detail\\":\\""`,
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
-      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
+      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("malformed-body")}\\"}");`,
       `    }`,
       ...(orgContext
         ? [
@@ -605,7 +606,7 @@ export function renderAuthFiles(
             `        response.setContentType("application/problem+json");`,
             `        response.getWriter().write(`,
             `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Forbidden\\",\\"status\\":403,\\"detail\\":\\"the requested organization context is outside the caller's organization scope\\",\\"instance\\":\\""`,
-            `                + request.getRequestURI() + "\\"}");`,
+            `                + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("forbidden")}\\"}");`,
             `    }`,
           ]
         : []),
@@ -1336,6 +1337,7 @@ import org.springframework.http.ResponseEntity;`,
     // configuration where the import arrives for an unrelated reason.
     `            pd.setInstance(java.net.URI.create(request.getRequestURI()));`,
     `            pd.setProperty("type", "about:blank");`,
+    `            pd.setProperty("code", "${wireCode("unauthenticated")}");`,
     `            return ResponseEntity.status(401)`,
     `                .contentType(MediaType.APPLICATION_PROBLEM_JSON)`,
     `                .header("WWW-Authenticate", "Bearer realm=\\"api\\", error=\\"invalid_token\\"")`,

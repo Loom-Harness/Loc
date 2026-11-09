@@ -5,6 +5,24 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace Api.Api;
 
+/// <summary>The catalog <c>code</c> of a refusal the FRAMEWORK answered by status
+/// — a path no route serves, a verb it does not, a media type it cannot read,
+/// an unreadable body.  Domain refusals name their own.</summary>
+public static class ProblemCodes
+{
+    public static string ForStatus(int status) => status switch
+    {
+        404 => "problem.no-route",
+        405 => "problem.method-not-allowed",
+        415 => "problem.unsupported-media-type",
+        401 => "problem.unauthenticated",
+        403 => "problem.forbidden",
+        422 => "problem.field-invalid",
+        400 => "problem.malformed-body",
+        _ => "problem.internal",
+    };
+}
+
 public static class ValidationProblem
 {
     /// <summary>
@@ -17,6 +35,39 @@ public static class ValidationProblem
     /// <summary>"&lt;field&gt; is required" — the field is the LAST key of the pointer.</summary>
     private static string MissingFieldMessage(string pointer) =>
         pointer[(pointer.LastIndexOf('/') + 1)..] + MissingSuffix;
+
+    /// <summary>True when the JSON path <paramref name="key"/> (<c>$.category</c>,
+    /// <c>$.lines[0].product</c>) addresses a Guid-typed member of the body.  System.Text.Json
+    /// reports a bad value for a record's constructor parameter against the
+    /// REQUEST type, naming no Guid, so the member's type is read off the model.</summary>
+    private static bool IsGuidAtPath(ActionContext context, string key)
+    {
+        var body = context.ActionDescriptor.Parameters.FirstOrDefault(p =>
+            p.BindingInfo?.BindingSource == Microsoft.AspNetCore.Mvc.ModelBinding.BindingSource.Body);
+        if (body is null) return false;
+        var type = body.ParameterType;
+        foreach (var segment in key.TrimStart('$').TrimStart('.').Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var bracket = segment.IndexOf('[');
+            var name = bracket >= 0 ? segment[..bracket] : segment;
+            var property = type.GetProperty(name,
+                System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (property is null) return false;
+            type = property.PropertyType;
+            if (bracket >= 0 || (type != typeof(string) && typeof(System.Collections.IEnumerable).IsAssignableFrom(type)))
+            {
+                type = type.IsArray ? type.GetElementType()! : type.IsGenericType ? type.GetGenericArguments()[0] : type;
+            }
+        }
+        return (Nullable.GetUnderlyingType(type) ?? type) == typeof(Guid);
+    }
+
+    /// <summary>True when <paramref name="key"/> names an action parameter bound as
+    /// a Guid (a route or query id).</summary>
+    private static bool IsGuidParameter(ActionContext context, string key) =>
+        context.ActionDescriptor.Parameters.Any(p =>
+            string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)
+            && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
 
     /// <summary>[Required]'s own sentence — "The X field is required." —
     /// recognised so it carries the shared wording instead.</summary>
@@ -96,6 +147,7 @@ public static class ValidationProblem
                 Status = 422,
                 Detail = "One or more fields are invalid.",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.field-invalid" },
             };
             // Built ONLY from the missing-member errors: the same rejection also
             // records a companion "The request field is required." entry keyed by
@@ -110,11 +162,13 @@ public static class ValidationProblem
                         {
                             ["pointer"] = "/" + name,
                             ["message"] = MissingFieldMessage(name),
+                            ["code"] = "field.missing",
                         })
                         : new[] { new Dictionary<string, object>
                         {
                             ["pointer"] = "",
                             ["message"] = error.ErrorMessage,
+                            ["code"] = "field.missing",
                         } };
                 })
                 .ToArray();
@@ -147,12 +201,15 @@ public static class ValidationProblem
                 Status = 422,
                 Detail = "One or more fields are invalid.",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.field-invalid" },
             };
             rangeProblem.Extensions["errors"] = outOfRange
                 .Select(key => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
                     ["message"] = global::Api.Serialization.Int32RangeJsonConverter.Message,
+                    ["code"] = "field.integer-range",
+                    ["params"] = new Dictionary<string, object> { ["min"] = -2147483648, ["max"] = 2147483647 },
                 })
                 .ToArray();
             return new ObjectResult(rangeProblem)
@@ -191,14 +248,20 @@ public static class ValidationProblem
                 Status = 422,
                 Detail = "One or more fields are invalid.",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.field-invalid" },
             };
             mismatchProblem.Extensions["errors"] = mismatched
-                .Select(entry => new Dictionary<string, object>
+                .Select(entry =>
                 {
-                    ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                    ["message"] = entry.Value!.Errors.Any(IsMalformedId)
-                        ? "Expected UUID."
-                        : "Invalid value",
+                    // A uuid field fed something that is not a uuid is a
+                    // malformed id, not a wrong JSON type.
+                    var malformedId = entry.Value!.Errors.Any(IsMalformedId) || IsGuidAtPath(context, entry.Key);
+                    return new Dictionary<string, object>
+                    {
+                        ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
+                        ["message"] = malformedId ? "Expected UUID." : "Invalid value",
+                        ["code"] = malformedId ? "field.malformed-id" : "field.type-mismatch",
+                    };
                 })
                 .ToArray();
             return new ObjectResult(mismatchProblem)
@@ -219,6 +282,7 @@ public static class ValidationProblem
                 Status = 400,
                 Detail = "Malformed JSON in request body",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.malformed-body" },
             })
             {
                 StatusCode = 400,
@@ -232,14 +296,27 @@ public static class ValidationProblem
             Status = 422,
             Detail = "One or more fields are invalid.",
             Instance = context.HttpContext.Request.Path,
+            Extensions = { ["code"] = "problem.field-invalid" },
         };
         problem.Extensions["errors"] = context.ModelState
             .SelectMany(entry => entry.Value is null
                 ? Array.Empty<Dictionary<string, object>>()
-                : entry.Value.Errors.Select(error => new Dictionary<string, object>
+                : entry.Value.Errors.Select(error =>
                 {
-                    ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingFieldMessage(PointerOf(entry.Key)) : error.ErrorMessage,
+                    // The Guid binder's own sentence for a route / query uuid it
+                    // cannot parse becomes the shared malformed-id answer; any
+                    // other DataAnnotations bound is an unnamed rule.
+                    var required = IsRequiredMessage(error.ErrorMessage);
+                    var malformedId = !required && IsGuidParameter(context, entry.Key)
+                        && error.ErrorMessage.StartsWith("The value '", StringComparison.Ordinal);
+                    return new Dictionary<string, object>
+                    {
+                        ["pointer"] = PointerOf(entry.Key),
+                        ["message"] = required ? MissingFieldMessage(PointerOf(entry.Key))
+                            : malformedId ? "Expected UUID." : error.ErrorMessage,
+                        ["code"] = required ? "field.missing"
+                            : malformedId ? "field.malformed-id" : "field.rule",
+                    };
                 }))
             .ToArray();
         return new ObjectResult(problem)

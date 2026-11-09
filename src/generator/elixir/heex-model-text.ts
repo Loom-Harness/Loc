@@ -21,7 +21,7 @@ import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
 import { elixirString } from "../../util/naming.js";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { pgettextCall } from "./i18n.js";
 
 /** The slice of the HEEx walk context the model-text sites read. */

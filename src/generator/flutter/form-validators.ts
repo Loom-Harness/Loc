@@ -1,6 +1,9 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { clientLimitChecks } from "../_frontend/error-codes.js";
+import { namedRuleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";
+import { dartStringLit } from "./i18n.js";
 
 // ---------------------------------------------------------------------------
 // Flutter form-validator derivation — the Dart twin of
@@ -27,8 +30,8 @@ import { singleFieldMessage, takeSingleFieldChain } from "../zod-refine.js";
 //
 // One deliberate divergence from Angular: when the author wrote `message
 // "…"` on the invariant, that text wins over the derived sentence.  On
-// react/vue/svelte a messaged single-field rule contributes BOTH the native
-// chain (derived text) and a surviving `.refine(…)` carrying the authored text
+// react/vue/svelte a named single-field rule contributes BOTH the native
+// chain (derived text) and a surviving `.refine(…)` carrying the rule text
 // — so the authored sentence IS what a JSX user sees.  Angular drops it; using
 // it here moves Flutter towards react's user-visible behaviour, not away.
 // ---------------------------------------------------------------------------
@@ -44,6 +47,12 @@ export interface FlutterFieldRule {
   violated: string;
   /** The sentence shown when it is. */
   message: string;
+  /** The catalog code the sentence renders under (a named rule's identity key,
+   *  an unnamed limit's `field.<reason>`); an i18n app shows
+   *  `t(code, message, params)`. */
+  code: string;
+  /** The values the code's catalog text names (a limit's bound). */
+  params: Readonly<Record<string, number>>;
 }
 
 /** Dart string-literal escaping for a validator message (single-quoted). */
@@ -71,35 +80,49 @@ export function dartRegexLiteral(pattern: string): string {
 /** The Dart rules one recognised single-field pattern implies. */
 function rulesForPattern(
   field: string,
+  inv: InvariantIR,
   pattern: SingleFieldPattern,
   authored: string | undefined,
 ): FlutterFieldRule[] {
   const message = authored ?? singleFieldMessage(field, pattern);
-  const num = (violated: string): FlutterFieldRule => ({ on: "number", violated, message });
-  // Code POINTS, not UTF-16 code units — `s.length` in Dart counts units, and
-  // the `minLength`/`maxLength` this same constraint publishes into the
-  // emitted JSON Schema are code points (`_expr/code-point.ts`).  Angular made
-  // exactly this correction for the same reason; `s.runes.length` is Dart's
-  // code-point count.
-  const len = (violated: string): FlutterFieldRule => ({ on: "text", violated, message });
-  switch (pattern.kind) {
-    case "min":
-      return [num(pattern.exclusive ? `n <= ${pattern.n}` : `n < ${pattern.n}`)];
-    case "max":
-      return [num(pattern.exclusive ? `n >= ${pattern.n}` : `n > ${pattern.n}`)];
-    case "between":
-      return [num(`n < ${pattern.lo} || n > ${pattern.hi}`)];
-    case "len-min":
-      return [len(`s.runes.length < ${pattern.n}`)];
-    case "len-max":
-      return [len(`s.runes.length > ${pattern.n}`)];
-    case "len-eq":
-      return [len(`s.runes.length != ${pattern.n}`)];
-    case "len-range":
-      return [len(`s.runes.length < ${pattern.lo} || s.runes.length > ${pattern.hi}`)];
-    case "regex":
-      return [len(`!${dartRegexLiteral(pattern.pattern)}.hasMatch(s)`)];
-  }
+  // One rule per side of the limit (`clientLimitChecks`), each with the code
+  // and bound its message renders under.  A length counts code POINTS, not
+  // UTF-16 code units — `s.length` in Dart counts units, and the
+  // `minLength`/`maxLength` this same constraint publishes into the emitted
+  // JSON Schema are code points (`_expr/code-point.ts`); `s.runes.length` is
+  // Dart's code-point count.
+  return clientLimitChecks(inv, pattern).map(({ check, code, params }) => {
+    const n = check.bound;
+    const rule = (on: FlutterFieldRule["on"], violated: string): FlutterFieldRule => ({
+      on,
+      violated,
+      message,
+      code,
+      params,
+    });
+    switch (check.reason) {
+      case "min":
+        return rule("number", `n < ${n}`);
+      case "greater-than":
+        return rule("number", `n <= ${n}`);
+      case "max":
+        return rule("number", `n > ${n}`);
+      case "less-than":
+        return rule("number", `n >= ${n}`);
+      case "min-length":
+        return rule("text", `s.runes.length < ${n}`);
+      case "max-length":
+        return rule("text", `s.runes.length > ${n}`);
+      case "length":
+        return rule("text", `s.runes.length != ${n}`);
+      case "pattern":
+        return rule("text", `!${dartRegexLiteral(check.regex ?? "")}.hasMatch(s)`);
+      default: {
+        const unknown: never = check.reason;
+        return unknown;
+      }
+    }
+  });
 }
 
 /** Build the per-field Dart rule list an aggregate's (or operation's)
@@ -115,7 +138,12 @@ export function flutterValidatorMap(
   for (const inv of invariants) {
     const taken = takeSingleFieldChain(inv, ctx);
     if (!taken) continue;
-    const rules = rulesForPattern(taken.field, taken.pattern, inv.message?.text);
+    const rules = rulesForPattern(
+      taken.field,
+      inv,
+      taken.pattern,
+      inv.message && namedRuleText(inv.message),
+    );
     const list = out.get(taken.field) ?? [];
     list.push(...rules);
     out.set(taken.field, list);
@@ -130,8 +158,28 @@ export function flutterValidatorMap(
 export function ruleGuards(
   rules: readonly FlutterFieldRule[],
   kinds: readonly ("text" | "number")[],
+  /** True in an i18n app: the message is `t('<code>', '<english>')`, evaluated
+   *  each time the validator runs, not a literal. */
+  translate = false,
 ): string[] {
   return rules
     .filter((r) => kinds.includes(r.on))
-    .map((r) => `if (${r.violated}) { return '${dartStr(r.message)}'; }`);
+    .map(
+      (r) =>
+        `if (${r.violated}) { return ${validatorMessage(translate, r.code, r.message, r.params)}; }`,
+    );
+}
+
+/** A validator's message as a Dart expression: the catalog lookup in an i18n
+ *  app, else the English literal. */
+export function validatorMessage(
+  translate: boolean,
+  code: string,
+  english: string,
+  params: Readonly<Record<string, number>> = {},
+): string {
+  if (!translate) return dartStringLit(english);
+  const entries = Object.entries(params).map(([k, v]) => `${dartStringLit(k)}: ${v}`);
+  const values = entries.length > 0 ? `, <String, Object>{${entries.join(", ")}}` : "";
+  return `t(${dartStringLit(code)}, ${dartStringLit(english)}${values})`;
 }

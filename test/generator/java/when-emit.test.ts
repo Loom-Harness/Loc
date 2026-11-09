@@ -87,6 +87,8 @@ describe("Java `when` gate + can-query", () => {
     expect(exc).toContain("public class DisallowedException extends RuntimeException");
     const advice = find(files, (k) => k.endsWith("ApiExceptionAdvice.java"), "advice");
     expect(advice).toContain("@ExceptionHandler(DisallowedException.class)");
-    expect(advice).toContain('problem(409, "Disallowed", e.getMessage(), request), 409');
+    expect(advice).toContain(
+      'problem(409, "Disallowed", e.getMessage(), "problem.state-gate", request), 409',
+    );
   });
 });

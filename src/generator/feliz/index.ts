@@ -51,12 +51,12 @@ import {
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
+import { sourceText } from "../_i18n/source-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
 import { literalString, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
-import { sourceText } from "../_walker/source-text.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -1918,7 +1918,7 @@ function renderAppFs(
     // A rejected submit's decoded ProblemDetails — the error every create /
     // operation / workflow Api fn fails with, so it precedes `Api`.
     hasFormSubmits && "",
-    hasFormSubmits && renderServerErrorsModule(),
+    hasFormSubmits && renderServerErrorsModule(i18nEnabled),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
@@ -1926,7 +1926,7 @@ function renderAppFs(
     // (validated forms), so a form-only page still gets the helper.
     (hasReads || hasFieldErrors || usesChart || hasForms) && "",
     (hasReads || hasFieldErrors || usesChart || hasForms) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms, i18nEnabled),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),

@@ -75,7 +75,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
       "if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)",
     );
     expect(filter).toContain(
-      'context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id);',
+      'context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict");',
     );
     // RS-40 — EF's native concurrency-token failure carries EF's own wording,
     // so the detail is rebuilt from the entry the guarded UPDATE missed.

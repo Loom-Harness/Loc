@@ -140,18 +140,27 @@ function nodeInput(type: ValueType, value: string): string {
   }
 }
 
+/** The generated `DomainError`'s overflow factory, for the RS-48 guard. */
+class NodeDomainError extends Error {
+  static arithmeticOverflow(): NodeDomainError {
+    return new NodeDomainError("Value out of range");
+  }
+}
+
 function runNode(rows: readonly ValueRow[], Decimal: unknown): Map<string, Raw> {
   const out = new Map<string, Raw>();
   for (const row of rows) {
     const names = Object.keys(row.params);
-    const code = renderTsExpr(row.expr);
+    // The RS-48 range guard is a typed arrow; drop its annotations so the
+    // expression runs as plain JS, and bind the `DomainError` it throws.
+    const code = renderTsExpr(row.expr).replace(/\(__v: number\): number =>/g, "(__v) =>");
     try {
-      const fn = new Function("Decimal", ...names, `return (${code});`);
+      const fn = new Function("Decimal", "DomainError", ...names, `return (${code});`);
       const args = names.map((k) => {
         const prm = row.params[k]!;
         return new Function("Decimal", `return (${nodeInput(prm.type, prm.value)});`)(Decimal);
       });
-      const v: unknown = fn(Decimal, ...args);
+      const v: unknown = fn(Decimal, NodeDomainError, ...args);
       if (typeof v === "string") out.set(row.id, { type: "str", raw: JSON.stringify(v) });
       else if (typeof v === "boolean") out.set(row.id, { type: "bool", raw: String(v) });
       else if (typeof v === "number") out.set(row.id, { type: "num", raw: String(v) });

@@ -922,7 +922,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `vo-id-reference` DRAINED (wave C3 packet 3g, defect D4): java overrides
   // the VO's `X id` column at `ship.value`, elixir no longer indexes the
   // flattened leaf of a VO it stores as one `:map`, and elixir's VO / VO-row
-  // changesets now carry a messaged rule's wire `code` (the golden's 422s
+  // changesets now carry a named rule's wire `code` (the golden's 422s
   // found that one).  Green on all seven legs.
   // `enum-collection` DRAINED (wave C3 packet 3g, defect D3): an enum array
   // round-trips as member NAMES on all seven legs (EF element converter, java
@@ -1009,7 +1009,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // Green on all seven legs; mutation-proved by dropping the precondition call
   // from the extern op (the risky `confirm` then answered the scaffold's 501
   // instead of 422).  The `flag` precondition gained a `message` on the way —
-  // a message-less param bound answers each framework's DEFAULT text (three
+  // an unnamed param bound answers each framework's DEFAULT text (three
   // different sentences across node / python / .NET), recorded in the hand-off
   // note as D5.
 

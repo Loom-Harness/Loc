@@ -52,7 +52,19 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/_shared.ts
   // ----------------------------------------------------------------------
-  "loom.blank-message": "A 'message' clause must not be blank.",
+  // The `message "…"` clause left the language: a rule is NAMED and its text
+  // is keyed by identity.  The grammar still parses the clause so this error can
+  // name the rule it becomes.
+  "loom.rule-message-removed": (p: {
+    rule: unknown;
+    name: unknown;
+    file: unknown;
+    key: unknown;
+    text: unknown;
+  }) =>
+    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}. Run 'node scripts/codemod-rule-names.mjs <path>' to migrate every rule at once.`,
+  "loom.rule-name-duplicate": (p: { name: unknown; owner: unknown }) =>
+    `Rule name '${p.name}' is already used in '${p.owner}' — invariants, field checks and preconditions share one rule namespace per owner, because the name is the rule's i18n key. Rename one of them.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/callable-sites.ts

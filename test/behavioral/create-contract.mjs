@@ -24,6 +24,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { copyLocales, localesBeside } from "./case-source.mjs";
 import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,7 @@ async function main() {
   try {
     const ddd = join(workDir, "create-contract.ddd");
     writeFileSync(ddd, readFileSync(CORPUS_DDD, "utf8").replace("__PLATFORM__", "node"));
+    copyLocales(localesBeside(CORPUS_DDD), workDir);
     process.stdout.write(`▶ generating ${CORPUS_DDD} (platform: node)\n`);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", ddd, "-o", genDir], {
       stdio: "pipe",

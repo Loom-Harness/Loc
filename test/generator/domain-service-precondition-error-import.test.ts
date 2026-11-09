@@ -6,7 +6,7 @@
 //
 //   import Decimal from "decimal.js";            // the complete import list
 //   function calc_quote(km: number, rate: Decimal): Decimal {
-//         if (!(km > 0)) throw new DomainError("Precondition failed: km > 0", "precondition");
+//         if (!(km > 0)) throw new DomainError("Business rule violated", "precondition");
 //
 // which is `tsc` TS2304 ("Cannot find name 'DomainError'"), and — because the
 // emitted Dockerfile builds with `tsup`/esbuild, which strips types without
@@ -70,27 +70,26 @@ const ROWS = [
   {
     platform: "node",
     file: "domain/services.ts",
-    throws: 'throw new DomainError("Precondition failed: km > 0", "precondition")',
+    throws: 'throw new DomainError("Business rule violated", "precondition")',
     requiredImport: 'import { DomainError } from "./errors";',
   },
   {
     platform: "dotnet",
     file: "Domain/Services/Calc.cs",
-    throws:
-      'throw new DomainException("Precondition failed: km > 0", DomainErrorKind.Precondition)',
+    throws: 'throw new DomainException("Business rule violated", DomainErrorKind.Precondition)',
     requiredImport: "using D.Domain.Common;",
   },
   {
     platform: "java",
     file: "domain/services/Calc.java",
     throws:
-      'throw new DomainException("Precondition failed: km > 0", DomainException.Kind.PRECONDITION)',
+      'throw new DomainException("Business rule violated", DomainException.Kind.PRECONDITION)',
     requiredImport: "import com.loom.d.domain.common.*;",
   },
   {
     platform: "python",
     file: "app/domain/services/calc.py",
-    throws: 'raise DomainError("Precondition failed: km > 0", "precondition")',
+    throws: 'raise DomainError("Business rule violated", "precondition")',
     requiredImport: "from app.domain.errors import DomainError",
   },
 ] as const;

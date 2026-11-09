@@ -153,6 +153,7 @@
       "path": "/api/things/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Thing {id} not found",
         "instance": "/api/things/{id}",
         "status": 404,
@@ -166,6 +167,7 @@
       "path": "/api/things",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/things",
         "instance": "/api/things",
         "status": 405,
@@ -179,6 +181,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -192,6 +195,7 @@
       "path": "/api/things",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/things",
         "status": 400,
@@ -205,9 +209,11 @@
       "path": "/api/things/{id}/class",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "except is required",
             "pointer": "/except"
           }

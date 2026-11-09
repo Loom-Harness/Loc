@@ -58,6 +58,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
@@ -71,11 +72,12 @@ import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
-import { sourceText } from "../_walker/source-text.js";
 import { modelTextExpr } from "./heex-model-text.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";
@@ -2459,10 +2461,13 @@ function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
       // is a domain check.  Both surface as a server-side flash since a
       // page handler can't raise the way a domain action does.
       const pred = renderExpr(stmt.expr, { ...ctx, position: "handler" });
-      const msg = stmt.kind === "requires" ? "Forbidden" : "Precondition failed";
-      // `stmt.source` is verbatim `.ddd` source text (it can carry a string
-      // literal, hence a `#{`) — through the escaping funnel, not spliced raw.
-      return `|> then(fn socket -> if ${pred}, do: socket, else: put_flash(socket, :error, ${elixirString(`${msg}: ${stmt.source}`)}) end)`;
+      // The flash is user-facing, so it never carries the guard's `.ddd`
+      // source: a refused gate answers the constant `Forbidden`, a refused
+      // precondition its rule's text (a named rule's own, else the generic
+      // sentence) — what the REST rungs answer too.  Through the escaping
+      // funnel: a translator's override can carry a `#{`.
+      const msg = stmt.kind === "requires" ? CONSTANT_FORBIDDEN_DETAIL : floorRuleText(stmt);
+      return `|> then(fn socket -> if ${pred}, do: socket, else: put_flash(socket, :error, ${elixirString(msg)}) end)`;
     }
     case "emit": {
       // Broadcast a domain event over Phoenix.PubSub.  No changeset in a

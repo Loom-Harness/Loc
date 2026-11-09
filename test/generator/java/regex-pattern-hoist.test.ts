@@ -18,7 +18,7 @@ system Shop {
       aggregate Engineer with crudish {
         handle: string
         email: string
-          check email.matches("^[^@]+@[^@]+\\\\.[^@]+$") message "Invalid email address"
+          check emailInvalid: email.matches("^[^@]+@[^@]+\\\\.[^@]+$")
         private invariant handle.matches("^[a-z][a-z0-9_]*$")
       }
       repository Engineers for Engineer { }
@@ -74,7 +74,7 @@ describe("java — regex Pattern hoisting", () => {
     expect(src).not.toMatch(/Pattern\.compile\([^)]*\)\.matcher/);
   });
 
-  it("hoists a message-less single-field regex too (rejectValue with the sentinel code)", async () => {
+  it("hoists an unnamed single-field regex too (rejectValue with the field.pattern code)", async () => {
     const src = `
 system Reg {
   subdomain S {
@@ -96,7 +96,7 @@ system Reg {
     const v = [...files.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))![1];
     expect(v).toMatch(/private static final Pattern MATCHES_PATTERN_0 = Pattern\.compile\(/);
     expect(v).toContain(
-      'if (!(slug == null || MATCHES_PATTERN_0.matcher(slug).find())) errors.rejectValue("slug", "loom.invariant"',
+      'if (!(slug == null || MATCHES_PATTERN_0.matcher(slug).find())) errors.rejectValue("slug", "field.pattern"',
     );
   });
 });

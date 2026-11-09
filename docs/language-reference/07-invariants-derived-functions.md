@@ -1,6 +1,6 @@
 # 7. Invariants, derived fields & functions
 
-Three pure, read-only member kinds shared by aggregates, entity parts, and value objects: `invariant` predicates (with optional `when` guard, `message`, and the `private` modifier), `derived` computed fields (including the reserved `display` and `inspect`), and reusable `function` helpers in expression or block form. None of them mutate state — invariants *check* it after every mutation, derived fields *project* it onto the wire shape, functions *compute* over it. Reach for this chapter when you want a rule enforced at construction time, a value computed once and shown everywhere, or a predicate shared between several operations. The per-field read mask (`mask unless`) is summarised at the end and specified in [`../auth.md`](../auth.md).
+Three pure, read-only member kinds shared by aggregates, entity parts, and value objects: `invariant` predicates (with an optional `name:`, an optional `when` guard, and the `private` modifier), `derived` computed fields (including the reserved `display` and `inspect`), and reusable `function` helpers in expression or block form. None of them mutate state — invariants *check* it after every mutation, derived fields *project* it onto the wire shape, functions *compute* over it. Reach for this chapter when you want a rule enforced at construction time, a value computed once and shown everywhere, or a predicate shared between several operations. The per-field read mask (`mask unless`) is summarised at the end and specified in [`../auth.md`](../auth.md).
 
 > **Grammar:** `Invariant`, `Unique`, `DerivedProp`, `FunctionDecl`, the `mask unless` tail of `Property` · **Validators:** `loom.construction-missing-field`, `loom.construction-field-type`, `loom.unknown-construction-field`, `loom.unique-*`, `loom.reserved-derived-on-vo`, `loom.ui-id-ref-no-display`, `loom.function-block-no-return`, `loom.function-toplevel-block`, `loom.function-recursive`, `loom.workflow-function-uses-state`, `loom.field-mask-*`; uncoded type errors `Invariant must be of type 'bool'` / `Invariant guard ('when …') must be of type 'bool'` / `Cannot assign to derived property` (`src/language/validators/types.ts`, `statements.ts`); the IR purity gate `loom.function-block-impure` (`src/ir/validate/checks/structural-checks.ts`; five `#`-slug variants in the message catalog, one per way a body reaches past the pure subset) · **Docs:** [`../language.md`](../language.md) · [`../criterion.md`](../criterion.md) · [`../stdlib.md`](../stdlib.md) · [`../auth.md`](../auth.md)
 
@@ -8,18 +8,23 @@ All three are emitted **in the same shape** across the five backends that run do
 
 ## `invariant` — a checked predicate
 
-`[private] invariant Expr [when Guard] [message "…"]` declares a `bool` predicate that must hold after every mutation (a non-`bool` expression is `Invariant must be of type 'bool', got '…'`; a non-`bool` guard is `Invariant guard ('when ...') must be of type 'bool', got '…'`). It is asserted in the aggregate's domain floor (`_assertInvariants` and friends), called from the factory (`Order.create(...)`) and from every operation. The violation message defaults to `Invariant violated: <source text>`; a `message "…"` clause replaces it with author text that also becomes the i18n key (`msg.<hash>`, carried as a wire error code — `loomCode` / `WithErrorCode` / `PydanticCustomError` / `loom_code:`; `src/generator/_i18n/validation-catalog.ts`).
+`[private] invariant [name:] Expr [when Guard]` declares a `bool` predicate that must hold after every mutation (a non-`bool` expression is `Invariant must be of type 'bool', got '…'`; a non-`bool` guard is `Invariant guard ('when ...') must be of type 'bool', got '…'`). It is asserted in the aggregate's domain floor (`_assertInvariants` and friends), called from the factory (`Order.create(...)`) and from every operation. What a violation answers is decided by whether the rule is **named** — see [Naming a rule](#naming-a-rule) below: a named rule answers its own text under its identity key, an unnamed one a generic message. A response never carries the rule's source expression.
 
 ```ddd
 aggregate Order {
   taxRate: decimal
   qty: int
   invariant taxRate >= 0
-  invariant qty <= 1000 message "At most 1000 items per order"
+  invariant maxItems: qty <= 1000
 }
 ```
 
-The check is rendered as a guarded throw — `if (!(<pred>)) throw …` — carrying the message.
+```json
+// locales/en/Demo.json
+{ "Order.rule.maxItems": "At most 1000 items per order" }
+```
+
+The check is rendered as a guarded throw — `if (!(<pred>)) throw …` — carrying the rule's text.
 
 ::: tabs backend
 == node
@@ -27,7 +32,7 @@ The check is rendered as a guarded throw — `if (!(<pred>)) throw …` — carr
 // domain/order.ts
 private _assertInvariants(): void {
   if (!(this._qty <= 1000)) throw new DomainError("At most 1000 items per order");
-  if (!(this._taxRate >= 0)) throw new DomainError("Invariant violated: taxRate >= 0");
+  if (!(this._taxRate >= 0)) throw new DomainError("Invalid value");
 }
 ```
 The constructor calls `this._assertInvariants()` after assigning state, so an out-of-range value never escapes `Order.create(...)`.
@@ -37,7 +42,7 @@ The constructor calls `this._assertInvariants()` after assigning state, so an ou
 private void AssertInvariants()
 {
     if (!(this.Qty <= 1000)) throw new DomainException("At most 1000 items per order");
-    if (!(this.TaxRate >= 0m)) throw new DomainException("Invariant violated: taxRate >= 0");
+    if (!(this.TaxRate >= 0m)) throw new DomainException("Invalid value");
 }
 ```
 == java
@@ -45,7 +50,7 @@ private void AssertInvariants()
 // features/orders/Order.java — decimal is BigDecimal, so >= is compareTo
 public void _assertInvariants() {
     if (!(this.qty <= 1000)) throw new DomainException("At most 1000 items per order");
-    if (!(this.taxRate.compareTo(new BigDecimal("0")) >= 0)) throw new DomainException("Invariant violated: taxRate >= 0");
+    if (!(this.taxRate.compareTo(new BigDecimal("0")) >= 0)) throw new DomainException("Invalid value");
 }
 ```
 == python
@@ -55,12 +60,12 @@ def _assert_invariants(self) -> None:
     if not (self._qty <= 1000):
         raise DomainError("At most 1000 items per order")
     if not (self._tax_rate >= 0):
-        raise DomainError("Invariant violated: taxRate >= 0")
+        raise DomainError("Invalid value")
 ```
 == elixir
 ```elixir
 # lib/ex_api/demo/order_changeset.ex — a single-field bound becomes a native
-# validator on the changeset; a messaged rule routes to validate_invariants/1 so
+# validator on the changeset; a named rule routes to validate_invariants/1 so
 # it can carry its wire code
 |> validate_number(:tax_rate, greater_than_or_equal_to: 0)
 |> validate_invariants()
@@ -68,12 +73,126 @@ def _assert_invariants(self) -> None:
 def validate_invariants(changeset) do
   data = apply_changes(changeset)
   changeset =
-    if data.qty <= 1000, do: changeset, else: add_error(changeset, :qty, "At most 1000 items per order", loom_code: "msg.mnvq93")
+    if data.qty <= 1000, do: changeset, else: add_error(changeset, :qty, "At most 1000 items per order", loom_code: "Demo.Order.rule.maxItems")
   changeset
 end
 ```
 The Elixir backend keeps invariants in the schema's changeset (`base_changeset` / `update_changeset`, and the operation-persist pipe calls `validate_invariants/1` too), not in a hand-written assert method. A violated one surfaces as an invalid changeset → 422.
 ::: end
+
+### Naming a rule
+
+An `invariant`, a field `check` and a `precondition` each take an optional name, written with a colon before the predicate:
+
+```ddd
+context Projects {
+  aggregate Project {
+    name: string check nameRequired: name.length > 0
+    total: int
+    invariant total >= 0                      // unnamed — generic message
+    invariant withinBudget: total <= 100000   // key Projects.Project.rule.withinBudget
+    operation charge(amount: int) {
+      precondition positiveCharge: amount > 0
+      total := total + amount
+    }
+  }
+}
+```
+
+A named rule's user-facing text is keyed by **what it is**, not by its wording: `<Ctx>.<Owner>.rule.<name>`. The key is the wire `errors[].code` on all five backends, the client validators' code, and the catalog key — so rewording the English never orphans a translation. The English default is the name as a sentence (`withinBudget` → "Within budget"); a translator tree overrides it in `locales/en/<Ctx>.json`:
+
+```json
+// locales/en/Projects.json
+{ "Project.rule.withinBudget": "A project cannot exceed its budget" }
+```
+
+```ts
+// node — http/project.routes.ts (the wire rung) and domain/project.ts (the floor)
+.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { loomCode: "Projects.Project.rule.withinBudget", loomReads: ["total"], loomPointed: true } })
+if (!(this._total <= 100000)) throw new DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total", { "total": this._total });
+```
+
+The server never translates a response. Every refusal carries the RFC 7807 extension member `code` — the catalog key a client localizes it by — and `params`, the values its message's placeholders name; `title`, `detail` and `errors[].message` stay English. A named rule's code is its identity key and its params are the identifiers it reads; an unnamed rule answers `field.rule` (one field) or `problem.domain-floor`; a framework refusal answers `problem.<class>` / `field.<reason>` (`wireCode` / `fieldCode`, `src/ir/enrich/wire-policy.ts`; English in `src/generator/_walker/i18n-chrome.ts`):
+
+```json
+{ "type": "about:blank", "title": "Validation failed", "status": 422,
+  "detail": "One or more fields are invalid.", "code": "problem.field-invalid",
+  "errors": [{ "pointer": "/total", "message": "A project cannot exceed its budget",
+               "code": "Projects.Project.rule.withinBudget", "params": { "total": 250000 } }] }
+```
+
+```ts
+// React — src/lib/apply-server-errors.ts
+setError(target, { type: "server", message: localizeProblem(code ?? "field.rule", message, params) }); // t(e.code, e.message, e.params)
+```
+
+```python
+# python — app/domain/project.py
+raise DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total")
+```
+
+The OWNER is the declaration whose rule namespace the name lives in: an aggregate (its invariants, its parts' invariants, every field `check` and every operation `precondition` share one namespace), a value object, a command / query handler, or a workflow. A rule declared outside every bounded context files under `_system`.
+
+An **unnamed** rule answers a generic message and carries no code of its own: `field.rule` ("Invalid value") on the `errors[]` entry when the wire validator refuses it at one field, otherwise `problem.domain-floor` ("Business rule violated") — both overridable in `locales/en/_chrome.json`. A rule tripped at the domain floor always answers `problem.domain-floor` with that sentence as `detail`, even when it is single-field-shaped: the `detail` is the text of the body's own `code` (`floorRuleText`, `src/generator/_i18n/rule-text.ts`). Its source expression (`total >= 0`) never reaches a response.
+
+#### Field limits
+
+An unnamed rule that is a **field limit** is the exception. A field limit is a single-field bound the wire validator absorbs as a native constraint: a comparison against a number literal, a `.length` bound, or `matches("…")`, on its own or `&&`-joined on one field. Each side of a limit answers its own `field.<limit>` code, with the bound in `params`. Its English is a whole sentence that does not name the field:
+
+| Code | Declared as | `params` | English (`_chrome`) |
+|---|---|---|---|
+| `field.min` | `n >= 1`, or `n > 0` on an `int` | `{ min }` | Must be at least {min} |
+| `field.max` | `n <= 10`, or `n < 11` on an `int` | `{ max }` | Must be at most {max} |
+| `field.greater-than` | `w > 0.5` on a `decimal` | `{ min }` | Must be greater than {min} |
+| `field.less-than` | `w < 9.5` on a `decimal` | `{ max }` | Must be less than {max} |
+| `field.min-length` | `s.length >= 2` | `{ min }` | {min, plural, one {Must be at least # character} other {Must be at least # characters}} |
+| `field.max-length` | `s.length <= 5` | `{ max }` | {max, plural, one {Must be at most # character} other {…}} |
+| `field.length` | `s.length == 4` | `{ length }` | {length, plural, one {Must be exactly # character} other {…}} |
+| `field.pattern` | `s.matches("^…$")` | none | Not in the expected format |
+
+A two-sided limit (`n >= 1 && n <= 10`, a length range) is two checks. The code names the side the value broke, so each backend's native validator can map onto it directly: pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto `validate_number`/`validate_length`, FluentValidation `GreaterThanOrEqualTo`/`MaximumLength`. The type's own limits keep their codes: `field.integer-range` for an `int` outside int32 and `field.money-range` for a money too large for its column. A named rule keeps its identity key even when it has a limit's shape. A limit inside a `when` guard, or across two fields, is not a field limit; it stays an unnamed rule. The mapping is `fieldLimitChecks` in `src/ir/enrich/wire-policy.ts`. The node, .NET and Python backends and every frontend's form validator read it; the Java and Elixir backends still answer `field.rule` (#4473).
+
+```ddd
+aggregate Ticket {
+  priority: int check priority > 0
+  pin: string check pin.length == 4
+}
+```
+
+```ts
+// node — http/ticket.routes.ts
+priority: z.number().int().max(2147483647, "Integer out of range").openapi({ format: "int32" }).refine((v: any) => v >= 1, { message: "Priority must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).openapi({ minimum: 1 }),
+pin: z.string().refine((v: any) => [...v].length === 4, { message: "Pin must be exactly 4 characters", params: { loomCode: "field.length", loomValues: {"length":4} } }).openapi({ minLength: 4, maxLength: 4 }),
+```
+
+```json
+{ "type": "about:blank", "title": "Validation failed", "status": 422,
+  "detail": "One or more fields are invalid.", "code": "problem.field-invalid",
+  "errors": [{ "pointer": "/priority", "message": "Priority must be at least 1",
+               "code": "field.min", "params": { "min": 1 } }] }
+```
+
+The identifiers a rule reads — the fields and parameters in its predicate and guard — are the candidate `{x}` placeholders of its message (`ruleParams`, `src/ir/util/rule-params.ts`).
+
+#### `loom.rule-name-duplicate`
+
+Two rules of the same owner declare the same name. The name is the rule's i18n key, so it must be unique across the owner's invariants, field checks and preconditions. Rename one.
+
+#### `loom.rule-message-removed`
+
+The `message "…"` clause is no longer part of the language: the English wording does not belong in the domain model. The diagnostic names the rule name to use and the `locales/en/<Ctx>.json` line the text moves to:
+
+```ddd
+invariant stock < 100000 message "Stock is too large"     // before
+invariant stockTooLarge: stock < 100000                   // after
+```
+
+```json
+// locales/en/Shop.json
+{ "Product.rule.stockTooLarge": "Stock is too large" }
+```
+
+`node scripts/codemod-rule-names.mjs <path>` migrates every rule under `<path>` at once — the derived name is the message's first four non-filler words in camelCase, deduplicated per owner — and writes the `locales/en/` files. The clause still parses so the diagnostic can name the rule, but it is an **error**: a `message` contributes neither a name nor text anywhere.
 
 ### Construction is checked before the floor runs
 
@@ -92,43 +211,43 @@ aggregate A {
 
 ### A value object refused inside a body — 422 with `errors[]`
 
-A value object runs its invariants when it is built.  In a request body that is the wire layer (below) and answers the §3.2 422 with a pointer to the offending field.  A value object a **body** builds — an operation, a workflow step, a handler — refuses at its constructor instead, and answers the domain-floor status with **one** `errors[]` entry: the rule's message, its content-hash `code` when the rule is messaged, and the pointer `""` (the whole request — the body computed the value, so it names no member of the request).
+A value object runs its invariants when it is built.  In a request body that is the wire layer (below) and answers the §3.2 422 with a pointer to the offending field.  A value object a **body** builds — an operation, a workflow step, a handler — refuses at its constructor instead, and answers the domain-floor status with **one** `errors[]` entry: the rule's message, its `code` (the rule's identity key) when the rule is named, and the pointer `""` (the whole request — the body computed the value, so it names no member of the request).
 
 ```ddd
-valueobject Qty { value: int  invariant value > 0 message "Quantity must be positive" }
+valueobject Qty { value: int  invariant quantityPositive: value > 0 }
 aggregate Order with crudish {
   qty: Qty
   operation resize(n: int) { qty := Qty { value: n } }
 }
 ```
 
-`POST /api/orders/{id}/resize {"n": 0}` answers, on all five backends (pinned by the `vo-invariant-in-body` wire golden):
+With `locales/en/Demo.json` holding `{ "Qty.rule.quantityPositive": "Quantity must be positive" }`, `POST /api/orders/{id}/resize {"n": 0}` answers, on all five backends (pinned by the `vo-invariant-in-body` wire golden):
 
 ```json
 { "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
   "detail": "Quantity must be positive", "instance": "/api/orders/{id}/resize",
-  "errors": [{ "pointer": "", "message": "Quantity must be positive", "code": "msg.bqyhlx" }] }
+  "errors": [{ "pointer": "", "message": "Quantity must be positive", "code": "Demo.Qty.rule.quantityPositive" }] }
 ```
 
 ::: tabs backend
 == node
 ```ts
 // domain/value-objects.ts
-if (!(this.value > 0)) throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx");
+if (!(this.value > 0)) throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "Demo.Qty.rule.quantityPositive");
 // http/order.routes.ts — the DomainError arm
 return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
 ```
 == dotnet
 ```csharp
 // Domain/ValueObjects/Qty.cs
-if (!(this.Value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+if (!(this.Value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Demo.Qty.rule.quantityPositive");
 // Api/DomainExceptionFilter.cs — ahead of the DomainException arm
 if (context.Exception is ValueObjectInvariantException voe) { … Extensions["errors"] = … }
 ```
 == java
 ```java
 // domain/valueobjects/Qty.java — a DomainException subclass
-if (!(value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx");
+if (!(value > 0)) throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Demo.Qty.rule.quantityPositive");
 // api/ApiExceptionAdvice.java
 @ExceptionHandler(ValueObjectInvariantException.class)
 public ResponseEntity<ProblemDetail> onValueObjectInvariant(ValueObjectInvariantException e, WebRequest request) { … }
@@ -136,7 +255,7 @@ public ResponseEntity<ProblemDetail> onValueObjectInvariant(ValueObjectInvariant
 == python
 ```python
 # app/domain/value_objects.py — a DomainError subclass
-raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")
+raise ValueObjectInvariantError("Qty", "Quantity must be positive", "Demo.Qty.rule.quantityPositive")
 # app/http/problem.py
 @app.exception_handler(ValueObjectInvariantError)
 ```
@@ -149,81 +268,79 @@ raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx"
 ```
 ::: end
 
-A message-less rule carries no `code`, and its text is each backend's derived default — on elixir the value object's Ecto validator chain (`should be at least 1 character(s)`), elsewhere `Invariant violated: <source>` — the same native-chain split the wire layer has for a message-less rule.  Before M-T5.1 elixir did not check a body-built value object at all (`resize(0)` persisted `{"value": 0}` and answered 204), and the other four answered the domain floor with no `errors[]`.
+An unnamed rule carries no `code`, and its text is the generic message (`field.rule` / `problem.domain-floor`) — on elixir a single-field unnamed rule keeps the value object's Ecto validator chain (`should be at least 1 character(s)`), the same native-chain split the wire layer has for an unnamed rule.  Before M-T5.1 elixir did not check a body-built value object at all (`resize(0)` persisted `{"value": 0}` and answered 204), and the other four answered the domain floor with no `errors[]`.
 
-### A messaged rule at the domain floor — the same `errors[]` entry, with its code
+### A named rule at the domain floor — the same `errors[]` entry, with its code
 
-A rule the **wire** layer can evaluate answers the wire rung (below): 422 "Validation failed", one `errors[]` entry per field, each messaged rule carrying its content-hash `code`.  A rule that reads the aggregate's own **state** — a `precondition` relating a field to a parameter, an `invariant` an operation body breaks — is invisible to any request validator and trips at the **domain floor**.  Since M-T1.11 (c) a MESSAGED rule there answers the domain-floor status with **one** `errors[]` entry of the value-object shape above: the rule's message, the **same** `msg.<hash>` code the wire rung carries (so one catalog entry localises both rungs), and the pointer `/<field>` when the rule is single-field-shaped, `""` otherwise.  A message-less rule keeps the plain domain floor — it has no code, and its text is each backend's own default.
+A rule the **wire** layer can evaluate answers the wire rung (below): 422 "Validation failed", one `errors[]` entry per field, each named rule carrying its identity-key `code`.  A rule that reads the aggregate's own **state** — a `precondition` relating a field to a parameter, an `invariant` an operation body breaks — is invisible to any request validator and trips at the **domain floor**.  A NAMED rule there answers the domain-floor status with **one** `errors[]` entry of the value-object shape above: the rule's message, the **same** `<Ctx>.<Owner>.rule.<name>` code the wire rung carries (so one catalog entry localises both rungs), and the pointer `/<field>` when the rule is single-field-shaped, `""` otherwise.  An unnamed rule keeps the plain domain floor — it has no code, and its text is the generic message.
 
 ```ddd
 aggregate Account with crudish {
   owner: string
   balance: int
   ceiling: int
-  invariant balance >= 0 message "Balance cannot be negative"
-  invariant balance <= ceiling message "Balance cannot exceed the ceiling"
+  invariant balanceNonNegative: balance >= 0
+  invariant balanceUnderCeiling: balance <= ceiling
   operation withdraw(amount: int) {
-    precondition balance >= amount message "Insufficient funds"
+    precondition insufficientFunds: balance >= amount
     balance := balance - amount
   }
   operation overdraw(amount: int) { balance := balance - amount }
 }
 ```
 
-`POST /api/accounts/{id}/withdraw {"amount": 50}` on a balance of 12, and `overdraw` by the same amount, answer on all five backends (pinned by the `domain-floor-messages` wire golden):
+With `locales/en/Demo.json` holding `Account.rule.insufficientFunds` → "Insufficient funds" and `Account.rule.balanceNonNegative` → "Balance cannot be negative", `POST /api/accounts/{id}/withdraw {"amount": 50}` on a balance of 12, and `overdraw` by the same amount, answer on all five backends (pinned by the `domain-floor-messages` wire golden):
 
 ```json
 { "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
   "detail": "Insufficient funds", "instance": "/api/accounts/{id}/withdraw",
-  "errors": [{ "pointer": "", "message": "Insufficient funds", "code": "msg.p55wf6" }] }
+  "errors": [{ "pointer": "", "message": "Insufficient funds", "code": "Demo.Account.rule.insufficientFunds" }] }
 
 { "type": "about:blank", "title": "Unprocessable Entity", "status": 422,
   "detail": "Balance cannot be negative", "instance": "/api/accounts/{id}/overdraw",
-  "errors": [{ "pointer": "/balance", "message": "Balance cannot be negative", "code": "msg.11ks9e" }] }
+  "errors": [{ "pointer": "/balance", "message": "Balance cannot be negative", "code": "Demo.Account.rule.balanceNonNegative" }] }
 ```
 
 ::: tabs backend
 == node
 ```ts
 // domain/account.ts — the throw carries the rule's code and pointer
-if (!(this._balance >= amount)) throw new DomainError("Insufficient funds", "msg.p55wf6", "");
-if (!(this._balance >= 0)) throw new DomainError("Balance cannot be negative", "msg.11ks9e", "/balance");
+if (!(this._balance >= amount)) throw new DomainError("Insufficient funds", "Demo.Account.rule.insufficientFunds", "");
+if (!(this._balance >= 0)) throw new DomainError("Balance cannot be negative", "Demo.Account.rule.balanceNonNegative", "/balance");
 // http/account.routes.ts — the DomainError arm (one serializer for both refusals)
 return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
 ```
 == dotnet
 ```csharp
 // Domain/Accounts/Account.cs
-if (!(this.Balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+if (!(this.Balance >= amount)) throw new DomainException("Insufficient funds", "Demo.Account.rule.insufficientFunds", "");
 // Api/DomainExceptionFilter.cs — the value-object arm's template, ahead of the plain DomainException arm
 if (context.Exception is DomainException dfe && dfe.RuleCode != null) { … Extensions["errors"] = … }
 ```
 == java
 ```java
 // features/accounts/Account.java
-if (!(this.balance >= amount)) throw new DomainException("Insufficient funds", "msg.p55wf6", "");
+if (!(this.balance >= amount)) throw new DomainException("Insufficient funds", "Demo.Account.rule.insufficientFunds", "");
 // api/ApiExceptionAdvice.java — onDomain shares domainFloorWithEntry with onValueObjectInvariant
 if (e.getRuleCode() != null) return domainFloorWithEntry(e, e.getRuleCode(), e.getPointer() == null ? "" : e.getPointer(), request);
 ```
 == python
 ```python
 # app/domain/account.py
-raise DomainError("Insufficient funds", "msg.p55wf6", "")
+raise DomainError("Insufficient funds", "Demo.Account.rule.insufficientFunds", "")
 # app/http/problem.py — _domain shares _domain_floor_with_entry with the value-object handler
 if err.code is not None:
     return _domain_floor_with_entry(request, err, err.pointer if err.pointer is not None else "")
 ```
 == elixir
 ```elixir
-# lib/d/accounts.ex — a messaged precondition's denial carries a coded detail map…
-:ok <- ensure(record.balance >= amount, {:precondition_failed, %{detail: "Insufficient funds", code: "msg.p55wf6", pointer: ""}})
+# lib/d/accounts.ex — a named precondition's denial carries a coded detail map…
+:ok <- ensure(record.balance >= amount, {:precondition_failed, %{detail: "Insufficient funds", code: "Demo.Account.rule.insufficientFunds", pointer: ""}})
 # …and the op persist re-asserts the invariants at the DOMAIN FLOOR, tagging a
-# messaged violation so ProblemDetails answers this rung, not "Validation failed"
+# named violation so ProblemDetails answers this rung, not "Validation failed"
 |> D.Accounts.AccountChangeset.validate_domain_floor()
 ```
 ::: end
-
-Before M-T1.11 (c) the four non-elixir backends answered the domain floor with `detail` only — no `errors[]`, so no code a client could localise by and no pointer a form could bind — and elixir answered a messaged invariant tripped by an operation with the WIRE rung's shape ("Validation failed") and a messaged precondition with the bare floor.
 
 ### `.length` counts code points
 
@@ -241,9 +358,9 @@ A string `.length` — in a domain rule, an invariant, a precondition, anywhere 
 
 ### Elixir: enforced or reported
 
-Four backends assert every invariant at a domain floor of their own (`_assertInvariants()` / `AssertInvariants()` / `_assert_invariants`), so any predicate the language admits is enforced. Elixir has no such floor — its carrier is the Ecto changeset, which has two paths: a native `validate_number` / `validate_length` / `validate_format` line for a message-less, unguarded single-field rule, and a custom `validate_invariants/1` for everything else, piped onto `base_changeset`, `update_changeset` and the operation-persist path.
+Four backends assert every invariant at a domain floor of their own (`_assertInvariants()` / `AssertInvariants()` / `_assert_invariants`), so any predicate the language admits is enforced. Elixir has no such floor — its carrier is the Ecto changeset, which has two paths: a native `validate_number` / `validate_length` / `validate_format` line for an unnamed, unguarded single-field rule, and a custom `validate_invariants/1` for everything else, piped onto `base_changeset`, `update_changeset` and the operation-persist path.
 
-`validate_invariants/1` renders through the **same** expression renderer the operation and `derived` bodies use, so it covers cross-field comparisons, guarded rules (`… when …`), messaged rules, member reads, scalar intrinsics, collection ops and `derived` reads:
+`validate_invariants/1` renders through the **same** expression renderer the operation and `derived` bodies use, so it covers cross-field comparisons, guarded rules (`… when …`), named rules, member reads, scalar intrinsics, collection ops and `derived` reads:
 
 ```ddd
 invariant sku.trim().length > 0        // String.length(String.trim(data.sku))
@@ -262,7 +379,7 @@ That case, and anything else this carrier cannot evaluate (a `domainService` or 
 
 A non-private invariant is **also** projected to the request-validation layer the HTTP boundary runs *before* a command reaches the domain — so a malformed body is rejected as a 422, not a domain throw. It lands on the create **and** update request shapes of a constructible aggregate (one with a canonical `create`, e.g. via `crudish`). Simple single-field predicates lower to native validator constraints (`src/ir/validate/invariant-classify.ts` → `zod-refine.ts` / `dotnet/validator-emit.ts` / the Java `*Validator` / Pydantic `Field(...)`); anything the classifier can't reduce becomes a custom rule.
 
-`invariant taxRate >= 0`, `invariant note.length > 0`, and `invariant qty <= 1000 message "…"` emit:
+`invariant taxRate >= 0`, `invariant note.length > 0`, and `invariant maxItems: qty <= 1000` emit:
 
 ::: tabs backend
 == node
@@ -274,7 +391,7 @@ const CreateOrderRequest = z.object({
   qty: z.number().int(),
   taxRate: z.number().min(0),
   // …
-}).openapi("CreateOrderRequest").refine((data: any) => data.qty <= 1000, { path: ["qty"], message: "At most 1000 items per order", params: { loomCode: "msg.mnvq93" } })
+}).openapi("CreateOrderRequest").refine((data: any) => data.qty <= 1000, { path: ["qty"], message: "At most 1000 items per order", params: { loomCode: "Demo.Order.rule.maxItems" } })
 ```
 == dotnet
 ```csharp
@@ -287,16 +404,16 @@ public CreateOrderCommandValidator()
     RuleFor(x => x).Must(x => x.Qty <= 1000)
         .WithName("Qty")
         .WithMessage("At most 1000 items per order")
-        .WithErrorCode("msg.mnvq93");
+        .WithErrorCode("Demo.Order.rule.maxItems");
 }
 ```
 == java
 ```java
 // features/orders/CreateOrderValidator.java — a Spring Validator over the request record;
-// a message-less rule carries the sentinel code "loom.invariant" (not a diagnostic)
-if (!(((int) note.codePoints().count()) >= 1)) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
-if (!(qty <= 1000)) errors.rejectValue("qty", "msg.mnvq93", "At most 1000 items per order");
-if (!(taxRate.compareTo(new java.math.BigDecimal("0")) >= 0)) errors.rejectValue("taxRate", "loom.invariant", "Invariant violated: taxRate >= 0");
+// an unnamed rule carries the sentinel code "loom.invariant" (not a diagnostic)
+if (!(((int) note.codePoints().count()) >= 1)) errors.rejectValue("note", "loom.invariant", "Invalid value");
+if (!(qty <= 1000)) errors.rejectValue("qty", "Demo.Order.rule.maxItems", "At most 1000 items per order");
+if (!(taxRate.compareTo(new java.math.BigDecimal("0")) >= 0)) errors.rejectValue("taxRate", "loom.invariant", "Invalid value");
 ```
 == python
 ```python
@@ -310,7 +427,7 @@ class CreateOrderRequest(BaseModel):
     def _check_invariants(self) -> "CreateOrderRequest":
         if not (self.qty <= 1000):
             raise ValidationError.from_exception_data("CreateOrderRequest", [InitErrorDetails(
-                type=PydanticCustomError("msg.mnvq93", "At most 1000 items per order"), loc=("qty",), input=self.qty)])
+                type=PydanticCustomError("Demo.Order.rule.maxItems", "At most 1000 items per order"), loc=("qty",), input=self.qty)])
         return self
 ```
 == elixir
@@ -323,7 +440,7 @@ class CreateOrderRequest(BaseModel):
     else: [{:note, {"should be at least %{count} character(s)", count: 1, validation: :length, kind: :min, type: :string}}]
 end)
 |> validate_number(:tax_rate, greater_than_or_equal_to: 0)
-|> validate_invariants()        # the messaged qty rule, shown above
+|> validate_invariants()        # the named qty rule, shown above
 ```
 ::: end
 
@@ -347,8 +464,8 @@ Both rules appear in the domain floor; only the non-private one reaches the requ
 ```ts
 // domain/order.ts — BOTH invariants present in the floor
 private _assertInvariants(): void {
-  if (!(this._qty >= 0)) throw new DomainError("Invariant violated: qty >= 0");
-  if (!(this._taxRate >= 0)) throw new DomainError("Invariant violated: taxRate >= 0");
+  if (!(this._qty >= 0)) throw new DomainError("Invalid value");
+  if (!(this._taxRate >= 0)) throw new DomainError("Invalid value");
 }
 ```
 ```ts
@@ -362,8 +479,8 @@ const CreateOrderRequest = z.object({
 == dotnet
 ```csharp
 // Domain/Orders/Order.cs — both in the domain floor
-if (!(this.Qty >= 0)) throw new DomainException("Invariant violated: qty >= 0");
-if (!(this.TaxRate >= 0m)) throw new DomainException("Invariant violated: taxRate >= 0");
+if (!(this.Qty >= 0)) throw new DomainException("Invalid value");
+if (!(this.TaxRate >= 0m)) throw new DomainException("Invalid value");
 ```
 ```csharp
 // CreateOrderCommandValidator.cs — only the non-private rule reaches FluentValidation
@@ -398,44 +515,44 @@ The guard is evaluated first; the predicate is only asserted when the guard is t
 == node
 ```ts
 // domain/order.ts
-if ((this._taxRate > 0) && !([...this._note].length > 0)) throw new DomainError("Invariant violated: note.length > 0");
+if ((this._taxRate > 0) && !([...this._note].length > 0)) throw new DomainError("Business rule violated");
 ```
 ```ts
 // http/order.routes.ts — the wire layer renders it as a Zod refine (implication form)
-.refine((data: any) => !(data.taxRate > 0) || ([...data.note].length > 0), { path: ["note"], message: "Invariant violated: note.length > 0" })
+.refine((data: any) => !(data.taxRate > 0) || ([...data.note].length > 0), { path: ["note"], message: "Business rule violated" })
 ```
 == dotnet
 ```csharp
 // Domain/Orders/Order.cs
-if ((this.TaxRate > 0m) && !(this.Note.EnumerateRunes().Count() > 0)) throw new DomainException("Invariant violated: note.length > 0");
+if ((this.TaxRate > 0m) && !(this.Note.EnumerateRunes().Count() > 0)) throw new DomainException("Business rule violated");
 ```
 ```csharp
 // CreateOrderCommandValidator.cs — wire layer as a .Must implication
 RuleFor(x => x).Must(x => !(x.TaxRate > 0m) || (x.Note.EnumerateRunes().Count() > 0))
     .WithName("Note")
-    .WithMessage("Invariant violated: note.length > 0");
+    .WithMessage("Business rule violated");
 ```
 == java
 ```java
 // features/orders/Order.java — the domain floor is correct
-if ((this.taxRate.compareTo(new BigDecimal("0")) > 0) && !(((int) this.note.codePoints().count()) > 0)) throw new DomainException("Invariant violated: note.length > 0");
+if ((this.taxRate.compareTo(new BigDecimal("0")) > 0) && !(((int) this.note.codePoints().count()) > 0)) throw new DomainException("Business rule violated");
 ```
 ```java
 // features/orders/CreateOrderValidator.java — KNOWN BUG: the wire rule drops the guard,
 // so an empty note is rejected even when taxRate == 0 (src/generator/java/emit/validator.ts
 // renders inv.expr without the `!(guard) ||` implication the other backends emit)
-if (!(((int) note.codePoints().count()) > 0)) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
+if (!(((int) note.codePoints().count()) > 0)) errors.rejectValue("note", "loom.invariant", "Business rule violated");
 ```
 == python
 ```python
 # app/domain/order.py
 if (self._tax_rate > 0) and not (len(self._note) > 0):
-    raise DomainError("Invariant violated: note.length > 0")
+    raise DomainError("Business rule violated")
 ```
 ```python
 # app/http/order_routes.py — model_validator, implication form
 if not (not (self.taxRate > 0) or (len(self.note) > 0)):
-    raise ValueError("Invariant violated: note.length > 0")
+    raise ValueError("Business rule violated")
 ```
 == elixir
 ```elixir

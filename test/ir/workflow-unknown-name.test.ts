@@ -108,7 +108,7 @@ describe("loom.workflow-unknown-name (IR, phase ⑦)", () => {
       `if let s = SeenReplicas.find(ForP(p)) {
           precondition s.at < now() + days(1)
         } else {
-          precondition false message "never seen"
+          precondition neverSeen: false
         }`,
     );
     expect(ds.map((d) => `${d.code} @ ${d.source}: ${d.message}`)).toEqual([]);

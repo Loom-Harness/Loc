@@ -62,15 +62,20 @@ import { modelTextEntry } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { sourceText } from "../_i18n/source-text.js";
 import {
   type FormInputModelText,
   formInputModelText,
   paramLabelOwner,
 } from "../_walker/model-text-sites.js";
-import { sourceText } from "../_walker/source-text.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
-import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
+import {
+  type FlutterFieldRule,
+  flutterValidatorMap,
+  ruleGuards,
+  validatorMessage,
+} from "./form-validators.js";
 import { dartStringLit } from "./i18n.js";
 // ---------------------------------------------------------------------------
 // Widget-name helpers — the ONE place the view seam and the class emitter agree
@@ -165,6 +170,10 @@ export interface FlutterFormField {
    *  of one (`addrGeoLat`), whose rules live on the value object's own
    *  invariants and are enforced server-side. */
   rules?: FlutterFieldRule[];
+  /** True in an i18n app: the field's validator messages are
+   *  `t('<catalog code>', '<english>')` calls, evaluated when the validator
+   *  runs, instead of English literals. */
+  translateMessages?: boolean;
   /** For an `fk-select` field, the snake-plural collection path (`categories`)
    *  its option list loads from (`GET /<collection>`); the option label is the
    *  target's derived `display` field (falling back to the row's `id`). */
@@ -674,6 +683,7 @@ function inputTextOf(
 function attachModelText(fields: FlutterFormField[], src: FormTextSource | undefined): void {
   if (!src) return;
   for (const f of fields) {
+    f.translateMessages = true;
     const own = inputTextOf(src, f.objectPath ?? [], f.jsonKey, true);
     if (own) {
       f.labelExpr = own.labelExpr;
@@ -1245,10 +1255,10 @@ function filePickers(fields: readonly FlutterFormField[]): string[] {
       `        setState(() => ${st} = FileRef.fromJson(jsonDecode(resp.body) as Map<String, dynamic>));`,
       "      } else {",
       // Escaped template literal — the `${resp.statusCode}` stays Dart interp.
-      `        setState(() => _error = 'Upload failed (\${resp.statusCode})');`,
+      `        setState(() => _error = ServerIssue.plain('Upload failed (\${resp.statusCode})'));`,
       "      }",
       "    } catch (e) {",
-      "      if (mounted) setState(() => _error = '$e');",
+      "      if (mounted) setState(() => _error = ServerIssue.plain('$e'));",
       "    }",
       "  }",
     );
@@ -1422,14 +1432,18 @@ function validatorArg(f: FlutterFormField): string {
   // the byte-identical floor, and the block-bodied closure only appears on a
   // field that actually carries a constraint.
   const guards = f.rules ?? [];
+  // Each message is the English literal, or in an i18n app the catalog lookup
+  // `t('<code>', '<english>')` — evaluated every time the validator runs.
+  const tr = f.translateMessages === true;
+  const required = validatorMessage(tr, "field.missing", "Required");
   if (f.kind === "text") {
-    const extra = ruleGuards(guards, ["text"]);
+    const extra = ruleGuards(guards, ["text"], tr);
     if (extra.length === 0) {
       return f.required
-        ? ", validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null"
+        ? `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : null`
         : "";
     }
-    const empty = f.required ? "return 'Required';" : "return null;";
+    const empty = f.required ? `return ${required};` : "return null;";
     return `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${empty} } ${extra.join(" ")} return null; }`;
   }
   if (f.money) {
@@ -1438,36 +1452,38 @@ function validatorArg(f: FlutterFormField): string {
     // `double.tryParse` accepts `1e5`, which the backend's
     // `^-?\d+(\.\d+)?$` schema rejects with a 422 the user cannot read.
     const ok = `${MONEY_TEXT_PATTERN}.hasMatch(v.trim())`;
+    const badAmount = validatorMessage(tr, "field.type-mismatch", "Enter an amount");
     // A money invariant never passes `classifyForWire` (the classifier refuses
     // a money operand), so `guards` is empty here today; the parse guard below
     // keeps the shape honest if that ever widens.
-    const extra = ruleGuards(guards, ["text", "number"]);
+    const extra = ruleGuards(guards, ["text", "number"], tr);
     if (extra.length === 0) {
       return f.required
-        ? `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${ok} ? null : 'Enter an amount')`
-        : `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : 'Enter an amount')`;
+        ? `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : (${ok} ? null : ${badAmount})`
+        : `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : ${badAmount})`;
     }
-    const emptyM = f.required ? "return 'Required';" : "return null;";
+    const emptyM = f.required ? `return ${required};` : "return null;";
     return (
       `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyM} } ` +
-      `if (!${MONEY_TEXT_PATTERN}.hasMatch(s)) { return 'Enter an amount'; } ` +
+      `if (!${MONEY_TEXT_PATTERN}.hasMatch(s)) { return ${badAmount}; } ` +
       `final n = double.parse(s); ${extra.join(" ")} return null; }`
     );
   }
   const parse = f.kind === "number-int" ? "int.tryParse" : "double.tryParse";
+  const badNumber = validatorMessage(tr, "field.type-mismatch", "Enter a number");
   // A numeric input binds BOTH locals, so a length/regex rule on it evaluates
   // too — the classifier can only produce one if the declared type allowed it.
-  const extra = ruleGuards(guards, ["text", "number"]);
+  const extra = ruleGuards(guards, ["text", "number"], tr);
   if (extra.length === 0) {
     if (f.required) {
-      return `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${parse}(v) == null ? 'Enter a number' : null)`;
+      return `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : (${parse}(v) == null ? ${badNumber} : null)`;
     }
-    return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? 'Enter a number' : null)`;
+    return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? ${badNumber} : null)`;
   }
-  const emptyN = f.required ? "return 'Required';" : "return null;";
+  const emptyN = f.required ? `return ${required};` : "return null;";
   return (
     `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyN} } ` +
-    `final n = ${parse}(s); if (n == null) { return 'Enter a number'; } ${extra.join(" ")} return null; }`
+    `final n = ${parse}(s); if (n == null) { return ${badNumber}; } ${extra.join(" ")} return null; }`
   );
 }
 
@@ -1493,14 +1509,18 @@ function fieldWidget(f: FlutterFormField): string {
         )
         .join(", ");
       const itemsConst = f.optionExprs ? "" : "const ";
-      const validator = f.required ? ", validator: (v) => v == null ? 'Required' : null" : "";
+      const validator = f.required
+        ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
+        : "";
       return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, items: ${itemsConst}[${items}], onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
     }
     case "fk-select": {
       // Options load at runtime (`_<name>Options`); the label is the target's
       // derived `display` field, falling back to the row id.
       const items = `${optionsId(f.wireName)}.map((o) => DropdownMenuItem(value: o['id'] as String?, child: Text((o['display'] ?? o['id'] ?? '').toString()))).toList()`;
-      const validator = f.required ? ", validator: (v) => v == null ? 'Required' : null" : "";
+      const validator = f.required
+        ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
+        : "";
       return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, isExpanded: true, items: ${items}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
     }
     case "file":
@@ -1679,7 +1699,7 @@ function requiredFileGuards(fields: readonly FlutterFormField[]): string[] {
     if (f.kind !== "file" || !f.required) continue;
     out.push(
       `    if (${stateId(f.wireName)} == null) {`,
-      `      setState(() => _error = '${dartStr(f.label)} is required');`,
+      `      setState(() => _error = ServerIssue.plain('${dartStr(f.label)} is required'));`,
       "      return;",
       "    }",
     );
@@ -1699,7 +1719,7 @@ function serverFieldError(f: FlutterFormField): string {
   const key = `'${dartStr(serverKey(f))}'`;
   return (
     `if (_server?.fields[${key}] != null) Padding(padding: const EdgeInsets.only(bottom: 8), ` +
-    `child: Text(_server!.fields[${key}]!, style: TextStyle(color: Theme.of(context).colorScheme.error))),`
+    `child: Text(_server!.fields[${key}]!.text, style: TextStyle(color: Theme.of(context).colorScheme.error))),`
   );
 }
 
@@ -1709,14 +1729,44 @@ function serverFieldError(f: FlutterFormField): string {
  *  pointer-less entry, or the problem's `detail`/`title` when there is no
  *  `errors[]`, is the form-level message.  The Dart twin of the React
  *  projects' `apply-server-errors.ts`; emitted once into `lib/forms.dart`. */
-export const SERVER_ERRORS_DART = `/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails:
+export function serverErrorsDart(i18n: boolean): string {
+  const text = i18n
+    ? `    if (code.isEmpty) return message;
+    try {
+      return t(code, message, params);
+    } catch (_) {
+      return message;
+    }`
+    : "    return message;";
+  return `/// One refusal message: the catalog \`code\` the server sent ('' when there is
+/// none), its English \`message\`, and the \`params\` its placeholders name.
+class ServerIssue {
+  const ServerIssue(this.code, this.message, [this.params]);
+  const ServerIssue.plain(this.message) : code = '', params = null;
+
+  final String code;
+  final String message;
+  final Map<String, Object>? params;
+
+  /// The message in the active locale, computed when the form RENDERS.
+  String get text {
+${text}
+  }
+
+  static Map<String, Object>? paramsOf(Object? raw) {
+    if (raw is! Map) return null;
+    return <String, Object>{for (final e in raw.entries) if (e.value != null) '\${e.key}': e.value as Object};
+  }
+}
+
+/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails, decoded from the backend's RFC 7807 ProblemDetails:
 /// field messages keyed by the dot-path of the JSON pointer naming the field,
 /// and the form-level message.
 class ServerErrors {
   const ServerErrors(this.fields, this.form);
 
-  final Map<String, String> fields;
-  final String? form;
+  final Map<String, ServerIssue> fields;
+  final ServerIssue? form;
 
   /// Decode a non-2xx response.
   static ServerErrors fromResponse(int status, String body) {
@@ -1726,8 +1776,8 @@ class ServerErrors {
     } catch (_) {
       decoded = null;
     }
-    final fields = <String, String>{};
-    String? form;
+    final fields = <String, ServerIssue>{};
+    ServerIssue? form;
     if (decoded is Map<String, dynamic>) {
       final entries = decoded['errors'];
       if (entries is List) {
@@ -1737,30 +1787,34 @@ class ServerErrors {
           if (message is! String || message.isEmpty) continue;
           final pointer = entry['pointer'];
           final path = pointer is String ? _pointerToPath(pointer) : '';
+          final code = entry['code'];
+          final issue = ServerIssue(code is String ? code : '', message, ServerIssue.paramsOf(entry['params']));
           if (path.isEmpty) {
-            form ??= message;
+            form ??= issue;
           } else {
-            fields[path] = message;
+            fields[path] = issue;
           }
         }
       }
       if (fields.isEmpty && form == null) {
         final detail = decoded['detail'];
         final title = decoded['title'];
-        if (detail is String && detail.isNotEmpty) {
-          form = detail;
-        } else if (title is String && title.isNotEmpty) {
-          form = title;
+        final code = decoded['code'];
+        final english = (detail is String && detail.isNotEmpty)
+            ? detail
+            : ((title is String && title.isNotEmpty) ? title : null);
+        if (english != null) {
+          form = ServerIssue(code is String ? code : 'problem.internal', english, ServerIssue.paramsOf(decoded['params']));
         }
       }
     }
-    if (fields.isEmpty && form == null) form = 'Request failed ($status)';
+    if (fields.isEmpty && form == null) form = ServerIssue.plain('Request failed ($status)');
     return ServerErrors(fields, form);
   }
 
   /// The form-level message, or else a field message whose pointer names no
   /// field the form renders (\`rendered\`) — no rejection goes unseen.
-  String? formLevel(List<String> rendered) {
+  ServerIssue? formLevel(List<String> rendered) {
     if (form != null) return form;
     for (final entry in fields.entries) {
       if (!rendered.contains(entry.key)) return entry.value;
@@ -1774,6 +1828,7 @@ class ServerErrors {
     return pointer.substring(1).split('/').map((s) => s.replaceAll('~1', '/').replaceAll('~0', '~')).join('.');
   }
 }`;
+}
 
 /** The `_submit` method for a fields-bearing (create / operation) form. */
 function submitMethod(spec: FlutterFormSpec): string[] {
@@ -1819,7 +1874,7 @@ function submitMethod(spec: FlutterFormSpec): string[] {
           "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
         ]),
     "    } catch (e) {",
-    "      setState(() => _error = '$e');",
+    "      setState(() => _error = ServerIssue.plain('$e'));",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -1845,7 +1900,7 @@ function destroySubmitMethod(spec: FlutterFormSpec): string[] {
     // The problem's own sentence ("Order is still referenced …").
     "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
     "    } catch (e) {",
-    "      setState(() => _error = '$e');",
+    "      setState(() => _error = ServerIssue.plain('$e'));",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -1882,7 +1937,7 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
 
   const errorBanner =
     "        if (_error != null)\n" +
-    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
+    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
   const inputChildren = spec.fields.flatMap((f) => [
     `        ${fieldWidget(f)},`,
     `        ${serverFieldError(f)}`,
@@ -1922,7 +1977,7 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   if (spec.kind !== "destroy") stateMembers.push("  final _formKey = GlobalKey<FormState>();");
   stateMembers.push(...stateDecls(spec.fields));
   stateMembers.push("  bool _submitting = false;");
-  stateMembers.push("  String? _error;");
+  stateMembers.push("  ServerIssue? _error;");
   if (spec.kind !== "destroy" && spec.fields.length > 0) {
     // The last rejected submit, and the field keys this form renders a slot for.
     stateMembers.push("  ServerErrors? _server;");
@@ -1988,6 +2043,9 @@ export function renderFormsFile(
    *  `package:http/http.dart`, which credentials EVERY call site at once
    *  (D-FLUTTER-BEARER).  False keeps the emitted bytes identical. */
   credentialed = false,
+  /** True when the ui ships `lib/i18n.dart`: the server's refusals localize by
+   *  code through its `t`. */
+  i18n = false,
 ): string {
   if (forms.length === 0) return "";
   const blocks = forms.map(renderFormWidget);
@@ -2008,12 +2066,12 @@ export function renderFormsFile(
     flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
-    ...(blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
+    ...(i18n || blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
     ...(usesFile ? ["import 'models.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
     "",
-    SERVER_ERRORS_DART,
+    serverErrorsDart(i18n),
   )}\n`;
 }
 

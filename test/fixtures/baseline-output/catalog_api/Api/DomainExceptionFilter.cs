@@ -50,6 +50,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                 Status = 422,
                 Detail = "One or more fields are invalid.",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.field-invalid" },
             };
             problem.Extensions["errors"] = fv.Errors
                 .Select(e =>
@@ -59,11 +60,19 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                         ["pointer"] = ValidationProblem.PointerOf(e.PropertyName),
                         ["message"] = e.ErrorMessage,
                     };
-                    // A messaged rule's WithErrorCode("msg.<hash>") surfaces as the
-                    // stable content-hash wire code; a message-less rule's default
-                    // FluentValidation ErrorCode is omitted (byte-identical body).
-                    if (e.ErrorCode != null && e.ErrorCode.StartsWith("msg.", StringComparison.Ordinal))
-                        err["code"] = e.ErrorCode;
+                    // Every rule names its catalog code with WithErrorCode (a
+                    // named rule's identity key, else the generic key of an
+                    // unnamed one); a native FluentValidation validator carries
+                    // its own type name, which is an unnamed rule.
+                    err["code"] = e.ErrorCode != null
+                        && (e.ErrorCode.StartsWith("field.", StringComparison.Ordinal)
+                            || e.ErrorCode.StartsWith("problem.", StringComparison.Ordinal)
+                            || e.ErrorCode.Contains(".rule.", StringComparison.Ordinal))
+                        ? e.ErrorCode
+                        : "field.rule";
+                    // A named rule hands the values it read over as CustomState.
+                    if (e.CustomState is IDictionary<string, object?> ruleParams && ruleParams.Count > 0)
+                        err["params"] = ruleParams;
                     return err;
                 })
                 .ToArray();
@@ -93,14 +102,19 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                 Status = 422,
                 Detail = "One or more fields are invalid.",
                 Instance = context.HttpContext.Request.Path,
+                Extensions = { ["code"] = "problem.field-invalid" },
             };
             // Anonymous type rather than Dictionary<,>: this arm is emitted
             // unconditionally, and System.Collections.Generic is only imported
             // when the project has validators.
-            wireProblem.Extensions["errors"] = new[]
+            var wireEntry = new System.Collections.Generic.Dictionary<string, object?>
             {
-                new { pointer = wfe.FieldPointer, message = wfe.Message },
+                ["pointer"] = wfe.FieldPointer,
+                ["message"] = wfe.Message,
+                ["code"] = wfe.Code,
             };
+            if (wfe.Params is { Count: > 0 }) wireEntry["params"] = wfe.Params;
+            wireProblem.Extensions["errors"] = new[] { wireEntry };
             _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", "Validation failed", 422);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.HttpContext.Response.Headers["x-request-id"] = trace_id;
@@ -116,7 +130,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "forbidden", fe.Message, 403);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("forbidden");
-            context.Result = Problem(context, 403, "Forbidden", "Forbidden", trace_id);
+            context.Result = Problem(context, 403, "Forbidden", "Forbidden", trace_id, "problem.forbidden");
             context.ExceptionHandled = true;
             return;
         }
@@ -124,7 +138,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "disallowed", dx.Message, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id);
+            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate");
             context.ExceptionHandled = true;
             return;
         }
@@ -142,7 +156,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             }
             _log.LogWarning("{Event} message={Message} status={Status}", "conflict", __conflictDetail, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id);
+            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict");
             context.ExceptionHandled = true;
             return;
         }
@@ -159,9 +173,23 @@ public sealed class DomainExceptionFilter : IExceptionFilter
                 Detail = voe.Message,
                 Instance = context.HttpContext.Request.Path,
             };
-            voProblem.Extensions["errors"] = voe.RuleCode != null
-                ? new object[] { new { pointer = "", message = voe.Message, code = voe.RuleCode } }
-                : new object[] { new { pointer = "", message = voe.Message } };
+            // The rule's catalog code (its identity key, or the generic key of
+            // an unnamed one) names both the body and its one errors[] entry;
+            // the values the rule read ride as params.
+            var voProblemCode = voe.RuleCode ?? "problem.domain-floor";
+            voProblem.Extensions["code"] = voProblemCode;
+            var voProblemEntry = new System.Collections.Generic.Dictionary<string, object?>
+            {
+                ["pointer"] = "",
+                ["message"] = voe.Message,
+                ["code"] = voProblemCode,
+            };
+            if (voe.RuleParams is { Count: > 0 })
+            {
+                voProblem.Extensions["params"] = voe.RuleParams;
+                voProblemEntry["params"] = voe.RuleParams;
+            }
+            voProblem.Extensions["errors"] = new object[] { voProblemEntry };
             context.Result = new ObjectResult(voProblem)
             {
                 StatusCode = 422,
@@ -177,7 +205,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", de.Message, 422);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, 422, "Unprocessable Entity", de.Message, trace_id);
+            context.Result = Problem(context, 422, "Unprocessable Entity", de.Message, trace_id, "problem.domain-floor");
             context.ExceptionHandled = true;
             return;
         }
@@ -186,7 +214,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", ofe.Message, 422);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, 422, "Unprocessable Entity", "Value out of range", trace_id);
+            context.Result = Problem(context, 422, "Unprocessable Entity", "Value out of range", trace_id, "problem.arithmetic-overflow");
             context.ExceptionHandled = true;
             return;
         }
@@ -194,7 +222,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} status={Status}", "not_found", 404);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("not_found");
-            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id);
+            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found");
             context.ExceptionHandled = true;
             return;
         }
@@ -212,7 +240,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             // extern_handler_threw event below.  Same shape the Hono
             // onError arm emits.
             _log.LogError(xh, "{Event} aggregate={Aggregate} op={Op} error={Error}", "extern_handler_threw", xh.AggName, xh.OpName, xh.Message);
-            context.Result = Problem(context, 500, "Internal Server Error", "internal", trace_id);
+            context.Result = Problem(context, 500, "Internal Server Error", "internal", trace_id, "problem.internal", new System.Collections.Generic.Dictionary<string, object?> { ["requestId"] = trace_id });
             context.ExceptionHandled = true;
             return;
         }
@@ -220,24 +248,27 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         // catalog's internal_error event; return a sanitized payload
         // to the client.  Matching the Hono fallback envelope.
         _log.LogError(context.Exception, "{Event} error={Error} status={Status}", "internal_error", context.Exception.Message, 500);
-        context.Result = Problem(context, 500, "Internal Server Error", "internal", trace_id);
+        context.Result = Problem(context, 500, "Internal Server Error", "internal", trace_id, "problem.internal", new System.Collections.Generic.Dictionary<string, object?> { ["requestId"] = trace_id });
         context.ExceptionHandled = true;
     }
 
     // RFC 7807 problem responder — application/problem+json body +
     // x-request-id header (trace correlation moves off the body so it's
     // byte-identical to Hono / Phoenix).  Shared by every non-validation arm.
-    private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId)
+    private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId, string code, object? @params = null)
     {
         context.HttpContext.Response.Headers["x-request-id"] = traceId;
-        return new ObjectResult(new ProblemDetails
+        var body = new ProblemDetails
         {
             Type = "about:blank",
             Title = title,
             Status = status,
             Detail = detail,
             Instance = context.HttpContext.Request.Path,
-        })
+            Extensions = { ["code"] = code },
+        };
+        if (@params is not null) body.Extensions["params"] = @params;
+        return new ObjectResult(body)
         {
             StatusCode = status,
             ContentTypes = { "application/problem+json" },
@@ -279,6 +310,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             Status = 404,
             Detail = detail,
             Instance = http.Request.Path,
+            Extensions = { ["code"] = "problem.not-found" },
         }, statusCode: 404, contentType: "application/problem+json");
     }
 }
