@@ -331,7 +331,7 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
  *  repository save's guarded write have anything to throw, so a
  *  concurrency-free project's `domain/errors.ts` stays byte-identical.
  *  `emitNotImplemented` is the same kind of gate for `NotImplementedError`:
- *  only an `extern` OPERATION's scaffold-once stub raises it.
+ *  only an `extern` operation's or `extern` handler's scaffold-once stub raises it.
  *  `emitValueObjectInvariant` gates `ValueObjectInvariantError` the same way. */
 function errorsTs(
   emitConcurrency: boolean,
@@ -986,10 +986,12 @@ export function generateTypeScriptForContexts(
   // `ConcurrencyError` on a `(stream_id, version)` 23505 collision, so it needs
   // the same error class + 409 arm the `versioned` guarded write does.
   const emitConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // The 501 arm + its error class ride on the presence of an `extern` OPERATION
-  // — the only seam whose generated stub throws it.  A project with none stays
+  // The 501 arm + its error class ride on the presence of an `extern` operation or
+  // handler — the only seams whose generated stub throws it.  A project with none stays
   // byte-identical.
-  const emitNotImplemented = merged.aggregates.some((a) => a.operations.some((o) => o.extern));
+  const emitNotImplemented =
+    merged.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(merged.commandHandlers ?? []), ...(merged.queryHandlers ?? [])].some((h) => h.extern);
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
