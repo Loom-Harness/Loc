@@ -72,7 +72,7 @@ describe("HEEx error boundary (M-T1.8) — LiveView deployable", () => {
     expect(key, "error_html.ex emitted").toBeDefined();
     const src = files.get(key!)!;
     expect(src).toContain("defmodule PhoenixAppWeb.ErrorHTML do");
-    expect(src).toContain("def render(template, _assigns) do");
+    expect(src).toContain("def render(template, assigns) do");
     expect(src).toContain('status = template |> String.split(".") |> hd() |> String.to_integer()');
     expect(src).toContain("title = Phoenix.Controller.status_message_from_template(template)");
     // Raw markup wrapped so Phoenix.HTML.Safe doesn't escape the tags.

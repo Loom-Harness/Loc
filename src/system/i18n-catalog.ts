@@ -152,6 +152,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
         authGate: uiDrawsAuthGate(sys, ui),
+        fallbackLabels: formats.has("heex"),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);

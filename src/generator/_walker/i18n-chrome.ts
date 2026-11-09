@@ -36,6 +36,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
@@ -147,7 +148,10 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
  *  "undefined" — the emitted default MUST equal the catalog entry, so the two
  *  read the same table instead of repeating the English by hand. */
 export function chromeMessage(name: string): string {
-  const message = CHROME_MESSAGES[chromeKey(name)] ?? sentenceChromeMessage(name);
+  const message =
+    CHROME_MESSAGES[chromeKey(name)] ??
+    FALLBACK_LABEL_CHROME[chromeKey(name)] ??
+    sentenceChromeMessage(name);
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
   return sourceText(chromeKey(name), message);
 }
@@ -177,12 +181,26 @@ export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   deleteConfirm: (aggregate) => `Delete this ${humanize(aggregate).toLowerCase()}?`,
   addItem: (element) => `Add ${humanize(element)}`,
   operationSucceeded: (operation) => `${humanize(operation)} succeeded`,
+  // The header of a table / grid column whose header is neither a literal nor
+  // `label(…)`.  The subject is the column's 1-based position, known at
+  // generate time, so each position is its own whole message.
+  column: (position) => `Column ${position}`,
 };
 
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
   return `${base}.${subject}`;
 }
+
+/** Placeholder text a target renders where the model gives it nothing to show:
+ *  an empty form's single input label, a column-less table's only header.
+ *  Merged when the scope says the target renders them
+ *  ({@link FormSentenceScope.fallbackLabels}). */
+export const FALLBACK_LABEL_CHROME: Record<string, string> = {
+  [chromeKey("fieldFallback")]: "Field",
+  [chromeKey("dataFallback")]: "Data",
+  [chromeKey("submitFallback")]: "Submit",
+};
 
 function sentenceChromeMessage(name: string): string | undefined {
   const dot = name.indexOf(".");
@@ -218,6 +236,78 @@ function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void
   else arrayElementValueObjects(el, out);
 }
 
+/** The `column.<n>` sentences a `Table` / `DataGrid` renders: one for every
+ *  `Column` whose header is neither a string literal nor `label(…)`, numbered by
+ *  its position among the `Column` calls, and one for every positional child
+ *  that is not a `Column`, numbered by its position among all positionals. */
+export function fallbackColumnNames(call: ExprIR & { kind: "call" }): string[] {
+  const names: string[] = [];
+  let column = 0;
+  let position = 0;
+  call.args.forEach((arg, i) => {
+    if (call.argNames?.[i]) return;
+    position++;
+    if (arg.kind === "call" && arg.name === "Column") {
+      column++;
+      const header = arg.args.find((_, j) => !arg.argNames?.[j]);
+      const hasText =
+        header?.kind === "modelText" || (header?.kind === "literal" && header.lit === "string");
+      if (!hasText) names.push(sentenceChromeName("column", String(column)));
+    } else {
+      names.push(sentenceChromeName("column", String(position)));
+    }
+  });
+  return names;
+}
+
+/** A form call's named arg when it is a bare reference (`of: Order`). */
+function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | undefined {
+  const idx = (call.argNames ?? []).indexOf(argName);
+  const arg = idx >= 0 ? call.args[idx] : undefined;
+  return arg?.kind === "ref" ? arg.name : undefined;
+}
+
+/** The {@link FALLBACK_LABEL_CHROME} names a UI renders, one per site where the
+ *  HEEx emitter has no model text to show: a form with no input to label
+ *  (`fieldFallback`), a form whose `of:` / `runs:` is not a resolvable
+ *  reference (`submitFallback`), a `Table` with no column (`dataFallback`), a
+ *  `KeyValueRow` with no label (`fieldFallback`).  Exact per call, so the
+ *  catalog never carries a message nothing reads. */
+export function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
+  const names = new Set<string>();
+  const aggregates = new Map<string, AggregateIR>();
+  const workflows = new Map<string, WorkflowIR>();
+  for (const bc of contexts) {
+    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const wf of bc.workflows) workflows.set(wf.name, wf);
+  }
+  const visit = (body: ExprIR | undefined) =>
+    walkExprDeep(body, (e) => {
+      if (e.kind !== "call") return;
+      const positionals = e.args.filter((_, i) => !e.argNames?.[i]);
+      if (e.name === "Table" && positionals.length === 0) names.add("dataFallback");
+      else if (e.name === "KeyValueRow" && positionals.length === 0) names.add("fieldFallback");
+      else if (e.name === "CreateForm" || e.name === "WorkflowForm") {
+        const of = refArgName(e, "of");
+        const runs = refArgName(e, "runs");
+        const wf = runs ? workflows.get(runs) : undefined;
+        // An event-triggered workflow has no command surface: no form at all.
+        if (wf && !emitsCommandRoute(wf)) return;
+        const agg = of ? aggregates.get(of) : undefined;
+        const inputs = wf
+          ? wf.params.length
+          : agg
+            ? createInputFields(agg).filter((f) => f.name !== "id").length
+            : 0;
+        if (inputs === 0) names.add("fieldFallback");
+        if (!agg && !wf) names.add("submitFallback");
+      }
+    });
+  for (const page of ui.pages) visit(page.body);
+  for (const component of ui.components) visit(component.body);
+  return [...names].sort();
+}
+
 /** What the model-dependent sentences of a UI's FORMS are enumerated against.
  *
  *  `contexts` resolve the aggregates, operations and workflows a form call
@@ -238,6 +328,8 @@ export interface FormSentenceScope {
   /** The rendering frontend draws its own session gate (sign-in prompt,
    *  forbidden view), so {@link AUTH_GATE_CHROME} belongs in the catalog. */
   readonly authGate?: boolean;
+  /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
+  readonly fallbackLabels?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -301,6 +393,8 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
             }
           }
         }
+      } else if (e.name === "Table" || e.name === "DataGrid") {
+        for (const n of fallbackColumnNames(e)) names.add(n);
       } else if (e.name === "CreateForm" && wants("addItem")) {
         const agg = aggregates.get(ofName(e, "of") ?? "");
         if (agg)
@@ -514,6 +608,11 @@ export function chromeMergedWhenEnabled(
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
+    }
+    if (scope?.fallbackLabels) {
+      for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {
+        out[chromeKey(name)] = chromeMessage(name);
+      }
     }
     // The implicit model-text sites (form labels, enum options, submit
     // buttons) — identity-keyed, and like the form chrome above never the
