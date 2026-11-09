@@ -172,11 +172,11 @@ describe("zod-refine — non-collection method calls follow the same rule", () =
 });
 
 describe("zod-refine — regex hardening is shared (C4)", () => {
-  it('matches("") no longer emits `.regex(//)`', () => {
+  it('matches("") no longer emits a `//` regex literal', () => {
     const chained = chainSingleFieldNative("z.string()", { kind: "regex", pattern: "" }, "code");
-    expect(chained).not.toContain(".regex(//)");
+    expect(chained).not.toContain("//");
     expect(chained).toBe(
-      'z.string().regex(new RegExp(""), { message: "Code is not in the expected format" })',
+      'z.string().refine((v: any) => new RegExp("").test(v), { message: "Code is not in the expected format", params: { loomCode: "field.pattern" } })',
     );
   });
 
@@ -188,7 +188,7 @@ describe("zod-refine — regex hardening is shared (C4)", () => {
 
   it("an ordinary pattern still renders as a literal, slashes escaped", () => {
     expect(chainSingleFieldNative("z.string()", { kind: "regex", pattern: "^a/b$" }, "code")).toBe(
-      'z.string().regex(/^a\\/b$/, { message: "Code is not in the expected format" })',
+      'z.string().refine((v: any) => /^a\\/b$/.test(v), { message: "Code is not in the expected format", params: { loomCode: "field.pattern" } })',
     );
   });
 

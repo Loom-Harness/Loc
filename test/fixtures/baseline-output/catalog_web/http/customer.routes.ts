@@ -10,17 +10,17 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 
 
 const CreateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
   email: z.string().refine((s: string) => !s.includes("\u0000")),
-  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
-}).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
+  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }),
+}).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")).optional(),
   email: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
-  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }).optional(),
-}).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
+  age: z.number().int().openapi({ format: "int32" }).refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }).openapi({ minimum: 18, maximum: 150 }).optional(),
+}).openapi("UpdateCustomerRequest").refine((data: any) => data.username === undefined || data.email === undefined || (data.username !== data.email), { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => data.email === undefined || (/^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120), { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
 
 const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),
@@ -118,7 +118,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
         if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
-          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path }), 409, { "content-type": "application/problem+json" });
+          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use" }), 409, { "content-type": "application/problem+json" });
         }
         throw err;
       }
@@ -181,42 +181,42 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
 
   app.onError((err, c) => {
     const trace_id = c.get("requestId") ?? "";
-    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
+    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     if (err instanceof ForbiddenError) {
       c.get("log").warn({ event: "forbidden", aggregate: "Customer", message: err.message, status: 403 });
       recordDomainFault("forbidden");
-      return problem(403, "Forbidden", err.detail);
+      return problem(403, "Forbidden", err.detail, "problem.forbidden");
     }
     if (err instanceof DisallowedError) {
       c.get("log").warn({ event: "disallowed", aggregate: "Customer", message: err.message, status: 409 });
       recordDomainFault("disallowed");
-      return problem(409, "Disallowed", err.message);
+      return problem(409, "Disallowed", err.message, "problem.state-gate");
     }
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Customer", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return problem(422, "Unprocessable Entity", err.message);
+      return problem(422, "Unprocessable Entity", err.message, err.problemCode);
     }
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Customer", status: 404 });
       recordDomainFault("not_found");
-      return problem(404, "Not Found", err.message);
+      return problem(404, "Not Found", err.message, "problem.not-found");
     }
     if (err instanceof ConcurrencyError) {
       c.get("log").warn({ event: "conflict", aggregate: "Customer", message: err.message, status: 409 });
       recordDomainFault("conflict");
-      return problem(409, "Conflict", err.message);
+      return problem(409, "Conflict", err.message, "problem.version-conflict");
     }
     if (err instanceof ExternHandlerError) {
       c.get("log").error({ event: "extern_handler_threw", aggregate: err.aggName, op: err.opName, error: err.message });
-      return problem(500, "Internal Server Error", "internal");
+      return problem(500, "Internal Server Error", "internal", "problem.internal", { requestId: trace_id });
     }
     if (err instanceof HTTPException) {
       c.get("log").warn({ event: "client_error", error: err.message, status: err.status });
       return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     }
     c.get("log").error({ event: "internal_error", error: err instanceof Error ? err.message : String(err), status: 500 });
-    return problem(500, "Internal Server Error", "internal");
+    return problem(500, "Internal Server Error", "internal", "problem.internal", { requestId: trace_id });
   });
 
   return app;

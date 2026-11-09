@@ -69,8 +69,8 @@ public sealed partial class Order
 {
     public void Confirm()
     {
-        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
-        if (!(this.RiskScore < 80)) throw new DomainException("Precondition failed: riskScore < 80");
+        if (!(this.IsMutable())) throw new DomainException("Business rule violated");
+        if (!(this.RiskScore < 80)) throw new DomainException("Invalid value");
         ConfirmCore();
         AssertInvariants();
     }
@@ -93,8 +93,8 @@ A missing implementation is `CS8795` at build time (an extended partial method m
 ```java
 // features/orders/Order.java — the extern op is a real aggregate method
 public void confirm() {
-    if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");
-    if (!(this.riskScore < 80)) throw new DomainException("Precondition failed: riskScore < 80");
+    if (!(this.isMutable())) throw new DomainException("Business rule violated");
+    if (!(this.riskScore < 80)) throw new DomainException("Invalid value");
     OrderExtern.confirm(this);
     this._assertInvariants();
 }
@@ -114,9 +114,9 @@ final class OrderExtern {
 # app/domain/order.py
 def confirm(self) -> None:
     if not (self._is_mutable()):
-        raise DomainError("Precondition failed: isMutable()")
+        raise DomainError("Business rule violated")
     if not (self._risk_score < 80):
-        raise DomainError("Precondition failed: riskScore < 80")
+        raise DomainError("Invalid value")
     order_extern.confirm(self)
     self._assert_invariants()
 ```
@@ -143,8 +143,8 @@ end
 ```elixir
 # lib/<app>/sales.ex — the context function delegates between the preconditions and the persist
 def confirm_order(%DElixir.Sales.Order{} = record, params) when is_map(params) do
-  with :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
-       :ok <- ensure(record.risk_score < 80, {:precondition_failed, "Precondition failed: riskScore < 80"}),
+  with :ok <- ensure(is_mutable(record), {:precondition_failed, "Business rule violated"}),
+       :ok <- ensure(record.risk_score < 80, {:precondition_failed, "Invalid value"}),
        {:ok, record} <- DElixir.Sales.OrderExternImpl.confirm(record, params) do
     # …force_change per scalar column off the returned struct, then persist
   end

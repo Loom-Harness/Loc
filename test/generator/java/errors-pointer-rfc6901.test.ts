@@ -83,9 +83,9 @@ describe("java errors[] pointer is RFC 6901", () => {
   it("both pointer call sites go through the converter, not raw concatenation", async () => {
     const text = await advice();
     // The body-validation arm (nested VO / VO-collection violations land here).
-    expect(text).toContain('entry.put("pointer", pointerOf(err.getField()));');
+    expect(text).toContain("var pointer = pointerOf(err.getField());");
     // The request-part type-mismatch arm shares the same shape.
-    expect(text).toContain('entry.put("pointer", pointerOf(e.getName()));');
+    expect(text).toContain("entry(pointerOf(e.getName()), message, code, null)");
     // The raw concatenation that produced `/lineTotals[0].unitPrice` is gone.
     expect(text).not.toContain('entry.put("pointer", "/" + err.getField());');
     expect(text).not.toContain('entry.put("pointer", "/" + e.getName());');

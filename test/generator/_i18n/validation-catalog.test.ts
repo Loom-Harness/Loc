@@ -6,14 +6,13 @@ import {
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
-import { messageCode } from "../../../src/util/message-code.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
 // The backend validation-message CATALOG collector (M-T1.11).
 //
-// The one place that decides which authored `message "…"` strings a backend
-// ships and what key each has.  All five backends build their catalog from it,
+// The one place that decides which named rules' messages a backend ships and
+// what key each has (the rule's identity key `<Ctx>.<Owner>.rule.<name>`).  All five backends build their catalog from it,
 // so what it includes / excludes IS the cross-backend contract.
 // ---------------------------------------------------------------------------
 
@@ -47,22 +46,22 @@ describe("validation-message catalog — what it collects", () => {
   it("collects an aggregate invariant, a field check, and an operation precondition", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
-        sku: string check sku.length > 0 message "SKU is required"
+        sku: string check skuRequired: sku.length > 0
         name: string
         qty: int
-        invariant name.length >= 2 message "Name must be at least 2 characters"
+        invariant nameMinLength: name.length >= 2
         create(n: string, s: string, q: int) { name := n  sku := s  qty := q }
         operation restock(amount: int) {
-          precondition amount >= 1 message "Amount must be positive"
+          precondition amountPositive: amount >= 1
           qty := qty + amount
         }
       }
       repository Products for Product { }
     `);
     expect(catalog).toEqual({
-      [messageCode("SKU is required")]: "SKU is required",
-      [messageCode("Name must be at least 2 characters")]: "Name must be at least 2 characters",
-      [messageCode("Amount must be positive")]: "Amount must be positive",
+      "Cat.Product.rule.skuRequired": "Sku required",
+      "Cat.Product.rule.nameMinLength": "Name min length",
+      "Cat.Product.rule.amountPositive": "Amount positive",
     });
   });
 
@@ -70,7 +69,7 @@ describe("validation-message catalog — what it collects", () => {
     const catalog = await catalogOf(`
       valueobject Sku {
         code: string
-        invariant code.length >= 3 message "SKU code needs at least 3 characters"
+        invariant skuCodeLength: code.length >= 3
       }
       aggregate Product {
         sku: Sku
@@ -79,39 +78,63 @@ describe("validation-message catalog — what it collects", () => {
       repository Products for Product { }
     `);
     expect(catalog).toEqual({
-      [messageCode("SKU code needs at least 3 characters")]: "SKU code needs at least 3 characters",
+      "Cat.Sku.rule.skuCodeLength": "Sku code length",
     });
   });
 
-  it("keys by messageCode, so the catalog key IS the wire `errors[].code`", async () => {
+  it("carries the identifiers each rule reads — its candidate message placeholders", async () => {
+    const messages = collectWireValidationMessages(
+      await contextsOf(`
+        aggregate Product {
+          qty: int
+          cap: int
+          invariant underCap: qty <= cap when cap > 0
+          create(q: int, c: int) { qty := q  cap := c }
+          operation take(n: int) {
+            precondition enough: n <= qty && [1, 2].all(x => x > 0)
+            qty := qty - n
+          }
+        }
+        repository Products for Product { }
+      `),
+    );
+    expect(Object.fromEntries(messages.map((m) => [m.code, m.params]))).toEqual({
+      "Cat.Product.rule.underCap": ["cap", "qty"],
+      // A lambda binding is not a placeholder; the param and the field are.
+      "Cat.Product.rule.enough": ["n", "qty"],
+    });
+  });
+
+  it("keys by the rule's identity, so a reword keeps the key", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         name: string
-        invariant name.length >= 2 message "Name must be at least 2 characters"
+        invariant nameLong: name.length >= 2
         create(n: string) { name := n }
       }
       repository Products for Product { }
     `);
-    // Not just "some hash" — the SAME function the five validator emitters call.
-    expect(Object.keys(catalog)).toEqual([messageCode("Name must be at least 2 characters")]);
-    expect(Object.keys(catalog)[0]).toMatch(/^msg\./);
+    expect(Object.keys(catalog)).toEqual(["Cat.Product.rule.nameLong"]);
   });
 
-  it("collapses one message authored on several rules into a single entry", async () => {
+  it("keeps two rules as two entries — each has its own key", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         a: int
         b: int
-        invariant a >= 0 message "Must not be negative"
-        invariant b >= 0 message "Must not be negative"
+        invariant aNonNegative: a >= 0
+        invariant bNonNegative: b >= 0
         create(x: int, y: int) { a := x  b := y }
       }
       repository Products for Product { }
     `);
-    expect(Object.keys(catalog)).toHaveLength(1);
+    expect(catalog).toEqual({
+      "Cat.Product.rule.aNonNegative": "A non negative",
+      "Cat.Product.rule.bNonNegative": "B non negative",
+    });
   });
 
-  it("excludes a message-LESS rule — the native validator chain has no message slot", async () => {
+  it("excludes an UNNAMED rule — it answers the generic message and carries no code", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         qty: int
@@ -124,21 +147,19 @@ describe("validation-message catalog — what it collects", () => {
     expect(hasWireValidationMessages(await contextsOf("aggregate P { n: int }"))).toBe(false);
   });
 
-  it("INCLUDES a `private` (server-only) messaged rule — the domain floor carries its code", async () => {
+  it("INCLUDES a `private` (server-only) named rule — the domain floor carries its code", async () => {
     const catalog = await catalogOf(`
       aggregate Product {
         name: string
-        private invariant name.length >= 2 message "Name must be at least 2 characters"
+        private invariant nameLong: name.length >= 2
         create(n: string) { name := n }
       }
       repository Products for Product { }
     `);
-    // No wire validator sees it, but it enforces at the DOMAIN FLOOR — and since
-    // M-T1.11 (c) the domain floor answers with the rule's `code` on its
-    // errors[] entry, which the 422 handler resolves through this catalog.  (It
-    // was excluded while only the wire rung carried a code: an entry the runtime
-    // could not resolve.)
-    expect(catalog).toEqual({ "msg.h2tz2y": "Name must be at least 2 characters" });
+    // No wire validator sees it, but it enforces at the DOMAIN FLOOR — and the
+    // domain floor answers with the rule's `code` on its errors[] entry, which
+    // the 422 handler resolves through this catalog.
+    expect(catalog).toEqual({ "Cat.Product.rule.nameLong": "Name long" });
   });
 
   it("sorts by key, so the emitted catalog is byte-stable across runs", async () => {
@@ -148,9 +169,9 @@ describe("validation-message catalog — what it collects", () => {
           a: int
           b: int
           c: int
-          invariant a >= 0 message "zzz first alphabetically last"
-          invariant b >= 0 message "aaa"
-          invariant c >= 0 message "mmm"
+          invariant zzz: a >= 0
+          invariant aaa: b >= 0
+          invariant mmm: c >= 0
           create(x: int, y: int, z: int) { a := x  b := y  c := z }
         }
         repository Products for Product { }

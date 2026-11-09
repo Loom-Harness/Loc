@@ -37,8 +37,12 @@
       "path": "/api/tickets/{id}/decide",
       "status": 422,
       "body": {
+        "code": "Desk.Rejected.message",
         "detail": "Rejected",
         "instance": "/api/tickets/{id}/decide",
+        "params": {
+          "reason": "pump"
+        },
         "reason": "pump",
         "status": 422,
         "title": "Rejected",
@@ -70,8 +74,12 @@
       "path": "/api/tickets/{id}/close",
       "status": 422,
       "body": {
+        "code": "Desk.Rejected.message",
         "detail": "Rejected",
         "instance": "/api/tickets/{id}/close",
+        "params": {
+          "reason": "valve"
+        },
         "reason": "valve",
         "status": 422,
         "title": "Rejected",
@@ -125,6 +133,7 @@
       "path": "/api/tickets/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
         "status": 404,
@@ -177,6 +186,7 @@
       "path": "/api/tickets",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/tickets",
         "instance": "/api/tickets",
         "status": 405,
@@ -190,6 +200,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -203,6 +214,7 @@
       "path": "/api/tickets",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/tickets",
         "status": 400,

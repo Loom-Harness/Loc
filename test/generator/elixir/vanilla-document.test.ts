@@ -97,7 +97,7 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(schema).toContain("|> validate_required([:reference, :status, :subtotal, :item_count])");
     // The same invariant-derived validator the relational path emits.
     expect(schema).toContain(
-      'validate_number(:item_count, greater_than_or_equal_to: 0, message: "Item Count must be at least 0")',
+      '{"Item Count must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
     );
     // The root changeset casts attrs INTO the embed + stamps version.
     const cs = file(await generateSystemFiles(DOC), "/carts/cart_changeset.ex");
@@ -649,9 +649,11 @@ describe("vanilla shape: document op guards deny 403/422 (not raise → 500)", (
     const ctl = file(files, "/controllers/note_controller.ex");
     // NAMED op → `else` arms; RETURNING op → result-fn clauses.  Same status +
     // ProblemDetails body as the relational / ES-command path.
-    expect(ctl).toContain('ProblemDetails.problem_response(conn, 403, "Forbidden", detail)');
     expect(ctl).toContain(
-      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail)',
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", detail, "problem.forbidden")',
+    );
+    expect(ctl).toContain(
+      'ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail, "problem.domain-floor")',
     );
     expect(ctl).toContain("def summary_note_result(conn, {:error, {:forbidden, detail}}),");
     expect(ctl).toContain(

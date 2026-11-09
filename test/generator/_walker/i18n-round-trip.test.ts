@@ -26,9 +26,9 @@
 //       another (A13's exact shape: the modal TITLE translated, the TRIGGER
 //       raw two lines below) fails here even though (a) passes.
 //
-// The backend half (the five `msg.<hash>` validation catalogs) is the second
+// The backend half (the five validation-message catalogs) is the second
 // describe: every code in a backend's runtime catalog is RAISED by one of its
-// validation / domain-floor sites, and every messaged rule's code is both in
+// validation / domain-floor sites, and every named rule's code is both in
 // the catalog and raised.
 //
 // Waivers ratchet (the repo rule): a waived dead key must STILL be dead, so a
@@ -38,7 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { messageCode } from "../../../src/util/message-code.js";
+import { WIRE_ERROR_MESSAGES } from "../../../src/generator/_i18n/wire-error-text.js";
 import { USER_VISIBLE_SLOTS } from "../../../src/util/user-visible-slots.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
@@ -585,7 +585,12 @@ function roundTrip(
   menu: MenuShape,
 ): RoundTrip {
   const all = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<string, string>;
-  const catalog = Object.fromEntries(Object.entries(all).filter(([k]) => !k.startsWith("msg.")));
+  // The server-error codes (`problem.*` / `field.*`, #4473) are read by the
+  // CODE a response carries — `t(pd.code, …)` — never by a literal key in the
+  // tree, so they cannot be consumed the way this walk measures.
+  const catalog = Object.fromEntries(
+    Object.entries(all).filter(([k]) => !k.startsWith("msg.") && !(k in WIRE_ERROR_MESSAGES)),
+  );
   const tree = consumptionTree(files, t);
   const text = [...tree.values()].join("\n");
   const dead = Object.keys(catalog).filter((k) => !quoted(k).test(text));
@@ -772,25 +777,21 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
 
 // --- the backend half --------------------------------------------------------
 
-/** The five backends' runtime catalogs and the chokepoint that raises codes.
- *  `catalog` locates the runtime catalog file by suffix. */
-const BACKENDS = [
-  { platform: "node", catalog: "http/messages.ts" },
-  { platform: "dotnet", catalog: "Localization/LoomMessages.cs" },
-  { platform: "java", catalog: "src/main/resources/messages.properties" },
-  { platform: "python", catalog: "app/i18n.py" },
-  { platform: "elixir", catalog: "priv/gettext/en/LC_MESSAGES/default.po" },
-] as const;
+/** The five backends.  None ships a runtime catalog: each answers a rule's
+ *  identity key as the wire `code` and the client localizes (#4473), so the
+ *  backend half of the round trip is that every named rule is RAISED under
+ *  its key and that the system catalog (`.loom/messages.en.json`) carries it. */
+const BACKENDS = ["node", "dotnet", "python", "java", "elixir"] as const;
 
-/** Messaged rules on every rung the catalog serves: a field `check` and a
+/** Named rules on every rung the catalog serves: a field `check` and a
  *  cross-field `invariant` (the WIRE rung), a precondition over a PARAMETER
  *  (wire) and one over the aggregate's own STATE (the DOMAIN FLOOR — only a
- *  domain throw can see it), and a message-less invariant (no code at all). */
+ *  domain throw can see it), and an unnamed invariant (no code at all). */
 const RULES = {
-  check: "SKU is required",
-  invariant: "Name must be 2-120 characters",
-  paramPre: "Amount must be positive",
-  statePre: "Cannot restock a retired product",
+  check: "skuRequired",
+  invariant: "nameLength",
+  paramPre: "amountPositive",
+  statePre: "notRetired",
 } as const;
 
 const backendSystem = (platform: string): string => `
@@ -798,16 +799,16 @@ const backendSystem = (platform: string): string => `
     subdomain Sales {
       context Cat {
         aggregate Product {
-          sku: string check sku.length > 0 message "${RULES.check}"
+          sku: string check ${RULES.check}: sku.length > 0
           name: string
           qty: int
           retired: bool
-          invariant name.length >= 2 && name.length <= 120 message "${RULES.invariant}"
+          invariant ${RULES.invariant}: name.length >= 2 && name.length <= 120
           invariant qty >= 0
           create(name: string, sku: string, qty: int, retired: bool) { }
           operation restock(amount: int) {
-            precondition amount >= 1 message "${RULES.paramPre}"
-            precondition !retired message "${RULES.statePre}"
+            precondition ${RULES.paramPre}: amount >= 1
+            precondition ${RULES.statePre}: !retired
             qty := qty + amount
           }
         }
@@ -820,39 +821,37 @@ const backendSystem = (platform: string): string => `
     deployable api { platform: ${platform} contexts: [Cat] dataSources: [st] serves: CatApi port: 8080 }
   }`;
 
-describe("i18n round trip — backend msg.<hash> catalogs (M-T9.39)", () => {
-  const expected = Object.values(RULES).map(messageCode).sort();
+describe("i18n round trip — backend rule-key codes", () => {
+  const expected = Object.values(RULES)
+    .map((n) => `Cat.Product.rule.${n}`)
+    .sort();
 
-  for (const b of BACKENDS) {
-    it(`${b.platform}: every catalog code is raised, every messaged rule is catalogued`, async () => {
-      const files = await generateSystemFiles(backendSystem(b.platform));
-      const catalogPath = [...files.keys()].find((k) => k.endsWith(b.catalog));
-      expect(catalogPath, `${b.platform}: no runtime catalog`).toBeDefined();
+  for (const platform of BACKENDS) {
+    it(`${platform}: every named rule is raised under its key, and catalogued for translators`, async () => {
+      const files = await generateSystemFiles(backendSystem(platform));
       const codesIn = (s: string): string[] =>
-        [...new Set(s.match(/msg\.[a-z0-9]+/g) ?? [])].sort();
-      const catalogCodes = codesIn(files.get(catalogPath!)!);
-      // Raise sites: every OTHER source file of the backend (not the catalog, not
-      // the gettext template, not generated tests).
+        [...new Set(s.match(/Cat\.Product\.rule\.[A-Za-z0-9]+/g) ?? [])].sort();
+      // No runtime catalog on the backend: only `.loom/` holds the text.
+      expect(
+        [...files.keys()].filter((p) =>
+          /\.(po|pot|properties)$|LoomMessages\.cs$|app\/i18n\.py$/.test(p),
+        ),
+        `${platform}: a runtime message catalog`,
+      ).toEqual([]);
+      // Raise sites: every source file of the backend (not `.loom/`, not
+      // generated tests) — the state precondition only by the domain floor.
       const raised = codesIn(
         [...files]
-          .filter(
-            ([p]) =>
-              p !== catalogPath &&
-              !p.startsWith(".loom/") &&
-              !/\.(po|pot|properties)$/.test(p) &&
-              !/(^|\/)(test|tests|e2e)\//.test(p),
-          )
+          .filter(([p]) => !p.startsWith(".loom/") && !/(^|\/)(test|tests|e2e)\//.test(p))
           .map(([, s]) => s)
           .join("\n"),
       );
-      // (b) every messaged rule is catalogued (extraction) …
-      expect(catalogCodes.filter((c) => expected.includes(c))).toEqual(expected);
-      // … and raised (consumption) — the state precondition only by the domain floor.
       expect(raised.filter((c) => expected.includes(c))).toEqual(expected);
-      // (a) no dead code: everything the catalog carries is raised somewhere.
+      // The translators' catalog carries every key the backend raises.
+      const system = codesIn(files.get(".loom/messages.en.json") ?? "");
       expect(
-        catalogCodes.filter((c) => !raised.includes(c)),
-        `${b.platform}: catalog codes nothing raises`,
+        raised.filter((c) => !system.includes(c)),
+        `${platform}: raised, not catalogued`,
       ).toEqual([]);
     });
   }

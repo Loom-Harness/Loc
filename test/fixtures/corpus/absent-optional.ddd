@@ -9,8 +9,8 @@
 // the corpus omitted an optional field a rule then referenced, so no gate saw
 // the divergence.
 //
-// The rule carries an authored `message`, so the 422 the invalid case DOES
-// earn is the same text on all five backends (the message-LESS default is a
+// The rule is named, so the 422 the invalid case DOES
+// earn is the same text on all five backends (the UNNAMED default is a
 // separate per-backend surface — see `validation-messages.ddd`).
 system AbsentOptional {
   subdomain Work {
@@ -18,7 +18,7 @@ system AbsentOptional {
       aggregate Ticket with crudish {
         title: string
         estimate: int?
-        invariant estimate == null || estimate >= 0 message "Estimate cannot be negative"
+        invariant estimateCannotNegative: estimate == null || estimate >= 0
       }
       repository Tickets for Ticket { }
     }
@@ -52,7 +52,7 @@ system AbsentOptional {
     let readSized = api.tickets.getById(sized)
     expect(readSized.estimate).toBe(3)
 
-    // Present and violating it: still denied, with the authored text — the
+    // Present and violating it: still denied, with the rule text — the
     // rule is loosened for ABSENCE only, not switched off.
     expect(api.tickets.create({ title: "Bad", estimate: -1 })).toThrow(422)
 

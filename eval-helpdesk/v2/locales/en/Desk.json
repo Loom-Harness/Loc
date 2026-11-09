@@ -1,0 +1,4 @@
+{
+  "Customer.rule.emailContain": "Email must contain @",
+  "Ticket.rule.replyCannotEmpty": "Reply cannot be empty"
+}

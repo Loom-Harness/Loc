@@ -229,14 +229,14 @@ describe("M-T6.31 — an absent read raises the service's one 404 producer, all 
   it("dotnet renders the raised carrier as the 7807 envelope", async () => {
     const files = await generateSystemFiles(systemFor("dotnet", 3112));
     expect(sourceFor(files, ".cs")).toContain(
-      'context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id);',
+      'context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found");',
     );
   });
 
   it("java renders the raised carrier as the 7807 envelope", async () => {
     const files = await generateSystemFiles(systemFor("java", 3113));
     expect(sourceFor(files, ".java")).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), request), 404);',
+      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
     );
   });
 
@@ -258,6 +258,6 @@ describe("M-T6.31 — an absent read raises the service's one 404 producer, all 
     expect(projections).toContain("if (err instanceof AggregateNotFoundError) return problem(404");
     // The floor still carries the domain rung for the ladder-less remainder.
     expect(index).toContain("if (err instanceof AggregateNotFoundError) {");
-    expect(index).toContain('return problem(404, "Not Found", err.message);');
+    expect(index).toContain('return problem(404, "Not Found", err.message, "problem.not-found");');
   });
 });

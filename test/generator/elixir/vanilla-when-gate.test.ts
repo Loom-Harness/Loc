@@ -50,7 +50,7 @@ describe("vanilla operation `when` state gate (B6)", () => {
     const cancel = facade.slice(facade.indexOf("def cancel_order("));
     // The gate short-circuits BEFORE the mutation/persist runs.
     expect(cancel).toContain(
-      "with :ok <- ensure(record.status != :Shipped and record.status != :Cancelled, {:disallowed, \"operation 'cancel' is not allowed in the current state of Order (when this.status != OrderStatus.Shipped && this.status != OrderStatus.Cancelled).\"}) do",
+      "with :ok <- ensure(record.status != :Shipped and record.status != :Cancelled, {:disallowed, \"operation 'cancel' is not allowed in the current state of Order.\"}) do",
     );
     // The shared ensure/2 helper must be emitted (else the with-clause is undefined).
     expect(facade).toContain("defp ensure(false, reason), do: {:error, reason}");
@@ -63,7 +63,7 @@ describe("vanilla operation `when` state gate (B6)", () => {
     // the 409 reason phrase; detail is bound from the tuple so it names the
     // occurrence.  Both now byte-identical to node/.NET/Java/Python.
     expect(controller).toContain(
-      'ProblemDetails.problem_response(conn, 409, "Disallowed", detail)',
+      'ProblemDetails.problem_response(conn, 409, "Disallowed", detail, "problem.state-gate")',
     );
   });
 });

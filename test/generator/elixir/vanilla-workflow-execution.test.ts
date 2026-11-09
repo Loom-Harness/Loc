@@ -141,7 +141,7 @@ describe("vanilla — Slice 5c workflow execution", () => {
     // other four backends' unhandled-fault arm), NOT a 400 that blames the
     // caller with an `inspect/1` dump of an internal Elixir term.
     expect(ctl).toContain(
-      'ProblemDetails.problem_response(conn, 500, "Internal Server Error", "internal")',
+      'ProblemDetails.problem_response(conn, 500, "Internal Server Error", "internal", "problem.internal")',
     );
     expect(ctl, "an internal term still leaks through inspect/1").not.toContain("inspect(reason)");
   });

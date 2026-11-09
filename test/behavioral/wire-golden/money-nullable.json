@@ -74,7 +74,8 @@
       "path": "/api/invoices/{id}/set_fee",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x == null || x >= money(\"0\")",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/invoices/{id}/set_fee",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -87,7 +88,8 @@
       "path": "/api/invoices/{id}/set_fee",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: fee != x",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/invoices/{id}/set_fee",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -218,7 +220,8 @@
       "path": "/api/quotes/{id}/bid",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x > money(\"0\")",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -231,7 +234,8 @@
       "path": "/api/quotes/{id}/bid",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x > money(\"0\")",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/quotes/{id}/bid",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -329,7 +333,8 @@
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: limit == null || balance + amount <= limit",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/spend",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -342,7 +347,8 @@
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: amount > money(\"0\")",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/spend",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -355,7 +361,8 @@
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x != limit",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/set_limit",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -368,7 +375,8 @@
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: x >= balance",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/ledgers/{id}/set_limit",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -447,6 +455,7 @@
       "path": "/api/invoices",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/invoices",
         "instance": "/api/invoices",
         "status": 405,
@@ -460,6 +469,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -473,6 +483,7 @@
       "path": "/api/invoices",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/invoices",
         "status": 400,
@@ -486,6 +497,7 @@
       "path": "/api/invoices/{id}/charge",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/charge",
         "status": 404,
@@ -499,6 +511,7 @@
       "path": "/api/invoices/{id}/charge",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/charge",
         "status": 404,
@@ -512,6 +525,7 @@
       "path": "/api/invoices/{id}/charge",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/invoices/{id}/charge",
         "status": 415,
@@ -525,6 +539,7 @@
       "path": "/api/invoices/{id}/set_fee",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/set_fee",
         "status": 404,

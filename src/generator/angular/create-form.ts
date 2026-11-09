@@ -14,7 +14,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular `CreateForm(of: <Agg>)` renderer (angular-frontend-plan.md).
@@ -127,7 +127,7 @@ export function renderAngularCreateForm(
   // a blocked submit), and — computed HERE, before the markup is built — the
   // matching `aria-invalid` / `aria-describedby` on the control itself.
   const available = new Set(fields.map((f) => f.name));
-  const errorFields = new Set(angularValidatorMap(agg.invariants, available).keys());
+  const errorFields = angularRuleCodes(agg.invariants, available);
   const parts = partitionAngularFields(fields, bc, ns, ctx, formVar, errorFields, () => agg.name);
   const fieldMarkup = applyAngularValidators(parts, agg.invariants, available, formVar, ns, ctx);
   const submit = formButton(ctx, {

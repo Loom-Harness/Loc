@@ -10,7 +10,7 @@ using CatalogApi.Domain.Events;
 namespace CatalogApi.Domain.Common;
 
 /// <summary>Which rung of the domain floor refused a call — carried apart
-/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+/// from the message, which a rule's own text replaces.</summary>
 public enum DomainErrorKind
 {
     Precondition,
@@ -31,17 +31,19 @@ public sealed class DomainException : Exception
 /// <summary>A value object's invariant refused a value (M-T5.1).
 /// DomainExceptionFilter answers the domain-floor status with one RFC 7807
 /// <c>errors[]</c> entry: the whole-request pointer <c>""</c> (the value was
-/// computed by a body, so it names no request member), the rule's message
-/// and, for a messaged rule, its content-hash code.</summary>
+/// computed by a body, so it names no request member), the rule's message,
+/// its catalog code and the values the rule read as params.</summary>
 public sealed class ValueObjectInvariantException : Exception
 {
     public string ValueObject { get; }
     public string? RuleCode { get; }
-    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null)
+    public IReadOnlyDictionary<string, object?>? RuleParams { get; }
+    public ValueObjectInvariantException(string valueObject, string message, string? ruleCode = null, IReadOnlyDictionary<string, object?>? ruleParams = null)
         : base(message)
     {
         ValueObject = valueObject;
         RuleCode = ruleCode;
+        RuleParams = ruleParams;
     }
 }
 
@@ -86,8 +88,17 @@ public sealed class WireFormatException : Exception
     /// Named FieldPointer, not Pointer: CA1720 ("identifier contains type
     /// name") is an ERROR under /warnaserror and rejects the shorter name.</summary>
     public string FieldPointer { get; }
-    public WireFormatException(string fieldPointer, string message)
-        : base(message) => FieldPointer = fieldPointer;
+    /// <summary>The catalog code of the refusal (<c>field.money-grammar</c>, …)
+    /// and the values its message names.</summary>
+    public string Code { get; }
+    public IReadOnlyDictionary<string, object?>? Params { get; }
+    public WireFormatException(string fieldPointer, string message, string code, IReadOnlyDictionary<string, object?>? @params = null)
+        : base(message)
+    {
+        FieldPointer = fieldPointer;
+        Code = code;
+        Params = @params;
+    }
 
     /// <summary>node's money grammar, character for character:
     /// <c>^-?[0-9]+(\.[0-9]+)?$</c> — ASCII digits only, no exponent, no

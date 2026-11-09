@@ -8,9 +8,13 @@ public sealed class MoneyRequestValidator : AbstractValidator<MoneyRequest>
     public MoneyRequestValidator()
     {
         RuleFor(x => x.Amount).GreaterThanOrEqualTo(0)
-            .WithMessage("Amount must be at least 0");
+            .WithMessage("Amount must be at least 0")
+            .WithErrorCode("field.min")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 0 });
         RuleFor(x => x.Currency).Must(v => v == null || v.EnumerateRunes().Count() == 3)
-            .WithMessage("Currency must be exactly 3 characters");
+            .WithMessage("Currency must be exactly 3 characters")
+            .WithErrorCode("field.length")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["length"] = 3 });
     }
 }
 

@@ -68,7 +68,13 @@ describe("ddd i18n — extract/init/sync", () => {
     // an i18n-enabled system also merges the app-shell chrome (`chrome.*`) and
     // the active design pack's DECLARED chrome (`pack.<family>.<role>.<hash>`,
     // D-PACK-CHROME) — neither of which is authored page text.
-    const pageKeys = entries.filter(([k]) => !k.startsWith("chrome.") && !k.startsWith("pack."));
+    const pageKeys = entries.filter(
+      ([k]) =>
+        !k.startsWith("chrome.") &&
+        !k.startsWith("pack.") &&
+        !k.startsWith("problem.") &&
+        !k.startsWith("field."),
+    );
     expect(pageKeys.every(([k]) => /^WebApp\.page\.Welcome\./.test(k))).toBe(true);
     expect(catalog["chrome.notFound"]).toBe("Not found");
   });

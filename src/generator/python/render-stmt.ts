@@ -15,7 +15,9 @@ const PROV = {
   record: prov("record"),
 } as const;
 
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
+import { pyRuleParams } from "./wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Python backend.  The 11-kind `StmtIR` dispatch,
@@ -54,7 +56,7 @@ export interface PyStmtCtx {
    *  routes it to the co-located `_<field>_provenance` backing field, and
    *  pushes it onto the per-request ContextVar buffer via `record(...)`. */
   emitProvenance?: boolean;
-  /** True when rendering an aggregate OPERATION body: a messaged
+  /** True when rendering an aggregate OPERATION body: a named
    *  `precondition` then raises its wire code and pointer too (M-T1.11 (c)). */
   domainFloorCodes?: boolean;
 }
@@ -151,12 +153,13 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
     indexing: "per-kind",
 
     precondition: (s, ix) => {
-      // A MESSAGED precondition in an aggregate operation carries its wire code
-      // and pointer THROUGH the raise (M-T1.11 (c)).
+      // A NAMED precondition in an aggregate operation carries its wire code
+      // and pointer THROUGH the raise.
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
-      const text = JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`);
+      const text = JSON.stringify(floorRuleText(s));
+      const params = code ? pyRuleParams({ expr: s.expr }, renderPyExpr) : undefined;
       const thrown = code
-        ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
+        ? `raise ${PY.DomainError}(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))}${params ? `, ${params}` : ""})`
         : `raise ${PY.DomainError}(${text}, "precondition")`;
       if (!ctx.trace) {
         return [`${i}if ${renderPyNegatedGuard(s.expr)}:`, `${sub}${thrown}`].join("\n");

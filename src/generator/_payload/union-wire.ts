@@ -252,10 +252,14 @@ function memberJsonSchema(m: UnionMember): unknown {
 // does not change.
 // ---------------------------------------------------------------------------
 
-/** The RFC 7807 core members.  Every backend spreads the arm first and the
- *  problem members after it, so an arm field with one of these names is
- *  overwritten on the wire and is not declared as an arm field. */
-const RFC7807_MEMBERS: ReadonlySet<string> = new Set([
+/** The problem body's reserved members: the RFC 7807 core plus the `code` /
+ *  `params` extension members every refusal carries (#4473).  Every backend
+ *  spreads the arm first and the problem members after it, so an arm field with
+ *  one of these names is overwritten on the wire and is not declared as an arm
+ *  field (its value still rides in `params`, keyed by the field name). */
+export const RFC7807_MEMBERS: ReadonlySet<string> = new Set([
+  "code",
+  "params",
   "type",
   "title",
   "status",

@@ -113,7 +113,7 @@ public sealed partial class Order
 
     public void Confirm()
     {
-        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
+        if (!(this.IsMutable())) throw new DomainException("Business rule violated");
         ConfirmCore();          // ← the hand-written domain hook
         AssertInvariants();     // ← the aggregate's own guard still fires
     }
@@ -322,7 +322,7 @@ flow as the other backends):
 ```java
 // Order.java (generated) — the extern op is a real aggregate method
 public void confirm() {
-    if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");
+    if (!(this.isMutable())) throw new DomainException("Business rule violated");
     OrderExtern.confirm(this);   // ← delegate to the co-located hook
     this._assertInvariants();    // ← invariants re-run, always
 }

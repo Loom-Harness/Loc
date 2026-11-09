@@ -95,6 +95,7 @@
       "path": "/api/credit_cards/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "CreditCard {id} not found",
         "instance": "/api/credit_cards/{id}",
         "status": 404,
@@ -186,6 +187,7 @@
       "path": "/api/bank_accounts/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "BankAccount {id} not found",
         "instance": "/api/bank_accounts/{id}",
         "status": 404,
@@ -206,6 +208,7 @@
       "path": "/api/credit_cards",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/credit_cards",
         "instance": "/api/credit_cards",
         "status": 405,
@@ -219,6 +222,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -232,6 +236,7 @@
       "path": "/api/credit_cards",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/credit_cards",
         "status": 400,
@@ -245,6 +250,7 @@
       "path": "/api/bank_accounts/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "BankAccount {id} not found",
         "instance": "/api/bank_accounts/{id}/update",
         "status": 404,

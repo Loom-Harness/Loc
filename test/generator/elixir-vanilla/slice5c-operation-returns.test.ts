@@ -73,8 +73,10 @@ describe("vanilla — T2.c operation-return emit", () => {
     );
     expect(ctl).toContain("def reserve_order_result(conn, {:ok, success})");
     // NotFound → 404 ProblemDetails via the shared responder
-    expect(ctl).toContain('problem_variant(conn, 404, "/errors/not-found", "Not Found", data)');
-    expect(ctl).toContain("defp problem_variant(conn, status, type, title, data) do");
+    expect(ctl).toContain(
+      'problem_variant(conn, 404, "/errors/not-found", "Not Found", "Orders.NotFound.message", data)',
+    );
+    expect(ctl).toContain("defp problem_variant(conn, status, type, title, code, data) do");
     expect(ctl).toContain('put_resp_content_type("application/problem+json")');
   });
 

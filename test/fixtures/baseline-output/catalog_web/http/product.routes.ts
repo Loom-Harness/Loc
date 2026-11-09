@@ -10,18 +10,18 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 import { Money } from "../domain/value-objects";
 
 const MoneySchema = z.object({
-  amount: z.number().min(0, { message: "Amount must be at least 0" }),
-  currency: z.string().refine((s) => [...s].length === 3, { message: "Currency must be exactly 3 characters" }).openapi({ minLength: 3, maxLength: 3 }).refine((s: string) => !s.includes("\u0000")),
+  amount: z.number().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }).openapi({ minimum: 0 }),
+  currency: z.string().refine((v: any) => [...v].length === 3, { message: "Currency must be exactly 3 characters", params: { loomCode: "field.length", loomValues: {"length":3} } }).openapi({ minLength: 3, maxLength: 3 }).refine((s: string) => !s.includes("\u0000")),
 }).openapi("Money");
 
 const CreateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
+  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
   price: MoneySchema,
 }).openapi("CreateProductRequest");
 const CreateProductResponse = z.object({ id: z.string() }).openapi("CreateProductResponse");
 
 const UpdateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")).optional(),
   price: MoneySchema.optional(),
 }).openapi("UpdateProductRequest");
 
@@ -120,7 +120,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
         await repo.delete(Ids.ProductId(id));
       } catch (err) {
         if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
-          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Product is still referenced and cannot be deleted.", instance: c.req.path }), 409, { "content-type": "application/problem+json" });
+          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Product is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use" }), 409, { "content-type": "application/problem+json" });
         }
         throw err;
       }
@@ -183,42 +183,42 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
 
   app.onError((err, c) => {
     const trace_id = c.get("requestId") ?? "";
-    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
+    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     if (err instanceof ForbiddenError) {
       c.get("log").warn({ event: "forbidden", aggregate: "Product", message: err.message, status: 403 });
       recordDomainFault("forbidden");
-      return problem(403, "Forbidden", err.detail);
+      return problem(403, "Forbidden", err.detail, "problem.forbidden");
     }
     if (err instanceof DisallowedError) {
       c.get("log").warn({ event: "disallowed", aggregate: "Product", message: err.message, status: 409 });
       recordDomainFault("disallowed");
-      return problem(409, "Disallowed", err.message);
+      return problem(409, "Disallowed", err.message, "problem.state-gate");
     }
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Product", message: err.message, status: 422 });
       recordDomainFault("domain_error");
-      return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message);
+      return domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422, "Unprocessable Entity", err.message, err.problemCode);
     }
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Product", status: 404 });
       recordDomainFault("not_found");
-      return problem(404, "Not Found", err.message);
+      return problem(404, "Not Found", err.message, "problem.not-found");
     }
     if (err instanceof ConcurrencyError) {
       c.get("log").warn({ event: "conflict", aggregate: "Product", message: err.message, status: 409 });
       recordDomainFault("conflict");
-      return problem(409, "Conflict", err.message);
+      return problem(409, "Conflict", err.message, "problem.version-conflict");
     }
     if (err instanceof ExternHandlerError) {
       c.get("log").error({ event: "extern_handler_threw", aggregate: err.aggName, op: err.opName, error: err.message });
-      return problem(500, "Internal Server Error", "internal");
+      return problem(500, "Internal Server Error", "internal", "problem.internal", { requestId: trace_id });
     }
     if (err instanceof HTTPException) {
       c.get("log").warn({ event: "client_error", error: err.message, status: err.status });
       return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     }
     c.get("log").error({ event: "internal_error", error: err instanceof Error ? err.message : String(err), status: 500 });
-    return problem(500, "Internal Server Error", "internal");
+    return problem(500, "Internal Server Error", "internal", "problem.internal", { requestId: trace_id });
   });
 
   return app;

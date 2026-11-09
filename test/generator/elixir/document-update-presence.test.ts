@@ -42,7 +42,7 @@ const DOC_SYSTEM = `system DocPresence {
           note := note
         }
         operation update(reference: string, itemCount: int, note: string?) {
-          precondition itemCount >= 0 message "A cart cannot hold a negative count"
+          precondition cartCountNonNegative: itemCount >= 0
           reference := reference
           itemCount := itemCount
           note := note

@@ -16,13 +16,13 @@
 //   4. the realtime LiveView toast     — `realtime-liveview.ts`
 //
 // Wave 1 (packet 1d) re-swept the emitter for the same shape and found FOUR
-// MORE bare-`JSON.stringify` splices of `.ddd`-authored text, each proven by
+// MORE bare-`JSON.stringify` splices of `.ddd`-rule text, each proven by
 // generation:
 //
 //   5. the VALUE-OBJECT invariant validators — `changeset-validators.ts`, both
 //      carriers: the code-point `validate_change` error tuple and the
 //      `validate_number` / `validate_format` `message:` option.  (A value
-//      object has no residual `add_error` carrier, so an author `message "…"`
+//      object has no residual `add_error` carrier, so a translator's rule text
 //      rides the native Ecto validator — the one path site 3 does not reach.)
 //   6. the page `state` string initialiser — `heex-walker-core.ts`
 //      `elixirLiteral`, spliced into the LiveView `mount/3` assigns
@@ -45,6 +45,18 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
+// A rule's text is translator-owned now: the hostile sentences arrive as
+// `locales/en` overrides, the only way an author-controlled string reaches a
+// rule's message.
+const HOSTILE_TEXT = new Map([
+  ["Catalog.Product.rule.nameNotSafe", "bad #{:erlang.halt()} name"],
+  ["Catalog.Product.rule.restockAmountMin", "at least 1 - #{System.halt(1)}"],
+]);
+const HOSTILE_VO_TEXT = new Map([
+  ["Catalog.Label.rule.labelLength", "short #{:erlang.halt(1)} label"],
+  ["Catalog.Label.rule.weightNonNegative", "neg #{:erlang.halt(2)} weight"],
+]);
+
 /** No `#{` may appear unescaped (i.e. not preceded by a backslash). */
 function expectNoLiveInterpolation(line: string): void {
   expect(line).toMatch(/#\{/); // the payload really is in the line under test
@@ -60,9 +72,9 @@ const HOSTILE = `system Hostile {
         name: string
         stock: int
         note: string = "boot #{:erlang.halt(3)} end"
-        invariant name != "safe" message "bad #{:erlang.halt()} name"
+        invariant nameNotSafe: name != "safe"
         operation restock(amount: int) {
-          precondition amount >= 1 message "at least 1 - #{System.halt(1)}"
+          precondition restockAmountMin: amount >= 1
           stock := stock + amount
         }
       }
@@ -115,8 +127,8 @@ const HOSTILE_TOAST = `system HostileToast {
   }
 }`;
 
-// A VALUE OBJECT's messaged invariants: no residual `add_error` carrier exists
-// for a VO, so the author text rides Ecto's own validators — the arm the
+// A VALUE OBJECT's named invariants: no residual `add_error` carrier exists
+// for a VO, so the rule text rides Ecto's own validators — the arm the
 // aggregate fixture above never reaches.
 const HOSTILE_VO = `system HostileVo {
   subdomain Catalog {
@@ -124,8 +136,8 @@ const HOSTILE_VO = `system HostileVo {
       valueobject Label {
         text: string
         weight: int
-        invariant text.length >= 3 message "short #{:erlang.halt(1)} label"
-        invariant weight >= 0 message "neg #{:erlang.halt(2)} weight"
+        invariant labelLength: text.length >= 3
+        invariant weightNonNegative: weight >= 0
       }
       aggregate Product with crudish {
         name: string
@@ -232,13 +244,13 @@ function findLine(files: Map<string, string>, suffix: string, needle: string): s
 
 describe("Elixir emitters route `.ddd` strings through the escaping funnel", () => {
   it("the Ecto schema `default:` does not interpolate at compile time", async () => {
-    const files = await generateSystemFiles(HOSTILE);
+    const files = await generateSystemFiles(HOSTILE, { sourceOverrides: HOSTILE_TEXT });
     const line = findLine(files, "lib/d/catalog/product.ex", "field :note");
     expectNoLiveInterpolation(line);
   });
 
   it("the residual-invariant `add_error` message does not interpolate", async () => {
-    const files = await generateSystemFiles(HOSTILE);
+    const files = await generateSystemFiles(HOSTILE, { sourceOverrides: HOSTILE_TEXT });
     const line = findLine(
       files,
       "lib/d/catalog/product_changeset.ex",
@@ -248,7 +260,7 @@ describe("Elixir emitters route `.ddd` strings through the escaping funnel", () 
   });
 
   it("the wire-validation 422 message does not interpolate", async () => {
-    const files = await generateSystemFiles(HOSTILE);
+    const files = await generateSystemFiles(HOSTILE, { sourceOverrides: HOSTILE_TEXT });
     const line = findLine(files, "lib/d/catalog.ex", ":validation_failed");
     expectNoLiveInterpolation(line);
   });
@@ -260,13 +272,13 @@ describe("Elixir emitters route `.ddd` strings through the escaping funnel", () 
   });
 
   it("the value-object length validator's error tuple does not interpolate", async () => {
-    const files = await generateSystemFiles(HOSTILE_VO);
+    const files = await generateSystemFiles(HOSTILE_VO, { sourceOverrides: HOSTILE_VO_TEXT });
     const line = findLine(files, "lib/d/catalog/label.ex", "validation: :length");
     expectNoLiveInterpolation(line);
   });
 
   it("the value-object `validate_number` message option does not interpolate", async () => {
-    const files = await generateSystemFiles(HOSTILE_VO);
+    const files = await generateSystemFiles(HOSTILE_VO, { sourceOverrides: HOSTILE_VO_TEXT });
     const line = findLine(files, "lib/d/catalog/label.ex", "validate_number(:weight");
     expectNoLiveInterpolation(line);
   });

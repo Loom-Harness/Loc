@@ -134,7 +134,7 @@ type DepList = readonly { readonly type: string; readonly field: string }[];
 function whenGate(agg: AggregateIR, op: AggregateIR["operations"][number]): string {
   if (!op.when) return "";
   const pred = renderCsExpr(op.when, { thisName: "aggregate" });
-  return `        if (!(${pred})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});\n`;
+  return `        if (!(${pred})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name))});\n`;
 }
 
 /** Namespaces the gates rendered INTO the handler body reach into — the `when`

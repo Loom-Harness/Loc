@@ -32,6 +32,7 @@ import { factoryLocal, snake } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -56,6 +57,7 @@ import {
   statementSubRegions,
 } from "../render-stmt.js";
 import { hbIdent } from "../sql-ident.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import {
   jpaClassAnnotations,
   jpaContainmentAnnotations,
@@ -626,7 +628,7 @@ export function renderJavaEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
-          disallowedDetail(op.name, entity.name, op.whenSource),
+          disallowedDetail(op.name, entity.name),
         )});`
       : null;
   const opLines: string[] = [];
@@ -910,14 +912,12 @@ export function renderJavaEntity(
 
   // --- invariants -----------------------------------------------------------------
   const invariantLines = entity.invariants.flatMap((inv, i) => {
-    // A MESSAGED rule carries its wire code + pointer THROUGH the throw
-    // (M-T1.11 (c)); a message-less one keeps the text-only throw.
+    // A NAMED rule carries its wire code + pointer THROUGH the throw; an
+    // unnamed one keeps the text-only throw with the generic text.
     const code = domainFloorCode(inv.message);
-    const text = JSON.stringify(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
+    const text = JSON.stringify(floorRuleText(inv));
     const thrown = code
-      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${javaRuleParamsTail(inv, (e) => renderJavaExpr(e, renderCtx))})`
       : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;
     if (!emitTrace) {
       const check = inv.guard

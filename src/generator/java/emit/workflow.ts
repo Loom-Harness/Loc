@@ -66,6 +66,7 @@ import {
   withLambdaScope,
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
+import { javaRuleParamsTail } from "../wire-policy-java.js";
 import { voRecord } from "./dto.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
@@ -413,7 +414,7 @@ export function javaWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (s, indent) => {
       return [
-        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s, "DomainException.Kind.PRECONDITION")});`,
+        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s, "DomainException.Kind.PRECONDITION")}${s.message ? javaRuleParamsTail(s, (e) => renderJavaExpr(e, renderCtx)) : ""});`,
       ];
     },
     requires: (s, indent) => {

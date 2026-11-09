@@ -1,10 +1,16 @@
+import {
+  type FieldLimitCheck,
+  fieldCode,
+  fieldLimitChecks,
+} from "../../../ir/enrich/wire-policy.js";
 import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { ruleParams } from "../../../ir/util/rule-params.js";
 import {
   type SingleFieldPattern,
   singleFieldConstraints,
 } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
@@ -29,8 +35,8 @@ type LengthArm = { cmp: "<" | ">" | "!="; bound: number; kind: "min" | "max" | "
  *  and any Gettext translator see no difference. */
 function lengthValidator(field: string, arms: readonly LengthArm[], message: string): string {
   const error = (a: LengthArm): string =>
-    // Through the shared escaping funnel: the author's `message "…"` is `.ddd`
-    // text, and a raw `#{` in it would INTERPOLATE when the closure runs.
+    // Through the shared escaping funnel: a named rule's text is translator-
+    // overridable, and a raw `#{` in it would INTERPOLATE when the closure runs.
     `[{:${field}, {${elixirString(message)}, count: ${a.bound}, validation: :length, kind: :${a.kind}, type: :string}}]`;
   const count = "length(String.to_charlist(value))";
   if (arms.length === 1) {
@@ -56,16 +62,54 @@ ${branches}
     end)`;
 }
 
+/** One side of a declared field limit as a `validate_change/3` closure whose
+ *  error carries its catalog code and bound (`loom_code` / `loom_params`, read
+ *  by the 422 handler's `error_code` / `put_params`).  Ecto's own
+ *  `validate_number` / `validate_format` refuse unknown options and attach
+ *  none of their own, so the check is hand-rolled — numbers compared through
+ *  `Decimal` (the field's cast value is an integer, a float or a Decimal),
+ *  lengths in code points like `lengthValidator`. */
+function limitValidator(field: string, check: FieldLimitCheck, text: string): string {
+  const n = check.bound ?? 0;
+  const bound = `Decimal.new(${elixirString(String(n))})`;
+  const cmp = `Decimal.compare(elem(Decimal.cast(value), 1), ${bound})`;
+  const count = "length(String.to_charlist(value))";
+  const ok: Record<FieldLimitCheck["reason"], string> = {
+    min: `${cmp} != :lt`,
+    "greater-than": `${cmp} == :gt`,
+    max: `${cmp} != :gt`,
+    "less-than": `${cmp} == :lt`,
+    "min-length": `${count} >= ${n}`,
+    "max-length": `${count} <= ${n}`,
+    length: `${count} == ${n}`,
+    pattern: `value =~ ~r/${elixirRegexBody(check.regex ?? "")}/`,
+  };
+  const validation =
+    check.reason === "pattern" ? "format" : check.reason.includes("length") ? "length" : "number";
+  const entries = Object.entries(check.params).map(([k, v]) => `${k}: ${v}`);
+  const params = entries.length > 0 ? `, loom_params: %{${entries.join(", ")}}` : "";
+  return `    |> validate_change(:${field}, fn _, value ->
+      if ${ok[check.reason]},
+        do: [],
+        else: [{:${field}, {${elixirString(text)}, validation: :${validation}, loom_code: ${elixirString(fieldCode(check.reason))}${params}}}]
+    end)`;
+}
+
 /** Map a recognised single-field invariant pattern to the idiomatic Ecto
- *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe). */
+ *  changeset validator pipe line (4-space-indented, ready for a `|>` pipe).
+ *  A message-less pattern is a declared field limit: one `limitValidator` per
+ *  side (`fieldLimitChecks`), each answering its own `field.<limit>` code. */
 export function ectoValidator(field: string, p: SingleFieldPattern, message?: string): string {
-  // An author `message "..."` rides along as Ecto's own `message:` option, so a
-  // messaged single-field rule keeps its native `validate_*` enforcement AND
-  // surfaces the author text (VOs have no residual carrier to route to). A
-  // message-less rule is byte-identical.
-  // Same funnel as the length arm above — author text, never spliced raw.
-  // A message-less rule answers node's `singleFieldMessage` sentence, not Ecto's
-  // own text (D-MESSAGELESS-DEFAULT), so the 422 reads the same on every backend.
+  if (message === undefined) {
+    const text = singleFieldMessage(field, p);
+    return fieldLimitChecks(p)
+      .map((check) => limitValidator(field, check, text))
+      .join("\n");
+  }
+  // A named rule's text rides along as Ecto's own `message:` option, so a named
+  // single-field rule keeps its native `validate_*` enforcement AND surfaces its
+  // text (VOs have no residual carrier to route to).  Same funnel as the length
+  // arm above — never spliced raw.
   const text = message ?? singleFieldMessage(field, p);
   const m = `, message: ${elixirString(text)}`;
   switch (p.kind) {
@@ -111,7 +155,7 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
 
 /** The single-field constraint validator lines for a value object's invariants
  *  (only those whose pattern targets one of the VO's own fields). */
-export function voConstraintLines(vo: ValueObjectIR): string[] {
+function voConstraintLines(vo: ValueObjectIR): string[] {
   return constraintLinesFor(vo);
 }
 
@@ -140,52 +184,71 @@ function constraintLinesFor(owner: {
   return (owner.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => fieldNames.has(snake(c.field)))
-      .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+      .map((c) =>
+        ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+      ),
   );
 }
 
-/** The wire `code` for a MESSAGED single-field rule emitted as a native Ecto
- *  `validate_*` line on a changeset that has no residual carrier (a value
- *  object's `changeset/1`, a value-collection row's `changeset/2`).  Ecto's
- *  validators take a `message:` but no metadata, so the rule's stable
- *  `msg.<hash>` never reached the error opts and the 422 body carried no
- *  `code` on elixir alone (wave C3, found draining `vo-id-reference`).  The
- *  returned pipe re-tags each error whose text is a messaged rule's; both
- *  halves are empty — byte-identical output — when no rule carries a message.
- *  `pipe` is a 4-space `|>` line; `defs` is a module-level block. */
-export function messageCodeTagging(owner: {
+/** The single-field constraint lines of an owner with no residual carrier (a
+ *  value object's `changeset/1`, a value-collection row's `changeset/2`), each
+ *  NAMED rule's tagged with the rule's wire `code`.
+ *
+ *  Ecto's validators take a `message:` but no metadata, so the rule's stable
+ *  `<Ctx>.<Owner>.rule.<name>` could not ride the error opts.  Each named rule's
+ *  validator line is therefore wrapped in `__loom_tagged/4`, which tags exactly
+ *  the errors that one validator added with `loom_code` (and the `loom_params`
+ *  it read).  The code is attached by RULE, never by message text: two rules
+ *  sharing one message keep their own codes.  Both halves are empty — and the
+ *  lines byte-identical — when no rule carries a message.  `defs` is a
+ *  module-level block. */
+export function taggedConstraintLines(owner: {
   fields: ValueObjectIR["fields"];
   invariants: ValueObjectIR["invariants"];
-}): { pipe: string; defs: string } {
+}): { lines: string[]; defs: string } {
   const fieldNames = new Set(owner.fields.map((f) => snake(f.name)));
-  const codes = new Map<string, string>();
-  for (const inv of owner.invariants ?? []) {
-    if (!inv.message) continue;
-    const routed = (singleFieldConstraints(inv) ?? []).some((c) => fieldNames.has(snake(c.field)));
-    if (routed) codes.set(inv.message.text, messageCode(inv.message.text));
-  }
-  if (codes.size === 0) return { pipe: "", defs: "" };
-  const entries = [...codes].map(
-    ([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`,
+  let tagged = false;
+  const lines = (owner.invariants ?? []).flatMap((inv) =>
+    (singleFieldConstraints(inv) ?? [])
+      .filter((c) => fieldNames.has(snake(c.field)))
+      .map((c) => {
+        const line = ectoValidator(
+          snake(c.field),
+          c.pattern,
+          inv.message && namedRuleText(inv.message),
+        );
+        if (!inv.message) return line;
+        tagged = true;
+        const reads = ruleParams(inv)
+          .map((name) => `{${JSON.stringify(name)}, :${snake(name)}}`)
+          .join(", ");
+        return `    |> __loom_tagged(${elixirString(inv.message.key)}, [${reads}], fn changeset ->
+      changeset
+${line.replace(/^/gm, "  ")}
+    end)`;
+      }),
   );
+  if (!tagged) return { lines, defs: "" };
   return {
-    pipe: "    |> __loom_tag_codes()",
-    defs: `  @loom_codes %{${entries.join(", ")}}
+    lines,
+    defs: `  # A named rule's stable wire code rides the error opts as \`loom_code\`
+  # (ProblemDetails renders it as the 422 \`code\`), with the values the rule read
+  # as \`loom_params\`; Ecto's own validators cannot carry either, so they are
+  # attached to exactly the errors \`fun\` (one rule's validator) added.
+  defp __loom_tagged(changeset, code, reads, fun) do
+    checked = fun.(changeset)
+    count = length(checked.errors) - length(changeset.errors)
+    {added, kept} = Enum.split(checked.errors, count)
+    data = apply_changes(checked)
+    params = Map.new(reads, fn {name, key} -> {name, Map.get(data, key)} end)
 
-  # A messaged rule's stable wire code rides the error opts as \`loom_code\`
-  # (ProblemDetails renders it as the 422 \`code\`); Ecto's own validators
-  # cannot carry it, so it is attached here by the rule's authored text.
-  defp __loom_tag_codes(changeset) do
     errors =
-      Enum.map(changeset.errors, fn
-        {field, {msg, opts}} = error ->
-          case Map.get(@loom_codes, msg) do
-            nil -> error
-            code -> {field, {msg, Keyword.put(opts, :loom_code, code)}}
-          end
+      Enum.map(added, fn {field, {msg, opts}} ->
+        opts = Keyword.put(opts, :loom_code, code)
+        {field, {msg, if(params == %{}, do: opts, else: Keyword.put(opts, :loom_params, params))}}
       end)
 
-    %{changeset | errors: errors}
+    %{checked | errors: errors ++ kept}
   end
 `,
   };

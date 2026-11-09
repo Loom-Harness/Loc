@@ -894,7 +894,7 @@ The isolation level is threaded into each backend's native transaction API.
 // http/workflows.ts — POST /api/workflows/transfer_credit
 await db.transaction(async (tx) => {
   const customers = new CustomerRepository(tx, events);
-  if (!(amount > 0)) throw new DomainError("Precondition failed: amount > 0");
+  if (!(amount > 0)) throw new DomainError("Invalid value");
   const srcCust = await customers.getById(payer);
   const dstCust = await customers.getById(payee);
   srcCust.deductCredit(amount);
@@ -909,7 +909,7 @@ await db.transaction(async (tx) => {
 await using var tx = await _uow.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 try
 {
-    if (!(command.Amount > 0)) throw new DomainException("Precondition failed: amount > 0");
+    if (!(command.Amount > 0)) throw new DomainException("Invalid value");
     var srcCust = await _customers.GetByIdAsync(command.Payer, cancellationToken)
         ?? throw new AggregateNotFoundException($"Customer {command.Payer} not found");
     var dstCust = await _customers.GetByIdAsync(command.Payee, cancellationToken)
@@ -932,7 +932,7 @@ async def transfer_credit_workflow(body: TransferCreditRequest, session: Session
     amount = body.amount
     customers = CustomerRepository(session, make_dispatcher(session))
     if not (amount > 0):
-        raise DomainError("Precondition failed: amount > 0")
+        raise DomainError("Invalid value")
     src_cust = await customers.get_by_id(payer)
     dst_cust = await customers.get_by_id(payee)
     src_cust.deduct_credit(amount)
@@ -949,7 +949,7 @@ public void transferCredit(TransferCreditRequest request) {
     var payer = new CustomerId(request.payer());
     var payee = new CustomerId(request.payee());
     var amount = request.amount();
-    if (!(amount > 0)) throw new DomainException("Precondition failed: amount > 0");
+    if (!(amount > 0)) throw new DomainException("Invalid value");
     var srcCust = customersRepository.getById(payer);
     var dstCust = customersRepository.getById(payee);
     srcCust.deductCredit(amount);

@@ -155,7 +155,7 @@ describe("elixir pure core — event-sourced aggregates", () => {
     const files = await generateSystemFiles(ES);
     const mod = file(files, "lib/d/ledger/account.ex");
     expect(mod).toContain(
-      ':ok <- if(owner != "", do: :ok, else: {:error, {:precondition_failed, "Precondition failed: owner != \\"\\""}})',
+      ':ok <- if(owner != "", do: :ok, else: {:error, {:precondition_failed, "Business rule violated"}})',
     );
     expect(mod).toContain("raise(D.GuardError, kind: :precondition");
     const test = file(files, "test/ledger/account_test.exs");

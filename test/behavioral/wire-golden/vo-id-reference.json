@@ -60,11 +60,15 @@
       "path": "/api/docks",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.qbn4np",
+            "code": "Docking.Berth.rule.berthPositionStartsAt",
             "message": "A berth position starts at 1",
+            "params": {
+              "position": 0
+            },
             "pointer": "/berth/position"
           }
         ],
@@ -80,11 +84,15 @@
       "path": "/api/docks",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.qbn4np",
+            "code": "Docking.Berth.rule.berthPositionStartsAt",
             "message": "A berth position starts at 1",
+            "params": {
+              "position": 0
+            },
             "pointer": "/berths/{id}/position"
           }
         ],
@@ -220,6 +228,7 @@
       "path": "/api/docks/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Dock {id} not found",
         "instance": "/api/docks/{id}",
         "status": 404,
@@ -233,6 +242,7 @@
       "path": "/api/ships",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/ships",
         "instance": "/api/ships",
         "status": 405,
@@ -246,6 +256,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -259,6 +270,7 @@
       "path": "/api/ships",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/ships",
         "status": 400,
@@ -272,6 +284,7 @@
       "path": "/api/ships/{id}/update",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Ship {id} not found",
         "instance": "/api/ships/{id}/update",
         "status": 404,

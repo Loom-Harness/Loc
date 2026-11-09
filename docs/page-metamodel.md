@@ -162,8 +162,8 @@ put_flash(socket, :info, "Order " <> to_string(e.order && e.order.id) <> " shipp
 system Acme {
   subdomain Sales { context Orders { ... } }
 
-  theme { primary: "#3b82f6", neutral: "#9ca3af" }
-  user  { id: string, permissions: string[] }
+  theme { primary: "#3b82f6"  neutral: "#9ca3af" }
+  user  { id: string  permissions: string[] }
 
   ui SalesAdmin with scaffold(subdomains: [Sales]) {
     framework: react
@@ -543,7 +543,7 @@ projection — §8.1). Declare the handler and reference it by name:
 ```ddd
 page PlaceOrderWizard {
   state { step: int = 0  draft: PlaceOrderRequest = {} }
-  action toItems(c) {
+  action toItems(c: PlaceOrderRequest) {
     draft.customerId := c.customerId   // nested state write
     step := 1                          // scalar state write
     tags  += newTag                    // collection append
@@ -769,6 +769,7 @@ Split the problem by where the rule lives:
       confirmPassword: string = ""
     }
     derived passwordsMatch: bool = confirmPassword == password
+    action signUp() { Accounts.Account.create({ email: email, password: password }) }
 
     body: Stack {[
       Field         { "Email",    bind: email },
@@ -777,7 +778,7 @@ Split the problem by where the rule lives:
                       error: passwordsMatch ? "" : "Passwords must match" },
       Button { "Create account",
                disabled: !passwordsMatch,
-               on: () => call signup({ email, password }) }  // confirmPassword never sent
+               onClick: signUp }  // confirmPassword never sent
     ]}
   }
   ```
@@ -791,7 +792,7 @@ Split the problem by where the rule lives:
   ```
 
   `confirmPassword` is a `state` field, so it is in scope for `derived` /
-  `match` / `error:`, and `call signup({ email, password })` posts only the
+  `match` / `error:`, and the `signUp` action posts only the
   wire fields — the confirmation never travels. `error:` takes any expression
   (empty string ⇒ no error); it renders in each pack's native error slot —
   Mantine's `error=` prop, MUI's `helperText`, Chakra's `ErrorText`, shadcn's
@@ -913,18 +914,14 @@ delegates to it rather than growing `Table` a fourth and fifth interactive mode.
 page CustomerList {
   route: "/customers"
   state { picked: string[] }
-  body: Stack(
-    Button { label: "Delete selected ({picked.length})", on: bulkDelete },
-    QueryView { of: Sales.Customer.all, data: rows => DataGrid(
-      Column("Name",  o => o.name,  sortable: true, filterable: true),
-      Column("Tier",  o => o.tier,  sortable: true),
-      rows: rows,
-      selection: picked,
-      multiSort: true,
-      columnVisibility: true,
-      pageSize: 25,
-      testid: "customers-grid") }
-  )
+  body: Stack {
+    Button { "Delete selected ({picked.length})", onClick: bulkDelete },
+    QueryView { of: Sales.Customer.all, data: rows => DataGrid {
+      Column { "Name", o => o.name, sortable: true, filterable: true },
+      Column { "Tier", o => o.tier, sortable: true },
+      rows: rows, selection: picked, multiSort: true, columnVisibility: true,
+      pageSize: 25, testid: "customers-grid" } }
+  }
 }
 ```
 
@@ -1173,7 +1170,7 @@ rendered every row with no error at all. Same `.ddd`, two meanings.
 ```ddd
 criterion Sellable of Product = status == Active && stockOnHand > 0
 page Storefront { route: "/shop"
-  body: QueryView { of: Product.findAllBySellable(), data: rows => … } }
+  body: QueryView { of: Product.findAllBySellable(), data: rows => Table { rows: rows, Column { "Name", p => p.name } } } }
 ```
 
 ```elixir
@@ -1442,28 +1439,35 @@ would go through `match await` (§8) on a page that has the route id, or through
 ```ddd
 page CustomerStep {
   route: "/orders/new/customer"
-  action next(c) { navigate(ItemsStep, { customerId: c.customerId }) }
-  body:  Form {fields: [customerId], onSubmit: next}
-}
-page ItemsStep(customerId: Customer id) {
-  route: "/orders/new/items"
-  action next(i) { navigate(ReviewStep, { customerId, items: i.items }) }
-  body:  Form {fields: [items], onSubmit: next}
-}
-page ReviewStep(customerId: Customer id, items: OrderLine[]) {
-  route: "/orders/new/review"
-  action submit() {
-    call placeOrder({ customerId, placedAt: now(), items })
-    navigate(OrderConsole, { customerId })
+  state { customer: string = "" }
+  action next() { navigate(NoteStep, { customerId: customer }) }
+  body: Stack {
+    Field { "Customer", bind: customer },
+    Button { "Next", onClick: next }
   }
-  body:  Review(of: { customerId, placedAt: now(), items }, onSubmit: submit)
+}
+page NoteStep(customerId: string) {
+  route: "/orders/new/note"
+  state { note: string = "" }
+  action next() { navigate(ReviewStep, { customerId: customerId, note: note }) }
+  body: Stack {
+    MultilineField { "Note", bind: note },
+    Button { "Next", onClick: next }
+  }
+}
+page ReviewStep(customerId: string, note: string) {
+  route: "/orders/new/review"
+  body: Stack {
+    KeyValueRow { "Customer", customerId },
+    KeyValueRow { "Note", note },
+    WorkflowForm { runs: placeOrder }
+  }
 }
 ```
 
-Both fall out of existing primitives. Type safety on the final call enforces
-draft completeness.  The `Form { fields: … }` / `Review(of: …)` shapes in the
-multi-page sketch predate the named-leaf form split (§9) — read them as
-`CreateForm` / `WorkflowForm` plus a hand-composed summary `Stack`.
+Both fall out of existing primitives: each step carries what the earlier steps
+collected as typed page parameters, and the last step submits through the
+workflow's own form.
 
 ---
 

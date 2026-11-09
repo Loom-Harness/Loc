@@ -7,7 +7,8 @@
 //
 // A namespace `<ns>` is one of
 //
-//   `_chrome`   keys stored VERBATIM: `chrome.*`, `pack.*`, `msg.*`, and any
+//   `_chrome`   keys stored VERBATIM: `chrome.*`, `pack.*`, the generic rule
+//               messages `field.*` / `problem.*`, and any
 //               key that does not start with a known namespace.
 //   `_system`   keys under the reserved `_system.` prefix (prefix stripped).
 //   a context   keys under `<Context>.` (prefix stripped).
@@ -32,7 +33,7 @@ const SYSTEM_NS = SYSTEM_TEXT_NS;
 
 /** Prefixes whose keys always live verbatim in {@link CHROME_NS}, even when a
  *  context or ui happens to share the name. */
-const CHROME_PREFIXES: readonly string[] = ["chrome", "pack", "msg"];
+const CHROME_PREFIXES: readonly string[] = ["chrome", "pack", "field", "problem"];
 
 /** The `_stale.` shadow a `--keep-stale` merge parks a dropped key under. */
 const STALE_PREFIX = "_stale.";

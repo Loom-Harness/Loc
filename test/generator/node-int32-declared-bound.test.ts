@@ -48,7 +48,7 @@ describe("node — a one-sided declared bound keeps the other int32 side", () =>
       return l as string;
     };
     expect(line(/^\s*n: z\.number/)).toContain(`.max(2147483647, ${RANGE})`);
-    expect(line(/^\s*n: z\.number/)).toContain(".min(1");
+    expect(line(/^\s*n: z\.number/)).toContain("v >= 1,");
     expect(line(/^\s*n: z\.number/)).not.toContain(`.min(-2147483648`);
     expect(line(/^\s*m: z\.number/)).not.toContain("2147483647");
     expect(line(/^\s*m: z\.number/)).not.toContain("-2147483648");

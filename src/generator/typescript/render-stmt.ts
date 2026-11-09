@@ -8,11 +8,13 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { escapeTsIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import type { ChunkMark } from "../_trace/sourcemap.js";
 import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks } from "./render-expr.js";
+import { tsRuleParams } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Hono / TypeScript backend.  The `StmtIR`
@@ -42,8 +44,8 @@ export interface TraceCtx {
    *  Off ⇒ `emit` is byte-identical to the legacy notification-event push. */
   eventSourced?: boolean;
   /** True when rendering an aggregate OPERATION body, whose router answers a
-   *  messaged domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
-   *  messaged `precondition` then throws its `msg.<hash>` code and pointer
+   *  named domain-floor refusal with the `errors[]` entry (M-T1.11 (c)): a
+   *  named `precondition` then throws its `<Ctx>.<Owner>.rule.<name>` code and pointer
    *  along with the text.  Every other host (functions, domain services,
    *  event-sourced appliers) keeps the text-only throw. */
   domainFloorCodes?: boolean;
@@ -361,15 +363,16 @@ function precondition(
   index: number,
   traceCtx: TraceCtx,
 ): string {
-  // Author `message "..."` becomes the domain-floor detail; otherwise the
-  // derived "Precondition failed: <src>" default.
-  const detail = message ? message.text : `Precondition failed: ${source}`;
-  // A MESSAGED precondition in an aggregate operation carries its wire code and
-  // pointer THROUGH the throw (M-T1.11 (c)), so the router's domain-floor answer
+  // The rule's floor text (`floorRuleText`) is the domain-floor detail — never its
+  // source expression.
+  const detail = floorRuleText({ expr, source, message });
+  // A NAMED precondition in an aggregate operation carries its wire code and
+  // pointer THROUGH the throw, so the router's domain-floor answer
   // can add the `errors[]` entry the wire rung would have carried.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const params = code ? tsRuleParams({ expr }, renderTsExpr) : undefined;
   const thrown = code
-    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
     : `throw new DomainError(${JSON.stringify(detail)}, "precondition")`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderTsExpr(expr)})) ${thrown};`;

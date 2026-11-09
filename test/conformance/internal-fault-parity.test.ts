@@ -68,11 +68,11 @@ system Faults {
 /** The emitted catch-all arm per backend — status, reason phrase, and the
  *  sanitized detail, as each language spells the same three values. */
 const SANITIZED_ARM: Record<string, RegExp> = {
-  node: /problem\(500, "Internal Server Error", "internal"\)/,
+  node: /problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
   dotnet: /Problem\(context, 500, "Internal Server Error", "internal"/,
   java: /problem\(500, "Internal Server Error", "internal"/,
-  python: /problem\(request, 500, "Internal Server Error", "internal"\)/,
-  elixir: /problem_response\(conn, 500, "Internal Server Error", "internal"\)/,
+  python: /problem\(\s*request,\s*500,\s*"Internal Server Error",\s*"internal",/,
+  elixir: /problem_response\(conn, 500, "Internal Server Error", "internal", "problem\.internal"\)/,
 };
 
 /** Shapes that mean the fault itself reached the wire. `inspect(reason)` is the
@@ -293,7 +293,7 @@ const FLOOR: Record<(typeof PLATFORMS)[number], FileAssertion[]> = {
     {
       why: "the sanitized 500 the tail sends",
       file: /ApiExceptionAdvice\.java$/,
-      shape: /problem\(500, "Internal Server Error", "internal", request\)/,
+      shape: /problem\(500, "Internal Server Error", "internal", "problem\.internal", request\)/,
     },
   ],
   python: [
@@ -305,7 +305,7 @@ const FLOOR: Record<(typeof PLATFORMS)[number], FileAssertion[]> = {
     {
       why: "the sanitized 500 it sends",
       file: /app\/http\/problem\.py$/,
-      shape: /problem\(request, 500, "Internal Server Error", "internal"\)/,
+      shape: /problem\(\s*request,\s*500,\s*"Internal Server Error",\s*"internal",/,
     },
     {
       why: "the handlers installed onto the app",
@@ -319,7 +319,8 @@ const FLOOR: Record<(typeof PLATFORMS)[number], FileAssertion[]> = {
     {
       why: "the FaultHandler's sanitized 500 — the arm a plain CRUD system had none of",
       file: /fault_handler\.ex$/,
-      shape: /problem_response\(conn, 500, "Internal Server Error", "internal"\)/,
+      shape:
+        /problem_response\(conn, 500, "Internal Server Error", "internal", "problem\.internal"\)/,
     },
     {
       why: "the floor rescuing what the router raises (a controller raise arrives wrapped)",

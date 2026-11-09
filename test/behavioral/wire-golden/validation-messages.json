@@ -17,11 +17,15 @@
       "path": "/api/products",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.sb5be7",
+            "code": "Catalog.Product.rule.quantityCannotNegative",
             "message": "Quantity cannot be negative",
+            "params": {
+              "quantity": -1
+            },
             "pointer": "/quantity"
           }
         ],
@@ -37,11 +41,15 @@
       "path": "/api/products",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.izdgzf",
+            "code": "Catalog.Product.rule.nameRequired",
             "message": "Name is required",
+            "params": {
+              "name": ""
+            },
             "pointer": "/name"
           }
         ],
@@ -57,11 +65,15 @@
       "path": "/api/products",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ap91wd",
+            "code": "Catalog.Sku.rule.skuCodeNeedsAt",
             "message": "SKU code needs at least 3 characters",
+            "params": {
+              "code": "G"
+            },
             "pointer": "/sku/code"
           }
         ],
@@ -77,11 +89,15 @@
       "path": "/api/products",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.ap91wd",
+            "code": "Catalog.Sku.rule.skuCodeNeedsAt",
             "message": "SKU code needs at least 3 characters",
+            "params": {
+              "code": ""
+            },
             "pointer": "/sku/code"
           }
         ],
@@ -225,11 +241,15 @@
       "path": "/api/products/{id}/restock",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.zjdkcr",
+            "code": "Catalog.Product.rule.restockAmountAtLeast",
             "message": "Restock amount must be at least 1",
+            "params": {
+              "amount": 0
+            },
             "pointer": "/amount"
           }
         ],
@@ -245,11 +265,15 @@
       "path": "/api/products/{id}/rename",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "code": "msg.76qyxv",
+            "code": "Catalog.Product.rule.labelNeedsAtLeast",
             "message": "Label needs at least 3 characters",
+            "params": {
+              "label": "😀X"
+            },
             "pointer": "/label"
           }
         ],
@@ -288,10 +312,15 @@
       "path": "/api/products/{id}/ship",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.min",
             "message": "Amount must be at least 1",
+            "params": {
+              "min": 1
+            },
             "pointer": "/amount"
           }
         ],
@@ -307,9 +336,11 @@
       "path": "/api/products/{id}/retag",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.pattern",
             "message": "Code is not in the expected format",
             "pointer": "/code"
           }
@@ -333,6 +364,7 @@
       "path": "/api/products",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/products",
         "instance": "/api/products",
         "status": 405,
@@ -346,6 +378,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -359,6 +392,7 @@
       "path": "/api/products",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/products",
         "status": 400,
@@ -372,9 +406,11 @@
       "path": "/api/products/{id}/restock",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "amount is required",
             "pointer": "/amount"
           }

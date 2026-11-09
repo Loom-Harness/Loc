@@ -115,7 +115,8 @@ describe("node — a zod refine the OpenAPI emitter cannot see", () => {
   it("appends the guard AFTER a declared regex — the zod-3 ZodEffects trap", async () => {
     const routes = await file("node", "http/order.routes.ts");
     const create = (routes.split("\n").find((l) => l.trim().startsWith("sku:")) ?? "") as string;
-    const regexAt = create.indexOf(".regex(");
+    // The declared pattern is a `field.pattern` refine (`/…/.test(v)`).
+    const regexAt = create.indexOf(".test(v)");
     const guardAt = create.indexOf(REFINE);
     expect(regexAt, "the declared regex is not emitted").toBeGreaterThan(-1);
     expect(guardAt).toBeGreaterThan(-1);

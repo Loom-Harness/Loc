@@ -68,9 +68,9 @@ import { renderSvelteChartRuntime } from "./chart-runtime.js";
 import {
   SVELTE_APP_DTS,
   SVELTE_LAYOUT_TS,
-  SVELTE_LIB_FORMS,
   SVELTE_LIB_SCHEMAS_MONEY,
   SVELTE_LIB_TOAST,
+  svelteLibForms,
 } from "./emit-templates.js";
 import { emitSvelteNamedLayouts } from "./layouts-emitter.js";
 import {
@@ -338,7 +338,7 @@ export function generateSvelteForContexts(
   // Interactive-table sort helper (M-T1.1) — imported by a page only when it
   // renders a sortable `Table`; emitted unconditionally (like format.ts).
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
-  out.set("src/lib/forms.svelte.ts", SVELTE_LIB_FORMS);
+  out.set("src/lib/forms.svelte.ts", svelteLibForms(i18nEnabled));
   out.set("src/lib/toast.svelte.ts", SVELTE_LIB_TOAST);
   // The page-effect `toast(<msg>)` module, beside the runes store above — a
   // callable the pack chrome does not own, emitted only when a page or

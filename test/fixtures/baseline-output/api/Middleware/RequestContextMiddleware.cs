@@ -32,6 +32,33 @@ public sealed class RequestContextMiddleware
         _next = next;
     }
 
+    /// <summary>The version in an entity-tag: a strong tag <c>"3"</c>, a weak tag
+    /// <c>W/"3"</c> or a bare <c>3</c>.  False for anything else.</summary>
+    private static bool TryParseIfMatch(string raw, out int tagged)
+    {
+        tagged = 0;
+        var tag = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
+        if (tag.Length >= 2 && tag[0] == '\"' && tag[^1] == '\"') tag = tag[1..^1];
+        if (tag.Length == 0) return false;
+        foreach (var c in tag) if (!char.IsAsciiDigit(c)) return false;
+        return int.TryParse(tag, out tagged);
+    }
+
+    /// <summary>RFC 7807 400 for an <c>If-Match</c> that is not an entity-tag over a version.</summary>
+    private static async Task WriteMalformedIfMatchAsync(HttpContext ctx, string header)
+    {
+        ctx.Response.StatusCode = 400;
+        await ctx.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Bad Request",
+            Status = 400,
+            Detail = $"Malformed If-Match header: {header}",
+            Instance = ctx.Request.Path,
+            Extensions = { ["code"] = "problem.malformed-if-match" },
+        }, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json");
+    }
+
     public async Task InvokeAsync(HttpContext ctx, ILogger<RequestContextMiddleware> log)
     {
         var correlationId =
@@ -49,9 +76,19 @@ public sealed class RequestContextMiddleware
         ctx.Response.Headers["X-Correlation-Id"] = correlationId;
         var rootFrame = RequestContext.OpenRoot(correlationId, locale, DateTimeOffset.UtcNow);
         if (ctx.Request.Headers.TryGetValue("If-Match", out var __ifMatch)
-            && int.TryParse(__ifMatch.ToString().Trim('"'), out var __expectedVersion))
+            && !HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)
+            && !HttpMethods.IsOptions(ctx.Request.Method))
         {
-            rootFrame.ExpectedVersion = __expectedVersion;
+            var __rawIfMatch = __ifMatch.ToString().Trim();
+            if (__rawIfMatch != "*")
+            {
+                if (!TryParseIfMatch(__rawIfMatch, out var __expectedVersion))
+                {
+                    await WriteMalformedIfMatchAsync(ctx, __ifMatch.ToString());
+                    return;
+                }
+                rootFrame.ExpectedVersion = __expectedVersion;
+            }
         }
         // Project the frame onto the request's OTel SERVER span: the
         // AspNetCore instrumentation started Activity.Current before this

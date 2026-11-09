@@ -123,6 +123,7 @@ export function emitCommon(
     file?: boolean;
     valueObjectInvariant?: boolean;
     domainFloorCodes?: boolean;
+    extern?: boolean;
     deferralKeepsFrame?: boolean;
   } = {},
 ): void {
@@ -133,6 +134,7 @@ export function emitCommon(
       file: opts.file,
       valueObjectInvariant: opts.valueObjectInvariant,
       domainFloorCodes: opts.domainFloorCodes,
+      extern: opts.extern,
       deferralKeepsFrame: opts.deferralKeepsFrame,
     }),
   );

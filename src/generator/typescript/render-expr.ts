@@ -1,4 +1,3 @@
-import { INTEGER_OVERFLOW_DETAIL } from "../../ir/enrich/wire-policy.js";
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
@@ -659,11 +658,12 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
  *  `long` at the declared safe-integer ceiling, past which a JS `number` has
  *  already lost precision — so an overflowing product is caught, never rounded.
  *  Self-contained (an inline arrow) so no file needs a helper import; it
- *  throws the `DomainError` every generated router already maps to the 422. */
+ *  throws the `DomainError` every generated router already catches, carrying
+ *  the arithmetic-overflow class code its answer names. */
 function tsCheckedInt(expr: string, kind: IntegralKind | null): string {
   if (kind === null) return expr;
   const { min, max } = NODE_INT_RANGE[kind];
-  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw new DomainError(${JSON.stringify(INTEGER_OVERFLOW_DETAIL)}); return __v; })(${expr})`;
+  return `((__v: number): number => { if (__v < ${min} || __v > ${max}) throw DomainError.arithmeticOverflow(); return __v; })(${expr})`;
 }
 
 /** `datetime ==/!= datetime` by instant (B-13), or null to fall through.

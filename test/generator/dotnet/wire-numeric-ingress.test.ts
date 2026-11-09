@@ -92,7 +92,7 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
         "CultureInfo.InvariantCulture, out var __wp_request_Price)",
     );
     expect(ctrl).toContain(
-      `: throw new global::D.Domain.Common.WireFormatException("/price", $"Invalid decimal: \\"{request.Price}\\"")`,
+      `new global::D.Domain.Common.WireFormatException("/price", $"Invalid decimal: \\"{request.Price}\\"", "field.money-grammar", new System.Collections.Generic.Dictionary<string, object?> { ["value"] = request.Price })`,
     );
   });
 
@@ -125,7 +125,9 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
   it("a datetime field is guarded the same way", async () => {
     const ctrl = bySuffix(await generateSystemFiles(SRC), "Api/OrdersController.cs");
     expect(ctrl).toContain("DateTime.TryParse(request.Due, CultureInfo.InvariantCulture");
-    expect(ctrl).toContain(`WireFormatException("/due", $"Invalid datetime: \\"{request.Due}\\"")`);
+    expect(ctrl).toContain(
+      `WireFormatException("/due", $"Invalid datetime: \\"{request.Due}\\"", "field.rule")`,
+    );
   });
 
   it("a money field INSIDE a value object points at the nested path", async () => {

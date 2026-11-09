@@ -28,7 +28,6 @@
 // systems that appear in a shared behavioural system.
 
 import { describe, expect, it } from "vitest";
-import { messageCode } from "../../src/util/message-code.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** One aggregate with BOTH guard kinds on one operation, so a single emission
@@ -59,7 +58,7 @@ system Denials {
         // "Precondition failed: <source>" — a backend that ignores the clause
         // and derives anyway sends a detail the author explicitly overrode.
         operation reprice(to: int) {
-          precondition to > 0 message "Repricing needs a positive amount"
+          precondition repricePositive: to > 0
           total := to
         }
       }
@@ -80,15 +79,24 @@ system Denials {
 }
 `;
 
-/** The two messages, derived from the `.ddd` predicate source by the SAME rule
- *  on every backend.  These literals are the contract — a backend that
- *  paraphrases, truncates, or genericizes one of them fails here.  The
- *  predicates deliberately contain no STRING literal: each backend escapes
- *  quotes differently inside its own emitted string literal, which would make
- *  the expectation about escaping rather than about the message. */
-const PRECONDITION_DETAIL = "Precondition failed: total > 0";
+/** The two messages, built by the SAME rule on every backend.  These literals
+ *  are the contract — a backend that paraphrases one of them fails here.  An
+ *  UNNAMED precondition tripped at the domain floor answers the text of the
+ *  floor's own code, `problem.domain-floor` (`floorRuleText`), never its
+ *  source.  The `requires` detail
+ *  still names its predicate.  The predicates deliberately contain no STRING
+ *  literal: each backend escapes quotes differently inside its own emitted
+ *  string literal, which would make the expectation about escaping rather than
+ *  about the message. */
+const PRECONDITION_DETAIL: Readonly<Record<string, string>> = {
+  node: "Business rule violated",
+  dotnet: "Business rule violated",
+  python: "Business rule violated",
+  java: "Business rule violated",
+  elixir: "Business rule violated",
+};
 const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
-/** …and when the author writes `message "…"`, THAT is the detail — the derived
+/** …and when the rule is named, its text is the detail — the derived
  *  form must not appear for that statement.  Elixir used to drop the clause
  *  here; its typed-denial path now shares one `denialMessage` rule with the
  *  other four.
@@ -96,15 +104,15 @@ const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
  *  This constant covers the OPERATION (HTTP-boundary) path.  Elixir has a
  *  second denial path — the RAISE used by `function` / `domainService` /
  *  pure-core bodies — which used to be routed by MESSAGE PREFIX and therefore
- *  could not carry an authored message at all; it is pinned by its own
+ *  could not carry an rule text at all; it is pinned by its own
  *  `describe` at the bottom of this file (M-T6.20 path 2). */
-const AUTHORED_DETAIL = "Repricing needs a positive amount";
+const AUTHORED_DETAIL = "Reprice positive";
 /** RS-17 — the 409 rung.  The detail names the operation, the aggregate AND
  *  the failed `when` predicate's source, and the title is the ERROR NAME
  *  (`errorTitle` humanises `Disallowed`) on all five.  This predicate DOES
  *  carry a string literal, on purpose: all five embed the detail with the same
  *  JSON-style `\"` escaping, so the expectation is that escaped form. */
-const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order (when status != "open").`;
+const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order.`;
 const DISALLOWED_DETAIL_EMBEDDED = JSON.stringify(DISALLOWED_DETAIL).slice(1, -1);
 
 async function emit(platform: string): Promise<string> {
@@ -114,18 +122,20 @@ async function emit(platform: string): Promise<string> {
 
 describe("RS-15 — domain-floor denials are 422 with an occurrence-specific detail", () => {
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
-    it(`${platform}: the precondition message names the failed predicate`, async () => {
-      expect(await emit(platform)).toContain(PRECONDITION_DETAIL);
+    it(`${platform}: the precondition message is the generic rule text, not its source`, async () => {
+      const out = await emit(platform);
+      expect(out).toContain(PRECONDITION_DETAIL[platform]);
+      expect(out).not.toContain("Precondition failed: total > 0");
     });
 
     it(`${platform}: the requires message names the failed predicate`, async () => {
       expect(await emit(platform)).toContain(FORBIDDEN_DETAIL);
     });
 
-    it(`${platform}: an authored message clause wins over the derived detail`, async () => {
+    it(`${platform}: an rule text clause wins over the derived detail`, async () => {
       const out = await emit(platform);
       expect(out).toContain(AUTHORED_DETAIL);
-      expect(out, "derived detail emitted despite an authored message").not.toContain(
+      expect(out, "derived detail emitted despite an rule text").not.toContain(
         "Precondition failed: to > 0",
       );
     });
@@ -166,10 +176,10 @@ describe("RS-15 — domain-floor denials are 422 with an occurrence-specific det
 // A guard inside an aggregate `function` (or a `domainService` operation) is
 // reached from a PURE body: there is no `with`/middleware chain, so every
 // backend THROWS and the framework's exception handler maps it.  Four of them
-// put the author's message straight into the thrown `DomainException` /
+// put the rule's text straight into the thrown `DomainException` /
 // `DomainError`.  Elixir could not: its controller rescue routed the raise to
 // its status by MESSAGE PREFIX (`String.starts_with?(guard_msg, "Precondition
-// failed: ")`), so an authored message missed the prefix and reraised into a
+// failed: ")`), so an rule text missed the prefix and reraised into a
 // 500 — and the emitter deliberately shipped the DERIVED text to keep the
 // routing intact.  The classification now rides a typed exception's `:kind`
 // field, so the message is free text on this path too.
@@ -187,7 +197,7 @@ system Denials2 {
         total: int
 
         function checkRepriceable(amount: int): bool {
-          precondition amount > 0 message "A pure function keeps its authored message"
+          precondition pureFunctionRule: amount > 0
           return true
         }
 
@@ -212,15 +222,15 @@ system Denials2 {
 }
 `;
 
-const FUNCTION_AUTHORED_DETAIL = "A pure function keeps its authored message";
+const FUNCTION_AUTHORED_DETAIL = "Pure function rule";
 
-describe("RS-15 — the raise path carries the authored message too (M-T6.20 path 2)", () => {
+describe("RS-15 — the raise path carries the rule text too (M-T6.20 path 2)", () => {
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
-    it(`${platform}: a function precondition's authored message reaches the thrown fault`, async () => {
+    it(`${platform}: a function precondition's rule text reaches the thrown fault`, async () => {
       const files = await generateSystemFiles(RAISE_SOURCE(platform));
       const out = [...files.values()].join("\n");
       expect(out).toContain(FUNCTION_AUTHORED_DETAIL);
-      expect(out, "derived detail emitted despite an authored message").not.toContain(
+      expect(out, "derived detail emitted despite an rule text").not.toContain(
         "Precondition failed: amount > 0",
       );
     });
@@ -228,17 +238,17 @@ describe("RS-15 — the raise path carries the authored message too (M-T6.20 pat
 });
 
 // ---------------------------------------------------------------------------
-// The ORCHESTRATION path — a `precondition … message "…"` inside a workflow
+// The ORCHESTRATION path — a named `precondition` inside a workflow
 // `create` body and a `commandHandler` body (banking eval B-02).
 //
 // The workflow lowering dropped the clause (the IR slot existed, the lowerer
 // never filled it), so every backend answered the derived
 // `"Precondition failed: fromOrder != toOrder"` — leaking the predicate source
-// and losing the author's text.  The authored message must now be the detail,
-// carry the same `msg.<hash>` code an operation precondition carries through
-// its throw (M-T1.11 (c)), and get its backend catalog entry.
+// and losing the author's text.  The rule text must now be the detail,
+// carry the same identity-key code an operation precondition carries through
+// its throw, and get its backend catalog entry.
 //
-// The fixture has NO messaged aggregate rule on purpose: the backend-wide
+// The fixture has NO named aggregate rule on purpose: the backend-wide
 // domain-floor code carriage (the coded error constructor, elixir's map arm on
 // `problem_response/4`) is gated on `hasDomainFloorMessages`, which therefore
 // has to see a workflow / handler precondition — otherwise the coded throw
@@ -257,14 +267,14 @@ system Denials3 {
 
       workflow move {
         create(fromOrder: Order id, toOrder: Order id) {
-          precondition fromOrder != toOrder message "Cannot move to the same order"
+          precondition moveSameOrder: fromOrder != toOrder
           let a = Orders.get(fromOrder)
           a.bump()
         }
       }
 
       commandHandler Echo(text: string): string {
-        precondition text != "" message "Echo needs some text"
+        precondition echoText: text != ""
         return text
       }
     }
@@ -285,18 +295,26 @@ system Denials3 {
 /** The coded domain-error surface each backend emits only when the
  *  domain-floor gate is on. */
 const CODED_ERROR_SURFACE: Record<string, string> = {
-  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string)",
+  node: 'constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>, problemCode: string = "problem.domain-floor")',
   dotnet: "public string? RuleCode { get; }",
   java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
   python: "        code: str | None = None,",
   elixir:
-    "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer})",
+    "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer} = rule, _class_code)",
 };
 
-describe("B-02 — a workflow / commandHandler precondition keeps its authored message", () => {
+describe("B-02 — a workflow / commandHandler precondition keeps its rule text", () => {
   const cases = [
-    { text: "Cannot move to the same order", derived: "Precondition failed: fromOrder != toOrder" },
-    { text: "Echo needs some text", derived: "Precondition failed: text != " },
+    {
+      text: "Move same order",
+      code: "Sales.move.rule.moveSameOrder",
+      derived: "fromOrder != toOrder",
+    },
+    {
+      text: "Echo text",
+      code: "Sales.Echo.rule.echoText",
+      derived: 'text != ""',
+    },
   ];
   for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
     it(`${platform}: authored detail + msg code at the throw, and a catalog entry`, async () => {
@@ -305,8 +323,10 @@ describe("B-02 — a workflow / commandHandler precondition keeps its authored m
       const catalog = [...files.entries()].find(([p]) => p.endsWith(".loom/messages.en.json"));
       expect(catalog, "no .loom/messages.en.json emitted").toBeDefined();
       for (const c of cases) {
-        const code = messageCode(c.text);
-        expect(out, "derived detail emitted despite an authored message").not.toContain(c.derived);
+        const code = c.code;
+        expect(out, "a derived source-text detail was emitted").not.toContain(
+          `Precondition failed: ${c.derived}`,
+        );
         const throwSite = out
           .split("\n")
           .filter((l) => l.includes(JSON.stringify(c.text)) && l.includes(JSON.stringify(code)));

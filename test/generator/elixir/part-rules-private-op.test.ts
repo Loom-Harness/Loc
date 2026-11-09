@@ -9,7 +9,7 @@
 //   F15  a GUARDED single-field invariant.  The native `validate_*` path refuses
 //        a guard by design (`singleFieldConstraints` returns null for one), and
 //        the residual `validate_invariants/1` carrier ASKED THAT SAME CLASSIFIER
-//        — so both doors shut and nothing emitted the implication.  The messaged
+//        — so both doors shut and nothing emitted the implication.  The named
 //        twin additionally lost its `loom_code` wire key.
 //   F24  a bare call to a PRIVATE operation.  It rendered
 //        `_ = nil  # vanilla: bare call to 'recompute' (no callable target);
@@ -47,13 +47,13 @@ function fnBody(src: string, name: string): string {
 
 describe("elixir vanilla — part rules, guarded invariants, private-op calls (M-T6.55)", () => {
   describe("F14 — a part-level `check` / `invariant` is enforced in the part's own changeset", () => {
-    it("`check qty > 0` becomes a native validate_number on the PART changeset", async () => {
+    it("`check qty > 0` becomes a `field.min` check on the PART changeset", async () => {
       const line = (await files()).get("d/lib/d/billing/line.ex")!;
       const cs = fnBody(line, "changeset");
       expect(cs).toContain("cast(attrs, [:sku, :qty])");
       // The rule itself — absent entirely before the fix.
       expect(cs).toContain(
-        'validate_number(:qty, greater_than_or_equal_to: 1, message: "Qty must be at least 1")',
+        '{"Qty must be at least 1", validation: :number, loom_code: "field.min", loom_params: %{min: 1}}',
       );
     });
 
@@ -69,19 +69,21 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
   });
 
   describe("F15 — a GUARDED single-field invariant emits its implication", () => {
-    it("the message-less guarded rule is enforced, guard and all", async () => {
+    it("the unnamed guarded rule is enforced, guard and all", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain("if data.tax_rate > 0 do");
       expect(fn).toContain("length(String.to_charlist(data.note)) > 0");
-      expect(fn).toContain('add_error(changeset, :note, "Invariant violated: note.length > 0")');
+      expect(fn).toContain(
+        'add_error(changeset, :note, "Business rule violated", loom_rule_code: "problem.domain-floor")',
+      );
     });
 
-    it("the MESSAGED guarded rule keeps its `loom_code` wire key", async () => {
+    it("the NAMED guarded rule keeps its `loom_code` wire key", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain('"tax rate must stay under 100"');
-      expect(fn).toMatch(/loom_code: "msg\.[a-z0-9]+"/);
+      expect(fn).toMatch(/loom_code: "Billing\.Invoice\.rule\.[A-Za-z0-9]+"/);
     });
 
     it("an UNGUARDED single-field rule still takes its native line, not the residual carrier", async () => {

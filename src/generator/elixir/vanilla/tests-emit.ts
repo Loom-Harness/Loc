@@ -452,7 +452,7 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
     if (kind === "precondition") {
       // THE structural form, and the reason this backend needs no message
       // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
-      // is a field rather than a substring an authored `message` could erase.
+      // is a field rather than a substring a rule's own text could erase.
       // The binding is READ on the next line, so it carries no leading
       // underscore: Elixir warns on a used `_`-prefixed variable, and the
       // emitted suite runs under `mix test --warnings-as-errors`.

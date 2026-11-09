@@ -83,7 +83,8 @@ describe("feliz store subsystem (M-T6.15)", () => {
   it("leaves no silent-drop markers", async () => {
     const fs = await app();
     expect(fs).not.toContain("// TODO feliz");
-    expect(fs).not.toContain("unsupported");
+    // The i18n catalog legitimately carries `problem.unsupported-media-type`.
+    expect(fs).not.toMatch(/unsupported(?!-media-type)/);
   });
 });
 

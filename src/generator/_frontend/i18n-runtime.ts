@@ -26,9 +26,9 @@
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { sourceText } from "../_walker/source-text.js";
 import { baseAliases, localeEntries } from "./locale-meta.js";
 
 /** Build the flat, key-sorted `{ key: message }` catalog for one UI.  Pack-chrome
@@ -85,7 +85,7 @@ export type TranslationCatalogs = ReadonlyMap<string, Record<string, string>>;
  *
  *  Each is SCOPED to this UI's own keys, exactly as `en.json` is: the
  *  translator tree is one catalog for the whole SYSTEM (every ui, plus the
- *  backends' `msg.<hash>` validation messages), and shipping all of it into
+ *  backends' `<Ctx>.<Owner>.rule.<name>` validation messages), and shipping all of it into
  *  every frontend bundle would put another deployable's strings in this app.
  *  Intersecting also means a key the source no longer emits cannot survive in
  *  a translated catalog while `en.json` has already dropped it.

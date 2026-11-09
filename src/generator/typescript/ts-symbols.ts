@@ -33,6 +33,7 @@ const TS_SYM = {
   actAsUser: tsNamed("~/auth/middleware", "actAsUser"),
   migrate: tsNamed("~/db/migrate", "migrate"),
   runSeeds: tsNamed("~/db/seed", "runSeeds"),
+  foreignKeyDdl: tsNamed("~/db/entities", "foreignKeyDdl"),
   eq: tsNamed("drizzle-orm", "eq"),
   and: tsNamed("drizzle-orm", "and"),
   AsyncLocalStorage: tsNamed("node:async_hooks", "AsyncLocalStorage"),

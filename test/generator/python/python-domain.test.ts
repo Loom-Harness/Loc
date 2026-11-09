@@ -108,7 +108,7 @@ describe("python domain primitives", () => {
     expect(vos).toContain("        if not (self.amount >= 0):");
     // M-T5.1 — a DomainError subclass the handlers answer with an errors[] entry.
     expect(vos).toContain(
-      '            raise ValueObjectInvariantError("Price", "Invariant violated: amount >= 0")',
+      '            raise ValueObjectInvariantError("Price", "Invalid value", "field.rule")',
     );
     expect(vos).toContain("        if not (len(self.currency) == 3):");
   });

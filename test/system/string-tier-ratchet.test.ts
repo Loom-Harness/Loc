@@ -114,7 +114,7 @@ const CEILINGS: Record<string, number> = {
   elixir: 3600,
   "elixir-vanilla": 500,
   feliz: 1500,
-  flutter: 1200,
+  flutter: 1400, // the coded-error localizers pin the emitted Dart `t(code, english, params)` per form rung (#4473)
   frontend: 200,
   hono: 500,
   i18n: 200,

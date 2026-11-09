@@ -39,7 +39,6 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
-import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
@@ -69,11 +68,11 @@ import {
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
-import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import {
   type RequestComponentOwner,
@@ -140,6 +139,7 @@ import {
   renderDomainException,
   renderFileRefRecord,
   renderForbiddenException,
+  renderNotImplementedException,
   renderPackageMarker,
   renderPagedRecord,
   renderValueObjectInvariantException,
@@ -160,7 +160,6 @@ import { renderJavaExternHook } from "./emit/extern.js";
 import { renderJavaId, renderJavaIdListConverter } from "./emit/ids.js";
 import { renderJavaContextIntegrationTest } from "./emit/integration-tests.js";
 import { renderJpaAuditingConfig } from "./emit/jpa-auditing-config.js";
-import { JAVA_MESSAGES_BUNDLE_PATH, renderJavaMessagesBundle } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
 import { emitJavaMigrations } from "./emit/migrations.js";
 import {
@@ -368,15 +367,6 @@ function emitProjectFromContexts(
   const pkgFor = (category: JavaArtifactCategory, aggregateName?: string): string =>
     layout.packageFor(category, basePkg, aggregateName);
 
-  // Validation-message catalog (M-T1.11): a `ResourceBundle` Spring Boot
-  // auto-configures a MessageSource over, so a messaged rule's wire `code`
-  // resolves SERVER-side for the request locale.  No messaged rule ⇒ no bundle
-  // and a byte-identical ApiExceptionAdvice.
-  const validationMessages = collectWireValidationMessages(contexts);
-  if (validationMessages.length > 0) {
-    out.set(JAVA_MESSAGES_BUNDLE_PATH, renderJavaMessagesBundle(validationMessages));
-  }
-
   const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): the generated verifier + handshake +
   // Nimbus dep land only when an `auth { oidc }` block targets this
@@ -487,6 +477,7 @@ function emitProjectFromContexts(
   place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
   place("ForbiddenException.java", "domain-common", renderForbiddenException(basePkg));
   place("DisallowedException.java", "domain-common", renderDisallowedException(basePkg));
+  place("NotImplementedException.java", "domain-common", renderNotImplementedException(basePkg));
   place(
     "AggregateNotFoundException.java",
     "domain-common",
@@ -563,7 +554,6 @@ function emitProjectFromContexts(
       hasUniqueKeys,
       hasConcurrency,
       structuralErrorStatuses,
-      validationMessages.length > 0,
       hasReferencedDelete,
       // The 23503 → domain-floor arm's own gate: a write can name a reference row
       // that does not exist.  A reference-free project stays byte-identical.
@@ -574,11 +564,13 @@ function emitProjectFromContexts(
       // M-T5.1: the value-object-invariant handler rides on a hosted value
       // object declaring an invariant; a project without one is byte-identical.
       contexts.some(hasValueObjectInvariants),
-      // M-T1.11 (c): the domain-floor code answer rides on a messaged aggregate
+      // M-T1.11 (c): the domain-floor code answer rides on a named aggregate
       // rule the same way.
       contexts.some(hasDomainFloorMessages),
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(system?.deployable, system?.sys),
+      contexts
+        .flatMap((c) => c.aggregates)
+        .map((a): readonly [string, string] => [routeSegmentFor(a.name), a.name]),
+      contexts.some((c) => anyRouteReadsIfMatch(c.aggregates)),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

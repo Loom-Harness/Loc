@@ -77,12 +77,14 @@ describe("a malformed path {id} answers the DECLARED 422, not a framework defaul
     );
     expect(advice).toContain("@ExceptionHandler(MethodArgumentTypeMismatchException.class)");
     expect(advice).toContain(
-      'var problem = problem(422, "Validation failed", "One or more fields are invalid.", request);',
+      'var problem = problem(422, "Validation failed", "One or more fields are invalid.", "problem.field-invalid", request);',
     );
     // The same `errors[]` pointer shape the body tier emits — `/id`, the field,
     // not the whole document — so one client ACL handles both tiers.
     // RFC 6901: the pointer goes through `pointerOf`, not a raw "/" + name.
-    expect(advice).toContain('entry.put("pointer", pointerOf(e.getName()));');
+    expect(advice).toContain(
+      'problem.setProperty("errors", java.util.List.of(entry(pointerOf(e.getName()), message, code, null)));',
+    );
     expect(advice).toContain("return respond(problem, 422);");
     // The arm must sit BEFORE the catch-all in the file; Spring picks the most
     // specific handler, but ordering keeps the emitted file readable and makes
@@ -148,7 +150,7 @@ describe("a malformed path {id} answers the DECLARED 422, not a framework defaul
     const pd = fileEndingWith(files, "problem_details.ex");
     expect(pd).toContain("def invalid_path_id_response(conn, param) do");
     expect(pd).toContain(
-      'send_validation_problem(conn, [%{pointer: pointer_of([param]), message: "Expected UUID."}])',
+      'send_validation_problem(conn, [%{pointer: pointer_of([param]), message: "Expected UUID.", code: "field.malformed-id"}])',
     );
   });
 

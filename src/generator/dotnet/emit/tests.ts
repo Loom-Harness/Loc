@@ -404,7 +404,7 @@ function renderTestStmt(
     const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
     const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
     // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
-    // `Kind`, never its message, which an authored `message "..."` replaces.
+    // `Kind`, never its message, which a rule's own text replaces.
     // `Assert.Throws` returns the caught exception, so the rung is one local
     // plus `Assert.Equal`; the local carries the statement index so two throw
     // assertions in one `[Fact]` don't collide.  A value object's invariant is

@@ -41,6 +41,7 @@ import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText } from "../../_i18n/rule-text.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
@@ -51,6 +52,7 @@ import {
   statementSubRegions,
 } from "../render-stmt.js";
 import { T, TT } from "../ts-symbols.js";
+import { tsRuleParams } from "../wire-policy-ts.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderAggregate` (when `opFragments` is
@@ -201,7 +203,10 @@ export function renderAggregate(
   // `precondition`, which renders into `_init`, not an operation) still pulls
   // its import — otherwise the class throws an undeclared `DomainError`
   // (TS2304).  Same body-scan the python twin uses.
-  const throwsError = (n: string): boolean => new RegExp(`\\bnew\\s+${n}\\(`).test(body);
+  // `new X(` or a static factory `X.f(` — the checked-int guard throws
+  // `DomainError.arithmeticOverflow()`.
+  const throwsError = (n: string): boolean =>
+    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w+\\(`).test(body);
   const errorsImportList = [
     (usesDisallowed || throwsError("DisallowedError")) && "DisallowedError",
     (usesDomain || throwsError("DomainError")) && "DomainError",
@@ -640,7 +645,7 @@ function renderEntity(
   const whenGate = (op: (typeof e.operations)[number]): string | null =>
     op.when
       ? `    if (!(${renderTsExpr(op.when)})) throw new DisallowedError(${JSON.stringify(
-          disallowedDetail(op.name, e.name, op.whenSource),
+          disallowedDetail(op.name, e.name),
         )});`
       : null;
   for (const op of e.operations) {
@@ -775,17 +780,16 @@ function renderEntity(
   // Op context comes from the implicit `__op` parameter on the trace-on
   // signature of `_assertInvariants`.
   const invariants = e.invariants.map((inv, i) => {
-    // Author `message "..."` becomes the domain-floor detail; otherwise the
-    // derived "Invariant violated: <src>" default.
-    const text = JSON.stringify(
-      inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-    );
-    // A MESSAGED invariant / field check carries its wire code and pointer
-    // THROUGH the throw (M-T1.11 (c)) — the domain floor then answers the same
+    // The rule's floor text (`floorRuleText`) is the domain-floor detail — never its
+    // source expression.
+    const text = JSON.stringify(floorRuleText(inv));
+    // A NAMED invariant / field check carries its wire code and pointer
+    // THROUGH the throw — the domain floor then answers the same
     // `errors[]` entry the wire rung carries for the rule.
     const code = domainFloorCode(inv.message);
+    const params = code ? tsRuleParams(inv, renderTsExpr) : undefined;
     const exprSrc = code
-      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""}`
       : `${text}, "invariant"`;
     if (!emitTrace) {
       const check = inv.guard

@@ -692,8 +692,8 @@ export function findOperationInEnv(env: Env, name: string): Operation | undefine
 // ---------------------------------------------------------------------------
 
 /** The `.ddd` source text behind an AST node — the human-readable label a
- *  `requires` / `precondition` failure carries into the generated 403 / 422
- *  detail (`Forbidden: <source>`).
+ *  `requires` failure carries into the server's `forbidden` log line
+ *  (`Forbidden: <source>`); the response never carries it.
  *
  *  A MACRO-emitted node has no `$cstNode` (it was never parsed), so the raw
  *  CST lookup falls through to the useless placeholder `<expr>`.  That is

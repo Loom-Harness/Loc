@@ -1,4 +1,8 @@
-import { missingFieldMessage } from "../../../ir/enrich/wire-policy.js";
+import {
+  fieldCode,
+  fieldLimitChecks,
+  missingFieldMessage,
+} from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -25,14 +29,15 @@ import {
   singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { javaRef } from "../../_imports/java.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { collectJavaRegexLiterals, renderJavaExpr } from "../render-expr.js";
+import { javaRuleParamArgs } from "../wire-policy-java.js";
 import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
@@ -61,12 +66,6 @@ import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from 
 // object fields keep their wire record (nested accessors work directly), which
 // is why they are never re-parsed here.
 // ---------------------------------------------------------------------------
-
-/** A messaged rule's error code is its content-hash i18n key (`msg.<hash>`); a
- *  message-less rule uses this sentinel so `rejectValue`'s (non-null) errorCode
- *  contract holds without surfacing a `code` in the 422 envelope — the advice
- *  emits `code` only when it starts with `msg.`. */
-const NO_WIRE_CODE = "loom.invariant";
 
 export interface JavaCommandValidator {
   /** e.g. `CreateOrderValidator` — the Spring `Validator` class. */
@@ -151,7 +150,26 @@ export function voHasWireRules(vo: ValueObjectIR): boolean {
   return vo.invariants.some((inv) => classifyForWire(inv, { available }));
 }
 
-/** The VO-typed request fields whose VO carries wire rules — the nested
+/** True when a value object, or a value object nested in it at any depth,
+ *  carries a wire rule — so `route: Outer { origin: UnLocode }` validates
+ *  `/route/origin/value` at the wire like a top-level `tag: UnLocode` does,
+ *  instead of reaching the constructor and answering the domain floor. */
+function voValidatesAtWire(
+  vo: ValueObjectIR,
+  voByName: ReadonlyMap<string, ValueObjectIR>,
+  seen: Set<string> = new Set(),
+): boolean {
+  if (seen.has(vo.name)) return false;
+  seen.add(vo.name);
+  if (voHasWireRules(vo)) return true;
+  return vo.fields.some((f) => {
+    const borne = voBorne(f.type);
+    const inner = borne ? voByName.get(borne.name) : undefined;
+    return inner !== undefined && voValidatesAtWire(inner, voByName, seen);
+  });
+}
+
+/** The VO-typed request fields whose VO validates at the wire — the nested
  *  validators a command validator invokes (empty ⇒ none). */
 function voRequestFields(
   params: { name: string; type: TypeIR }[],
@@ -162,7 +180,7 @@ function voRequestFields(
     const borne = voBorne(p.type);
     if (!borne) continue;
     const vo = voByName.get(borne.name);
-    if (!vo || !voHasWireRules(vo)) continue;
+    if (!vo || !voValidatesAtWire(vo, voByName)) continue;
     out.push({ field: p.name, voClass: `${borne.name}Validator`, each: borne.each });
   }
   return out;
@@ -264,8 +282,14 @@ export function renderJavaVoValidators(
 ): JavaCommandValidator[] {
   const voByName = voLookup(vos);
   const wanted = new Set<string>();
-  for (const spec of commandSpecs(agg, voByName))
-    for (const f of spec.voFields) wanted.add(f.voClass.slice(0, -"Validator".length));
+  const want = (voClass: string): void => {
+    const name = voClass.slice(0, -"Validator".length);
+    if (wanted.has(name)) return;
+    wanted.add(name);
+    const vo = voByName.get(name);
+    if (vo) for (const f of voRequestFields(vo.fields, voByName)) want(f.voClass);
+  };
+  for (const spec of commandSpecs(agg, voByName)) for (const f of spec.voFields) want(f.voClass);
   const out: JavaCommandValidator[] = [];
   for (const name of wanted) {
     const vo = voByName.get(name);
@@ -281,7 +305,7 @@ export function renderJavaVoValidators(
         })),
         invariants: vo.invariants,
         available: new Set(vo.fields.map((f) => f.name)),
-        voFields: [],
+        voFields: voRequestFields(vo.fields, voByName),
       },
       pkg,
       basePkg,
@@ -456,8 +480,11 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
   };
   for (const inv of spec.invariants) {
     if (!classifyForWire(inv, ctx)) continue;
-    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    const code = inv.message ? messageCode(inv.message.text) : NO_WIRE_CODE;
+    const message = ruleText(inv);
+    const code = ruleCode(inv);
+    const args = inv.message
+      ? javaRuleParamArgs(inv, (e) => renderJavaExpr(e, localRenderCtx(spec, regexFields)))
+      : undefined;
     const single = singleFieldShape(inv);
     if (single && spec.available.has(single.field)) {
       checks.push(
@@ -468,13 +495,14 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
             single.pattern,
             typeOf(single.field),
             nullableOf(single.field),
-            // A message-less single-field rule answers node's synthesized
+            // An unnamed single-field rule answers node's synthesized
             // sentence, not the generic refine default every other shape uses
             // (D-MESSAGELESS-RULE-WIRE-MESSAGE).
             inv.message ? message : singleFieldMessage(single.field, single.pattern),
             code,
             regexFields,
             localOf(validatorLocals(spec), single.field),
+            args,
           ),
         ),
       );
@@ -511,7 +539,7 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
     const predicate = inv.guard ? `!(${renderJavaExpr(inv.guard, renderOpts)}) || (${body})` : body;
     checks.push(
       ...carriedOnly(inv, [
-        reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields)),
+        reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields), args),
       ]),
     );
   }
@@ -618,15 +646,16 @@ function mentionsNullLiteral(expr: ExprIR): boolean {
 /** `if (!(cond)) errors.rejectValue("field", "code", "message");` — the Spring
  *  `Errors` analog of FluentValidation's `.WithName(...).WithMessage(...)
  *  .WithErrorCode(...)`.  `field` is the property path (no leading slash; the
- *  advice re-prefixes `/`), `code` the wire code (or the message-less sentinel),
+ *  advice re-prefixes `/`), `code` the wire code (or the unnamed sentinel),
  *  `message` the resolved default text. */
-function reject(field: string, code: string, message: string, cond: string): string {
+function reject(field: string, code: string, message: string, cond: string, args?: string): string {
   // `rejectValue` names the JAVA property — `AbstractBindingResult` reads the
   // field's actual value off the bound record to build the error, so a wire
   // spelling that has no such accessor throws `NotReadablePropertyException`.
   // The wire spelling is restored one layer out, in the advice's `pointerOf`
   // (M-T6.36).
-  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(jid(field))}, ${JSON.stringify(code)}, ${JSON.stringify(message)});`;
+  const argv = args === undefined ? "" : `new Object[] {${args}}, `;
+  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(jid(field))}, ${JSON.stringify(code)}, ${argv}${JSON.stringify(message)});`;
 }
 
 function patternCheck(
@@ -638,6 +667,7 @@ function patternCheck(
   code: string,
   regexFields: Map<string, string>,
   local: string = jid(field),
+  args?: string,
 ): string[] {
   const moneyLike =
     type?.kind === "primitive" && (type.name === "money" || type.name === "decimal");
@@ -668,7 +698,55 @@ function patternCheck(
   // on `POST /api/orders/{id}/add_line`). `nullable` is now carried from the
   // record's own boxing decision (`wireComponentNullable`).
   const nullSkip = (cond: string): string => (nullable ? `${local} == null || ${cond}` : cond);
-  const fail = (cond: string): string => reject(field, code, message, nullSkip(cond));
+  const fail = (cond: string): string => reject(field, code, message, nullSkip(cond), args);
+  const regexName = (source: string): string => {
+    let name = regexFields.get(source);
+    if (!name) {
+      name = `MATCHES_PATTERN_${regexFields.size}`;
+      regexFields.set(source, name);
+    }
+    return name;
+  };
+  // An UNNAMED rule is a declared field limit: one check per side
+  // (`fieldLimitChecks`), each refused under its own `field.<limit>` code with
+  // its bound as the `rejectValue` arguments (name, value pairs — the advice's
+  // `ruleParams` reads them as the wire `params`).  A named rule keeps its one
+  // check under its identity key.
+  if (code === fieldCode("rule")) {
+    return fieldLimitChecks(pattern).map((check) => {
+      const n = check.bound ?? 0;
+      const bound = Object.entries(check.params)
+        .map(([k, v]) => `${JSON.stringify(k)}, ${v}`)
+        .join(", ");
+      const limit = (cond: string): string =>
+        reject(field, fieldCode(check.reason), message, nullSkip(cond), bound || undefined);
+      switch (check.reason) {
+        case "min":
+          return limit(cmp(">=", n));
+        case "greater-than":
+          return limit(cmp(">", n));
+        case "max":
+          return limit(cmp("<=", n));
+        case "less-than":
+          return limit(cmp("<", n));
+        // CODE POINTS, not `String.length()`'s UTF-16 code units — the same
+        // count the emitted OpenAPI publishes as `minLength`/`maxLength`
+        // (src/generator/_expr/code-point.ts).
+        case "min-length":
+          return limit(`${javaCodePointLength(local)} >= ${n}`);
+        case "max-length":
+          return limit(`${javaCodePointLength(local)} <= ${n}`);
+        case "length":
+          return limit(`${javaCodePointLength(local)} == ${n}`);
+        case "pattern":
+          return limit(`${regexName(check.regex ?? "")}.matcher(${local}).find()`);
+        default: {
+          const unknown: never = check.reason;
+          return unknown;
+        }
+      }
+    });
+  }
   switch (pattern.kind) {
     case "min":
       // Exclusive (`weight > 0.5` on a decimal/money field) → strict `>`; the
@@ -693,13 +771,7 @@ function patternCheck(
           `${javaCodePointLength(local)} >= ${pattern.lo} && ${javaCodePointLength(local)} <= ${pattern.hi}`,
         ),
       ];
-    case "regex": {
-      let name = regexFields.get(pattern.pattern);
-      if (!name) {
-        name = `MATCHES_PATTERN_${regexFields.size}`;
-        regexFields.set(pattern.pattern, name);
-      }
-      return [fail(`${name}.matcher(${local}).find()`)];
-    }
+    case "regex":
+      return [fail(`${regexName(pattern.pattern)}.matcher(${local}).find()`)];
   }
 }

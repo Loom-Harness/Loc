@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------
 
 import { lines } from "../../../util/code-builder.js";
+import { T } from "../ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // mikro-orm.config.ts — the standard MikroORM config module.
@@ -90,7 +91,9 @@ export function mikroSaveTxLines(writeLines: readonly (string | null)[]): (strin
   ];
 }
 
-export function mikroConnectionSetup(): readonly string[] {
+/** `foreignKeys`: `db/entities.ts` exports `foreignKeyDdl` (see
+ *  `mikroForeignKeyDdl`), applied once the tables exist. */
+export function mikroConnectionSetup(foreignKeys = false): readonly string[] {
   return [
     `const orm = await MikroORM.init(mikroConfig);`,
     `// Dev-friendly schema bootstrap: create/alter tables from the entity`,
@@ -112,6 +115,9 @@ export function mikroConnectionSetup(): readonly string[] {
     `// columns; it only refuses to destroy.  (Drizzle has no equivalent:`,
     `// \`drizzle-kit migrate\` never drops unknown tables.)`,
     `await orm.schema.update({ safe: true });`,
+    ...(foreignKeys
+      ? [`for (const ddl of ${T.foreignKeyDdl}) await orm.em.getConnection().execute(ddl);`]
+      : []),
     `const db = orm.em;`,
   ];
 }

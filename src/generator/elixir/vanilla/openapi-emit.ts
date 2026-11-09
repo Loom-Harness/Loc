@@ -1,5 +1,4 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   forApiRead,
@@ -60,7 +59,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
-import { routedParamSource } from "../../../ir/util/routed-handler.js";
+import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
@@ -1144,11 +1143,7 @@ function routedOperation(
               }
             }`
     : `            204 => %OpenApiSpex.Response{description: "No Content"}`;
-  const statuses = [
-    wireStatus("malformed-body"),
-    wireStatus("not-found", ctx.structuralErrorStatuses),
-    ...(bodyParams.length > 0 ? [wireStatus("unsupported-media-type")] : []),
-  ];
+  const statuses = routedErrorStatuses(route, h, ctx);
   const paramsBlock =
     paramLines.length > 0
       ? `\n          parameters: [\n${paramLines.join(",\n")}\n          ],`
@@ -1411,6 +1406,8 @@ defmodule ${webModule}.Api.Schemas.ProblemDetails do
       status: %OpenApiSpex.Schema{type: :integer},
       detail: %OpenApiSpex.Schema{type: :string},
       instance: %OpenApiSpex.Schema{type: :string},
+      code: %OpenApiSpex.Schema{type: :string},
+      params: %OpenApiSpex.Schema{type: :object, additionalProperties: true, nullable: true},
       errors: %OpenApiSpex.Schema{
         type: :array,
         items: %OpenApiSpex.Schema{
@@ -1418,7 +1415,9 @@ defmodule ${webModule}.Api.Schemas.ProblemDetails do
           required: [:pointer, :message],
           properties: %{
             pointer: %OpenApiSpex.Schema{type: :string},
-            message: %OpenApiSpex.Schema{type: :string}
+            message: %OpenApiSpex.Schema{type: :string},
+            code: %OpenApiSpex.Schema{type: :string},
+            params: %OpenApiSpex.Schema{type: :object, additionalProperties: true, nullable: true}
           }
         }
       }

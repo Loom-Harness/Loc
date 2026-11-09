@@ -3,20 +3,16 @@
 // clause that turns it into an RFC 7807 response.
 //
 // Why it exists.  A bare atom (`{:error, :forbidden}` /
-// `{:error, :precondition_failed}`) carries the STATUS but not the MESSAGE, so
-// every controller answers with a hardcoded generic string ("A precondition
-// failed") where node/dotnet/java/python name the failed predicate
-// ("Precondition failed: status != \"cancelled\"").  RFC 7807 wants `detail`
-// specific to the OCCURRENCE, and the wire-golden gate is byte-exact — it
-// cannot carry an error-envelope assertion while one backend's `detail` is
-// generic.
+// `{:error, :precondition_failed}`) carries the STATUS but not the MESSAGE, and
+// the wire-golden gate is byte-exact: every backend's `detail` must be the same
+// sentence.
 //
 // So a denial is a 2-TUPLE — `{:precondition_failed, "<message>"}` — and the
 // reason term flows through `{:error, reason}` catch-alls exactly as a bare
 // atom would.  The message is built by the SAME rule the other four
 // backends use (the `raise(<App>.GuardError, …)` path below here, and the
-// `DomainError`/`DomainException` throws there): an explicit `message:` if the
-// statement declares one, else the derived `"<Prefix>: <source>"`.
+// `DomainError`/`DomainException` throws there): a named rule's text, else the
+// domain-floor sentence (`floorRuleText`) — never the rule's source.
 //
 // Every producer (`operation-returns-emit`, `eventsourced-emit`,
 // `workflow-execution-emit`, `workflow-eventsourced-emit`, `dispatch-emit`) and
@@ -32,17 +28,26 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
-import { notFoundStmtDetail, ruleStage } from "../../../ir/enrich/wire-policy.js";
-import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
+import {
+  type FieldLimitCheck,
+  fieldCode,
+  fieldLimitChecks,
+  notFoundStmtDetail,
+  ruleStage,
+  wireSentence,
+} from "../../../ir/enrich/wire-policy.js";
+import type { ExprIR, StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
+import { ruleParamRefs } from "../../../ir/util/rule-params.js";
 import { pickErrorPath, singleFieldShape } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import {
   type DenialRung,
+  exFieldCode,
   exInternalFallback,
   exLit,
   exMissingSuffix,
@@ -126,12 +131,28 @@ export function internalFallbackResponse(): string {
   return exInternalFallback();
 }
 
-/** The human message a denial carries — identical to the string the other four
- *  backends put in their thrown `ForbiddenError` / `DomainError`, so the
- *  ProblemDetails `detail` is byte-identical cross-backend. */
+/** The message a denial carries — a precondition's rule text, which is the
+ *  ProblemDetails `detail`; a `requires` gate's `Forbidden: <source>`, which is
+ *  the SERVER LOG's account of which gate refused.  The `.ddd` source never
+ *  reaches a response: `ProblemDetails.problem_response/5` answers a
+ *  `problem.forbidden` rejection with the constant detail and its code, after
+ *  logging this message. */
 export function denialMessage(s: GuardStmt): string {
   if (s.kind === "requires") return `Forbidden: ${s.source}`;
-  return s.message ? s.message.text : `Precondition failed: ${s.source}`;
+  return floorRuleText(s);
+}
+
+/** An Elixir map literal carrying the VALUES of the identifiers `rule` reads
+ *  (`ruleParamRefs`) — a named rule's wire `params` — or undefined when it
+ *  reads none.  `render` spells one reference where the rule trips. */
+export function exRuleParams(
+  rule: { expr: ExprIR; guard?: ExprIR },
+  render: ((e: ExprIR) => string) | undefined,
+): string | undefined {
+  if (render === undefined) return undefined;
+  const refs = ruleParamRefs(rule);
+  if (refs.length === 0) return undefined;
+  return `%{${refs.map(({ name, ref }) => `${elixirString(name)} => ${render(ref)}`).join(", ")}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,9 +163,9 @@ export function denialMessage(s: GuardStmt): string {
 // pure-core operation form — has no `with` chain to short-circuit through, so
 // it RAISES, and a controller `rescue` maps the raise to a status.
 //
-// The rescue must NOT route by MESSAGE PREFIX (`String.starts_with?(guard_msg,
-// "Precondition failed: ")`): that makes the message the ROUTING KEY, so an
-// authored `message "…"` would miss the prefix and `reraise` into a 500.
+// The rescue must NOT route by a MESSAGE PREFIX: that makes the message the
+// ROUTING KEY, so a named rule's own text would miss the prefix and `reraise`
+// into a 500.
 //
 // The classification is OUT OF BAND: one domain-layer `defexception`
 // carrying a `kind` field (`:forbidden` / `:precondition`) that the rescue
@@ -194,8 +215,8 @@ export function guardErrorModule(appModule: string): string {
 
 /** The `raise(<App>.GuardError, kind: …, message: …)` call a failed guard
  *  raises.  `kind` is the routing key the controller rescue reads; `message` is
- *  the author's `message "…"` when there is one, byte-identical to the string
- *  the `ensure` path puts in the same denial's `detail`. */
+ *  `denialMessage(s)`, byte-identical to the string the `ensure` path puts in
+ *  the same denial's `detail`. */
 export function guardRaise(s: GuardStmt, appModule: string): string {
   const kind = s.kind === "requires" ? ":forbidden" : ":precondition";
   return `raise(${guardErrorModule(appModule)}, kind: ${kind}, message: ${elixirString(
@@ -221,20 +242,55 @@ defmodule ${guardErrorModule(appModule)} do
   \`domainService\`, or the pure-core operation form, none of which has a
   \`with\` chain to short-circuit through.
 
-  \`:kind\` is the ROUTING KEY the controller rescue reads to pick the HTTP
-  status (\`:forbidden\` -> 403, \`:precondition\` -> 422).  It used to read the
-  message PREFIX instead, which made the message unusable as a message: an
-  author's \`message "..."\` missed the prefix and reraised into a 500.  With
-  the classification out of band, \`:message\` is free text and carries exactly
-  what the other four backends put in their \`DomainException\` / \`DomainError\`.
+  \`:kind\` is the ROUTING KEY the controller rescue reads to pick the answer
+  (\`:forbidden\` -> 403, \`:precondition\` -> 422, \`:overflow\` -> the
+  arithmetic-overflow 422).  The classification is out of band, so \`:message\`
+  is free text and carries exactly what the other four backends put in their
+  \`DomainException\` / \`DomainError\`.
 
   \`:disallowed\` is an operation's \`when\` state gate refusing, raised only by
   the pure-core operation form (the domain unit tests' subject); the HTTP path
   checks the gate in its \`with\` chain and answers 409 from there.
+
+  \`:overflow\` is integer arithmetic leaving its declared range (RS-48).
   """
   defexception [:message, :kind]
 
-  @type kind :: :forbidden | :precondition | :disallowed
+  @type kind :: :forbidden | :precondition | :disallowed | :overflow
+end
+`;
+}
+
+/** The `lib/<app>/not_implemented_error.ex` source — the exception an unfilled
+ *  `extern` operation stub raises.  The fault handler answers it `501
+ *  problem.not-implemented` with its own message (the file to fill in), where
+ *  any other unmodelled raise is the sanitized 500. */
+export function renderNotImplementedErrorModule(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.NotImplementedError do
+  @moduledoc """
+  An \`extern\` operation whose hand-written body was never filled in.
+  """
+  defexception [:message]
+end
+`;
+}
+
+/** The `lib/<app>/malformed_if_match_error.ex` source — the exception a
+ *  controller raises for an `If-Match` header that names no version.  The fault
+ *  handler answers it `400 problem.malformed-if-match` with the sentence the
+ *  wire-policy fact owns. */
+export function renderMalformedIfMatchErrorModule(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.MalformedIfMatchError do
+  @moduledoc """
+  An \`If-Match\` request header that is not \`*\` or a numeric entity-tag.
+  """
+  defexception [:message]
+
+  @impl true
+  def exception(header) when is_binary(header),
+    do: %__MODULE__{message: ${elixirString(wireSentence("malformed-if-match").prefix)} <> header}
 end
 `;
 }
@@ -243,16 +299,21 @@ end
  *  `{:forbidden, "Forbidden: …"}` / `{:precondition_failed, "Precondition
  *  failed: …"}`.  Rendered into `ensure(<cond>, <term>)` and into the inline
  *  `if …, do: :ok, else: {:error, <term>}` workflow form alike. */
-export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): string {
-  if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s);
-  // A MESSAGED precondition in an aggregate OPERATION (the only
+export function denialTerm(
+  s: GuardStmt,
+  wireAvailable?: ReadonlySet<string>,
+  /** Spells one identifier a named rule reads — its VALUE rides the wire `params`. */
+  renderRef?: (e: ExprIR) => string,
+): string {
+  if (deniesAtWire(s, wireAvailable)) return wireValidationTerm(s, renderRef);
+  // A NAMED precondition in an aggregate OPERATION (the only
   // call site that passes `wireAvailable`) that the wire cannot see answers the
   // domain floor WITH its `errors[]` entry: the detail travels as a map carrying
-  // the rule's `msg.<hash>` code and pointer, and `ProblemDetails.problem_response/4`
+  // the rule's identity-key code and pointer, and `ProblemDetails.problem_response/4`
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return codedPreconditionTerm(s, s.message.text);
+    return codedPreconditionTerm(s, s.message.key, renderRef);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
@@ -274,20 +335,26 @@ export function notFoundStmtClause(st: { detail?: string; subject?: string }): s
 
 /** The denial term for a guard in a WORKFLOW / command-handler body.  An
  *  orchestration precondition never lifts into a request validator, so a
- *  MESSAGED one always answers the domain floor WITH its `errors[]` entry —
+ *  NAMED one always answers the domain floor WITH its `errors[]` entry —
  *  the same coded map an operation precondition's domain-floor denial carries
  *  (banking eval B-02).  The workflow controller hands the detail to
  *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
  *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
-export function workflowDenialTerm(s: GuardStmt): string {
-  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.text);
+export function workflowDenialTerm(s: GuardStmt, renderRef?: (e: ExprIR) => string): string {
+  if (s.kind === "precondition" && s.message)
+    return codedPreconditionTerm(s, s.message.key, renderRef);
   return denialTerm(s);
 }
 
-function codedPreconditionTerm(s: GuardStmt, text: string): string {
+function codedPreconditionTerm(
+  s: GuardStmt,
+  code: string,
+  renderRef?: (e: ExprIR) => string,
+): string {
+  const params = s.kind === "precondition" ? exRuleParams(s, renderRef) : undefined;
   return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
-    messageCode(text),
-  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+    code,
+  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}${params ? `, params: ${params}` : ""}}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,11 +365,11 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // → zod `refine` / FluentValidation / pydantic / bean-validation), so a tripped
 // precondition over the operation's own params answers the WIRE-VALIDATION 422:
 // title "Validation failed", detail "One or more fields are invalid.", and an
-// `errors[]` entry carrying the RFC 6901 pointer + the `msg.<hash>` code.
+// `errors[]` entry carrying the RFC 6901 pointer + the identity-key code.
 //
 // Elixir lowers preconditions to the `ensure/2` control-flow chain instead, so
 // without this rung the same denial would answer the DOMAIN-FLOOR 422 —
-// authored message in `detail`, no `errors[]`, hence no pointer and no code,
+// rule text in `detail`, no `errors[]`, hence no pointer and no code,
 // and a frontend ACL's `applyServerErrors` would bind nothing on this backend
 // (the `corpus/validation-messages` wire-golden pins the agreement).
 //
@@ -313,12 +380,11 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // `availability != Availability.Discontinued`) is NOT wire-translatable on any
 // backend and rightly stays on the domain floor here too.
 //
-// A MESSAGED precondition carries its authored text and content-hash `code`.
-// A message-LESS one carries the sentence node's validator chain sends for the
-// same rule (D-MESSAGELESS-RULE-WIRE-MESSAGE): `singleFieldMessage` for a
-// single-field shape ("Amount must be at least 1"), the refine default
-// `Invariant violated: <src>` for any other — and no `code`, which is the i18n
-// key of AUTHORED text only.
+// A NAMED precondition carries its text and identity-key `code`.  An unnamed
+// one carries the sentence node's validator chain sends for the same rule
+// (D-MESSAGELESS-RULE-WIRE-MESSAGE): `singleFieldMessage` for a single-field
+// shape ("Amount must be at least 1"), the generic `ruleText` for any other —
+// and no `code`.
 // ---------------------------------------------------------------------------
 
 /** True when this guard is a wire-translatable `precondition` — the one denial
@@ -333,13 +399,13 @@ export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | unde
   return ruleStage({ expr: s.expr, source: s.source, message: s.message }, available) === "schema";
 }
 
-/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "msg.…"}]}`
+/** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "Ctx.Owner.rule.name"}]}`
  *  — the reason term a wire-translatable precondition short-circuits to.  One
  *  entry, because one precondition denies at a time (the `with` chain
  *  short-circuits); the list shape matches the `errors[]` extension the
  *  changeset path already produces so the controller can render both through
  *  one responder. */
-export function wireValidationTerm(s: GuardStmt): string {
+export function wireValidationTerm(s: GuardStmt, renderRef?: (e: ExprIR) => string): string {
   const path = pickErrorPath({ expr: s.expr, source: s.source });
   const pointer = path === null ? "" : `/${rfc6901(path)}`;
   const authored = s.kind === "precondition" ? s.message : undefined;
@@ -348,15 +414,54 @@ export function wireValidationTerm(s: GuardStmt): string {
     ? denialMessage(s)
     : single
       ? singleFieldMessage(single.field, single.pattern)
-      : `Invariant violated: ${s.source}`;
+      : ruleText({ expr: s.expr, source: s.source });
   const entry = [
     `pointer: ${JSON.stringify(pointer)}`,
-    // The author's `message "…"` goes through the shared escaping funnel — a
-    // raw `#{` here would interpolate into the 422 body at request time.
+    // The text goes through the shared escaping funnel — a raw `#{` in a
+    // translator's override would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
-    ...(authored ? [`code: ${JSON.stringify(messageCode(text))}`] : []),
+    `code: ${elixirString(ruleCode({ expr: s.expr, source: s.source, message: authored }))}`,
+    ...(authored && exRuleParams(s, renderRef) ? [`params: ${exRuleParams(s, renderRef)}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;
+}
+
+/** A message-less wire-rung precondition that is a declared field limit, as
+ *  one `{expr, term}` per side (`fieldLimitChecks`): the side's own predicate
+ *  (a conjunct of the precondition) and the `{:validation_failed, …}` term
+ *  carrying its `field.<limit>` code and bound.  A two-sided limit is the two
+ *  `&&` conjuncts `singleFieldShape` folded, in the same order (min side
+ *  first).  `null` when the guard is not such a limit, so the caller keeps its
+ *  one `ensure`. */
+export function wireLimitSides(
+  s: GuardStmt,
+  available: ReadonlySet<string> | undefined,
+): { expr: ExprIR; term: string }[] | null {
+  if (s.kind !== "precondition" || s.message || !deniesAtWire(s, available)) return null;
+  const single = singleFieldShape({ expr: s.expr, source: s.source });
+  if (!single) return null;
+  const checks = fieldLimitChecks(single.pattern);
+  const strip = (e: ExprIR): ExprIR => (e.kind === "paren" ? strip(e.inner) : e);
+  const top = strip(s.expr);
+  const sides =
+    checks.length === 1
+      ? [s.expr]
+      : top.kind === "binary" && top.op === "&&"
+        ? [top.left, top.right]
+        : null;
+  if (!sides || sides.length !== checks.length) return null;
+  const pointer = `/${rfc6901(single.field)}`;
+  const text = singleFieldMessage(single.field, single.pattern);
+  return checks.map((check, i) => ({
+    expr: sides[i] as ExprIR,
+    term: limitTerm(pointer, text, check),
+  }));
+}
+
+function limitTerm(pointer: string, text: string, check: FieldLimitCheck): string {
+  const entries = Object.entries(check.params).map(([k, v]) => `${k}: ${v}`);
+  const params = entries.length > 0 ? `, params: %{${entries.join(", ")}}` : "";
+  return `{:validation_failed, [%{pointer: ${JSON.stringify(pointer)}, message: ${elixirString(text)}, code: ${elixirString(fieldCode(check.reason))}${params}}]}`;
 }
 
 /** RFC 6901 segment escaping (`~` → `~0`, `/` → `~1`) — the same escaping the
@@ -417,7 +522,7 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
  *  `code` (a structural error, like zod's), and go through the same
  *  `validation_errors_response/2` sender the wire-rung precondition uses. */
 function missingParamsResponse(problemModule = "ProblemDetails"): string {
-  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> ${exLit(` ${exMissingSuffix()}`)}}))`;
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: &1 <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}))`;
 }
 
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,
@@ -564,8 +669,8 @@ export function respondErrorTail(
  *  SHARED across every command of an aggregate and so has no `op` in scope, but
  *  it never needs one: the PRODUCER has `op`, and the consumer just binds the
  *  detail. */
-export function disallowedTerm(aggName: string, op: { name: string; whenSource?: string }): string {
-  return `{:disallowed, ${elixirString(disallowedDetail(op.name, aggName, op.whenSource))}}`;
+export function disallowedTerm(aggName: string, op: { name: string }): string {
+  return `{:disallowed, ${elixirString(disallowedDetail(op.name, aggName))}}`;
 }
 
 /** The state-gate consumer half — `ProblemDetails.problem_response(conn,

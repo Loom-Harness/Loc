@@ -41,15 +41,22 @@
       "path": "/api/orders/{id}/resize",
       "status": 422,
       "body": {
+        "code": "Orders.Qty.rule.quantityPositive",
         "detail": "Quantity must be positive",
         "errors": [
           {
-            "code": "msg.bqyhlx",
+            "code": "Orders.Qty.rule.quantityPositive",
             "message": "Quantity must be positive",
+            "params": {
+              "value": 0
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/orders/{id}/resize",
+        "params": {
+          "value": 0
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -151,15 +158,22 @@
       "path": "/api/workflows/bump",
       "status": 422,
       "body": {
+        "code": "Orders.Qty.rule.quantityPositive",
         "detail": "Quantity must be positive",
         "errors": [
           {
-            "code": "msg.bqyhlx",
+            "code": "Orders.Qty.rule.quantityPositive",
             "message": "Quantity must be positive",
+            "params": {
+              "value": -1
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/workflows/bump",
+        "params": {
+          "value": -1
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -211,6 +225,7 @@
       "path": "/api/orders/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
         "status": 404,
@@ -224,6 +239,7 @@
       "path": "/api/orders/{id}/resize",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/resize",
         "status": 404,
@@ -237,6 +253,7 @@
       "path": "/api/workflows/bump",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/workflows/bump",
         "status": 404,
@@ -250,6 +267,7 @@
       "path": "/api/orders",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/orders",
         "instance": "/api/orders",
         "status": 405,
@@ -263,6 +281,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -276,6 +295,7 @@
       "path": "/api/orders",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/orders",
         "status": 400,
@@ -289,9 +309,11 @@
       "path": "/api/orders/{id}/resize",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "n is required",
             "pointer": "/n"
           }

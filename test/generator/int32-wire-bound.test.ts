@@ -80,12 +80,9 @@ describe("node — a declared int carries its int4 bound onto the wire", () => {
     );
   });
 
-  // KNOWN DEFECT: the routed read's query schema renders `qty:
-  // z.coerce.number().int()` with no int4 bound, so `?qty=` past the range
-  // reaches the column (python's twin below is bounded).  `it.fails` keeps the
-  // expectation on record; it turns red once the bound lands — drop the
-  // `.fails` then.
-  it.fails("a routed read's int query parameter carries it too", async () => {
+  // A routed read's query schema rides the same `QUERY_PRIMITIVE` chain, so
+  // `?qty=` past the range is refused before it reaches the column.
+  it("a routed read's int query parameter carries it too", async () => {
     // The coercing twin: `?qty=` (`GET /orders/by_qty`) reaches the same
     // column as the body field.
     const routes = await file("node", "http/a-routes.ts");
@@ -119,7 +116,9 @@ describe("python — the Int32 alias carries the bound and the published format"
     // The bound refuses with the cross-backend range sentence (RS-42), not
     // pydantic's own "Input should be less than or equal to …".
     expect(wire).toContain(`if not ${INT32_MIN} <= value <= ${INT32_MAX}:`);
-    expect(wire).toContain(`raise PydanticCustomError("int_range", ${RANGE})`);
+    expect(wire).toContain(
+      `raise PydanticCustomError("field.integer-range", ${RANGE}, {"loomParams": {"min":-2147483648,"max":2147483647}})`,
+    );
     expect(wire).toMatch(/Int32 = Annotated\[[\s\S]*?AfterValidator\(_int32\)/);
     // WithJsonSchema, not pydantic's own bounds, so the spec matches .NET/java.
     expect(wire).toContain('WithJsonSchema({"type": "integer", "format": "int32"})');

@@ -578,13 +578,19 @@ describe("typescript generator", () => {
       expect(routes).toMatch(
         /"content-type": "application\/problem\+json", "x-request-id": trace_id/,
       );
-      expect(routes).toMatch(/return problem\(403, "Forbidden", err\.detail\)/);
+      expect(routes).toMatch(
+        /return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\)/,
+      );
       // M-T5.1 — a value-object breach answers first when the project has one.
       expect(routes).toMatch(
-        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message\)/,
+        /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message, err\.problemCode\)/,
       );
-      expect(routes).toMatch(/return problem\(404, "Not Found", err\.message\)/);
-      expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
+      expect(routes).toMatch(
+        /return problem\(404, "Not Found", err\.message, "problem\.not-found"\)/,
+      );
+      expect(routes).toMatch(
+        /return problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
+      );
     });
 
     it("routes emit catalog log events at the right levels via the bound child logger", async () => {
@@ -821,7 +827,9 @@ describe("typescript generator", () => {
       expect(routes).not.toMatch(/throw new ExternHandlerError\(/);
       // The shared onError still maps a stray ExternHandlerError (a Phase-1
       // extern commandHandler failure) to a 500 problem body.
-      expect(routes).toMatch(/return problem\(500, "Internal Server Error", "internal"\)/);
+      expect(routes).toMatch(
+        /return problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,
+      );
     });
 
     it("does NOT register a defaultHook on OpenAPIHono (Zod's 400 stays the contract)", async () => {
@@ -1364,7 +1372,7 @@ describe("typescript generator", () => {
       );
       expect(wf).toMatch(/if \(!\(currentUser\.role === "admin"\)\) throw new ForbiddenError\(/);
       expect(wf).toMatch(
-        /if \(err instanceof ForbiddenError\) \{ .*? return problem\(403, "Forbidden", err\.detail\); \}/,
+        /if \(err instanceof ForbiddenError\) \{ .*? return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\); \}/,
       );
       // The binding is conditional: only the guarded workflow's handler
       // gets it — `touchOne` never references currentUser.
@@ -1582,7 +1590,9 @@ describe("typescript generator", () => {
       // The onError arm logs the catalog event, then returns an RFC 7807
       // problem body (403 Forbidden) via the shared `problem(...)` responder.
       expect(route).toMatch(/if \(err instanceof ForbiddenError\) \{/);
-      expect(route).toMatch(/return problem\(403, "Forbidden", err\.detail\);/);
+      expect(route).toMatch(
+        /return problem\(403, "Forbidden", err\.detail, "problem\.forbidden"\);/,
+      );
     });
   });
 
@@ -1598,13 +1608,13 @@ describe("typescript generator", () => {
       // real number, and coercing accepted `false`/`"12"` for a field the spec
       // declares `{"type":"number"}` (schemathesis F7).
       expect(orderRoutes).toMatch(
-        /amount: z\.number\(\)\.min\(0, \{ message: "Amount must be at least 0" \}\)/,
+        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ loomCode: "field\.min", loomValues: \{"min":0\} \} \}\)\.openapi\(\{ minimum: 0 \}\)/,
       );
       // A LENGTH bound is a CODE-POINT predicate, not zod's code-unit
       // `.length(3)` — and the routes re-attach the `minLength`/`maxLength`
       // the OpenAPI schema published all along (RS-31).
       expect(orderRoutes).toMatch(
-        /currency: z\.string\(\)\.refine\(\(s\) => \[\.\.\.s\]\.length === 3, \{ message: "Currency must be exactly 3 characters" \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
+        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ loomCode: "field\.length", loomValues: \{"length":3\} \} \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
       );
       // No leftover OBJECT-level `.refine(` for the single-field shapes.
       const moneyBlock = orderRoutes.match(
@@ -1623,7 +1633,7 @@ describe("typescript generator", () => {
         // declared bound: `qty > 0` is tighter than the int4 FLOOR, so only the
         // floor is dropped; the int4 ceiling stays (a one-sided bound must not
         // lose the other side, F11).
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ loomCode: "field\.min", loomValues: \{"min":1\} \} \}\)\.openapi\(\{ minimum: 1 \}\)/,
       );
     });
 
@@ -1634,7 +1644,7 @@ describe("typescript generator", () => {
       // update is rejected at the wire boundary (422) instead of the domain floor.
       const customerRoutes = files.get("http/customer.routes.ts")!;
       expect(customerRoutes).toMatch(
-        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(s\) => \[\.\.\.s\]\.length >= 1, \{ message: "Email must be at least 1 character" \}\)/,
+        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Email must be at least 1 character", params: \{ loomCode: "field\.min-length", loomValues: \{"min":1\} \} \}\)/,
       );
     });
 
@@ -1675,7 +1685,7 @@ describe("typescript generator", () => {
       );
     });
 
-    it("absorbs `string.matches(literal)` as `z.string().regex(/.../)` on Hono routes", async () => {
+    it("absorbs `string.matches(literal)` as a `field.pattern` refine, publishing its `pattern`", async () => {
       const src = `
           context Auth {
             aggregate User {
@@ -1690,7 +1700,7 @@ describe("typescript generator", () => {
       const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/user.routes.ts")!;
       expect(routes).toMatch(
-        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.regex\(\/\^\[\^@\]\+@\.\+\$\/, \{ message: "Email is not in the expected format" \}\)/,
+        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ loomCode: "field\.pattern" \} \}\)\.openapi\(\{ pattern: \/\^\[\^@\]\+@\.\+\$\/\.source \}\)/,
       );
     });
 
@@ -1728,7 +1738,7 @@ describe("typescript generator", () => {
       const routes = files.get("http/reservation.routes.ts")!;
       // `fromTime < toTime` is cross-field — falls through to .refine.
       expect(routes).toMatch(
-        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Invariant violated: [^"]*" \}\)/,
+        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ loomCode: "problem\.domain-floor" \} \}\)/,
       );
     });
   });

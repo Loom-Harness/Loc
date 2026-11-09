@@ -21,7 +21,7 @@ const SYSTEM = `system ClearAbsent {
         nickname: string?
         score: int?
         operation update(name: string, nickname: string?, score: int?) {
-          precondition name != "" message "A thing has a name"
+          precondition thingNamed: name != ""
           name := name
           nickname := nickname
           score := score

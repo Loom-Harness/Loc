@@ -78,7 +78,7 @@ describe("elixir domain `test` → ExUnit emission", () => {
     // <op>/2 = precondition (raise) + in-memory mutation.
     expect(agg).toContain("def confirm(%__MODULE__{} = record, _params) do");
     expect(agg).toContain(
-      'raise(VanApi.GuardError, kind: :precondition, message: "Precondition failed: status == \\"open\\"")',
+      'raise(VanApi.GuardError, kind: :precondition, message: "Business rule violated")',
     );
   });
 
@@ -154,7 +154,7 @@ system G {
     expect(vo).toContain("defmodule VanApi.Selling.Money do");
     expect(vo).toContain("@types %{amount: :decimal, currency: :string}");
     expect(vo).toContain(
-      '|> validate_number(:amount, greater_than_or_equal_to: 0, message: "Amount must be at least 0")',
+      '{"Amount must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
     );
     expect(vo).toContain("def new(attrs) when is_map(attrs) do");
     expect(vo).toContain("apply_action(changeset(attrs), :insert)");

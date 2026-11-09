@@ -45,9 +45,8 @@ function relativeRootRefs(files: Map<string, string>, ns: string): string[] {
 }
 
 // A deployable literally named `api` — the name `ddd new` scaffolds, and the
-// one no corpus fixture uses.  Carries a channel (ChannelTransport.cs) and a
-// messaged invariant (Localization/LoomMessages.cs), the two emitters that got
-// this wrong.
+// one no corpus fixture uses.  Carries a channel (ChannelTransport.cs), the
+// emitter that got this wrong.
 const SOURCE = `
 system X {
   subdomain S {
@@ -55,7 +54,7 @@ system X {
       aggregate Foo with crudish {
         name: string
         derived display: string = name
-        invariant name.length >= 3 message "Name needs at least 3 characters"
+        invariant nameLength: name.length >= 3
         operation ping() { name := name  emit Pinged { foo: id, at: now() } }
       }
       repository Foos for Foo { }
@@ -72,13 +71,11 @@ system X {
 `;
 
 describe("dotnet — root-namespace references are global::-pinned", () => {
-  it("emits the two known sites with global::", async () => {
+  it("emits the known site with global::", async () => {
     const files = await generateSystemFiles(SOURCE);
     const transport = files.get("api/Infrastructure/Channels/ChannelTransport.cs")!;
     expect(transport).toMatch(/private readonly global::Api\.Infrastructure\.Events\.\w+ _inner;/);
     expect(transport).toMatch(/global::Api\.Infrastructure\.Events\.\w+ inner,/);
-    const messages = files.get("api/Localization/LoomMessages.cs")!;
-    expect(messages).toMatch(/global::Api\.Domain\.Common\.RequestContext\.Current\?\.Locale/);
   });
 
   it("has no unpinned root-namespace reference anywhere in the tree", async () => {

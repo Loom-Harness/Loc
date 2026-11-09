@@ -30,7 +30,7 @@ describe("dotnet generator — when canCommand gate", () => {
   it("gates the command handler with DisallowedException before the method call", async () => {
     const h = (await files()).get("Application/Orders/Commands/CancelHandler.cs")!;
     expect(h).toContain(
-      "if (!(aggregate.Status != OrderStatus.Shipped && aggregate.Status != OrderStatus.Cancelled)) throw new DisallowedException(\"operation 'cancel' is not allowed in the current state of Order (when this.status != Shipped && this.status != Cancelled).\");",
+      "if (!(aggregate.Status != OrderStatus.Shipped && aggregate.Status != OrderStatus.Cancelled)) throw new DisallowedException(\"operation 'cancel' is not allowed in the current state of Order.\");",
     );
   });
 
@@ -59,7 +59,9 @@ describe("dotnet generator — when canCommand gate", () => {
     const map = await files();
     const filter = [...map.entries()].find(([k]) => k.endsWith("DomainExceptionFilter.cs"))![1];
     expect(filter).toContain("if (context.Exception is DisallowedException dx)");
-    expect(filter).toContain('Problem(context, 409, "Disallowed", dx.Message, trace_id)');
+    expect(filter).toContain(
+      'Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate")',
+    );
     const common = [...map.entries()].find(([k]) => k.endsWith("Common/Errors.cs"))?.[1];
     if (common) expect(common).toContain("class DisallowedException");
   });

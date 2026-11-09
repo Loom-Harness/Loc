@@ -81,13 +81,13 @@ const SPELLINGS: Record<string, Spelling> = {
     declFile: "api/http/order.routes.ts",
     createSlice: ['operationId: "createOrder"', "async (c) =>"],
     destroySlice: ['operationId: "destroyOrder"', "async (c) =>"],
-    arm: (s, t) => `return problem(${s}, "${t}", err.detail);`,
+    arm: (s, t) => `return problem(${s}, "${t}", err.detail, "problem.forbidden");`,
   },
   dotnet: {
     declFile: "api/Api/OrdersController.cs",
     createSlice: ["[HttpPost]", "public async Task<ActionResult<CreateOrderResponse>> CreateOrder"],
     destroySlice: ['[HttpDelete("{id}")]', "public async Task<IActionResult> DestroyOrder"],
-    arm: (s, t) => `Problem(context, ${s}, "${t}", fe.Message, trace_id);`,
+    arm: (s, t) => `Problem(context, ${s}, "${t}", "Forbidden", trace_id, "problem.forbidden");`,
   },
   java: {
     declFile: "api/src/main/java/com/loom/api/config/OpenApiContractCustomizer.java",
@@ -95,13 +95,14 @@ const SPELLINGS: Record<string, Spelling> = {
     // declared set as its own `new Route(...)` literal, which IS route-scoped.
     createSlice: ['new Route("post", "/api/orders",', "),"],
     destroySlice: ['new Route("delete", "/api/orders/{id}",', "),"],
-    arm: (s, t) => `return respond(problem(${s}, "${t}", e.getMessage(), request), ${s});`,
+    arm: (s, t) =>
+      `return respond(problem(${s}, "${t}", "Forbidden", "problem.forbidden", request), ${s});`,
   },
   python: {
     declFile: "api/app/http/order_routes.py",
     createSlice: ['operation_id="createOrder"', "\n"],
     destroySlice: ['operation_id="destroyOrder"', "\n"],
-    arm: (s, t) => `return problem(request, ${s}, "${t}", str(err))`,
+    arm: (s, t) => `return problem(request, ${s}, "${t}", "Forbidden", code="problem.forbidden")`,
   },
   elixir: {
     declFile: "api/lib/api_web/api/sales_api_spec.ex",

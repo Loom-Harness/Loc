@@ -70,6 +70,8 @@ describe("a malformed id answers a sentence, not the uuid regex", () => {
   it("elixir: the path-id plug sends the same constant", async () => {
     const files = await generateSystemFiles(src("elixir"));
     const problem = fileEndingWith(files, "problem_details.ex");
-    expect(problem).toContain(`message: ${JSON.stringify(UUID_WIRE_MESSAGE)}}])`);
+    expect(problem).toContain(
+      `message: ${JSON.stringify(UUID_WIRE_MESSAGE)}, code: "field.malformed-id"}])`,
+    );
   });
 });

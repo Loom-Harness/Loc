@@ -34,13 +34,13 @@ import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { namedRuleText } from "../../_i18n/rule-text.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import {
   decimalIngressPaths,
   isStringField,
@@ -51,7 +51,7 @@ import {
 import {
   aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
-  messagedRoutesToResidual,
+  namedRoutesToResidual,
   opAssertedInvariants,
   renderInvariantValidatorFn,
   renderOpInvariantAssertFn,
@@ -129,39 +129,41 @@ function castScalarFields(agg: AggregateIR, ctx: BoundedContextIR): AggField[] {
  *  invariants return null and keep their domain-level enforcement.  Only fields
  *  that are actually cast get a validator.
  *
- *  One list, read by both the cast seams and (its MESSAGED subset, `messagedOnly`)
+ *  One list, read by both the cast seams and (its NAMED subset, `namedOnly`)
  *  `validate_field_invariants/1`, which an operation persist pipes through; a
- *  message-less rule reaches the operation path through `assert_op_invariants/1`
+ *  unnamed rule reaches the operation path through `assert_op_invariants/1`
  *  instead, so it answers the operation's domain-error shape. */
 export function fieldInvariantValidatorLines(
   agg: AggregateIR,
   ctx: BoundedContextIR,
-  messagedOnly = false,
+  namedOnly = false,
 ): string[] {
   const castFields = new Set(castScalarFields(agg, ctx).map((f) => snake(f.name)));
   return (agg.invariants ?? []).flatMap((inv) =>
-    messagedOnly && inv.message == null
+    namedOnly && inv.message == null
       ? []
-      : // A messaged rule that routes to the `validate_invariants/1` residual
+      : // A named rule that routes to the `validate_invariants/1` residual
         // carrier (to carry its wire `code`) is emitted there, not as a native
-        // `validate_*` line — otherwise it would double-validate. A message-less
-        // rule (and a messaged rule that can't route) keeps its native line.
-        messagedRoutesToResidual(inv)
+        // `validate_*` line — otherwise it would double-validate. An unnamed
+        // rule (and a named rule that can't route) keeps its native line.
+        namedRoutesToResidual(inv)
         ? []
         : (singleFieldConstraints(inv) ?? [])
             .filter((c) => castFields.has(snake(c.field)))
-            .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
+            .map((c) =>
+              ectoValidator(snake(c.field), c.pattern, inv.message && namedRuleText(inv.message)),
+            ),
   );
 }
 
 /** The invariant pipes an operation persist appends to its
  *  `change(%{}) |> force_change(…)` changeset, `indent` spaces deep.  That
  *  changeset never passes through `base_changeset`, so it re-runs the floor
- *  there: every message-less rule as the operation's domain error
- *  (`assert_op_invariants/1`), the messaged single-field validators
+ *  there: every unnamed rule as the operation's domain error
+ *  (`assert_op_invariants/1`), the named single-field validators
  *  (`validate_field_invariants/1`), and the residual cross-field / guarded /
  *  coded rules (`validate_invariants/1`, or its `validate_domain_floor/1` twin
- *  when a messaged rule carries a wire code).  Empty when the aggregate declares
+ *  when a named rule carries a wire code).  Empty when the aggregate declares
  *  none, so such an op is unchanged. */
 export function opPersistInvariantPipes(
   agg: AggregateIR,
@@ -375,18 +377,18 @@ function renderChangeset(
   // invariants return null and keep their domain-level enforcement.  Only fields
   // that are actually cast (`@all_fields`) get a validator.
   const validatorLines = fieldInvariantValidatorLines(agg, ctx);
-  const messagedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
+  const namedFieldLines = fieldInvariantValidatorLines(agg, ctx, true);
   const opAssertFn = renderOpInvariantAssertFn(agg, `${appModule}.${ctxModule}`);
   // An operation persist is a `change(%{}) |> force_change` changeset that
-  // never passes through `base_changeset`.  A message-less rule reaches it as
-  // `assert_op_invariants/1` (the operation's domain error); the MESSAGED
+  // never passes through `base_changeset`.  A unnamed rule reaches it as
+  // `assert_op_invariants/1` (the operation's domain error); the NAMED
   // single-field lines reach it as this public function.
   const fieldInvariantFn =
-    messagedFieldLines.length > 0
-      ? `\n\n  @doc "Assert the aggregate's messaged single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
+    namedFieldLines.length > 0
+      ? `\n\n  @doc "Assert the aggregate's named single-field invariants on a changeset built outside \`base_changeset\` — the operation persist."
   def validate_field_invariants(changeset) do
     changeset
-${messagedFieldLines.join("\n")}
+${namedFieldLines.join("\n")}
   end`
       : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
@@ -417,7 +419,11 @@ ${messagedFieldLines.join("\n")}
   defp __loom_money_range(field, %Decimal{} = value) do
     if Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()})),
       do: [],
-      else: [{field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value))}]
+      else: [
+        {field,
+         {${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value)),
+          [loom_code: ${exFieldCode("money-range")}, loom_params: %{value: Decimal.to_string(value)}]}}
+      ]
   end
 
   defp __loom_money_range(_field, _value), do: []`
@@ -438,14 +444,51 @@ ${messagedFieldLines.join("\n")}
       return t.kind === "primitive" && t.name === "int";
     })
     .map((f) => snake(f.name));
+  // A \`validate_change\` closure rather than \`validate_number\`: its error carries
+  // the \`loom_code\` / \`loom_params\` the 422 body reports (\`field.integer-range\`
+  // with the int32 bounds), which Ecto's own validator cannot attach.
   const int32RangeLines = int32Columns.map(
-    (f) =>
-      `    |> validate_number(:${f}, greater_than_or_equal_to: ${exInt32Range().min}, ` +
-      `less_than_or_equal_to: ${exInt32Range().max}, message: ${exFieldMessage("integer-range")})`,
+    (f) => `    |> validate_change(:${f}, &__loom_int32_range/2)`,
   );
+  const int32RangeHelper =
+    int32Columns.length > 0
+      ? `
+
+  defp __loom_int32_range(field, value)
+       when is_integer(value) and (value < ${exInt32Range().min} or value > ${exInt32Range().max}),
+       do: [
+         {field,
+          {${exFieldMessage("integer-range")},
+           [validation: :number, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}}]}}
+       ]
+
+  defp __loom_int32_range(_field, _value), do: []`
+      : "";
+  // A body `X id` is a `:binary_id` column, and `Ecto.Type.cast(:binary_id, ...)`
+  // accepts ANY binary, so a non-uuid reaches the insert and `dump` raises
+  // `Ecto.ChangeError` — a 500 for a client fault.  The same check the
+  // path-id and op-param edges make (36 characters that cast), refused with the
+  // fact's `malformed-id` message at the field's pointer.
+  const idColumns = allFields
+    .filter((f) => (f.type.kind === "optional" ? f.type.inner : f.type).kind === "id")
+    .map((f) => snake(f.name));
+  const idLines = idColumns.map((f) => `    |> validate_change(:${f}, &__loom_uuid/2)`);
+  const idHelper =
+    idColumns.length > 0
+      ? `
+
+  defp __loom_uuid(field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: [],
+      else: [{field, {${exFieldMessage("malformed-id")}, [loom_code: ${exFieldCode("malformed-id")}]}}]
+  end`
+      : "";
   const validatorBlock =
-    validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
-      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines].join("\n")}`
+    validatorLines.length > 0 ||
+    moneyRangeLines.length > 0 ||
+    int32RangeLines.length > 0 ||
+    idLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines, ...idLines].join("\n")}`
       : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
@@ -651,12 +694,12 @@ ${keyAliasPairs.join(",\n")}
   # Run a value object's validating constructor over a cast map field; an
   # invariant violation surfaces as a changeset error rather than persisting.
   #
-  # The VO's OWN errors are forwarded verbatim — its authored message, its
+  # The VO's OWN errors are forwarded verbatim — its rule text, its
   # \`loom_code\`, and its inner field name carried on \`loom_path\` so
   # ProblemDetails can render \`/sku/code\` rather than the whole object.  A flat
   # \`[{field, "is invalid"}]\` threw all three away: the wire said only that
   # something about \`/sku\` was wrong, so the frontend ACL could not bind the
-  # 422 to the control that caused it and the authored text never reached the
+  # 422 to the control that caused it and the rule text never reached the
   # user.  A VO persists as one jsonb \`:map\` column rather than an embed, so
   # there is no child changeset for the ProblemDetails walk to find — this is
   # the only place that path exists.
@@ -686,8 +729,8 @@ ${keyAliasPairs.join(",\n")}
   // constructor, tagging the error `loom_body_value_object` so ProblemDetails
   // answers it on the DOMAIN-FLOOR rung with one `errors[]` entry — the shape
   // the other four backends' value-object constructor throw answers — rather
-  // than the wire-validation 422 a request-body field earns.  A messaged rule
-  // carries its content-hash code (looked up by the authored text the VO's
+  // than the wire-validation 422 a request-body field earns.  A named rule
+  // carries its identity-key code (looked up by the rule text the VO's
   // own changeset reports).  Emitted only when some op body assigns such a
   // field, so every other aggregate's changeset module is byte-identical.
   const bodyVoFields = aggregateBodyValueObjectFields(agg, ctx.valueObjects);
@@ -695,7 +738,7 @@ ${keyAliasPairs.join(",\n")}
     ...new Map(
       bodyVoFields.flatMap(({ vo }) =>
         vo.invariants.flatMap((inv) =>
-          inv.message ? [[inv.message.text, messageCode(inv.message.text)] as const] : [],
+          inv.message ? [[namedRuleText(inv.message), inv.message.key] as const] : [],
         ),
       ),
     ),
@@ -1002,7 +1045,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${opAssertFn ? `\n\n${opAssertFn}` : ""}${fieldInvariantFn}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${int32RangeHelper}${idHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

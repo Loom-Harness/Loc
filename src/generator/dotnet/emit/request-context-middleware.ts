@@ -1,4 +1,6 @@
+import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import { SpanAttr } from "../../_obs/tracing.js";
+import { csCodeInit, csSentence, csTitle } from "../wire-policy-cs.js";
 
 // Births the ambient RequestContext at the HTTP edge.  Mounted FIRST
 // (before RequestLoggingMiddleware and UserMiddleware) so the root frame
@@ -18,13 +20,56 @@ export function renderRequestContextMiddleware(
   // so a versioned aggregate's repository save can guard the write on it.  Read
   // here beside the correlation id / locale — the one place the carrier reads
   // request headers.  Emitted only when some in-scope aggregate is `versioned`.
+  // The header's grammar (RFC 9110 13.1.1): `*` (no precondition), a strong tag
+  // `"3"`, a weak tag `W/"3"`, or a bare `3`.  Anything else on a mutating
+  // request is a client error, answered 400 before any handler runs.
   const ifMatchLines = hasVersioned
     ? `
         if (ctx.Request.Headers.TryGetValue("If-Match", out var __ifMatch)
-            && int.TryParse(__ifMatch.ToString().Trim('"'), out var __expectedVersion))
+            && !HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)
+            && !HttpMethods.IsOptions(ctx.Request.Method))
         {
-            rootFrame.ExpectedVersion = __expectedVersion;
+            var __rawIfMatch = __ifMatch.ToString().Trim();
+            if (__rawIfMatch != "*")
+            {
+                if (!TryParseIfMatch(__rawIfMatch, out var __expectedVersion))
+                {
+                    await WriteMalformedIfMatchAsync(ctx, __ifMatch.ToString());
+                    return;
+                }
+                rootFrame.ExpectedVersion = __expectedVersion;
+            }
         }`
+    : "";
+  const ifMatchMembers = hasVersioned
+    ? `
+    /// <summary>The version in an entity-tag: a strong tag <c>"3"</c>, a weak tag
+    /// <c>W/"3"</c> or a bare <c>3</c>.  False for anything else.</summary>
+    private static bool TryParseIfMatch(string raw, out int tagged)
+    {
+        tagged = 0;
+        var tag = raw.StartsWith("W/", StringComparison.Ordinal) ? raw[2..] : raw;
+        if (tag.Length >= 2 && tag[0] == '\\"' && tag[^1] == '\\"') tag = tag[1..^1];
+        if (tag.Length == 0) return false;
+        foreach (var c in tag) if (!char.IsAsciiDigit(c)) return false;
+        return int.TryParse(tag, out tagged);
+    }
+
+    /// <summary>RFC 7807 400 for an <c>If-Match</c> that is not an entity-tag over a version.</summary>
+    private static async Task WriteMalformedIfMatchAsync(HttpContext ctx, string header)
+    {
+        ctx.Response.StatusCode = ${wireStatus("malformed-if-match")};
+        await ctx.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Type = "about:blank",
+            Title = ${csTitle("malformed-if-match")},
+            Status = ${wireStatus("malformed-if-match")},
+            Detail = ${csSentence("malformed-if-match", "{header}")},
+            Instance = ctx.Request.Path,
+            ${csCodeInit("malformed-if-match")},
+        }, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json");
+    }
+`
     : "";
   return `// Auto-generated.
 using System;
@@ -59,7 +104,7 @@ public sealed class RequestContextMiddleware
     {
         _next = next;
     }
-
+${ifMatchMembers}
     public async Task InvokeAsync(HttpContext ctx, ILogger<RequestContextMiddleware> log)
     {
         var correlationId =

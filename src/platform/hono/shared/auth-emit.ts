@@ -9,6 +9,7 @@ import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { hostedHierarchyRegistry } from "../../../ir/enrich/hosting-facts.js";
+import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -480,6 +481,7 @@ function orgContextForbidden(c: Context, requested: string, orgPath: string) {
       status: 403,
       detail: "the requested organization context is outside the caller's organization scope",
       instance: c.req.path,
+      code: ${JSON.stringify(wireCode("forbidden"))},
     }),
     403,
     { "content-type": "application/problem+json" },
@@ -519,6 +521,7 @@ function malformedDevClaims(c: Context, detail: string) {
       status: 400,
       detail,
       instance: c.req.path,
+      code: ${JSON.stringify(wireCode("malformed-body"))},
     }),
     400,
     { "content-type": "application/problem+json" },
@@ -587,6 +590,7 @@ function unauthorized(c: Context) {
       status: 401,
       detail,
       instance: c.req.path,
+      code: ${JSON.stringify(wireCode("unauthenticated"))},
     }),
     401,
     {

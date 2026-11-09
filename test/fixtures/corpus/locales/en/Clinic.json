@@ -1,0 +1,4 @@
+{
+  "Patient.rule.birthDateCannotIn": "A birth date cannot be in the future",
+  "Patient.rule.visitCannotPrecedeBirth": "A visit cannot precede the birth date"
+}

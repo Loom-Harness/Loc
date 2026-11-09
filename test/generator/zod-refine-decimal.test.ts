@@ -53,7 +53,7 @@ describe("zod-refine — decimal arithmetic (RS-37)", () => {
   it("exact mode renders through decimal.js and narrows once, like the node domain", () => {
     expect(refineRenderable(INV.expr, "exact")).toBe(true);
     expect(refineClauseFor(INV, CTX, "exact")).toBe(
-      '.refine((data: any) => new Decimal(data.a).plus(data.b).toNumber() <= 0.3, { path: ["a"], message: "Invariant violated: a + b <= 0.3" })',
+      '.refine((data: any) => new Decimal(data.a).plus(data.b).toNumber() <= 0.3, { path: ["a"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } })',
     );
   });
 

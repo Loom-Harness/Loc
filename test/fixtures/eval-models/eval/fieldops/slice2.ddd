@@ -93,8 +93,8 @@ system FieldOps {
         contains lines: WorkOrderLine[]
 
         invariant currency.length == 3
-        invariant lines.all(l => l.currency == currency)
-          message "all work-order lines must share the order currency"
+        invariant allWorkOrderLines: lines.all(l => l.currency == currency)
+
 
         derived total: money = lines.sum(l => l.subtotal)
         derived display: string = `WO {id} ({status})`

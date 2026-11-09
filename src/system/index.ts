@@ -10,6 +10,7 @@ import {
   brokerChannelBindings,
   channelTransportStorageNames,
 } from "../generator/_channels/bindings.js";
+import { withSourceOverrides } from "../generator/_i18n/source-text.js";
 import {
   collectorEndpoint,
   OTEL_ENDPOINT_ENV,
@@ -17,7 +18,6 @@ import {
   TRACE_COLLECTOR,
 } from "../generator/_obs/tracing.js";
 import { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
-import { withSourceOverrides } from "../generator/_walker/source-text.js";
 import { E2E_FIXTURES_TS } from "../generator/react/emit-templates.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel } from "../ir/lower/lower.js";

@@ -102,7 +102,9 @@ describe("vanilla — invariant coverage (#3023)", () => {
     );
     // 1+2 — the native lines that always worked.
     expect(cs).toMatch(/validate_change\(:sku/);
-    expect(cs).toMatch(/validate_number\(:qty, greater_than_or_equal_to: 1/);
+    expect(cs).toMatch(
+      /validate_change\(:qty, fn _, value ->\s+if Decimal\.compare\(elem\(Decimal\.cast\(value\), 1\), Decimal\.new\("1"\)\) != :lt/,
+    );
     // 3 — a method call: the intrinsic chain renders through `renderExpr`.
     expect(cs).toMatch(/String\.trim\(data\.sku\)/);
     // 4 — a contained collection.

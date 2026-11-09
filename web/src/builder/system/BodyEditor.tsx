@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Autocomplete, Box, Button, Group, Select, Stack, Text, TextInput, Textarea } from "@mantine/core";
 import { IconArrowDown, IconArrowUp, IconFx, IconX } from "../icons";
 import { ASSIGN_OPS } from "./expr-model";
+import { IDENTIFIER, IDENTIFIER_RULE } from "./rename";
 import {
   insertIntoList,
   insertMatchArm,
@@ -410,7 +411,7 @@ export function OtherRow({ src, valueEditor, onToggleEditor, error, onCommit, on
 }
 
 // Single-expression keyword rows — `let n = <expr>`, `return <expr>`,
-// `requires <expr>`, `precondition <expr> message "…"`.  Each reconstructs the
+// `requires <expr>`, `precondition <name>: <expr>`.  Each reconstructs the
 // whole statement from its parts (all of them verbatim source text, so nothing
 // is reformatted), and offers the same `ƒx` swap to the structured editor the
 // assignment row does — there it edits just the expression, leaving the
@@ -425,16 +426,16 @@ export function SimpleStmtRow({ view, valueEditor, onToggleEditor, error, onComm
 }): JSX.Element {
   const [name, setName] = useState(view.kind === "let" ? view.name : "");
   const [expr, setExpr] = useState(view.kind === "let" || view.kind === "return" ? view.value : view.expr);
-  const [message, setMessage] = useState(view.kind === "precondition" ? (view.message ?? "") : "");
+  const [ruleName, setRuleName] = useState(view.kind === "precondition" ? (view.name ?? "") : "");
   const structured = valueEditor != null;
   const keyword = view.kind;
   const reconstruct = (n: string, e: string, m: string): string => {
     if (view.kind === "let") return `let ${n.trim()} = ${e.trim()}`;
     if (view.kind === "return") return `return ${e.trim()}`;
     if (view.kind === "requires") return `requires ${e.trim()}`;
-    return `precondition ${e.trim()}${m.trim() ? ` message ${JSON.stringify(m.trim())}` : ""}`;
+    return `precondition ${m.trim() ? `${m.trim()}: ` : ""}${e.trim()}`;
   };
-  const commit = (): void => onCommit(reconstruct(name, expr, message));
+  const commit = (): void => onCommit(reconstruct(name, expr, ruleName));
   return (
     <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
       <Group gap={4} wrap="nowrap" align="flex-start">
@@ -485,17 +486,18 @@ export function SimpleStmtRow({ view, valueEditor, onToggleEditor, error, onComm
       {structured && valueEditor}
       {view.kind === "precondition" && (
         <Group gap={4} wrap="nowrap" align="center" style={{ paddingLeft: 12 }}>
-          <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>message</Text>
+          <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>name</Text>
           <TextInput
             size="xs"
             style={{ flex: 1, minWidth: 0 }}
-            value={message}
-            placeholder="(none)"
-            data-testid="c4system-stmt-message"
-            aria-label="precondition message"
+            value={ruleName}
+            placeholder="(unnamed)"
+            error={ruleName.trim() !== "" && !IDENTIFIER.test(ruleName.trim()) ? IDENTIFIER_RULE : undefined}
+            data-testid="c4system-stmt-rule-name"
+            aria-label="precondition rule name"
             styles={MONO}
             onFocus={onClearError}
-            onChange={(e) => setMessage(e.currentTarget.value)}
+            onChange={(e) => setRuleName(e.currentTarget.value)}
             onBlur={commit}
           />
         </Group>

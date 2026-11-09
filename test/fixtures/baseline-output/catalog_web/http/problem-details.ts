@@ -9,17 +9,20 @@ import { ValueObjectInvariantError } from "../domain/errors";
  *  wire rung gives a request member, for a refusal the wire could not see:
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
- *  checked).  The entry carries the rule's message and, for a
- *  messaged rule, the same content-hash code the wire rung carries.  The
- *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
- *  whole request.  Anything else answers undefined and the caller's own arm
- *  runs. */
+ *  checked).  The entry carries the rule's message, the same code the wire
+ *  rung carries (its identity key, or the generic key of an unnamed rule) and
+ *  the values the rule read as `params`; the body's own `code` is the
+ *  rule's too, since its `detail` is the rule's text.  The pointer is the
+ *  rule's ("/<field>" for a single-field rule) or "" — the whole request.
+ *  Anything else answers undefined and the caller's own arm runs. */
 export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
   if (!(err instanceof ValueObjectInvariantError)) return undefined;
   const trace_id = c.get("requestId") ?? "";
-  const entry = { pointer: "", message: err.message, ...(err.code ? { code: err.code } : {}) };
+  const code = err.code ?? "problem.domain-floor";
+  const params = err.params;
+  const entry = { pointer: "", message: err.message, code, ...(params ? { params } : {}) };
   return c.body(
-    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
+    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, code, ...(params ? { params } : {}), errors: [entry] }),
     status as 422,
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
@@ -57,20 +60,23 @@ export const UuidString = z
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
- *  `errors[]` extension (per-field `{ pointer, message }` array) that
- *  the runtime emits on 422 validation responses.  Consumed by the
- *  frontend ACL's `applyServerErrors`.
+ *  `errors[]` extension (per-field `{ pointer, message, code, params }`
+ *  array) that the runtime emits on 422 validation responses, plus the
+ *  `code` / `params` extension members every refusal carries: `code` is
+ *  the catalog key a client localizes the refusal by, `params` the values
+ *  its message names.  `title` / `detail` / `message` stay English.
+ *  Consumed by the frontend ACL's `applyServerErrors`.
  *  All fields nullable / optional — base 5 per the spec core; `errors` is
- *  only present on 422 validation responses.  All three backends
- *  (Hono / .NET / Phoenix) declare the same shape in lockstep so the
- *  cross-backend parity gate stays green. */
+ *  only present on 422 validation responses. */
 export const ProblemDetails = z.object({
   type: z.string().nullish(),
   title: z.string().nullish(),
   status: z.number().int().nullish(),
   detail: z.string().nullish(),
   instance: z.string().nullish(),
-  errors: z.array(z.object({ pointer: z.string(), message: z.string(), code: z.string().nullish() })).nullish(),
+  code: z.string().nullish(),
+  params: z.record(z.string(), z.unknown()).nullish(),
+  errors: z.array(z.object({ pointer: z.string(), message: z.string(), code: z.string().nullish(), params: z.record(z.string(), z.unknown()).nullish() })).nullish(),
 }).openapi("ProblemDetails");
 
 /** RFC 6901 JSON pointer from a Zod issue path.  Empty path → empty
@@ -111,6 +117,61 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
 }
 
 
+/** The zod issue `params` Loom's own checks attach: the catalog code of the
+ *  refusal (`loomCode`), the values its message names (`loomValues`), or —
+ *  for a named rule — the request members it reads (`loomReads`), read off
+ *  the object the rule judged (the issue's parent when `loomPointed`). */
+interface LoomIssueParams {
+  loomCode?: string;
+  loomValues?: Record<string, unknown>;
+  loomReads?: readonly string[];
+  loomPointed?: boolean;
+}
+
+interface ZodIssueLike {
+  path: ReadonlyArray<PropertyKey>;
+  code?: string;
+  message: string;
+  params?: LoomIssueParams;
+}
+
+/** The zod issue codes that mean the JSON value has the wrong type or shape. */
+const TYPE_MISMATCH_ISSUES: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
+
+/** The value at `path` in the request input, or undefined. */
+function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
+  let node: unknown = input;
+  for (const seg of path) {
+    if (node === null || typeof node !== "object") return undefined;
+    node = (node as Record<PropertyKey, unknown>)[seg];
+  }
+  return node;
+}
+
+/** The `errors[].code` of an issue — the catalog key a client localizes it
+ *  by: the code a Loom check attached, else the field reason read off what
+ *  zod found.  A declared field limit carries its own (`field.min`, …). */
+function issueCode(issue: ZodIssueLike): string {
+  if (issue.params?.loomCode) return issue.params.loomCode;
+  if (issue.message === "Expected UUID.") return "field.malformed-id";
+  if (issue.message === "Integer out of range") return "field.integer-range";
+  if (TYPE_MISMATCH_ISSUES.has(issue.code ?? "")) return "field.type-mismatch";
+  return "field.rule";
+}
+
+/** The `errors[].params` of an issue — the values its message names. */
+function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
+  const p = issue.params;
+  if (p?.loomValues) return p.loomValues;
+  if (issue.message === "Integer out of range") return {"min":-2147483648,"max":2147483647};
+  if (!p?.loomReads || p.loomReads.length === 0) return undefined;
+  const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
+  if (owner === null || typeof owner !== "object") return undefined;
+  const out: Record<string, unknown> = {};
+  for (const name of p.loomReads) out[name] = (owner as Record<string, unknown>)[name];
+  return out;
+}
+
 /** Default Zod-validation hook.  When a route's request validator
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field `errors[]` extension.  The shape
@@ -123,18 +184,21 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
  *  both are well-formed requests the
  *  server refuses on SEMANTIC grounds, which is what RFC 9110 reserves 422
  *  for, and it makes the denial ladder identical on all five backends.  400
- *  stays for a genuinely malformed/unparseable request. */
-export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; code?: string; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
+ *  stays for a genuinely malformed/unparseable request.
+ *
+ *  Each entry's `message` stays English; its `code` (and `params`) is what
+ *  a client localizes it by. */
+export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<ZodIssueLike> } }, c: Context): Response | undefined {
   if (result.success) return undefined;
   const trace_id = c.get("requestId") ?? "";
-  const errors = (result.error?.issues ?? []).map((issue) => ({
-    pointer: pointerOf(issue.path),
-    message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,
-    // A messaged invariant/precondition carries a stable content-hash code (via
-    // the refine's params.loomCode) so a client can localise the error;
-    // structural zod errors (type/min) have none.
-    ...(issue.params?.loomCode ? { code: issue.params.loomCode } : {}),
-  }));
+  const errors = (result.error?.issues ?? []).map((issue) => {
+    const pointer = pointerOf(issue.path);
+    if (isMissing(result.data, issue)) {
+      return { pointer, message: missingFieldMessage(issue.path), code: "field.missing" };
+    }
+    const params = issueParams(result.data, issue);
+    return { pointer, message: issue.message, code: issueCode(issue), ...(params ? { params } : {}) };
+  });
   return c.body(
     JSON.stringify({
       type: "about:blank",
@@ -142,6 +206,7 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
       status: 422,
       detail: "One or more fields are invalid.",
       instance: c.req.path,
+      code: "problem.field-invalid",
       errors,
     }),
     422,
@@ -231,8 +296,26 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   // A 415 reads the same whether hono's own media-type gate or
   // `requireJsonContentType` raised it (RS-39).
   const said = status === 415 ? "Content-Type must be application/json" : detail;
-  return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
+  return JSON.stringify({ type: "about:blank", title, status, detail: said, instance, code: frameworkCode(status, detail) });
 }
+
+/** The wire `code` of a fault the framework raised, by its status — the one
+ *  400 a header raises is told apart from a malformed body by its sentence. */
+function frameworkCode(status: number, detail: string): string {
+  if (status === 400) {
+    return detail.startsWith("Malformed If-Match header: ") ? "problem.malformed-if-match" : "problem.malformed-body";
+  }
+  return FRAMEWORK_CODES[status] ?? "problem.internal";
+}
+
+const FRAMEWORK_CODES: Record<number, string> = {
+  404: "problem.no-route",
+  405: "problem.method-not-allowed",
+  415: "problem.unsupported-media-type",
+  401: "problem.unauthenticated",
+  403: "problem.forbidden",
+  422: "problem.field-invalid",
+};
 
 /** Hono's OWN `json` media-type predicate (`hono/validator/validator.ts`'s
  *  `jsonRegex`), mirrored character-for-character apart from two redundant

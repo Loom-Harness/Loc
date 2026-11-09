@@ -63,28 +63,36 @@ async function all(platform: string, oidc: boolean): Promise<string> {
  *  keeps the gate text in both. */
 const ARMS: Record<string, { real: string[]; dev: string[]; log: string }> = {
   node: {
-    real: ['this.detail = "Forbidden";', 'return problem(403, "Forbidden", err.detail);'],
-    dev: ["this.detail = message;", 'return problem(403, "Forbidden", err.detail);'],
+    real: [
+      'this.detail = "Forbidden";',
+      'return problem(403, "Forbidden", err.detail, "problem.forbidden");',
+    ],
+    // The gate is DSL source: no backend echoes it under the dev stub either
+    // (#4473, D4 amended).
+    dev: [
+      'this.detail = "Forbidden";',
+      'return problem(403, "Forbidden", err.detail, "problem.forbidden");',
+    ],
     log: 'event: "forbidden", aggregate: "Ticket", message: err.message, status: 403',
   },
   dotnet: {
-    real: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id);'],
-    dev: ['Problem(context, 403, "Forbidden", fe.Message, trace_id);'],
+    real: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id, "problem.forbidden");'],
+    dev: ['Problem(context, 403, "Forbidden", "Forbidden", trace_id, "problem.forbidden");'],
     log: '"forbidden", fe.Message, 403',
   },
   java: {
-    real: ['problem(403, "Forbidden", "Forbidden", request), 403'],
-    dev: ['problem(403, "Forbidden", e.getMessage(), request), 403'],
+    real: ['problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403'],
+    dev: ['problem(403, "Forbidden", "Forbidden", "problem.forbidden", request), 403'],
     log: '"message", e.getMessage(), "status", 403',
   },
   python: {
-    real: ['return problem(request, 403, "Forbidden", "Forbidden")'],
-    dev: ['return problem(request, 403, "Forbidden", str(err))'],
+    real: ['return problem(request, 403, "Forbidden", "Forbidden", code="problem.forbidden")'],
+    dev: ['return problem(request, 403, "Forbidden", "Forbidden", code="problem.forbidden")'],
     log: 'log("warn", "forbidden", message=str(err), status=403)',
   },
   elixir: {
-    real: ['detail = if status == 403, do: "Forbidden", else: detail'],
-    dev: [],
+    real: ['detail = if code == "problem.forbidden", do: "Forbidden", else: detail'],
+    dev: ['detail = if code == "problem.forbidden", do: "Forbidden", else: detail'],
     log: 'Logger.warning("forbidden", event: "forbidden", message: detail, status: status)',
   },
 };
@@ -104,8 +112,10 @@ describe("403 detail echoes the gate only under the dev-stub verifier (ruling D4
     });
   }
 
-  it("elixir: the redaction is emitted only under a real verifier", async () => {
-    expect(await all("elixir", false)).not.toContain('do: "Forbidden", else: detail');
+  it("elixir: the redaction keys on the forbidden code, not the status", async () => {
+    // Under every verifier (#4473): a `httpStatus Forbidden -> …` override moves
+    // the status, never the code.
+    expect(await all("elixir", false)).not.toContain("detail = if status == 403");
   });
 
   it("node: no forbidden arm anywhere still answers err.message", async () => {

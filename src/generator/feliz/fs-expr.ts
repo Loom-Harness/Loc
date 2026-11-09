@@ -22,7 +22,7 @@ import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "../_i18n/source-text.js";
 import { fsIdent } from "./fs-ident.js";
 
 /** F# spelling of a Loom binary operator. */
