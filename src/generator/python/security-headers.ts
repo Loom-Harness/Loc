@@ -7,7 +7,10 @@
 // file download) passes through untouched.  main.py adds it last, which makes
 // it the outermost user middleware — every answer the app and the other
 // middlewares produce (401s, 415s, problem documents, /docs, the embedded SPA)
-// goes out through it.
+// goes out through it.  The one answer it cannot see is the catch-all 500:
+// Starlette sends that from ServerErrorMiddleware, outside every user
+// middleware, so that handler stamps the same headers via
+// `with_security_headers`.
 // ---------------------------------------------------------------------------
 
 import { lines } from "../../util/code-builder.js";
@@ -34,6 +37,7 @@ export function renderPySecurityHeaders(): string {
     "",
     "import os",
     "",
+    "from starlette.responses import Response",
     "from starlette.types import ASGIApp, Message, Receive, Scope, Send",
     "",
     `SECURE_TRANSPORT = os.getenv(${JSON.stringify(SECURE_TRANSPORT_ENV)}, "").strip().lower() not in (${offValues})`,
@@ -46,6 +50,13 @@ export function renderPySecurityHeaders(): string {
     "if SECURE_TRANSPORT:",
     `    _HEADERS.append((${pyBytes(HSTS_HEADER[0].toLowerCase())}, ${pyBytes(HSTS_HEADER[1])}))`,
     "_NAMES = {name for name, _ in _HEADERS}",
+    "",
+    "",
+    "def with_security_headers[R: Response](response: R) -> R:",
+    '    """Stamp the headers on a response built outside the middleware stack."""',
+    "    for name, value in _HEADERS:",
+    '        response.headers[name.decode("latin-1")] = value.decode("latin-1")',
+    "    return response",
     "",
     "",
     "class SecurityHeadersMiddleware:",

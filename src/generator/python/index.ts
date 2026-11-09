@@ -2237,6 +2237,7 @@ ${versionedImport}    DisallowedError,
     DomainError,
 ${externImport}    ForbiddenError,
 ${voImport})
+from app.http.security_headers import with_security_headers
 from app.obs.log import correlation_id, log, new_id
 from app.obs.metrics import record_domain_fault
 
@@ -2652,13 +2653,18 @@ ${voHandler}${externHandler}${integrityHandler}${versionedHandler}    @app.excep
         log("error", "internal_error", error=str(err), status=${wireStatus("internal")})
         # The id the fault was logged under: what a user quotes to support.
         request_id = correlation_id() or request.headers.get("x-request-id") or new_id()
-        return problem(
-            request,
-            ${wireStatus("internal")},
-            ${title("internal")},
-            ${JSON.stringify(wireFixedDetail("internal"))},
-            code=${code("internal")},
-            params={"requestId": request_id},
+        # Starlette answers an unhandled exception from ServerErrorMiddleware,
+        # which wraps every user middleware, so SecurityHeadersMiddleware never
+        # sees this response; the handler stamps the headers itself.
+        return with_security_headers(
+            problem(
+                request,
+                ${wireStatus("internal")},
+                ${title("internal")},
+                ${JSON.stringify(wireFixedDetail("internal"))},
+                code=${code("internal")},
+                params={"requestId": request_id},
+            )
         )
 `;
 }
