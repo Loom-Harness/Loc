@@ -508,6 +508,7 @@ export function generateVueForContexts(
     pack,
     options.topLevelComponents ?? [],
     externComponentNames,
+    i18nEnabled,
   );
   const useLayouts = preparedLayouts.length > 0 || nonePages.length > 0;
   for (const l of preparedLayouts) out.set(`src/layouts/${l.name}.vue`, l.content);

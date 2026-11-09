@@ -303,6 +303,7 @@ export function generateSvelteForContexts(
     aggregatesByName,
     bcByAggregate,
     topLevelComponents: options.topLevelComponents ?? [],
+    i18nEnabled,
   })) {
     out.set(path, content);
   }

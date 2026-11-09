@@ -54,7 +54,7 @@ describe("named layouts — Vue", () => {
     const layout = files.get("src/layouts/Marketing.vue")!;
     expect(layout).toBeDefined();
     // header + footer walked to pack markup, the `main` slot is the outlet.
-    expect(layout).toContain("<h3>Acme</h3>");
+    expect(layout).toContain('"Acme") }}</h3>');
     expect(layout).toContain("<router-view />");
     expect(layout).toContain("© Acme");
     expect(layout).toContain('data-testid="layout-marketing"');
@@ -116,5 +116,17 @@ describe("named layouts — Vue", () => {
     const router = files.get("src/router.ts")!;
     expect(router).not.toContain("children:");
     expect(router).toContain('{ path: "/dash", component: () => import("./pages/dash.vue") },');
+  });
+});
+
+describe("named layouts — i18n", () => {
+  it("renders slot text through t() under the layout's key prefix", async () => {
+    const files = await vueFiles(SRC);
+    const layout = files.get("src/layouts/Marketing.vue")!;
+    expect(layout).toContain('import { t } from "../lib/locale";');
+    expect(layout).toMatch(
+      /<h3>\{\{ t\("Web\.layout\.Marketing\.heading\.[a-z0-9]+", "Acme"\) \}\}<\/h3>/,
+    );
+    expect(layout).toMatch(/t\("Web\.layout\.Marketing\.text\.[a-z0-9]+", "© Acme"\)/);
   });
 });
