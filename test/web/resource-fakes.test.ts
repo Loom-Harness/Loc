@@ -3,7 +3,16 @@
 // `node:fs` facade, the REST mock, and the bundle-time facades.  These pin the
 // wire behaviour; `web/e2e/resource-fakes.spec.ts` proves the SDKs end to end.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// `openapi-sampler` is a web/ dependency; the root suite runs without web/node_modules.
+vi.mock("openapi-sampler", () => ({
+  sample: (schema: { properties?: Record<string, { type: string }> }) =>
+    Object.fromEntries(
+      Object.entries(schema.properties ?? {}).map(([k, v]) => [k, v.type === "number" ? 0 : ""]),
+    ),
+}));
+
 import {
   adaptResourceSource,
   fsFacade,
