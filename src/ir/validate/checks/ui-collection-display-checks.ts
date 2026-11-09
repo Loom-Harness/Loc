@@ -32,6 +32,7 @@ import {
   pagedEnvelopeLambdaParam,
   rowSetLambdaParam,
 } from "../../util/collection-op-site.js";
+import { richTextMessage } from "../../util/icu-message.js";
 import { typeLabel } from "../../util/type-label.js";
 import {
   walkExprChildren,
@@ -423,6 +424,9 @@ export function checkFixedSlotArity(
     walkRenderedPrimitives(root, (e) => {
       const spec = WALKER_PRIMITIVE_SLOTS.get(e.name);
       if (spec) {
+        // A `Text` whose children are all inline text (strings and emphasis
+        // spans) is ONE rich sentence, not a slot with extra children.
+        if (richTextMessage(e)) return;
         if (positionalArgsOf(e).length <= spec.max || flagged.has(e.name)) return;
         flagged.add(e.name);
         diags.push({

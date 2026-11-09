@@ -621,7 +621,7 @@ system DevPlatform {
         // Card / Stat / Badge / Divider / Money / KeyValueRow / Modal.
         page ProjectDetail(id: Project id) {
             route: "/projects/:id"
-            title: "Project"
+            title: `Project {id}`
             state {
                 editing: bool = false
                 draftName: string = ""
@@ -719,6 +719,7 @@ system DevPlatform {
                     id: "inline",
                     Heading { "Inline", level: 3 },
                     Stack {
+                        Text { "Read the ", Bold { "terms" }, " first" },
                         Bold { "bold" },
                         Italic { "italic" },
                         InlineCode { "code" },

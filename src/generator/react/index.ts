@@ -50,7 +50,7 @@ import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
@@ -239,7 +239,8 @@ export function generateReactForContexts(
   // React (a `t()` return in a JSX text node), not at compile time — safe, and
   // the reason the emitted default keeps its raw source form.
   const i18nEnabled =
-    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+    collectUiMessages(ui, sys.layouts).length > 0 ||
+    uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
   // Whether the app ships two or more locales (the source plus at least one
   // translated catalog) — the condition for the shell header's switcher.  Set
   // where the translated catalogs are emitted, below.
@@ -250,6 +251,7 @@ export function generateReactForContexts(
   pack.setChromeI18n(i18nEnabled);
   const packChrome = packChromeCatalog(pack.manifest);
   const formScope = {
+    layouts: sys.layouts,
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
@@ -447,6 +449,7 @@ export function generateReactForContexts(
     pack,
     extraRouteSplit.namedLayouts ?? new Map(),
     options.topLevelComponents ?? [],
+    i18nEnabled,
   );
   const namedLayouts = layoutPrep.namedLayouts;
   const layoutImports = layoutPrep.extraImports;
@@ -671,6 +674,8 @@ export function generateReactForContexts(
 
 interface IndexHtmlVM {
   title: string;
+  /** Catalog key of the static `title` — set under i18n, for a literal title. */
+  titleKey?: string;
   lang: string;
   dir?: string;
   description?: string;
@@ -690,10 +695,16 @@ function prepareIndexHtmlVM(
   // name, then the deployable's.  The deployable name is an infrastructure
   // identifier (`webApp`) — it named the browser tab of every scaffolded app,
   // which is the one string a user sees before any of their own (finding E7).
-  const title = staticTitleOf(page) ?? humanize(sys.name) ?? deployable.name;
+  const staticTitle = staticTitleOf(page);
+  const title = staticTitle ?? humanize(sys.name) ?? deployable.name;
   const metadata = page?.metadata;
   return {
     title,
+    // The translation runtime re-spells a keyed `<title>` in the active locale
+    // before the app mounts.
+    ...(i18nEnabled && page && staticTitle !== undefined
+      ? { titleKey: messageKey(pageKeyPrefix(ui, page), "title", staticTitle) }
+      : {}),
     lang: sourceLocaleOf(sys),
     // `dir` only under i18n: the runtime keeps it in step on a switch, and an
     // app with no locale model keeps its markup byte-identical.

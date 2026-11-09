@@ -12,7 +12,8 @@ import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
-import { localizedModelText } from "../_walker/i18n-emit.js";
+import { sentenceChromeName } from "../_walker/i18n-chrome.js";
+import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import type { AngularFieldMessage } from "./form-validators.js";
@@ -701,8 +702,9 @@ export interface AngularFieldArraySpec {
   fieldName: string;
   /** The per-row `FormControl` specs (one per value-object sub-field). */
   rowControls: AngularFormControlSpec[];
-  /** Humanised singular label for the Add button (`Line Item`). */
-  elementLabel: string;
+  /** The value object each row holds (`LineItem`) — names the Add button's
+   *  whole-sentence catalog entry (`chrome.addItem.LineItem`). */
+  elementName: string;
   /** Component method that pushes a fresh row (`addItems`). */
   addMethod: string;
   /** Component method that removes a row by index (`removeItems`). */
@@ -740,7 +742,7 @@ export function fieldArraySpec(
   return {
     fieldName: name,
     rowControls: voFields.map((f) => ({ name: f.name, init: controlInit(f.type) })),
-    elementLabel: humanize(elementName),
+    elementName,
     addMethod: `add${pascal}`,
     removeMethod: `remove${pascal}`,
     getter: `${name}Array`,
@@ -793,7 +795,7 @@ export function fieldArrayInput(
   const add = formButton(ctx, {
     type: "button",
     emphasis: "secondary",
-    label: `Add ${spec.elementLabel}`,
+    label: localizedPageChromeText(ctx, sentenceChromeName("addItem", spec.elementName)),
     attrs: ` (click)="${spec.addMethod}()"`,
   });
   return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (__row of ${spec.getter}.controls; track $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;

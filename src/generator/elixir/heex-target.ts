@@ -28,6 +28,9 @@ import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_wa
 import { escapeHeexAttr, escapeHeexText } from "./heex-walker-core.js";
 
 export const heexTarget: WalkerTarget = {
+  // Rich text renders through the parallel HEEx engine (`heex-walker-core.ts`),
+  // never through this shim.
+  renderRichText: () => "",
   framework: "phoenixLiveView",
 
   // Expression-syntax leaves — HEEx runs a PARALLEL walker

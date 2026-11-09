@@ -763,7 +763,7 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "a single-spine receiver peel (member / method-call / paren) that returns `undefined` at the first non-link kind — a new ExprIR kind is correctly 'not a receiver chain', not a dropped child",
   },
-  "src/generator/_walker/i18n-extract.ts#peelHole": {
+  "src/ir/util/icu-message.ts#peelHole": {
     standing:
       "a single-spine peel of a hole expression (i18nFormat / string convert / `.display` / paren) that stops at the first non-wrapper kind; the kind-specific naming after the loop reads only member / ref / method-call and leaves every other kind nameless by design",
   },

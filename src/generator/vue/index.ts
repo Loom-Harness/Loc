@@ -73,7 +73,12 @@ import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { collectUiMessages, componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import {
+  collectUiMessages,
+  componentKeyPrefix,
+  messageKey,
+  pageKeyPrefix,
+} from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
@@ -208,7 +213,7 @@ export function generateVueForContexts(
   // shim + `src/locales/en.json`.  Empty catalog → no translation runtime, walk
   // sites pass `undefined` and output stays byte-identical to pre-i18n.
   const i18nEnabled =
-    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+    collectUiMessages(ui, sys.layouts).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
   // Two or more locales ship (the source plus a translated catalog): the shell
   // header carries the `LocaleSwitcher` and the routed tree re-renders on a
   // switch.  Set where the translated catalogs are emitted, below.
@@ -217,6 +222,7 @@ export function generateVueForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   const formScope = {
+    layouts: sys.layouts,
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
@@ -1074,9 +1080,15 @@ function prepareIndexHtmlVM(
 ): Record<string, unknown> {
   const page = ui.pages.find((p) => p.route === "/") ?? ui.pages[0];
   const metadata = page?.metadata;
+  const staticTitle = staticTitleOf(page);
   return {
     // System name before deployable name — see the react twin (finding E7).
-    title: staticTitleOf(page) ?? humanize(sys.name) ?? deployable.name,
+    title: staticTitle ?? humanize(sys.name) ?? deployable.name,
+    // The translation runtime re-spells a keyed `<title>` in the active locale
+    // before the app mounts.
+    ...(i18nEnabled && page && staticTitle !== undefined
+      ? { titleKey: messageKey(pageKeyPrefix(ui, page), "title", staticTitle) }
+      : {}),
     lang: sourceLocaleOf(sys),
     // `dir` only under i18n: the runtime keeps it in step on a switch, and an
     // app with no locale model keeps its markup byte-identical.

@@ -10,6 +10,7 @@ import {
   localizedChromeAria,
   localizedPageChromeValue,
   localizedPositionalAttr,
+  localizedRichText,
   localizedText,
 } from "../i18n-emit.js";
 import { enumBadgeValueExpr } from "../model-text-sites.js";
@@ -338,7 +339,7 @@ export function emitHeading(
 export function emitText(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
   void depth;
   return renderPrimitive(ctx, "primitive-text", {
-    text: localizedText(call, ctx, "text", '""'),
+    text: localizedRichText(call, ctx) ?? localizedText(call, ctx, "text", '""'),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
