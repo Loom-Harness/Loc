@@ -2,6 +2,7 @@ import { Button, Card, Group, Stack, Text, UnstyledButton } from "@mantine/core"
 import type { LayoutCtx } from "./ctx";
 import { queueReveal } from "../editor/pending-reveal";
 import { FIRST_RUN } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The first-run card (M-T8.18 slice 3, audit H5): three doors on a workspace
 // that has never been edited in this browser.  Desktop floats it over the
@@ -20,7 +21,7 @@ interface Props {
   ctx: Pick<LayoutCtx, "isDesktop" | "dismissFirstRun" | "askAgent" | "openExamples" | "editorHandleRef">;
 }
 
-export function FirstRunCard({ ctx }: Props): JSX.Element {
+function FirstRunCardView({ ctx }: Props): JSX.Element {
   const { isDesktop, dismissFirstRun, askAgent, openExamples, editorHandleRef } = ctx;
   const describe = (): void => {
     dismissFirstRun();
@@ -114,3 +115,5 @@ function Door({ title, hint, onClick, testid }: { title: string; hint: string; o
     </UnstyledButton>
   );
 }
+
+export const FirstRunCard = trackedCtx("FirstRunCard", FirstRunCardView);

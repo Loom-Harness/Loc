@@ -8,6 +8,7 @@ import type { LayoutCtx } from "./ctx";
 import { describePendingMigration } from "./pending-migration";
 import { inDocumentOrder, toEditorRange } from "./problem-nav";
 import { FREE_ACTION, PENDING_MIGRATION, PROBLEMS } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The Problems stream as a teaching surface (M-T8.18 slice 1, audit H7).
 //
@@ -39,7 +40,7 @@ interface Props {
   >;
 }
 
-export function ProblemsPanel({ ctx }: Props): JSX.Element {
+function ProblemsPanelView({ ctx }: Props): JSX.Element {
   const { diagnostics, getSource, activeSourcePath, editorHandleRef, revealSourceRange, askAgent } = ctx;
   const [showErrors, setShowErrors] = useState(true);
   const [showWarnings, setShowWarnings] = useState(true);
@@ -280,3 +281,5 @@ function ProblemRow({
     </Group>
   );
 }
+
+export const ProblemsPanel = trackedCtx("ProblemsPanel", ProblemsPanelView);

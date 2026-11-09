@@ -6,6 +6,7 @@ import { PlainEditor } from "../editor/PlainEditor";
 import { LazyLoomEditor, preloadDesktopEditor } from "./lazy-panels";
 import { SourceFilesTree } from "./SourceFilesTree";
 import type { LayoutCtx } from "./ctx";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -26,7 +27,7 @@ interface Props {
 //   - Mobile: a collapsible tree above the editor (closed by default so
 //     the editor keeps the viewport); same context menu via long-press,
 //     plus a header "+" and per-row delete for touch.
-export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null {
+function EditorPaneView({ ctx, border = "none" }: Props): JSX.Element | null {
   const {
     lspClient,
     initialSource,
@@ -37,7 +38,6 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
     editorHandleRef,
     activeSourcePath,
     sourceEpoch,
-    sourceFiles,
     setActiveSourcePath,
     createSourceFile,
     deleteSourceFile,
@@ -92,10 +92,12 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
   // desktop the single file explorer lives in the left Explorer panel
   // (DesktopShell), so the editor pane is just the editor — no second
   // tree of the same files.
+  // `ctx.sourceFiles` is read only on this branch: it changes on every
+  // keystroke, and on desktop this pane has no tree to show it in.
   const explorer = isDesktop ? null : (
     <SourceFilesTree
       variant="accordion"
-      files={sourceFiles}
+      files={ctx.sourceFiles}
       activePath={activeSourcePath}
       onSelect={setActiveSourcePath}
       onCreate={createSourceFile}
@@ -190,3 +192,5 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
     </Box>
   );
 }
+
+export const EditorPane = trackedCtx("EditorPane", EditorPaneView);
