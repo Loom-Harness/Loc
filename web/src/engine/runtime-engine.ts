@@ -96,6 +96,16 @@ export interface PreparedBuild {
  *  agnostic. */
 export interface RuntimeDispatcher {
   dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult>;
+  /** Answer an HTTP request the preview iframe sent to a fake cloud endpoint
+   *  (a presigned S3 URL) from the infra worker.  Absent on an engine with no
+   *  resource fakes. */
+  serveInfraHttp?(req: {
+    service: "s3";
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: Uint8Array;
+  }): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }>;
 }
 
 /** Opaque, structured-clone-serialisable engine state for the

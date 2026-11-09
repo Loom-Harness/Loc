@@ -646,6 +646,12 @@ export default function App(): JSX.Element {
           : req.headers;
         return engine.dispatch({ ...req, headers });
       },
+      serveInfraHttp: (req) => {
+        const serve = engineRef.current?.serveInfraHttp;
+        return serve
+          ? serve(req)
+          : Promise.reject(new Error("No object store is running — boot the backend first."));
+      },
     }),
     [],
   );

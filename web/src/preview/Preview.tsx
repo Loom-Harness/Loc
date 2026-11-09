@@ -296,6 +296,10 @@ export function Preview({
         setSelectMode(false);
         onSelectElementRef.current?.(testid);
       },
+      (req) =>
+        runtime.serveInfraHttp
+          ? runtime.serveInfraHttp(req)
+          : Promise.reject(new Error("This runtime has no object store.")),
     );
     bridgeRef.current = bridge;
     startedCodeKeyRef.current = codeKey;
