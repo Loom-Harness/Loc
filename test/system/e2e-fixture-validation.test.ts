@@ -45,9 +45,14 @@ function e2eFixtures(): string[] {
   return out.sort((a, b) => a.localeCompare(b));
 }
 
-/** The fixtures grouped by their leg's directory — one `it` each, so a
- *  failure names the leg that would have gone red and no single case runs
- *  long enough to need an unusual timeout. */
+/** At most this many fixtures per `it`.  A leg validates ~0.4 s per fixture
+ *  uninstrumented and about twice that under v8 coverage, so a chunk stays well
+ *  inside the timeout however large a leg grows. */
+const CHUNK = 20;
+
+/** The fixtures grouped by their leg's directory, split into chunks of
+ *  {@link CHUNK} — one `it` each, so a failure names the leg that would have
+ *  gone red and no single case runs long enough to need an unusual timeout. */
 function byLeg(): Map<string, string[]> {
   const legs = new Map<string, string[]>();
   for (const rel of e2eFixtures()) {
@@ -56,7 +61,20 @@ function byLeg(): Map<string, string[]> {
     if (list) list.push(rel);
     else legs.set(leg, [rel]);
   }
-  return legs;
+  const chunks = new Map<string, string[]>();
+  for (const [leg, files] of legs) {
+    if (files.length <= CHUNK) {
+      chunks.set(leg, files);
+      continue;
+    }
+    for (let i = 0; i < files.length; i += CHUNK) {
+      chunks.set(
+        `${leg} [${i + 1}–${Math.min(i + CHUNK, files.length)}]`,
+        files.slice(i, i + CHUNK),
+      );
+    }
+  }
+  return chunks;
 }
 
 describe("e2e fixtures validate", () => {
