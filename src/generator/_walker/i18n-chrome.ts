@@ -147,7 +147,10 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
  *  "undefined" — the emitted default MUST equal the catalog entry, so the two
  *  read the same table instead of repeating the English by hand. */
 export function chromeMessage(name: string): string {
-  const message = CHROME_MESSAGES[chromeKey(name)] ?? sentenceChromeMessage(name);
+  const message =
+    CHROME_MESSAGES[chromeKey(name)] ??
+    FALLBACK_LABEL_CHROME[chromeKey(name)] ??
+    sentenceChromeMessage(name);
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
   return sourceText(chromeKey(name), message);
 }
@@ -177,12 +180,26 @@ export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   deleteConfirm: (aggregate) => `Delete this ${humanize(aggregate).toLowerCase()}?`,
   addItem: (element) => `Add ${humanize(element)}`,
   operationSucceeded: (operation) => `${humanize(operation)} succeeded`,
+  // The header of a table / grid column whose header is neither a literal nor
+  // `label(…)`.  The subject is the column's 1-based position, known at
+  // generate time, so each position is its own whole message.
+  column: (position) => `Column ${position}`,
 };
 
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
   return `${base}.${subject}`;
 }
+
+/** Placeholder text a target renders where the model gives it nothing to show:
+ *  an empty form's single input label, a column-less table's only header.
+ *  Merged when the scope says the target renders them
+ *  ({@link FormSentenceScope.fallbackLabels}). */
+export const FALLBACK_LABEL_CHROME: Record<string, string> = {
+  [chromeKey("fieldFallback")]: "Field",
+  [chromeKey("dataFallback")]: "Data",
+  [chromeKey("submitFallback")]: "Submit",
+};
 
 function sentenceChromeMessage(name: string): string | undefined {
   const dot = name.indexOf(".");
@@ -218,6 +235,30 @@ function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void
   else arrayElementValueObjects(el, out);
 }
 
+/** The `column.<n>` sentences a `Table` / `DataGrid` renders: one for every
+ *  `Column` whose header is neither a string literal nor `label(…)`, numbered by
+ *  its position among the `Column` calls, and one for every positional child
+ *  that is not a `Column`, numbered by its position among all positionals. */
+export function fallbackColumnNames(call: ExprIR & { kind: "call" }): string[] {
+  const names: string[] = [];
+  let column = 0;
+  let position = 0;
+  call.args.forEach((arg, i) => {
+    if (call.argNames?.[i]) return;
+    position++;
+    if (arg.kind === "call" && arg.name === "Column") {
+      column++;
+      const header = arg.args.find((_, j) => !arg.argNames?.[j]);
+      const hasText =
+        header?.kind === "modelText" || (header?.kind === "literal" && header.lit === "string");
+      if (!hasText) names.push(sentenceChromeName("column", String(column)));
+    } else {
+      names.push(sentenceChromeName("column", String(position)));
+    }
+  });
+  return names;
+}
+
 /** What the model-dependent sentences of a UI's FORMS are enumerated against.
  *
  *  `contexts` resolve the aggregates, operations and workflows a form call
@@ -235,6 +276,8 @@ export interface FormSentenceScope {
   /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
    *  no update flow to defer them to), so their labels are catalogued too. */
   readonly optionalCreateInputs?: boolean;
+  /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
+  readonly fallbackLabels?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -298,6 +341,8 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
             }
           }
         }
+      } else if (e.name === "Table" || e.name === "DataGrid") {
+        for (const n of fallbackColumnNames(e)) names.add(n);
       } else if (e.name === "CreateForm" && wants("addItem")) {
         const agg = aggregates.get(ofName(e, "of") ?? "");
         if (agg)
@@ -492,6 +537,7 @@ export function chromeMergedWhenEnabled(
     // The implicit model-text sites (form labels, enum options, submit
     // buttons) — identity-keyed, and like the form chrome above never the
     // reason a UI turns translatable.
+    if (scope?.fallbackLabels) Object.assign(out, FALLBACK_LABEL_CHROME);
     if (scope?.implicitModelText) {
       for (const { key, message } of implicitModelTextEntries(ui, scope.contexts, {
         optionalCreateInputs: scope.optionalCreateInputs === true,

@@ -127,6 +127,34 @@ export function opModelText(
   return { markup: ctx.target.renderInterpolation(expr, STRING), expr };
 }
 
+/** The key and English default of a workflow's run button,
+ *  `<Ctx>.<Workflow>.op.run` → "Run" — the one spelling every target's
+ *  `WorkflowForm` submit reads. */
+export function workflowRunEntry(
+  wfName: string,
+  bc: BoundedContextIR,
+  contexts: Iterable<BoundedContextIR>,
+): { key: string; defaultText: string } {
+  return modelTextEntry({
+    ctx: modelTextContextOf(wfName, bc, contexts),
+    type: wfName,
+    facet: "op",
+    member: "run",
+  });
+}
+
+/** A workflow form's run button as a markup token; undefined when the site is
+ *  off (the target keeps its literal "Run"). */
+export function workflowRunModelText(
+  ctx: WalkContext,
+  bc: BoundedContextIR,
+  wfName: string,
+): string | undefined {
+  if (!implicitModelTextOn(ctx)) return undefined;
+  const { key, defaultText } = workflowRunEntry(wfName, bc, ctx.bcByAggregate.values());
+  return ctx.target.renderInterpolation(localizedModelText(ctx, key, defaultText), STRING);
+}
+
 /** The identity-keyed text of ONE form input, resolved off the model rather
  *  than a pack view-model — for the frontends whose forms are emitted from a
  *  spec, not rendered through pack templates (Feliz, Flutter).  Mirrors
@@ -364,6 +392,8 @@ export function implicitModelTextEntries(
       } else if (e.name === "WorkflowForm") {
         const hit = workflows.get(namedRef(e, "runs") ?? "");
         if (!hit) return;
+        const run = workflowRunEntry(hit.wf.name, hit.bc, contexts);
+        out.push({ key: run.key, message: run.defaultText });
         for (const p of hit.wf.params) fieldEntries(hit.wf.name, p, hit.bc, contexts, out);
       } else if (e.name === "EnumBadge") {
         rendersBadge = true;

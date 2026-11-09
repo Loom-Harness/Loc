@@ -42,7 +42,7 @@ import {
   sentenceChromeName,
 } from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
-import { paramLabelOwner } from "../_walker/model-text-sites.js";
+import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
 import { gridCols, slugify } from "../_walker/shared/args.js";
@@ -506,14 +506,21 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     }
   }
   if (inputs.length === 0) {
-    inputs.push(`  <.input field={@form[:_placeholder]} label="Field" />`);
+    inputs.push(
+      `  <.input field={@form[:_placeholder]} label=${heexChromeAttr(ctx, "fieldFallback")} />`,
+    );
   }
   // The submit control the page objects click (`<ns>-submit`).  Without it a
   // driver has to fall back to text matching, which breaks under i18n.
   const submitTestid = testidNs ? ` data-testid="${escapeHeexAttr(`${testidNs}-submit`)}"` : "";
   // A create form's submit button is the aggregate's `create` operation label.
   const createCall = ofPascal ? opLabelCall(ctx, ofPascal, "create") : undefined;
-  const submitText = createCall ? `<%= ${createCall} %>` : "Submit";
+  const runLabel = runsWorkflow ? workflowRunLabel(ctx, runsWorkflow.name) : undefined;
+  const submitText = createCall
+    ? `<%= ${createCall} %>`
+    : runLabel
+      ? labelText(runLabel)
+      : heexChromeText(ctx, "submitFallback");
   return [
     `<.simple_form for={@form} phx-submit="${submitEvent}"${testidAttr}>`,
     ...inputs,
@@ -899,16 +906,24 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   const sortAttrs = sortActive ? ` sort_key={@${sortKey}} sort_dir={@${sortDir}}` : "";
 
   const rowsArg = namedArg(expr, "rows");
+  // A `Column` is numbered among the `Column` calls, any other child by its
+  // position among all positionals — the numbering `fallbackColumnNames`
+  // catalogues.
+  let columnNo = 0;
   const colSlots = cols
     .map((c, i) =>
-      c.kind === "call"
-        ? renderTableColumn(c, withColumnRowType(ctx, rowsArg, c), sortActive, i)
-        : `<:col :let={_row} label="Column ${i + 1}">${renderChild(c, ctx)}</:col>`,
+      c.kind === "call" && c.name === "Column"
+        ? renderTableColumn(c, withColumnRowType(ctx, rowsArg, c), sortActive, columnNo++)
+        : c.kind === "call"
+          ? renderTableColumn(c, ctx, sortActive, i)
+          : `<:col :let={_row} label=${heexChromeAttr(ctx, sentenceChromeName("column", String(i + 1)))}>${renderChild(c, ctx)}</:col>`,
     )
     .join("\n");
   const table = [
     `<.table id=${idAttr}${testidAttr}${sortAttrs} rows={${rowsAttr}}>`,
-    colSlots.length > 0 ? indent(colSlots, 2) : `  <:col :let={_row} label="Data"></:col>`,
+    colSlots.length > 0
+      ? indent(colSlots, 2)
+      : `  <:col :let={_row} label=${heexChromeAttr(ctx, "dataFallback")}></:col>`,
     `</.table>`,
   ].join("\n");
 
@@ -1041,7 +1056,7 @@ export function renderTableColumn(
 ): string {
   if (expr.name !== "Column") {
     // Unexpected shape — emit a stub slot.
-    return `<:col :let={_row} label="Column ${index + 1}">${renderChild(expr, ctx)}</:col>`;
+    return `<:col :let={_row} label=${heexChromeAttr(ctx, sentenceChromeName("column", String(index + 1)))}>${renderChild(expr, ctx)}</:col>`;
   }
   // First positional arg: label string
   // Second positional arg: accessor lambda `fn cell -> renderCell(cell) end`
@@ -1064,7 +1079,7 @@ export function renderTableColumn(
     ? labelArg.value
     : labelArg?.kind === "modelText"
       ? sourceText(labelArg.key, labelArg.defaultText)
-      : `Column ${index + 1}`;
+      : "";
   // The header is a user-visible slot (`columnHeader`): a plain literal
   // rides `pgettext` through the `{…}` expression-attribute form the `<:col>`
   // slot's `label` takes.  Off i18n it is the quoted literal — byte-identical.
@@ -1076,7 +1091,9 @@ export function renderTableColumn(
     ? localizedHeexAttr(labelArg, ctx, "columnHeader")
     : labelArg?.kind === "modelText" && ctx.i18nPrefix
       ? `{${pgettextCall(labelArg.key, labelArg.defaultText)}}`
-      : undefined;
+      : labelArg?.kind === "modelText"
+        ? undefined
+        : heexChromeAttr(ctx, sentenceChromeName("column", String(index + 1)));
   const accessor = lambdaArg ?? positionals[1];
   if (accessor && accessor.kind === "lambda" && accessor.body) {
     // The row variable is a :let={o} slot binding — a local variable, NOT
@@ -1513,7 +1530,9 @@ export function renderKeyValueRow(
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   // The row label is a user-visible slot (`keyValue`), so a plain literal rides
   // the translation runtime under i18n and stays raw otherwise.
-  const label = positionals[0] ? renderInTemplate(positionals[0], ctx, "keyValue") : "Field";
+  const label = positionals[0]
+    ? renderInTemplate(positionals[0], ctx, "keyValue")
+    : heexChromeText(ctx, "fieldFallback");
   // The VALUE is authored prose too, and it rode NO role — so the row's two
   // halves diverged: the label translated and the value shipped in English at
   // every locale (G2667 §D9).  `keyValueValue` is the same role the JSX walker
@@ -2181,6 +2200,36 @@ export function renderDestroyForm(
   const labelText =
     label.call !== undefined ? `<%= ${label.call} %>` : escapeHeexText(label.english);
   return `<.button phx-click="${eventName}" phx-value-id={@id} data-confirm=${confirmAttr} class="btn-danger"${testidAttr}>${labelText}</.button>`;
+}
+
+/** A chrome sentence as a HEEx ATTRIBUTE VALUE: the `{pgettext(…)}` expression
+ *  form under i18n, else the quoted escaped English. */
+function heexChromeAttr(ctx: WalkContext, name: string): string {
+  const { english, call } = heexChrome(ctx, name);
+  return call !== undefined ? `{${call}}` : `"${escapeHeexAttr(english)}"`;
+}
+
+/** A chrome sentence in HEEx TEXT position. */
+function heexChromeText(ctx: WalkContext, name: string): string {
+  return labelText(heexChrome(ctx, name));
+}
+
+/** A `{ english, call? }` label in HEEx TEXT position. */
+function labelText(label: { english: string; call?: string }): string {
+  return label.call !== undefined ? `<%= ${label.call} %>` : escapeHeexText(label.english);
+}
+
+/** The run button of a workflow form, keyed `<Ctx>.<Workflow>.op.run`. */
+function workflowRunLabel(
+  ctx: WalkContext,
+  wfName: string,
+): { english: string; call?: string } | undefined {
+  const bcs = new Set(ctx.bcByAggregate.values());
+  const bc = [...bcs].find((c) => c.workflows.some((w) => w.name === wfName));
+  if (!bc) return undefined;
+  const { key, defaultText } = workflowRunEntry(wfName, bc, bcs);
+  const english = sourceText(key, defaultText);
+  return ctx.i18nPrefix ? { english, call: pgettextCall(key, defaultText) } : { english };
 }
 
 /** A shared `chrome.<name>` sentence.  `english` is the message; `call` —

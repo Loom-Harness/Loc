@@ -201,10 +201,10 @@ describe("HEEx Table column headers are attribute-safe", () => {
       `Table { rows: api.Doc.all, Column { "First", d => d.name }, Column { q, d => d.name } }`,
       `state { q: string = "" }`,
     );
-    // The literal header translates; the non-literal one keeps the escaped
-    // static fallback (never the i18n form — there is nothing to key on).
+    // The literal header translates by its content hash; the non-literal one
+    // has no source string, so it reads the positional `chrome.column.2` message.
     expect(heex).toMatch(/label=\{pgettext\("[^"]+", "First"\)\}/);
-    expect(heex).toContain('label="Column 2"');
+    expect(heex).toContain('label={pgettext("chrome.column.2", "Column 2")}');
     // The leak: the rendered Elixir expression spliced inside the quotes.
     expect(heex).not.toContain('label="@q"');
     expect(heex).not.toContain("label={@q}");

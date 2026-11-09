@@ -43,7 +43,12 @@ import {
   localizedText,
   registerI18nImport,
 } from "../i18n-emit.js";
-import { formFieldModelTextTokens, opModelText, paramLabelOwner } from "../model-text-sites.js";
+import {
+  formFieldModelTextTokens,
+  opModelText,
+  paramLabelOwner,
+  workflowRunModelText,
+} from "../model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
@@ -861,7 +866,7 @@ function emitFormRuns(
     successMessage: `${humanize(workflow.name)} completed`,
     redirectStmt: `navigate("/workflows")`,
     submitPendingExpr: "run.isPending",
-    submitLabel: "Run",
+    submitLabel: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",
   });
 }
 

@@ -136,6 +136,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // The HEEx create form renders optional inputs too (it has no update
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
+        fallbackLabels: formats.has("heex"),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);
