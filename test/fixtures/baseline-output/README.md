@@ -83,11 +83,14 @@ The `e2e` projects have their own `package.json` and their own dependencies. Not
 
 ### `api/` — unit tests
 
-Emitted from the model's `test` blocks: the domain rules, exercised in process. No database, no running server.
+Emitted from the model's `test` blocks and run in process, with no running server. A `test` inside an aggregate is a unit test of its domain rules and needs nothing else.
+
+To run a single test, pass its name from the model: each block below ends with that command for one of this model's tests (Java and Python name a test's method after it, spaces as underscores).
 
 ```bash
 cd api
 dotnet test Tests/Api.Tests
+dotnet test Tests/Api.Tests --filter 'DisplayName=confirming an order with no lines is rejected'   # just one test
 ```
 
 ### `e2e/` — API tests over HTTP
