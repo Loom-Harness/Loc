@@ -2820,7 +2820,9 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   long: `z.coerce.number().int()${LONG_SAFE}`,
   decimal: "z.coerce.number()",
   money: "moneySchema",
-  string: "z.string()",
+  // A query string is the same Postgres `text` a body string is, so it gets
+  // the same NUL guard — without it a `%00` reached the driver as a 500.
+  string: `z.string()${NO_NUL}`,
   bool: QUERY_BOOL,
   datetime: "z.coerce.date()",
   date: BODY_DATE,

@@ -94,4 +94,24 @@ describe("ddd new — auth guidance under the denyByDefault language default", (
     const userBlock = (fences[0] ?? "").split("auth {")[0] ?? "";
     expect(await denyCodes(withAuth(`${userBlock}${fences[1] ?? ""}`))).toEqual([]);
   });
+
+  it("the README's `enforcement: opt` block, pasted as instructed, raises no warning at all", async () => {
+    // The onboarding snippet is the first auth config an adopter writes, so it
+    // must be one the compiler accepts silently — in particular it declares an
+    // `audience:`, without which the verifier skips the `aud` check
+    // (`loom.auth-oidc-no-audience`).
+    const userBlock = (fences[0] ?? "").split("auth {")[0] ?? "";
+    const source = withAuth(`${userBlock}${fences[1] ?? ""}`);
+    const { model, errors, warnings } = await parseString(source);
+    expect(errors).toEqual([]);
+    expect(warnings).toEqual([]);
+    const irWarnings = validateLoomModel(enrichLoomModel(lowerModel(model)))
+      .filter((d) => d.severity !== "error")
+      .map((d) => d.code ?? d.message);
+    expect(irWarnings).toEqual([]);
+  });
+
+  it("both README auth blocks declare an audience", () => {
+    for (const fence of fences) expect(fence).toMatch(/oidc \{[^}]*audience:/);
+  });
 });

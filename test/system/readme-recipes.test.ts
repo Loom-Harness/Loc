@@ -186,7 +186,9 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
       const root = csprojs.filter((p) => !p.includes("/"));
       return root.length === 1 ? null : `\`dotnet run\`: ${root.length} csproj files at the root`;
     }
-    const test = /^dotnet test(?: (\S+))?$/.exec(cmd);
+    // A `--filter '<expr>'` narrows the run to one test; the project it names
+    // is checked the same way.
+    const test = /^dotnet test(?: (\S+))?(?: --filter '[^']+')?$/.exec(cmd);
     if (test) {
       const dir = test[1] ?? "";
       const own = csprojs.filter((p) =>
@@ -199,7 +201,7 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
     }
   }
 
-  const m = /^(\.\/gradlew|gradle) (\S+)$/.exec(cmd);
+  const m = /^(\.\/gradlew|gradle) (\S+)(?: --tests '[^']+')?$/.exec(cmd);
   if (m) {
     const build = read("build.gradle.kts") ?? read("build.gradle");
     if (build === undefined) return `\`${cmd}\`: no Gradle build in ${step.cwd || "the root"}`;
@@ -213,8 +215,15 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
     return has("pom.xml") ? null : `\`${cmd}\`: no pom.xml in ${step.cwd || "the root"}`;
   }
 
-  if (/^mix (deps\.get|test|phx\.server)$/.test(cmd)) {
+  if (/^mix (deps\.get|test|phx\.server)$/.test(cmd) || /^mix test --only '[^']+'$/.test(cmd)) {
     return has("mix.exs") ? null : `\`${cmd}\`: no mix.exs in ${step.cwd || "the root"}`;
+  }
+  const alias = /^mix (\S+)$/.exec(cmd)?.[1];
+  if (alias) {
+    // A task the project's own `aliases` must define (`ecto.setup`).
+    const mix = read("mix.exs");
+    if (mix === undefined) return `\`${cmd}\`: no mix.exs in ${step.cwd || "the root"}`;
+    return mix.includes(`"${alias}":`) ? null : `\`${cmd}\`: mix.exs defines no "${alias}" alias`;
   }
 
   return `\`${cmd}\` (in ${step.cwd || "the root"}) is not a command this check knows — add what it depends on to the table`;

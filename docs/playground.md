@@ -43,7 +43,7 @@ Heavy work runs in Web Workers, not on the UI thread:
 - an **infra worker** (`src/runtime/infra.worker.ts`) — the shared
   infrastructure `docker-compose.yml` runs beside the services: one PGlite
   per `storage`, each in a nested storage host worker, and the services
-  registered in `src/runtime/infra/services.ts`. A deployable reaches a
+  registered in `src/runtime/infra/services.ts` (the message broker). A deployable reaches a
   storage through `PGliteWorker` and every other service through its
   `InfraPort`, a `MessagePort` the engine hands it at boot (routing:
   `src/runtime/infra/router.ts`; a service implements
@@ -140,16 +140,57 @@ the browser's answers, each announced at warn level in the runtime log:
 | Option | Preview behaviour | Why |
 |---|---|---|
 | `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
-| `infra: "in-process"` — channels | every `channelSource` binding on one in-memory transport (`channel_transport_in_process`): broadcast fan-out and round-robin consumer groups, asynchronous delivery | no broker; retention, replay and dead-lettering are not emulated |
+| `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
 | `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
 
 The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
 `pg-boss`) are swapped at bundle time for stubs whose constructors throw
 (`BROWSER_STUBBED_PACKAGES` in `src/engine/npm/esbuild-vfs-plugin.ts`): their
-module bodies cannot evaluate in a worker, and the in-process boot never
-constructs them. `bootApp`'s `channelTransport` option is the seam an emulated
-broker plugs into. **Reset** stops what boot started before it closes PGlite.
+module bodies cannot evaluate in a worker, and the preview never constructs
+them. **Reset** stops what boot started before it closes PGlite.
+
+#### Channels: the emulated broker
+
+The generated code reaches a broker only through its `ChannelTransport`, so the
+preview plugs one facade (`src/runtime/broker-facade.ts`) into `bootApp`'s
+`channelTransport` seam for every binding. The facade holds no state: publish,
+subscribe and each delivery's ack / nack go over the deployable's `InfraPort`
+to one broker model in the infra worker (`src/runtime/infra/broker-model.ts`).
+One owner of the state is what makes the per-broker semantics hold across
+deployables:
+
+| Broker | Emulated as |
+|---|---|
+| `redis` | pub/sub: every subscriber gets every message while subscribed; nothing is kept; a failed handler logs `channel_consume_failed` and the message is gone |
+| `rabbitmq` | a fanout exchange per address and one queue per consumer group (the deployable); a queue keeps its messages while its deployable is down; consumers of one queue compete with one unacked message each; a failing handler is retried up to the 5th attempt, then dead-lettered through `loom.dlx` into `loom.dlq.<address>` |
+| `kafka` | a topic per address with 3 partitions; one committed offset per group and partition; a new group starts at the earliest offset on a `queue` / `work` channel and at the end otherwise; a group resumes where it committed; a failing record is parked on `<address>.dlq` and the partition advances |
+
+The model reports where it differs from the real broker in its `emulated`
+list (count-bounded kafka retention, a different partition hash, in-memory
+queues). The browser console reads the whole state as
+`await __loomInspectBroker()`: queues, topics, group offsets, dead-letter
+contents and a journal of who received and acknowledged each envelope.
+
+### Resource fakes
+
+`objectStore`, `mailer` and `api` resources are answered inside the browser.
+All state lives in the infra worker (`src/runtime/infra/`, one module per
+service, registered in `infra/services.ts`); a deployable worker carries only
+facades that forward there over the deployable's `InfraPort` (`src/runtime/resource-fakes.ts`).
+`examples/resource-fakes-system.ddd` wires every kind.
+
+| sourceType | In the bundle | In the infra worker |
+|---|---|---|
+| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an in-memory object map |
+| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one in-memory tree, shared by every deployable |
+| `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
+| `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
+| `restApi` | the generated `fetch` → the `httpMock` service | echo response, or sample data from a registered OpenAPI document (`openapi-sampler`) |
+
+The AWS SDKs get dummy credentials (`adaptResourceSource` in
+`src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
+files and mail live as long as the infra worker: Reset or a re-boot empties them.
 
 ### In-browser test runner
 

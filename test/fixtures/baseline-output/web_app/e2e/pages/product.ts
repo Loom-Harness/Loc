@@ -53,23 +53,23 @@ export class ProductNewPage {
     if (input.sku !== undefined) {
       {
         const __f = this.page.getByTestId("products-new-input-sku");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.sku!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.sku!);
       }
     }
     if (input.price !== undefined) {
       if (input.price!.amount !== undefined) {
         {
           const __f = this.page.getByTestId("products-new-input-price-amount");
-          const __i = __f.locator("input, textarea");
-          await ((await __i.count()) ? __i.first() : __f).fill(String(input.price!.amount));
+          const __input = this.page.locator("input, textarea");
+          await __f.locator(__input).or(__f.and(__input)).first().fill(String(input.price!.amount));
         }
       }
       if (input.price!.currency !== undefined) {
         {
           const __f = this.page.getByTestId("products-new-input-price-currency");
-          const __i = __f.locator("input, textarea");
-          await ((await __i.count()) ? __i.first() : __f).fill(input.price!.currency!);
+          const __input = this.page.locator("input, textarea");
+          await __f.locator(__input).or(__f.and(__input)).first().fill(input.price!.currency!);
         }
       }
     }
@@ -112,23 +112,23 @@ export class ProductDetailPage {
     if (input.sku !== undefined) {
       {
         const __f = this.page.getByTestId("products-op-update-input-sku");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.sku!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.sku!);
       }
     }
     if (input.price !== undefined) {
       if (input.price!.amount !== undefined) {
         {
           const __f = this.page.getByTestId("products-op-update-input-price-amount");
-          const __i = __f.locator("input, textarea");
-          await ((await __i.count()) ? __i.first() : __f).fill(String(input.price!.amount));
+          const __input = this.page.locator("input, textarea");
+          await __f.locator(__input).or(__f.and(__input)).first().fill(String(input.price!.amount));
         }
       }
       if (input.price!.currency !== undefined) {
         {
           const __f = this.page.getByTestId("products-op-update-input-price-currency");
-          const __i = __f.locator("input, textarea");
-          await ((await __i.count()) ? __i.first() : __f).fill(input.price!.currency!);
+          const __input = this.page.locator("input, textarea");
+          await __f.locator(__input).or(__f.and(__input)).first().fill(input.price!.currency!);
         }
       }
     }

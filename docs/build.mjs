@@ -6,16 +6,23 @@
 // with .md→.html link rewrites, and copies the shared stylesheet.
 
 import { readFile, writeFile, readdir, mkdir, copyFile, rm, stat } from 'node:fs/promises';
+import { existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, basename, relative } from 'node:path';
+import { dirname, join, basename, relative, resolve, posix } from 'node:path';
 import { marked } from 'marked';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT  = join(HERE, '_site');
+const REPO = dirname(HERE);
+// `LOOM_DOCS_OUT` redirects the build (the link-check test builds into a
+// scratch directory).
+const OUT  = process.env.LOOM_DOCS_OUT ? resolve(process.env.LOOM_DOCS_OUT) : join(HERE, '_site');
+
+// Where a link to a repository file the site does not publish goes instead.
+const SOURCE_BASE = 'https://github.com/Loom-Harness/Loc';
 
 // Subdirs whose .md content is also rendered.  Nested paths are
 // supported (depth derived from the path).
-export const RENDERED_SUBDIRS = ['language-reference'];
+export const RENDERED_SUBDIRS = ['language-reference', 'architecture'];
 
 // Nav surfaces the top-level reading order — keep in sync with
 // docs/README.md's "Start here" table and docs/index.html's footer.
@@ -30,17 +37,46 @@ const NAV = [
   { label: 'Internals',    href: 'technical.html' },
 ];
 
-// rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html.
-// The basename may contain dots (`foo.v2.md`); a dot-free class would leave
-// those links pointing at a `.md` the site never publishes.
-const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-][a-zA-Z0-9_.\-]*)\.md(#.*)?$/;
+// Every relative link is resolved against the page being rendered.  A link to
+// a page the site publishes (a top-level `docs/*.md`, or one inside a
+// RENDERED_SUBDIRS directory) becomes its `.html`; a link to any other file or
+// directory in the repository (src/, test/, examples/, ../LICENSE, …) becomes
+// its GitHub URL, because the site does not serve it.  `renderingSrc` is the
+// source path of the page being rendered — marked's walkTokens has no other
+// way to know it.
+let renderingSrc = join(HERE, 'README.md');
+
+const isPublishedPage = (abs) => {
+  const rel = relative(HERE, abs).split('\\').join('/');
+  if (rel.startsWith('..') || !rel.endsWith('.md')) return false;
+  const dir = posix.dirname(rel);
+  return dir === '.' || RENDERED_SUBDIRS.includes(dir);
+};
+const isPublishedDir = (abs) => {
+  const rel = relative(HERE, abs).split('\\').join('/');
+  return rel === '' || RENDERED_SUBDIRS.includes(rel.replace(/\/$/, ''));
+};
+
+export function rewriteHref(href, fromSrc) {
+  if (/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(href)) return href;
+  const hashAt = href.indexOf('#');
+  const path = hashAt < 0 ? href : href.slice(0, hashAt);
+  const hash = hashAt < 0 ? '' : href.slice(hashAt);
+  if (path === '') return href;
+  const abs = resolve(dirname(fromSrc), decodeURIComponent(path));
+  if (isPublishedPage(abs)) return `${path.replace(/\.md$/, '.html')}${hash}`;
+  if (isPublishedDir(abs)) return href;
+  const repoRel = relative(REPO, abs).split('\\').join('/');
+  if (repoRel.startsWith('..') || !existsSync(abs)) return href; // left for the link check to report
+  const kind = statSync(abs).isDirectory() ? 'tree' : 'blob';
+  return `${SOURCE_BASE}/${kind}/main/${repoRel}${hash}`;
+}
 
 marked.use({
   gfm: true,
   walkTokens(token) {
     if (token.type === 'link' && typeof token.href === 'string') {
-      const m = token.href.match(MD_LINK);
-      if (m) token.href = `${m[1]}.html${m[2] ?? ''}`;
+      token.href = rewriteHref(token.href, renderingSrc);
     }
   },
 });
@@ -239,6 +275,7 @@ async function renderMdFile(srcPath, depth) {
   const src = await readFile(srcPath, 'utf8');
   const rel = relative(HERE, srcPath);
   const title = extractTitle(src, basename(srcPath, '.md'));
+  renderingSrc = srcPath;
   const body = marked.parse(src);
   const outRel = rel.replace(/\.md$/, '.html');
   const outPath = join(OUT, outRel);
@@ -330,6 +367,65 @@ async function main() {
 
   await copyFile(join(HERE, '_template/style.css'), join(OUT, 'style.css'));
   console.log('copied    style.css');
+
+  const broken = await checkSiteLinks(OUT);
+  if (broken.length > 0) {
+    console.error(`\n${broken.length} broken link(s) on the built site:`);
+    for (const b of broken) console.error(`  ${b}`);
+    process.exitCode = 1;
+  } else {
+    console.log('checked   every relative link and anchor resolves');
+  }
+}
+
+// Every relative href in the built site must land on a file the site serves
+// (or a directory with an index.html), and every `#anchor` on an element id in
+// the target page.  `playground/` is published by pages.yml from its own build.
+const SERVED_ELSEWHERE = ['playground/'];
+
+async function htmlFiles(dir, acc = []) {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) await htmlFiles(p, acc);
+    else if (e.name.endsWith('.html')) acc.push(p);
+  }
+  return acc;
+}
+
+export async function checkSiteLinks(site = OUT) {
+  const files = await htmlFiles(site);
+  const ids = new Map();
+  const idsOf = async (file) => {
+    if (!ids.has(file)) {
+      const html = await readFile(file, 'utf8');
+      ids.set(file, new Set([...html.matchAll(/\sid="([^"]*)"/g)].map((m) => m[1])));
+    }
+    return ids.get(file);
+  };
+  const broken = [];
+  for (const file of files) {
+    const html = await readFile(file, 'utf8');
+    const from = relative(site, file);
+    for (const m of html.matchAll(/\shref="([^"]*)"/g)) {
+      const href = m[1].replace(/&amp;/g, '&');
+      if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) continue;
+      const hashAt = href.indexOf('#');
+      const path = hashAt < 0 ? href : href.slice(0, hashAt);
+      const anchor = hashAt < 0 ? '' : decodeURIComponent(href.slice(hashAt + 1));
+      const targetRel = relative(site, resolve(dirname(file), decodeURIComponent(path)));
+      if (SERVED_ELSEWHERE.some((p) => `${targetRel}/`.startsWith(p))) continue;
+      let target = path === '' ? file : resolve(dirname(file), decodeURIComponent(path));
+      if (existsSync(target) && statSync(target).isDirectory()) target = join(target, 'index.html');
+      if (!existsSync(target)) {
+        broken.push(`${from}: ${href} — no such page`);
+        continue;
+      }
+      if (anchor && target.endsWith('.html') && !(await idsOf(target)).has(anchor)) {
+        broken.push(`${from}: ${href} — no #${anchor} there`);
+      }
+    }
+  }
+  return broken;
 }
 
 // Run only when invoked directly (`node docs/build.mjs`), so the module

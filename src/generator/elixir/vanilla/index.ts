@@ -79,7 +79,11 @@ import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./d
 import { needsPureDomainCore, renderEventSourcedPureCore } from "./domain-core-emit.js";
 import { emitVanillaEventModules } from "./events-emit.js";
 import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
-import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
+import {
+  emitExplicitHandlers,
+  emitExplicitRoutesController,
+  routesHaveCheckedParams,
+} from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
@@ -187,13 +191,17 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // …OR a paged read: an out-of-range `page`/`pageSize` now answers the same
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
-  // responder.  So does a find whose declared query params fail their
-  // An app with none stays byte-identical.
+  // responder.  So does a routed handler whose query/path params fail their
+  // published type (query-param.ts).  An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
     ) ||
     contextsHavePagedReads(contexts) ||
+    // …OR a routed handler reading a query/path param, checked the same way.
+    (deployable.serves ?? []).some((apiName) =>
+      routesHaveCheckedParams(sys.apis.find((a) => a.name === apiName)?.routes ?? [], contexts),
+    ) ||
     // …OR a command workflow with params: a request omitting one answers the
     // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
     contexts.some((c) =>

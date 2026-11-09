@@ -1523,19 +1523,19 @@ function emitAggregate(
   // implementation, EF Core configuration) pick them up uniformly.
   const repoWithViews = mergeViewsAsFinds(agg, repo, ctx);
   // Context retrievals (retrieval.md) targeting this aggregate emit a
-  // `Run<Name>Async` repository method.  Document-shaped and event-sourced
-  // aggregates skip them (their in-memory impls don't compose LINQ query
-  // operators, so the interface must not promise one); a paged criterion read
-  // reaches them through the synthesised `FindAllBy<Criterion>` find instead.
+  // `Run<Name>Async` repository method on every saving shape — a criterion
+  // read calls it whatever the shape.  The relational and embedded
+  // repositories run it as a query (an Ardalis spec on EF, SQL on Dapper); the
+  // document and event-sourced ones have no queryable state columns and answer
+  // it in memory (`inMemoryRunMethodLines`), so only `queryRetrievals` reach
+  // the spec / query-body emitters.
+  const aggRetrievals = (ctx.retrievals ?? []).filter(
+    (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
+  );
+  const queryRetrievals = isDoc || isEs ? [] : aggRetrievals;
   // Some body drops a tentative change to this aggregate → its repository
   // carries `Discard`.
   const discards = discardedAggregates(ctx).has(agg.name);
-  const aggRetrievals =
-    isDoc || isEs
-      ? []
-      : (ctx.retrievals ?? []).filter(
-          (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
-        );
   place(
     `I${agg.name}Repository.cs`,
     "repository-interface",
@@ -1547,7 +1547,7 @@ function emitAggregate(
   // EF-only: the Dapper repository renders retrievals as parameterised SQL
   // (no Ardalis dependency on that persistence axis).
   if (emitCtx.deployable.persistence !== "dapper") {
-    emitRetrievalSpecs(agg, aggRetrievals, ctx, ns, out);
+    emitRetrievalSpecs(agg, queryRetrievals, ctx, ns, out);
   }
   // A find with a `where` expression that lowers to `Regex.IsMatch`
   // declares its System.Text.RegularExpressions dependency; the
@@ -1558,7 +1558,7 @@ function emitAggregate(
   // A retrieval/find whose `where` is a reified criterion consumes its
   // `Criterion` class's `ToExpression` → needs Domain.Criteria.
   const consumesCriterion =
-    aggRetrievals.some(
+    queryRetrievals.some(
       (r) => r.criterionRef && canEmitToExpressionFor(r.criterionRef.name, ctx, agg.name),
     ) ||
     (repoWithViews?.finds ?? []).some(
@@ -1568,7 +1568,7 @@ function emitAggregate(
     repoImplUsings.add(`${ns}.Domain.Criteria`);
   }
   const findBodies = buildFindBodies(agg, repoWithViews, ctx);
-  const retrievalBodies = buildRetrievalBodies(agg, aggRetrievals, ctx);
+  const retrievalBodies = buildRetrievalBodies(agg, queryRetrievals, ctx);
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `dapper`
   // emits an Npgsql/Dapper repository (and no EF configuration / document /
   // join-table files — the validator gates those features out for dapper);
@@ -1601,6 +1601,7 @@ function emitAggregate(
             ctx.name,
             [...repoImplUsings].sort(),
             ctx.aggregates,
+            aggRetrievals,
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1610,6 +1611,7 @@ function emitAggregate(
               findBodies,
               [...repoImplUsings].sort(),
               ctx.aggregates,
+              aggRetrievals,
             )
           : renderDapperRepository(
               agg,
@@ -1648,6 +1650,7 @@ function emitAggregate(
         extraUsings: [...repoImplUsings].sort(),
         idClass,
         pool: ctx.aggregates,
+        retrievals: aggRetrievals,
       }),
       repoOrigin,
     );
@@ -1659,6 +1662,7 @@ function emitAggregate(
         ? renderDocumentRepositoryImpl(agg, repoWithViews, ns, findBodies, {
             extraUsings: [...repoImplUsings].sort(),
             idClass,
+            retrievals: aggRetrievals,
           })
         : renderRepositoryImpl(agg, repoWithViews, ns, ctx.aggregates, findBodies, {
             extraUsings: [...repoImplUsings].sort(),

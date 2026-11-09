@@ -12,7 +12,7 @@ guards.
 > [`docs/old/proposals/criterion.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion.md): the
 > `criterion` declaration, body validation, and **inline use** in every
 > existing boolean-expression position. A criterion referenced by a
-> [`retrieval`](#reification-retrieval-and-find-criteria)'s or a `find`'s
+> [`retrieval`](#reification-retrieval-criteria)'s or a `find`'s
 > `where` additionally **reifies** — it emits a named, constructed
 > predicate object on every backend rather than dissolving at compile time
 > (see "Reification" below). `when <predicate>` operation guards with their
@@ -169,6 +169,14 @@ repository Customers for Customer { }
 A criterion shared by a retrieval and a find reifies to a **single**
 predicate object (one module-level fn / one Ecto query fragment), consumed by
 both.
+
+The table describes a relational aggregate. A `shape: document` aggregate (one
+jsonb blob) and a `persistedAs: eventLog` aggregate (a folded stream) have no
+queryable state columns, so on python, .NET (EF and Dapper) and elixir their
+repository answers the same `run…` read in memory: it rehydrates (or folds)
+every candidate, re-applies the aggregate's capability filters, then the
+criterion, the `sort:` and the call-site page. A `shape: embedded` root keeps
+real columns, so its read is the relational query.
 
 The emitted predicate is **byte-identical** to what inlining would
 produce — reification is a code-organisation choice, not a behavioural

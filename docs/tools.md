@@ -199,7 +199,9 @@ tiers: syntax + AST-level (phases ①–④) *and* **IR-level** (phases ⑤–�
 — queryability of a `retrieval` / `view` `where`, cross-aggregate
 reference rules, persistence-binding, wire-shape and migration checks.
 A source that `parse`s clean is one `generate` will accept; the only
-thing `parse` skips is the emission itself.
+thing `parse` skips is the emission itself.  An internal failure in those
+phases (a lowering throw) is reported as a `loom.ir-internal` error and
+exits non-zero, as it would abort `generate`.
 
 This was not always true, and the old behaviour is worth knowing if you
 have scripts built on it: `parse` used to run phase ④ only — it
@@ -1125,7 +1127,7 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
 The DSL `test e2e "..." against <react-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
-see [`language.md`](language.md#ui-e2e-tests-against-a-react-deployable).
+see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).
 
 Page-object classes are derived directly from the IR.  Per aggregate:
 

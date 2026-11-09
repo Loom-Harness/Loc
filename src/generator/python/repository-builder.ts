@@ -639,7 +639,7 @@ export function queryProjectionViews(
     }));
 }
 
-function aggregateRetrievals(
+export function aggregateRetrievals(
   agg: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
 ): RetrievalIR[] {
@@ -684,10 +684,13 @@ function viewFindMethod(
  *  (retrieval.md: page is never part of the declaration).  The
  *  criterion is inlined (`where` carries the substituted predicate) —
  *  the IR contract explicitly supports non-reifying backends. */
-function runMethod(
+export function runMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   ctx: EnrichedBoundedContextIR,
+  /** False on the embedded repository, which hydrates per row (no
+   *  `_hydrate_many`) — the same switch `relationalFindMethod` takes. */
+  bulkHydrate = true,
 ): string {
   const root = schemaRow(rowClassName(agg.name));
   // The runner appends its own `offset` / `limit` paging keywords (callers
@@ -725,9 +728,66 @@ function runMethod(
     "        if limit is not None:",
     "            query = query.limit(limit)",
     "        rows = (await self._session.execute(query)).scalars().all()",
-    `        items = ${hydrateListExpr(agg)}`,
+    `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
     findExecutedLine(agg, `run_${snake(retrieval.name)}`, "len(items)"),
     "        return items",
+  );
+}
+
+/** Retrieval runner over a carrier whose state is not queryable columns — the
+ *  document blob and the event-sourced fold.  Same `run_<retrieval>` contract
+ *  as the relational {@link runMethod} (the handler calls it whatever the
+ *  saving shape): the `where` is evaluated in-app over the rehydrated
+ *  instances bound to `x`, AND-ed with the carrier's in-app capability
+ *  predicate, then the `sort:` terms and the call-site
+ *  `offset`/`limit` page apply to the list.  `loadLines` must bind `items` to
+ *  every candidate instance. */
+export function pyInMemoryRunMethod(
+  agg: EnrichedAggregateIR,
+  retrieval: RetrievalIR,
+  opts: {
+    loadLines: readonly string[];
+    /** The carrier's in-app capability conjunct over `x`, if any. */
+    capability?: { expr: string; usesPrincipal: boolean } | null;
+  },
+): string {
+  const name = `run_${snake(retrieval.name)}`;
+  const renames = runnerParamRenames(retrieval.params.map((p) => p.name));
+  const where = renames.size > 0 ? renameParamRefs(retrieval.where, renames) : retrieval.where;
+  const params = [
+    "self",
+    ...retrieval.params.map(
+      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+    ),
+    "offset: int | None = None",
+    "limit: int | None = None",
+  ];
+  const conds = [opts.capability?.expr, renderPyExpr(where, { thisName: "x" })]
+    .filter((c): c is string => c != null)
+    .map((c) => `(${c})`);
+  // A capability or criterion naming `currentUser` reads the ambient
+  // principal — the call site passes none, exactly as for the relational runner.
+  const bindPrincipal = !!opts.capability?.usesPrincipal || exprUsesCurrentUser(where);
+  // Stable sorts applied last-key-first give the multi-key order with a
+  // per-term direction.
+  const sorts = [...retrieval.sort]
+    .reverse()
+    .map(
+      (t) =>
+        `        result.sort(key=lambda x: x.${t.path.map((s) => pythonIdent(s.name)).join(".")}${t.direction === "desc" ? ", reverse=True" : ""})`,
+    );
+  return lines(
+    `    async def ${name}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
+    ...opts.loadLines,
+    ...(bindPrincipal ? [`        current_user = ${R.require_current_user}()`] : []),
+    `        result = [x for x in items if ${conds.join(" and ")}]`,
+    ...sorts,
+    "        if offset is not None:",
+    "            result = result[offset:]",
+    "        if limit is not None:",
+    "            result = result[:limit]",
+    findExecutedLine(agg, name, "len(result)"),
+    "        return result",
   );
 }
 

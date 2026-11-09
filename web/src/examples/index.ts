@@ -7,6 +7,8 @@ import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
 import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
+import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
+import resourceFakesSystemSource from "./resource-fakes-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
 import inventorySystemSource from "./inventory-system.ddd?raw";
 import provenanceSystemSource from "./provenance-system.ddd?raw";
@@ -288,11 +290,25 @@ export const examples: LoomExample[] = [
       "Two Node backends bound to one `storage`: both boot, each in its own worker, on one database — a product written through `admin` is listed by `storefront`.",
   },
   {
+    id: "broker-channels-system",
+    label: "Broker channels (two Hono backends, redis + rabbitmq + kafka)",
+    source: brokerChannelsSystemSource,
+    blurb:
+      "Two Node backends on one channel of each broker kind, emulated in the browser: redis broadcast, a rabbitmq work queue with a dead-letter queue, a kafka log a returning consumer replays.",
+  },
+  {
     id: "cross-deployable-system",
     label: "Cross-deployable call (two Hono backends)",
     source: crossDeployableSystemSource,
     blurb:
       "`shippingSvc` calls `ordersSvc` over a typed `api` resource: the derived `ORDERS_URL` address is routed to the other backend's in-browser app.",
+  },
+  {
+    id: "resource-fakes-system",
+    label: "Resource fakes (S3, disk, mail, REST mock)",
+    source: resourceFakesSystemSource,
+    blurb:
+      "One Node backend wired to every emulated resource kind: S3 objects and a presigned URL, localDisk files, mail captured from smtp / SES / SendGrid, and a mocked external REST API — all answered inside the browser.",
   },
   {
     id: "banking-system",

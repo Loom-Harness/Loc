@@ -580,7 +580,16 @@ export const LOCATORS: Record<VariantId, Locator> = {
           f,
           (c) => new RegExp(`"[^"\\n]*@__cu_${esc(c)}(?:__\\w+)?\\b[^"\\n]*"`),
         ) ||
-        (/_CapabilityVisible/.test(site.window) && carriesClaims(site.window, f, CS_PRINCIPAL))
+        (/_CapabilityVisible/.test(site.window) && carriesClaims(site.window, f, CS_PRINCIPAL)) ||
+        // A criterion read over a document blob filters in-app with the
+        // restriction inlined (so a call-site bypass can drop it per
+        // capability): the claim must sit inside the `.Where(x => …)` lambda
+        // over the materialized rows, never merely in a parameter binding.
+        carriesClaims(
+          site.window,
+          f,
+          (c) => new RegExp(`\\.Where\\(\\s*\\w+\\s*=>[^\\n]*${CS_PRINCIPAL(c).source}`),
+        )
       );
     },
   },

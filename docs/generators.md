@@ -1123,7 +1123,7 @@ PageIR maps onto LiveView:
 The framework-specific seams (state read/write, hook hoisting,
 `match`, `navigate`, helper imports) live behind the `WalkerTarget`
 interface in `src/generator/_walker/target.ts` — see
-[page-metamodel.md §16](page-metamodel.md#16-liveview-lowering-platform-phoenixliveview)
+[page-metamodel.md §16](page-metamodel.md#16-liveview-lowering-platform-elixir)
 for the full mapping table.
 
 ---

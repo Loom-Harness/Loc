@@ -15,6 +15,8 @@
 // to a SharedWorker (or across tabs) unchanged.  A new kind of infrastructure
 // is a new `service` with its own ops; the envelope stays.
 
+import type { BrokerOp } from "./infra/broker-protocol.js";
+import type { ResourceOp } from "./infra/resource-types.js";
 import type { BootFail, MigrationPlan } from "./protocol.js";
 
 /** The schema a storage is brought to: the recorded chain's units for the
@@ -74,6 +76,12 @@ export type InfraOp =
 export interface InfraServiceOps {
   storage: StorageOp;
   infra: InfraOp;
+  broker: BrokerOp;
+  s3: ResourceOp;
+  ses: ResourceOp;
+  mailbox: ResourceOp;
+  disk: ResourceOp;
+  httpMock: ResourceOp;
 }
 
 type ServiceRequest<S extends keyof InfraServiceOps> = S extends keyof InfraServiceOps

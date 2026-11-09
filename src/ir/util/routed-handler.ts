@@ -65,7 +65,7 @@ const BODYLESS_METHODS = new Set(["GET", "DELETE", "HEAD"]);
 /** The paged-run shape the route emitters special-case: a `queryHandler`
  *  returning `<Agg> paged`, whose non-path params ride the QUERY STRING
  *  beside `page`/`pageSize`/`sort`/`dir` rather than a body. */
-function isPagedRun(h: CommandHandlerIR | QueryHandlerIR): boolean {
+export function isPagedRun(h: CommandHandlerIR | QueryHandlerIR): boolean {
   const t = (h as QueryHandlerIR).returnType;
   return !!t && t.kind === "genericInstance" && t.ctor === "paged";
 }

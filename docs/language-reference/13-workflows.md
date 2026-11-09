@@ -10,7 +10,7 @@ A workflow shares its context's namespace (a workflow named like an aggregate / 
 
 ## `workflow` & state
 
-`workflow Name [eventSourced] [transactional[(level)]] { members }`. State fields are plain `Property` members — they carry the workflow instance's own data. A single id-shaped state field is the **correlation field**: it keys saga instances and routes inbound events (see [`on`](#on-e-event-the-event-reactor)).
+`workflow Name [eventSourced] [transactional[(level)]] { members }`. State fields are plain `Property` members — they carry the workflow instance's own data. A single id-shaped state field is the **correlation field**: it keys saga instances and routes inbound events (see [`on`](#one-event--the-event-reactor)).
 
 ```ddd
 workflow fulfillment {
