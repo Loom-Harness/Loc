@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { CONCEPT_ORDER, conceptOf, type ExampleConcept, type LoomExample } from "../examples";
 import type { LayoutCtx } from "./ctx";
 import { EXAMPLES } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The Examples pane (M-T8.18 slice 3, audit H5): every sample system grouped
 // by the concept it teaches, in syllabus order (CRUD → workflows → auth →
@@ -39,7 +40,7 @@ interface Props {
   onOpened?: () => void;
 }
 
-export function ExamplesPane({ ctx, onOpened }: Props): JSX.Element {
+function ExamplesPaneView({ ctx, onOpened }: Props): JSX.Element {
   const { augmentedExamplesList, createWorkspaceFromExample } = ctx;
   const [read, setRead] = useState<Set<string>>(() => loadRead());
   const open = useCallback(
@@ -143,3 +144,5 @@ export function ExamplesSheet({
     </Drawer>
   );
 }
+
+export const ExamplesPane = trackedCtx("ExamplesPane", ExamplesPaneView);

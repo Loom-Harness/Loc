@@ -163,6 +163,7 @@ import {
 import { DesktopHeader, MobileHeader } from "./layout/HeaderBar";
 import { DesktopShell } from "./layout/DesktopShell";
 import { MobileShell } from "./layout/MobileShell";
+import { countRender, useCtxStore } from "./layout/ctx-store";
 import { FooterBar } from "./layout/FooterBar";
 import {
   type AuthStubConfig,
@@ -217,6 +218,7 @@ function workspacePathsToRelative(
 }
 
 export default function App(): JSX.Element {
+  countRender("App");
   // Read once on mount.  When the URL hash carries a shareable
   // payload — single-file `s=` (legacy) or multi-file `p=` — it's
   // imported into the active workspace on mount so a recipient lands
@@ -1217,23 +1219,43 @@ export default function App(): JSX.Element {
   errorCountRef.current = errorCount;
 
   const generateSuccess = selGenerateOk(pipeline);
-  const honoBundleResult = selHonoBundleResult(pipeline);
+  // The bundle- and boot-derived values below build fresh objects / arrays
+  // (several backends' bundles combined, `[]` when not booted), so each group
+  // is memoised on the one pipeline slot its selectors read: a fresh identity
+  // per render would re-render every panel that reads it
+  // (`layout/ctx-store.tsx`).
+  const bundleDerived = useMemo(
+    () => ({
+      honoBundleResult: selHonoBundleResult(pipeline),
+      honoBundle: selHonoBundleOk(pipeline),
+      // Every deployable the last bundle produced, booted or not — the status
+      // rows show the ones a failed boot never started too.
+      bundledDeployables:
+        pipeline.bundle.kind === "result" ? pipeline.bundle.backends.map((b) => b.slug) : [],
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pipeline.bundle],
+  );
+  const bootDerived = useMemo(
+    () => ({
+      appliedMigrations: selBootApplied(pipeline),
+      bootedBackends: selBootBackends(pipeline),
+      bootedDeployables: selBootDeployables(pipeline),
+      bootedStorages: selBootStorages(pipeline),
+      bootPending: selBootPending(pipeline),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pipeline.boot],
+  );
+  const { honoBundleResult, honoBundle, bundledDeployables } = bundleDerived;
   const reactBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.react : null;
-  const honoBundle = selHonoBundleOk(pipeline);
   const reactBundle = selReactBundleOk(pipeline);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
-  const appliedMigrations = selBootApplied(pipeline);
-  const bootedBackends = selBootBackends(pipeline);
-  const bootedDeployables = selBootDeployables(pipeline);
-  const bootedStorages = selBootStorages(pipeline);
+  const { appliedMigrations, bootedBackends, bootedDeployables, bootedStorages, bootPending } =
+    bootDerived;
   const bootFailAt = selBootFailAt(pipeline);
-  // Every deployable the last bundle produced, booted or not — the status
-  // rows show the ones a failed boot never started too.
-  const bundledDeployables =
-    pipeline.bundle.kind === "result" ? pipeline.bundle.backends.map((b) => b.slug) : [];
   const dbStorage = dbTarget && bootedStorages.includes(dbTarget) ? dbTarget : undefined;
-  const bootPending = selBootPending(pipeline);
   // Memoised on the two slots it reads: a fresh object per render would make
   // the `ctx` memo miss on every render.
   const pendingMigration = useMemo(
@@ -3305,6 +3327,10 @@ export default function App(): JSX.Element {
     ],
   );
 
+  // Panels subscribe to the fields they read (`layout/ctx-store.tsx`), so a
+  // change here re-renders those panels, not the whole shell.
+  const shellCtx = useCtxStore(ctx);
+
   return (
     <AppShell
       // The desktop toolbar wraps onto a second row below ~1200 px (a
@@ -3324,8 +3350,8 @@ export default function App(): JSX.Element {
     >
       <ConfirmHost />
       {/* M-T8.18: the ⌘K palette, the `?` sheet, and the F8 announcer. */}
-      <CommandPalette ctx={ctx} />
-      <RecordMigrationDialog ctx={ctx} />
+      <CommandPalette ctx={shellCtx} />
+      <RecordMigrationDialog ctx={shellCtx} />
       <ShortcutSheet opened={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
       <div
         aria-live="polite"
@@ -3336,7 +3362,7 @@ export default function App(): JSX.Element {
         {problemAnnouncement}
       </div>
       <AppShell.Header>
-        {isDesktop ? <DesktopHeader ctx={ctx} /> : <MobileHeader ctx={ctx} />}
+        {isDesktop ? <DesktopHeader ctx={shellCtx} /> : <MobileHeader ctx={shellCtx} />}
       </AppShell.Header>
       <AppShell.Main
         style={{
@@ -3346,11 +3372,11 @@ export default function App(): JSX.Element {
             "calc(100dvh - var(--app-shell-header-height, 48px) - var(--app-shell-footer-height, 0px))",
         }}
       >
-        {isDesktop ? <DesktopShell ctx={ctx} /> : <MobileShell ctx={ctx} />}
+        {isDesktop ? <DesktopShell ctx={shellCtx} /> : <MobileShell ctx={shellCtx} />}
       </AppShell.Main>
       {isDesktop && (
         <AppShell.Footer>
-          <FooterBar ctx={ctx} />
+          <FooterBar ctx={shellCtx} />
         </AppShell.Footer>
       )}
     </AppShell>

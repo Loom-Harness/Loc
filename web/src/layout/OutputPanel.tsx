@@ -8,6 +8,7 @@ import { CrashReportButtons } from "../CrashReportButtons";
 import { diagBadgeText, humanizeDiagReason, humanizeHashLen } from "../util/diag-humanize";
 import { countOf, nextStepMid, PANE, STAGE, STREAM } from "./vocabulary";
 import { type Mark, StatusMark, testsMark, worstMark } from "./status-mark";
+import { trackedCtx } from "./ctx-store";
 
 // The playground used to scatter read-only status across sibling dock
 // tabs — LSP diagnostics, generator output, bundle errors — so a red dot
@@ -97,7 +98,7 @@ interface Props {
   setStream: (s: OutputStream) => void;
 }
 
-export function OutputPanel({ ctx, stream, setStream }: Props): JSX.Element {
+function OutputPanelView({ ctx, stream, setStream }: Props): JSX.Element {
   return (
     <Box style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
       <Group
@@ -816,3 +817,5 @@ function TestsLog({ ctx }: { ctx: LayoutCtx }): JSX.Element {
     </ScrollArea>
   );
 }
+
+export const OutputPanel = trackedCtx("OutputPanel", OutputPanelView);
