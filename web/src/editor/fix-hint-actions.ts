@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
-// Fix-hint quick fixes for the playground's Monaco editor.
+// Fix-hint quick fixes for the playground's Problems panel.
 //
-// `src/api/lsp.ts`'s `fixHintCodeActions` already turns every fix-hint-carrying
-// diagnostic (`src/language/fix-hints.ts`) into an LSP `CodeAction` whose
-// `WorkspaceEdit` is fully resolved against the source — the playground just
-// never asked for them, so a hinted diagnostic drew a squiggle and offered no
-// lightbulb.  This module is the boundary that closes that: LSP shapes in,
+// Every fix-hint-carrying diagnostic (`src/language/fix-hints.ts`) resolves to
+// an LSP `CodeAction` whose `WorkspaceEdit` is fully resolved against the
+// source.  The editor's lightbulb gets them straight from the language-server
+// worker (`DddCodeActionProvider`, registered by the language client); the
+// Problems panel's **Fix** action gets the same actions through
+// `loomQuickFixes` below.  This module is the boundary: LSP shapes in,
 // editor-neutral shapes out.
 //
 // It imports NO monaco.  `monaco-editor` is a browser-only dep of `web/`, and
@@ -13,8 +14,7 @@
 // position arithmetic.  LSP positions are **0-based** (`line`/`character`),
 // Monaco's are **1-based** (`startLineNumber`/`startColumn`), and an off-by-one
 // here silently rewrites the wrong span of the user's source, which is strictly
-// worse than offering no quick fix at all.  `LoomEditor.tsx` therefore owns one
-// trivial monaco-shaped hop (wrap in `{ resource, textEdit }`) and nothing else.
+// worse than offering no quick fix at all.
 // ---------------------------------------------------------------------------
 
 // The toolkit is reached through `await import(...)`, NOT a static import.
@@ -64,8 +64,8 @@ export interface EditorTextEdit {
 
 /** One applyable quick fix, in the shape `LoomEditor` hands to Monaco.
  *  `anchor` is where the fix belongs in the document (the diagnostic's own
- *  range when it has one) — used to decide whether to offer it for the range
- *  Monaco asked about, so a fix on line 90 doesn't light up on line 3. */
+ *  range when it has one) — the Problems row whose line it covers offers it,
+ *  so a fix on line 90 doesn't show on a row for line 3. */
 export interface LoomQuickFix {
   title: string;
   edits: EditorTextEdit[];
@@ -116,31 +116,38 @@ export function toQuickFixes(actions: readonly LspCodeActionLike[]): LoomQuickFi
   return fixes;
 }
 
-/** Do two ranges share at least one line?
- *
- *  Line granularity on purpose: Monaco asks for code actions at the cursor (or
- *  the selection), while a diagnostic's range covers a token somewhere on the
- *  line.  Comparing columns would hide the lightbulb whenever the caret sat
- *  left of the offending token — the common case, since that's where you land
- *  after clicking the line. */
-export function overlapsLines(a: EditorRange, b: EditorRange): boolean {
-  return a.startLineNumber <= b.endLineNumber && b.startLineNumber <= a.endLineNumber;
+/** Where quick fixes come from when a language server is running: the
+ *  `LoomLspClient` surface, structurally, so this module keeps no static edge
+ *  to the client (and through it to monaco). */
+export interface QuickFixSource {
+  quickFixes(uri: string): Promise<unknown[]>;
 }
 
-/** The subset of `fixes` to offer for the range Monaco asked about. */
-export function quickFixesAt(fixes: readonly LoomQuickFix[], range: EditorRange): LoomQuickFix[] {
-  return fixes.filter((f) => overlapsLines(f.anchor, range));
-}
-
-// One-entry memo: Monaco re-requests code actions on cursor moves and on every
-// marker change, and `validate` spins up a fresh Langium service instance per
-// call.  Keyed by (source, uri) so a keystroke invalidates it and nothing else
-// does.
+// Mobile-only memo for the toolkit fallback below: Problems re-asks whenever
+// its diagnostics move, and those only move on generate there.  Keyed by
+// (source, uri).
 let cache: { key: string; fixes: Promise<LoomQuickFix[]> } | undefined;
 
-/** Validate `source` and return every fix-hint quick fix in it, editor-shaped.
- *  Never throws: a compiler-internal failure must not break the lightbulb. */
-export function loomQuickFixes(source: string, uri: string): Promise<LoomQuickFix[]> {
+/** Every fix-hint quick fix in the document at `uri`, editor-shaped.
+ *  Never throws: a compiler-internal failure must not break the Fix action.
+ *
+ *  With a language client (desktop) the fixes come from the LSP worker, which
+ *  has already parsed and validated the document — the main thread does no
+ *  Langium work at all.  Calling the toolkit's `validate` here instead builds
+ *  a fresh Loom service (parser self-analysis included) per distinct source:
+ *  a 250 ms main-thread task per keystroke, since the source changes on every
+ *  one.  Without a client (mobile: no Monaco, no worker) the toolkit is the
+ *  only source, and there it runs per generate, not per keystroke. */
+export async function loomQuickFixes(
+  source: string,
+  uri: string,
+  lsp: QuickFixSource | null,
+): Promise<LoomQuickFix[]> {
+  try {
+    if (lsp) return toQuickFixes((await lsp.quickFixes(uri)) as LspCodeActionLike[]);
+  } catch {
+    return [];
+  }
   const key = `${uri}\n${source}`;
   if (cache?.key === key) return cache.fixes;
   const fixes = (async () => {
