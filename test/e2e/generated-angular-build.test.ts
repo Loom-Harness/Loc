@@ -705,6 +705,59 @@ const NESTED_VO: Case = {
   `,
 };
 
+/** Translated page text: a rich `Text` (bound through `[innerHTML]` from the
+ *  locale adapter's `tRich`) whose emphasis carries a plural hole, and a
+ *  `WorkflowForm` whose run button reads the workflow's `op.run` key.  Both
+ *  calls resolve against the page class only under `strictTemplates`, which
+ *  only `ng build` checks. */
+const I18N_TEXT: Case = {
+  name: "i18n-text",
+  angularDir: "web",
+  mustEmit: ["tRich(", '"Sales.PlaceOrder.op.run"'],
+  source: `
+    system AI18n {
+      subdomain S {
+        context Sales {
+          aggregate Order with crudish { code: string  derived display: string = code }
+          repository Orders for Order { }
+          workflow PlaceOrder transactional {
+            create(ref: string) {
+              let o = Order.create(code: ref)
+            }
+          }
+        }
+      }
+      api SalesApi from S
+      ui WebApp {
+        api Sales: SalesApi
+        page Home {
+          route: "/"
+          state { count: int = 0 }
+          body: Stack {
+            Text { "You have ", Bold { \`{count, plural, one {# order} other {# orders}}\` }, " waiting" },
+            WorkflowForm { runs: PlaceOrder }
+          }
+        }
+      }
+      storage primary { type: postgres }
+      resource st { for: Sales, kind: state, use: primary }
+      deployable api {
+        platform: node
+        contexts: [Sales]
+        dataSources: [st]
+        serves: SalesApi
+        port: 3000
+      }
+      deployable web {
+        platform: angular
+        targets: api
+        ui: WebApp { Sales: api }
+        port: 3004
+      }
+    }
+  `,
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -722,6 +775,7 @@ const allCases: MatrixCase[] = [
   HISTORY,
   OPTIONAL,
   NESTED_VO,
+  I18N_TEXT,
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
