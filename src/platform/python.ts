@@ -6,6 +6,7 @@ import {
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Python platform — FastAPI + SQLAlchemy 2 backend deployable
@@ -39,6 +40,7 @@ const pythonPlatform: PlatformSurface = {
   // static-bundle framework.  D-PHOENIX-SURFACE.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
   capabilities: TARGET_CAPABILITIES.python,
+  facts: TARGET_FACTS.python,
   emitProject({
     contexts,
     deployable,

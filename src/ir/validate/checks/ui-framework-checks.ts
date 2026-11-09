@@ -11,6 +11,7 @@ import {
   frameworksOwned,
   frameworksSupporting,
   frameworksWithScope,
+  platformUi,
   uiCapabilityOfFrameworkOrPlatform,
 } from "../../../util/target-capabilities.js";
 import type {
@@ -40,6 +41,17 @@ import {
 } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
+
+/** Frameworks that hoist a component's state and actions into the host view. */
+const HOISTING_FRAMEWORKS = frameworksWithScope("components:hoisted-into-host");
+/** Frameworks that drop an extern component's children at the call site. */
+const EXTERN_CHILDREN_DROPPED = frameworksWithScope("components:extern-children-dropped");
+/** Frameworks that dedupe colliding page-form locals rather than fail. */
+const DEDUPED_FORM_LOCALS = frameworksWithScope("forms:duplicate-locals-deduped");
+/** Frameworks whose ui body binds `this`. */
+const THIS_BOUND_FRAMEWORKS = frameworksWithScope("ui-body:binds-this");
+/** Frameworks whose store is a server-side, per-process struct. */
+const SERVER_PROCESS_STORES = frameworksWithScope("stores:server-process");
 
 // `auth: ui` (the frontend OIDC guard) is emitted by every shipped frontend
 // generator: React, Vue, Svelte, Angular, Feliz (`generator/feliz/auth-gate.ts`
@@ -124,7 +136,7 @@ export function validateFrontendPropTypes(sys: SystemIR, diags: LoomDiagnostic[]
 export function validateLiveViewHoisting(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw !== "phoenixLiveView") continue;
+      if (!HOISTING_FRAMEWORKS.has(fw)) continue;
       for (const c of liveViewHandlerCollisions(ui)) {
         diags.push({
           severity: "error",
@@ -446,7 +458,7 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
 
 export function validateFlutterPrimitiveSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
-    if (d.platform !== "flutter") continue;
+    if (platformUi(d.platform)?.unrenderedPrimitives === undefined) continue;
     const uiNames = d.hostedUiNames.length > 0 ? d.hostedUiNames : d.uiName ? [d.uiName] : [];
     for (const uiName of uiNames) {
       const ui = sys.uis.find((u) => u.name === uiName);
@@ -508,7 +520,7 @@ export function validateFlutterPrimitiveSupport(sys: SystemIR, diags: LoomDiagno
 export function validateComponentChildrenSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw !== "angular") continue;
+      if (!EXTERN_CHILDREN_DROPPED.has(fw)) continue;
       for (const hit of componentChildrenHosts(ui)) {
         diags.push({
           // WARNING, not error, and the choice is deliberate.  #2734 made the
@@ -568,10 +580,9 @@ export function validateFormLocalCollisions(sys: SystemIR, diags: LoomDiagnostic
             dName: d.name,
             fw,
             labels: hit.labels.join(" and "),
-            hint:
-              fw === "vue"
-                ? "On vue this does NOT fail the build — the duplicate declarations are deduped, so the second form silently submits the first form's mutation and schema."
-                : "The duplicate declarations are a compile error in the generated project.",
+            hint: DEDUPED_FORM_LOCALS.has(fw)
+              ? "On vue this does NOT fail the build — the duplicate declarations are deduped, so the second form silently submits the first form's mutation and schema."
+              : "The duplicate declarations are a compile error in the generated project.",
           }),
           source: `${ui.name}/${hit.what}`,
         });
@@ -861,7 +872,7 @@ export function validateLambdaParamTypes(sys: SystemIR, diags: LoomDiagnostic[])
 export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw === "phoenixLiveView") continue;
+      if (THIS_BOUND_FRAMEWORKS.has(fw)) continue;
       const flag = (where: string, hit: boolean): void => {
         if (!hit) return;
         diags.push({
@@ -920,7 +931,7 @@ function liveViewStoreRefusedKinds(stmts: readonly StmtIR[]): string[] {
 export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw === "phoenixLiveView") {
+      if (SERVER_PROCESS_STORES.has(fw)) {
         for (const st of ui.stores) {
           for (const a of st.actions) {
             const where = `store '${st.name}' action '${a.name}'`;

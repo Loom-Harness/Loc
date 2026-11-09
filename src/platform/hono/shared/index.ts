@@ -16,6 +16,7 @@ import {
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "../../surface.js";
+import { TARGET_FACTS } from "../../target-facts.js";
 import { byFeatureLayoutAdapter } from "./adapters/by-feature-layout.js";
 import { byLayerLayoutAdapter } from "./adapters/by-layer-layout.js";
 import { drizzlePersistenceAdapterFor } from "./adapters/drizzle-persistence.js";
@@ -39,6 +40,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // framework.  D-PHOENIX-SURFACE.
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.node,
+    facts: TARGET_FACTS.node,
     emitProject({
       contexts,
       deployable,

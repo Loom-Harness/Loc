@@ -7,6 +7,7 @@ import { databaseOf } from "../ir/util/databases.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Elixir platform — fullstack Phoenix deployable
@@ -52,6 +53,7 @@ const elixirPlatform: PlatformSurface = {
     "feliz",
   ]),
   capabilities: TARGET_CAPABILITIES.elixir,
+  facts: TARGET_FACTS.elixir,
   emitProject({
     contexts,
     deployable,

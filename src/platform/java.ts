@@ -12,6 +12,7 @@ import {
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Java platform — Spring Boot 3 / Spring Data JPA (Hibernate) / Postgres.
@@ -42,6 +43,7 @@ const javaPlatform: PlatformSurface = {
   // not static-only.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
   capabilities: TARGET_CAPABILITIES.java,
+  facts: TARGET_FACTS.java,
   emitProject({
     contexts,
     deployable,

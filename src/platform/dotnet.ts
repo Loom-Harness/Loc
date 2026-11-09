@@ -14,6 +14,7 @@ import {
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 /** Pascal-cased root namespace for a deployable's .NET project — the same
  *  value `generateDotnetForContexts` uses for `<ns>.csproj` (see
@@ -45,6 +46,7 @@ const dotnetPlatform: PlatformSurface = {
   // an explicit `ui:` declaration.
   mountsUi: true,
   capabilities: TARGET_CAPABILITIES.dotnet,
+  facts: TARGET_FACTS.dotnet,
   emitProject({
     contexts,
     deployable,

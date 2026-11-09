@@ -110,7 +110,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-entry-result-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/call-result-checks.ts:239",
+    site: "src/ir/validate/checks/call-result-checks.ts:272",
     what:
       "A routed workflow `create`, `commandHandler` or `queryHandler` an elixir deployable " +
       "emits whose result is an expected failure (`T or E`), and a `create` answering its own " +
@@ -302,7 +302,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:670",
+    site: "src/ir/validate/checks/target-capability-checks.ts:730",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
@@ -384,7 +384,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/store-checks.ts:625",
+    site: "src/ir/validate/checks/store-checks.ts:633",
     what:
       "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
       "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
@@ -412,7 +412,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-action-body-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:678",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:708",
     what:
       "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
@@ -545,8 +545,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/datasource-checks.ts:215",
     what:
       "re-classified from a live latent seam to a dormant one: every platform key already in " +
-      "PLATFORM_SAVING_SHAPES (dotnet/node/python/java, plus elixir widened to `document` in " +
-      "this check) lists all three SavingShape values, so `supported.includes(shape)` cannot " +
+      "PLATFORM_SAVING_SHAPES (dotnet/node/elixir/python/java) lists all three SavingShape values, so `supported.includes(shape)` cannot " +
       "fail for any of them — and a platform NOT yet in the map is SKIPPED " +
       "(`if (!base) continue`), not flagged, so this isn't even the seam a brand-new backend " +
       "gates on the way PROJECTION_READ_FRAMEWORKS-shaped rows are.  An unreachable backstop for the day " +
@@ -677,7 +676,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.vanilla-document-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:575",
+    site: "src/ir/validate/checks/datasource-checks.ts:601",
     what:
       "elixir `shape: document`, the residue after CRUD + scalar finds/ops landed: a PROVENANCED " +
       "op, or a body/find predicate reading a dereferenced cross-aggregate entity, a " +

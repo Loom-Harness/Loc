@@ -9,6 +9,7 @@ import {
   platformSavingShapes,
 } from "../../../language/validators/data/platform-rules.js";
 import { lowerFirst, snake } from "../../../util/naming.js";
+import { platformBackendOwnedBy } from "../../../util/target-capabilities.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -17,7 +18,6 @@ import type {
   ExprIR,
   FunctionIR,
   OperationIR,
-  SavingShape,
   StmtIR,
   SystemIR,
 } from "../../types/loom-ir.js";
@@ -193,13 +193,8 @@ export function validateSavingShapeSupport(sys: SystemIR, diags: LoomDiagnostic[
 
   for (const dep of sys.deployables) {
     if (!platformOwnsBackend(dep.platform)) continue;
-    const base = platformSavingShapes(dep.platform);
-    if (!base) continue;
-    // elixir (plain Ecto) emits the opaque `(id, data, version)` document table
-    // + a schemaless-changeset validated fold, so it supports `document` on top
-    // of the platform's relational / embedded set.
-    const supported =
-      dep.platform === "elixir" ? ([...base, "document"] as readonly SavingShape[]) : base;
+    const supported = platformSavingShapes(dep.platform);
+    if (!supported) continue;
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
@@ -545,49 +540,69 @@ function docOpUnsupported(op: OperationIR, allowFnCall: boolean, agg: AggregateI
   return opHasProvSite(op) || op.statements.some((s) => docStmtUnsupported(s, allowFnCall, agg));
 }
 
+/** Every `shape: document` aggregate of `ctx` with a named operation or
+ *  custom find the vanilla document path does not render, as the phrase that
+ *  names them — the uses of `op:document-residue@aggregate`. */
+export function documentResidue(
+  ctx: BoundedContextIR,
+  sys: SystemIR,
+): { agg: AggregateIR; bits: string }[] {
+  const out: { agg: AggregateIR; bits: string }[] = [];
+  for (const agg of ctx.aggregates) {
+    const enriched = agg as EnrichedAggregateIR;
+    if (!isDocumentShaped(enriched, resolveDataSourceConfig(enriched, ctx, sys))) continue;
+    // A pure `function` call is emittable only when every function on the
+    // aggregate is itself doc-safe (they render in the same `docMap` mode —
+    // reading the jsonb `data` map); if any is not, a body that calls one is
+    // gated.  Computed once here and threaded into the op/find checks.
+    const allowFnCall = (agg.functions ?? []).every((fn) => !docFunctionUnsupported(fn, agg));
+    // A custom find is unsupported only when its predicate reads a non-scalar
+    // shape.  PAGED and UNION finds are supported: `renderDocFindFn`
+    // returns the single-get `{:ok, nil}`/
+    // `{:ok, record}` tuple the shared find controller translates to the tagged
+    // union wire (found → 200 body, absent → 404 / RFC-7807 via `problem_variant`).
+    const badFinds = (
+      (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name)?.finds ?? []
+    )
+      .filter((f) => f.name !== "all")
+      .filter((f) => f.filter != null && docExprUnsupported(f.filter, allowFnCall, agg));
+    const badOps = agg.operations
+      .filter((op) => !VANILLA_DOC_CRUD_OPS.has(op.name))
+      .filter((op) => docOpUnsupported(op, allowFnCall, agg));
+    if (badFinds.length === 0 && badOps.length === 0) continue;
+    const bits: string[] = [];
+    if (badOps.length > 0) bits.push(`named operation(s) ${badOps.map((o) => o.name).join(", ")}`);
+    if (badFinds.length > 0) bits.push(`custom find(s) ${badFinds.map((f) => f.name).join(", ")}`);
+    out.push({ agg, bits: bits.join(" and ") });
+  }
+  return out;
+}
+
 export function validateVanillaDocumentScope(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
 
   for (const dep of sys.deployables) {
-    if (dep.platform !== "elixir") continue;
+    if (
+      !platformBackendOwnedBy(
+        dep.platform,
+        "op:document-residue@aggregate",
+        "loom.vanilla-document-unsupported",
+      )
+    ) {
+      continue;
+    }
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
-      for (const agg of ctx.aggregates) {
-        const enriched = agg as EnrichedAggregateIR;
-        if (!isDocumentShaped(enriched, resolveDataSourceConfig(enriched, ctx, sys))) continue;
-        // A pure `function` call is emittable only when every function on the
-        // aggregate is itself doc-safe (they render in the same `docMap` mode —
-        // reading the jsonb `data` map); if any is not, a body that calls one is
-        // gated.  Computed once here and threaded into the op/find checks.
-        const allowFnCall = (agg.functions ?? []).every((fn) => !docFunctionUnsupported(fn, agg));
-        // A custom find is unsupported only when its predicate reads a non-scalar
-        // shape.  PAGED and UNION finds are supported: `renderDocFindFn`
-        // returns the single-get `{:ok, nil}`/
-        // `{:ok, record}` tuple the shared find controller translates to the tagged
-        // union wire (found → 200 body, absent → 404 / RFC-7807 via `problem_variant`).
-        const badFinds = (
-          (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name)?.finds ?? []
-        )
-          .filter((f) => f.name !== "all")
-          .filter((f) => f.filter != null && docExprUnsupported(f.filter, allowFnCall, agg));
-        const badOps = agg.operations
-          .filter((op) => !VANILLA_DOC_CRUD_OPS.has(op.name))
-          .filter((op) => docOpUnsupported(op, allowFnCall, agg));
-        if (badFinds.length === 0 && badOps.length === 0) continue;
-        const bits: string[] = [];
-        if (badOps.length > 0)
-          bits.push(`named operation(s) ${badOps.map((o) => o.name).join(", ")}`);
-        if (badFinds.length > 0)
-          bits.push(`custom find(s) ${badFinds.map((f) => f.name).join(", ")}`);
+      for (const { agg, bits } of documentResidue(ctx, sys)) {
         diags.push({
           severity: "error",
           code: "loom.vanilla-document-unsupported",
           message: diagMessage("loom.vanilla-document-unsupported", {
             ctxName,
             name: agg.name,
-            bits: bits.join(" and "),
+            bits,
           }),
           source: `${sys.name}/${dep.name}`,
           origin: dep.origin,
