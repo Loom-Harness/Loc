@@ -13,7 +13,7 @@
 // - `ReactDOM.createRoot is not a function` (PR #149 hunt)
 // - any pageerror surfaced by React-19 rendering the storybook tree
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   clickWorkspaceCreate,

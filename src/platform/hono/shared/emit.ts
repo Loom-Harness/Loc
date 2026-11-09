@@ -1,3 +1,4 @@
+import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
 // Hono platform surface and drives the shared neutral emitter library
@@ -159,6 +160,7 @@ import {
   effectiveSavingShape,
   resolveContextSchema,
   resolveDataSourceConfig,
+  resolveWorkflowIsolation,
 } from "../../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
@@ -1034,6 +1036,12 @@ export function generateTypeScriptForContexts(
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
     return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
   };
+  // Per-workflow transaction isolation — resolved against the workflow's
+  // OWNING context, whose state dataSource supplies the default level.
+  const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
+    const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+    return owningCtx ? resolveWorkflowIsolation(wf, owningCtx, system.sys) : wf.isolation;
+  };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
     const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
@@ -1124,6 +1132,7 @@ export function generateTypeScriptForContexts(
       resolveStreamContext,
       usingMikro,
       authRequired,
+      resolveWorkflowIsolationLevel,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1710,7 +1719,10 @@ export function generateTypeScriptForContexts(
   // The single job of this file is to stop the upward search.
   out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
   const entryConfig: ProjectEntryConfig = {
-    runMigrationsAtBoot: hasMigrations,
+    // A deployable on a database another deployable migrates carries the
+    // migrations (its integration tests build the schema from them) but leaves
+    // the boot run to that migrator.
+    runMigrationsAtBoot: hasMigrations && migratesAtBoot(system.sys, system.deployable),
     userShape: authRequired ? system.sys.user : undefined,
     resourceImports,
     runSeedsAtBoot: hasSeeds,

@@ -13,7 +13,7 @@
 //   6. the Builder tab on a broken source shows *Go to line N*, and clicking
 //      it lands on Source at that line.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { dismissFirstRun, readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 const BARE = `context Sales {

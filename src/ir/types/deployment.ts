@@ -15,13 +15,14 @@ export interface SubdomainIR {
    *  (`name`) is what `permissions.<name>` references resolve to in
    *  expression bodies. */
   permissions: PermissionDeclIR[];
-  /** Name of the deployable that owns migrations for this subdomain's
-   *  primary persistent storage.  Populated by `enrichLoomModel` — the
-   *  first backend deployable (in declaration order) that hosts any
-   *  context from this subdomain and whose platform `needsDb`.
-   *  Undefined when no deployable matches (frontend-only subdomains,
-   *  etc.) — backends MUST emit migrations only when
-   *  `subdomain.migrationsOwner === deployable.name`. */
+  /** The subdomain's owning deployable.  Populated by `enrichLoomModel` —
+   *  the first backend deployable (in declaration order) that hosts any
+   *  context from this subdomain and whose platform `needsDb`.  It runs the
+   *  subdomain's singleton duties (timers) and its `state` binding names the
+   *  storage the module's migrations are recorded against.  Undefined when no
+   *  deployable matches (frontend-only subdomains, etc.).  Which deployables
+   *  carry and apply the migrations is a property of the DATABASE, not of the
+   *  subdomain — see `src/ir/util/databases.ts`. */
   migrationsOwner?: string;
 }
 
@@ -38,10 +39,10 @@ export interface PermissionDeclIR {
   /** Runtime strings of the permissions that transitively IMPLY this one
    *  (`X implies Y` ⇒ `impliedBy(Y)` includes `X`).  A `contains(this)`
    *  authorization check is expanded to also accept any of these, so holding
-   *  a broader permission satisfies a narrower gate.  Absent / empty when
+   *  a broader permission satisfies a narrower gate.  Empty when
    *  nothing implies it.  See `src/ir/util/permission-closure.ts`
    *  (authorization.md §6). */
-  impliedBy?: string[];
+  impliedBy: string[];
 }
 
 /** D-STORAGE-SPLIT: a per-(context, kind) binding from a domain
@@ -76,6 +77,9 @@ export interface DataSourceIR {
   /** Snapshot policy: retain at most N snapshots per stream. */
   retain?: number;
   isolationLevel?: "readUncommitted" | "readCommitted" | "repeatableRead" | "serializable";
+  /** Set only when the resource declares `readonly:` — absence is "not
+   *  declared", which the target-capability check tells apart from a
+   *  declared knob no backend realizes. */
   readonly?: boolean;
   /** Saving shape of the materialised read model this binding routes
    *  (D-DOCUMENT-AXIS, `shape:` knob).  Per-projection override of the

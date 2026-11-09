@@ -9,7 +9,7 @@
 // it is clean on a fresh page, in the CLI and in the toolkit — and Generate
 // stayed blocked.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   expectCleanValidation,
   generateOk,

@@ -486,8 +486,10 @@ twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
 - `AddCors` (permissive default; pin to tighten in prod)
 - `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends)
 - `app.MapGet("/health", ...)` + `UseCors() / UseSwagger() / MapControllers()`
-- `db.Database.EnsureCreated()` on first scope (per-deployable DB,
-  no race — see [`tools.md`](tools.md#per-deployable-databases))
+- the boot migration (`Database.Migrate()`, or `DbSchema.EnsureAsync` under
+  Dapper) on the database's migrator; a deployable whose storage's database
+  another deployable migrates runs none — see
+  [`migrations.md`](migrations.md#databases-and-who-migrates-them)
 
 ---
 
@@ -1400,7 +1402,7 @@ writes everything to a flat tree:
 ├── docker-compose.obs.yml       # opt-in: prometheus + jaeger + the OTLP export env
 ├── monitoring/prometheus.yml    # the overlay's scrape config, one job per backend
 ├── db-init/
-│   └── 00-create-databases.sql  # CREATE DATABASE per backend deployable
+│   └── 00-create-databases.sql  # CREATE DATABASE per postgres storage
 └── e2e/                  # generated DSL-level e2e suite (vitest+fetch)
     ├── package.json
     ├── tsconfig.json
@@ -1432,15 +1434,15 @@ via two `PlatformSurface` flags (`src/platform/surface.ts`):
 orchestrator consults these instead of hardcoding platform names, so
 adding a new platform extends the registry + the two flags only.
 
-### Per-deployable databases
+### Databases per storage
 
-The init script `db-init/00-create-databases.sql` creates one
-database per backend deployable.  Each backend's connection string
-points to its own DB.  This sidesteps a real bug observed on .NET:
-EF Core's `EnsureCreated` is all-or-nothing per database, so two
-backends sharing one DB silently leave the loser-of-the-race's
-tables uncreated.  React deployables don't connect to a DB and don't
-appear in the init script.
+The init script `db-init/00-create-databases.sql` creates one database per
+postgres `storage` a backend binds, plus one for each backend that binds none.
+Each backend's connection string points at its storage's database, so
+deployables bound to one storage share their rows.  The first deployable on a
+database applies its migrations; the others carry them and skip the boot run
+([`migrations.md`](migrations.md#databases-and-who-migrates-them)).  React
+deployables don't connect to a DB and don't appear in the init script.
 
 Every statement is idempotent (`SELECT 'CREATE DATABASE x' WHERE NOT
 EXISTS (…) \gexec`): Postgres runs `docker-entrypoint-initdb.d` only on an
@@ -1459,9 +1461,10 @@ Schema changes flow through a platform-neutral **MigrationsIR**
 one per entry of the committed migration chain (`migrations/` beside
 the `.ddd`, recorded by `ddd migrate add`).  The builder
 ([`src/system/migrations-builder.ts`](../src/system/migrations-builder.ts))
-derives each module's delta against the chain's head for every
-`(subdomain, storage)` pair owned by a deployable (`migrationsOwner`
-enrichment in `src/ir/enrich/enrichments.ts`).  Backends only translate
+derives each module's delta against the chain's head for every module with an
+owning deployable (`migrationsOwner` enrichment in
+`src/ir/enrich/enrichments.ts`); every deployable on a database carries the
+deltas of that database's modules, and its first deployable applies them.  Backends only translate
 steps to their syntax via the per-platform emitters listed below — they
 never recompute the schema themselves.  Shared SQL rendering for the
 Postgres-backed emitters lives in

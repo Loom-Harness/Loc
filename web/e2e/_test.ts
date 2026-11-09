@@ -1,0 +1,85 @@
+// The playground specs' `test`: Playwright's, plus an opt-in timing fixture.
+//
+// With `LOOM_E2E_TIMING=<dir>` set, every test writes `<dir>/<testId>.json`:
+// the app's `loom:<phase>` User Timing marks (`markPhase` / `clearPhase` in
+// `src/util/diagnostics.ts`), the bundler's `[npm-engine]` install / bundle
+// lines, and page loads, each stamped in epoch ms.  `scripts/e2e-timing.mjs`
+// folds those files into the per-spec breakdown.  Unset, the fixture does
+// nothing, so a normal run pays nothing for it.
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { test as base } from "@playwright/test";
+
+export * from "@playwright/test";
+
+export interface TimingEvent {
+  /** epoch ms */
+  t: number;
+  kind: "mark" | "engine" | "load" | "goto";
+  name: string;
+  detail?: string;
+}
+
+const TIMING_DIR = process.env.LOOM_E2E_TIMING;
+
+export const test = base.extend<{ loomTiming: void }>({
+  loomTiming: [
+    async ({ page }, use, testInfo) => {
+      if (!TIMING_DIR) {
+        await use();
+        return;
+      }
+      const events: TimingEvent[] = [];
+      const started = Date.now();
+      await page.exposeBinding("__loomTiming", (_src, name: string, t: number, detail?: string) => {
+        events.push({ t, kind: "mark", name, ...(detail ? { detail } : {}) });
+      });
+      await page.addInitScript(() => {
+        const sink = (window as unknown as { __loomTiming?: (n: string, t: number, d?: string) => void })
+          .__loomTiming;
+        const mark = performance.mark.bind(performance);
+        performance.mark = ((name: string, opts?: PerformanceMarkOptions) => {
+          const m = mark(name, opts);
+          if (name.startsWith("loom:")) {
+            const d = opts?.detail;
+            void (window as unknown as { __loomTiming?: typeof sink }).__loomTiming?.(
+              name.slice(5),
+              Date.now(),
+              typeof d === "string" ? d : undefined,
+            );
+          }
+          return m;
+        }) as typeof performance.mark;
+      });
+      page.on("console", (msg) => {
+        const text = msg.text();
+        if (text.startsWith("[npm-engine]")) events.push({ t: Date.now(), kind: "engine", name: text });
+      });
+      page.on("framenavigated", (frame) => {
+        if (frame === page.mainFrame()) events.push({ t: Date.now(), kind: "goto", name: frame.url() });
+      });
+      page.on("load", () => events.push({ t: Date.now(), kind: "load", name: page.url() }));
+      await use();
+      mkdirSync(TIMING_DIR, { recursive: true });
+      writeFileSync(
+        join(TIMING_DIR, `${testInfo.testId}-${testInfo.retry}.json`),
+        JSON.stringify(
+          {
+            file: testInfo.file.replace(/^.*\/e2e\//, ""),
+            title: testInfo.titlePath.slice(1).join(" › "),
+            project: testInfo.project.name,
+            status: testInfo.status,
+            retry: testInfo.retry,
+            started,
+            ended: Date.now(),
+            events,
+          },
+          null,
+          1,
+        ),
+      );
+    },
+    { auto: true },
+  ],
+});

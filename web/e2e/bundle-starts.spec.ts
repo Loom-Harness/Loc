@@ -28,7 +28,7 @@
 // in one shared ref, so overlapping cycles clobbered each other); it is fixed
 // alongside this one, but nothing here proves it.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { clickWorkspaceCreate, waitForPlaygroundReady } from "./_helpers";
 
 test("clicking Bundle the moment Generate lands actually starts a bundle", async ({

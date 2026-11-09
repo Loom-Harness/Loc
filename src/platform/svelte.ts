@@ -6,6 +6,7 @@ import {
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Svelte frontend platform — the second frontend-only platform after
@@ -32,6 +33,7 @@ const sveltePlatform: PlatformSurface = {
   // Svelte generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
   capabilities: TARGET_CAPABILITIES.svelte,
+  facts: TARGET_FACTS.svelte,
   emitProject({
     contexts,
     sys,

@@ -67,7 +67,9 @@ describe("kubernetes / helm emitter", () => {
     expect(secret).toContain("kind: Secret");
     expect(secret).toContain(".Values.api.database.url");
     // values.yaml keeps the dev-compose string as the placeholder default.
-    expect(files.get("helm/values.yaml")!).toContain("postgres://postgres:postgres@db:5432/api");
+    expect(files.get("helm/values.yaml")!).toContain(
+      "postgres://postgres:postgres@db:5432/primary",
+    );
   });
 
   it("makes backends ClusterIP and only frontends get an (off-by-default) Ingress", async () => {

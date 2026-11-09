@@ -99,7 +99,14 @@ describe("pageEmitPath — lowering's path is authoritative", () => {
   it("falls back to `src/pages/<snake>.tsx` only for a page lowering left unplaced", () => {
     // No `emitPath`: the fallback is the ONLY place a path is reconstructed,
     // and it applies to a top-level page (where `name` IS unique).
-    const orphan = { name: "AuditLog", params: [], state: [], derived: [], actions: [] } as PageIR;
+    const orphan = {
+      name: "AuditLog",
+      params: [],
+      state: [],
+      derived: [],
+      actions: [],
+      area: [],
+    } as PageIR;
     expect(pageEmitPath(orphan)).toBe("src/pages/audit_log.tsx");
     expect(pageEmitPath(orphan, ".vue")).toBe("src/pages/audit_log.vue");
   });
@@ -210,6 +217,9 @@ describe("buildPageModuleIndex — slot → the module that slot's page actually
       components: [],
       stores: [],
       apiParams: [],
+      channelParams: [],
+      notifications: [],
+      functions: [],
     } as UiIR;
     const first = buildPageModuleIndex(ui, CTX);
     expect(first.get("agg:Order:list")).toBe("./pages/orders/list");

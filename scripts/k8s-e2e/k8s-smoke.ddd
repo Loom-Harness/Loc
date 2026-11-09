@@ -22,14 +22,25 @@ system K8sSmoke {
   }
 
   api InventoryApi from Catalog
-  storage primary { type: postgres }
-  resource inventoryState { for: Inventory, kind: state, use: primary }
+  // One storage per backend: the matrix installs one chart at a time, and a
+  // deployable sharing a storage leaves the migrations to the first deployable
+  // on it — so each backend binds a database of its own and migrates it.
+  storage honoDb    { type: postgres }
+  storage dotnetDb  { type: postgres }
+  storage pythonDb  { type: postgres }
+  storage javaDb    { type: postgres }
+  storage phoenixDb { type: postgres }
+  resource honoState    { for: Inventory, kind: state, use: honoDb }
+  resource dotnetState  { for: Inventory, kind: state, use: dotnetDb }
+  resource pythonState  { for: Inventory, kind: state, use: pythonDb }
+  resource javaState    { for: Inventory, kind: state, use: javaDb }
+  resource phoenixState { for: Inventory, kind: state, use: phoenixDb }
 
   // One deployable per backend platform — same context for OpenAPI parity, so
   // the matrix installs exactly one at a time via the chart's `enabled` toggle.
-  deployable honoApi    { platform: node                        contexts: [Inventory] dataSources: [inventoryState] serves: InventoryApi port: 3000 }
-  deployable dotnetApi  { platform: dotnet                      contexts: [Inventory] dataSources: [inventoryState] serves: InventoryApi port: 8080 }
-  deployable pythonApi  { platform: python                      contexts: [Inventory] dataSources: [inventoryState] serves: InventoryApi port: 8000 }
-  deployable javaApi    { platform: java                        contexts: [Inventory] dataSources: [inventoryState] serves: InventoryApi port: 8081 }
-  deployable phoenixApi { platform: elixir contexts: [Inventory] dataSources: [inventoryState] serves: InventoryApi port: 4000 }
+  deployable honoApi    { platform: node   contexts: [Inventory] dataSources: [honoState]    serves: InventoryApi port: 3000 }
+  deployable dotnetApi  { platform: dotnet contexts: [Inventory] dataSources: [dotnetState]  serves: InventoryApi port: 8080 }
+  deployable pythonApi  { platform: python contexts: [Inventory] dataSources: [pythonState]  serves: InventoryApi port: 8000 }
+  deployable javaApi    { platform: java   contexts: [Inventory] dataSources: [javaState]    serves: InventoryApi port: 8081 }
+  deployable phoenixApi { platform: elixir contexts: [Inventory] dataSources: [phoenixState] serves: InventoryApi port: 4000 }
 }

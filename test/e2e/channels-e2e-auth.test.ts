@@ -102,11 +102,13 @@ system Acme {
     }
   }
   storage primary { type: postgres }
+  // Two services, two databases: each deployable binds a storage of its own.
+  storage shipping { type: postgres }
   storage busRedis { type: redis }
   storage busRabbit { type: rabbitmq }
   storage busKafka { type: kafka }
   resource ordersState { for: Orders, kind: state, use: primary }
-  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
   channelSource lifecycleBus { for: Lifecycle, use: busRedis }
   channelSource handoffBus { for: Handoff, use: busRabbit }
   channelSource archiveBus { for: Archive, use: busKafka }

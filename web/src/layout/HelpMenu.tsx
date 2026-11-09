@@ -4,6 +4,7 @@ import { collectCrashReportInput } from "../util/crash-context";
 import { crashIssueUrl } from "../util/crash-report";
 import type { LayoutCtx } from "./ctx";
 import { HELP } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The `?` help menu (M-T8.18 slice 3, audit H5): Docs, Language reference,
 // Keyboard shortcuts, Report a problem.  Desktop renders it as an ActionIcon
@@ -16,7 +17,7 @@ interface Props {
   ctx: Pick<LayoutCtx, "setShortcutSheetOpen">;
 }
 
-export function HelpMenu({ ctx }: Props): JSX.Element {
+function HelpMenuView({ ctx }: Props): JSX.Element {
   return (
     <Menu shadow="md" position="bottom-start" withinPortal>
       <Menu.Target>
@@ -73,3 +74,5 @@ export function HelpMenuItems({ ctx }: Props): JSX.Element {
     </>
   );
 }
+
+export const HelpMenu = trackedCtx("HelpMenu", HelpMenuView);

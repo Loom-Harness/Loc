@@ -124,6 +124,7 @@ import {
   validateRelayTargetNotSubscribed,
   validateResourceConfig,
   validateSavingShapeSupport,
+  validateSharedDatabaseLayouts,
   validateStampSupport,
   validateSystem,
   validateTenancyFilterBypass,
@@ -263,6 +264,7 @@ export function validateLoomModel(
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
+    validateSharedDatabaseLayouts(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);

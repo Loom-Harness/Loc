@@ -32,6 +32,7 @@ import {
   shortOid,
 } from "./history-format";
 import { OUTPUT_DIFF } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // "History" dock tab — a visible timeline of the git-backed workspace.
 // Commits accrue from the debounced autosave ("autosave workspace"),
@@ -53,7 +54,7 @@ const STATUS_COLOR: Record<CommitFileChange["status"], string> = {
   removed: "red",
 };
 
-export function HistoryBody({
+function HistoryBodyView({
   ctx,
   active = true,
 }: {
@@ -441,3 +442,5 @@ function OutputChanges({ files }: { files: CommitFileChange[] }): JSX.Element | 
 function toCommitStatus(status: ChangeStatus): CommitFileChange["status"] {
   return status === "changed" ? "modified" : status;
 }
+
+export const HistoryBody = trackedCtx("HistoryBody", HistoryBodyView);

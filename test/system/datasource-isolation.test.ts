@@ -225,4 +225,66 @@ describe("resource isolationLevel — end-to-end emit", () => {
     expect(body).toMatch(/Repo\.transaction\(fn -> commit_result\(run_inner\(params\)\) end\)/);
     expect(body).not.toMatch(/SET TRANSACTION ISOLATION LEVEL/);
   });
+
+  // node: the drizzle and MikroORM adapters spell the level differently, but
+  // both must resolve it the same way the other backends do — the workflow's
+  // own `transactional(<level>)`, else its context's state dataSource default.
+  // String tier: the isolation option is wiring no booted leg observes.
+  const nodeModel = (platform: string, workflowHeader: string, dsIsolation = "serializable") => `
+    system Sys {
+      subdomain M {
+        context C {
+          aggregate Customer {
+            name: string
+            creditLimit: decimal
+            operation addCredit(amount: decimal) {
+              precondition amount > 0
+              creditLimit := creditLimit + amount
+            }
+          }
+          repository Customers for Customer { }
+          workflow ${workflowHeader} {
+            create(customerId: Customer id, amount: decimal) {
+              let c = Customers.get(customerId)
+              c.addCredit(amount)
+            }
+          }
+        }
+      }
+      storage pg { type: postgres }
+      resource cState { for: C, kind: state, use: pg, isolationLevel: ${dsIsolation} }
+      deployable api { platform: ${platform}, contexts: [C], dataSources: [cState], port: 3000 }
+    }
+  `;
+  const nodeWorkflows = async (src: string) => {
+    const files = await emit(src);
+    const key = [...files.keys()].find((k) => k.endsWith("http/workflows.ts"));
+    expect(key, "http/workflows.ts emitted").toBeDefined();
+    return files.get(key!)!;
+  };
+
+  it("node (drizzle) transactional workflow picks up the dataSource's isolationLevel", async () => {
+    const body = await nodeWorkflows(nodeModel("node", "bumpCredit transactional"));
+    expect(body).toMatch(
+      /db\.transaction\(async \(tx\) => \{[\s\S]*\}, \{ isolationLevel: "serializable" \}\)/,
+    );
+  });
+
+  it("node (mikroorm) transactional workflow picks up the dataSource's isolationLevel", async () => {
+    const body = await nodeWorkflows(
+      nodeModel("node { persistence: mikroorm }", "bumpCredit transactional"),
+    );
+    expect(body).toMatch(/\{ isolationLevel: IsolationLevel\.SERIALIZABLE \}/);
+  });
+
+  it("node workflow's explicit isolation overrides the dataSource default", async () => {
+    const body = await nodeWorkflows(nodeModel("node", "bumpCredit transactional(repeatableRead)"));
+    expect(body).toMatch(/\{ isolationLevel: "repeatable read" \}/);
+    expect(body).not.toMatch(/isolationLevel: "serializable"/);
+  });
+
+  it("node non-transactional workflow ignores the dataSource isolationLevel", async () => {
+    const body = await nodeWorkflows(nodeModel("node", "bumpCredit"));
+    expect(body).not.toMatch(/isolationLevel/);
+  });
 });

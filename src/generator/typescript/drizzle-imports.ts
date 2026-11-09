@@ -101,74 +101,50 @@ export const DRIZZLE_ORM_SYMBOLS: readonly string[] = [
  * a dead import (which Biome's generated-code gate then fails).  Backticks are
  * blanked too, but the blanking preserves the backtick delimiters so a
  * `` sql`…` `` tag is still visible as a call site.
+ *
+ * One left-to-right pass over strings AND comments, so whichever opens first
+ * wins: an apostrophe in a doc comment (`the stream's tenant`) must not open a
+ * '…' literal that swallows the code up to the next quote — that hid `or(` and
+ * `` sql` `` from the scan and dropped their imports.  Comments are removed
+ * outright; quoted literals never span a line.
  */
 export function stripStringLiterals(src: string): string {
-  return stripTemplateText(src)
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''");
+  return src.replace(
+    /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+    (m) => {
+      if (m[0] === "/") return "";
+      if (m[0] !== "`") return `${m[0]}${m[0]}`;
+      // A template literal keeps its `${…}` holes: a hole is code (a drizzle
+      // `sql` tag interpolates operators and accessor calls — an `exists`
+      // subquery's whole predicate sits in one), so what it calls must stay
+      // visible to the import scans.
+      return `\`\`${templateHoles(m).map((h) => ` ${stripStringLiterals(h)} `).join("")}`;
+    },
+  );
 }
 
-/** Blank the TEXT of every template literal but keep its `${…}` holes: a hole
- *  is code (a drizzle `sql` tag interpolates operators and accessor calls —
- *  an `exists` subquery's whole predicate sits in one), so what it calls must
- *  stay visible to the import scans.  A literal becomes `` `` `` followed by
- *  its holes' code; nested templates inside a hole are handled recursively. */
-function stripTemplateText(src: string): string {
-  let out = "";
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i]!;
-    if (c === '"' || c === "'") {
-      // Skip an ordinary string verbatim (its text is blanked by the caller).
-      const end = skipQuoted(src, i, c);
-      out += src.slice(i, end);
-      i = end;
-    } else if (c === "`") {
-      const { holes, end } = templateHoles(src, i);
-      out += `\`\`${holes.map((h) => ` ${stripTemplateText(h)} `).join("")}`;
-      i = end;
-    } else {
-      out += c;
-      i++;
-    }
-  }
-  return out;
-}
-
-function skipQuoted(src: string, start: number, q: string): number {
-  let i = start + 1;
-  while (i < src.length && src[i] !== q) i += src[i] === "\\" ? 2 : 1;
-  return i + 1;
-}
-
-/** The `${…}` hole sources of the template literal opening at `start`, and the
- *  index just past its closing backtick. */
-function templateHoles(src: string, start: number): { holes: string[]; end: number } {
+/** The `${…}` hole sources of one template literal (backticks included). */
+function templateHoles(literal: string): string[] {
   const holes: string[] = [];
-  let i = start + 1;
-  while (i < src.length && src[i] !== "`") {
-    if (src[i] === "\\") {
+  let i = 1;
+  while (i < literal.length - 1) {
+    if (literal[i] === "\\") {
       i += 2;
-    } else if (src[i] === "$" && src[i + 1] === "{") {
+    } else if (literal[i] === "$" && literal[i + 1] === "{") {
       let depth = 1;
       let j = i + 2;
-      while (j < src.length && depth > 0) {
-        const c = src[j]!;
-        if (c === '"' || c === "'") j = skipQuoted(src, j, c);
-        else if (c === "`") j = templateHoles(src, j).end;
-        else {
-          if (c === "{") depth++;
-          else if (c === "}") depth--;
-          j++;
-        }
+      while (j < literal.length && depth > 0) {
+        if (literal[j] === "{") depth++;
+        else if (literal[j] === "}") depth--;
+        j++;
       }
-      holes.push(src.slice(i + 2, j - 1));
+      holes.push(literal.slice(i + 2, j - 1));
       i = j;
     } else {
       i++;
     }
   }
-  return { holes, end: i + 1 };
+  return holes;
 }
 
 /**

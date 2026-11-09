@@ -25,19 +25,19 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  "context.ts": 31,
-  "deployment.ts": 23,
+  "context.ts": 28,
+  "deployment.ts": 22,
   "expr.ts": 43,
-  "members.ts": 18,
-  "model.ts": 9,
+  "members.ts": 16,
+  "model.ts": 8,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
   "system.ts": 28,
   "traceability.ts": 5,
-  "types.ts": 14,
-  "ui.ts": 26,
-  "workflow.ts": 23,
+  "types.ts": 3,
+  "ui.ts": 20,
+  "workflow.ts": 14,
   "workflow-stmt.ts": 26,
 };
 

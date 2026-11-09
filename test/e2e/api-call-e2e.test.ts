@@ -348,8 +348,10 @@ system Acme {
   }
   api OrdersApi with scaffoldGetApi(of: ByCode) from Core
   storage primary { type: postgres }
+  // Two services, two databases: each deployable binds a storage of its own.
+  storage shipping { type: postgres }
   resource ordersState   { for: Orders,   kind: state, use: primary }
-  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
   resource orders        { for: Shipping, kind: api,   use: OrdersApi }
   deployable ordersSvc {
     platform: node contexts: [Orders] dataSources: [ordersState] serves: OrdersApi port: 3000 auth: required

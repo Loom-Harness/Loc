@@ -4,7 +4,7 @@
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Platform } from "../../ir/types/loom-ir.js";
-import { descriptorFor, parseBuiltinPlatformRef } from "../../platform/metadata.js";
+import { descriptorFor, factsFor, parseBuiltinPlatformRef } from "../../platform/metadata.js";
 import { intrinsicMatcherSig } from "../../util/intrinsic-matchers.js";
 import {
   type CallSuffix,
@@ -331,8 +331,8 @@ export function checkThrowKindPlacement(model: Model, accept: ValidationAcceptor
 function lowersToUiSpec(block: TestE2E): boolean {
   const declared = block.deployable?.ref?.platform;
   if (declared == null) return false;
-  // A backend may be written `family@version` (`hono@v5`); frontends and
-  // `elixir` are always barewords, so the family alone decides.
+  // A backend may be written `family@version` (`node@v5`); the family alone
+  // decides.
   const platform = parseBuiltinPlatformRef(declared)?.family ?? declared;
   let isFrontend: boolean;
   try {
@@ -343,7 +343,7 @@ function lowersToUiSpec(block: TestE2E): boolean {
     return false;
   }
   if (isFrontend) return true;
-  if (platform !== "elixir") return false;
+  if (!factsFor(platform)?.fullstack) return false;
   // Fullstack: `fullstackE2EKinds` emits a ui spec whenever the body reaches
   // the `ui` root at all (a mixed-root body lowers to BOTH kinds), so follow
   // the root, not the platform.

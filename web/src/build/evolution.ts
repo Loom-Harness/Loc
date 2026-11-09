@@ -29,6 +29,7 @@ import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerProject } from "../../../src/ir/lower/lower.js";
 import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
 import type { MigrationStep, TableShape } from "../../../src/ir/types/migrations-ir.js";
+import { databaseOf, hostedModules } from "../../../src/ir/util/databases.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
@@ -422,29 +423,22 @@ function unitPlans(migrations: ReturnType<typeof chainMigrations>): MigrationUni
 type SystemOf = EnrichedLoomModel["systems"][number];
 
 /** The playground's databases for one system: the Node deployables grouped by
- *  the postgres `storage` their data sources bind, each group carrying the
- *  modules (subdomains) its deployables host — the same rule that decides
- *  which migrations a generated backend carries.  A Node deployable bound to
- *  no postgres storage gets a database of its own. */
+ *  the database they run on (`databaseOf` — the one the generated compose file
+ *  gives them), each group carrying the modules (subdomains) its deployables
+ *  host — the migrations that database receives.  A group's key is its postgres
+ *  `storage`, or `deployable:<slug>` for a Node deployable bound to none. */
 export function storageGroups(
   sys: SystemOf,
   slugOf: (deployableName: string) => string,
 ): Array<{ key: string; deployables: string[]; modules: Set<string> }> {
-  const postgres = new Set(sys.storages.filter((st) => st.type === "postgres").map((st) => st.name));
   const groups = new Map<string, { key: string; deployables: string[]; modules: Set<string> }>();
   for (const d of sys.deployables) {
     if (d.platform !== "node") continue;
     const slug = slugOf(d.name);
-    const bound = d.dataSourceNames
-      .map((n) => sys.dataSources.find((ds) => ds.name === n)?.storageName ?? "")
-      .find((st) => postgres.has(st));
-    const key = bound ?? `deployable:${slug}`;
+    const key = databaseOf(sys, d)?.storage ?? `deployable:${slug}`;
     const group = groups.get(key) ?? { key, deployables: [], modules: new Set<string>() };
     group.deployables.push(slug);
-    const hosted = new Set(d.contextNames);
-    for (const sd of sys.subdomains) {
-      if (sd.contexts.some((c) => hosted.has(c.name))) group.modules.add(sd.name);
-    }
+    for (const m of hostedModules(sys, d)) group.modules.add(m);
     groups.set(key, group);
   }
   return [...groups.values()];

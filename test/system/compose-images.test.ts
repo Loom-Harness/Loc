@@ -1,6 +1,7 @@
 // Every image `docker compose` can be asked to pull must actually exist.
 //
-// MinIO's Docker Hub repository was withdrawn.  The composer still emitted
+// MinIO's Docker Hub repository was withdrawn (and later its quay.io one).
+// The composer still emitted
 // `image: minio/minio:latest`, so `docker compose up -d --build` on any model
 // with an `s3` storage died at
 //
@@ -30,8 +31,9 @@ const COMPOSE_IMAGES: readonly string[] = [
   "rabbitmq:4-management-alpine",
   "rabbitmq:3-management",
   "apache/kafka:4.1.0",
-  // quay.io, NOT docker.io: the Docker Hub repo no longer exists.
-  "quay.io/minio/minio:latest",
+  // Chainguard: docker.io/minio/minio and quay.io/minio/minio both refuse
+  // anonymous pulls.
+  "cgr.dev/chainguard/minio:latest",
   "axllent/mailpit:latest",
   "quay.io/keycloak/keycloak:26.0",
   "prom/prometheus:v3.1.0",
@@ -77,11 +79,11 @@ describe("compose images", () => {
     expect(unknown, `images with no pin-table row:\n${unknown.join("\n")}`).toEqual([]);
   });
 
-  it("never names the withdrawn docker.io MinIO repository", async () => {
+  it("never names a withdrawn MinIO repository (docker.io or quay.io)", async () => {
     const files = await generateSystemFiles(SRC);
     const images = emittedImages(files);
-    expect(images).toContain("quay.io/minio/minio:latest");
-    expect(images.filter((i) => /^minio\//.test(i))).toEqual([]);
+    expect(images).toContain("cgr.dev/chainguard/minio:latest");
+    expect(images.filter((i) => /^(quay\.io\/)?minio\//.test(i))).toEqual([]);
   });
 
   // Opt-in: needs a docker daemon and egress.  This is the rung that would

@@ -20,6 +20,7 @@ import { classifyCommit, formatRelativeTime, shortOid } from "./history-format";
 import type { LayoutCtx } from "./ctx";
 import { destructiveDrops, type TableTint, type TintedTable, tintCounts, tintTables } from "./migration-tint";
 import { MIGRATIONS } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // "Migrations" dock tab — the evolution lifecycle, made visible.
 //
@@ -41,7 +42,7 @@ import { MIGRATIONS } from "./vocabulary";
 // The comparison auto-runs when the tab opens (M-T8.22 slice 1, audit M8),
 // so nothing here ever tells the user to click Refresh to see it.
 
-export function MigrationsBody({
+function MigrationsBodyView({
   ctx,
   active = true,
 }: {
@@ -686,3 +687,5 @@ function SnapshotSection({ ctx }: { ctx: LayoutCtx }): JSX.Element {
     </Stack>
   );
 }
+
+export const MigrationsBody = trackedCtx("MigrationsBody", MigrationsBodyView);

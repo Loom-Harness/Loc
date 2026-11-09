@@ -24,22 +24,11 @@ import type { Platform, SavingShape } from "../ir/types/loom-ir.js";
 export const PLATFORM_SAVING_SHAPES: Partial<Record<Platform, readonly SavingShape[]>> = {
   dotnet: ["relational", "embedded", "document"],
   node: ["relational", "embedded", "document"],
-  // ⚠️  THIS ROW IS NOT ELIXIR'S EFFECTIVE SET.  elixir emits all THREE
-  // shapes: `document` too (the `(id, data, version)` jsonb table + a
-  // schemaless-changeset validated fold — DEBT-07).  The sole consumer,
-  // `validateSavingShapeSupport` (`src/ir/validate/checks/system-checks.ts`,
-  // the elixir branch), unconditionally widens this row with `"document"`
-  // before checking, so a `shape: document` aggregate on elixir is ACCEPTED —
-  // reading this row alone would tell you the opposite.
-  //
-  // Kept split (rather than folded in) because the widening is where the
-  // partial-emit scope note lives: the vanilla document path emits CRUD +
-  // scalar finds/ops but gates a residue (`loom.vanilla-document-unsupported`),
-  // so "elixir supports document" is true at the SHAPE tier and qualified at
-  // the FEATURE tier.  If that residue ever drains, fold `"document"` into
-  // this array and delete the branch — behaviour is identical either way,
-  // since nothing else reads this table.
-  elixir: ["relational", "embedded"],
+  // Elixir's `document` shape is the `(id, data, version)` jsonb table + a
+  // schemaless-changeset validated fold.  The vanilla document path gates a
+  // feature residue of its own (`loom.vanilla-document-unsupported`), so the
+  // shape is supported here and qualified at the feature tier.
+  elixir: ["relational", "embedded", "document"],
   // Python emits all three: relational (table-per-entity + join tables),
   // document (shape: document: one jsonb (id, data, version) blob), and
   // embedded (queryable root row + one jsonb column per containment).

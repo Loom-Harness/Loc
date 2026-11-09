@@ -5,6 +5,7 @@ import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import type { EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
+import { factsFor } from "../platform/metadata.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
 
 // ---------------------------------------------------------------------------
@@ -42,10 +43,10 @@ function packChromeForUi(sys: EnrichedSystemIR, ui: UiIR): Record<string, string
     const design = dep.design;
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    // Feliz and Flutter render no `.hbs` pack (their widgets are emitted
-    // procedurally), so a `design` they carry — Feliz's daisyUI theme, or the
-    // frontend default — names chrome no view of theirs can read.
-    if (dep.platform === "feliz" || dep.platform === "flutter") continue;
+    // A self-rendered frontend renders no `.hbs` pack (its widgets are emitted
+    // procedurally), so a `design` it carries — a daisyUI theme, or the
+    // frontend default — names chrome no view of its can read.
+    if (factsFor(dep.platform)?.selfRenderedUiFormat !== undefined) continue;
     if (packFormatForBuiltin(design) === undefined) continue;
     Object.assign(
       out,
@@ -63,7 +64,7 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     const design = dep.design;
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    if (dep.platform === "feliz" || dep.platform === "flutter") continue;
+    if (factsFor(dep.platform)?.selfRenderedUiFormat !== undefined) continue;
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
@@ -87,11 +88,12 @@ export const IMPLICIT_MODEL_TEXT_FORMATS: ReadonlySet<string> = new Set([
   "heex",
 ]);
 
-/** The frontend format a deployable renders its UI in: the platform for the
- *  pack-less Feliz and Flutter frontends, else its design pack's format (a
+/** The frontend format a deployable renders its UI in: its platform's
+ *  `selfRenderedUiFormat` for a pack-less frontend, else its design pack's format (a
  *  pack that names none is React), else none. */
 function deployableUiFormat(dep: EnrichedSystemIR["deployables"][number]): string | undefined {
-  if (dep.platform === "feliz" || dep.platform === "flutter") return dep.platform;
+  const selfRendered = factsFor(dep.platform)?.selfRenderedUiFormat;
+  if (selfRendered !== undefined) return selfRendered;
   if (dep.design === undefined) return undefined;
   return packFormatForBuiltin(dep.design) ?? "tsx";
 }

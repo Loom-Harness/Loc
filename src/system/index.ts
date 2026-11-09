@@ -35,6 +35,7 @@ import type {
 import { sourceLocaleOf } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
+import { awaitedMigrator, carriedModules, systemDatabases } from "../ir/util/databases.js";
 import {
   bundlesDevKeycloak,
   DEMO_TENANT_DATASET,
@@ -43,6 +44,7 @@ import {
 } from "../ir/util/demo-tenant.js";
 import { assertLoomModelVerifies } from "../ir/verify/verify-ir.js";
 import type { Model } from "../language/generated/ast.js";
+import { factsFor } from "../platform/metadata.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
@@ -339,12 +341,7 @@ function emitSystem(
 
   for (const d of sys.deployables) {
     const contexts = collectContextsFor(d, modulesByName);
-    const ownedMigrations = migrationsForDeployable(
-      d,
-      migrations,
-      platformFor(d.platform).needsDb,
-      sys,
-    );
+    const ownedMigrations = migrationsForDeployable(d, migrations, sys);
     emitDeployable(sys, d, contexts, out, {
       emitTrace: options.emitTrace,
       migrations: ownedMigrations,
@@ -589,12 +586,7 @@ function collectContextsFor(
   // `HasDiscriminator`), Phoenix (Ecto shared table with a `kind` discriminator
   // column), Python, and Java (JPA SINGLE_TABLE); all keep
   // the base so it can own the shared table.
-  const isTphCapable =
-    d.platform === "node" ||
-    d.platform === "dotnet" ||
-    d.platform === "elixir" ||
-    d.platform === "python" ||
-    d.platform === "java";
+  const isTphCapable = factsFor(d.platform)?.sharedTableInheritance ?? false;
   const keepsTable = (a: { isAbstract?: boolean; inheritanceUsing?: string }) =>
     !!a.isAbstract && isTphCapable && (a.inheritanceUsing ?? "sharedTable") === "sharedTable";
   // A TPC (`ownTable`) base is kept in the view on every backend that
@@ -720,24 +712,17 @@ function systemMigrations(
   return chainMigrations(chain).filter((m) => owned.has(m.module));
 }
 
-/** Filter system-level migrations to just those this deployable runs.
- *
- *  Every needsDb deployable that hosts any context of a subdomain
- *  receives that subdomain's migrations.  Frontend platforms (no DB)
- *  get nothing — gated upstream by the platform's `needsDb` flag. */
+/** Filter system-level migrations to just those this deployable carries: the
+ *  modules of its whole database (`carriedModules`).  Frontend platforms (no
+ *  DB) get nothing.  Whether it also applies them at boot is the backend's
+ *  `migratesAtBoot` read. */
 function migrationsForDeployable(
   d: DeployableIR,
   all: MigrationsIR[],
-  needsDb: boolean,
   sys: EnrichedSystemIR,
 ): MigrationsIR[] {
-  if (!needsDb) return [];
-  const hostedContexts = new Set(d.contextNames);
-  const hostedSubdomains = new Set<string>();
-  for (const sd of sys.subdomains) {
-    if (sd.contexts.some((c) => hostedContexts.has(c.name))) hostedSubdomains.add(sd.name);
-  }
-  return all.filter((m) => hostedSubdomains.has(m.module));
+  const modules = carriedModules(sys, d);
+  return all.filter((m) => modules.has(m.module));
 }
 
 /** A docker-compose-safe slug: lowercase, no characters outside the
@@ -1423,12 +1408,13 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
       volumes.push(volume);
       services.push([
         `${slug}:`,
-        // quay.io, NOT docker.io: MinIO's Docker Hub repository no longer
-        // exists, and `docker compose pull` fails the whole `up` with
-        // "pull access denied for minio/minio" — taking the OTHER services'
-        // pulls down with it ("postgres … Interrupted"), so a cold machine
-        // gets no image at all rather than three out of four.
-        `  image: quay.io/minio/minio:latest`,
+        // Chainguard's build, NOT minio/minio or quay.io/minio/minio: MinIO
+        // stopped publishing public images, both of those answer an anonymous
+        // pull with 401/denied, and a failed pull aborts the whole
+        // `docker compose up` — taking the OTHER services' pulls down with it
+        // ("postgres … Interrupted"). The entrypoint is `minio`, so the
+        // `server …` command below is unchanged.
+        `  image: cgr.dev/chainguard/minio:latest`,
         `  command: server /data --console-address ":9001"`,
         `  environment:`,
         `    MINIO_ROOT_USER: minioadmin`,
@@ -1460,16 +1446,11 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
   return { services, volumes };
 }
 
-/** Postgres `docker-entrypoint-initdb.d` script: one DATABASE per
- * deployable that needs one.  Postgres only runs the init dir on
- * the first boot of an empty data volume; this is exactly what we
- * want for dev compose. */
-/** The per-deployable databases the compose stack provisions — one per
- *  backend whose platform owns a database. */
+/** The databases the compose stack provisions — one per postgres `storage`
+ *  a backend binds, plus one for each backend that binds none
+ *  (`systemDatabases`). */
 function dbInitDatabases(sys: SystemIR): string[] {
-  return sys.deployables
-    .filter((d) => platformFor(d.platform).needsDb)
-    .map((d) => serviceSlug(d.name));
+  return systemDatabases(sys);
 }
 
 /** `db-init/00-create-databases.sql` — IDEMPOTENT by construction (B-26).
@@ -1490,9 +1471,11 @@ function renderDbInit(sys: SystemIR): string {
     "-- every `docker compose up` (the db-bootstrap service), so a deployable",
     "-- added in a later generation still gets its database.",
   ];
+  // The name is quoted: a storage is often named after a word Postgres
+  // reserves (`primary`, `user`, `order`), which it refuses bare.
   for (const slug of dbInitDatabases(sys)) {
     lines.push(
-      `SELECT 'CREATE DATABASE ${slug}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${slug}')\\gexec`,
+      `SELECT 'CREATE DATABASE "${slug}"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${slug}')\\gexec`,
     );
   }
   return lines.join("\n") + "\n";
@@ -1502,7 +1485,7 @@ function renderDbInit(sys: SystemIR): string {
  *  can never collide with a deployable's (underscored) service slug. */
 const DB_BOOTSTRAP_SERVICE = "db-bootstrap";
 
-/** True when the stack has any per-deployable database to provision. */
+/** True when the stack has any database to provision. */
 function hasDbBootstrap(sys: SystemIR): boolean {
   return dbInitDatabases(sys).length > 0;
 }
@@ -1574,6 +1557,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // as their fallback, injected here so the stack never leans on it.
   const sidecarBindings = sidecarResourceBindings(d, sys);
   const sidecarServices = [...new Set(sidecarBindings.map((b) => b.slug))];
+  const migrator = awaitedMigrator(sys, d);
   const lines: string[] = [];
   lines.push(`${slug}:`);
   lines.push(`  build: ./${slug}`);
@@ -1598,6 +1582,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
       if (hasDbBootstrap(sys)) {
         lines.push(`    ${DB_BOOTSTRAP_SERVICE}:`);
         lines.push(`      condition: service_completed_successfully`);
+      }
+      // A deployable sharing its storage's database with an earlier one runs
+      // no migrations of its own: it starts once the database's migrator is
+      // healthy, which every backend reports only after its boot migration.
+      if (migrator) {
+        lines.push(`    ${serviceSlug(migrator.name)}:`);
+        lines.push(`      condition: service_healthy`);
       }
     }
     if (oidc) {
@@ -1767,13 +1758,14 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   lines.push(`    interval: 5s`);
   lines.push(`    timeout: 3s`);
   lines.push(`    retries: 10`);
-  // Elixir OIDC: the generated Phoenix app warms the issuer's JWKS synchronously
-  // BEFORE its Endpoint starts (so `/health` serves only once tokens can be
-  // verified — no cold-cache 401 window).  That blocks boot on the IdP's own
-  // boot/realm-import, so give the healthcheck extra startup grace under compose
-  // `--wait`; the fetch degrades gracefully (never crashes) if the budget runs out.
-  if (oidc && d.platform === "elixir") {
-    lines.push(`    start_period: 60s`);
+  // A backend that warms the issuer's JWKS synchronously BEFORE it serves
+  // `/health` (so tokens verify from the first request — no cold-cache 401
+  // window) blocks boot on the IdP's own boot/realm-import, so its healthcheck
+  // gets the start grace its `oidcStartGraceSeconds` fact names under compose
+  // `--wait`; the fetch degrades gracefully if the budget runs out.
+  const startGrace = factsFor(d.platform)?.oidcStartGraceSeconds;
+  if (oidc && startGrace !== undefined) {
+    lines.push(`    start_period: ${startGrace}s`);
   }
   return lines;
 }

@@ -141,6 +141,7 @@ import {
   savePersisted,
   type PositionMap,
 } from "./persisted-positions";
+import { trackedCtx } from "../../layout/ctx-store";
 
 const KIND_COLOR: Record<ViewKind, string> = {
   system: "var(--mantine-color-indigo-8)",
@@ -1712,7 +1713,7 @@ function Message({ children }: { children: ReactNode }): JSX.Element {
   );
 }
 
-export default function SystemBuilderV2Pane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function SystemBuilderV2PaneView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   // The drill path lives here so the Overview round-trip is lossless; `mode`
   // picks which canvas is mounted. Each branch gets its OWN provider (keyed,
   // so switching remounts it) — two React Flow instances must never share one
@@ -1739,3 +1740,5 @@ export default function SystemBuilderV2Pane({ ctx }: { ctx: LayoutCtx }): JSX.El
     </ReactFlowProvider>
   );
 }
+
+export default trackedCtx("SystemBuilderV2Pane", SystemBuilderV2PaneView);

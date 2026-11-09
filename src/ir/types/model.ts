@@ -161,8 +161,8 @@ export interface SqlStepIR extends Sourced {
   sql: string;
   /** `sql before "…"` — emitted AHEAD of the generation's structural steps
    *  (a dedupe that must precede a new `unique (…)` index) instead of after
-   *  them.  Absent/false = the default trailing position. */
-  before?: boolean;
+   *  them.  `false` = the default trailing position. */
+  before: boolean;
 }
 
 // ---------------------------------------------------------------------------
