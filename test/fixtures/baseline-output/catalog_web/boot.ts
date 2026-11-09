@@ -10,8 +10,8 @@ import { createApp } from "./http/index";
  *  broker and no second Postgres connection. */
 export interface BootOptions {
   /** `"configured"` (default): the verifier the model declares — OIDC for an
-   *  `auth { oidc }` block, otherwise the dev stub.  `"dev-stub"`: always the
-   *  dev stub. */
+   *  `auth { oidc }` block, otherwise the dev stub, which answers only when
+   *  LOOM_DEV_AUTH=1.  `"dev-stub"`: always the dev stub, switched on. */
   verifier?: "configured" | "dev-stub";
   /** `"external"` (default): broker drivers from LOOM_CHANNEL_*_URL and
    *  pg-boss for `cron:` timers.  `"in-process"`: one in-memory transport for

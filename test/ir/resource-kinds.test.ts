@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseRawOk, parseString } from "../_helpers/parse.js";
 
 const valid = `
 system Sys {
@@ -96,14 +96,15 @@ describe("config-map validation", () => {
     ).toBe(true);
   });
 
-  it("errors on a wrong-typed config value", async () => {
-    const diags = await irDiagnostics(
-      valid.replace(`config: { baseUrl: "https://pay.example.com" }`, `config: { baseUrl: 8080 }`),
-    );
+  it("refuses a non-string config value at parse time (config values are string-only)", () => {
+    expect(parseRawOk(valid)).toBe(true);
     expect(
-      diags.some(
-        (d) => d.severity === "error" && /config key 'baseUrl' expects string/.test(d.message),
+      parseRawOk(
+        valid.replace(
+          `config: { baseUrl: "https://pay.example.com" }`,
+          `config: { baseUrl: 8080 }`,
+        ),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

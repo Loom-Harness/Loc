@@ -144,11 +144,22 @@ function checkField(
   const nested = (voName: string): void => {
     const path = nestedCollectionPath(ctx, voName, new Set(), inDocument);
     if (!path) return;
-    const params = { owner, ownerName, field, voName, path };
     push(
       inDocument
-        ? diagMessage("loom.collection-field-unpersisted#nested-in-value-object-document", params)
-        : diagMessage("loom.collection-field-unpersisted#nested-in-value-object", params),
+        ? diagMessage("loom.collection-field-unpersisted#nested-in-value-object-document", {
+            owner,
+            ownerName,
+            field,
+            voName,
+            path,
+          })
+        : diagMessage("loom.collection-field-unpersisted#nested-in-value-object", {
+            owner,
+            ownerName,
+            field,
+            voName,
+            path,
+          }),
     );
   };
   const kind = collectionKind(f.type);

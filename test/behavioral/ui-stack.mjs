@@ -236,10 +236,10 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 
-// Every behavioral leg authenticates a no-`auth { oidc }` backend through the
+// Every behavioral leg authenticates a no-\`auth { oidc }\` backend through the
 // generated dev stub, which answers only when LOOM_DEV_AUTH=1 (401 otherwise).
 // Set once on import, so the in-process node app and every backend a leg
-// spawns with `{ ...process.env }` inherit it.
+// spawns with \`{ ...process.env }\` inherit it.
 process.env.LOOM_DEV_AUTH = "1";
 
 // \`.wasm\` MUST be \`application/wasm\`: \`WebAssembly.instantiateStreaming\`

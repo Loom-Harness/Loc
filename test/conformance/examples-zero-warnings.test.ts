@@ -20,6 +20,15 @@ const MODELS = ["examples", "journey"].flatMap((dir) =>
     .map((f) => `${dir}/${f}`),
 );
 
+/** Warnings a teaching model carries on purpose, per model, with the reason.
+ *  Ratchets both ways: an entry the model no longer raises fails the test. */
+const EXPECTED_WARNINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  "journey/04-saas.ddd": {
+    "loom.auth-dev-login-only":
+      "the stage teaches `auth: required` on the local dev login; the warning is the deploy reminder the stage is meant to surface",
+  },
+};
+
 describe("teaching models validate with zero errors and zero warnings", () => {
   it("finds the models", () => {
     expect(MODELS).toContain("examples/showcase.ddd");
@@ -31,9 +40,17 @@ describe("teaching models validate with zero errors and zero warnings", () => {
       const report = await validate(loadExample(rel), { path: rel });
       const noisy = report.diagnostics
         .filter((d) => d.severity === "error" || d.severity === "warning")
-        .filter((d) => !isAdvisoryCode(d.code))
-        .map((d) => `${d.severity} ${d.code ?? ""}: ${d.message}`);
-      expect(noisy).toEqual([]);
+        .filter((d) => !isAdvisoryCode(d.code));
+      const expected = EXPECTED_WARNINGS[rel] ?? {};
+      const raised = new Set(noisy.map((d) => d.code ?? ""));
+      for (const code of Object.keys(expected)) {
+        expect(raised.has(code), `${rel}: stale EXPECTED_WARNINGS entry ${code}`).toBe(true);
+      }
+      expect(
+        noisy
+          .filter((d) => !(d.severity === "warning" && (d.code ?? "") in expected))
+          .map((d) => `${d.severity} ${d.code ?? ""}: ${d.message}`),
+      ).toEqual([]);
     });
   }
 });
