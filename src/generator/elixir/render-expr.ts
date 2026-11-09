@@ -1,5 +1,7 @@
+import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
 import { wireFixedDetail } from "../../ir/enrich/wire-policy.js";
 import type {
+  AggregateIR,
   BinOp,
   DerivedIR,
   EnrichedAggregateIR,
@@ -89,6 +91,10 @@ import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-ob
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** The context's aggregates — needed only inside an Ecto query filter, to
+   *  resolve an `exists <Agg> …` quantifier to the quantified schema and its
+   *  read scope. */
+  pool?: readonly AggregateIR[];
   /** Set by a body that owns no event dispatch (a pure domain core, a
    *  private-operation helper): an `emit` statement renders nothing there. */
   dropEmits?: boolean;
@@ -391,7 +397,34 @@ const ELIXIR_FILTER_TARGET: ExprTarget<RenderCtx> = {
   // output.  A pinned param amount arrives pre-rendered as `^n`, so the emit
   // is `(^n)` — parens are AST-transparent to the Ecto query compiler.
   duration: (_unit, amount) => `(${amount})`,
+  exists: renderEctoExists,
 };
+
+/** The Ecto binding an `exists … as <row>` subquery names its row. */
+function ectoRowBinding(name: string): string {
+  return `q_${snake(name)}`;
+}
+
+/** `exists <Agg> as s where p` inside an Ecto query filter — a correlated
+ *  `exists(from(q_s in <Agg schema>, where: …))`.  The filtered row is reached
+ *  as `parent_as(:record)`: the aggregate's `base_query/0` (or the read's own
+ *  `from`) names its root `:record` whenever one of its read predicates
+ *  quantifies (`quantifiesOver`).  `Repo.prepare_query/3` never reaches a
+ *  subquery, so the quantified aggregate's own read scope is rendered into the
+ *  subquery here, over its binding: an `exists` never sees a row its caller
+ *  could not read. */
+function renderEctoExists(e: Extract<ExprIR, { kind: "exists" }>, ctx: RenderCtx): string {
+  const inner = ctx.pool?.find((a) => a.name === e.aggregate);
+  if (!inner) throw new Error(`internal: 'exists ${e.aggregate}' rendered without its aggregate`);
+  const alias = ectoRowBinding(e.binding);
+  const outer = ctx.thisName === "record" ? "parent_as(:record)" : ctx.thisName;
+  const terms = [renderExpr(e.where, { ...ctx, thisName: outer })];
+  for (const pred of existsScopePredicates(inner.name, ctx.pool ?? [])) {
+    terms.push(renderExpr(pred, { ...ctx, thisName: alias }));
+  }
+  const schema = `${ctx.contextModule}.${upperFirst(inner.name)}`;
+  return `exists(Ecto.Query.from(${alias} in ${schema}, where: ${terms.map((t) => `(${t})`).join(" and ")}))`;
+}
 
 // Document-shape STRUCT rendering target (`docStruct` — Route A).
 // Its predicates and op bodies run IN-MEMORY (`Enum.filter` / the op fn over the
@@ -678,6 +711,8 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       return ctx.docStruct ? JSON.stringify(e.name) : `:${e.name}`;
     case "current-user":
       return "current_user";
+    case "row":
+      return ectoRowBinding(e.name);
     case "match-binding":
       // Variant-`match` (variant-match.md): the `case`-clause pattern variable
       // bound for this arm (success `{:ok, b}` / error `{:error, tag, b}`).
@@ -1514,6 +1549,7 @@ function isDecimalOperand(operand: ExprIR): boolean {
     // carries a receiver type, not a result type.)  Named rather than left to a
     // `default:` so a new `ExprIR` kind that DOES carry a result type is a
     // `tsc` error here.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

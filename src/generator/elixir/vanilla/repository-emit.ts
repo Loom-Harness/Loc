@@ -223,8 +223,9 @@ function renderRepository(
       // just as much as one scoped by a principal capability filter — without it
       // the rendered `^(current_user && …)` pin names a variable the function
       // never bound ("undefined variable current_user" at `mix compile`).
-      principal || findUsesPrincipal(f),
+      principal || findUsesPrincipal(f, pool),
       preload,
+      pool,
     ),
   );
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}\n` : "";
@@ -305,7 +306,7 @@ function renderRepository(
   const listPrincipal = listUsesPrincipal(agg, allFind);
   const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
   const allWhere = allFind?.filter
-    ? renderExpr(allFind.filter, { thisName: "record", contextModule, filterArgs: true })
+    ? renderExpr(allFind.filter, { thisName: "record", contextModule, filterArgs: true, pool })
     : null;
   const listOpts = readOpts({
     principal: listPrincipal ? "current_user" : undefined,
@@ -560,6 +561,8 @@ function renderFindFn(
   contextModule: string,
   principal: boolean,
   preload: string,
+  /** The context's aggregates — resolves an `exists` quantifier in the find. */
+  pool: readonly AggregateIR[] = [],
 ): string {
   // The find starts from `base_query/0`; `Repo.prepare_query/3` applies the
   // bypassable restrictions, minus the ones this find's `ignoring` names
@@ -610,6 +613,7 @@ function renderFindFn(
     // Params bind via Ecto pin syntax (`^needle`) inside the `from
     // ... where: ...` macro.  See render-expr.ts:filterArgs.
     filterArgs: true,
+    pool,
   };
 
   const fetchCallEarly = isSingleReturn(f.returnType)

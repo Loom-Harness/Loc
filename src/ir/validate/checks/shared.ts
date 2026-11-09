@@ -158,6 +158,14 @@ export function firstUnknownColumnRef(
     // there is no column reference here to leave unverified.  Named rather than
     // left to a `default:` so a new `ExprIR` kind is a decision taken in the
     // queryability gate and here together.
+    case "exists": {
+      // The enclosing row's columns (`this.x`) are checked against `agg`; the
+      // quantified row's (`s.x`) against its own aggregate.
+      const outer = firstUnknownColumnRef(e.where, agg, ctx, opts);
+      if (outer) return outer;
+      const quantified = ctx.aggregates.find((a) => a.name === e.aggregate);
+      return quantified ? firstUnknownRowColumn(e.where, e.binding, quantified) : null;
+    }
     case "action-ref":
     case "authz-filter":
     case "call":
@@ -177,6 +185,61 @@ export function firstUnknownColumnRef(
       return null;
     }
   }
+}
+
+/** A reference to the row an `exists … as <row>` binds. */
+function isRowRef(e: ExprIR): boolean {
+  return e.kind === "ref" && e.refKind === "row";
+}
+
+/** `<row>.<col>` / `<row>.<vo>.<sub>` — a column of a quantified row.  Only the
+ *  direct read: an intrinsic or date arithmetic over one is refused by
+ *  `firstNonQueryableNode`, so every renderer handles exactly these two. */
+function isRowColumn(e: ExprIR): boolean {
+  if (e.kind === "paren") return isRowColumn(e.inner);
+  if (e.kind !== "member") return false;
+  if (isRowRef(e.receiver)) return true;
+  return e.receiver.kind === "member" && isRowRef(e.receiver.receiver);
+}
+
+/** True when `e` reads an `exists` row anywhere inside it. */
+function readsRow(e: ExprIR): boolean {
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (isRowRef(x)) found = true;
+  });
+  return found;
+}
+
+function isBoolTyped(e: ExprIR): boolean {
+  const x = e.kind === "paren" ? e.inner : e;
+  const t = x.kind === "member" ? x.memberType : x.kind === "ref" ? x.type : undefined;
+  return t?.kind === "primitive" && t.name === "bool";
+}
+
+/** The first `<row>.<x>` read inside an `exists` predicate whose `<x>` is not a
+ *  stored column of the quantified aggregate (an unknown name, a derived, a
+ *  containment).  `id` is the quantified table's primary key and always a
+ *  column. */
+function firstUnknownRowColumn(
+  e: ExprIR,
+  binding: string,
+  agg: Pick<AggregateIR, "fields" | "contains" | "derived">,
+): UnknownColumnRef | null {
+  let found: UnknownColumnRef | null = null;
+  walkExprDeep(e, (x) => {
+    if (found || x.kind !== "member") return;
+    if (x.receiver.kind !== "ref" || x.receiver.refKind !== "row" || x.receiver.name !== binding)
+      return;
+    if (x.member === "id" || agg.fields.some((f) => f.name === x.member)) return;
+    const columns = ["id", ...agg.fields.map((f) => f.name)];
+    const near = nearestName(x.member, columns);
+    found = {
+      text: `'${binding}.${x.member}'`,
+      suggestion: near ? `${binding}.${near}` : undefined,
+    };
+  });
+  return found;
 }
 
 /** Returns a description of the first binary comparison whose two
@@ -328,7 +391,8 @@ export function firstNonQueryablePredicate(
     if (PREDICATE_COMPARE_OPS.has(inner.op)) {
       const bad = firstNonQueryableNode(inner);
       if (bad) return bad;
-      if (!isColumnRooted(inner.left) && !isColumnRooted(inner.right)) {
+      const hasColumn = (x: ExprIR) => isColumnRooted(x) || isRowColumn(x);
+      if (!hasColumn(inner.left) && !hasColumn(inner.right)) {
         if (opts.admitPrincipalTerms && principalTerm(inner)) return null;
         return (
           `a comparison with no column on either side ('${inner.op}') — a query predicate is ` +
@@ -350,7 +414,10 @@ export function firstNonQueryablePredicate(
     return `unary '${inner.op}' in predicate position`;
   }
   if (inner.kind === "authz-filter") return null;
+  // `exists <Agg> as s where p` is a whole predicate; its body is one too.
+  if (inner.kind === "exists") return firstNonQueryablePredicate(inner.where, opts);
   if (isColumnRootedBool(inner)) return null;
+  if (isRowColumn(inner) && isBoolTyped(inner)) return null;
   if (inner.kind === "method-call") {
     // `this.<refColl>.contains(x)` membership and a bool-returning queryable
     // intrinsic are both whole predicates; `firstNonQueryableNode` owns the
@@ -489,6 +556,12 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
         `key through '<Repo>.get(...)'`
       );
     case "ref":
+      if (e.refKind === "row") {
+        return (
+          `bare '${e.name}' (the whole quantified row) — compare its fields ` +
+          `('${e.name}.<field>'), not the row itself`
+        );
+      }
       // Refs the lowering produces that translate cleanly to SQL —
       // `param`/`let`/`lambda` are bare identifiers, `this-prop`
       // becomes `tableName.col`, `enum-value` becomes a literal
@@ -555,6 +628,8 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
             const dur = rightDur ?? leftDur;
             const other = rightDur ? e.left : leftDur ? e.right : null;
             if (dur && other && !durationCtorOperand(other) && isDatetimeTypedIR(other)) {
+              if (readsRow(other) || readsRow(dur.amount))
+                return `date arithmetic over an 'exists' row's column`;
               return firstNonQueryableNode(other) ?? firstNonQueryableNode(dur.amount);
             }
           }
@@ -584,6 +659,16 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       )
         return nestedWholeValueObject(e.receiver.member, e.member, e.memberType);
       if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user") return null;
+      // `s.col` / `s.vo.sub` on an `exists … as s` row — a column of the
+      // quantified aggregate's table, under the same value-object rules as
+      // `this.col`.
+      if (isRowRef(e.receiver)) return wholeValueObjectColumn(e.member, e.memberType);
+      if (
+        e.receiver.kind === "member" &&
+        isRowRef(e.receiver.receiver) &&
+        e.receiver.memberType.kind === "valueobject"
+      )
+        return nestedWholeValueObject(e.receiver.member, e.member, e.memberType);
       return "member access not rooted at 'this' or beyond a flattened value object";
     case "method-call":
       // (The `deep` / DENY authorization filter sentinels are NOT `method-call`
@@ -638,6 +723,8 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       // name so `loom.find-where-not-queryable` stays actionable.
       if (e.receiverType.kind === "primitive") {
         const sig = intrinsicFor(e.receiverType.name, e.member);
+        if (sig?.queryable && (readsRow(e.receiver) || e.args.some(readsRow)))
+          return `intrinsic '.${e.member}' over an 'exists' row's column`;
         if (sig?.queryable) {
           // A BOOL-returning queryable intrinsic (`startsWith`) is a whole
           // PREDICATE, not a comparison operand, so its receiver has to be the
@@ -742,6 +829,10 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       // `label(…)` / `plural(…)` — translated display text, UI-only
       // (`loom.model-text-outside-ui`); never a column or a bindable value.
       return "model text";
+    case "exists":
+      // `exists <Agg> as s where p` renders as a correlated EXISTS subquery on
+      // every backend; it is queryable exactly when its predicate is.
+      return firstNonQueryableNode(e.where);
     case "authz-filter":
       // The authorization/tenancy filter sentinels (M-T9.9) — both the `deny`
       // carve-out and the `scope` subtree predicate.  Every backend renders

@@ -202,6 +202,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     // unknown → skip the family comparison", never "types agree".  Named
     // rather than left to a `default:` so a new `ExprIR` kind is a decision
     // taken in both places at once.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":
@@ -550,6 +551,7 @@ function nullableSources(
     }
     // Literals carry their own value (`null` is the family check's case);
     // every other kind is refused by `sqlRenderableExpr` before this runs.
+    case "exists":
     case "literal":
     case "action-ref":
     case "authz-filter":

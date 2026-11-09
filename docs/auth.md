@@ -74,6 +74,11 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   tests the principal (`filter currentUser.role == "agent" || this.customer ==
   currentUser.customerId`); a filtered-out row reads 404 on the by-id route, like
   a foreign tenant's.  See [capabilities.md § Principal terms](capabilities.md#principal-terms).
+  A row `filter` may also follow a relation held by another aggregate with
+  `exists <Agg> as s where …` (`filter exists CategoryShare as s where s.category
+  == this.category && s.grantee == currentUser.id`), compiled into the query as a
+  correlated `EXISTS` that carries the quantified aggregate's own read scope; see
+  [the `exists` quantifier](language-reference/10-repositories-and-queries.md#exists--quantifying-over-another-aggregate).
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that

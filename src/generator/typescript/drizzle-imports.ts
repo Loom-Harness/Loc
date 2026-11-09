@@ -103,10 +103,72 @@ export const DRIZZLE_ORM_SYMBOLS: readonly string[] = [
  * `` sql`…` `` tag is still visible as a call site.
  */
 export function stripStringLiterals(src: string): string {
-  return src
+  return stripTemplateText(src)
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+    .replace(/'(?:\\.|[^'\\])*'/g, "''");
+}
+
+/** Blank the TEXT of every template literal but keep its `${…}` holes: a hole
+ *  is code (a drizzle `sql` tag interpolates operators and accessor calls —
+ *  an `exists` subquery's whole predicate sits in one), so what it calls must
+ *  stay visible to the import scans.  A literal becomes `` `` `` followed by
+ *  its holes' code; nested templates inside a hole are handled recursively. */
+function stripTemplateText(src: string): string {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i]!;
+    if (c === '"' || c === "'") {
+      // Skip an ordinary string verbatim (its text is blanked by the caller).
+      const end = skipQuoted(src, i, c);
+      out += src.slice(i, end);
+      i = end;
+    } else if (c === "`") {
+      const { holes, end } = templateHoles(src, i);
+      out += `\`\`${holes.map((h) => ` ${stripTemplateText(h)} `).join("")}`;
+      i = end;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+function skipQuoted(src: string, start: number, q: string): number {
+  let i = start + 1;
+  while (i < src.length && src[i] !== q) i += src[i] === "\\" ? 2 : 1;
+  return i + 1;
+}
+
+/** The `${…}` hole sources of the template literal opening at `start`, and the
+ *  index just past its closing backtick. */
+function templateHoles(src: string, start: number): { holes: string[]; end: number } {
+  const holes: string[] = [];
+  let i = start + 1;
+  while (i < src.length && src[i] !== "`") {
+    if (src[i] === "\\") {
+      i += 2;
+    } else if (src[i] === "$" && src[i + 1] === "{") {
+      let depth = 1;
+      let j = i + 2;
+      while (j < src.length && depth > 0) {
+        const c = src[j]!;
+        if (c === '"' || c === "'") j = skipQuoted(src, j, c);
+        else if (c === "`") j = templateHoles(src, j).end;
+        else {
+          if (c === "{") depth++;
+          else if (c === "}") depth--;
+          j++;
+        }
+      }
+      holes.push(src.slice(i + 2, j - 1));
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return { holes, end: i + 1 };
 }
 
 /**

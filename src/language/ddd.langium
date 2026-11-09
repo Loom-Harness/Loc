@@ -1841,7 +1841,7 @@ DomainService:
 // NOT carry `private` / `extern` / `audited` / `when` — those are
 // aggregate-operation-only.
 DomainServiceOperation:
-    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
     CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         stmts+=Statement*
     '}';
@@ -2039,7 +2039,7 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
         CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
@@ -2152,7 +2152,7 @@ SoftKeywordsExceptSort returns string:
       | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
-      | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
+      | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
       | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
@@ -2791,7 +2791,8 @@ Lambda:
     );
 
 PrimaryExpr infers Expression:
-      BuilderCall
+      ExistsExpr
+    | BuilderCall
     | ObjectLit
     | ParenExpr
     | ListLit
@@ -2803,6 +2804,21 @@ PrimaryExpr infers Expression:
     | ThisRef
     | IdRef
     | NameRef;
+
+// Existential quantifier over an aggregate's rows —
+// `exists CategoryShare as s where s.category == c && s.grantee == currentUser.id`.
+// `binding` names one row of `aggregate` inside `where`; the enclosing row is
+// still `this` (or its own binding), and params / `currentUser` stay in scope.
+// It is a QUERY predicate: it lowers to a SQL `EXISTS (SELECT 1 …)` on every
+// backend, so it is admitted only where a predicate is compiled into a query
+// (`criterion`, a find / retrieval `where`, a row `filter`); everywhere else
+// `loom.exists-outside-query` refuses it.  `where` takes a whole
+// `Expression`, so the predicate runs to the end of the enclosing expression —
+// parenthesise the quantifier to combine it (`(exists … where p) && q`).
+// `exists` is soft (see `SoftKeywordsExceptSort`): it starts this form only
+// when an aggregate name and `as` follow.
+ExistsExpr:
+    'exists' aggregate=[Aggregate:ID] 'as' binding=ID 'where' where=Expression;
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

@@ -1,0 +1,500 @@
+{
+  "case": "exists-quantifier",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/category_shares",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/category_shares",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Hammer",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "id": "<volatile:key>",
+        "name": "Hammer",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/products/shared_with/{id}",
+      "status": 200,
+      "body": [
+        {
+          "category": "<uuid>",
+          "id": "<volatile:key>",
+          "name": "Hammer",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/products/shared_with/{id}",
+      "status": 200,
+      "body": [
+        {
+          "category": "<uuid>",
+          "id": "<volatile:key>",
+          "name": "Hammer",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "id": "<volatile:key>",
+        "name": "Mallet",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Mallet",
+            "rowVersion": 2
+          },
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Saw",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 18,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Tools",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Tools",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Games",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Tools",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Games",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/category_shares/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "grantee": "<uuid>",
+        "id": "<volatile:key>",
+        "revoked": false,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/category_shares",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "grantee": "<uuid>",
+            "id": "<volatile:key>",
+            "revoked": false,
+            "rowVersion": 1
+          },
+          {
+            "category": "<uuid>",
+            "grantee": "<uuid>",
+            "id": "<volatile:key>",
+            "revoked": false,
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/category_shares/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "GET",
+      "path": "/api/products/shared_with/{id}",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 32,
+      "method": "DELETE",
+      "path": "/api/category_shares/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 33,
+      "method": "GET",
+      "path": "/api/category_shares",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 34,
+      "method": "PATCH",
+      "path": "/api/categories",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/categories",
+        "instance": "/api/categories",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 36,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/categories",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin"
+      }
+    },
+    {
+      "seq": 38,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

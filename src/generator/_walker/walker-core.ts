@@ -451,6 +451,7 @@ export function isWalkableLayoutBody(
         (body.variantArms ?? []).some((a) => walkable(a.value)) ||
         walkable(body.otherwise)
       );
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":
@@ -1350,6 +1351,7 @@ export function walk(
     // They are enumerated rather than swept into a bare `default` so a NEW
     // `ExprIR.kind` is a compile error here (the `never` below), on all six
     // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "exists":
     case "this":
     case "id":
     case "lambda":
@@ -2345,6 +2347,13 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       throw new Error(
         `walker: authorization filter for '${expr.aggregate}' reached a page/component body. ` +
           "Record-level policy is enforced server-side; a UI gate belongs in `requires`.",
+      );
+    case "exists":
+      // A query predicate (`loom.exists-outside-query` keeps it out of every
+      // page / component body) — the backends compile it into SQL.
+      throw new Error(
+        `walker: 'exists ${expr.aggregate} …' reached a page/component body; it is a ` +
+          "query predicate — read the rows through a criterion on the server.",
       );
     default: {
       // EXHAUSTIVENESS — the frontend twin of `_expr/target.ts`'s `never`

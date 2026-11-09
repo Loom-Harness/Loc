@@ -252,6 +252,7 @@ function describeSeedValue(e: ExprIR): string {
     // author to add a phrase for it.
     case "action-ref":
     case "authz-filter":
+    case "exists":
     case "convert":
     case "duration":
     case "i18nFormat":

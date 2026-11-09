@@ -1474,6 +1474,7 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
       // so an instance-rooted read nested inside one is still seen through its
       // own `this` / `call` / `ref` node.  Named rather than left to a
       // `default:` so a new kind is a `tsc` error here.
+      case "exists":
       case "action-ref":
       case "authz-filter":
       case "binary":

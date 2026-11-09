@@ -554,6 +554,32 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An `exists` in an operation guard: not a position compiled into a query.
+  "loom.exists-outside-query": `
+system S {
+  subdomain M { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Doc with crudish {
+      title: string
+      operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
+    }
+  } }
+}`,
+  // An `exists` over another context's aggregate: a different database.
+  "loom.exists-cross-context": `
+system S {
+  subdomain M {
+    context C { aggregate Doc with crudish { title: string  filter exists Tag as t where t.label == this.title } }
+    context D { aggregate Tag with crudish { label: string } }
+  }
+}`,
+  // An `exists` over the filtered row's own aggregate.
+  "loom.exists-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate Doc with crudish { title: string  filter exists Doc as d where d.title == this.title }
+  } }
+}`,
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
