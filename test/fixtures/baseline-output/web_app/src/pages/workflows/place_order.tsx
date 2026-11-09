@@ -61,7 +61,7 @@ export default function PlaceOrderWorkflow() {
             />
     
             <Group justify="flex-end" gap="xs" mt="md">
-              <Button type="submit" loading={ run.isPending } data-testid="workflow-place_order-submit">Run</Button>
+              <Button type="submit" loading={ run.isPending } data-testid="workflow-place_order-submit">{t("Orders.placeOrder.op.run", "Run")}</Button>
             </Group>
           </Stack>
         </form>

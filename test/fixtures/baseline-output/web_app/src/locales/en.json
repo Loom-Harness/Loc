@@ -25,6 +25,7 @@
   "Orders.placeOrder.field.productId": "Product Id",
   "Orders.placeOrder.field.quantity": "Quantity",
   "Orders.placeOrder.name.one": "Place Order",
+  "Orders.placeOrder.op.run": "Run",
   "Products.Money.field.amount": "Amount",
   "Products.Money.field.currency": "Currency",
   "Products.Product.field.display": "Display",

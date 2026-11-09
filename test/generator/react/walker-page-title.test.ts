@@ -62,7 +62,7 @@ describe("page title via useEffect(document.title)", () => {
     const content = files.get("web/src/pages/user.tsx")!;
     expect(content).toMatch(/const \{ name \} = useParams<\{ name: string \}>\(\);/);
     expect(content).toMatch(
-      /useEffect\(\(\) => \{ document\.title = \("User: " \+ name\); \}, \[name\]\);/,
+      /useEffect\(\(\) => \{ document\.title = t\("WebApp\.page\.User\.title\.\w+", "User: \{name\}", \{ name: name \}\); \}, \[name\]\);/,
     );
   });
 
@@ -97,7 +97,7 @@ describe("page title via useEffect(document.title)", () => {
     // `string + X` concat rule; deps tracker recurses into the
     // `convert` IR's value so `count` still lands in the deps array.
     expect(content).toMatch(
-      /useEffect\(\(\) => \{ document\.title = \("Count: " \+ String\(count\)\); \}, \[count\]\);/,
+      /useEffect\(\(\) => \{ document\.title = t\("WebApp\.page\.Counter\.title\.\w+", "Count: \{count\}", \{ count: String\(count\) \}\); \}, \[count\]\);/,
     );
   });
 
