@@ -421,6 +421,14 @@ describe("provenanced — snapshot capture", () => {
     expect(doc.snapshots[id].expression.text).toBe("base * qty - discount");
   });
 
+  it("labels the envelope with the host-supplied commit, else 'uncommitted'", async () => {
+    const { model } = await parseModel(SYSTEM(""));
+    const loom = enrichLoomModel(lowerModel(model));
+    const envelope = (snaps: Map<string, string>) => JSON.parse([...snaps.values()][0]!);
+    expect(envelope(captureSnapshots(loom, { commitHash: "abc123" })).commitHash).toBe("abc123");
+    expect(envelope(captureSnapshots(loom)).commitHash).toBe("uncommitted");
+  });
+
   it("captures nothing when no provenanced field is written", async () => {
     const src = SYSTEM("").replace("total: int provenanced", "total: int");
     const { model } = await parseModel(src);

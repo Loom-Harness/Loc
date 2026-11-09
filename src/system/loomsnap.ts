@@ -123,10 +123,18 @@ function typeName(t: TypeIR): string {
  * `provenanced` field.  Returns `relative path → content`; the path is a
  * fresh immutable `.loom/snapshots/<timestamp>-<guid>.loomsnap.json` per
  * system.  Shared by the CLI `snapshot` command and the playground.
+ *
+ * `commitHash` labels the capture envelope; the host resolves it (the CLI
+ * from git) and passes it in, so capture stays a pure function of its inputs.
+ * Absent → `"uncommitted"`.  `snapshotId` is content-addressed and independent
+ * of it.
  */
-export function captureSnapshots(loom: LoomModel): Map<string, string> {
+export function captureSnapshots(
+  loom: LoomModel,
+  options: { commitHash?: string } = {},
+): Map<string, string> {
   const out = emissionSink("system/loomsnap");
-  const commitHash = resolveCommitHash();
+  const commitHash = options.commitHash || "uncommitted";
   const capturedAt = new Date().toISOString();
   const stamp = compactStamp(capturedAt);
   for (const sys of loom.systems) {
@@ -152,15 +160,4 @@ function newGuid(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
   return `nocrypto-${Date.now().toString(16)}-${Math.floor(Math.random() * 1e9).toString(16)}`;
-}
-
-/** Best-effort git commit for the snapshot envelope.  Browser-safe: reads
- *  `LOOM_COMMIT_HASH` under Node (the CLI populates it), else
- *  `"uncommitted"`.  `snapshotId` is content-addressed and independent of
- *  this, so it only labels the capture envelope. */
-export function resolveCommitHash(): string {
-  if (typeof process !== "undefined" && process.env?.LOOM_COMMIT_HASH) {
-    return process.env.LOOM_COMMIT_HASH;
-  }
-  return "uncommitted";
 }

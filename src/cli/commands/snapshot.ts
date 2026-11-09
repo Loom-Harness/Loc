@@ -59,9 +59,10 @@ async function runSnapshot(
   // explained against.  Exit code unchanged (0).
   printLoomWarnings(loomDiags);
 
-  const commit = gitCommitHash();
-  if (commit) process.env.LOOM_COMMIT_HASH = commit;
-  const files = captureSnapshots(loom);
+  // The capture envelope's commit label: the checkout's HEAD, else an explicit
+  // `LOOM_COMMIT_HASH` (a CI that builds from an export with no `.git`).
+  const commitHash = gitCommitHash() ?? process.env.LOOM_COMMIT_HASH;
+  const files = captureSnapshots(loom, { commitHash });
   if (files.size === 0) {
     console.log(`No written \`provenanced\` field found in ${file}; nothing to capture.`);
     return { hadError: false, written: 0 };

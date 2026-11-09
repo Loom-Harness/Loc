@@ -198,8 +198,12 @@ function loweringDiag(message: string): JsonDiagnostic {
  * the CLI `ddd snapshot` prebuild step and the playground's snapshot button.
  * Returns the immutable `.loom/snapshots/*.loomsnap.json` files; `files` is
  * empty (still `ok: true`) when the model has no written `provenanced` field.
+ * `commitHash` labels each capture envelope (`"uncommitted"` when absent).
  */
-export async function snapshot(source: string): Promise<SnapshotReport> {
+export async function snapshot(
+  source: string,
+  options: { commitHash?: string } = {},
+): Promise<SnapshotReport> {
   const { doc, model, diagnostics } = await parseSource(source);
   const json = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
   if (!model || hasParseError(diagnostics)) {
@@ -213,7 +217,10 @@ export async function snapshot(source: string): Promise<SnapshotReport> {
       diagnostics: [...json, loweringDiag(diagMessage("loom.ir-internal#snapshot-lowering"))],
     };
   }
-  const files = [...captureSnapshots(loom)].map(([path, content]) => ({ path, content }));
+  const files = [...captureSnapshots(loom, options)].map(([path, content]) => ({
+    path,
+    content,
+  }));
   return { ok: true, files, diagnostics: json };
 }
 
