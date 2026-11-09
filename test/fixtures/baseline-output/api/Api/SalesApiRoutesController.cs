@@ -21,6 +21,7 @@ public sealed class SalesApiRoutesController : ControllerBase
     [ProducesResponseType(200)]
     [ProducesResponseType(typeof(ProblemDetails), 400)]
     [ProducesResponseType(typeof(ProblemDetails), 404)]
+    [ProducesResponseType(typeof(ProblemDetails), 422)]
     public async Task<IActionResult> ListOrdersByCustomer(string customerId)
     {
         var __result = await _mediator.Send(new ListOrdersByCustomerQuery(customerId));
