@@ -16,7 +16,7 @@
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { DddServices } from "../ddd-module.js";
-import type { Model, ModelText } from "../generated/ast.js";
+import { isBinaryChain, type Model, type ModelText } from "../generated/ast.js";
 import { buildModelTextIndex, resolveModelText } from "../model-text.js";
 
 /** The text of a call as the user wrote it, for messages. */
@@ -40,9 +40,7 @@ function insideTemplate(node: AstNode): boolean {
   const parent = n.$container;
   if (!parent) return false;
   if (parent.$type === "TemplateHole") return true;
-  if (parent.$type === "BinaryChain") {
-    return (parent as unknown as { ops: readonly string[] }).ops.includes("+");
-  }
+  if (isBinaryChain(parent)) return parent.ops.includes("+");
   return false;
 }
 

@@ -1,9 +1,4 @@
-import type {
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  FieldIR,
-  WorkflowIR,
-} from "../../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, FieldIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
@@ -11,7 +6,7 @@ import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
-import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
+import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 
 // ---------------------------------------------------------------------------
 // Persisted workflow-correlation state (Java / JPA) — the saga-instance row
@@ -93,7 +88,7 @@ export function renderWorkflowStateEntity(
   // onto its jsonb column (no association needed), and a value-object
   // collection here is refused by `loom.collection-field-unpersisted`, so
   // jpaFieldAnnotations never reads the owner's associations / fields.
-  const owner = { name: wf.name, associations: [] } as unknown as EnrichedAggregateIR;
+  const owner: JpaFieldOwner = { name: wf.name, fields: [], associations: [] };
 
   const fieldLines: string[] = [
     `    @EmbeddedId`,

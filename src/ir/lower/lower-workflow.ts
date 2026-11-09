@@ -767,6 +767,8 @@ function hoistReads(
   for (const h of reads) {
     const repoName = isNameRef(h.read.head) ? h.read.head.name : "Repo";
     const name = freshBodyName(`read${upperFirst(repoName)}`, at);
+    // A synthesized AST node handed to the statement lowerer: an object literal
+    // carries no Langium-only members, so it reaches `LetStmt` through `unknown`.
     const letNode = {
       $type: "LetStmt",
       $container: h.chain.$container,

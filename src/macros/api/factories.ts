@@ -918,6 +918,7 @@ export function cloneTypeHead(t: TypeRef | TypeAtom): TypeRef {
  * for the printers.
  */
 export function cloneExpr<T extends Expression>(e: T): T {
+  // The clone walks properties reflectively and returns the same node kind.
   return _cloneAstNode(e as unknown as Record<string, unknown>) as unknown as T;
 }
 

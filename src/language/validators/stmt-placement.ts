@@ -193,8 +193,10 @@ function checkNotFound(
     });
     return;
   }
-  const block = node.$container as unknown as Record<string, unknown> | undefined;
-  const siblings = node.$containerProperty ? block?.[node.$containerProperty] : undefined;
+  const block = node.$container;
+  const prop = node.$containerProperty;
+  const siblings: unknown =
+    block && prop && prop in block ? block[prop as keyof typeof block] : undefined;
   const index = node.$containerIndex;
   if (!Array.isArray(siblings) || index === undefined || index >= siblings.length - 1) return;
   accept("error", diagMessage("loom.not-found-unreachable", {}), {

@@ -60,7 +60,6 @@ import type {
   DomainServiceOperationIR,
   EnrichedBoundedContextIR,
   ExprIR,
-  OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
@@ -134,7 +133,7 @@ export function renderJavaDomainServices(
     // so the sealed interface + variant records are emitted once each.
     const unions = new Map<string, JavaReturnUnionSpec>();
     for (const op of svc.operations) {
-      const spec = returnUnionSpec(op as unknown as OperationIR, ctx);
+      const spec = returnUnionSpec(op, ctx);
       if (spec && !unions.has(spec.name)) unions.set(spec.name, spec);
     }
     out.push({
@@ -389,7 +388,7 @@ function distinctReadAggregates(svc: DomainServiceIR): string[] {
 /** The union name keyed in the per-service union map for this op (or "" when
  *  the op doesn't return a union). */
 function unionKeyOf(op: DomainServiceOperationIR, ctx: EnrichedBoundedContextIR): string {
-  const spec = returnUnionSpec(op as unknown as OperationIR, ctx);
+  const spec = returnUnionSpec(op, ctx);
   return spec ? spec.name : "";
 }
 

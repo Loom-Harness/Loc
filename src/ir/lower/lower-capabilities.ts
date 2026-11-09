@@ -1,4 +1,10 @@
-import type { Aggregate, BoundedContext, Expression } from "../../language/generated/ast.js";
+import {
+  type Aggregate,
+  type BoundedContext,
+  type Expression,
+  isFilterDecl,
+  isStampDecl,
+} from "../../language/generated/ast.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../../util/capability-tag.js";
 import type { ContextStampIR, ExprIR } from "../types/loom-ir.js";
 import { criterionRefOf, lowerExpr } from "./lower-expr.js";
@@ -73,8 +79,8 @@ export function collectContextLevelCapabilities(ctx: BoundedContext): ContextLev
   const filterDecls: FilterDeclLike[] = [];
   const stampDecls: StampDeclLike[] = [];
   for (const m of ctx.members ?? []) {
-    if (m.$type === "FilterDecl") filterDecls.push(m as unknown as FilterDeclLike);
-    else if (m.$type === "StampDecl") stampDecls.push(m as unknown as StampDeclLike);
+    if (isFilterDecl(m)) filterDecls.push(m);
+    else if (isStampDecl(m)) stampDecls.push(m);
   }
   return { filterDecls, stampDecls };
 }
@@ -84,9 +90,7 @@ export function collectFilters(
   env: Env,
   ctxCaps: ContextLevelCapabilities,
 ): FilterEntry[] {
-  const own = (agg.members ?? [])
-    .filter((m) => m.$type === "FilterDecl")
-    .map((m) => filterEntry(m as unknown as FilterDeclLike, env));
+  const own = (agg.members ?? []).filter(isFilterDecl).map((m) => filterEntry(m, env));
   // The context-level decls lower HERE, in this aggregate's env, so their
   // `this.<field>` refs resolve against the columns they will actually run
   // against — see `collectContextLevelCapabilities`.
@@ -99,9 +103,7 @@ export function collectStamps(
   env: Env,
   ctxCaps: ContextLevelCapabilities,
 ): ContextStampIR[] {
-  const own = (agg.members ?? [])
-    .filter((m) => m.$type === "StampDecl")
-    .map((m) => lowerStampDecl(m as unknown as StampDeclLike, env));
+  const own = (agg.members ?? []).filter(isStampDecl).map((m) => lowerStampDecl(m, env));
   const inherited = ctxCaps.stampDecls.map((m) => lowerStampDecl(m, env));
   return [...inherited, ...own];
 }

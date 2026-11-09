@@ -288,6 +288,7 @@ function primitiveAnchor(c: Ctx): string {
  *  `[ … ]` children list); each column is a header cell + a per-row value cell
  *  (the accessor already walked against the row var). */
 function primitiveTable(c: Ctx): string {
+  // `Ctx` types scalar render fields; the walker passes `columns` as objects.
   const cols =
     (c.columns as unknown as
       | { header: string; headerMarkup?: boolean; cellJsx: string }[]
@@ -685,6 +686,7 @@ function primitiveIcon(c: Ctx): string {
  *  Each panel's body is an already-walked F# element (offside-safe on its own
  *  line inside the panel's `children [ … ]`). */
 function primitiveTabs(c: Ctx): string {
+  // `Ctx` types scalar render fields; the walker passes `tabs` as objects.
   const tabs =
     (c.tabs as unknown as {
       value: string;
@@ -1018,9 +1020,9 @@ const RENDERERS: Record<string, (c: Ctx) => string> = {
  *  `.get()`).  Seed that one key so the procedural renderer is recognised; the
  *  sentinel value is never invoked. */
 export function felizPack(): LoadedPack {
-  const templates = new Map([
+  const templates: LoadedPack["templates"] = new Map([
     ["primitive-modal-controlled", { fn: () => "", filePath: "<feliz-procedural>" }],
-  ]) as unknown as LoadedPack["templates"];
+  ]);
   return {
     manifest: { name: "felizBasic", version: "v1", format: "tsx", emits: {}, imports: {} },
     rootDir: "<feliz-procedural>",

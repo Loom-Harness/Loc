@@ -57,6 +57,7 @@ import {
   isArea,
   isBuilderCall,
   isLambda,
+  isMemberSuffix,
   isNameRef,
   isPage,
   isPostfixChain,
@@ -199,6 +200,8 @@ function ensurePagingState(page: Page): void {
  *  the existing chain: the receiver is everything up to the last member, and
  *  the factory produces the exact node the parser would. */
 function withControls(of: PostfixChain): PostfixChain {
+  // Every suffix is a member read: `consider` only collects chains whose suffixes
+  // are `MemberSuffix`, so the union narrows here without a per-element guard.
   const suffixes = of.suffixes as unknown as { $type: string; member: string }[];
   const last = suffixes[suffixes.length - 1]!;
   const receiver =
@@ -240,6 +243,7 @@ function replaceNode(oldNode: AstNode, newNode: AstNode): void {
   const prop = oldNode.$containerProperty;
   if (!parent || !prop) return;
   const idx = oldNode.$containerIndex;
+  // The container's slot is written by its reflective property name.
   const slot = parent as unknown as Record<string, unknown>;
   if (idx === undefined) {
     slot[prop] = newNode;
@@ -279,8 +283,8 @@ function repointBindingReaders(lambda: Lambda, param: string): void {
     if (isPostfixChain(node)) {
       if (!isNameRef(node.head) || node.head.name !== param) return;
       const first = node.suffixes?.[0];
-      if (first?.$type !== "MemberSuffix") return;
-      if (ENVELOPE_MEMBERS.has((first as unknown as { member: string }).member)) return;
+      if (!isMemberSuffix(first)) return;
+      if (ENVELOPE_MEMBERS.has(first.member)) return;
       chains.push(node);
       return;
     }
@@ -404,15 +408,15 @@ function simpleMemberRead(l: Lambda): string | undefined {
     const chain = e as PostfixChain;
     if (!isNameRef(chain.head) || chain.head.name !== l.param) return undefined;
     const sfx = chain.suffixes ?? [];
-    if (sfx.length !== 1 || sfx[0]!.$type !== "MemberSuffix") return undefined;
-    return (sfx[0] as unknown as { member: string }).member;
+    const only = sfx.length === 1 ? sfx[0] : undefined;
+    return isMemberSuffix(only) ? only.member : undefined;
   };
   const body = l.body;
   const own = direct(body);
   if (own) return own;
   // `o => Text { o.name }` — a single-child display primitive wrapping the read.
-  if (isBuilderCall(body as never)) {
-    const call = body as unknown as BuilderCall;
+  if (isBuilderCall(body)) {
+    const call = body;
     // These wrappers' member names an OPERATION, not a field; the server's sort
     // whitelist is per field, so a header over one would never sort anything.
     if (OPERATION_WRAPPERS.has(call.type)) return undefined;

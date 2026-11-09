@@ -30,6 +30,14 @@ import type {
   ValueObject,
   Workflow,
 } from "./generated/ast.js";
+import {
+  isContainment,
+  isCreate,
+  isDerivedProp,
+  isDestroy,
+  isOperation,
+  isProperty,
+} from "./generated/ast.js";
 
 /** The kind of type a path's head names. */
 export type ModelTextTypeKind =
@@ -75,22 +83,10 @@ export interface ModelTextFailure {
 function membersOfAggregateLike(members: readonly AstNode[]): Map<string, ModelTextFacet> {
   const out = new Map<string, ModelTextFacet>();
   for (const m of members) {
-    switch (m.$type) {
-      case "Property":
-      case "Containment":
-      case "DerivedProp":
-        out.set((m as unknown as { name: string }).name, "field");
-        break;
-      case "Operation":
-        out.set((m as unknown as { name: string }).name, "op");
-        break;
-      case "Create":
-        out.set((m as unknown as { name?: string }).name ?? "create", "op");
-        break;
-      case "Destroy":
-        out.set((m as unknown as { name?: string }).name ?? "destroy", "op");
-        break;
-    }
+    if (isProperty(m) || isContainment(m) || isDerivedProp(m)) out.set(m.name, "field");
+    else if (isOperation(m)) out.set(m.name, "op");
+    else if (isCreate(m)) out.set(m.name ?? "create", "op");
+    else if (isDestroy(m)) out.set(m.name ?? "destroy", "op");
   }
   return out;
 }

@@ -1207,7 +1207,7 @@ function unaddressableIndex(root: AstNode): ReadonlyMap<string, string> {
   const add = (node: AstNode): void => {
     const kind = UNADDRESSABLE_FROM_RULE.get(node.$type);
     if (!kind) return;
-    const name = (node as unknown as { name?: unknown }).name;
+    const name = "name" in node ? node.name : undefined;
     if (typeof name === "string" && !index.has(name)) index.set(name, kind);
   };
   add(root);
@@ -1226,7 +1226,7 @@ function ownerActionNames(from: AstNode): ReadonlySet<string> {
   if (!owner) return out;
   for (const m of owner.members) {
     if (isOperation(m) || isCreate(m) || isDestroy(m)) {
-      const name = (m as unknown as { name?: unknown }).name;
+      const name = m.name;
       // The canonical (unnamed) `create` / `destroy` have no name to collide on.
       out.add(typeof name === "string" && name.length > 0 ? name : m.$type.toLowerCase());
     }

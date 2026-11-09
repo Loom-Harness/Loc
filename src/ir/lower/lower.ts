@@ -374,7 +374,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
         if (!ambientProjections.has(m.name)) ambientProjections.set(m.name, m);
       }
       for (const key of ["members", "contexts"] as const) {
-        const kids = (m as unknown as Record<string, unknown>)[key];
+        const kids: unknown = key in m ? m[key as keyof typeof m] : undefined;
         if (Array.isArray(kids)) indexAggregatesDeep(kids as AstNode[]);
       }
     }
