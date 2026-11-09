@@ -53,22 +53,22 @@ export class CustomerNewPage {
     if (input.username !== undefined) {
       {
         const __f = this.page.getByTestId("customers-new-input-username");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.username!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.username!);
       }
     }
     if (input.email !== undefined) {
       {
         const __f = this.page.getByTestId("customers-new-input-email");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.email!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.email!);
       }
     }
     if (input.age !== undefined) {
       {
         const __f = this.page.getByTestId("customers-new-input-age");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(String(input.age));
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(String(input.age));
       }
     }
     return this;
@@ -110,22 +110,22 @@ export class CustomerDetailPage {
     if (input.username !== undefined) {
       {
         const __f = this.page.getByTestId("customers-op-update-input-username");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.username!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.username!);
       }
     }
     if (input.email !== undefined) {
       {
         const __f = this.page.getByTestId("customers-op-update-input-email");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.email!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.email!);
       }
     }
     if (input.age !== undefined) {
       {
         const __f = this.page.getByTestId("customers-op-update-input-age");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(String(input.age));
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(String(input.age));
       }
     }
     await this.page.getByTestId("customers-op-update-submit").click();
