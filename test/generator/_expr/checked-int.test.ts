@@ -8,7 +8,7 @@ import { renderExpr as renderEx } from "../../../src/generator/elixir/render-exp
 import { renderJavaExpr } from "../../../src/generator/java/render-expr.js";
 import { renderPyExpr } from "../../../src/generator/python/render-expr.js";
 import { renderTsExpr } from "../../../src/generator/typescript/render-expr.js";
-import { INTEGER_OVERFLOW_DETAIL, wireRejection } from "../../../src/ir/enrich/wire-policy.js";
+import { wireCode, wireRejection } from "../../../src/ir/enrich/wire-policy.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 
 const INT: TypeIR = { kind: "primitive", name: "int" };
@@ -56,20 +56,22 @@ describe("checked integer arithmetic (RS-48)", () => {
     ).toBe(null);
   });
 
-  it("the fact is the domain floor's status with one fixed sentence", () => {
+  it("the fact is the domain floor's status with one fixed sentence and its own code", () => {
     expect(wireRejection("arithmetic-overflow")).toMatchObject({
       status: 422,
       title: "Unprocessable Entity",
       stage: "domain",
-      detail: { kind: "fixed", text: INTEGER_OVERFLOW_DETAIL },
+      detail: { kind: "fixed", text: "Value out of range" },
+      errors: "none",
     });
+    expect(wireCode("arithmetic-overflow")).toBe("problem.arithmetic-overflow");
   });
 
   it("node range-checks int32 and the safe-integer ceiling, throwing DomainError", () => {
     const sum = renderTsExpr(intSum);
     expect(sum).toContain("(stock + n)");
     expect(sum).toContain("__v < -2147483648 || __v > 2147483647");
-    expect(sum).toContain('throw new DomainError("Value out of range")');
+    expect(sum).toContain("throw DomainError.arithmeticOverflow()");
     expect(renderTsExpr(longProduct)).toContain(
       "__v < -9007199254740991 || __v > 9007199254740991",
     );
@@ -88,9 +90,7 @@ describe("checked integer arithmetic (RS-48)", () => {
   it("elixir raises the typed GuardError outside the range", () => {
     const out = renderEx(intSum, { thisName: "record", contextModule: "App.Stock" });
     expect(out).toContain("case stock + n do v when v >= -2147483648 and v <= 2147483647 -> v");
-    expect(out).toContain(
-      'raise(App.GuardError, kind: :precondition, message: "Value out of range")',
-    );
+    expect(out).toContain('raise(App.GuardError, kind: :overflow, message: "Value out of range")');
     expect(renderEx(longProduct, { thisName: "record", contextModule: "App.Stock" })).toContain(
       "v >= -9223372036854775808 and v <= 9223372036854775807",
     );

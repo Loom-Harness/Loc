@@ -25,7 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import Handlebars from "handlebars";
-import { sourceText } from "../_walker/source-text.js";
+import { sourceText } from "../_i18n/source-text.js";
 
 /** How one frontend spells a translated label in each markup position.  The
  *  `key`/`message` pair is exactly what the extraction pass recorded, so the

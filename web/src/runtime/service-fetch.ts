@@ -20,7 +20,9 @@ export function serviceFetch(
     const probe = new Request(input, init);
     const url = new URL(probe.url);
     if (url.protocol !== "http:" || !hosts.has(url.hostname)) {
-      return real(input, init);
+      // `probe` owns the body now: a `Request` input is consumed by building
+      // it, so hand `probe` on rather than the used-up original.
+      return real(probe);
     }
     const body =
       probe.method === "GET" || probe.method === "HEAD" ? null : await probe.text();

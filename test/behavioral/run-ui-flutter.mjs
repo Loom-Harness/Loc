@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { copyLocales, localesBeside } from "./case-source.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
@@ -246,6 +247,7 @@ async function runCase(c) {
         dddPath,
         readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
       );
+      copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", dddPath, "-o", genDir], {
       stdio: "pipe",

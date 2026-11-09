@@ -15,6 +15,7 @@ import { unwrapOpt } from "../_frontend/form-helpers.js";
 import { localizedModelText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
+import type { AngularFieldMessage } from "./form-validators.js";
 
 // ---------------------------------------------------------------------------
 // Shared Reactive-Forms field rendering for the Angular form forks
@@ -384,6 +385,45 @@ function serverErrorText(formVar: string, name: string, clientText: string | und
   const server = `${formVar}.controls.${name}.errors?.['server']`;
   if (clientText === undefined) return `{{ ${server} }}`;
   return `@if (${server}; as serverError) { {{ serverError }} } @else { ${clientText} }`;
+}
+
+/** A client constraint's sentence as template text.  Under i18n it is the
+ *  catalog entry of the validator that failed (`{{ t("field.min", "Sku is
+ *  invalid", { min: 1 }) }}`), evaluated when the form renders so a locale
+ *  change re-renders it; without i18n it is the English as written. */
+function clientRuleText(
+  ctx: WalkContext,
+  control: string,
+  messages: readonly AngularFieldMessage[],
+  english: string,
+): string {
+  if (!ctx.i18nPrefix || messages.length === 0) return english;
+  const text = (m: AngularFieldMessage) =>
+    ctx.target.renderInterpolation(
+      localizedModelText(
+        ctx,
+        m.code,
+        english,
+        Object.keys(m.params).length > 0
+          ? Object.entries(m.params).map(([name, v]) => ({ name, expr: String(v) }))
+          : undefined,
+      ),
+      STRING,
+    );
+  // One branch per distinct error key, first validator wins; the last stands
+  // for any error key none names.
+  const seen = new Set<string>();
+  const branches = messages.filter((m) => !seen.has(m.errorKey) && seen.add(m.errorKey));
+  if (branches.length === 1) return text(branches[0] as AngularFieldMessage);
+  const last = branches[branches.length - 1] as AngularFieldMessage;
+  const chain = branches
+    .slice(0, -1)
+    .map(
+      (m, i) =>
+        `${i === 0 ? "" : " @else "}@if (${control}.errors?.['${m.errorKey}']) { ${text(m)} }`,
+    )
+    .join("");
+  return `${chain} @else { ${text(last)} }`;
 }
 
 /** The ARIA bindings for one flat field of `formVar`'s group. */
@@ -863,10 +903,12 @@ export function partitionAngularFields(
   ns: string,
   ctx: WalkContext,
   formVar?: string,
-  /** Flat field names carrying a client-side constraint (from
-   *  `angularValidatorMap`): their message slot falls back to the client
-   *  sentence when no server message is set. */
-  errorFields?: ReadonlySet<string>,
+  /** Flat field names carrying a client-side constraint, each with the
+   *  catalog messages of its validators (from `angularRuleCodes`): their
+   *  message slot falls back to the client sentence when no server message is
+   *  set, localized by the code of the validator that failed when the form
+   *  renders. */
+  errorFields?: ReadonlyMap<string, readonly AngularFieldMessage[]>,
   /** The model type each input's label is keyed under (by input name); an
    *  input it maps to `undefined` keeps its humanized English. */
   labelOwnerOf: (name: string) => string | undefined = () => undefined,
@@ -981,7 +1023,14 @@ export function partitionAngularFields(
               text: serverErrorText(
                 formVar,
                 f.name,
-                constrained ? `${humanize(f.name)} is invalid` : undefined,
+                constrained
+                  ? clientRuleText(
+                      ctx,
+                      `${formVar}.controls.${f.name}`,
+                      errorFields?.get(f.name) ?? [],
+                      `${humanize(f.name)} is invalid`,
+                    )
+                  : undefined,
               ),
             }
           : undefined;

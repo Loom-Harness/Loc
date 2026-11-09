@@ -19,8 +19,8 @@ export class PlaceOrderWorkflowPage {
     if (input.customerId !== undefined) {
       {
         const __f = this.page.getByTestId("workflow-place_order-input-customerId");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(input.customerId!);
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(input.customerId!);
       }
     }
     if (input.productId !== undefined) {
@@ -34,8 +34,8 @@ export class PlaceOrderWorkflowPage {
     if (input.quantity !== undefined) {
       {
         const __f = this.page.getByTestId("workflow-place_order-input-quantity");
-        const __i = __f.locator("input, textarea");
-        await ((await __i.count()) ? __i.first() : __f).fill(String(input.quantity));
+        const __input = this.page.locator("input, textarea");
+        await __f.locator(__input).or(__f.and(__input)).first().fill(String(input.quantity));
       }
     }
     return this;

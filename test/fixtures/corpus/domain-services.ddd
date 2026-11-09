@@ -111,7 +111,7 @@ system DomainSvc {
           // so no response changes and the reviewed wire golden
           // (`test/behavioral/wire-golden/domain-services.json`) stays valid.
           // Keep it true: a precondition that fires here rewrites the golden.
-          precondition amount.amount >= 0 message "a fee quote needs a non-negative amount"
+          precondition feeQuoteNeedsNon: amount.amount >= 0
           return Money { amount: amount.amount, currency: amount.currency }
         }
       }

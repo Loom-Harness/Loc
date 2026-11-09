@@ -52,7 +52,7 @@ describe("feliz invariant validation — numeric bounds", () => {
   it("renders a `>=` bound as a rule-specific message, not `Required`", async () => {
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     expect(fs).toContain(
-      'elif (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false) then Some "Must be at least 1"',
+      'elif (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false) then Some ("field.min", "Must be at least 1", [ ("min", box 1) ])',
     );
     // …and it gates submit, exactly as the required / parse terms do.
     expect(fs).toContain(
@@ -60,15 +60,17 @@ describe("feliz invariant validation — numeric bounds", () => {
     );
   });
 
-  it("renders a `<=` bound and folds a two-sided range into ONE `between` message", async () => {
+  it("renders a `<=` bound and splits a two-sided range into one rule per side", async () => {
     const fs = await appFs(
       SYS(
         "        qty: int\n        ratio: decimal\n        invariant qty <= 99\n        invariant ratio >= 0.5 && ratio <= 2.5",
         CREATE,
       ),
     );
-    expect(fs).toContain('then Some "Must be at most 99"');
-    expect(fs).toContain('then Some "Must be between 0.5 and 2.5"');
+    expect(fs).toContain('then Some ("field.max", "Must be at most 99", [ ("max", box 99) ])');
+    // A two-sided range is one rule per side, each under its own code.
+    expect(fs).toContain('then Some ("field.min", "Must be at least 0.5", [ ("min", box 0.5) ])');
+    expect(fs).toContain('then Some ("field.max", "Must be at most 2.5", [ ("max", box 2.5) ])');
   });
 
   it("a numeric rule is blank- and unparseable-TOLERANT, so it never shadows a better message", async () => {
@@ -78,11 +80,11 @@ describe("feliz invariant validation — numeric bounds", () => {
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     const line = fs.split("\n").find((l) => l.includes("productCreateFormQtyError"));
     const body = fs.split("\n")[fs.split("\n").indexOf(line!) + 1]!;
-    expect(body.indexOf('Some "Required"')).toBeLessThan(
-      body.indexOf('Some "Must be a whole number"'),
+    expect(body.indexOf('Some ("field.missing", "Required", [])')).toBeLessThan(
+      body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])'),
     );
-    expect(body.indexOf('Some "Must be a whole number"')).toBeLessThan(
-      body.indexOf('Some "Must be at least 1"'),
+    expect(body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])')).toBeLessThan(
+      body.indexOf('Some ("field.min", "Must be at least 1", [ ("min", box 1) ])'),
     );
   });
 });
@@ -96,7 +98,7 @@ describe("feliz invariant validation — length and regex", () => {
     expect(fs).toContain('[<Fable.Core.Emit("[...$0].length")>]');
     expect(fs).toContain("let private cpLength (s: string) : int = jsNative");
     expect(fs).toContain(
-      'elif (not (System.String.IsNullOrEmpty form.name) && cpLength form.name < 3) then Some "Must be at least 3 characters"',
+      'elif (not (System.String.IsNullOrEmpty form.name) && cpLength form.name < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 
@@ -110,7 +112,7 @@ describe("feliz invariant validation — length and regex", () => {
     expect(fs).toContain(
       'System.Text.RegularExpressions.Regex.IsMatch(form.code, @"^[A-Z]{3}-[0-9]{4}$")',
     );
-    expect(fs).toContain('then Some "Does not match the required format"');
+    expect(fs).toContain('then Some ("field.pattern", "Not in the expected format", [])');
   });
 
   it("gives an OPTIONAL field a rule — and the view its inline error", async () => {
@@ -120,7 +122,9 @@ describe("feliz invariant validation — length and regex", () => {
     const fs = await appFs(
       SYS("        note: string?\n        invariant note == null || note.length <= 10", CREATE),
     );
-    expect(fs).toContain('then Some "Must be at most 10 characters"');
+    expect(fs).toContain(
+      'then Some ("field.max-length", "Must be at most 10 characters", [ ("max", box 10) ])',
+    );
     // The view seam agrees — onBlur, aria, and the inline error element.
     expect(fs).toContain('dispatch (TouchProductCreateForm "note")');
     expect(fs).toContain("Validation.productCreateFormNoteError model.ProductCreateForm");
@@ -146,7 +150,7 @@ describe("feliz invariant validation — the operation form", () => {
       ),
     );
     expect(fs).toContain(
-      'elif (not (System.String.IsNullOrEmpty form.newName) && cpLength form.newName < 3) then Some "Must be at least 3 characters"',
+      'elif (not (System.String.IsNullOrEmpty form.newName) && cpLength form.newName < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 });
@@ -174,10 +178,10 @@ describe("feliz invariant validation — what it must NOT admit", () => {
     const fs = await appFs(SYS("        name: string\n        rank: int?", CREATE));
     expect(fs).not.toContain("cpLength");
     expect(fs).toContain(
-      '    if System.String.IsNullOrWhiteSpace form.name then Some "Required" else None',
+      '    if System.String.IsNullOrWhiteSpace form.name then Some ("field.missing", "Required", []) else None',
     );
     expect(fs).toContain(
-      '    if isWholeText form.rank then None else Some "Must be a whole number"',
+      '    if isWholeText form.rank then None else Some ("field.type-mismatch", "Must be a whole number", [])',
     );
   });
 });

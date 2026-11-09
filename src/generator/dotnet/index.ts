@@ -31,7 +31,6 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
-import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
 import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -63,6 +62,12 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+
+/** True when some aggregate declares an `extern` operation. */
+function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
+  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+}
+
 import { apiRoutePrefix } from "../../util/api-base.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
@@ -70,7 +75,6 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
-import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { unionMembers } from "../_payload/union-wire.js";
@@ -142,7 +146,6 @@ import { renderEmptyJsonBodyMiddleware } from "./emit/empty-body-middleware.js";
 import type { OpFragment } from "./emit/entity.js";
 import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
-import { CS_MESSAGES_PATH, renderCsMessages } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
 import { emitDotnetMigrations } from "./emit/migrations.js";
 import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
@@ -451,6 +454,7 @@ function emitProjectFromContexts(
       contexts.some(hasValueObjectInvariants) ||
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
+    extern: contexts.some(hasExternOperation),
     deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
   });
   emitDispatcher(ns, out, hasSubscriptions, system.deployable.persistence !== "dapper");
@@ -985,13 +989,8 @@ function emitProjectFromContexts(
   // exception the guarded write's stale-write raises.  A project with neither
   // stays byte-identical.
   const hasConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
-  // SERVER-side against this project's catalog.  No messaged rule ⇒ no catalog
-  // file and a byte-identical exception filter.
-  const validationMessages = collectWireValidationMessages(contexts);
-  if (validationMessages.length > 0) {
-    out.set(CS_MESSAGES_PATH, renderCsMessages(ns, validationMessages));
-  }
+  // The server never translates a response: every refusal carries the catalog
+  // `code` a client localizes it by, so there is no backend message catalog.
   out.set(
     "Api/DomainExceptionFilter.cs",
     renderExceptionFilter(ns, {
@@ -1003,15 +1002,13 @@ function emitProjectFromContexts(
       // cross-aggregate `X id` field — a reference-free project cannot trip a
       // foreign-key violation on a write, so it stays byte-identical.
       hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
-      localizeMessages: validationMessages.length > 0,
       valueObjectInvariants: contexts.some(hasValueObjectInvariants),
       domainFloorCodes: contexts.some(hasDomainFloorMessages),
+      hasExtern: contexts.some(hasExternOperation),
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoForbiddenDetail: echoesDenialDetail(system.deployable, system.sys),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
@@ -1523,19 +1520,19 @@ function emitAggregate(
   // implementation, EF Core configuration) pick them up uniformly.
   const repoWithViews = mergeViewsAsFinds(agg, repo, ctx);
   // Context retrievals (retrieval.md) targeting this aggregate emit a
-  // `Run<Name>Async` repository method.  Document-shaped and event-sourced
-  // aggregates skip them (their in-memory impls don't compose LINQ query
-  // operators, so the interface must not promise one); a paged criterion read
-  // reaches them through the synthesised `FindAllBy<Criterion>` find instead.
+  // `Run<Name>Async` repository method on every saving shape — a criterion
+  // read calls it whatever the shape.  The relational and embedded
+  // repositories run it as a query (an Ardalis spec on EF, SQL on Dapper); the
+  // document and event-sourced ones have no queryable state columns and answer
+  // it in memory (`inMemoryRunMethodLines`), so only `queryRetrievals` reach
+  // the spec / query-body emitters.
+  const aggRetrievals = (ctx.retrievals ?? []).filter(
+    (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
+  );
+  const queryRetrievals = isDoc || isEs ? [] : aggRetrievals;
   // Some body drops a tentative change to this aggregate → its repository
   // carries `Discard`.
   const discards = discardedAggregates(ctx).has(agg.name);
-  const aggRetrievals =
-    isDoc || isEs
-      ? []
-      : (ctx.retrievals ?? []).filter(
-          (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
-        );
   place(
     `I${agg.name}Repository.cs`,
     "repository-interface",
@@ -1547,7 +1544,7 @@ function emitAggregate(
   // EF-only: the Dapper repository renders retrievals as parameterised SQL
   // (no Ardalis dependency on that persistence axis).
   if (emitCtx.deployable.persistence !== "dapper") {
-    emitRetrievalSpecs(agg, aggRetrievals, ctx, ns, out);
+    emitRetrievalSpecs(agg, queryRetrievals, ctx, ns, out);
   }
   // A find with a `where` expression that lowers to `Regex.IsMatch`
   // declares its System.Text.RegularExpressions dependency; the
@@ -1558,7 +1555,7 @@ function emitAggregate(
   // A retrieval/find whose `where` is a reified criterion consumes its
   // `Criterion` class's `ToExpression` → needs Domain.Criteria.
   const consumesCriterion =
-    aggRetrievals.some(
+    queryRetrievals.some(
       (r) => r.criterionRef && canEmitToExpressionFor(r.criterionRef.name, ctx, agg.name),
     ) ||
     (repoWithViews?.finds ?? []).some(
@@ -1568,7 +1565,7 @@ function emitAggregate(
     repoImplUsings.add(`${ns}.Domain.Criteria`);
   }
   const findBodies = buildFindBodies(agg, repoWithViews, ctx);
-  const retrievalBodies = buildRetrievalBodies(agg, aggRetrievals, ctx);
+  const retrievalBodies = buildRetrievalBodies(agg, queryRetrievals, ctx);
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `dapper`
   // emits an Npgsql/Dapper repository (and no EF configuration / document /
   // join-table files — the validator gates those features out for dapper);
@@ -1601,6 +1598,7 @@ function emitAggregate(
             ctx.name,
             [...repoImplUsings].sort(),
             ctx.aggregates,
+            aggRetrievals,
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1610,6 +1608,7 @@ function emitAggregate(
               findBodies,
               [...repoImplUsings].sort(),
               ctx.aggregates,
+              aggRetrievals,
             )
           : renderDapperRepository(
               agg,
@@ -1648,6 +1647,7 @@ function emitAggregate(
         extraUsings: [...repoImplUsings].sort(),
         idClass,
         pool: ctx.aggregates,
+        retrievals: aggRetrievals,
       }),
       repoOrigin,
     );
@@ -1659,6 +1659,7 @@ function emitAggregate(
         ? renderDocumentRepositoryImpl(agg, repoWithViews, ns, findBodies, {
             extraUsings: [...repoImplUsings].sort(),
             idClass,
+            retrievals: aggRetrievals,
           })
         : renderRepositoryImpl(agg, repoWithViews, ns, ctx.aggregates, findBodies, {
             extraUsings: [...repoImplUsings].sort(),

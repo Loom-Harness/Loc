@@ -47,7 +47,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.bare-aggregate-in-type",
   "loom.bare-collection-accessor",
   "loom.bindable-input-value-arg",
-  "loom.blank-message",
   "loom.call-arg-count",
   "loom.call-arg-type",
   "loom.canonical-create-duplicate-workflow",

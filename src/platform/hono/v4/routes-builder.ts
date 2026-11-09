@@ -43,10 +43,13 @@ import {
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
-import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import {
+  tsErrorVariantExt,
+  tsNotFoundThrow,
+} from "../../../generator/typescript/wire-policy-ts.js";
 import {
   chainSingleFieldNative,
-  openapiLengthMeta,
+  openapiLimitMeta,
   orderSingleFieldPatterns,
   type RefineDecimalMode,
   refineClauseFor,
@@ -65,6 +68,7 @@ import {
   fieldFixedMessage,
   noneVariantResponse,
   reasonPhrase,
+  wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
@@ -1439,7 +1443,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1553,7 +1557,7 @@ export function buildRoutesFile(
   // .NET / Phoenix).  `instance` is the request path; `type` is `about:blank`
   // (no per-error type registry).  Shared shape across all error arms.
   lines.push(
-    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(`    if (err instanceof ForbiddenError) {`);
   lines.push(
@@ -1561,9 +1565,9 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("forbidden");`);
   // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
-  // the gate's source text; the body echoes it only under the dev-stub verifier.
+  // the gate's source text; the body carries the constant `Forbidden`.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))});`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
@@ -1572,7 +1576,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("disallowed");`);
   lines.push(
-    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DomainError) {`);
@@ -1581,7 +1585,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message)`)};`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1590,7 +1594,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("not_found");`);
   lines.push(
-    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
+    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   lines.push(`    }`);
   // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
@@ -1616,7 +1620,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("domain_error");`);
     lines.push(
-      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))});`,
+      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
     );
     lines.push(`    }`);
   }
@@ -1640,7 +1644,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
+      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
     );
     lines.push(`    }`);
   }
@@ -1661,23 +1665,23 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("conflict");`);
     lines.push(
-      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
     lines.push(`    }`);
   }
   // An `extern` operation whose scaffold-once body is still the generated stub.
   // RFC 9110 §15.6.2: the route exists and the request was well-formed — the
-  // implementation is ABSENT, which is 501, not a 500 server fault.  The message
-  // names the file to fill in, so it is served rather than sanitized away
-  // (unlike the ExternHandlerError arm below, which wraps arbitrary USER code —
-  // RS-28).  Placed before that arm because both describe the extern seam.
+  // implementation is ABSENT, which is 501, not a 500 server fault.  The
+  // response carries the constant 501 detail; the message names the file to fill
+  // in and goes to the log line only.  Placed before the ExternHandlerError arm
+  // (which wraps arbitrary USER code — RS-28) because both describe the extern seam.
   if (hasExternOp) {
     lines.push(`    if (err instanceof NotImplementedError) {`);
     lines.push(
       `      ${renderHonoLogCall("internalError", `error: err.message, status: ${NOT_IMPLEMENTED_STATUS}`)}`,
     );
     lines.push(
-      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message);`,
+      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, ${JSON.stringify(wireFixedDetail("not-implemented"))}, ${JSON.stringify(wireCode("not-implemented"))});`,
     );
     lines.push(`    }`);
   }
@@ -1689,7 +1693,7 @@ export function buildRoutesFile(
   // the inner message for the operator; the wire gets the same "internal" every
   // other 500 arm sends, on every backend.
   lines.push(
-    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   lines.push(`    }`);
   // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -1708,7 +1712,7 @@ export function buildRoutesFile(
     `    ${renderHonoLogCall("internalError", `error: err instanceof Error ? err.message : String(err), status: ${wireStatus("internal")}`)}`,
   );
   lines.push(
-    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   lines.push(`  });`);
   lines.push("");
@@ -1825,9 +1829,9 @@ function requiresGateLines(
 /** The canonical `create` / `destroy` authorization gate, in the ROUTE.
  *
  *  Same shape as `requiresGateLines` above — the same `requires` statements,
- *  the same `ForbiddenError` (→ 403 via this file's `onError`), the same
- *  `Forbidden: <source>` detail — because it IS the same gate; only the
- *  receiver differs:
+ *  the same `ForbiddenError` (→ 403 via this file's `onError`, the gate's
+ *  source logged and the constant `Forbidden` answered) — because it IS the
+ *  same gate; only the receiver differs:
  *
  *    create  — no receiver.  The gate runs BEFORE the factory (there is no
  *              instance yet), so it reads the principal only, which
@@ -1862,7 +1866,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      disallowedDetail(op.name, agg.name, op.whenSource),
+      disallowedDetail(op.name, agg.name),
     )});`,
   ];
 }
@@ -2369,7 +2373,7 @@ function emitReturningOperationRoute(
     const status = statusFor(tag);
     out.push(`    if (result.type === ${JSON.stringify(tag)}) {`);
     out.push(
-      `      return c.json({ ...result, type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${status}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${status}, { "content-type": "application/problem+json" });`,
+      `      return c.json({ ...result, type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${status}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path, ${tsErrorVariantExt(ctx, tag, (f) => `result.${f}`)} }, ${status}, { "content-type": "application/problem+json" });`,
     );
     out.push(`    }`);
   }
@@ -2549,7 +2553,7 @@ function emitFindRoute(
         : "";
       out.push(`    if (result == null) {`);
       out.push(
-        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${st}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${st}, { "content-type": "application/problem+json" });`,
+        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${st}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path, ${tsErrorVariantExt(ctx, tag, () => JSON.stringify(agg.name))} }, ${st}, { "content-type": "application/problem+json" });`,
       );
       out.push(`    }`);
     }
@@ -2820,7 +2824,9 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   long: `z.coerce.number().int()${LONG_SAFE}`,
   decimal: "z.coerce.number()",
   money: "moneySchema",
-  string: "z.string()",
+  // A query string is the same Postgres `text` a body string is, so it gets
+  // the same NUL guard — without it a `%00` reached the driver as a 500.
+  string: `z.string()${NO_NUL}`,
   bool: QUERY_BOOL,
   datetime: "z.coerce.date()",
   date: BODY_DATE,
@@ -3177,15 +3183,12 @@ export function emitWireSchema(
       else if (declaresMax) schema = schema.replace(INT32_MAX_CALL, "");
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
-      // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
-      // describe to the OpenAPI emitter — re-declare it so `/openapi.json`
-      // still publishes the `minLength`/`maxLength` it always did (and now
-      // publishes a bound the server actually enforces, per code-point.ts).
-      const lengths = openapiLengthMeta(patterns);
-      if (lengths) {
-        const entries = Object.entries(lengths).map(([k, v]) => `${k}: ${v}`);
-        schema = `${schema}.openapi({ ${entries.join(", ")} })`;
-      }
+      // Every limit is CHECKED as a refine carrying its catalog code, which
+      // zod cannot describe to the OpenAPI emitter — re-declare the bounds so
+      // `/openapi.json` still publishes the `minimum`/`maxLength`/`pattern`
+      // the native checks did (a length in code points, per code-point.ts).
+      const meta = openapiLimitMeta(patterns);
+      if (meta) schema = `${schema}.openapi({ ${meta.join(", ")} })`;
     }
     // The NUL guard goes on LAST of the checks, after any declared regex or
     // length bound, matching `orderSingleFieldPatterns`.  zod 4 (the Hono

@@ -128,7 +128,8 @@ const EXPECTED_INVALID: readonly { doc: string; marker: string; code: string }[]
 const expectedFor = (rel: string, b: Block) =>
   EXPECTED_INVALID.find((e) => e.doc === rel && b.text.includes(e.marker));
 
-/** Every `.md` under `docs/`, plus the README. */
+/** Every `.md` under `docs/` and `examples/` (the README-linked walkthroughs),
+ *  plus the README. */
 function docFiles(dir: string, acc: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (e.name === "node_modules" || e.name === "_site") continue;
@@ -139,7 +140,11 @@ function docFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-const DOCS = [join(ROOT, "README.md"), ...docFiles(join(ROOT, "docs"))];
+const DOCS = [
+  join(ROOT, "README.md"),
+  ...docFiles(join(ROOT, "docs")),
+  ...docFiles(join(ROOT, "examples")),
+];
 
 describe("the examples a new user copies actually parse", () => {
   const found = DOCS.flatMap((f) =>
@@ -155,6 +160,7 @@ describe("the examples a new user copies actually parse", () => {
     expect(found.filter((x) => x.b.whole).length).toBeGreaterThan(5);
     expect(found.filter((x) => !x.b.whole).length).toBeGreaterThan(25);
     expect(found.some((x) => x.rel === "README.md")).toBe(true);
+    expect(found.filter((x) => x.rel === "examples/acme.md").length).toBeGreaterThanOrEqual(2);
   });
 
   it("every EXPECTED_INVALID marker matches exactly one block (the list ratchets)", () => {

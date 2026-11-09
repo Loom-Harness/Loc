@@ -1,4 +1,4 @@
-import { INTEGER_OVERFLOW_DETAIL } from "../../ir/enrich/wire-policy.js";
+import { wireFixedDetail } from "../../ir/enrich/wire-policy.js";
 import type {
   BinOp,
   DerivedIR,
@@ -1464,13 +1464,14 @@ function renderNew(fields: { name: string; value: string }[], e: NewExpr, ctx: R
 
 /** Range-check an integer `+ - *` result (RS-48).  Elixir integers are
  *  unbounded, so the declared int32 / int64 bound is enforced here; the refusal
- *  is the typed `<App>.GuardError` of the precondition rung, which every
- *  controller already answers with the domain floor's 422. */
+ *  is the typed `<App>.GuardError` with kind `:overflow`, which the controller
+ *  rescue answers as the `arithmetic-overflow` class (the domain floor's status,
+ *  its own code and fixed detail, no `errors[]`). */
 function exCheckedInt(expr: string, kind: IntegralKind | null, ctx: RenderCtx): string {
   if (kind === null || !ctx.contextModule) return expr;
   const { min, max } = DECLARED_INT_RANGE[kind];
   const guard = guardErrorModule(appModuleOf(ctx.contextModule));
-  return `(case ${expr} do v when v >= ${min} and v <= ${max} -> v; _ -> raise(${guard}, kind: :precondition, message: ${elixirString(INTEGER_OVERFLOW_DETAIL)}) end)`;
+  return `(case ${expr} do v when v >= ${min} and v <= ${max} -> v; _ -> raise(${guard}, kind: :overflow, message: ${elixirString(wireFixedDetail("arithmetic-overflow"))}) end)`;
 }
 
 function renderUnary(op: "-" | "!", operand: string, e: UnaryExpr, inFilter = false): string {

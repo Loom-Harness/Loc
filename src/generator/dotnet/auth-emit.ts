@@ -28,6 +28,7 @@ import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { renderCsType } from "./render-expr.js";
+import { csCodeInit } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // .NET auth scaffolding emitted per deployable when `auth: required`.
@@ -1412,6 +1413,7 @@ function renderMiddleware(
             Status = 400,
             Detail = detail,
             Instance = ctx.Request.Path,
+            ${csCodeInit("malformed-body")},
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }`;
   const handshakeBypass = oidc
@@ -1471,6 +1473,7 @@ function renderMiddleware(
             Status = 403,
             Detail = "the requested organization context is outside the caller's organization scope",
             Instance = ctx.Request.Path,
+            ${csCodeInit("forbidden")},
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }`
     : "";
@@ -1574,6 +1577,7 @@ ${malformedCatch}        catch
             Status = 401,
             Detail = detail,
             Instance = ctx.Request.Path,
+            ${csCodeInit("unauthenticated")},
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }
 ${malformedHelper}${orgContextForbidden}

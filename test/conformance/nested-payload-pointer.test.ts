@@ -53,7 +53,7 @@ describe("RS-33 — a refusal inside a workflow command payload points through i
     const ex = all(await generateSystemFiles(source("elixir")), ".ex");
     expect(ex).toContain("case __loom_payload_money([{:c, :amount, c.amount}]) do");
     expect(ex).toContain(
-      'Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field])',
+      'Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field], loom_code: "field.money-grammar", loom_params: %{value: value})',
     );
   });
 });

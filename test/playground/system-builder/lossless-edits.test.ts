@@ -39,7 +39,7 @@ const prim = (name: PrimitiveName): TypeSpec => ({
 // One fixture exercising every construct the mutators touch, deliberately
 // littered with the formatting a reprint destroys: line comments, a block
 // comment, a same-line trailing comment, a field default, a `mask unless`
-// clause, and an invariant carrying an author-written `message`.
+// clause, and a named invariant.
 const SRC = `system Shop {
 
   context Sales {
@@ -54,7 +54,7 @@ const SRC = `system Shop {
       status: string   // draft | placed | shipped
 
       // never let an order go negative
-      invariant total >= 0 message "total must not be negative"
+      invariant totalNonNegative: total >= 0
     }
 
     // Reads over the order book.
@@ -202,14 +202,14 @@ describe("builder lossless edits — fields", () => {
     );
   });
 
-  it("the invariant's `message` survives every field edit", () => {
+  it("the named invariant survives every field edit", () => {
     const edits = [
       addField(SRC, "aggregate", "Order", "note", prim("string")),
       deleteField(SRC, "aggregate", "Order", fieldIndex("total")),
       retypeField(SRC, "aggregate", "Order", fieldIndex("total"), prim("money")),
     ];
     for (const out of edits) {
-      expect(out).toContain('invariant total >= 0 message "total must not be negative"');
+      expect(out).toContain("invariant totalNonNegative: total >= 0");
     }
   });
 

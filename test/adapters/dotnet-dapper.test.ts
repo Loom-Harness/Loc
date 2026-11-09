@@ -856,34 +856,34 @@ system D {
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080 }
 }`;
 
-  // #4405: the document repository emits no method for a criterion read yet.
-  it.fails("no longer rejects shape: document; emits a (id, data, row_version) blob table + JSONB repository — #4405", async () => {
+  it("no longer rejects shape: document; emits a (id, data, row_version) blob table + JSONB repository", async () => {
     const { files, errors } = await emit(DOC);
     expect(errors).toEqual([]); // the dapper document gate is lifted
     // Blob table (no per-field columns, no child/join tables).
     const schema = dapperDdl(files);
     expect(schema).toContain("create table carts (");
     expect(schema).toContain("data jsonb not null");
-    expect(schema).toContain("version integer not null");
+    expect(schema).toContain("row_version integer not null");
     expect(schema).not.toContain("create table cart_lines"); // parts fold into the blob
     // The repository (de)serialises the whole aggregate through the snapshot,
     // stamping the row's version onto it so the optimistic-concurrency CAS
-    // compares against the persisted value (PR #2095).
+    // compares against the persisted value.
     const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/CartRepository.cs")!);
     expect(repo).toContain(
-      "Cart.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<CartSnapshot>(__d.data, __json)! with { Version = __d.version })",
+      "Cart.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<CartSnapshot>(__d.data, __json)! with { RowVersion = __d.row_version })",
     );
     expect(repo).toContain(
       "System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot(), __json)",
     );
     expect(repo).toContain(
-      "ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = carts.version + 1 WHERE carts.version = @ExpectedVersion",
+      "ON CONFLICT (id) DO UPDATE SET data = excluded.data, row_version = carts.row_version + 1 WHERE carts.row_version = @ExpectedVersion",
     );
     // Reads run in-memory over the rehydrated documents (no SQL WHERE).
     expect(repo).toContain("var __all = __rows.Select(__d => Cart.FromSnapshot(");
     // The criterion read the handler makes (`Carts.all(CartsByCustomer(…))`
     // → `RunFindAllByCartsByCustomerAsync`) is a method the repository has.
     expect(repo).toContain("RunFindAllByCartsByCustomerAsync(");
+    expect(repo).toContain("IEnumerable<Cart> __q = __all.Where(x => (x.Customer == customer));");
     // Snapshot DTOs are emitted; the EF <Agg>Document POCO / configuration are NOT.
     expect(files.has("api/Domain/Carts/CartSnapshots.cs")).toBe(true);
     expect(files.has("api/Domain/Carts/CartDocument.cs")).toBe(false);

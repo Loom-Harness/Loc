@@ -1,4 +1,6 @@
+import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../ir/enrich/wire-policy.js";
 import type { BinOp, ExprIR, InvariantIR } from "../ir/types/loom-ir.js";
+import { ruleParams } from "../ir/util/rule-params.js";
 import {
   type ClassifyContext,
   classifyForWire,
@@ -8,11 +10,11 @@ import {
 } from "../ir/validate/invariant-classify.js";
 import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
-import { messageCode } from "../util/message-code.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
+import { ruleCode, ruleText } from "./_i18n/rule-text.js";
 
 // ---------------------------------------------------------------------------
 // Zod-refine renderer for wire-boundary validators (frontend forms +
@@ -230,10 +232,9 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
  *  `python/emit/wire-constraints.ts`), and so do .NET's FluentValidation arms,
  *  java's request validator and elixir's precondition rung
  *  (D-MESSAGELESS-DEFAULT, RS-43), as does elixir's create/update
- *  changeset (`ectoValidator`).  The message-LESS `.refine(…)`
- *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
- *  is by contrast a CROSS-BACKEND string all five wire validators emit
- *  verbatim, so it is deliberately left alone here.
+ *  changeset (`ectoValidator`).  An unnamed `.refine(…)` clause answers the
+ *  generic `ruleText` instead (in `refineClauseFor` below) — a CROSS-BACKEND
+ *  string all five wire validators emit verbatim.
  *
  *  EXPORTED so the two frontends with no zod schema — Angular's `Validators.*`
  *  path and Flutter's Dart `validator:` closures — deny with the SAME sentence
@@ -266,74 +267,78 @@ export function singleFieldMessage(field: string, pattern: SingleFieldPattern): 
   }
 }
 
-/** Chain idiomatic native zod methods onto a base inner schema for a
- *  recognised single-field pattern.  Caller picks the base
- *  (`z.string()`, `z.number()`, etc.); we just chain.
+/** The JS predicate a field-limit check passes on, over the value `v`. */
+function limitPredicate(check: FieldLimitCheck): string {
+  const n = check.bound;
+  switch (check.reason) {
+    case "min":
+      return `v >= ${n}`;
+    case "greater-than":
+      return `v > ${n}`;
+    case "max":
+      return `v <= ${n}`;
+    case "less-than":
+      return `v < ${n}`;
+    case "min-length":
+      return `${codePointLength("v")} >= ${n}`;
+    case "max-length":
+      return `${codePointLength("v")} <= ${n}`;
+    case "length":
+      return `${codePointLength("v")} === ${n}`;
+    case "pattern":
+      // The pattern is a JavaScript-compatible regex source (validated at parse
+      // time via `new RegExp(...)`).  `asRegexLiteral` renders the `/.../` form
+      // and falls back to `new RegExp("…")` for the two sources that cannot sit
+      // in a literal — an EMPTY pattern (bare `//` is a line comment) and a
+      // dangling-backslash / newline source.  Shared with the domain-layer
+      // renderer and Angular's `Validators.pattern`.
+      return `${asRegexLiteral(check.regex ?? "")}.test(v)`;
+  }
+}
+
+/** Chain a recognised single-field pattern onto a base inner schema
+ *  (`z.string()`, `z.number()`, …), one `.refine` per side of the limit
+ *  (`fieldLimitChecks`).
+ *
+ *  Each refine denies with the whole limit's field-named English sentence
+ *  (`singleFieldMessage`) and carries its catalog code and bound in the issue
+ *  `params` — `loomCode: "field.min"`, `loomValues: { min: 1 }` — so the Hono
+ *  route's `defaultHook` answers them as `errors[].code` / `params` and a form
+ *  localizes the issue by them when it renders.  zod's native `.min` / `.gt` /
+ *  `.regex` cannot carry `params`, so the check is a refine and a caller that
+ *  PUBLISHES the schema re-declares the bound from `openapiLimitMeta`.
  *
  *  `field` is the request-body field the pattern constrains.  It is no part of
- *  the CHECK — only of the human message every chained constraint now carries
- *  (`singleFieldMessage`) — and it is REQUIRED so a new call site cannot
- *  silently re-emit a message-less `"Invalid input"` chain.
+ *  the CHECK, only of the message, and it is REQUIRED so a new call site cannot
+ *  re-emit a message-less `"Invalid input"` chain.
  *
- *  The `len-*` arms do NOT use zod's `.min`/`.max`/`.length`: those count
- *  UTF-16 code units, while the `minLength`/`maxLength` this same constraint
- *  publishes into the emitted JSON Schema are code points (see
- *  `_expr/code-point.ts`).  They render an explicit code-point predicate
- *  instead; a caller that also PUBLISHES a schema re-attaches the declaration
- *  from `openapiLengthMeta` so the published bound survives the switch. */
+ *  A length counts CODE POINTS (zod's `.min`/`.max` count UTF-16 units), the
+ *  definition the published `minLength`/`maxLength` use (`_expr/code-point.ts`). */
 export function chainSingleFieldNative(
   inner: string,
   pattern: SingleFieldPattern,
   field: string,
 ): string {
-  // `{ message: … }` is the one options spelling both zod majors accept on
-  // `.min`/`.max`/`.gt`/`.lt`/`.regex`/`.refine`.  Every built-in stack pins
-  // zod 4, but a custom design pack may still pin zod 3: zod 4's `error` key
-  // does not exist in 3, and 3's bare-string overload is gone in 4.
-  const msg = `{ message: ${JSON.stringify(singleFieldMessage(field, pattern))} }`;
-  switch (pattern.kind) {
-    case "min":
-      // Exclusive (`weight > 0.5` on a DECIMAL field) → zod's `.gt`; inclusive
-      // keeps `.min`.  `singleFieldShape` also sets `exclusive` for a strict
-      // bound on a MONEY field, but that case cannot reach this chain:
-      // `classifyForWire` refuses both money literals and any binary with a
-      // money operand (`invariant-classify.ts`), so a money invariant never
-      // becomes a wire validator at all.
-      return `${inner}.${pattern.exclusive ? "gt" : "min"}(${pattern.n}, ${msg})`;
-    case "max":
-      return `${inner}.${pattern.exclusive ? "lt" : "max"}(${pattern.n}, ${msg})`;
-    case "between":
-      return `${inner}.min(${pattern.lo}, ${msg}).max(${pattern.hi}, ${msg})`;
-    case "len-min":
-      return `${inner}.refine((s) => ${codePointLength("s")} >= ${pattern.n}, ${msg})`;
-    case "len-max":
-      return `${inner}.refine((s) => ${codePointLength("s")} <= ${pattern.n}, ${msg})`;
-    case "len-eq":
-      return `${inner}.refine((s) => ${codePointLength("s")} === ${pattern.n}, ${msg})`;
-    case "len-range":
-      return `${inner}.refine((s) => ${codePointLength("s")} >= ${pattern.lo} && ${codePointLength("s")} <= ${pattern.hi}, ${msg})`;
-    case "regex":
-      // The pattern is a JavaScript-compatible regex source (validated at parse
-      // time via `new RegExp(...)`).  `asRegexLiteral` renders the `/.../` form
-      // and falls back to `new RegExp("…")` for the two sources that cannot sit
-      // in a literal — an EMPTY pattern (bare `//` is a line comment, which
-      // would comment out the rest of the chain) and a dangling-backslash /
-      // newline source.  Shared with the domain-layer renderer and Angular's
-      // `Validators.pattern`.
-      return `${inner}.regex(${asRegexLiteral(pattern.pattern)}, ${msg})`;
+  // `{ message, params }` is the options spelling both zod majors accept on
+  // `.refine`: every built-in stack pins zod 4, but a custom design pack may
+  // still pin zod 3, where `error` does not exist.
+  const message = JSON.stringify(singleFieldMessage(field, pattern));
+  let out = inner;
+  for (const check of fieldLimitChecks(pattern)) {
+    const values = Object.keys(check.params).length
+      ? `, loomValues: ${JSON.stringify(check.params)}`
+      : "";
+    const params = `{ loomCode: ${JSON.stringify(fieldCode(check.reason))}${values} }`;
+    // The explicit `any`: a refine on a base the caller picked has no
+    // contextual type for its parameter under every pinned major.
+    out = `${out}.refine((v: any) => ${limitPredicate(check)}, { message: ${message}, params: ${params} })`;
   }
+  return out;
 }
 
-/** Native-chain patterns first, code-point `len-*` refines LAST.
- *
- *  zod 3 (which a custom design pack may still pin) types
- *  `.refine()` as a `ZodEffects` WRAPPER that no longer exposes `.regex` /
- *  `.min` / `.max`.  A field carrying both a regex and a length bound —
- *  `invariant email.matches("…") && email.length <= 120`, the very example
- *  `singleFieldConstraints` documents — would then emit
- *  `z.string().refine(…).regex(/…/)`, a type error under that major.  zod 4
- *  keeps the `ZodString` type through `.refine`, so the ordering is a no-op
- *  there; the emitter is shared, so it orders for the stricter of the two. */
+/** The patterns in emission order.  Every pattern now chains as `.refine`, so
+ *  the order is free under zod 4; it stays stable (numeric and regex first,
+ *  lengths last) so the emitted chain does not churn. */
 export function orderSingleFieldPatterns(
   patterns: readonly SingleFieldPattern[],
 ): SingleFieldPattern[] {
@@ -341,43 +346,51 @@ export function orderSingleFieldPatterns(
   return [...patterns.filter((p) => !isLen(p)), ...patterns.filter(isLen)];
 }
 
-/** The JSON-Schema length declaration a field's `len-*` patterns imply, or
- *  null when it has none.  `chainSingleFieldNative` renders the `len-*` CHECK
- *  as a code-point refine, which zod cannot describe — so a caller whose zod
- *  schema is also published as OpenAPI (the Hono routes; NOT the frontend
- *  forms) re-attaches the declaration with `.openapi({...})`.  Merged across
- *  every pattern on the field so `min` and `max` land in ONE metadata call —
- *  two chained `.openapi()`s would not reliably merge. */
-export function openapiLengthMeta(
-  patterns: readonly SingleFieldPattern[],
-): { minLength?: number; maxLength?: number } | null {
-  const meta: { minLength?: number; maxLength?: number } = {};
-  let any = false;
+/** The JSON-Schema keywords a field's patterns imply, as `.openapi({...})`
+ *  entries (`key: <TS expression>`), or null when it has none.
+ *  `chainSingleFieldNative` checks every limit as a refine, which zod cannot
+ *  describe to the OpenAPI emitter, so a caller whose zod schema is also
+ *  published (the Hono routes; NOT the frontend forms) re-attaches them here —
+ *  the same `minimum` / `exclusiveMinimum` / `maxLength` / `pattern` the native
+ *  zod checks published.  A `pattern` is published as its regex literal's own
+ *  `.source`, the exact text zod's `.regex` published.  Merged across every
+ *  pattern on the field so they land in ONE metadata call — two chained
+ *  `.openapi()`s would not reliably merge. */
+export function openapiLimitMeta(patterns: readonly SingleFieldPattern[]): string[] | null {
+  const meta = new Map<string, string>();
   for (const p of patterns) {
-    switch (p.kind) {
-      case "len-min":
-        meta.minLength = p.n;
-        any = true;
-        break;
-      case "len-max":
-        meta.maxLength = p.n;
-        any = true;
-        break;
-      case "len-eq":
-        meta.minLength = p.n;
-        meta.maxLength = p.n;
-        any = true;
-        break;
-      case "len-range":
-        meta.minLength = p.lo;
-        meta.maxLength = p.hi;
-        any = true;
-        break;
-      default:
-        break;
+    for (const check of fieldLimitChecks(p)) {
+      const n = String(check.bound);
+      switch (check.reason) {
+        case "min":
+          meta.set("minimum", n);
+          break;
+        case "greater-than":
+          meta.set("exclusiveMinimum", n);
+          break;
+        case "max":
+          meta.set("maximum", n);
+          break;
+        case "less-than":
+          meta.set("exclusiveMaximum", n);
+          break;
+        case "min-length":
+          meta.set("minLength", n);
+          break;
+        case "max-length":
+          meta.set("maxLength", n);
+          break;
+        case "length":
+          meta.set("minLength", n);
+          meta.set("maxLength", n);
+          break;
+        case "pattern":
+          meta.set("pattern", `${asRegexLiteral(check.regex ?? "")}.source`);
+          break;
+      }
     }
   }
-  return any ? meta : null;
+  return meta.size > 0 ? [...meta].map(([k, v]) => `${k}: ${v}`) : null;
 }
 
 /** When an invariant has a single-field shape AND the field is in
@@ -422,9 +435,9 @@ export function refineClauseFor(
   // shipping a broken refine.
   if (!refineRenderable(inv.expr, decimal)) return null;
   if (inv.guard && !refineRenderable(inv.guard, decimal)) return null;
-  // A messaged single-field invariant is deliberately kept OUT of the native
+  // A named single-field invariant is deliberately kept OUT of the native
   // chain (which has no message slot) so its refine survives — only suppress the
-  // refine for a message-less shape the chain already absorbed.
+  // refine for an unnamed shape the chain already absorbed.
   if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
   const body = renderRefineExpr(inv.expr);
   const ruled = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;
@@ -432,18 +445,23 @@ export function refineClauseFor(
     presence && presence.length > 0
       ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
       : ruled;
-  // Author `message "..."` wins over the derived "Invariant violated: <src>"
-  // default; when present it also carries a stable content-hash `loomCode` in the
-  // zod issue `params` so the route's `defaultHook` can surface it on
-  // `errors[].code` (a runtime-body extension — not part of the OpenAPI
-  // component schema, so cross-backend OpenAPI parity is unaffected).
-  const message = JSON.stringify(
-    inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
-  );
-  const code = inv.message
-    ? `, params: { loomCode: ${JSON.stringify(messageCode(inv.message.text))} }`
-    : "";
+  // The rule answers its text and carries its catalog code as `loomCode` in
+  // the zod issue `params` — a named rule's identity key, an unnamed rule's
+  // generic key — so the route's `defaultHook` surfaces it on
+  // `errors[].code` and a form localizes the issue by it at render time.  A
+  // named rule also names the request members it reads (`loomReads`), whose
+  // values ride the wire as `errors[].params`; `loomPointed` says the issue
+  // path ends at the rule's field rather than at the object it judged.  An
+  // unnamed rule answers the generic text — never its source expression.
+  const message = JSON.stringify(ruleText(inv));
   const path = pickErrorPath(inv);
+  const reads = inv.message ? ruleParams(inv) : [];
+  const loom = [
+    `loomCode: ${JSON.stringify(ruleCode(inv))}`,
+    ...(reads.length > 0 ? [`loomReads: ${JSON.stringify(reads)}`] : []),
+    ...(reads.length > 0 && path ? ["loomPointed: true"] : []),
+  ];
+  const code = `, params: { ${loom.join(", ")} }`;
   const opts = path
     ? `{ path: [${JSON.stringify(path)}], message: ${message}${code} }`
     : `{ message: ${message}${code} }`;

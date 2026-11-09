@@ -45,13 +45,14 @@ describe("Hono create schema — default applied after min/max", () => {
     const routes = await routesFile();
     expect(routes).toContain(
       'rating: z.number().int().openapi({ format: "int32" })' +
-        '.min(1, { message: "Rating must be at least 1" })' +
-        '.max(5, { message: "Rating must be at most 5" }).default(3)',
+        '.refine((v: any) => v >= 1, { message: "Rating must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } })' +
+        '.refine((v: any) => v <= 5, { message: "Rating must be at most 5", params: { loomCode: "field.max", loomValues: {"max":5} } })' +
+        ".openapi({ minimum: 1, maximum: 5 }).default(3)",
     );
     // `[^\n]`, not `[^,]`: both the published `{ format: "int32" }` and the
     // per-bound `{ message: … }` put commas in the chain, and a comma-excluding
     // class would stop at the first one — turning this NEGATIVE assertion
     // vacuous instead of failing it.
-    expect(routes).not.toMatch(/rating:[^\n]*\.default\([^)]*\)\.(?:min|max)\(/);
+    expect(routes).not.toMatch(/rating:[^\n]*\.default\([^)]*\)\.(?:min|max|refine)\(/);
   });
 });

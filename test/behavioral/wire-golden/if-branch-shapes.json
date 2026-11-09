@@ -31,9 +31,12 @@
       "path": "/api/orders/{id}/ship",
       "status": 409,
       "body": {
-        "code": "O1",
+        "code": "Orders.AlreadyShipped.message",
         "detail": "Already Shipped",
         "instance": "/api/orders/{id}/ship",
+        "params": {
+          "code": "O1"
+        },
         "status": 409,
         "title": "Already Shipped",
         "type": "/errors/already-shipped"
@@ -118,15 +121,22 @@
       "path": "/api/orders/{id}/restock",
       "status": 422,
       "body": {
-        "detail": "too much stock for a bulk restock",
+        "code": "Orders.Order.rule.bulkRestockLimit",
+        "detail": "Bulk restock limit",
         "errors": [
           {
-            "code": "msg.esprod",
-            "message": "too much stock for a bulk restock",
+            "code": "Orders.Order.rule.bulkRestockLimit",
+            "message": "Bulk restock limit",
+            "params": {
+              "stock": 206
+            },
             "pointer": "/stock"
           }
         ],
         "instance": "/api/orders/{id}/restock",
+        "params": {
+          "stock": 206
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -302,15 +312,24 @@
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,
       "body": {
-        "detail": "a large withdrawal needs twice the amount",
+        "code": "Ledger.Account.rule.largeWithdrawalCover",
+        "detail": "Large withdrawal cover",
         "errors": [
           {
-            "code": "msg.xhml6w",
-            "message": "a large withdrawal needs twice the amount",
+            "code": "Ledger.Account.rule.largeWithdrawalCover",
+            "message": "Large withdrawal cover",
+            "params": {
+              "amount": 400,
+              "balance": 510
+            },
             "pointer": ""
           }
         ],
         "instance": "/api/accounts/{id}/withdraw",
+        "params": {
+          "amount": 400,
+          "balance": 510
+        },
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "about:blank"
@@ -403,6 +422,7 @@
       "path": "/api/orders/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
         "status": 404,
@@ -494,6 +514,7 @@
       "path": "/api/tallies/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Tally {id} not found",
         "instance": "/api/tallies/{id}",
         "status": 404,
@@ -507,6 +528,7 @@
       "path": "/api/orders",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/orders",
         "instance": "/api/orders",
         "status": 405,
@@ -520,6 +542,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -533,6 +556,7 @@
       "path": "/api/orders",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/orders",
         "status": 400,
@@ -546,6 +570,7 @@
       "path": "/api/orders/{id}/ship",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/ship",
         "status": 404,
@@ -559,6 +584,7 @@
       "path": "/api/orders/{id}/ship",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/ship",
         "status": 404,
@@ -572,6 +598,7 @@
       "path": "/api/orders/{id}/ship",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/orders/{id}/ship",
         "status": 415,
@@ -585,9 +612,11 @@
       "path": "/api/orders/{id}/classify",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "q is required",
             "pointer": "/q"
           }

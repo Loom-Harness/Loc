@@ -37,10 +37,10 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it("node: the constructor raises ValueObjectInvariantError and every body router answers it", async () => {
     const fs = await files("node");
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'throw new ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", { "value": this.value })',
     );
     expect(find(fs, "domain/value-objects.ts")).toContain(
-      'throw new ValueObjectInvariantError("Label", "Invariant violated: text.length > 0")',
+      'throw new ValueObjectInvariantError("Label", "Invalid value", "field.rule")',
     );
     expect(find(fs, "domain/errors.ts")).toContain(
       "export class ValueObjectInvariantError extends DomainError",
@@ -48,9 +48,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const pd = find(fs, "http/problem-details.ts");
     // Renamed `domainFloorProblem` by M-T1.11 (c): ONE answer for both refusals.
     expect(pd).toContain("export function domainFloorProblem(");
-    expect(pd).toContain(
-      'const entry = { pointer: "", message: localizeMessage(err.code, err.message)',
-    );
+    expect(pd).toContain('const entry = { pointer: "", message: err.message, code');
     const answer = 'domainFloorProblem(c, err, 422, "Unprocessable Entity") ?? problem(422';
     expect(find(fs, "http/order.routes.ts")).toContain(answer);
     expect(find(fs, "http/workflows.ts")).toContain(answer);
@@ -59,7 +57,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
   it(".NET: its own exception, answered ahead of the DomainException arm", async () => {
     const fs = await files("dotnet");
     expect(find(fs, "Domain/ValueObjects/Qty.cs")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", new System.Collections.Generic.Dictionary<string, object?> { ["value"] = this.Value })',
     );
     expect(find(fs, "Domain/Common/DomainException.cs")).toContain(
       "public sealed class ValueObjectInvariantException : Exception",
@@ -69,13 +67,14 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const domain = filter.indexOf("context.Exception is DomainException de");
     expect(vo).toBeGreaterThan(-1);
     expect(vo).toBeLessThan(domain);
-    expect(filter).toContain('new { pointer = "", message = ');
+    expect(filter).toContain('["pointer"] = ""');
   });
 
   it("java: a DomainException subclass with its own (more specific) advice handler", async () => {
     const fs = await files("java");
     expect(find(fs, "domain/valueobjects/Qty.java")).toContain(
-      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      // The named rule's identity key, plus the values it read as `params`.
+      'throw new ValueObjectInvariantException("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", ValueObjectInvariantException.params("value", value))',
     );
     expect(find(fs, "ValueObjectInvariantException.java")).toContain(
       "public class ValueObjectInvariantException extends DomainException",
@@ -84,13 +83,15 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     expect(advice).toContain("@ExceptionHandler(ValueObjectInvariantException.class)");
     // One entry serializer since M-T1.11 (c) — the handler hands it the "" pointer.
     expect(advice).toContain('entry.put("pointer", pointer);');
-    expect(advice).toContain('return domainFloorWithEntry(e, e.getRuleCode(), "", request);');
+    expect(advice).toContain(
+      'return domainFloorWithEntry(e, e.getRuleCode(), e.getRuleParams(), "", request);',
+    );
   });
 
   it("python: a DomainError subclass with its own handler", async () => {
     const fs = await files("python");
     expect(find(fs, "app/domain/value_objects.py")).toContain(
-      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "msg.bqyhlx")',
+      'raise ValueObjectInvariantError("Qty", "Quantity must be positive", "Orders.Qty.rule.quantityPositive", {"value": self.value})',
     );
     expect(find(fs, "app/domain/errors.py")).toContain(
       "class ValueObjectInvariantError(DomainError):",
@@ -99,7 +100,10 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
       c.includes("@app.exception_handler(ValueObjectInvariantError)"),
     );
     expect(problems, "a module registers the ValueObjectInvariantError handler").toBeDefined();
-    expect(problems?.[1]).toContain('entry: dict[str, str] = {"pointer": "", "message": str(err)}');
+    expect(problems?.[1]).toContain('return _domain_floor_with_entry(request, err, "")');
+    expect(problems?.[1]).toContain(
+      'entry: dict[str, Any] = {"pointer": pointer, "message": str(err), "code": code}',
+    );
   });
 
   it("elixir: the op persist re-runs the body-built value object's constructor", async () => {
@@ -112,7 +116,9 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
     const cs = find(fs, "lib/d/orders/order_changeset.ex");
     expect(cs).toContain("def validate_body_value_objects(changeset) do");
     expect(cs).toContain("|> __validate_body_vo(:qty, &D.Orders.Qty.new/1)");
-    expect(cs).toContain('@loom_body_vo_codes %{"Quantity must be positive" => "msg.bqyhlx"}');
+    expect(cs).toContain(
+      '@loom_body_vo_codes %{"Quantity must be positive" => "Orders.Qty.rule.quantityPositive"}',
+    );
     const pd = find(fs, "problem_details.ex");
     expect(pd).toContain("case body_value_object_error(changeset) do");
     expect(pd).toContain('title: "Unprocessable Entity"');
@@ -135,7 +141,7 @@ describe("M-T5.1 — a value object refused inside a body answers 422 with error
 
   it("emits none of it for a project whose value objects declare no invariant", async () => {
     const src = corpusSourceFor("vo-invariant-in-body", "node")
-      .replace('invariant value > 0 message "Quantity must be positive"', "")
+      .replace("invariant quantityPositive: value > 0", "")
       .replace("invariant text.length > 0", "");
     for (const backend of ["node", "dotnet", "java", "python", "elixir"] as const) {
       const fs = await generateSystemFiles(src.replace("platform: node", `platform: ${backend}`));

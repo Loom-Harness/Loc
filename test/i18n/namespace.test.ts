@@ -19,9 +19,14 @@ describe("namespaceOf", () => {
     expect(namespaceOf("Sales.anything", NAMES)).toBe("Sales");
   });
 
-  it("keeps chrome.*, pack.* and msg.* in _chrome even beside a same-named ui", () => {
-    const names = new Set(["chrome", "pack", "msg", "WebApp"]);
-    for (const key of ["chrome.notFound", "pack.shadcn.removeItem.k9d", "msg.a1b2c3"]) {
+  it("keeps chrome.*, pack.*, field.* and problem.* in _chrome even beside a same-named ui", () => {
+    const names = new Set(["chrome", "pack", "field", "problem", "WebApp"]);
+    for (const key of [
+      "chrome.notFound",
+      "pack.shadcn.removeItem.k9d",
+      "field.rule",
+      "problem.domain-floor",
+    ]) {
       expect(namespaceOf(key, names)).toBe(CHROME_NS);
     }
   });
@@ -51,7 +56,7 @@ describe("splitCatalog / joinCatalog", () => {
     "Sales.rule.x": "X",
     "chrome.notFound": "Not found",
     "pack.mui.close.q1": "Close",
-    "msg.0a1b2c": "Name is required",
+    "field.rule": "Invalid value",
     "_stale.WebApp.page.Old.text.zz": "Old",
   };
 
@@ -66,7 +71,7 @@ describe("splitCatalog / joinCatalog", () => {
     expect(files.get("Sales")).toEqual({ "rule.x": "X" });
     expect(files.get("_chrome")).toEqual({
       "chrome.notFound": "Not found",
-      "msg.0a1b2c": "Name is required",
+      "field.rule": "Invalid value",
       "pack.mui.close.q1": "Close",
     });
   });

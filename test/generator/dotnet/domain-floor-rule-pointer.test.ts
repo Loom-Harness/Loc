@@ -1,6 +1,6 @@
-// M-T1.11 (c) on .NET — the messaged domain-floor rule's exception members.
+// M-T1.11 (c) on .NET — the named domain-floor rule's exception members.
 //
-// A messaged `invariant` / `precondition` that trips at the domain floor
+// A named `invariant` / `precondition` that trips at the domain floor
 // throws `DomainException(message, ruleCode, rulePointer)` and the filter
 // answers the `errors[]` entry from those two members.  The pointer member is
 // named `RulePointer`, NOT `Pointer`: every emitted csproj runs Roslyn at
@@ -21,9 +21,9 @@ system Bank {
       aggregate Account with crudish {
         owner: string
         balance: int
-        invariant balance >= 0 message "Balance cannot be negative"
+        invariant balanceNonNegative: balance >= 0
         operation withdraw(amount: int) {
-          precondition balance >= amount message "Insufficient funds"
+          precondition insufficientFunds: balance >= amount
           balance := balance - amount
         }
       }
@@ -55,7 +55,7 @@ describe(".NET domain-floor rule code — the exception's pointer member is CA17
     expect(common).toContain("public string? RuleCode { get; }");
     expect(common).toContain("public string? RulePointer { get; }");
     expect(common).toContain(
-      "public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null)",
+      "public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null, IReadOnlyDictionary<string, object?>? ruleParams = null)",
     );
     // CA1720 under `<AnalysisLevel>latest-recommended</AnalysisLevel>` + /warnaserror.
     expect(common).not.toMatch(/public string\?? Pointer \{ get; \}/);
@@ -73,10 +73,10 @@ describe(".NET domain-floor rule code — the exception's pointer member is CA17
   it("the throw sites pass the code and pointer positionally, matching the constructor", async () => {
     const entity = bySuffix(await generateSystemFiles(SRC), "Domain/Accounts/Account.cs");
     expect(entity).toMatch(
-      /throw new DomainException\("Insufficient funds", DomainErrorKind\.Precondition, "msg\.[0-9a-z]+", ""\)/,
+      /throw new DomainException\("Insufficient funds", DomainErrorKind\.Precondition, "Accounts\.Account\.rule\.[A-Za-z0-9]+", ""(?:, new [^;]*\})?\)/,
     );
     expect(entity).toMatch(
-      /throw new DomainException\("Balance cannot be negative", DomainErrorKind\.Invariant, "msg\.[0-9a-z]+", "\/balance"\)/,
+      /throw new DomainException\("Balance non negative", DomainErrorKind\.Invariant, "Accounts\.Account\.rule\.[A-Za-z0-9]+", "\/balance"(?:, new [^;]*\})?\)/,
     );
   });
 });

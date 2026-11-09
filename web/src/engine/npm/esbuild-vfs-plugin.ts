@@ -10,6 +10,7 @@ import type { Loader, Plugin } from "esbuild-wasm";
 import { resolveBare, type FileSource } from "../node-resolve.js";
 import type { TsconfigAliasEntry } from "../../bundle/plugin.js";
 import { aliasCandidates } from "../../bundle/plugin.js";
+import { adaptResourceSource, fsFacade, PATH_FACADE, RESOURCE_FACADE_PACKAGES } from "./resource-facades.js";
 
 // Conditions threaded through node-resolve.  `browser` is prepended so
 // `exports` maps that distinguish `browser` vs `node` (pino, ws,
@@ -18,6 +19,7 @@ import { aliasCandidates } from "../../bundle/plugin.js";
 // playground bundle doesn't try to load a Node-only transport.
 // Without this, pino lands on `pino.js` and crashes at module init in
 // the worker.  `default` always closes the list per Node's resolver.
+
 const PLAYGROUND_CONDITIONS = ["browser", "import", "module", "default"] as const;
 
 const NS = "vfs";
@@ -50,7 +52,7 @@ const NODE_BUILTINS = new Set([
 // An emulated broker replaces these stubs with facades over the same exports.
 const unavailable = (pkg: string): string =>
   `const unavailable = (what) => { throw new Error(${JSON.stringify(pkg)} + ": " + what + " is not available in the browser preview, which boots with infra: 'in-process'"); };`;
-export const BROWSER_STUBBED_PACKAGES: Readonly<Record<string, string>> = {
+export const BROWSER_STUBBED_PACKAGES: Record<string, string> = {
   ioredis: [
     unavailable("ioredis"),
     "export class Redis { constructor() { unavailable('new Redis()'); } }",
@@ -73,6 +75,8 @@ export const BROWSER_STUBBED_PACKAGES: Readonly<Record<string, string>> = {
   ].join("\n"),
 };
 const STUBBED = "vfs-stubbed-package";
+// The resource facades (nodemailer, @sendgrid/mail) are stubbed packages too.
+Object.assign(BROWSER_STUBBED_PACKAGES, RESOURCE_FACADE_PACKAGES);
 
 /** A node builtin: `node:*`, an exact name, or a subpath like
  *  `fs/promises` / `stream/promises` (head segment is a builtin). */
@@ -135,6 +139,47 @@ const TAILWIND_CSS_RE = /^tailwindcss($|\/)|^tw-animate-css$/;
 // shadow a real specifier.  See the onResolve arm for why it's needed.
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
+/** A package's `browser` field as a per-file map (`{ "./dist-es/runtimeConfig":
+ *  "./dist-es/runtimeConfig.browser" }`): the AWS SDK's clients pick their
+ *  fetch-based runtime config this way, and the node one it replaces reads
+ *  `process` and node-only packages at module evaluation.  A string-valued
+ *  top-level `browser` is handled by the resolver; `false` (an empty module)
+ *  entries are left alone. */
+/** Packages whose `browser` map must NOT apply: the browser build parses XML
+ *  with `DOMParser`, which a worker lacks; the node build's pure-JS parser runs. */
+const BROWSER_MAP_SKIP = new Set(["/node_modules/@aws-sdk/xml-builder"]);
+
+export function remapBrowserFile(abs: string, read: (p: string) => string | undefined, cache: Map<string, Record<string, string> | null>): string {
+  const m = /^(.*\/node_modules\/(?:@[^/]+\/)?[^/]+)\/(.+)$/.exec(abs);
+  if (!m) return abs;
+  const root = m[1] as string;
+  if (BROWSER_MAP_SKIP.has(root)) return abs;
+  let map = cache.get(root);
+  if (map === undefined) {
+    map = null;
+    try {
+      const pkg = JSON.parse(read(`${root}/package.json`) ?? "null") as { browser?: unknown } | null;
+      if (pkg && typeof pkg.browser === "object" && pkg.browser !== null) {
+        map = Object.fromEntries(
+          Object.entries(pkg.browser as Record<string, unknown>).filter(
+            (e): e is [string, string] => typeof e[1] === "string",
+          ),
+        );
+      }
+    } catch {
+      /* unreadable package.json: no remap */
+    }
+    cache.set(root, map);
+  }
+  if (!map) return abs;
+  const strip = (f: string): string => f.replace(/\.(c|m)?js$/, "");
+  const rel = strip(`./${m[2]}`);
+  for (const [from, to] of Object.entries(map)) {
+    if (strip(from) === rel) return joinPosix(root, to);
+  }
+  return abs;
+}
+
 export function makeVfsNpmPlugin(
   files: Map<string, string | Uint8Array>,
   nmRoot = "/node_modules",
@@ -161,6 +206,8 @@ export function makeVfsNpmPlugin(
     },
     exists: (p) => files.has(p),
   };
+
+  const browserMaps = new Map<string, Record<string, string> | null>();
 
   return {
     name: "loom-vfs-npm",
@@ -202,7 +249,7 @@ export function makeVfsNpmPlugin(
           const abs = spec.startsWith("/")
             ? joinPosix(spec)
             : joinPosix(fromDir, spec);
-          const r = probe(abs, src);
+          const r = probe(remapBrowserFile(abs, src.read, browserMaps), src);
           return r
             ? { path: r, namespace: NS }
             : { errors: [{ text: `vfs: cannot resolve ${spec} from ${args.importer || "<entry>"}` }] };
@@ -242,6 +289,10 @@ export function makeVfsNpmPlugin(
 
       build.onLoad({ filter: /.*/, namespace: EMPTY }, (args) => {
         const name = args.path.replace(/^node:/, "").split("/")[0];
+        // fs — localDisk's `fs.promises` verbs, forwarded to the infra
+        // worker's disk (see resource-facades.ts).
+        if (name === "path") return { contents: PATH_FACADE, loader: "js" };
+        if (name === "fs") return { contents: fsFacade(args.path), loader: "js" };
         // crypto is the one builtin the live browser/PGlite backend
         // path actually uses (generated repos call randomUUID for
         // ids).  Back it by Web Crypto.  CJS form so esbuild does
@@ -373,7 +424,8 @@ export function makeVfsNpmPlugin(
                 : ext === ".css"
                   ? "css"
                   : "js";
-        return { contents: asText(v), loader, resolveDir: dirOf(args.path) };
+        const text = asText(v);
+        return { contents: adaptResourceSource(args.path, text) ?? text, loader, resolveDir: dirOf(args.path) };
       });
     },
   };

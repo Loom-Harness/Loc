@@ -130,7 +130,7 @@ describe("vanilla aggregate `function` emit (gap §11b)", () => {
     // `precondition` → a bug-regime raise guard, typed so the controller rescue
     // routes on `:kind` rather than on the message prefix (M-T6.20).
     expect(ctx).toMatch(
-      /if not \(base >= 0\), do: raise\(Api\.GuardError, kind: :precondition, message: "Precondition failed: base >= 0"\)/,
+      /if not \(base >= 0\), do: raise\(Api\.GuardError, kind: :precondition, message: "Business rule violated"\)/,
     );
     // `return base` yields the bare value — NOT wrapped in `{:ok, …}`.
     expect(ctx).not.toContain("{:ok, base}");

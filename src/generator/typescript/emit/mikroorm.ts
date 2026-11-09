@@ -20,6 +20,7 @@ export {
   eventRowClassOf,
   MIKRO_OUTBOX_ROW_CLASS,
   MIKRO_TIMER_RUNS_ROW_CLASS,
+  mikroForeignKeyDdl,
   mikroProjectionRowClass,
   mikroWorkflowRowClass,
   renderMikroEntities,

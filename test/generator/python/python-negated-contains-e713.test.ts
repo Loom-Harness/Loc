@@ -29,16 +29,16 @@ const SRC = `system S {
     context Orders {
       valueobject Tag {
         parts: string[]
-        invariant parts.contains("core") message "needs core"
-        invariant parts.contains("aux") when parts.count > 1 message "aux tag required"
+        invariant needsCore: parts.contains("core")
+        invariant auxTagRequired: parts.contains("aux") when parts.count > 1
       }
       aggregate Order audited with auditable {
         tags: string[]
         code: string
         note: string?
         status: string
-        invariant tags.contains("ok") message "must be tagged ok"
-        invariant tags.contains("noted") when note != null message "noted tag required"
+        invariant taggedOk: tags.contains("ok")
+        invariant notedTagRequired: tags.contains("noted") when note != null
         create(code: string, tags: string[], status: string) {
           code := code
           tags := tags

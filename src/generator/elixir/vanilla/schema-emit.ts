@@ -31,10 +31,7 @@ import {
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
-import {
-  messagedRoutesToResidual,
-  renderInvariantValidatorFn,
-} from "./changeset-invariant-emit.js";
+import { namedRoutesToResidual, renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
 import {
   exEctoIdType,
@@ -308,13 +305,13 @@ function renderPartSchema(
   // `changeset/2` is what the owner's `cast_embed`/`cast_assoc` runs (M-T6.55
   // F14 — it used to only `cast`, while node/.NET/java/python assert both forms
   // at the part's domain floor).  Same two-carrier split as the aggregate
-  // changeset: a message-less single-field rule takes its native `validate_*`
-  // line; everything else (cross-field, guarded, messaged) routes to the
+  // changeset: an unnamed single-field rule takes its native `validate_*`
+  // line; everything else (cross-field, guarded, named) routes to the
   // part's own `validate_invariants/1`, so neither double-emits.
   const partInvariants = part.invariants ?? [];
   const nativeLines = partConstraintLines({
     fields: part.fields,
-    invariants: partInvariants.filter((inv) => !messagedRoutesToResidual(inv)),
+    invariants: partInvariants.filter((inv) => !namedRoutesToResidual(inv)),
   });
   const invariantFn = renderInvariantValidatorFn(
     // `derived` rides along since #3023 — a part's own `derived` must be

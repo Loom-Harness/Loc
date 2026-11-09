@@ -1,11 +1,12 @@
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { messageCode } from "../../../util/message-code.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
+import { tsRuleParams } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Enums + value objects emitted into one file.  Enums become
@@ -63,9 +64,9 @@ export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
       // A value object's invariant raises `ValueObjectInvariantError` (M-T5.1 —
       // a DomainError the routers answer with an errors[] entry); a plain
       // `DomainError` import survives only where the body still spells one.
-      needsDomainError || /\bnew DomainError\(/.test(scan)
+      needsDomainError || /\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan)
         ? `import { ${[
-            ...(/\bnew DomainError\(/.test(scan) ? ["DomainError"] : []),
+            ...(/\bnew DomainError\(|\bDomainError\.\w+\(/.test(scan) ? ["DomainError"] : []),
             ...(needsDomainError ? ["ValueObjectInvariantError"] : []),
           ].join(", ")} } from "./errors";`
         : null,
@@ -158,11 +159,13 @@ function renderValueObject(v: ValueObjectIR): string[] {
     const check = inv.guard
       ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
       : `if (!(${renderTsExpr(inv.expr)}))`;
-    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // The messaged rule carries the same content-hash `code` the wire rung does,
+    const text = ruleText(inv);
+    // The rule carries the same `code` the wire rung does (its identity key, or
+    // the generic key of an unnamed rule), and a named one the values it read,
     // so the errors[] entry a body-side breach answers can be localised too.
-    const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
-    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code});`;
+    const params = inv.message ? tsRuleParams(inv, renderTsExpr) : undefined;
+    const tail = `, ${JSON.stringify(ruleCode(inv))}${params ? `, ${params}` : ""}`;
+    return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${tail});`;
   });
   const derived = v.derived.map(
     (d) =>

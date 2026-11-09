@@ -99,7 +99,7 @@ describe("HEEx page statement coverage (Bucket E2)", () => {
       `action act() { precondition count > 0 }`,
     );
     expect(heex).toContain(
-      'then(fn socket -> if socket.assigns.count > 0, do: socket, else: put_flash(socket, :error, "Precondition failed: count > 0") end)',
+      'then(fn socket -> if socket.assigns.count > 0, do: socket, else: put_flash(socket, :error, "Business rule violated") end)',
     );
     expect(heex).not.toMatch(/# TODO/);
   });
@@ -109,7 +109,7 @@ describe("HEEx page statement coverage (Bucket E2)", () => {
       `Stack { Button { "go", onClick: act } }`,
       `action act() { requires count > 0 }`,
     );
-    expect(heex).toContain('put_flash(socket, :error, "Forbidden: count > 0")');
+    expect(heex).toContain('put_flash(socket, :error, "Forbidden")');
     expect(heex).not.toMatch(/# TODO/);
   });
 

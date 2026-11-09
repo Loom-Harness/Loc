@@ -170,7 +170,7 @@ workflow MoveMoney transactional {
 
 ```ts
 // http/workflows.ts (node) — the reading call threads the port; the mutating call is followed by the saves
-if (!((await Registration.isHolderFree(accounts, holder)))) throw new DomainError("Precondition failed: Registration.isHolderFree(holder)");
+if (!((await Registration.isHolderFree(accounts, holder)))) throw new DomainError("Business rule violated");
 // …
 Transfer.run(s, d, amount);
 await accounts.save(s);

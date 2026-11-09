@@ -60,7 +60,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
     // (`:validation_failed`, node's refine default — RS-43); `requires` denies
     // 403 (`:forbidden`).  The guards run BEFORE the mutation/persist.
     expect(ctx).toContain(
-      'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Invariant violated: delta != 0"}]})',
+      'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Business rule violated", code: "problem.domain-floor"}]})',
     );
     expect(uncheckedInt(ctx)).toContain(
       ":ok <- ensure(record.quantity + delta >= 0, {:forbidden, ",
@@ -109,7 +109,9 @@ describe("vanilla — T2.c returning-op body statements", () => {
       "adjust_item_result(conn, Stock.adjust_item(%{record | row_version: expected_version || record.row_version}, attrs))",
     );
     expect(ctl).toContain("def adjust_item_result(conn, {:ok, success})");
-    expect(ctl).toContain('problem_variant(conn, 404, "/errors/not-found", "Not Found", data)');
+    expect(ctl).toContain(
+      'problem_variant(conn, 404, "/errors/not-found", "Not Found", "Stock.NotFound.message", data)',
+    );
   });
 
   it("controller maps the guard denials to 403 / 422 (parity with the workflow/ES path)", async () => {
@@ -117,10 +119,10 @@ describe("vanilla — T2.c returning-op body statements", () => {
     // `requires` → 403 Forbidden; `precondition` → 422 — matching the atoms the
     // context fn's `with ensure(...)` chain short-circuits to.
     expect(ctl).toContain(
-      'def adjust_item_result(conn, {:error, {:forbidden, detail}}),\n    do: ProblemDetails.problem_response(conn, 403, "Forbidden", detail)',
+      'def adjust_item_result(conn, {:error, {:forbidden, detail}}),\n    do: ProblemDetails.problem_response(conn, 403, "Forbidden", detail, "problem.forbidden")',
     );
     expect(ctl).toContain(
-      'def adjust_item_result(conn, {:error, {:precondition_failed, detail}}),\n    do: ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail)',
+      'def adjust_item_result(conn, {:error, {:precondition_failed, detail}}),\n    do: ProblemDetails.problem_response(conn, 422, "Unprocessable Entity", detail, "problem.domain-floor")',
     );
   });
 });

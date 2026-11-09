@@ -61,7 +61,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     const tsx = files.get("web/src/pages/create_order.tsx")!;
     expect(tsx).toBeDefined();
     expect(tsx).toMatch(/import \{[^}]*useForm[^}]*\} from "react-hook-form"/);
-    expect(tsx).toMatch(/import \{ zodResolver \} from "@hookform\/resolvers\/zod"/);
+    expect(tsx).toMatch(/import \{ zodResolver \} from "(\.\.\/)+lib\/zod-resolver"/);
     expect(tsx).toMatch(/import \{ CreateOrderRequest, useCreateOrder \} from "\.\.\/api\/order"/);
     expect(tsx).toMatch(/const create = useCreateOrder\(\)/);
     expect(tsx).toMatch(/useForm<CreateOrderRequest>/);

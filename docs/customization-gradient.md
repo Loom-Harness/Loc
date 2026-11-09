@@ -10,9 +10,10 @@ Loom's middle is a gradient, not a cliff. There are four rungs, and you can stop
 on any of them — or mix them per page. This guide walks all four with one running
 example.
 
-Throughout: **`generate` (or a `tsc` / compiler run on the emitted target) is the
-real gate, not `parse`.** `parse` only runs the front of the pipeline; see
-[`tools.md`](tools.md) → *parse ≠ generate*.
+Throughout: **`parse` runs every validation phase `generate` runs** — a model
+that parses clean is one `generate` accepts (see [`tools.md`](tools.md#cli)).
+What neither can see is a defect in the *emitted* code, so the compiler run on
+the generated target (`tsc`, `dotnet build`, …) is the final gate.
 
 ---
 

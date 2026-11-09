@@ -1,3 +1,4 @@
+import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/types/loom-ir.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
@@ -581,6 +582,7 @@ function renderAuthMiddleware(
     '                    "status": 400,',
     '                    "detail": str(err),',
     '                    "instance": request.url.path,',
+    `                    "code": ${JSON.stringify(wireCode("malformed-body"))},`,
     "                },",
     "                status_code=400,",
     '                media_type="application/problem+json",',
@@ -596,6 +598,7 @@ function renderAuthMiddleware(
     '                    "status": 401,',
     '                    "detail": detail,',
     '                    "instance": request.url.path,',
+    `                    "code": ${JSON.stringify(wireCode("unauthenticated"))},`,
     "                },",
     "                status_code=401,",
     '                media_type="application/problem+json",',
@@ -639,6 +642,7 @@ function renderAuthMiddleware(
           '                        "status": 403,',
           '                        "detail": "the requested organization context is outside the caller\'s organization scope",',
           '                        "instance": request.url.path,',
+          `                        "code": ${JSON.stringify(wireCode("forbidden"))},`,
           "                    },",
           "                    status_code=403,",
           '                    media_type="application/problem+json",',

@@ -373,7 +373,7 @@ aggregate.close();
 ```ts
 // domain/ticket.ts — the entity method carries the precondition only
 public close(): void {
-  if (!(this._status !== TicketStatus.Closed)) throw new DomainError("Precondition failed: status != Closed");
+  if (!(this._status !== TicketStatus.Closed)) throw new DomainError("Business rule violated");
   this._status = TicketStatus.Closed;
   this._assertInvariants();
 }
@@ -418,7 +418,7 @@ def close_ticket(%Ticket{} = record, params, current_user \\ nil) when is_map(pa
   with :ok <- ensure(current_user.role == "agent" or Enum.member?(current_user.permissions, "support.ticketsClose")
                      or Enum.member?(current_user.permissions, "support.ticketsAdmin") and record.priority < 10,
                      {:forbidden, "Forbidden: IsAgent() || CanClose(priority)"}),
-       :ok <- ensure(record.status != :Closed, {:precondition_failed, "Precondition failed: status != Closed"}) do
+       :ok <- ensure(record.status != :Closed, {:precondition_failed, "Business rule violated"}) do
     # … perform the update
   end
 end
@@ -579,7 +579,7 @@ if (!(Objects.equals(currentUser.role(), "clerk"))) throw new ForbiddenException
 | The gate is not `bool` | `loom.requires-not-bool` |
 | A rule starts with a word other than `allow` / `deny` / `read` | `loom.policy-unknown-rule` |
 
-`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#migration-find--requires-moved-to-the-policy-block)).
+`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#read-gates-live-in-the-policy-block)).
 
 ## `mask unless` — field read redaction
 

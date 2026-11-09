@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
@@ -308,7 +309,7 @@ async function runCase(c) {
   mkdirSync(workDir, { recursive: true });
   try {
     const srcPath = join(workDir, "system.ddd");
-    writeFileSync(srcPath, c.source);
+    writeCaseSource(srcPath, c.source, c.locales);
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
     const deplDir = findNodeDeployable(genDir);
     const e2eDir = join(genDir, "e2e");
@@ -389,7 +390,7 @@ const shared = sharedSystemCases("node");
 // UI-only entries are run-ui.mjs's job and are filtered out here.
 const exampleCases = JSON.parse(readFileSync(join(HERE, "corpus.json"), "utf8")).cases
   .filter((c) => !String(c.ddd).startsWith("corpus:") && (c.api || c.unit))
-  .map((c) => ({ name: c.name, source: readFileSync(join(REPO, c.ddd), "utf8") }));
+  .map((c) => ({ name: c.name, source: readFileSync(join(REPO, c.ddd), "utf8"), locales: localesBeside(join(REPO, c.ddd)) }));
 
 const corpus = [...features, ...shared, ...exampleCases].filter(
   (c) => only.length === 0 || only.includes(c.name),

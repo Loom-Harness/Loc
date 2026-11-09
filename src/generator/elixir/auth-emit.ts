@@ -2,6 +2,7 @@ import {
   forwardsCallerCredential,
   hostedHierarchyRegistry,
 } from "../../ir/enrich/hosting-facts.js";
+import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -332,7 +333,8 @@ function renderAuthPlug(
         title: "Forbidden",
         status: 403,
         detail: "the requested organization context is outside the caller's organization scope",
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${elixirString(wireCode("forbidden"))}
       })
 
     conn
@@ -575,7 +577,8 @@ ${indentElixir(authedTail, 4)}
         title: "Bad Request",
         status: 400,
         detail: ${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)},
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${elixirString(wireCode("malformed-body"))}
       })
 
     conn
@@ -663,7 +666,8 @@ ${extractTokenDef}${forwardCaller ? CALLER_CREDENTIAL_DEF : ""}
         title: "Unauthorized",
         status: 401,
         detail: "no valid credentials for #{conn.method} #{conn.request_path}",
-        instance: conn.request_path
+        instance: conn.request_path,
+        code: ${elixirString(wireCode("unauthenticated"))}
       })
 
     conn

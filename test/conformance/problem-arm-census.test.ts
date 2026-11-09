@@ -81,8 +81,8 @@ const PLATFORMS = ["node", "dotnet", "java", "python", "elixir"] as const;
 const VALIDATION_ARM: Record<string, RegExp> = {
   node: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
   dotnet: /Title = "([^"]*)",\s*\n\s*Status = 422,\s*\n\s*Detail = "([^"]*)"/,
-  java: /problem\(422, "([^"]*)", "([^"]*)", request\)/,
-  python: /problem\(request, 422, "([^"]*)", "([^"]*)", errors\)/,
+  java: /problem\(422, "([^"]*)", "([^"]*)", "problem\.field-invalid", request\)/,
+  python: /problem\(request, 422, "([^"]*)", "([^"]*)", errors, code=/,
   elixir: /title: "([^"]*)",\s*\n\s*status: 422,\s*\n\s*detail: "([^"]*)"/,
 };
 
@@ -296,8 +296,10 @@ system LadderCensus {
       ).toContain(rung);
     }
     // And the floor answers each with the same status its per-router siblings do.
-    expect(root).toContain('return problem(404, "Not Found", err.message);');
-    expect(root).toContain('return problem(409, "Disallowed", err.message);');
-    expect(root).toContain('return problem(409, "Conflict", err.message);');
+    expect(root).toContain('return problem(404, "Not Found", err.message, "problem.not-found");');
+    expect(root).toContain('return problem(409, "Disallowed", err.message, "problem.state-gate");');
+    expect(root).toContain(
+      'return problem(409, "Conflict", err.message, "problem.version-conflict");',
+    );
   });
 });

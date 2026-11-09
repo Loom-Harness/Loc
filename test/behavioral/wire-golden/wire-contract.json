@@ -116,6 +116,7 @@
       "path": "/api/listings/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}",
         "status": 404,
@@ -129,6 +130,7 @@
       "path": "/api/listings/by_sku?sku=SKU-2",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/listings/by_sku",
         "status": 404,
@@ -158,7 +160,8 @@
       "path": "/api/listings/{id}/discontinue",
       "status": 422,
       "body": {
-        "detail": "Precondition failed: availability != Availability.Discontinued",
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
         "instance": "/api/listings/{id}/discontinue",
         "status": 422,
         "title": "Unprocessable Entity",
@@ -205,6 +208,7 @@
       "path": "/api/listings",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/listings",
         "instance": "/api/listings",
         "status": 405,
@@ -218,6 +222,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -231,6 +236,7 @@
       "path": "/api/listings",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/listings",
         "status": 400,
@@ -244,6 +250,7 @@
       "path": "/api/listings/{id}/discontinue",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}/discontinue",
         "status": 404,
@@ -257,6 +264,7 @@
       "path": "/api/listings/{id}/discontinue",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}/discontinue",
         "status": 404,
@@ -270,6 +278,7 @@
       "path": "/api/listings/{id}/discontinue",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/listings/{id}/discontinue",
         "status": 415,
@@ -283,9 +292,11 @@
       "path": "/api/listings/{id}/add_tag",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "label is required",
             "pointer": "/label"
           }

@@ -1,0 +1,7 @@
+{
+  "Account.rule.balanceCannotExceedCeiling": "Balance cannot exceed the ceiling",
+  "Account.rule.balanceCannotNegative": "Balance cannot be negative",
+  "Account.rule.balanceCapExceeded": "Balance cap exceeded",
+  "Account.rule.insufficientFunds": "Insufficient funds",
+  "FeeQuote.rule.feeQuoteNeedsNon": "a fee quote needs a non-negative amount"
+}

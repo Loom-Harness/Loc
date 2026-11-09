@@ -39,7 +39,8 @@ import {
   errorTypeUri,
   resolveErrorStatus,
 } from "../../util/error-defaults.js";
-import { INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
+import { modelTextKey } from "../../util/model-text-key.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
@@ -52,7 +53,7 @@ import {
   UNIQUE_CONFLICT_DETAIL,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../util/openapi-errors.js";
-import { classifyForWire } from "../validate/invariant-classify.js";
+import { classifyForWire, type SingleFieldPattern } from "../validate/invariant-classify.js";
 
 // ---------------------------------------------------------------------------
 // Stages — where a check runs
@@ -117,7 +118,8 @@ export type WireRejectionClass =
   | "dangling-reference"
   | "referenced-in-use"
   | "not-implemented"
-  | "internal";
+  | "internal"
+  | "unauthenticated";
 
 /** Where a refusal's status comes from: a fixed framework tier, or a stdlib
  *  error name an api's `httpStatus <Error> -> <Code>` override may retarget. */
@@ -143,7 +145,7 @@ export type WireDetail =
  *
  *   - `none`      — never.
  *   - `per-field` — one `{ pointer, message, code? }` entry per offending field.
- *   - `rule`      — one entry for a MESSAGED rule or a value object refused
+ *   - `rule`      — one entry for a NAMED rule or a value object refused
  *                   inside a body (pointer the rule's, or `""`); none otherwise. */
 export type WireErrorsExtension = "none" | "per-field" | "rule";
 
@@ -164,11 +166,15 @@ export const MALFORMED_BODY_DETAIL = "Malformed JSON in request body";
 const VALIDATION_FAILED_TITLE = "Validation failed";
 const VALIDATION_FAILED_DETAIL = "One or more fields are invalid.";
 
+/** The 501 `detail`: the `extern` hook's file location stays in the server log,
+ *  never in the response. */
+const NOT_IMPLEMENTED_DETAIL = "This operation is not implemented.";
+
 /** The 500 `detail` (RS-28): the fault is never echoed. */
 const INTERNAL_DETAIL = "internal";
 
 /** The `detail` of an `arithmetic-overflow` refusal (RS-48). */
-export const INTEGER_OVERFLOW_DETAIL = "Value out of range";
+const INTEGER_OVERFLOW_DETAIL = "Value out of range";
 
 const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
   // The routing tier (RS-9): a path no router serves, and a served path asked
@@ -286,7 +292,7 @@ const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
   "not-implemented": {
     status: { fixed: 501 },
     title: { fixed: "Not Implemented" },
-    detail: { kind: "carried" },
+    detail: { kind: "fixed", text: NOT_IMPLEMENTED_DETAIL },
     errors: "none",
     stage: "fault",
   },
@@ -296,6 +302,15 @@ const TABLE: Readonly<Record<WireRejectionClass, WireRejectionRow>> = {
     detail: { kind: "fixed", text: INTERNAL_DETAIL },
     errors: "none",
     stage: "fault",
+  },
+  // A request with no valid credentials (RFC 9110 §15.5.2): answered by the
+  // authentication middleware, after routing and before any `requires` gate.
+  unauthenticated: {
+    status: { fixed: 401 },
+    title: { fixed: "Unauthorized" },
+    detail: { kind: "sentence", prefix: "no valid credentials for ", suffix: "" },
+    errors: "none",
+    stage: "authorize",
   },
 };
 
@@ -409,6 +424,82 @@ export function wireSentenceFor(cls: WireRejectionClass, subject: string): strin
 }
 
 // ---------------------------------------------------------------------------
+// Codes — what a client localizes a refusal by
+// ---------------------------------------------------------------------------
+//
+// Every problem body carries an RFC 7807 extension member `code`, and every
+// `errors[]` entry one too.  The code IS the catalog key of the message a
+// client shows (`t(code, detail, params)`), so no client keeps a mapping
+// table.  `title`, `detail` and `errors[].message` stay English, for API
+// callers and logs.  The English of every `problem.*` / `field.*` key is
+// registered once, in `src/generator/_i18n/wire-error-text.ts` (merged into
+// every catalog by `_walker/i18n-chrome.ts`).
+//
+//   a rejection class         problem.<class>
+//   a field reason            field.<reason>
+//   a named rule              <Ctx>.<Owner>.rule.<name>   (its `MessageIR.key`)
+//   an unnamed rule           field.rule / problem.domain-floor
+//   a declared error variant  <Ctx>.<Error>.message
+//
+// The extension member `params` carries the values a message's placeholders
+// name, and is present only where the class or reason names any.
+
+/** The wire `code` of a rejection class: `problem.<class>`. */
+export function wireCode(cls: WireRejectionClass): string {
+  return `problem.${cls}`;
+}
+
+/** The `params` a rejection class's body carries, by name.  Each is a
+ *  placeholder its catalog text may use. */
+const WIRE_PARAMS: Readonly<Partial<Record<WireRejectionClass, readonly string[]>>> = {
+  // The id the server logged the fault under — what a user quotes to support.
+  // The fault itself is never echoed.
+  internal: ["requestId"],
+};
+
+/** The param names a rejection class carries (empty for most). */
+export function wireParams(cls: WireRejectionClass): readonly string[] {
+  return WIRE_PARAMS[cls] ?? [];
+}
+
+/** The wire `code` of a field reason, on its `errors[]` entry: `field.<reason>`. */
+export function fieldCode(reason: FieldRejectionReason): string {
+  return `field.${reason}`;
+}
+
+/** The `params` a field reason's `errors[]` entry carries, by name. */
+const FIELD_PARAMS: Readonly<Partial<Record<FieldRejectionReason, readonly string[]>>> = {
+  "integer-range": ["min", "max"],
+  "money-grammar": ["value"],
+  "money-range": ["value"],
+  min: ["min"],
+  "greater-than": ["min"],
+  max: ["max"],
+  "less-than": ["max"],
+  "min-length": ["min"],
+  "max-length": ["max"],
+  length: ["length"],
+};
+
+/** The `params` an `integer-range` refusal carries: the int32 bounds. */
+export const INTEGER_RANGE_PARAMS: Readonly<{ min: number; max: number }> = {
+  min: INT32_MIN,
+  max: INT32_MAX,
+};
+
+/** The param names a field reason carries (empty for most). */
+export function fieldParams(reason: FieldRejectionReason): readonly string[] {
+  return FIELD_PARAMS[reason] ?? [];
+}
+
+/** The wire `code` of a DECLARED error variant (`or OutOfStock`): its
+ *  message's identity key `<Ctx>.<Error>.message`.  Its `params` are the error
+ *  record's own fields. */
+export function errorVariantCode(ctx: string | undefined, name: string): string {
+  return modelTextKey({ ctx, type: name, facet: "message" });
+}
+
+// ---------------------------------------------------------------------------
 // Field reasons — the `errors[].message` of a `field-invalid` refusal
 // ---------------------------------------------------------------------------
 
@@ -421,12 +512,16 @@ export function wireSentenceFor(cls: WireRejectionClass, subject: string): strin
  *   - `money-grammar`  — a `money` string outside `^-?[0-9]+(\.[0-9]+)?$`.
  *   - `money-range`    — a `money` string whose integer part overflows the
  *                        column.
- *   - `rule`           — a wire-stage rule (`ruleStage`): its authored message,
- *                        or the message-less default (RS-43).
+ *   - `rule`           — a wire-stage rule (`ruleStage`): its rule text,
+ *                        or the unnamed default (RS-43).
  *   - `type-mismatch`  — the JSON value has the wrong type (`"5"` for an `int`,
  *                        `12.5` for a `money`).  Not yet one sentence: each
  *                        framework's own text, so the golden compares status
- *                        and pointer only. */
+ *                        and pointer only.
+ *   - a {@link FieldLimitReason} — one side of a field's declared limit (an
+ *                        unnamed single-field `check` / `invariant` /
+ *                        `precondition` the wire absorbs as a native bound),
+ *                        the bound in `params`.  See `fieldLimitChecks`. */
 export type FieldRejectionReason =
   | "missing"
   | "malformed-id"
@@ -434,7 +529,91 @@ export type FieldRejectionReason =
   | "money-grammar"
   | "money-range"
   | "rule"
-  | "type-mismatch";
+  | "type-mismatch"
+  | FieldLimitReason;
+
+/** One side of a declared field limit — the reasons a native field constraint
+ *  answers, each with its bound in `params`.
+ *
+ *   - `min` / `max`                {min} / {max}  — an inclusive numeric bound.
+ *   - `greater-than` / `less-than` {min} / {max}  — an exclusive one (a strict
+ *                                  bound on a non-integer field; on an `int`,
+ *                                  `> 0` folds to `min 1`).
+ *   - `min-length` / `max-length`  {min} / {max}  — a string length, counted in
+ *                                  code points.
+ *   - `length`                     {length}       — an exact string length.
+ *   - `pattern`                    (none)         — a `matches("…")` regex.
+ *
+ *  A two-sided limit (`n >= 1 && n <= 10`, a length range) is TWO checks, one
+ *  per side, so the code names the side the value broke, and each backend's
+ *  native validator (pydantic `ge`/`le`, Bean Validation `@Min`/`@Max`, Ecto
+ *  `validate_number`) maps onto it without a combined form.  An unnamed rule
+ *  of any other shape keeps the generic `rule`; a specific message for one
+ *  needs a named rule. */
+export type FieldLimitReason =
+  | "min"
+  | "max"
+  | "greater-than"
+  | "less-than"
+  | "min-length"
+  | "max-length"
+  | "length"
+  | "pattern";
+
+/** Every field-limit reason, in a stable order. */
+export const FIELD_LIMIT_REASONS: readonly FieldLimitReason[] = [
+  "min",
+  "max",
+  "greater-than",
+  "less-than",
+  "min-length",
+  "max-length",
+  "length",
+  "pattern",
+];
+
+/** One check a field limit implies: the reason a value failing it answers,
+ *  the `params` its `errors[]` entry carries, and the bound or regex it tests.
+ *  A backend renders the comparison from `reason` + `bound` (or `regex`) and
+ *  never re-reads the pattern. */
+export interface FieldLimitCheck {
+  reason: FieldLimitReason;
+  params: Readonly<Record<string, number>>;
+  /** The number a numeric / length check compares against. */
+  bound?: number;
+  /** The `matches("…")` source, on a `pattern` check. */
+  regex?: string;
+}
+
+/** The checks a recognised single-field constraint implies, one per side —
+ *  THE constraint → reason mapping every backend's wire validator and every
+ *  client form validator reads, so a bound refuses with the same code and
+ *  params everywhere. */
+export function fieldLimitChecks(pattern: SingleFieldPattern): FieldLimitCheck[] {
+  const one = (reason: FieldLimitReason, param: string, n: number): FieldLimitCheck => ({
+    reason,
+    params: { [param]: n },
+    bound: n,
+  });
+  switch (pattern.kind) {
+    case "min":
+      return [one(pattern.exclusive ? "greater-than" : "min", "min", pattern.n)];
+    case "max":
+      return [one(pattern.exclusive ? "less-than" : "max", "max", pattern.n)];
+    case "between":
+      return [one("min", "min", pattern.lo), one("max", "max", pattern.hi)];
+    case "len-min":
+      return [one("min-length", "min", pattern.n)];
+    case "len-max":
+      return [one("max-length", "max", pattern.n)];
+    case "len-eq":
+      return [one("length", "length", pattern.n)];
+    case "len-range":
+      return [one("min-length", "min", pattern.lo), one("max-length", "max", pattern.hi)];
+    case "regex":
+      return [{ reason: "pattern", params: {}, regex: pattern.pattern }];
+  }
+}
 
 /** The refusal message every backend renders for an out-of-range money value —
  *  shaped like the grammar refusal so a client sees one family of messages. */
@@ -447,12 +626,16 @@ export const MONEY_RANGE_MESSAGE = "Money out of range";
  *                        the pointer (`/lines/0/qty` → `qty`).
  *   - `value-sentence` — `<prefix>: <JSON of the refused value>`.
  *   - `carried`        — the rule's own text.
+ *   - `limit`          — the whole limit's field-named sentence
+ *                        (`singleFieldMessage`: "Priority must be at least
+ *                        1"), the same on both sides of a two-sided limit.
  *   - `framework`      — not ruled yet; the framework's text. */
 export type FieldMessage =
   | { kind: "fixed"; text: string }
   | { kind: "field-sentence"; suffix: string }
   | { kind: "value-sentence"; prefix: string }
   | { kind: "carried" }
+  | { kind: "limit" }
   | { kind: "framework" };
 
 export const FIELD_REASONS: Readonly<Record<FieldRejectionReason, FieldMessage>> = {
@@ -463,6 +646,14 @@ export const FIELD_REASONS: Readonly<Record<FieldRejectionReason, FieldMessage>>
   "money-range": { kind: "value-sentence", prefix: MONEY_RANGE_MESSAGE },
   rule: { kind: "carried" },
   "type-mismatch": { kind: "framework" },
+  min: { kind: "limit" },
+  max: { kind: "limit" },
+  "greater-than": { kind: "limit" },
+  "less-than": { kind: "limit" },
+  "min-length": { kind: "limit" },
+  "max-length": { kind: "limit" },
+  length: { kind: "limit" },
+  pattern: { kind: "limit" },
 };
 
 /** The fixed message of a reason that has one. */
@@ -605,7 +796,7 @@ export function errorVariantResponse(
   };
 }
 
-/** The `detail` a `notFound` statement answers with: the authored text, else
+/** The `detail` a `notFound` statement answers with: the rule text, else
  *  the not-found sentence over the statement's subject (`Ticket not found`),
  *  `Resource` standing in when the statement names none.  One function so all
  *  five backends say the same words. */

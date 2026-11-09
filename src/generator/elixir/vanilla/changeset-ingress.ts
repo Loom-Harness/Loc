@@ -19,8 +19,8 @@
 //   * a STRING.  Ecto's `cast/3` turns `""` (and, through
 //     `empty_trimmed_string?`, `"   "`) into `nil`, and `validate_required/2`
 //     treats a blank string as missing — so a blank name answered "can't be
-//     blank" before the rule that owns blankness (`check name.length > 0
-//     message "Name is required"`, an `invariant name.trim().length > 0`) ever
+//     blank" before the rule that owns blankness (`check nameRequired:
+//     name.length > 0`, an `invariant name.trim().length > 0`) ever
 //     ran.  Node keeps the string and lets the rule answer.  String columns are
 //     therefore cast with `empty_values: []` and their presence is nil-only.
 //
@@ -31,7 +31,7 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
-import { exLit, exValuePrefix } from "../wire-policy-ex.js";
+import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
@@ -116,17 +116,33 @@ export function renderDecimalIngressHelpers(): string {
   # error, not two.
   defp __loom_decimal_ingress(changeset, attrs, paths) do
     Enum.reduce(paths, changeset, fn {[field | rest] = path, blank_is_absent}, cs ->
-      with {:ok, value} <- __loom_dig(attrs, path),
-           false <- __loom_decimal_ok?(value, blank_is_absent) do
-        errors =
-          if rest == [],
-            do: Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end),
-            else: cs.errors
+      case __loom_dig(attrs, path) do
+        {:ok, value} ->
+          cond do
+            not __loom_decimal_ok?(value, blank_is_absent) ->
+              errors =
+                if rest == [],
+                  do: Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end),
+                  else: cs.errors
 
-        %{cs | errors: errors}
-        |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest)
-      else
-        _ -> cs
+              %{cs | errors: errors}
+              |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})
+
+            # A well-formed decimal string Ecto's own cast refuses for its size is
+            # out of range, not malformed: the money-range refusal, not "is invalid".
+            rest == [] and is_binary(value) and
+                Enum.any?(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end) ->
+              errors = Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end)
+
+              %{cs | errors: errors}
+              |> add_error(field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
+
+            true ->
+              cs
+          end
+
+        _ ->
+          cs
       end
     end)
   end
@@ -165,7 +181,7 @@ export function renderRequirePresentHelper(): string {
 
   # A string column is cast with \`empty_values: []\`, so a blank value stays a
   # string and reaches the rule that owns it (a \`check\` / \`invariant\` with its
-  # authored message).  \`validate_required/2\` would call that same blank value
+  # rule text).  \`validate_required/2\` would call that same blank value
   # missing, so presence here is nil-only.  A field that already carries an
   # error (a cast failure) is not reported twice — \`validate_required/2\`'s rule.
   defp __require_present(changeset, fields) do

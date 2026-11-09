@@ -42,7 +42,7 @@ describe("java generator — unique breach maps to 409", () => {
     expect(advice).toContain("import org.springframework.dao.DataIntegrityViolationException;");
     expect(advice).toContain("@ExceptionHandler(DataIntegrityViolationException.class)");
     expect(advice).toContain(
-      'return respond(problem(409, "Conflict", "A resource with these values already exists.", request), 409);',
+      'return respond(problem(409, "Conflict", "A resource with these values already exists.", "problem.unique-conflict", request), 409);',
     );
     expect(advice).toContain(
       'CatalogLog.event("disallowed", "warn", "message", "A resource with these values already exists.", "status", 409);',

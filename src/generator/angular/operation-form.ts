@@ -17,7 +17,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular standalone `OperationForm(...)` renderer — the operation-command
@@ -147,7 +147,7 @@ export function renderAngularOperationForm(
   const agg = ctx.aggregatesByName.get(aggName);
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
   const available = new Set(operationFormParams(op).map((p) => p.name));
-  const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
+  const errorFields = angularRuleCodes(opInvariants, available);
 
   const parts = bc
     ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>

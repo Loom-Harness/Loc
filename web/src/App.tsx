@@ -576,6 +576,41 @@ export default function App(): JSX.Element {
   const editorHandleRef = useRef<EditorHandle | null>(null);
   const buildClientRef = useRef<LoomBuildClient | null>(null);
   const engineRef = useRef<RuntimeEngine | null>(null);
+  // Automation seams: the emulated broker's state + journal, for e2e tests
+  // (and a console user) until the Events panel reads it.
+  useEffect(() => {
+    // Stop / start one deployable, and send a request to one, for the same
+    // tests (no UI for the first two yet).
+    const w = window as unknown as {
+      __loomDispatch?: (target: string, method: string, path: string, body?: unknown) => Promise<unknown>;
+      __loomInspectBroker?: () => Promise<unknown>;
+      __loomStopDeployable?: (slug: string) => Promise<unknown>;
+      __loomStartDeployable?: (slug: string) => Promise<unknown>;
+    };
+    const unsupported = Promise.resolve({ ok: false, message: "engine cannot stop a single deployable" });
+    w.__loomDispatch = (target, method, path, body) => {
+      const engine = engineRef.current;
+      if (!engine) return Promise.resolve({ ok: false, message: "runtime not ready" });
+      return engine.dispatch(
+        {
+          url: `http://localhost${path}`,
+          method,
+          headers: body === undefined ? {} : { "content-type": "application/json" },
+          body: body === undefined ? null : JSON.stringify(body),
+        },
+        target,
+      );
+    };
+    w.__loomInspectBroker = () => engineRef.current?.inspectBroker?.() ?? Promise.resolve(null);
+    w.__loomStopDeployable = (slug) => engineRef.current?.stopDeployable?.(slug) ?? unsupported;
+    w.__loomStartDeployable = (slug) => engineRef.current?.startDeployable?.(slug) ?? unsupported;
+    return () => {
+      delete w.__loomDispatch;
+      delete w.__loomInspectBroker;
+      delete w.__loomStopDeployable;
+      delete w.__loomStartDeployable;
+    };
+  }, []);
   // Stable dispatcher handed to the preview: forwards to the live engine,
   // injecting the auth-stub claims header when enabled.  Memoised with no
   // deps (reads engine + stub via refs) so the preview iframe is not

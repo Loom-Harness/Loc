@@ -108,6 +108,7 @@ import {
   matchKeyLookupCall,
   matchRepoCall,
 } from "./repo-read.js";
+import { lowerRuleMessage } from "./rule-message.js";
 
 export function lowerWorkflow(
   wf: Workflow,
@@ -823,9 +824,8 @@ function lowerWorkflowStatementInner(
         kind: "precondition",
         expr: lowerExpr(stmt.expr, env),
         source: cstText(stmt.expr),
-        // The authored `message "…"` (banking eval B-02) — same shape as an
-        // operation-body precondition (lower-stmt.ts).
-        message: stmt.message ? { text: stmt.message } : undefined,
+        // Same text identity as an operation-body precondition (lower-stmt.ts).
+        message: lowerRuleMessage(stmt),
       },
       envAfter: env,
     };

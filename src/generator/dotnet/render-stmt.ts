@@ -9,12 +9,14 @@ import type {
 import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
+import { floorRuleText } from "../_i18n/rule-text.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { csProjectType } from "./bcl-collision.js";
 import { csLineageValue } from "./codec-spelling.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
+import { csRuleParams } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the .NET backend.  The 11-kind `StmtIR` dispatch,
@@ -44,7 +46,7 @@ export interface TraceCtx {
   eventSourced?: boolean;
   /** True when rendering an aggregate OPERATION body, whose domain-floor
    *  refusal DomainExceptionFilter answers with the `errors[]` entry (M-T1.11
-   *  (c)): a messaged `precondition` then throws its code and pointer too. */
+   *  (c)): a named `precondition` then throws its code and pointer too. */
   domainFloorCodes?: boolean;
 }
 
@@ -281,13 +283,14 @@ function precondition(
   ctx: CsRenderContext,
   traceCtx: TraceCtx,
 ): string {
-  // Author `message "..."` becomes the domain-floor detail; else the default.
-  const detail = message ? message.text : `Precondition failed: ${source}`;
-  // A MESSAGED precondition in an aggregate operation carries its wire code and
-  // pointer THROUGH the throw (M-T1.11 (c)).
+  // The rule's floor text (`floorRuleText`) — never its source expression.
+  const detail = floorRuleText({ expr, source, message });
+  // A NAMED precondition in an aggregate operation carries its wire code and
+  // pointer THROUGH the throw.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
+  const params = code ? csRuleParams({ expr }, (e) => renderCsExpr(e, ctx)) : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))}${params ? `, ${params}` : ""})`
     : `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;

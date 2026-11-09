@@ -2,6 +2,7 @@ import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   reasonPhrase,
+  wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
@@ -979,12 +980,12 @@ export function buildExplicitRoutesFile(
   if (exNeedsConcurrency) exStatuses.add(exConcurrencyStatus);
   const exProblemUnion = [...exStatuses].sort((a, b) => a - b).join(" | ");
   body.push(
-    `    const problem = (status: ${exProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
-    // the body carries `err.detail` (echoed only under the dev-stub verifier).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail); }`,
+    // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   body.push(
     // The state-gate rung.  Ordered before `DomainError` exactly as in the
@@ -994,25 +995,25 @@ export function buildExplicitRoutesFile(
     // this arm answers that refusal — plus any `DisallowedError` a user-authored
     // extern impl raises.  (Before M-T6.38 the gate was route-only, so a write
     // driven from here landed unrefused.)
-    `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+    `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message, err.problemCode)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message);`,
+    `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   if (exHasUniqueKeys) {
     body.push(
       // PG unique_violation — drizzle wraps the driver error, so the SQLSTATE
       // rides `err.cause` under v5 and `err` under older drizzle; read both, as
       // the aggregate router does.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
     );
   }
   if (exNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+      `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
   }
   body.push(
@@ -1020,7 +1021,7 @@ export function buildExplicitRoutesFile(
     // interpolates the INNER exception the user handler threw — driver text,
     // URLs, connection strings — into a public body.  op + aggregate already
     // reach the operator via the `extern_handler_threw` catalog event.
-    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}); }`,
+    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -1031,7 +1032,7 @@ export function buildExplicitRoutesFile(
   );
   body.push(`    console.error(err);`);
   body.push(
-    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   body.push(`  });`);
   body.push("");

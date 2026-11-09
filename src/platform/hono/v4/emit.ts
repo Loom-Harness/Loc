@@ -11,7 +11,6 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_a
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
-import { collectWireValidationMessages } from "../../../generator/_i18n/validation-catalog.js";
 import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
 import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
@@ -42,15 +41,12 @@ import {
 } from "../../../generator/typescript/emit/audit-stamp.js";
 import { renderChannelsModule } from "../../../generator/typescript/emit/channels.js";
 import { renderDomainServices } from "../../../generator/typescript/emit/domain-service.js";
-import {
-  MESSAGES_MODULE_PATH,
-  renderMessagesModule,
-} from "../../../generator/typescript/emit/messages.js";
 import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
+  mikroForeignKeyDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -103,11 +99,14 @@ import {
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
+  fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
   fieldValuePrefix,
   frameworkReasonPhrase,
+  INTEGER_RANGE_PARAMS,
   REASON_PHRASE_STATUSES,
+  wireCode,
   wireFixedDetail,
   wireSentence,
   wireStatus,
@@ -133,7 +132,7 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
-import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../../ir/util/denial-detail.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -194,11 +193,11 @@ function valueObjectInvariantErrorTs(domainFloorCodes: boolean): string {
     ? `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
-  constructor(valueObject: string, message: string, code?: string) {
-    super(message, "invariant", code, "");
+  constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
+    super(message, "invariant", code, "", params);
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
   }
@@ -207,33 +206,35 @@ export class ValueObjectInvariantError extends DomainError {
     : `/** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
  *  status PLUS one RFC 7807 errors[] entry carrying the rule's message and, for
- *  a messaged rule, its content-hash code. */
+ *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
-  constructor(valueObject: string, message: string, code?: string) {
+  readonly params: Record<string, unknown> | undefined;
+  constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
     super(message, "invariant");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
     this.code = code;
+    this.params = params;
   }
 }
 `;
 }
 
 /** `DomainErrorKind` — which rung of the domain floor refused a call, carried
- *  apart from the message text because an authored `message "..."` replaces the
+ *  apart from the message text because a rule's own text replaces the
  *  derived sentence. */
 const DOMAIN_ERROR_KIND_TS = `/** Which rung of the domain floor refused a call: a \`precondition\` of the
  *  operation, or an \`invariant\` of the aggregate / part / value object.  It is
- *  carried apart from the message, which an authored \`message "..."\` replaces. */
+ *  carried apart from the message, which a rule's own text replaces. */
 export type DomainErrorKind = "precondition" | "invariant";
 
 `;
 
 /** The base `DomainError`.  It carries the refusing rung as `kind`; with the
- *  domain-floor code carriage on (M-T1.11 (c)) a messaged invariant / field
- *  check / precondition also throws its wire `msg.<hash>` code and RFC 6901
+ *  domain-floor code carriage on (M-T1.11 (c)) a named invariant / field
+ *  check / precondition also throws its wire `<Ctx>.<Owner>.rule.<name>` code and RFC 6901
  *  pointer along with the text. */
 function domainErrorTs(domainFloorCodes: boolean): string {
   return domainFloorCodes
@@ -241,17 +242,29 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  /** A messaged rule's \`msg.<hash>\` code — the same one the wire rung carries —
+  /** A named rule's \`<Ctx>.<Owner>.rule.<name>\` code — the same one the wire rung carries —
    *  and the RFC 6901 pointer its domain-floor \`errors[]\` entry names
-   *  (M-T1.11 (c)).  Undefined for a message-less rule. */
+   *  (M-T1.11 (c)).  Undefined for an unnamed rule. */
   readonly code: string | undefined;
   readonly pointer: string | undefined;
-  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string) {
+  /** The values of the identifiers the rule reads — the wire \`params\` a
+   *  client fills the rule's message placeholders from. */
+  readonly params: Record<string, unknown> | undefined;
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>, problemCode: string = ${JSON.stringify(wireCode("domain-floor"))}) {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
     this.code = code;
     this.pointer = pointer;
+    this.params = params;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError(${JSON.stringify(wireFixedDetail("arithmetic-overflow"))}, undefined, undefined, undefined, undefined, ${JSON.stringify(wireCode("arithmetic-overflow"))});
   }
 }
 `
@@ -259,10 +272,18 @@ function domainErrorTs(domainFloorCodes: boolean): string {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
-  constructor(message: string, kind?: DomainErrorKind) {
+  /** The refusal's wire class code: the domain floor, or the
+   *  arithmetic-overflow class a checked integer result raises (RS-48). */
+  readonly problemCode: string;
+  constructor(message: string, kind?: DomainErrorKind, problemCode: string = ${JSON.stringify(wireCode("domain-floor"))}) {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
+    this.problemCode = problemCode;
+  }
+  /** Integer arithmetic in domain code left its declared range (RS-48). */
+  static arithmeticOverflow(): DomainError {
+    return new DomainError(${JSON.stringify(wireFixedDetail("arithmetic-overflow"))}, undefined, ${JSON.stringify(wireCode("arithmetic-overflow"))});
   }
 }
 `;
@@ -270,14 +291,9 @@ function domainErrorTs(domainFloorCodes: boolean): string {
 
 /** `domainFloorProblem` — the domain-floor `errors[]` answer: a value object's
  *  invariant refused inside a body (M-T5.1) and, with the code carriage on, a
- *  MESSAGED invariant / check / precondition tripped at the domain floor
+ *  NAMED invariant / check / precondition tripped at the domain floor
  *  (M-T1.11 (c)).  ONE serializer for both — the entry shape is the same. */
-function domainFloorProblemTs(
-  localizeMessages: boolean,
-  valueObjectInvariants: boolean,
-  domainFloorCodes: boolean,
-): string {
-  const message = localizeMessages ? "localizeMessage(err.code, err.message)" : "err.message";
+function domainFloorProblemTs(valueObjectInvariants: boolean, domainFloorCodes: boolean): string {
   const guard = domainFloorCodes
     ? valueObjectInvariants
       ? "if (!(err instanceof DomainError) || (!(err instanceof ValueObjectInvariantError) && err.code === undefined)) return undefined;"
@@ -289,17 +305,20 @@ function domainFloorProblemTs(
  *  wire rung gives a request member, for a refusal the wire could not see:
  *  a value object a domain BODY built (an operation, a workflow, a handler —
  *  not the request body, whose value objects the request schema already
- *  checked)${domainFloorCodes ? ", or a MESSAGED invariant / check / precondition tripped at the domain\n *  floor (M-T1.11 (c))" : ""}.  The entry carries the rule's message and, for a
- *  messaged rule, the same content-hash code the wire rung carries.  The
- *  pointer is the rule's ("/<field>" for a single-field rule) or "" — the
- *  whole request.  Anything else answers undefined and the caller's own arm
- *  runs. */
+ *  checked)${domainFloorCodes ? ", or a NAMED invariant / check / precondition tripped at the domain\n *  floor" : ""}.  The entry carries the rule's message, the same code the wire
+ *  rung carries (its identity key, or the generic key of an unnamed rule) and
+ *  the values the rule read as \`params\`; the body's own \`code\` is the
+ *  rule's too, since its \`detail\` is the rule's text.  The pointer is the
+ *  rule's ("/<field>" for a single-field rule) or "" — the whole request.
+ *  Anything else answers undefined and the caller's own arm runs. */
 export function domainFloorProblem(c: Context, err: unknown, status: number, title: string): Response | undefined {
   ${guard}
   const trace_id = c.get("requestId") ?? "";
-  const entry = { pointer: ${pointer}, message: ${message}, ...(err.code ? { code: err.code } : {}) };
+  const code = err.code ?? ${JSON.stringify(wireCode("domain-floor"))};
+  const params = err.params;
+  const entry = { pointer: ${pointer}, message: err.message, code, ...(params ? { params } : {}) };
   return c.body(
-    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
+    JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, code, ...(params ? { params } : {}), errors: [entry] }),
     status as ${wireStatus("field-invalid")},
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
@@ -319,19 +338,11 @@ function errorsTs(
   emitNotImplemented: boolean,
   emitValueObjectInvariant = false,
   emitDomainFloorCodes = false,
-  /** Ruling D4 (#20): true only under the dev-stub verifier — see
-   *  `src/ir/util/denial-detail.ts`. */
-  echoForbiddenDetail = false,
 ): string {
   // `message` names the failed gate and feeds the `forbidden` log line every
-  // onError arm writes; `detail` is what the 403 BODY says.  Under a real
-  // verifier the body must not tell the caller which predicate it failed.
-  const forbiddenDetailInit = echoForbiddenDetail
-    ? "message"
-    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
-  const forbiddenDetailDoc = echoForbiddenDetail
-    ? "the same text: this deployable runs the dev-stub verifier, where naming the gate is the useful answer"
-    : "the constant `Forbidden`: this deployable does not run the dev-stub verifier, so the predicate stays in the server log";
+  // onError arm writes; `detail` is what the 403 BODY says.  The gate is DSL
+  // source, so the body never carries it, under any verifier.
+  const forbiddenDetailInit = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   return `// Auto-generated.
 ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectInvariantErrorTs(emitDomainFloorCodes) : ""}export class AggregateNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "AggregateNotFoundError"; }
@@ -342,7 +353,8 @@ ${domainErrorTs(emitDomainFloorCodes)}${emitValueObjectInvariant ? valueObjectIn
  *  HTTP 403 (Forbidden).
  *
  *  \`message\` names the failed gate and goes to the \`forbidden\` log line;
- *  \`detail\` is the 403 body's \`detail\` — ${forbiddenDetailDoc}. */
+ *  \`detail\` is the 403 body's \`detail\` — the constant \`Forbidden\`: the
+ *  predicate is DSL source and stays in the server log. */
 export class ForbiddenError extends Error {
   readonly detail: string;
   constructor(message: string) { super(message); this.name = "ForbiddenError"; this.detail = ${forbiddenDetailInit}; }
@@ -419,7 +431,6 @@ export class ConcurrencyError extends Error {
  *  failures translate to 422 ProblemDetails with per-field `errors[]`
  *  consumed by the frontend ACL's `applyServerErrors`). */
 function problemDetailsTs(
-  localizeMessages: boolean,
   versioned: boolean,
   valueObjectInvariants = false,
   domainFloorCodes = false,
@@ -433,7 +444,7 @@ import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
-${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../domain/errors";\n` : ""}${localizeMessages ? 'import { localizeMessage } from "./messages";\n' : ""}${valueObjectInvariants || domainFloorCodes ? domainFloorProblemTs(localizeMessages, valueObjectInvariants, domainFloorCodes) : ""}
+${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../domain/errors";\n` : ""}${valueObjectInvariants || domainFloorCodes ? domainFloorProblemTs(valueObjectInvariants, domainFloorCodes) : ""}
 /** The wire schema for a \`guid\`-valued id — the canonical dashed-hex uuid
  *  form, and nothing more.
  *
@@ -466,20 +477,23 @@ export const UuidString = z
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
- *  \`errors[]\` extension (per-field \`{ pointer, message }\` array) that
- *  the runtime emits on 422 validation responses.  Consumed by the
- *  frontend ACL's \`applyServerErrors\`.
+ *  \`errors[]\` extension (per-field \`{ pointer, message, code, params }\`
+ *  array) that the runtime emits on 422 validation responses, plus the
+ *  \`code\` / \`params\` extension members every refusal carries: \`code\` is
+ *  the catalog key a client localizes the refusal by, \`params\` the values
+ *  its message names.  \`title\` / \`detail\` / \`message\` stay English.
+ *  Consumed by the frontend ACL's \`applyServerErrors\`.
  *  All fields nullable / optional — base 5 per the spec core; \`errors\` is
- *  only present on 422 validation responses.  All three backends
- *  (Hono / .NET / Phoenix) declare the same shape in lockstep so the
- *  cross-backend parity gate stays green. */
+ *  only present on 422 validation responses. */
 export const ProblemDetails = z.object({
   type: z.string().nullish(),
   title: z.string().nullish(),
   status: z.number().int().nullish(),
   detail: z.string().nullish(),
   instance: z.string().nullish(),
-  errors: z.array(z.object({ pointer: z.string(), message: z.string(), code: z.string().nullish() })).nullish(),
+  code: z.string().nullish(),
+  params: z.record(z.string(), z.unknown()).nullish(),
+  errors: z.array(z.object({ pointer: z.string(), message: z.string(), code: z.string().nullish(), params: z.record(z.string(), z.unknown()).nullish() })).nullish(),
 }).openapi("ProblemDetails");
 
 /** RFC 6901 JSON pointer from a Zod issue path.  Empty path → empty
@@ -520,6 +534,61 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
 }
 
 
+/** The zod issue \`params\` Loom's own checks attach: the catalog code of the
+ *  refusal (\`loomCode\`), the values its message names (\`loomValues\`), or —
+ *  for a named rule — the request members it reads (\`loomReads\`), read off
+ *  the object the rule judged (the issue's parent when \`loomPointed\`). */
+interface LoomIssueParams {
+  loomCode?: string;
+  loomValues?: Record<string, unknown>;
+  loomReads?: readonly string[];
+  loomPointed?: boolean;
+}
+
+interface ZodIssueLike {
+  path: ReadonlyArray<PropertyKey>;
+  code?: string;
+  message: string;
+  params?: LoomIssueParams;
+}
+
+/** The zod issue codes that mean the JSON value has the wrong type or shape. */
+const TYPE_MISMATCH_ISSUES: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
+
+/** The value at \`path\` in the request input, or undefined. */
+function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
+  let node: unknown = input;
+  for (const seg of path) {
+    if (node === null || typeof node !== "object") return undefined;
+    node = (node as Record<PropertyKey, unknown>)[seg];
+  }
+  return node;
+}
+
+/** The \`errors[].code\` of an issue — the catalog key a client localizes it
+ *  by: the code a Loom check attached, else the field reason read off what
+ *  zod found.  A declared field limit carries its own (\`field.min\`, …). */
+function issueCode(issue: ZodIssueLike): string {
+  if (issue.params?.loomCode) return issue.params.loomCode;
+  if (issue.message === ${JSON.stringify(fieldFixedMessage("malformed-id"))}) return ${JSON.stringify(fieldCode("malformed-id"))};
+  if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(fieldCode("integer-range"))};
+  if (TYPE_MISMATCH_ISSUES.has(issue.code ?? "")) return ${JSON.stringify(fieldCode("type-mismatch"))};
+  return ${JSON.stringify(fieldCode("rule"))};
+}
+
+/** The \`errors[].params\` of an issue — the values its message names. */
+function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
+  const p = issue.params;
+  if (p?.loomValues) return p.loomValues;
+  if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(INTEGER_RANGE_PARAMS)};
+  if (!p?.loomReads || p.loomReads.length === 0) return undefined;
+  const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
+  if (owner === null || typeof owner !== "object") return undefined;
+  const out: Record<string, unknown> = {};
+  for (const name of p.loomReads) out[name] = (owner as Record<string, unknown>)[name];
+  return out;
+}
+
 /** Default Zod-validation hook.  When a route's request validator
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field \`errors[]\` extension.  The shape
@@ -532,30 +601,21 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
  *  both are well-formed requests the
  *  server refuses on SEMANTIC grounds, which is what RFC 9110 reserves 422
  *  for, and it makes the denial ladder identical on all five backends.  400
- *  stays for a genuinely malformed/unparseable request. */
-export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; code?: string; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
+ *  stays for a genuinely malformed/unparseable request.
+ *
+ *  Each entry's \`message\` stays English; its \`code\` (and \`params\`) is what
+ *  a client localizes it by. */
+export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<ZodIssueLike> } }, c: Context): Response | undefined {
   if (result.success) return undefined;
   const trace_id = c.get("requestId") ?? "";
-  const errors = (result.error?.issues ?? []).map((issue) => ({
-    pointer: pointerOf(issue.path),
-    ${
-      // The message-LESS shape is kept EXACTLY as it was so a project with no
-      // authored message emits a byte-identical file (the acme baseline fixture
-      // is the gate).  Under a catalog the code resolves SERVER-side (M-T1.11).
-      localizeMessages
-        ? `// The SERVER localises the message too: the code resolves
-    // against the generated catalog for the request locale, falling back to the
-    // authored text the refine carries.  Resolved HERE rather than in the refine
-    // because a zod "message" is fixed when the schema is CONSTRUCTED (module
-    // load), where no request — and so no locale — exists yet.
-    message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
-        : `message: isMissing(result.data, issue) ? missingFieldMessage(issue.path) : issue.message,`
+  const errors = (result.error?.issues ?? []).map((issue) => {
+    const pointer = pointerOf(issue.path);
+    if (isMissing(result.data, issue)) {
+      return { pointer, message: missingFieldMessage(issue.path), code: ${JSON.stringify(fieldCode("missing"))} };
     }
-    // A messaged invariant/precondition carries a stable content-hash code (via
-    // the refine's params.loomCode) so a client can localise the error;
-    // structural zod errors (type/min) have none.
-    ...(issue.params?.loomCode ? { code: issue.params.loomCode } : {}),
-  }));
+    const params = issueParams(result.data, issue);
+    return { pointer, message: issue.message, code: issueCode(issue), ...(params ? { params } : {}) };
+  });
   return c.body(
     JSON.stringify({
       type: "about:blank",
@@ -563,6 +623,7 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
       status: ${wireStatus("field-invalid")},
       detail: ${JSON.stringify(wireFixedDetail("field-invalid"))},
       instance: c.req.path,
+      code: ${JSON.stringify(wireCode("field-invalid"))},
       errors,
     }),
     ${wireStatus("field-invalid")},
@@ -648,8 +709,21 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   // A 415 reads the same whether hono's own media-type gate or
   // \`requireJsonContentType\` raised it (RS-39).
   const said = status === ${wireStatus("unsupported-media-type")} ? ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} : detail;
-  return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
+  return JSON.stringify({ type: "about:blank", title, status, detail: said, instance, code: frameworkCode(status, detail) });
 }
+
+/** The wire \`code\` of a fault the framework raised, by its status — the one
+ *  400 a header raises is told apart from a malformed body by its sentence. */
+function frameworkCode(status: number, detail: string): string {
+  if (status === ${wireStatus("malformed-body")}) {
+    return detail.startsWith(${JSON.stringify(wireSentence("malformed-if-match").prefix)}) ? ${JSON.stringify(wireCode("malformed-if-match"))} : ${JSON.stringify(wireCode("malformed-body"))};
+  }
+  return FRAMEWORK_CODES[status] ?? ${JSON.stringify(wireCode("internal"))};
+}
+
+const FRAMEWORK_CODES: Record<number, string> = {
+${(["no-route", "method-not-allowed", "unsupported-media-type", "unauthenticated", "forbidden", "field-invalid"] as const).map((cls) => `  ${wireStatus(cls)}: ${JSON.stringify(wireCode(cls))},`).join("\n")}
+};
 
 /** Hono's OWN \`json\` media-type predicate (\`hono/validator/validator.ts\`'s
  *  \`jsonRegex\`), mirrored character-for-character apart from two redundant
@@ -919,32 +993,19 @@ export function generateTypeScriptForContexts(
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
-  // carriage (M-T1.11 (c)) rides on a messaged aggregate rule the same way.
+  // carriage (M-T1.11 (c)) rides on a named aggregate rule the same way.
   const emitVoInvariant = hasValueObjectInvariants(merged);
   const emitDomainFloorCodes = hasDomainFloorMessages(merged);
   out.set(
     "domain/errors.ts",
-    errorsTs(
-      emitConcurrency,
-      emitNotImplemented,
-      emitVoInvariant,
-      emitDomainFloorCodes,
-      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoesDenialDetail(system.deployable, system.sys),
-    ),
+    errorsTs(emitConcurrency, emitNotImplemented, emitVoInvariant, emitDomainFloorCodes),
   );
-  // Validation-message catalog (M-T1.11): a messaged rule's wire `code` resolves
-  // SERVER-side against this project's catalog, so a localised client is no
-  // longer the only way to see a translated rule.  No messaged rule ⇒ no catalog
-  // module and a byte-identical problem-details file.
-  const validationMessages = collectWireValidationMessages(contexts);
-  if (validationMessages.length > 0) {
-    out.set(MESSAGES_MODULE_PATH, renderMessagesModule(validationMessages));
-  }
+  // The server never translates a response: every refusal carries the
+  // catalog `code` a client localizes it by, so there is no backend message
+  // catalog.
   out.set(
     "http/problem-details.ts",
     problemDetailsTs(
-      validationMessages.length > 0,
       anyRouteReadsIfMatch(merged.aggregates),
       emitVoInvariant,
       emitDomainFloorCodes,
@@ -995,27 +1056,27 @@ export function generateTypeScriptForContexts(
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system.deployable.persistence === "mikroorm";
+  const mikroShapeOf = (agg: import("../../../ir/types/loom-ir.js").EnrichedAggregateIR) =>
+    effectiveSavingShape(agg, resolveDataSource(agg));
+  const mikroForeignKeys =
+    usingMikro &&
+    mikroForeignKeyDdl(merged.aggregates, merged, mikroShapeOf, resolveStreamContext).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",
-      renderMikroEntities(
-        merged.aggregates,
-        merged,
-        (agg) => effectiveSavingShape(agg, resolveDataSource(agg)),
-        {
-          audit: emitAudit,
-          provenance: emitProvenance,
-          // Transactional-outbox Row — the mikro twin of the drizzle
-          // `__loom_outbox` table, on the same condition the drizzle schema
-          // emitter uses (any durable channel in the deployable).
-          outbox: durableEventTypes(merged).size > 0,
-          resolveStreamContext,
-          // Timer-scheduler watermark Row — same condition as `scheduler.ts`
-          // below (this deployable OWNS a timerSource).  It has to be an entity
-          // on this adapter or `schema.update()` drops it on the second boot.
-          timerRuns: ownsTimers(system),
-        },
-      ),
+      renderMikroEntities(merged.aggregates, merged, mikroShapeOf, {
+        audit: emitAudit,
+        provenance: emitProvenance,
+        // Transactional-outbox Row — the mikro twin of the drizzle
+        // `__loom_outbox` table, on the same condition the drizzle schema
+        // emitter uses (any durable channel in the deployable).
+        outbox: durableEventTypes(merged).size > 0,
+        resolveStreamContext,
+        // Timer-scheduler watermark Row — same condition as `scheduler.ts`
+        // below (this deployable OWNS a timerSource).  It has to be an entity
+        // on this adapter or `schema.update()` drops it on the second boot.
+        timerRuns: ownsTimers(system),
+      }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
   } else {
@@ -1692,6 +1753,7 @@ export function generateTypeScriptForContexts(
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
     nativePort: system.deployable.port,
+    mikroForeignKeys,
     timerTicksOverBroker,
     // `http/workflows.ts` exports `createInProcessDispatcher` only when a
     // hosted context reacts to an event; a timer owner whose only consumer
@@ -1931,6 +1993,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
+      params: { loomCode: ${JSON.stringify(fieldCode("money-grammar"))}, loomValues: { value: s } },
     });
     return z.NEVER;
   }
@@ -1944,6 +2007,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,
+      params: { loomCode: ${JSON.stringify(fieldCode("money-range"))}, loomValues: { value: s } },
     });
     return z.NEVER;
   }
@@ -1953,6 +2017,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
+      params: { loomCode: ${JSON.stringify(fieldCode("money-grammar"))}, loomValues: { value: s } },
     });
     return z.NEVER;
   }
@@ -2150,6 +2215,9 @@ interface ProjectEntryConfig {
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
   readonly nativePort: number;
+  /** MikroORM's `schema.update()` creates no FK for an `X id` field, so boot
+   *  adds the same-context RESTRICT keys right after it. */
+  readonly mikroForeignKeys: boolean;
   /** A timer tick carried by a channel this deployable binds to a broker is
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
@@ -2426,7 +2494,7 @@ ${indentBlock(body)}}
  *  connection, migrations, `serve()` and graceful shutdown.  Nothing else:
  *  start-up wiring lives in `boot.ts`, which the playground runs too. */
 function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
-  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort } = cfg;
+  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort, mikroForeignKeys } = cfg;
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
   // deployables with no such resources.
@@ -2453,7 +2521,7 @@ import { bootApp } from "./boot";
 ${migImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup(mikroForeignKeys).join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
   return `// Auto-generated.
 ${importHeader}

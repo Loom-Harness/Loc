@@ -567,7 +567,8 @@ export function buildJavaOpenApiContract(
   // Explicit routes.  The routes controller returns `ResponseEntity<?>`, so
   // springdoc infers neither the success body nor the error set; both are
   // pinned to what node's routed handler declares: the `<Agg>Response` of a
-  // single entity return (any other return stays untyped), 204 for a void
+  // single entity return, the `<Agg>ListResponse` array wrapper of an entity
+  // collection (any other return stays untyped), 204 for a void
   // command, then 400, the context's not-found status, and 415 where a JSON
   // body is read.
   const byCtx = new Map(contexts.map((c) => [c.name, c]));
@@ -587,6 +588,7 @@ export function buildJavaOpenApiContract(
     ];
     const ret = normalizeHandlerReturn(h.returnType, ctx);
     let successRef: string | undefined;
+    let listWrapper: string | undefined;
     const hSplit =
       !h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)
         ? pinEntrySplit(h.returnType.variants, ctx, r.method.toLowerCase(), explicitRoutePath(r))
@@ -598,16 +600,22 @@ export function buildJavaOpenApiContract(
     } else if (ret && !h.extern && !paged) {
       const info = wireTypeInfo(ret, "response");
       const owning =
-        info.refKind === "entity" && !info.isCollection
+        info.refKind === "entity"
           ? (ctx.aggregates.find((a) => a.name === info.base) ??
             ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base)))
           : undefined;
-      if (owning) successRef = `${info.base}Response`;
+      if (owning && info.isCollection) {
+        // The bare `List<…>` behind `ResponseEntity<?>` would publish as
+        // `{type: object}`; pin the same named array wrapper a list read uses.
+        listWrapper = `${info.base}ListResponse`;
+        wrappers.set(listWrapper, `${info.base}Response`);
+      } else if (owning) successRef = `${info.base}Response`;
     }
     routes.push({
       method: r.method.toLowerCase(),
       path: explicitRoutePath(r),
       ...(successRef ? { successRef } : {}),
+      ...(listWrapper ? { listWrapper } : {}),
       errors: err(statuses),
       ...(ret ? {} : { successStatus: 204 }),
     });
@@ -1050,8 +1058,18 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `        }`,
     `    }`,
     ``,
+    `    /** The \`params\` extension member: the values a message's placeholders name`,
+    `     *  (free-form object, nullable). */`,
+    `    private static Schema<?> paramsSchema() {`,
+    `        ObjectSchema params = new ObjectSchema();`,
+    `        params.setAdditionalProperties(true);`,
+    `        params.setNullable(true);`,
+    `        return params;`,
+    `    }`,
+    ``,
     `    /** Add the shared RFC 7807 ProblemDetails component (core fields + the`,
-    `     *  §3.2 errors[] validation extension), matching the other backends. */`,
+    `     *  §3.2 errors[] validation extension + the \`code\` / \`params\` members a`,
+    `     *  client localizes by), matching the other backends. */`,
     `    private static void ensureProblemSchema(OpenAPI openApi) {`,
     `        Components components = openApi.getComponents();`,
     `        if (components == null) {`,
@@ -1067,9 +1085,13 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `        problem.addProperty("status", new IntegerSchema().format("int32"));`,
     `        problem.addProperty("detail", new StringSchema());`,
     `        problem.addProperty("instance", new StringSchema());`,
+    `        problem.addProperty("code", new StringSchema());`,
+    `        problem.addProperty("params", paramsSchema());`,
     `        ObjectSchema errorItem = new ObjectSchema();`,
     `        errorItem.addProperty("pointer", new StringSchema());`,
     `        errorItem.addProperty("message", new StringSchema());`,
+    `        errorItem.addProperty("code", new StringSchema());`,
+    `        errorItem.addProperty("params", paramsSchema());`,
     `        errorItem.setRequired(List.of("pointer", "message"));`,
     `        ArraySchema errors = new ArraySchema();`,
     `        errors.setItems(errorItem);`,

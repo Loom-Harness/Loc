@@ -4,7 +4,8 @@ import { useAllProducts } from "../../api/product";
 import { PlaceOrderRequest, usePlaceOrderWorkflow } from "../../api/workflows";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { fieldErrorText } from "../../lib/field-error";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -41,7 +42,7 @@ export default function PlaceOrderWorkflow() {
                   }
                 })} data-testid="workflow-place_order">
           <Stack gap="md">
-            <TextInput label={ t("Orders.placeOrder.field.customerId", "Customer Id") } {...register("customerId")} data-testid="workflow-place_order-input-customerId" error={errors.customerId?.message} />
+            <TextInput label={ t("Orders.placeOrder.field.customerId", "Customer Id") } {...register("customerId")} data-testid="workflow-place_order-input-customerId" error={fieldErrorText(errors.customerId)} />
     
             <Controller
               control={control}

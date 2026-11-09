@@ -9,6 +9,7 @@ import { diffModels } from "../api/evolve.js";
 import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.js";
 import { translateBreakpoint } from "../dap/index.js";
 import { isAdvisoryCode } from "../diagnostics/advisory.js";
+import { diagMessage } from "../diagnostics/messages.js";
 import { fsDesignPackInspector } from "../generator/_packs/loader-fs.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerProject } from "../ir/lower/lower.js";
@@ -399,14 +400,25 @@ async function runParse(file: string, opts: { allWarnings?: boolean } = {}) {
     process.exit(1);
   }
 
-  // Phase ⑦ — the cross-aggregate IR checks.  A throw here is still swallowed
-  // (lowering can throw on shapes the AST validator doesn't gate, and the AST
-  // result has already printed), but a DIAGNOSTIC is no longer discarded.
-  let irDiagnostics: ReturnType<typeof validateLoomModel> = [];
+  // Phases ⑤–⑦ — lowering, enrichment and the cross-aggregate IR checks.
+  // Lowering can throw on a shape the AST validator does not gate; that throw
+  // is reported as an error diagnostic, because `generate system` runs the
+  // same phases and would crash on the same model — a pre-flight that prints
+  // `OK` there is asserting the opposite of what will happen.
+  let irDiagnostics: ReturnType<typeof validateLoomModel>;
   try {
     irDiagnostics = validateLoomModel(result.loom, hostValidateOptions(file));
-  } catch {
-    // Lowering/enrichment threw — nothing further to report at IR level.
+  } catch (err) {
+    irDiagnostics = [
+      {
+        severity: "error",
+        message: diagMessage("loom.ir-internal#generation", {
+          err: err instanceof Error ? err.message : String(err),
+        }),
+        source: path.resolve(file),
+        code: "loom.ir-internal",
+      },
+    ];
   }
 
   // `--json` used to report `warnings: 2` while the human command printed

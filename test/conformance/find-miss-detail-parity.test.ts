@@ -250,7 +250,9 @@ describe("a predicate-read miss answers the canonical `not_found` token, all fiv
   it("elixir's routes controller renders the detail the handler carries", async () => {
     const ctrl = await fileOf("elixir", "controllers/orders_api_routes_controller.ex");
     expect(ctrl).toContain("def respond(conn, {:error, {:not_found, detail}}),");
-    expect(ctrl).toContain('do: ProblemDetails.problem_response(conn, 404, "Not Found", detail)');
+    expect(ctrl).toContain(
+      'do: ProblemDetails.problem_response(conn, 404, "Not Found", detail, "problem.not-found")',
+    );
   });
 
   // The file-wide floor, per backend: the quoted SPACE spelling occurs nowhere

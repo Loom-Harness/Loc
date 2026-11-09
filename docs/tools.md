@@ -199,7 +199,9 @@ tiers: syntax + AST-level (phases ①–④) *and* **IR-level** (phases ⑤–�
 — queryability of a `retrieval` / `view` `where`, cross-aggregate
 reference rules, persistence-binding, wire-shape and migration checks.
 A source that `parse`s clean is one `generate` will accept; the only
-thing `parse` skips is the emission itself.
+thing `parse` skips is the emission itself.  An internal failure in those
+phases (a lowering throw) is reported as a `loom.ir-internal` error and
+exits non-zero, as it would abort `generate`.
 
 This was not always true, and the old behaviour is worth knowing if you
 have scripts built on it: `parse` used to run phase ④ only — it
@@ -300,7 +302,7 @@ the `.ddd` source — pinning them defeats the point of the generator.
 
 ### Discovering the pin set
 
-`ddd generate ... --dry-run` prints, for every generated path,
+`ddd generate system <file> -o <out> --dry-run` prints, for every generated path,
 whether it would be `write`-en or `skip`-ped via `.loomignore`:
 
 ```
@@ -368,7 +370,7 @@ overrides it; `generate system --locales <dir>` reads the same tree):
 
 **Layout.** One file per namespace, where `<ns>` is `_chrome`, `_system`, a
 bounded-context name or a `ui` name. `_chrome.json` stores keys verbatim
-(`chrome.*`, `pack.*`, `msg.*`, anything outside the other namespaces); every
+(`chrome.*`, `pack.*`, anything outside the other namespaces); every
 other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
 `locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
 `src/i18n/namespace.ts`. The merge runs per key and per file.
@@ -1125,7 +1127,7 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
 The DSL `test e2e "..." against <react-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
-see [`language.md`](language.md#ui-e2e-tests-against-a-react-deployable).
+see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).
 
 Page-object classes are derived directly from the IR.  Per aggregate:
 

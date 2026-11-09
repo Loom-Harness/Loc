@@ -43,11 +43,16 @@ import { renderTsExpr, renderTsType } from "../../../generator/typescript/render
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
-import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import {
+  tsErrorVariantExt,
+  tsNotFoundThrow,
+  tsRuleParams,
+} from "../../../generator/typescript/wire-policy-ts.js";
 import {
   errorVariantResponse,
   notFoundStmtDetail,
   reasonPhrase,
+  wireCode,
   wireFixedDetail,
   wireStatus,
   wireTitle,
@@ -495,12 +500,12 @@ export function buildWorkflowsFile(
   const wfProblemUnion = [...wfStatuses].sort((a, b) => a - b).join(" | ");
   // RFC 7807 responder — application/problem+json + x-request-id header.
   body.push(
-    `    const problem = (status: ${wfProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${wfProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
-    // the body carries `err.detail` (echoed only under the dev-stub verifier).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail); }`,
+    // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   body.push(
     // The state-gate rung, ordered before `DomainError` as in the aggregate
@@ -511,24 +516,24 @@ export function buildWorkflowsFile(
     // from user-authored code.  (Before M-T6.38 the gate was route-only and a
     // workflow-step write landed unrefused; this arm was then unreachable from
     // generated code.)
-    `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+    `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
+    `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   if (wfHasUniqueKeys) {
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
       // v5 wraps the driver error), same as the aggregate router.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
     );
   }
   if (wfNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${wfConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+      `    if (err instanceof ConcurrencyError) return problem(${wfConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
   }
   body.push(
@@ -537,7 +542,7 @@ export function buildWorkflowsFile(
     // (`extern_handler_threw`); this one used to `console.error` the whole
     // exception object to raw stderr instead — same fault class, two different
     // log surfaces on the same backend.
-    `    if (err instanceof ExternHandlerError) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}); }`,
+    `    if (err instanceof ExternHandlerError) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -553,7 +558,7 @@ export function buildWorkflowsFile(
     `    ${renderHonoLogCall("internalError", `error: err instanceof Error ? err.message : String(err), status: ${wireStatus("internal")}`)}`,
   );
   body.push(
-    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id });`,
   );
   body.push(`  });`);
   body.push("");
@@ -1467,7 +1472,7 @@ export function entryErrorAnswer(
     const d = errorVariantResponse(tag);
     out.push(`${ind}if (${v}.type === ${JSON.stringify(tag)}) {`);
     out.push(
-      `${ind}  return ${c}.json({ ...${v}, type: ${JSON.stringify(d.type)}, title: ${JSON.stringify(d.title)}, status: ${r.status}, detail: ${JSON.stringify(d.detail)}, instance: ${c}.req.path }, ${r.status}, { "content-type": "application/problem+json" });`,
+      `${ind}  return ${c}.json({ ...${v}, type: ${JSON.stringify(d.type)}, title: ${JSON.stringify(d.title)}, status: ${r.status}, detail: ${JSON.stringify(d.detail)}, instance: ${c}.req.path, ${tsErrorVariantExt(ctx, tag, (f) => `${v}.${f}`)} }, ${r.status}, { "content-type": "application/problem+json" });`,
     );
     out.push(`${ind}}`);
   }
@@ -2791,9 +2796,13 @@ export function honoWorkflowStmtTarget(
   let auditSeq = 0;
   return {
     indentUnit: "  ",
-    precondition: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))});`,
-    ],
+    precondition: (st, indent) => {
+      // A named precondition also hands up the values it read (the wire `params`).
+      const params = st.message ? tsRuleParams(st, renderArg) : undefined;
+      return [
+        `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))}${params ? `, ${params}` : ""});`,
+      ];
+    },
     requires: (st, indent) => [
       `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,
     ],

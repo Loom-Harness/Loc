@@ -4,9 +4,10 @@ import { AddLineOrderRequest, ConfirmOrderRequest, UpdateOrderRequest, useAddLin
 import { useAllProducts } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
+import { fieldErrorText } from "../../lib/field-error";
 import { DateTimeValue, IdValue, KeyValueRow } from "../../lib/format";
 import { LoomRefLabel } from "../../lib/ref-label";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "../../lib/zod-resolver";
 import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, NumberInput, Select, Skeleton, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
@@ -142,7 +143,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateOrder>; 
       })}
     >
       <Stack>
-        <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-op-update-input-customerId" error={errors.customerId?.message} />
+        <TextInput label={ t("Orders.Order.field.customerId", "Customer Id") } {...register("customerId")} data-testid="orders-op-update-input-customerId" error={fieldErrorText(errors.customerId)} />
 
         <Controller
           control={control}
@@ -152,7 +153,7 @@ function UpdateForm({ mut, onClose }: { mut: ReturnType<typeof useUpdateOrder>; 
           )}
         />
 
-        <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-op-update-input-placedAt" type="datetime-local" error={errors.placedAt?.message} />
+        <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-op-update-input-placedAt" type="datetime-local" error={fieldErrorText(errors.placedAt)} />
 
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>

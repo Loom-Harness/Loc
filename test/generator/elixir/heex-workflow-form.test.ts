@@ -165,7 +165,7 @@ describe("HEEx `WorkflowForm` — the `run_<wf>` handler (F61)", () => {
 
   it("flashes a coded domain-floor denial's `detail`, not its `inspect`ed map (L1-E / E5)", async () => {
     const { live } = await emitted();
-    // A messaged precondition in an operation the workflow runs denies with
+    // A named precondition in an operation the workflow runs denies with
     // `{:precondition_failed, %{detail: …, code: …, pointer: …}}`
     // (`denialTerm`); without this clause the flash read
     // `Place order failed: {:precondition_failed, %{code: "msg.…", …}}`.

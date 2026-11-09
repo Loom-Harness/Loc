@@ -119,7 +119,7 @@ describe("value-object subform rows render per type, not as free text (#2864)", 
           page,
           `${design}: no index-spliced row error binding — a row sub-field's ` +
             `validation message has nowhere to render`,
-        ).toContain("errors.legs?.[index]?.loadTime?.message");
+        ).toContain("fieldErrorText(errors.legs?.[index]?.loadTime)");
       }
     });
 

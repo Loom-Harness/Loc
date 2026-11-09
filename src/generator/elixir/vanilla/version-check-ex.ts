@@ -34,18 +34,26 @@ export const EXPECTED_VERSION_BIND = "    expected_version = __expected_version(
 export const RECORD_AT_EXPECTED_VERSION = `%{record | ${ROW_VERSION_COLUMN}: expected_version || record.${ROW_VERSION_COLUMN}}`;
 
 /** The controller's private `If-Match` parser, emitted once per controller that
- *  has at least one `if-match` route. */
-export const EXPECTED_VERSION_HELPER = `
+ *  has at least one `if-match` route.  `appModule` names the app whose
+ *  `MalformedIfMatchError` a refused header raises. */
+export function expectedVersionHelper(appModule: string): string {
+  return `
 
   # Parse the optimistic-concurrency precondition (the client's expected
-  # \`rowVersion\`) from the \`if-match\` request header.  Absent or unparseable → nil,
-  # which the write path treats as write-time CAS (the loaded row's own version).
+  # \`rowVersion\`) from the \`if-match\` request header: \`*\` (any current
+  # representation) and an absent header leave the loaded version in place; a
+  # strong tag \`"3"\`, a weak tag \`W/"3"\` and a bare \`3\` name a version; anything
+  # else is a client error, answered 400 \`problem.malformed-if-match\`.
   defp __expected_version(conn) do
     case get_req_header(conn, "if-match") do
       [value | _] ->
-        case value |> String.trim("\\"") |> Integer.parse() do
-          {n, _} -> n
-          :error -> nil
+        raw = String.trim(value)
+
+        case raw == "*" or Regex.run(~r/^(?:W\\/)?(?:"(\\d+)"|(\\d+))$/, raw) do
+          true -> nil
+          [_, "", bare] -> String.to_integer(bare)
+          [_, quoted] -> String.to_integer(quoted)
+          _ -> raise ${appModule}.MalformedIfMatchError, value
         end
 
       _ ->
@@ -53,3 +61,4 @@ export const EXPECTED_VERSION_HELPER = `
     end
   end
 `;
+}

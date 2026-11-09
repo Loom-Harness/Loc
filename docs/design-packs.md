@@ -1117,7 +1117,7 @@ pack version targets (see [§ 2a](#2a-stacks-and-how-a-pack-picks-one)):
 
 - A React pack version (**React 19 + RR 7 + zod 4**) declares `"stack": "v3"`.
 - If the framework baseline you need doesn't exist yet, create a new
-  stack first (see [§ 2a — Adding a new stack](#adding-a-new-stack)).
+  stack first (see [§ 2a — Stacks](#2a-stacks-and-how-a-pack-picks-one)).
 
 Then `designs/<family>/<vNew>/package-json.hbs` carries **only the
 pack-specific deps**, with the framework deps pulled in via the

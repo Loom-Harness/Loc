@@ -143,7 +143,7 @@ describe("java — F31: the invariant validator guards every value it dereferenc
     // Narrowness: skipping NULL must not skip a real violation. `-1` is
     // present and violates the invariant.
     const validator = await file("wallets/CreateWalletValidator.java");
-    expect(validator).toContain('errors.rejectValue("balance", "loom.invariant"');
+    expect(validator).toContain('errors.rejectValue("balance", "problem.domain-floor"');
     expect(validator).toContain(") >= 0))");
   });
 });

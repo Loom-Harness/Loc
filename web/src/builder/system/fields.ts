@@ -23,6 +23,7 @@ import {
 import { parseDdd } from "../parse";
 import { applyEdits, ifParses } from "../edit-engine";
 import { IDENTIFIER } from "./rename";
+import { otherRuleNames, ruleNameError } from "./rule-name";
 import type { NodeKind } from "./model";
 
 export { PRIMITIVES, type PrimitiveName };
@@ -96,8 +97,8 @@ export interface FieldModifiers {
   default: string | null;
   /** `check <expr>` — the predicate source, without the `check`. */
   check: string | null;
-  /** The check's `message "…"` payload, delimiters already stripped. */
-  checkMessage: string | null;
+  /** The check's rule name (`check <name>: …`); null for an unnamed check. */
+  checkName: string | null;
   /** `mask unless <expr>` — the predicate source, without the keywords. */
   maskUnless: string | null;
   access: FieldAccess | null;
@@ -242,7 +243,7 @@ export function listFieldModifiers(node: AstNode): FieldModifiers[] {
   return propertyList(node).list.map((p) => ({
     default: p.default?.$cstNode?.text ?? null,
     check: p.check?.$cstNode?.text ?? null,
-    checkMessage: p.message ?? null,
+    checkName: p.checkName ?? null,
     maskUnless: p.maskUnless?.$cstNode?.text ?? null,
     access: p.access ?? null,
     provenanced: p.provenanced,
@@ -355,7 +356,7 @@ export function retypeField(
   const node = locate(source, kind, name);
   if (!node) return null;
   // Only the `TypeRef` span is rewritten, so everything the grammar allows
-  // after it on the same field — `= default`, `check … message "…"`,
+  // after it on the same field — `= default`, `check name: …`,
   // `sensitive(…)`, `provenanced`, the access modifier / `mask unless` — is
   // untouched rather than reprinted.
   const cst = propertyList(node).list[index]?.type.$cstNode;
@@ -371,7 +372,7 @@ export function retypeField(
 // carry expression content:
 //
 //   name ':' TypeRef  (provenanced | sensitive(…) | access)*  ('=' default)?
-//                     ('check' expr ('message' STRING)?)?  ('mask' 'unless' expr)?
+//                     ('check' (name ':')? expr)?  ('mask' 'unless' expr)?
 //
 // The three flag-like modifiers parse in any order among themselves, but the
 // group as a whole must precede `= default` — `x: int = 1 secret` is a parse
@@ -398,7 +399,7 @@ interface PropSpans {
   flags: number;
   /** After the default when present, else `flags` — where `check` goes. */
   afterDefault: number;
-  /** After the check (+ its message) when present, else `afterDefault`. */
+  /** After the check when present, else `afterDefault`. */
   afterCheck: number;
 }
 
@@ -416,8 +417,7 @@ function propSpans(node: AstNode | null, index: number): PropSpans | null {
   ];
   for (const n of candidates) if (n && n.end > flags) flags = n.end;
   const afterDefault = prop.default?.$cstNode?.end ?? flags;
-  const messageCst = GrammarUtils.findNodeForProperty(cst, "message");
-  const afterCheck = messageCst?.end ?? prop.check?.$cstNode?.end ?? afterDefault;
+  const afterCheck = prop.check?.$cstNode?.end ?? afterDefault;
   return { prop, cst, flags, afterDefault, afterCheck };
 }
 
@@ -475,31 +475,30 @@ export function setFieldCheck(
   owner: string,
   index: number,
   exprText: string | null,
-  /** `undefined` keeps the existing message; `null` / `""` removes it. */
-  message?: string | null,
+  /** The rule name (`check <name>: …`).  `undefined` keeps the existing name;
+   *  `null` / `""` makes the check unnamed.  A name that is not an identifier,
+   *  or that another rule of the owner already declares, is refused (null). */
+  ruleName?: string | null,
 ): string | null {
   const spans = propSpans(locate(source, kind, owner), index);
   const text = clauseText(exprText);
   if (!spans || text === undefined) return null;
-  const keep = message === undefined ? (spans.prop.message ?? null) : message;
-  const msg = clauseText(keep);
-  if (msg === undefined) return null;
+  const keep = ruleName === undefined ? (spans.prop.checkName ?? null) : ruleName;
+  const name = clauseText(keep);
+  if (name === undefined) return null;
+  if (name !== null && name !== spans.prop.checkName && ruleNameError(name, otherRuleNames(spans.prop)) !== null) {
+    return null;
+  }
   const existing = spans.prop.check?.$cstNode;
   const checkKw = existing ? GrammarUtils.findNodeForKeyword(spans.cst, "check") : undefined;
-  // `msg` re-quotes through JSON.stringify — the STRING terminal hands back the
-  // value with its delimiters already stripped.
-  const clause = text === null ? "" : `check ${text}${msg === null ? "" : ` message ${JSON.stringify(msg)}`}`;
+  const clause = text === null ? "" : `check ${name === null ? "" : `${name}: `}${text}`;
   if (existing && checkKw) {
     const offset = clause === "" ? eatLeadingSpace(source, checkKw.offset) : checkKw.offset;
-    return ifParses(
-      applyEdits(source, [{ offset, end: spans.afterCheck, newText: clause }]),
-    );
+    return ifParses(applyEdits(source, [{ offset, end: spans.afterCheck, newText: clause }]));
   }
   if (clause === "") return source;
   return ifParses(
-    applyEdits(source, [
-      { offset: spans.afterDefault, end: spans.afterDefault, newText: ` ${clause}` },
-    ]),
+    applyEdits(source, [{ offset: spans.afterDefault, end: spans.afterDefault, newText: ` ${clause}` }]),
   );
 }
 

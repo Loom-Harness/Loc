@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import { errorVariantCode } from "../../../ir/enrich/wire-policy.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -41,7 +42,7 @@ import {
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { unionMoneyArms } from "../../_payload/union-wire.js";
+import { RFC7807_MEMBERS, unionMoneyArms } from "../../_payload/union-wire.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   type ElixirChannelsCfg,
@@ -51,7 +52,7 @@ import {
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { exErrorVariant } from "../wire-policy-ex.js";
+import { exErrorVariant, exFixedDetail, exProblemResponse } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { exLineageValue } from "./codec-spelling-ex.js";
@@ -67,6 +68,7 @@ import {
   guardErrorModule,
   guardRaiseLine,
   opHasWireDenial,
+  wireLimitSides,
   wireValidationResponse,
 } from "./denial.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
@@ -409,12 +411,12 @@ export function renderOpGuardClause(
   s: Extract<StmtIR, { kind: "requires" | "precondition" }>,
   rc: RenderCtx,
   /** The operation's param names — the request body a wire-rung denial can
-   *  point into.  A messaged `precondition` classified wire-translatable
+   *  point into.  A named `precondition` classified wire-translatable
    *  against this set denies with `{:validation_failed, errors}` instead of the
    *  domain floor; everything else denies as usual. */
   wireAvailable?: ReadonlySet<string>,
 ): string {
-  return `:ok <- ensure(${renderExpr(s.expr, rc)}, ${denialTerm(s, wireAvailable)})`;
+  return `:ok <- ensure(${renderExpr(s.expr, rc)}, ${denialTerm(s, wireAvailable, (e) => renderExpr(e, rc))})`;
 }
 
 /** Does the operation declare a `when` canCommand state gate (criterion.md use
@@ -449,7 +451,15 @@ export function collectOpGuardClauses(aggName: string, op: OperationIR, rc: Rend
   const wireAvailable = new Set(op.params.map((p) => p.name));
   for (const s of op.statements) {
     if (s.kind === "requires" || s.kind === "precondition") {
-      clauses.push(renderOpGuardClause(s, rc, wireAvailable));
+      // A declared field limit denies one side at a time, each under its own
+      // `field.<limit>` code.
+      const sides = wireLimitSides(s, wireAvailable);
+      if (sides) {
+        for (const side of sides)
+          clauses.push(`:ok <- ensure(${renderExpr(side.expr, rc)}, ${side.term})`);
+      } else {
+        clauses.push(renderOpGuardClause(s, rc, wireAvailable));
+      }
     }
   }
   return clauses;
@@ -706,14 +716,20 @@ function isErrorTag(tag: string, ctx: BoundedContextIR): boolean {
 export function errorVariantsOf(
   op: OperationIR,
   ctx: BoundedContextIR,
-): Array<{ tag: string; status: number; type: string; title: string }> {
+): Array<{ tag: string; status: number; type: string; title: string; code: string }> {
   if (op.returnType?.kind !== "union") return [];
   return op.returnType.variants
     .map((v) => variantTag(v))
     .filter((tag) => isErrorTag(tag, ctx))
     .map((tag) => {
       const resp = exErrorVariant(tag, ctx.errorStatusOverrides);
-      return { tag, status: resp.status, type: resp.type, title: resp.title };
+      return {
+        tag,
+        status: resp.status,
+        type: resp.type,
+        title: resp.title,
+        code: errorVariantCode(ctx.name, tag),
+      };
     });
 }
 
@@ -1437,7 +1453,7 @@ export function renderReturningStmt(
       // (HTTP-boundary ops hoist guards to `with ensure(…)` for a 422 / 403
       // denial).  The typed `<App>.GuardError` carries the classification in its
       // `:kind` field, so the `:message` is the SAME `denialMessage(s)` the
-      // `ensure` path emits — the author's `message "…"` when there is one.
+      // `ensure` path emits — a named rule's text when it has one.
       return guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(rc.contextModule));
     case "assign": {
       // `field := value` → struct-update the threaded `record`, so the
@@ -1634,9 +1650,9 @@ function renderProvenancedAssign(
 // below answers 422 too) — instead of propagating to Phoenix's default 500.
 //
 // The ROUTING KEY is the exception's `:kind` FIELD, never its message.  A
-// `cond` over `String.starts_with?(guard_msg, "Precondition failed: ")` would
-// make the message load-bearing and therefore unwritable: an author's
-// `message "…"` misses the prefix and falls to the `reraise` → 500.  With the
+// `cond` over a prefix of `guard_msg` would make the message load-bearing and
+// therefore unwritable: a named rule's text carries no fixed prefix and would
+// fall to the `reraise` → 500.  With the
 // classification out of band the detail is free text, and no `reraise`
 // arm is needed either — an exception that is not a `<App>.GuardError` is
 // simply not rescued and propagates with its own stacktrace (still a 500 for a
@@ -1650,6 +1666,9 @@ export function guardRescue(appModule: string, overrides?: ErrorStatusMap): stri
       case guard_error.kind do
         :forbidden ->
           ${denialResponse("forbidden", "guard_msg", overrides)}
+
+        :overflow ->
+          ${exProblemResponse("arithmetic-overflow", exFixedDetail("arithmetic-overflow"), overrides)}
 
         _ ->
           ${denialResponse("precondition", "guard_msg", overrides)}
@@ -1703,7 +1722,7 @@ export function renderReturningOpControllerAction(
     do: ${disallowedResponse("detail", denialOverrides(ctx))}`,
         ]
       : []),
-    // The WIRE-VALIDATION rung: a messaged `precondition` over the op's
+    // The WIRE-VALIDATION rung: a named `precondition` over the op's
     // own request params denies with the `errors[]` 422 the other four backends'
     // lifted request validator produces, not the domain floor.
     ...(opHasWireDenial(op)
@@ -1753,7 +1772,7 @@ export function renderReturningOpControllerAction(
     okClause,
     ...errorVariantsOf(op, ctx).map(
       (v) => `  def ${resultFn}(conn, {:error, ${JSON.stringify(v.tag)}, data}),
-    do: problem_variant(conn, ${v.status}, ${JSON.stringify(v.type)}, ${JSON.stringify(v.title)}, data)`,
+    do: problem_variant(conn, ${v.status}, ${JSON.stringify(v.type)}, ${JSON.stringify(v.title)}, ${JSON.stringify(v.code)}, data)`,
     ),
     ...denialClauses,
     ...(persists
@@ -1809,12 +1828,20 @@ ${resultClauses}`;
 /** The shared per-controller responder for an error variant — RFC-7807
  *  envelope + the variant's own fields as §3.2 extension members. */
 export function renderProblemVariantHelper(): string {
-  return `  defp problem_variant(conn, status, type, title, data) do
+  const reserved = [...RFC7807_MEMBERS].sort();
+  const reservedKeys = `[${[...reserved.map((m) => `:${m}`), ...reserved.map((m) => JSON.stringify(m))].join(", ")}]`;
+  return `  defp problem_variant(conn, status, type, title, code, data) do
+    # \`code\` is the error's catalog key (\`<Ctx>.<Error>.message\`); its record
+    # fields ride both as extension members and as \`params\`.
+    # A record field named like an RFC-7807 member (\`code\`, \`params\`, …)
+    # rides \`params\` only, never over the envelope member it shares a name with.
     body =
       Map.merge(
-        %{type: type, title: title, status: status, detail: title, instance: conn.request_path},
-        data
+        Map.drop(data, ${reservedKeys}),
+        %{type: type, title: title, status: status, detail: title, instance: conn.request_path, code: code}
       )
+
+    body = if map_size(data) > 0, do: Map.put(body, :params, data), else: body
 
     conn
     |> put_resp_content_type("application/problem+json")

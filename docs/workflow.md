@@ -161,7 +161,7 @@ workflow replicateTechs {
 }
 workflow assign {
   create(workOrderId: WorkOrder id, assignTo: Technician id) {
-    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition false message "unknown technician" }
+    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition unknownTechnician: false }
   }
 }
 ```
@@ -682,7 +682,7 @@ workflow AskForRating {
 ```text
 POST /api/tickets/{id}/resolve      → 204   (status = Resolved, committed)
 {"level":"error","event":"reactor_failed","handler":"askForRatingStartTicketResolved",
- "event_type":"TicketResolved","event_id":"d68c…","error":"Precondition failed: …"}
+ "event_type":"TicketResolved","event_id":"d68c…","error":"Business rule violated"}
 GET  /api/workflows/ask_for_rating/instances/{id} → 404   (no saga row, no Survey)
 ```
 

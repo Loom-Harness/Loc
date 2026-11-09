@@ -401,8 +401,7 @@ describe(".loom/sourcemap.json", () => {
     )!;
     const productContent = files.get(productPath)!;
     const productRegions = map.files[productPath]!;
-    const preLine =
-      productContent.split("\n").findIndex((l) => l.includes("Precondition failed")) + 1;
+    const preLine = productContent.split("\n").findIndex((l) => l.includes("this._price > 0")) + 1;
     expect(preLine).toBeGreaterThan(0);
     const preMarked = productRegions.filter(
       (r) =>

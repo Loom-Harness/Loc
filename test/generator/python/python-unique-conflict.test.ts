@@ -42,13 +42,13 @@ describe("python generator — unique_violation → 409", () => {
 
     // Returns a friendly 409 Conflict.
     expect(problem).toContain(
-      'return problem(\n                request, 409, "Conflict", "A resource with these values already exists."\n            )',
+      'return problem(\n                request, 409, "Conflict", "A resource with these values already exists.",\n                code="problem.unique-conflict",\n            )',
     );
 
     // Any other SQLSTATE is not a client conflict: it falls through to the
     // sanitized 500 catch-all instead of sharing the uniqueness 409.
     expect(problem).toContain(
-      '                request, 409, "Conflict", "A resource with these values already exists."\n            )\n        return await _internal(request, err)',
+      '                code="problem.unique-conflict",\n            )\n        return await _internal(request, err)',
     );
     expect(problem).not.toContain("The request conflicts with the current state.");
   });

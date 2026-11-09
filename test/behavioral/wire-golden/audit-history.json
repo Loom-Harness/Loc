@@ -420,6 +420,7 @@
       "path": "/api/memos/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}",
         "status": 404,
@@ -433,6 +434,7 @@
       "path": "/api/memos/{id}/history",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/history",
         "status": 404,
@@ -446,6 +448,7 @@
       "path": "/api/memos/{id}/restore",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/restore",
         "status": 404,
@@ -542,6 +545,7 @@
       "path": "/api/invoices/{id}",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}",
         "status": 404,
@@ -555,6 +559,7 @@
       "path": "/api/orders",
       "status": 405,
       "body": {
+        "code": "problem.method-not-allowed",
         "detail": "method PATCH is not supported for /api/orders",
         "instance": "/api/orders",
         "status": 405,
@@ -568,6 +573,7 @@
       "path": "/__loom_no_such_path",
       "status": 404,
       "body": {
+        "code": "problem.no-route",
         "detail": "no route for GET /__loom_no_such_path",
         "instance": "/__loom_no_such_path",
         "status": 404,
@@ -581,6 +587,7 @@
       "path": "/api/orders",
       "status": 400,
       "body": {
+        "code": "problem.malformed-body",
         "detail": "Malformed JSON in request body",
         "instance": "/api/orders",
         "status": 400,
@@ -594,6 +601,7 @@
       "path": "/api/memos/{id}/soft_delete",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/soft_delete",
         "status": 404,
@@ -607,6 +615,7 @@
       "path": "/api/memos/{id}/soft_delete",
       "status": 404,
       "body": {
+        "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/soft_delete",
         "status": 404,
@@ -620,6 +629,7 @@
       "path": "/api/memos/{id}/soft_delete",
       "status": 415,
       "body": {
+        "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
         "instance": "/api/memos/{id}/soft_delete",
         "status": 415,
@@ -633,9 +643,11 @@
       "path": "/api/orders/{id}/cancel",
       "status": 422,
       "body": {
+        "code": "problem.field-invalid",
         "detail": "One or more fields are invalid.",
         "errors": [
           {
+            "code": "field.missing",
             "message": "reason is required",
             "pointer": "/reason"
           }

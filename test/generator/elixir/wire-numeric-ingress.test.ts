@@ -63,7 +63,7 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // …and an in-type, out-of-range value gets the 422 responder, not the db.
     expect(ctx).toContain(
       "defp __loom_int32_param(record, field, value) when is_integer(value),\n" +
-        '    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, "Integer out of range")}',
+        '    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, "Integer out of range", loom_code: "field.integer-range", loom_params: %{min: -2147483648, max: 2147483647})}',
     );
   });
 
@@ -87,10 +87,7 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
         | string
         | undefined);
     expect(anyWithQty).toBeDefined();
-    expect(anyWithQty).toContain(
-      "|> validate_number(:qty, greater_than_or_equal_to: -2147483648, " +
-        'less_than_or_equal_to: 2147483647, message: "Integer out of range")',
-    );
+    expect(anyWithQty).toContain("|> validate_change(:qty, &__loom_int32_range/2)");
   });
 
   it("refuses with the cross-backend message, on the changeset that renders 422", async () => {
@@ -98,9 +95,11 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // node's `moneySchema` and .NET's `WireFormatException` both say
     // `Invalid decimal: "12,50"`; the wire-golden differential compares bodies
     // across backends, so a divergent message is itself a divergence.
-    expect(ctx).toContain('__loom_param_error(record, field, value, "Invalid decimal")');
     expect(ctx).toContain(
-      'Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value))',
+      '__loom_param_error(record, field, value, "Invalid decimal", "field.money-grammar", %{value: value})',
+    );
+    expect(ctx).toContain(
+      'Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), loom_code: code, loom_params: params)',
     );
     // node's regex, character for character.
     expect(ctx).toContain("~r/^-?\\d+(\\.\\d+)?$/");

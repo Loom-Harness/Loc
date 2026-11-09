@@ -12,8 +12,8 @@ import type { Model } from "../../src/language/generated/ast.js";
 // `toThrow(<kind>)` at the IR tier.
 //
 //   * A rung reads the domain error's STRUCTURAL `kind` on every backend, so a
-//     rule's authored `message "..."` costs the assertion nothing — every
-//     combination of messaged / message-less rule and rung validates clean.
+//     rule's name costs the assertion nothing — every
+//     combination of named / unnamed rule and rung validates clean.
 //   * `loom.throw-kind-integration-unsupported` — the context-integration rung
 //     renders through each backend's `integration-tests.ts`, which carries no
 //     rung, so the word would be dropped.  It points at the `expect(...)`
@@ -39,8 +39,8 @@ async function codesFor(src: string): Promise<string[]> {
 const system = (opts: {
   unitBody?: string;
   contextTest?: string;
-  precondMessage?: string;
-  invariantMessage?: string;
+  precondName?: string;
+  invariantName?: string;
 }): string => `
   system Probe {
     subdomain Ops {
@@ -53,12 +53,12 @@ const system = (opts: {
           contains tasks: Task[]
           entity Task { label: string }
 
-          invariant tasks.count > 0 when status == Completed${opts.invariantMessage ?? ""}
+          invariant ${opts.invariantName ?? ""}tasks.count > 0 when status == Completed
 
           create(reference: string, status: WorkStatus) { }
 
           operation complete() {
-            precondition status == InProgress${opts.precondMessage ?? ""}
+            precondition ${opts.precondName ?? ""}status == InProgress
             status := Completed
           }
 ${
@@ -87,23 +87,18 @@ ${opts.contextTest}
   }
 `;
 
-const PRECOND_MESSAGE = ` message "finish the work first"`;
-const INVARIANT_MESSAGE = ` message "a completed work order needs at least one task"`;
+const PRECOND_NAME = "finishWorkFirst: ";
+const INVARIANT_NAME = "workNeedsTask: ";
 
 describe("IR: toThrow(<kind>) is unit-tier only, and reads the rung structurally", () => {
-  const messageShapes: ReadonlyArray<
-    [string, { precondMessage?: string; invariantMessage?: string }]
-  > = [
-    ["message-less rules", {}],
-    ["a messaged precondition", { precondMessage: PRECOND_MESSAGE }],
-    ["a messaged invariant", { invariantMessage: INVARIANT_MESSAGE }],
-    [
-      "both rules messaged",
-      { precondMessage: PRECOND_MESSAGE, invariantMessage: INVARIANT_MESSAGE },
-    ],
+  const nameShapes: ReadonlyArray<[string, { precondName?: string; invariantName?: string }]> = [
+    ["unnamed rules", {}],
+    ["a named precondition", { precondName: PRECOND_NAME }],
+    ["a named invariant", { invariantName: INVARIANT_NAME }],
+    ["both rules named", { precondName: PRECOND_NAME, invariantName: INVARIANT_NAME }],
   ];
   for (const rung of ["precondition", "invariant"] as const) {
-    for (const [label, opts] of messageShapes) {
+    for (const [label, opts] of nameShapes) {
       it(`accepts toThrow(${rung}) against ${label}`, async () => {
         const diags = await diagsFor(
           system({ unitBody: `            expect(wo.complete()).toThrow(${rung})`, ...opts }),

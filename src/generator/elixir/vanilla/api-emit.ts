@@ -52,7 +52,7 @@ import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { exSentence, exStatus, exTitle, strictIngressFields } from "../wire-policy-ex.js";
+import { exCode, exSentence, exStatus, exTitle, strictIngressFields } from "../wire-policy-ex.js";
 import { auditRecordCall, createAuditMeta, destroyAuditMeta } from "./audit-emit.js";
 import {
   aggregateServesHistoryRoute,
@@ -60,7 +60,11 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import { renderPolymorphicSerialize, routesPolymorphicRead } from "./base-reader.js";
+import {
+  hasPolymorphicConcretes,
+  renderPolymorphicSerialize,
+  routesPolymorphicRead,
+} from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -101,7 +105,7 @@ import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import {
   EXPECTED_VERSION_BIND,
-  EXPECTED_VERSION_HELPER,
+  expectedVersionHelper,
   RECORD_AT_EXPECTED_VERSION,
   savesLockVersion,
 } from "./version-check-ex.js";
@@ -218,6 +222,9 @@ export function emitVanillaApiControllers(
   const routes: ApiRoute[] = [];
 
   for (const agg of ctx.aggregates) {
+    // An abstract base with no concrete in its reader serves nothing: no route,
+    // and no controller (it could not compile without a `serialize/1` clause).
+    if (isAbstractBase(agg) && !hasPolymorphicConcretes(agg, ctx)) continue;
     const aggPascal = upperFirst(agg.name);
     const aggSnake = snake(agg.name);
     const aggsPath = routeSegmentFor(agg.name); // "tasks" for Task
@@ -629,10 +636,10 @@ ${cuBind}${showBody}
       {:error, {:disallowed, detail}} ->
         ${denialResponse("disallowed", "detail", opDenialOverrides)}`
         : "";
-      // M-T6.20 — a messaged `precondition` over the op's OWN request params is
+      // M-T6.20 — a named `precondition` over the op's OWN request params is
       // lifted into the request validator on the other four backends, so its
       // denial must answer the WIRE-VALIDATION 422 (`errors[]` with pointer +
-      // `msg.<hash>` code), not the domain floor.  Emitted only when the op has
+      // `<Ctx>.<Owner>.rule.<name>` code), not the domain floor.  Emitted only when the op has
       // such a guard, so no unreachable clause reaches
       // `mix compile --warnings-as-errors`.
       const wireArm = opHasWireDenial(op)
@@ -832,7 +839,8 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
           conn,
           ${referencedInUseStatus},
           ${exTitle("referenced-in-use", ctx.structuralErrorStatuses)},
-          ${exSentence("referenced-in-use", aggPascal)}
+          ${exSentence("referenced-in-use", aggPascal)},
+          ${exCode("referenced-in-use")}
         )
       else
         reraise(fk_error, __STACKTRACE__)
@@ -931,7 +939,7 @@ ${cuBind}${destroyCuBind}${destroyVersionBind}    with {:ok, record} <- ${ctxMod
     versionsUpdate ||
     (versionsDestroy && !readOnly && emitsRestDelete(agg)) ||
     memberOps.some((op) => readsIfMatch(operationVersionCheck(agg, op)))
-      ? EXPECTED_VERSION_HELPER
+      ? expectedVersionHelper(appModule)
       : "";
 
   // The mutating actions (create / update / delete).  An abstract inheritance

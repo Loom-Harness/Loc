@@ -2,21 +2,29 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Custom validation messages on the Java/Spring Boot backend — a messaged
-// rule surfaces the author text on the wire validator
+// Custom validation messages on the Java/Spring Boot backend — a named
+// rule surfaces the rule text on the wire validator
 // (`WireValidationException.error("/path", <text>)`) AND the domain floor
-// (`throw new DomainException(<text>)`); a message-less rule keeps its
+// (`throw new DomainException(<text>)`); an unnamed rule keeps its
 // derived `Invariant violated:` default, byte-identical.
 // ---------------------------------------------------------------------------
+
+// The rules' English comes from the translator tree (`locales/en/Cat.json`); a
+// test hands the generator the same overrides.
+const TEXT = new Map([
+  ["Cat.Product.rule.skuRequired", "SKU is required"],
+  ["Cat.Product.rule.nameLength", "Name must be 2-120 characters"],
+  ["Cat.Product.rule.amountPositive", "Amount must be positive"],
+]);
 
 const SRC = `
 system S {
   subdomain Sales {
     context Cat {
       aggregate Product {
-        sku: string check sku.length > 0 message "SKU is required"
+        sku: string check skuRequired: sku.length > 0
         name: string
-        invariant name.length >= 2 && name.length <= 120 message "Name must be 2-120 characters"
+        invariant nameLength: name.length >= 2 && name.length <= 120
         invariant sku.length > 0
         create(name: string, sku: string) { }
       }
@@ -31,7 +39,7 @@ system S {
 `;
 
 async function gen() {
-  const all = await generateSystemFiles(SRC);
+  const all = await generateSystemFiles(SRC, { sourceOverrides: TEXT });
   const key = (suffix: string) => [...all.keys()].find((k) => k.endsWith(suffix))!;
   return {
     domain: all.get(key("features/products/Product.java"))!,
@@ -39,22 +47,24 @@ async function gen() {
   };
 }
 
-describe("java — messaged rule → wire validator + domain floor text", () => {
-  it("surfaces the author text + a content-hash wire code via rejectValue", async () => {
+describe("java — named rule → wire validator + domain floor text", () => {
+  it("surfaces the rule text + an identity-key wire code via rejectValue", async () => {
     const { validator } = await gen();
-    // messaged rule → rejectValue(field, "msg.<hash>", <text>) carrying the i18n key
+    // named rule → rejectValue(field, "<Ctx>.<Owner>.rule.<name>", <text>) carrying the i18n key
     expect(validator).toContain(
-      'errors.rejectValue("name", "msg.j985f2", "Name must be 2-120 characters")',
+      'errors.rejectValue("name", "Cat.Product.rule.nameLength", new Object[] {"name", name}, "Name must be 2-120 characters")',
     );
-    expect(validator).toContain('errors.rejectValue("sku", "msg.u3w71r", "SKU is required")');
+    expect(validator).toContain(
+      'errors.rejectValue("sku", "Cat.Product.rule.skuRequired", new Object[] {"sku", sku}, "SKU is required")',
+    );
   });
 
-  it("keeps a message-LESS single-field rule with the sentinel code (no wire code)", async () => {
+  it("answers an UNNAMED single-field rule with its field-limit code and bound", async () => {
     const { validator } = await gen();
-    // The message-less `invariant sku.length > 0` uses the `loom.invariant`
-    // sentinel code, which the advice does NOT surface as a wire `code`.
+    // The message-less `invariant sku.length > 0` uses the generic `field.rule`
+    // code and reads no values, so it carries no `params`.
     expect(validator).toContain(
-      'errors.rejectValue("sku", "loom.invariant", "Sku must be at least 1 character")',
+      'errors.rejectValue("sku", "field.min-length", new Object[] {"min", 1}, "Sku must be at least 1 character")',
     );
   });
 });

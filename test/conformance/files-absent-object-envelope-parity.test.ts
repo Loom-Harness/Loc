@@ -234,7 +234,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       // signature, which is present whether or not the arm resolves.
       resolved: [
         'baseLogger.warn({ event: "not_found", status: 410 });',
-        'return problem(410, "Gone", err.message);',
+        'return problem(410, "Gone", err.message, "problem.not-found");',
       ],
       routeFile: "http/index.ts",
     },
@@ -243,7 +243,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       producerFile: "http/problem.py",
       resolved: [
         'log("warn", "not_found", message=str(err), status=410)',
-        'return problem(request, 410, "Gone", str(err))',
+        'return problem(request, 410, "Gone", str(err), code="problem.not-found")',
       ],
       routeFile: "files_routes.py",
     },
@@ -252,7 +252,7 @@ describe("M-T6.39 — an absent /files object answers the service's one 404 enve
       producerFile: "ApiExceptionAdvice.java",
       resolved: [
         'CatalogLog.event("not_found", "warn", "status", 410);',
-        'return respond(problem(410, "Gone", e.getMessage(), request), 410);',
+        'return respond(problem(410, "Gone", e.getMessage(), "problem.not-found", request), 410);',
       ],
       routeFile: "FilesController.java",
     },

@@ -11,15 +11,27 @@ public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCus
 {
     public CreateCustomerCommandValidator()
     {
-        RuleFor(x => x.Username).Must(v => v == null || v.EnumerateRunes().Count() >= 3 && v.EnumerateRunes().Count() <= 32)
-            .WithMessage("Username must be 3 to 32 characters");
-        RuleFor(x => x.Age).InclusiveBetween(18, 150)
-            .WithMessage("Age must be between 18 and 150");
+        RuleFor(x => x.Username).Must(v => v == null || v.EnumerateRunes().Count() >= 3)
+            .WithMessage("Username must be 3 to 32 characters")
+            .WithErrorCode("field.min-length")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 3 }).Must(v => v == null || v.EnumerateRunes().Count() <= 32)
+            .WithMessage("Username must be 3 to 32 characters")
+            .WithErrorCode("field.max-length")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["max"] = 32 });
+        RuleFor(x => x.Age).GreaterThanOrEqualTo(18)
+            .WithMessage("Age must be between 18 and 150")
+            .WithErrorCode("field.min")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 18 }).LessThanOrEqualTo(150)
+            .WithMessage("Age must be between 18 and 150")
+            .WithErrorCode("field.max")
+            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["max"] = 150 });
         RuleFor(x => x).Must(x => x.Username != x.Email)
             .WithName("Username")
-            .WithMessage("Invariant violated: username != email");
+            .WithMessage("Business rule violated")
+            .WithErrorCode("problem.domain-floor");
         RuleFor(x => x).Must(x => Regex.IsMatch(x.Email, "^[^@]+@[^@]+\\.[^@]+$") && x.Email.EnumerateRunes().Count() <= 120)
             .WithName("Email")
-            .WithMessage("Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120");
+            .WithMessage("Business rule violated")
+            .WithErrorCode("problem.domain-floor");
     }
 }

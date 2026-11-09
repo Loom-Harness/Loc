@@ -30,9 +30,7 @@ context Sales with softDeleteByDefault {
   aggregate Order { subject: string }
 }
 
-ui WebApp {
-  with scaffold(subdomains: [Sales])
-}
+ui WebApp with scaffold(subdomains: [Sales]) { }
 ```
 
 The full grammar of `with` is in [`language.md`](language.md).

@@ -189,8 +189,6 @@ function safeTargetDirFor(file: string): { prefix: string; reason: string } | un
  *  ID-terminal name (`src/util/naming.ts`), or a small set of
  *  message/title BUILDERS that hash or map their input to a stable,
  *  bounded output before it reaches `JSON.stringify`:
- *    - `messageCode(text)` → `msg.<hash>` (src/util/message-code.ts) — a
- *      content hash, never the text itself.
  *    - `problemTitle(status)` / `disallowedMessage(agg, op)` — fixed
  *      strings built from a closed httpStatus / compiler-name vocabulary
  *      (Wave 1 hand-off's own "compiler-built strings" group).
@@ -310,12 +308,6 @@ const DANGER_WAIVERS: ReadonlyArray<{ file: string; arg: string; reason: string 
     arg: "`<id> — ${reason}`",
     reason:
       "`reason` is a fixed, developer-authored diagnostic string built from a compiler identifier (inner.targetName) — never `.ddd`-authored text.",
-  },
-  {
-    file: "src/generator/_i18n/domain-floor.ts",
-    arg: "st.message ? st.message.text : `Precondition failed: ${st.source}`",
-    reason:
-      "workflowPreconditionThrowArgs (banking eval B-02): its ONLY consumers are the workflow precondition throw sites of the node (platform/hono), .NET, Java and Python WorkflowStmtTargets — a JS-family position plus the three non-interpolating safe targets of SAFE_TARGET_DIRS. Elixir renders the same rule through its own elixirString funnel (vanilla/denial.ts workflowDenialTerm), never through this helper.",
   },
   {
     file: "src/generator/elixir/vanilla/operation-returns-emit.ts",

@@ -31,16 +31,18 @@ public sealed class MalformedPathIdFilter : IResourceFilter
             Status = 422,
             Detail = "One or more fields are invalid.",
             Instance = context.HttpContext.Request.Path,
+            Extensions = { ["code"] = "problem.field-invalid" },
         };
-        // MVC's own ModelBindingMessageProvider wording, so this answer is
-        // byte-identical to the one the Guid binder gives for the same defect on
-        // a route that carries no body.
+        // The shared malformed-id sentence and code, the same answer the Guid
+        // binder gives (ValidationProblem) for the same defect on a route that
+        // carries no body.
         problem.Extensions["errors"] = new[]
         {
             new Dictionary<string, object>
             {
                 ["pointer"] = "/id",
-                ["message"] = $"The value '{text}' is not valid.",
+                ["message"] = "Expected UUID.",
+                ["code"] = "field.malformed-id",
             },
         };
         context.Result = new ObjectResult(problem)

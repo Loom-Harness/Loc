@@ -40,7 +40,9 @@ describe("malformed body id is a 422 field refusal", () => {
     const advice = await find("java", "ApiExceptionAdvice.java");
     expect(advice).toContain("malformedIdPointer(e)");
     expect(advice).toContain("java.util.UUID.class.equals(ife.getTargetType())");
-    expect(advice).toContain('new WireFormatException(badId, "Expected UUID.")');
+    expect(advice).toContain(
+      'new WireFormatException(badId, "Expected UUID.", "field.malformed-id", null)',
+    );
   });
 
   it("dotnet: a Guid conversion failure answers the id sentence at its pointer", async () => {
@@ -54,7 +56,7 @@ describe("malformed body id is a 422 field refusal", () => {
     expect(ctx).toContain(
       '{:ok, agent} <- __loom_id_param(record, :agent, Map.get(params, "agent"))',
     );
-    expect(ctx).toContain('field, "Expected UUID.")');
+    expect(ctx).toContain('field, "Expected UUID.", loom_code: "field.malformed-id")');
     // The id guard builds its own changeset: an id-only context must not carry
     // the shared error helper, which `mix compile --warnings-as-errors`
     // rejects as unused.

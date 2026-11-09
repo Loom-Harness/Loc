@@ -37,10 +37,11 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { humanize } from "../../util/naming.js";
+import { sourceText } from "../_i18n/source-text.js";
+import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
 import type { MessageEntry } from "./i18n-extract.js";
 import { implicitModelTextEntries } from "./model-text-sites.js";
 import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
-import { sourceText } from "./source-text.js";
 
 /** Stable key for a pack-chrome string: `chrome.<name>`. */
 export function chromeKey(name: string): string {
@@ -479,6 +480,10 @@ export function chromeMergedWhenEnabled(
     ...APP_SHELL_CHROME,
     ...FORM_CHROME,
     ...TABLE_CONTROLS_CHROME,
+    // The server-error codes every frontend localizes a refusal by.  Merged
+    // like the shell chrome: any app that calls the api can receive any of
+    // them, and none is the reason a UI turns translatable.
+    ...WIRE_ERROR_MESSAGES,
   };
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {

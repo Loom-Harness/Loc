@@ -128,7 +128,7 @@ describe("the dangling-reference arm answers the declared domain floor", () => {
     const onError = routes.slice(routes.indexOf("app.onError("));
     expect(onError).toContain('.cause?.code) === "23503")');
     expect(onError).toContain(
-      `return problem(422, "Unprocessable Entity", ${JSON.stringify(DETAIL)});`,
+      `return problem(422, "Unprocessable Entity", ${JSON.stringify(DETAIL)}, "problem.dangling-reference");`,
     );
   });
 
@@ -142,14 +142,16 @@ describe("the dangling-reference arm answers the declared domain floor", () => {
     const filter = await file(src("dotnet"), "Api/DomainExceptionFilter.cs");
     expect(filter).toContain('Npgsql.PostgresException { SqlState: "23503" }');
     expect(filter).toContain(
-      `Problem(context, 422, "Unprocessable Entity", "${DETAIL}", trace_id)`,
+      `Problem(context, 422, "Unprocessable Entity", "${DETAIL}", trace_id, "problem.dangling-reference")`,
     );
   });
 
   it("java maps 23503 to 422 in the integrity advice", async () => {
     const advice = await file(src("java"), "api/ApiExceptionAdvice.java");
     expect(advice).toContain('if ("23503".equals(sqlState(e))) {');
-    expect(advice).toContain(`problem(422, "Unprocessable Entity", "${DETAIL}", request), 422`);
+    expect(advice).toContain(
+      `problem(422, "Unprocessable Entity", "${DETAIL}", "problem.dangling-reference", request), 422`,
+    );
   });
 
   it("elixir turns the FK into a changeset error, so the existing 422 arm renders it", async () => {
@@ -160,22 +162,29 @@ describe("the dangling-reference arm answers the declared domain floor", () => {
   });
 });
 
-describe("the still-referenced arm reads restrict_violation, not foreign_key_violation", () => {
+describe("the still-referenced arm reads a DELETE's foreign-key violation, the dangling arm a write's", () => {
   it("node's delete-path arm accepts 23001", async () => {
     const routes = await file(src("node"), "http/customer.routes.ts");
     expect(routes).toContain('["23001", "23503"].includes(');
     expect(routes).toContain("Customer is still referenced and cannot be deleted.");
   });
 
-  it("java's ReferencedInUse arm keys on 23001 ALONE, so 23503 stays the dangling case", async () => {
+  it("java's app-global ReferencedInUse arm takes 23503 only on a DELETE, so a write's 23503 stays the dangling case", async () => {
+    // Postgres raises 23503 for a DELETE refused by ON DELETE RESTRICT, not
+    // 23001 (`src/generator/_persistence/pg-sqlstate.ts`).
     const advice = await file(src("java"), "api/ApiExceptionAdvice.java");
-    const restrictAt = advice.indexOf('if ("23001".equals(sqlState(e))) {');
+    const restrictAt = advice.indexOf(
+      'if ("23001".equals(sqlState(e)) || ("23503".equals(sqlState(e)) && isDelete(request))) {',
+    );
     const fkAt = advice.indexOf('if ("23503".equals(sqlState(e))) {');
     expect(restrictAt).toBeGreaterThan(-1);
     expect(fkAt).toBeGreaterThan(restrictAt);
     // The two arms must not answer the same thing, or the discrimination is a
     // no-op dressed up as one.
-    expect(advice.slice(restrictAt, fkAt)).toContain("still referenced and cannot be deleted");
+    expect(advice.slice(restrictAt, fkAt)).toContain(
+      'referencedDetail(request), "problem.referenced-in-use"',
+    );
+    expect(advice).toContain("Customer is still referenced and cannot be deleted.");
     expect(advice.slice(fkAt)).toContain(DETAIL);
   });
 });

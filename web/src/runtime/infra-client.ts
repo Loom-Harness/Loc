@@ -10,7 +10,11 @@ import type {
   StorageOpenResult,
   StorageSchemaPlan,
 } from "./infra-protocol.js";
+import type { BrokerInspectResult } from "./infra/broker-protocol.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
+
+/** The resource-fake services of `infra/services.ts`. */
+export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock";
 
 type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
 
@@ -61,9 +65,15 @@ export class InfraClient {
     return port2;
   }
 
-  /** Detach a deployable: the services drop what they hold for it. */
+  /** Detach a stopped deployable: its subscriptions end and its unacked
+   *  deliveries return to their queues. */
   disconnect(client: string): Promise<{ ok: true }> {
     return this.send({ service: "infra", op: "disconnect", params: { client } });
+  }
+
+  /** The broker's state and journal (the Events view; tests). */
+  inspectBroker(): Promise<BrokerInspectResult> {
+    return this.send({ service: "broker", op: "inspect", params: {} });
   }
 
   openStorage(params: StorageOpenParams): Promise<StorageOpenResult> {
@@ -80,6 +90,11 @@ export class InfraClient {
 
   wipe(key: string): Promise<WipeResult> {
     return this.send({ service: "storage", op: "wipe", params: { key } });
+  }
+
+  /** Call a resource-fake service (see `infra/services.ts`). */
+  service<T = unknown>(service: ResourceService, op: string, params: unknown = {}): Promise<T> {
+    return this.send({ service, op, params } as DistributiveOmit<InfraRequest, "id">);
   }
 
   /** Close every storage. */

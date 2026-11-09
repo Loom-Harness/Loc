@@ -24,7 +24,7 @@ system S {
       aggregate Ledger persistedAs: eventLog {
         total: int
         create open(amount: int) {
-          precondition amount > 0 message "amount must be positive"
+          precondition amountPositive: amount > 0
           emit Filed { ledger: id, amount: amount }
         }
         apply(e: Filed) { total := e.amount }

@@ -412,3 +412,50 @@ system Shop {
     expect(md).not.toContain("signs itself in");
   });
 });
+
+describe("README.md — what the in-process suites need", () => {
+  /** BACKEND_ONLY plus a context-level `test`: an integration test. */
+  const WITH_INTEGRATION = BACKEND_ONLY.replace(
+    "      }\n    }\n    storage pg",
+    `        test "a saved entry reads back" {
+          let e = Entry.create(memo: "rent", amount: 100)
+          let back = Entry.find(e.id)
+          expect(back.memo).toBe("rent")
+        }
+      }
+    }
+    storage pg`,
+  );
+
+  it("claims no database only for a model whose suites need none", async () => {
+    const md = await readme(BACKEND_ONLY);
+    expect(md).not.toContain("No database");
+    expect(md).not.toContain("integration test");
+    expect(md).not.toContain("LOOM_PG_URL");
+  });
+
+  it("says a context test needs Postgres and points the suite at the project's own database", async () => {
+    expect(WITH_INTEGRATION).not.toBe(BACKEND_ONLY);
+    const files = await generateSystemFiles(WITH_INTEGRATION);
+    // Vacuity guard: the model really emitted an integration suite.
+    expect([...files.keys()].some((p) => /^api\/.*integration.*\.test\.ts$/.test(p))).toBe(true);
+    const md = files.get("README.md")!;
+    expect(md).toContain("is an **integration test**");
+    expect(md).toContain("LOOM_PG_URL=postgres://postgres:postgres@localhost:5432/api npm test");
+  });
+
+  it("ends each unit block with a one-test command naming a test from the model", async () => {
+    const md = await readme(BACKEND_ONLY);
+    expect(md).toContain("npm test -- -t 'an entry keeps its memo'   # just one test");
+    const dotnet = await readme(
+      DOTNET_BACKEND.replace(
+        "context Accounting { aggregate Entry with crudish { memo: string } }",
+        `context Accounting { aggregate Entry with crudish { memo: string
+        test "an entry keeps its memo" { let e = Entry.create(memo: "rent")  expect(e.memo).toBe("rent") } } }`,
+      ),
+    );
+    expect(dotnet).toMatch(
+      /dotnet test \S+ --filter 'DisplayName=an entry keeps its memo' {3}# just one test/,
+    );
+  });
+});

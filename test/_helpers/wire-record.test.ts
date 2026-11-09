@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ERROR_CODE_ROWS } from "./error-code-rows.js";
 import {
   applyWaivers,
   decimalEqual,
@@ -18,6 +19,39 @@ import {
   type WireWaiver,
 } from "./wire-record.js";
 import { WIRE_WAIVERS } from "./wire-waivers.js";
+
+describe("#4473: no error-code waiver is left — a missing code gates on every leg", () => {
+  const div = (path: string, golden: unknown) => ({
+    seq: 1,
+    request: "POST /api/products",
+    kind: "key-set" as const,
+    path,
+    golden: golden as never,
+    actual: undefined as never,
+  });
+
+  it("a missing wire code / params gates on every leg, node included", () => {
+    const missing = [
+      div("$.code", "problem.field-invalid"),
+      div("$.errors[0].code", "field.missing"),
+      div("$.errors[0].params", { qty: -1 }),
+      div("$.code", "Sales.OutOfStock.message"),
+    ];
+    // Every backend answers the codes and the field-limit codes, so no leg is
+    // waived on them: a missing code gates everywhere.
+    for (const row of ERROR_CODE_ROWS) {
+      expect(row.status, row.platform).toBe("done");
+      expect(row.fieldLimits, row.platform).toBe("done");
+    }
+    for (const leg of ["node", "mikroorm", "dotnet", "dapper", "python", "java", "elixir"])
+      expect(applyWaivers(missing, leg, "c", WIRE_WAIVERS).gating, leg).toHaveLength(4);
+  });
+
+  it("do not cover a domain field that happens to be named `code`", () => {
+    const domain = [div("$.code", "WID"), div("$.sku.code", "ABC-1")];
+    expect(applyWaivers(domain, "java", "c", WIRE_WAIVERS).gating).toHaveLength(2);
+  });
+});
 
 const entry = (o: Partial<WireEntry> & { seq: number }): WireEntry => ({
   method: "GET",

@@ -100,7 +100,9 @@ describe("hono/drizzle generator — versioned optimistic-concurrency", () => {
     expect(routes).toContain("ConcurrencyError");
     expect(routes).toContain("if (err instanceof ConcurrencyError) {");
     expect(routes).toContain('event: "conflict", aggregate: "Customer"');
-    expect(routes).toContain('return problem(409, "Conflict", err.message);');
+    expect(routes).toContain(
+      'return problem(409, "Conflict", err.message, "problem.version-conflict");',
+    );
   });
 
   it("routes the version token onto reads but off create/update bodies", async () => {

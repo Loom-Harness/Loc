@@ -18,7 +18,7 @@ system Shop {
     context Sales {
       aggregate Order with crudish {
         code: string
-        invariant code.length > 0 message "Order code is required"
+        invariant orderCodeRequired: code.length > 0
       }
       repository Orders for Order { }
     }
@@ -210,17 +210,6 @@ describe("Phoenix LocaleSwitcher", () => {
     const shell = file(await gen(["de", "fr"]), "layouts/app.html.heex");
     expect(shell).toContain(">Deutsch</option>");
     expect(shell).toContain("loom-locale-switcher");
-  });
-});
-
-describe("Phoenix 422 locale lookup", () => {
-  it("routes Accept-Language through the shared matcher, not a verbatim lowercase", async () => {
-    const files = await gen(["de", "fr"]);
-    const problem = file(files, "_web/problem_details.ex");
-    expect(problem).toContain("AppWeb.Locale.header_gettext_locale(App.RequestContext.locale())");
-    expect(problem).not.toContain("String.downcase()");
-    const locale = file(files, "_web/locale.ex");
-    expect(locale).toContain("negotiate(nil, nil, accept_language) |> gettext_locale()");
   });
 });
 

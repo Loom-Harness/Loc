@@ -1,0 +1,5 @@
+{
+  "Customer.rule.emailContain": "Email must contain @",
+  "Survey.rule.rating15": "Rating must be 1..5",
+  "Ticket.rule.replyCannotEmpty": "Reply cannot be empty"
+}

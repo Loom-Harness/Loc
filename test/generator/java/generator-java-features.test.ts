@@ -118,7 +118,7 @@ describe("java generator — extern operations (domain extension point, Phase 2)
     // One static method per extern op, taking the loaded aggregate; loud default.
     expect(hook).toContain("static void syncFromVcs(Project project) {");
     expect(hook).toContain(
-      'throw new UnsupportedOperationException("extern operation `syncFromVcs` on Project is not implemented — fill in ProjectExtern.syncFromVcs(...)");',
+      'throw new NotImplementedException("extern operation `syncFromVcs` on Project is not implemented — fill in ProjectExtern.syncFromVcs(...)");',
     );
   });
 
@@ -127,7 +127,7 @@ describe("java generator — extern operations (domain extension point, Phase 2)
     expect(proj).toContain("public void syncFromVcs() {");
     // preconditions inline, then delegate, then invariants — the framework flow.
     expect(proj).toContain(
-      'throw new DomainException("Precondition failed: active == true", DomainException.Kind.PRECONDITION);',
+      'throw new DomainException("Business rule violated", DomainException.Kind.PRECONDITION);',
     );
     expect(proj).toContain("ProjectExtern.syncFromVcs(this);");
     expect(proj).toContain("this._assertInvariants();");

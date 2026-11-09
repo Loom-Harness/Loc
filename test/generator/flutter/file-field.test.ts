@@ -134,7 +134,7 @@ describe("flutter: a File field INSIDE a form (forms.dart)", () => {
   it("enforces a REQUIRED file outside the Form validator sweep (it is not a FormField)", async () => {
     const forms = await dartFile("mobile/lib/forms.dart");
     expect(forms).toContain("if (_blob == null) {");
-    expect(forms).toContain("setState(() => _error = 'Blob is required');");
+    expect(forms).toContain("setState(() => _error = ServerIssue.plain('Blob is required'));");
     // The OPTIONAL one must NOT be guarded.
     expect(forms).not.toContain("if (_thumb == null) {");
   });

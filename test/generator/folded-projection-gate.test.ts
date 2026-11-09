@@ -171,7 +171,7 @@ describe("the folded-projection router answers a missing key as 404", () => {
     const out = await fileEndingWith("node", "", "http/projections.ts");
     expect(out).toContain("app.onError((err, c) => {");
     expect(out).toContain(
-      'if (err instanceof AggregateNotFoundError) return problem(404, "Not Found", err.message);',
+      'if (err instanceof AggregateNotFoundError) return problem(404, "Not Found", err.message, "problem.not-found");',
     );
     // …and the handler is registered INSIDE projectionsRoutes, not on the
     // parent app (where it would never see this router's throws).

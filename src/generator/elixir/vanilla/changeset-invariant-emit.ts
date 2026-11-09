@@ -38,10 +38,11 @@ import {
 import { ruleMembers } from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { messageCode } from "../../../util/message-code.js";
 import { elixirString, snake } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { exRuleParams } from "./denial.js";
 
 /** True when a rule leans on one of the shapes `structEvaluable` admits only
  *  since #3023 — a member read, a method call, or a `this-derived` inline.
@@ -106,17 +107,17 @@ function referencedContainments(inv: InvariantIR, collectionFields: ReadonlySet<
 
 export { unrenderableInvariants };
 
-/** A MESSAGED rule routes to the `validate_invariants/1` residual carrier — so
+/** A NAMED rule routes to the `validate_invariants/1` residual carrier — so
  *  its wire `code` rides the `add_error` metadata (Ecto's native validators
  *  can't carry a custom key) — when its predicate is renderable against the
  *  applied struct: either a struct-evaluable cross-field comparison OR a
  *  recognized single-field shape (`.length` / `.matches` / numeric bound, which
  *  `renderExpr` renders as `String.length` / `Regex.match?` / `Decimal.compare`).
- *  A message-LESS UNGUARDED single-field rule is unaffected — it keeps its
+ *  An UNNAMED UNGUARDED single-field rule is unaffected — it keeps its
  *  native `validate_*` line (byte-identical). Consumed by BOTH
  *  `residualInvariants` (to include it here) and `changeset-emit`'s native path
  *  (to exclude it there), so the two never double-emit. */
-export function messagedRoutesToResidual(
+export function namedRoutesToResidual(
   inv: InvariantIR,
   /** The aggregate/part the rule belongs to, for `unreadableCollections`.
    *  Optional so the native path in `changeset-emit` (which asks only "does
@@ -128,15 +129,15 @@ export function messagedRoutesToResidual(
   return renderableHere(inv, owner ? unreadableCollections(owner) : new Set());
 }
 
-/** Aggregate invariants that need the `validate_invariants/1` seam: message-less
+/** Aggregate invariants that need the `validate_invariants/1` seam: unnamed
  *  cross-field comparisons (fully evaluable against the applied struct), every
  *  GUARDED rule (no native `validate_*` line can carry an implication, so this
- *  is the only carrier it has — M-T6.55 F15), plus every MESSAGED rule that
+ *  is the only carrier it has — M-T6.55 F15), plus every NAMED rule that
  *  routes here to carry its wire `code`.
  *
  *  The three arms cannot double-emit with the native path: `changeset-emit`
  *  renders `singleFieldConstraints(inv) ?? []`, which is null for a guarded rule
- *  and empty for a cross-field one, and it skips `messagedRoutesToResidual`
+ *  and empty for a cross-field one, and it skips `namedRoutesToResidual`
  *  explicitly. */
 export function residualInvariants(
   agg: Pick<AggregateIR, "invariants"> & Partial<Pick<AggregateIR, "associations">>,
@@ -147,7 +148,7 @@ export function residualInvariants(
       (inv.message == null &&
         (inv.guard !== undefined || singleFieldConstraints(inv) === null) &&
         renderableHere(inv, opaque)) ||
-      messagedRoutesToResidual(inv, agg),
+      namedRoutesToResidual(inv, agg),
   );
 }
 
@@ -205,22 +206,23 @@ export function renderInvariantValidatorFn(
   const checks = residuals.map((inv) => {
     const pred = renderExpr(inv.expr, rc);
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    // A message-less rule answers node's refine default (RS-43,
-    // D-MESSAGELESS-DEFAULT), the cross-backend sentence every wire validator
-    // sends for it.
-    const msg = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
-    // A messaged rule attaches the stable content-hash wire `code` (the i18n
-    // key) as `add_error` metadata (`loom_code:`), surfaced by the 422 handler;
-    // a message-less rule adds no metadata (byte-identical).
-    // …and the RFC 6901 pointer its DOMAIN-FLOOR entry names (M-T1.11 (c)):
-    // `/<field>` for a single-field rule, else "" — the wire rung keeps pointing
-    // at the error's field and never reads it.
+    // The cross-backend rule text (`ruleText`): a named rule's, else the
+    // generic sentence every wire validator sends — never the source.
+    const msg = ruleText(inv);
+    // A named rule attaches its identity key (the wire `code`) as `add_error`
+    // metadata (`loom_code:`), surfaced by the 422 handler, plus the RFC 6901
+    // pointer its DOMAIN-FLOOR entry names: `/<field>` for a single-field rule,
+    // else "" — the wire rung keeps pointing at the error's field and never
+    // reads it.  An unnamed rule adds no metadata.
+    // A named rule also carries the values it read (`loom_params`); an unnamed
+    // rule carries its generic catalog key (`loom_rule_code`) — `field.rule`, or
+    // `problem.domain-floor` for a cross-field rule — and no params.
+    const ruleParams = inv.message ? exRuleParams(inv, (e) => renderExpr(e, rc)) : undefined;
     const codeOpt = inv.message
-      ? `, loom_code: ${JSON.stringify(messageCode(inv.message.text))}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
-      : "";
-    // The message goes through the shared escaping funnel: a raw `#{` in the
-    // author's `message "…"` (or in the derived `Invariant violated: <source>`) would
-    // interpolate when the changeset runs, not read as text.
+      ? `, loom_code: ${elixirString(inv.message.key)}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}${ruleParams ? `, loom_params: ${ruleParams}` : ""}`
+      : `, loom_rule_code: ${elixirString(ruleCode(inv))}`;
+    // The message goes through the shared escaping funnel: a raw `#{` in a
+    // translator's text would interpolate when the changeset runs.
     const violate = `add_error(changeset, :${field}, ${elixirString(msg)}${codeOpt})`;
     for (const c of referencedContainments(inv, collectionFields)) normalised.add(c);
     const core = inv.guard
@@ -260,7 +262,7 @@ ${core.replace(/^/gm, "  ")}
     : "";
 
   // M-T1.11 (c) — the operation-persist twin: the same checks, with every
-  // MESSAGED error they add tagged `loom_domain_floor`, so ProblemDetails
+  // NAMED error they add tagged `loom_domain_floor`, so ProblemDetails
   // answers it on the DOMAIN-FLOOR rung (title "Unprocessable Entity", the
   // message as `detail`, one errors[] entry with the rule's code and pointer)
   // the other four backends' operation throw answers — not the wire rung's
@@ -269,7 +271,7 @@ ${core.replace(/^/gm, "  ")}
   const domainFloorFn = residuals.some((inv) => inv.message)
     ? `
 
-  @doc "Re-assert the invariants after an operation body (the DOMAIN FLOOR) — a messaged violation answers the domain-floor 422 with its errors[] entry."
+  @doc "Re-assert the invariants after an operation body (the DOMAIN FLOOR) — a named violation answers the domain-floor 422 with its errors[] entry."
   def validate_domain_floor(changeset) do
     before = length(changeset.errors)
     checked = validate_invariants(changeset)
@@ -293,7 +295,7 @@ ${normBlock}${checks.join("\n\n")}
   end${domainFloorFn}${helper}`;
 }
 
-/** True when the aggregate's residual invariants include a MESSAGED one — the
+/** True when the aggregate's residual invariants include a NAMED one — the
  *  changeset module then carries `validate_domain_floor/1` (M-T1.11 (c)) and the
  *  operation-persist pipe runs it instead of `validate_invariants/1`. */
 export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants">): boolean {
@@ -301,7 +303,7 @@ export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants"
 }
 
 /** The merge-patch update's invariant pass (RS-47) — `validate_invariants/1`
- *  over the merged struct, with each MESSAGED error re-staged by what the patch
+ *  over the merged struct, with each NAMED error re-staged by what the patch
  *  carried: a rule whose every member the patch carried stays on the wire rung
  *  (the other four backends judge it in their request validator), and one over
  *  a member the patch left out moves to the DOMAIN FLOOR, which is where they
@@ -310,21 +312,21 @@ export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants"
 export function renderPatchInvariantFn(
   agg: Pick<AggregateIR, "invariants" | "fields" | "operations">,
 ): string {
-  const messaged = residualInvariants(agg).filter((inv) => inv.message);
-  if (messaged.length === 0) return "";
+  const named = residualInvariants(agg).filter((inv) => inv.message);
+  if (named.length === 0) return "";
   const update = (agg.operations ?? []).find((op) => op.name === "update");
   const available = new Set((update?.params ?? []).map((p) => p.name));
-  const fallbackField = agg.fields?.[0]?.name ?? "id";
+  // Keyed by the rule's identity key (`loom_code`), never its text: two rules
+  // can share one message, and routing by text lets the first one's members
+  // answer for the second.
   const seen = new Set<string>();
   const clauses: string[] = [];
-  for (const inv of messaged) {
-    const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = elixirString(inv.message!.text);
-    const key = `${field}\u0000${msg}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+  for (const inv of named) {
+    const code = elixirString(inv.message!.key);
+    if (seen.has(code)) continue;
+    seen.add(code);
     const members = ruleMembers(inv, available).map((m) => JSON.stringify(snake(m)));
-    clauses.push(`  defp __patch_members(:${field}, ${msg}), do: [${members.join(", ")}]`);
+    clauses.push(`  defp __patch_members(${code}), do: [${members.join(", ")}]`);
   }
   return `  @doc "The merge-patch update's invariants — a rule over a key the patch did not carry is judged on the merged state at the domain floor."
   def validate_patch_invariants(changeset, attrs) do
@@ -341,7 +343,7 @@ export function renderPatchInvariantFn(
   end
 
   defp __patch_stage({field, {msg, opts}} = error, attrs) do
-    carried = Enum.all?(__patch_members(field, msg), &Map.has_key?(attrs, &1))
+    carried = Enum.all?(__patch_members(Keyword.get(opts, :loom_code)), &Map.has_key?(attrs, &1))
 
     if carried or not Keyword.has_key?(opts, :loom_code),
       do: error,
@@ -349,7 +351,7 @@ export function renderPatchInvariantFn(
   end
 
 ${clauses.join("\n")}
-  defp __patch_members(_field, _msg), do: []`;
+  defp __patch_members(_code), do: []`;
 }
 
 /** The collection-valued names a rule can read — a collection CONTAINMENT and a
@@ -363,11 +365,11 @@ function collectionFieldNames(
   ]);
 }
 
-/** The message-less invariants an operation persist re-asserts as the
+/** The unnamed invariants an operation persist re-asserts as the
  *  operation's DOMAIN THROW (`assert_op_invariants/1`): every renderable
- *  message-less rule, single-field and cross-field alike, except one that reads
+ *  unnamed rule, single-field and cross-field alike, except one that reads
  *  a collection (it stays on `validate_invariants/1`, whose `NotLoaded`
- *  normalisation it needs).  A messaged rule keeps its coded domain-floor path. */
+ *  normalisation it needs).  A named rule keeps its coded domain-floor path. */
 export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
   const opaque = unreadableCollections(agg);
   const collections = collectionFieldNames(agg);
@@ -382,7 +384,7 @@ export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
 /** `assert_op_invariants/1` — the operation persist's invariant floor.  Node,
  *  .NET, Java and Python assert every invariant after an operation body and
  *  throw the FIRST violated one in declaration order as a domain error, answered
- *  as 422 "Unprocessable Entity" with `Invariant violated: <rule>` as `detail`
+ *  as 422 "Unprocessable Entity" with the rule's generic sentence (never its source) as `detail`
  *  and no `errors[]`.  The elixir persist is a changeset, so the first violation
  *  is added as one error tagged `loom_invariant`; `ProblemDetails` answers that
  *  tag with the same body.  Empty when the aggregate has no such rule. */
@@ -400,10 +402,10 @@ export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: strin
       ? `(${renderExpr(inv.guard, rc)}) && !(${renderExpr(inv.expr, rc)})`
       : `!(${renderExpr(inv.expr, rc)})`;
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = elixirString(`Invariant violated: ${inv.source}`);
+    const msg = elixirString(floorRuleText(inv));
     return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
   });
-  return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, \`Invariant violated: <rule>\`), as on the other four backends."
+  return `  @doc "Re-assert the aggregate's unnamed invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."
   def assert_op_invariants(changeset) do
     data = apply_changes(changeset)
 

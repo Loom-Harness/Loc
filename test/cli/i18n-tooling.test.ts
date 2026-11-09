@@ -83,9 +83,21 @@ async function keyOf(message: string): Promise<string> {
 }
 
 /** Translate the whole source `DE <english>`, so a locale is complete + valid. */
+/** A complete translation of the source catalog: every message prefixed, and
+ *  every plural (`{n, plural, one {…} other {…}}`, e.g. the `field.min-length`
+ *  wire text) given exactly the forms the locale's CLDR rules use — so only
+ *  what a test then changes is wrong. */
 async function translateAll(locale: string, prefix = "DE "): Promise<Record<string, string>> {
+  const categories = new Intl.PluralRules(locale).resolvedOptions().pluralCategories;
+  const extra = categories.filter((c) => c !== "one" && c !== "other");
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(await extractCatalog(ddd))) out[k] = `${prefix}${v}`;
+  for (const [k, v] of Object.entries(await extractCatalog(ddd))) {
+    const forms = v.replace(
+      / other \{([^{}]*)\}\}/g,
+      (_m, body: string) => ` ${extra.map((c) => `${c} {${body}} `).join("")}other {${body}}}`,
+    );
+    out[k] = `${prefix}${forms}`;
+  }
   writeLocale(locale, out);
   return out;
 }

@@ -1,9 +1,9 @@
+import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
 import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
 import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
-import { sourceText } from "../generator/_walker/source-text.js";
 import type { EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
 
@@ -143,11 +143,11 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         byKey.set(key, message);
     }
   }
-  // BACKEND validation messages (M-T1.11) — an authored `message "…"` on an
-  // `invariant` / `check` / `precondition`, keyed by the `msg.<hash>` code the
-  // wire validators put on `errors[].code` and every backend's own catalog is
-  // keyed by.  Merged in AFTER the chrome gate deliberately: these are server-side
-  // strings, so a UI-less system with authored rule messages has a real catalog
+  // BACKEND validation messages — a NAMED `invariant` / `check` /
+  // `precondition`, keyed by its identity key `<Ctx>.<Owner>.rule.<name>`, the
+  // code the wire validators put on `errors[].code` and every backend's own
+  // catalog is keyed by.  Merged in AFTER the chrome gate deliberately: these are server-side
+  // strings, so a UI-less system with named rules has a real catalog
   // to translate without pulling in app-shell chrome no frontend renders.
   for (const sub of sys.subdomains) {
     for (const { code, text } of collectWireValidationMessages(sub.contexts)) byKey.set(code, text);
