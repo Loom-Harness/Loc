@@ -46,6 +46,11 @@ the registry's config schema:
 - **wrong-typed value** → error,
 - **required key missing** on a `storage` → error (e.g. `s3` requires `bucket`).
 
+A `restApi` storage also takes an optional `spec:` — the API's OpenAPI document,
+inline JSON or a file beside the entry. Generated backends ignore it; the
+playground's mock for that API samples its responses from it (an echo without
+one).
+
 Adding a new technology is two coordinated edits — a `type:` literal in the
 grammar and a registry entry — and never a soft keyword.
 

@@ -303,6 +303,8 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
     const infra = this.infraClient();
     this.booted = null;
     await infra.reset();
+    // The external-API mocks answer from the specs the storages declare.
+    for (const { origin, spec } of plan.restSpecs ?? []) await infra.service("httpMock", "registerSpec", { origin, spec });
     // A deployable that left the system takes its worker with it.
     const slugs = new Set(plan.backends.map((b) => b.slug));
     for (const [slug, rt] of this.runtimes) {

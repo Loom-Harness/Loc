@@ -143,6 +143,8 @@ export interface StorageBootPlan {
  *  the storage it binds. */
 export interface BootPlan {
   storages: StorageBootPlan[];
+  /** OpenAPI documents the external-API mocks answer from, by origin. */
+  restSpecs?: { origin: string; spec: object }[];
   /** In order of preference: the first one is the default dispatch target
    *  (the backend the frontend talks to). */
   backends: Array<{

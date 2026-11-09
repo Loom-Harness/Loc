@@ -64,6 +64,7 @@ import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
 import { loadProjectFromVfs } from "./project-loader.js";
+import { restSpecsOf } from "./rest-specs.js";
 import type { MigrationUnitPlan, UnrecordedChanges } from "../runtime/protocol.js";
 import type {
   BuildDiagnostic,
@@ -149,6 +150,8 @@ async function loadEvolutionTree(
       loom: EnrichedLoomModel;
       diagnostics: BuildDiagnostic[];
       chainFiles: { name: string; content: string }[] | undefined;
+      /** Read a file of the tree (a `restApi` spec). */
+      readFile: (path: string) => string | undefined;
     }
   | { error: BuildDiagnostic[] }
 > {
@@ -168,7 +171,12 @@ async function loadEvolutionTree(
       diagnostics.push(...ir);
       if (ir.some((d) => d.severity === "error")) return { error: diagnostics };
     }
-    return { loom, diagnostics, chainFiles: readChainFiles(vfs, tree.entryPath) };
+    return {
+      loom,
+      diagnostics,
+      chainFiles: readChainFiles(vfs, tree.entryPath),
+      readFile: (path) => vfs.read(path),
+    };
   } catch (err) {
     // Missing import / cycle (from the loader) or a lowering throw.
     return { error: [loweringDiag(err)] };
@@ -360,7 +368,7 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
   if (loaded.loom.systems.length === 0) {
-    return { ok: true, plan: { kind: "unversioned" }, storages: [], diagnostics: loaded.diagnostics };
+    return { ok: true, plan: { kind: "unversioned" }, storages: [], restSpecs: [], diagnostics: loaded.diagnostics };
   }
   let chain: MigrationChain;
   try {
@@ -394,11 +402,14 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
       storages.push({ key: s.key, deployables: s.deployables, plan: { kind: "chain", units, unrecorded } });
     }
   }
+  const entryDir = params.current.entryPath.slice(0, params.current.entryPath.lastIndexOf("/"));
+  const rest = loaded.loom.systems.map((sys) => restSpecsOf(sys.storages, loaded.readFile, entryDir));
   return {
     ok: true,
     plan: { kind: "chain", units: unitPlans(all), unrecorded },
     storages,
-    diagnostics: loaded.diagnostics,
+    restSpecs: rest.flatMap((r) => r.specs),
+    diagnostics: [...loaded.diagnostics, ...rest.flatMap((r) => r.diagnostics)],
   };
 }
 

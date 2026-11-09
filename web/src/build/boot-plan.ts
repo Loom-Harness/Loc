@@ -39,6 +39,7 @@ export function bootPlan(
   placement: (storageKey: string) => { dataDir: string; island: string | null },
   /** The process env of a deployable's compose service. */
   envOf?: (slug: string) => Record<string, string>,
+  restSpecs: { origin: string; spec: object }[] = [],
 ): { plan: BootPlan; islands: string[] } {
   const groups: StoragePlan[] =
     storages.length > 0
@@ -50,6 +51,7 @@ export function bootPlan(
   const bound = new Set(backends.map((b) => storageOf(b.slug)));
   const islands: string[] = [];
   const out: BootPlan = {
+    ...(restSpecs.length > 0 ? { restSpecs } : {}),
     storages: groups
       .filter((g) => bound.has(g.key))
       .map((g) => {
