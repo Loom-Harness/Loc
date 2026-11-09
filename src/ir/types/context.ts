@@ -77,9 +77,9 @@ export interface PayloadIR {
    *  inline instead of a named `PayloadIR`. */
   variants?: TypeIR[];
   /** True for compiler-synthesized payloads (P2's per-aggregate
-   *  `<Agg>Wire`), false/absent for author-declared ones.  Lets later
+   *  `<Agg>Wire`), false for author-declared ones.  Lets later
    *  phases and the validator distinguish derived shapes from source. */
-  synthesized?: boolean;
+  synthesized: boolean;
   /** Set on a payload monomorphized from a generic carrier instantiation
    *  (P3b) — carries the originating `ctor` + carrier `arg` so backends can
    *  emit it as a DTO and resolve a `genericInstance` reference to this
@@ -347,10 +347,10 @@ export interface BoundedContextIR extends Sourced {
   /** Top-level `commandHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3).  Present when the context declares
    *  any; they ride alongside the IR, unread by any backend. */
-  commandHandlers?: CommandHandlerIR[];
+  commandHandlers: CommandHandlerIR[];
   /** Top-level `queryHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3). */
-  queryHandlers?: QueryHandlerIR[];
+  queryHandlers: QueryHandlerIR[];
   /** Named predicate specifications declared in this context. */
   criteria: CriterionIR[];
   /** Stateless pure-calculator domain services declared in this context

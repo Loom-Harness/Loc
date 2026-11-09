@@ -494,7 +494,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             migration: m.name,
             index,
             sql: step.sql,
-            ...(step.placement === "before" ? { before: true } : {}),
+            before: step.placement === "before",
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
@@ -682,6 +682,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           permissions.push({
             name: d.name,
             runtimeString: `${m.name.toLowerCase()}.${d.name}`,
+            impliedBy: [],
           });
           permEdges.push({ name: d.name, implies: d.implies ?? [] });
         }
@@ -697,7 +698,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         const impliedBy = impliedByNames
           .map((n) => runtimeOf.get(n))
           .filter((s): s is string => s !== undefined);
-        if (impliedBy.length > 0) p.impliedBy = impliedBy;
+        p.impliedBy = impliedBy;
       }
       subdomains.push({
         name: m.name,
@@ -1480,8 +1481,8 @@ function lowerContext(
     aggregates,
     repositories,
     workflows,
-    ...(commandHandlers.length > 0 ? { commandHandlers } : {}),
-    ...(queryHandlers.length > 0 ? { queryHandlers } : {}),
+    commandHandlers,
+    queryHandlers,
     criteria,
     domainServices,
     channels,
@@ -1705,6 +1706,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
       kind: p.kind as PayloadIR["kind"],
       fields: [],
       variants: p.variants.map((v) => lowerAtom(v, env)),
+      synthesized: false,
     };
   }
   // Pass `env` so a field's NamedType reference resolves against the context
@@ -1717,6 +1719,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
     name: p.name,
     kind: p.kind as PayloadIR["kind"],
     fields: p.fields.map((f) => lowerField(f, env)),
+    synthesized: false,
   };
 }
 
@@ -1725,7 +1728,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
  *  payload subtype").  Shares the underlying `FieldIR[]`; no copy needed
  *  since both views are read-only downstream. */
 function eventToPayload(e: EventIR): PayloadIR {
-  return { name: e.name, kind: "event", fields: e.fields };
+  return { name: e.name, kind: "event", fields: e.fields, synthesized: false };
 }
 
 function lowerAggregate(

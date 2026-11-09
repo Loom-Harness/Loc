@@ -35,6 +35,8 @@ const EMPTY_LISTS = {
   retrievals: [],
   seeds: [],
   eventSubscriptions: [],
+  commandHandlers: [],
+  queryHandlers: [],
 } as const;
 
 const ctx = (over: Partial<EnrichedBoundedContextIR> = {}): EnrichedBoundedContextIR =>
@@ -79,9 +81,9 @@ describe("mergeContexts — the plain-union fields", () => {
   });
 
   it("tolerates the OPTIONAL list fields being absent on a context", () => {
-    // `domainServices` / `projections` / `tests` / `commandHandlers` /
-    // `queryHandlers` are `?? []`-guarded: a context lowered without them must
-    // merge to an empty list, not to `undefined` spread into a flatMap.
+    // `domainServices` / `projections` / `tests` are `?? []`-guarded: a
+    // context lowered without them must merge to an empty list, not to
+    // `undefined` spread into a flatMap.
     const merged = mergeContexts([ctx(), ctx()]);
     expect(merged.domainServices).toEqual([]);
     expect(merged.projections).toEqual([]);
@@ -95,8 +97,8 @@ describe("mergeContexts — the plain-union fields", () => {
       ctx({ commandHandlers: [named("PlaceOrder")], queryHandlers: [named("GetOrder")] }),
       ctx({ commandHandlers: [named("ShipOrder")] }),
     ]);
-    expect((merged.commandHandlers ?? []).map((h) => h.name)).toEqual(["PlaceOrder", "ShipOrder"]);
-    expect((merged.queryHandlers ?? []).map((h) => h.name)).toEqual(["GetOrder"]);
+    expect(merged.commandHandlers.map((h) => h.name)).toEqual(["PlaceOrder", "ShipOrder"]);
+    expect(merged.queryHandlers.map((h) => h.name)).toEqual(["GetOrder"]);
   });
 });
 

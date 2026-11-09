@@ -72,10 +72,15 @@ const gotos = (spec: string): string[] =>
 const uiOf = (pages: Partial<PageIR>[]): UiIR =>
   ({
     name: "WebApp",
-    pages: pages.map((p) => ({ params: [], state: [], derived: [], actions: [], ...p }) as PageIR),
+    pages: pages.map(
+      (p) => ({ params: [], state: [], derived: [], actions: [], area: [], ...p }) as PageIR,
+    ),
     components: [],
     stores: [],
     apiParams: [],
+    channelParams: [],
+    notifications: [],
+    functions: [],
   }) as UiIR;
 
 describe("smokeSpec — one navigation assertion per param-less route", () => {

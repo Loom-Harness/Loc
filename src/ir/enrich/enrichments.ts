@@ -1018,8 +1018,8 @@ export function enrichContext(
   );
   return {
     ...ctx,
-    ...(queryHandlers ? { queryHandlers } : {}),
-    ...(commandHandlers ? { commandHandlers } : {}),
+    queryHandlers,
+    commandHandlers,
     valueObjects,
     enums,
     aggregates,

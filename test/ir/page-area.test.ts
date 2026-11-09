@@ -46,9 +46,9 @@ describe("page areas — containment grouping", () => {
       }
     `);
 
-    // top-level page: no area, default flat path (emitPath unset)
+    // top-level page: empty area, default flat path (emitPath unset)
     const home = pageNamed(loom, "Landing");
-    expect(home.area).toBeUndefined();
+    expect(home.area).toEqual([]);
     expect(home.emitPath).toBeUndefined();
 
     // doubly-nested: pages/sales/orders/list.tsx
