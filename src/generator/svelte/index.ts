@@ -186,7 +186,7 @@ export function generateSvelteForContexts(
   // Empty catalog → no runtime, walk sites pass `undefined` and output stays
   // byte-identical to pre-i18n.
   const i18nEnabled =
-    collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+    collectUiMessages(ui, sys.layouts).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
   // Two or more locales ship (the source plus a translated catalog): the shell
   // header carries the `LocaleSwitcher` and the routed tree re-renders on a
   // switch.  Set where the translated catalogs are emitted, below.
@@ -195,6 +195,7 @@ export function generateSvelteForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   const formScope = {
+    layouts: sys.layouts,
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: svelteTarget.modelTextImplicitSites === true,

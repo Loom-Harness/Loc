@@ -2,7 +2,10 @@ import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
 import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
-import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
+import {
+  chromeMergedWhenEnabled,
+  HAND_BUILT_FORM_SENTENCES,
+} from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
 import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
 import { isMacroEmitted, type OriginRef, type SourceRef } from "../ir/types/origin.js";
@@ -65,7 +68,11 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     const design = dep.design;
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    if (dep.platform === "feliz" || dep.platform === "flutter") continue;
+    if (dep.platform === "flutter") continue;
+    if (dep.platform === "feliz" || packFormatForBuiltin(design) === "angular") {
+      for (const base of HAND_BUILT_FORM_SENTENCES) out.add(base);
+      continue;
+    }
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
@@ -127,7 +134,7 @@ function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
 export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, string> {
   const byKey = new Map<string, string>();
   for (const ui of sys.uis) {
-    for (const { key, message } of collectUiMessages(ui)) {
+    for (const { key, message } of collectUiMessages(ui, sys.layouts)) {
       // Same key ⇒ same content hash ⇒ same message; last-writer-wins is a
       // no-op that also collapses the same string used at many call sites.
       byKey.set(key, message);

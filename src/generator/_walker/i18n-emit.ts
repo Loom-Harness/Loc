@@ -36,11 +36,12 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { richTextMessage } from "../../ir/util/icu-message.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { ariaLabelAttr, escapeHtmlAttr } from "./a11y-emit.js";
 import { chromeKey, chromeMessage } from "./i18n-chrome.js";
-import { icuFromConcat, literalString, messageKey } from "./i18n-extract.js";
-import { registerI18nImport } from "./render-primitive.js";
+import { icuFromConcat, literalString, messageKey, RICH_TEXT_ROLE } from "./i18n-extract.js";
+import { registerI18nImport, registerI18nRichImport } from "./render-primitive.js";
 import { namedArgValue, positionalArgs, unwrapTextLiteral } from "./shared/args.js";
 import type { StringPart } from "./target.js";
 import { emitExpr, renderTextContent, type WalkContext } from "./walker-core.js";
@@ -192,16 +193,17 @@ function icuTranslateCall(
 }
 
 /** The per-page document-title EXPRESSION (`page X { title: … }`), in the
- *  target's own language.  A literal under i18n becomes a `t()` call keyed
- *  `<ctx.i18nPrefix>.title.<hash>` — the key `collectUiMessages` wrote.  An
- *  interpolated title is never extracted (see there), so it renders as the raw
- *  expression, as does any title with i18n off. */
+ *  target's own language.  Under i18n a literal becomes a `t()` call keyed
+ *  `<ctx.i18nPrefix>.title.<hash>` — the key `collectUiMessages` wrote — and an
+ *  interpolated title (`` `Order {order.id}` ``) the ICU `t()` call over its
+ *  positional form, so a translator may reorder the holes.  With i18n off the
+ *  title renders as the raw expression. */
 export function localizedPageTitle(title: ExprIR, ctx: WalkContext): string {
   const literal = literalString(title);
   if (literal !== undefined && ctx.i18nPrefix) {
     return translateCall(ctx, messageKey(ctx.i18nPrefix, "title", literal), literal);
   }
-  return emitExpr(title, ctx);
+  return icuTranslateCall(title, ctx, "title") ?? emitExpr(title, ctx);
 }
 
 /** The NAMED-arg twin of {@link localizedRaw} (`Alert.title` → `alertTitle`,
@@ -784,6 +786,27 @@ export function localizedChromeAttr(ctx: WalkContext, attrName: string, name: st
       .trimStart();
   }
   return `${attrName}="${escapeHtmlAttr(english)}"`;
+}
+
+/** The whole-sentence rendering of a rich `Text { "Read the ", Bold { "terms" },
+ *  " first" }` — one catalog message whose emphasis is carried as tags, bound
+ *  through the target's `renderRichText` seam.  Undefined when the call is not
+ *  rich text, or the body has no translation runtime (the caller keeps the
+ *  ordinary slot path). */
+export function localizedRichText(
+  call: ExprIR & { kind: "call" },
+  ctx: WalkContext,
+): string | undefined {
+  const rich = richTextMessage(call);
+  if (!rich || !ctx.i18nPrefix) return undefined;
+  const key = messageKey(ctx.i18nPrefix, RICH_TEXT_ROLE, rich.positional);
+  const values = rich.holes.map((h) => ({ name: h.name, expr: emitExpr(h.expr, ctx) }));
+  registerI18nRichImport(ctx);
+  return ctx.target.renderRichText({
+    key,
+    message: sourceText(key, rich.display),
+    ...(values.length > 0 ? { values } : {}),
+  });
 }
 
 /** {@link localizedRaw} unwrapped for a JSX-children text position — the

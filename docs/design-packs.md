@@ -203,11 +203,12 @@ parameters.`, a bool cell's `Yes`/`No`, an empty picker's `Select…`.
 data only — never for a word a generator fills in, because "Add {item}" or
 "{operation} succeeded" cannot be right where the language declines the noun.
 A message that varies by operation or item type is generated per subject by the
-walker ("Add line", "Ship succeeded"; keys `chrome.addItem.<ValueObject>`,
-`chrome.operationSucceeded.<op>`) and handed to the template as a token:
+walker ("Add line", "Ship succeeded", "Order created"; keys `chrome.addItem.<ValueObject>`,
+`chrome.operationSucceeded.<op>`, `chrome.created.<Aggregate>`,
+`chrome.completed.<Workflow>`) and handed to the template as a token:
 `{{{addItemLabel}}}` (markup text) and `{{{successMessage}}}` (a target value).
 A pack that reads either token lists its base in `"sentenceChrome":
-["addItem", "operationSucceeded"]`, which is what puts those sentences in its
+["addItem", "operationSucceeded", "created", "completed"]`, which is what puts those sentences in its
 catalogs; `test/i18n/no-word-frames.test.ts` fails when the list and the
 templates disagree.
 

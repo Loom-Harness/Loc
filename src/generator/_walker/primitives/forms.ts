@@ -772,7 +772,10 @@ function emitFormOfAggregate(
   const slug = routeSegmentFor(agg.name);
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
     mutationCall: "const out = await create.mutateAsync(vals);",
-    successMessage: `${humanize(agg.name)} created`,
+    successMessage:
+      onSubmitJs === null
+        ? localizedPageChromeValue(ctx, sentenceChromeName("created", agg.name))
+        : "",
     redirectStmt: `navigate(\`/${slug}/\${out.id}\`)`,
     submitPendingExpr: "create.isPending",
     submitLabel: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
@@ -863,7 +866,10 @@ function emitFormRuns(
   });
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
     mutationCall: "await run.mutateAsync(vals);",
-    successMessage: `${humanize(workflow.name)} completed`,
+    successMessage:
+      onSubmitJs === null
+        ? localizedPageChromeValue(ctx, sentenceChromeName("completed", workflow.name))
+        : "",
     redirectStmt: `navigate("/workflows")`,
     submitPendingExpr: "run.isPending",
     submitLabel: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",

@@ -63,6 +63,7 @@ import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { sourceText } from "../_i18n/source-text.js";
+import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
   type FormInputModelText,
   formInputModelText,
@@ -801,14 +802,19 @@ export function flutterOperationForm(
 }
 
 /** Build the `FlutterFormSpec` for a `DestroyForm(of: agg)`. */
-export function flutterDestroyForm(aggName: string): FlutterFormSpec {
+export function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFormSpec {
+  // The delete button is the whole sentence `chrome.deleteEntity.<Agg>`, the one
+  // every other frontend renders — not a "Delete " frame around the name.
+  const name = sentenceChromeName("deleteEntity", aggName);
+  const submitExpr = text ? dartTranslate(chromeKey(name), chromeMessage(name)) : undefined;
   return {
     widgetName: destroyFormWidgetName(aggName),
     kind: "destroy",
     aggregate: aggName,
     needsId: true,
     pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}`,
-    submitLabel: `Delete ${humanize(aggName)}`,
+    submitLabel: chromeMessage(name),
+    ...(submitExpr ? { submitExpr } : {}),
     fields: [],
     dropped: [],
     destructive: true,
@@ -931,7 +937,7 @@ function collectBodyForms(
       } else if (e.name === "DestroyForm") {
         const ofArg = namedArg(e, "of");
         const agg = ofArg?.kind === "ref" ? aggregatesByName.get(ofArg.name) : undefined;
-        if (agg) push(flutterDestroyForm(agg.name));
+        if (agg) push(flutterDestroyForm(agg.name, text));
       } else if (e.name === "QueryView") {
         const agg = queryViewAggregate(namedArg(e, "of"), aggregatesByName);
         const data = namedArg(e, "data");

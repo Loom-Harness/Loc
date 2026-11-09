@@ -28,7 +28,7 @@ export default function CustomerNew() {
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
                     const out = await create.mutateAsync(vals);
-                    notifications.show({ color: "green", message: "Customer created" });
+                    notifications.show({ color: "green", message: t("chrome.created.Customer", "Customer created") });
                     navigate(`/customers/${out.id}`);
                   } catch (e) {
                     const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

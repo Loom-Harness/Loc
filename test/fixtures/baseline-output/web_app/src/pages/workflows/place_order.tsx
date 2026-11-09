@@ -30,7 +30,7 @@ export default function PlaceOrderWorkflow() {
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
                     await run.mutateAsync(vals);
-                    notifications.show({ color: "green", message: "Place Order completed" });
+                    notifications.show({ color: "green", message: t("chrome.completed.placeOrder", "Place Order completed") });
                     navigate("/workflows");
                   } catch (e) {
                     const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

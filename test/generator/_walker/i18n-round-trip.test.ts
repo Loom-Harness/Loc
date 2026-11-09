@@ -326,10 +326,10 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     id: "D-I18N-2",
     targets: ["flutter"],
     menus: BOTH,
-    key: /^chrome\.delete(Entity|Confirm)\.\w+$/,
+    key: /^chrome\.deleteConfirm\.\w+$/,
     reason:
-      '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
-      "(`forms.dart`), which owns the widget's label",
+      "`DestroyForm` on Flutter submits straight away — its form runtime (`forms.dart`) " +
+      "has no confirm prompt to read the catalogued sentence",
   },
   // --- design over-merge (_walker/i18n-chrome.ts) --------------------------
   {

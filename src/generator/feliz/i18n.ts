@@ -33,6 +33,7 @@ import {
 } from "../_frontend/i18n-runtime.js";
 import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { fsString } from "./fs-expr.js";
 
 /** The npm dependency the ICU half needs — the same engine, at the same pin,
@@ -126,7 +127,12 @@ export function renderFelizI18nModule(
    *  chrome joins the runtime catalog. */
   authGate = false,
 ): string {
-  const scope = { contexts, sentences: [], implicitModelText: true, authGate };
+  const scope = {
+    contexts,
+    sentences: HAND_BUILT_FORM_SENTENCES,
+    implicitModelText: true,
+    authGate,
+  };
   const catalog = buildUiCatalog(ui, {}, scope);
   // `renderTranslatedCatalogs` scopes each locale to THIS ui's keys, exactly as
   // the source catalog is (a translated catalog never carries another app's
@@ -320,6 +326,41 @@ export function renderFelizI18nModule(
     "            ->",
     "            name, box (System.DateTime(int (s.Substring(0, 4)), int (s.Substring(5, 2)), int (s.Substring(8, 2))))",
     "        | _ -> name, value",
+    "",
+    "    /// Translate a RICH-TEXT message — one sentence whose emphasis is carried as",
+    "    /// `<b>` / `<i>` / `<code>` tags, so a locale can reorder the parts — into",
+    "    /// styled inline elements.  The tags become private marker characters before",
+    "    /// the ICU step, so they never reach the formatter and a hole VALUE can",
+    "    /// never forge one.",
+    "    let rich (key: string) (defaultMessage: string) (values: (string * obj) list) : ReactElement =",
+    '        let marked = System.Text.RegularExpressions.Regex.Replace(t key defaultMessage, "<(/?)(b|i|code)>", "\\uE000$1$2\\uE001")',
+    "        let safe =",
+    "            values",
+    "            |> List.map (fun (name, value) ->",
+    "                match value with",
+    '                | :? string as s -> name, box (s.Replace("\\uE000", "").Replace("\\uE001", ""))',
+    "                | _ -> name, value)",
+    "        let text =",
+    "            if List.isEmpty safe then marked",
+    "            else runFormat (formatterFor current marked) (createObj (List.map (holeValue marked) safe))",
+    '        let tokens = System.Text.RegularExpressions.Regex.Split(text, "(\\uE000/?(?:b|i|code)\\uE001)") |> Array.toList',
+    "        let step (bold, italic, code, acc: ReactElement list) (token: string) =",
+    "            match token with",
+    '            | "\\uE000b\\uE001" -> (true, italic, code, acc)',
+    '            | "\\uE000/b\\uE001" -> (false, italic, code, acc)',
+    '            | "\\uE000i\\uE001" -> (bold, true, code, acc)',
+    '            | "\\uE000/i\\uE001" -> (bold, false, code, acc)',
+    '            | "\\uE000code\\uE001" -> (bold, italic, true, acc)',
+    '            | "\\uE000/code\\uE001" -> (bold, italic, false, acc)',
+    '            | "" -> (bold, italic, code, acc)',
+    "            | s ->",
+    "                let node = Html.text s",
+    "                let node = if code then Html.code [ node ] else node",
+    "                let node = if italic then Html.em [ node ] else node",
+    "                let node = if bold then Html.strong [ node ] else node",
+    "                (bold, italic, code, acc @ [ node ])",
+    "        let (_, _, _, nodes) = List.fold step (false, false, false, []) tokens",
+    "        Html.span nodes",
     "",
     "    /// Translate, then ICU-format the message's holes in the active locale.",
     "    let tf (key: string) (defaultMessage: string) (values: (string * obj) list) : string =",

@@ -61,7 +61,12 @@ import {
   authGateMessage,
   chromeKey,
 } from "../_walker/i18n-chrome.js";
-import { literalString, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import {
+  icuFromConcat,
+  literalString,
+  messageKey,
+  pageKeyPrefix,
+} from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -422,7 +427,7 @@ const SET_DOCUMENT_TITLE_DECL = [
  *  the page has no `title:` (or one `renderFsExpr` cannot spell).  Under i18n a
  *  literal title translates through the target's own `renderTranslate` with the
  *  catalog key `collectUiMessages` wrote (`<Ui>.page.<Name>.title.<hash>`); an
- *  interpolated one renders as the raw expression. */
+ *  interpolated one translates as the ICU message over its positional form. */
 function pageTitleLine(
   ui: UiIR,
   page: PageIR,
@@ -441,7 +446,17 @@ function pageTitleLine(
       const key = messageKey(prefix, "title", literal);
       expr = felizTarget.renderTranslate!({ key, message: sourceText(key, literal) });
     } else {
-      expr = literal !== undefined ? fsString(literal) : `(${render(title)})`;
+      const icu = prefix ? icuFromConcat(title) : undefined;
+      if (prefix && icu) {
+        const key = messageKey(prefix, "title", icu.positional);
+        expr = felizTarget.renderTranslate!({
+          key,
+          message: sourceText(key, icu.display),
+          values: icu.holes.map((h) => ({ name: h.name, expr: render(h.expr) })),
+        });
+      } else {
+        expr = literal !== undefined ? fsString(literal) : `(${render(title)})`;
+      }
     }
   } catch {
     return undefined;
@@ -514,14 +529,20 @@ function renderPageView(
   const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
   const stateNames = new Set(page.state.map((s) => s.name));
   if (!page.body) {
-    const bare = pageTitleLine(ui, page, i18nEnabled, stateNames, new Set());
+    const bare = pageTitleLine(ui, page, i18nEnabled, stateNames, new Set(routeParams));
     return `${head}\n${bare ? `${bare}\n` : ""}    Html.none`;
   }
   // `derived` first: pure over `state {}` + earlier derived, so it renders
   // without walking anything — and the names that BOUND are what the walk may
   // read bare (`renderDerivedRead`).
   const derived = pageDerivedBinds(page);
-  const titleLine = pageTitleLine(ui, page, i18nEnabled, stateNames, derived.names);
+  const titleLine = pageTitleLine(
+    ui,
+    page,
+    i18nEnabled,
+    stateNames,
+    new Set([...derived.names, ...routeParams]),
+  );
   // The title statement follows the `derived` lets it may read.
   const titleStmt = titleLine ? `${titleLine}\n` : "";
   const result = walkBody(

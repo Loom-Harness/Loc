@@ -31,6 +31,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  LayoutIR,
   TypeIR,
   UiIR,
   WorkflowIR,
@@ -174,8 +175,9 @@ export function chromeMessage(name: string): string {
 
 /** The sentence builders, by base name.  The subject is the DSL identifier the
  *  sentence is about: an aggregate (`deleteEntity`, `deleteConfirm`), a value
- *  object that is an array element (`addItem`), or an operation
- *  (`operationSucceeded`). */
+ *  object that is an array element (`addItem`), an operation
+ *  (`operationSucceeded`), or a workflow (`completed`); `created` is about the
+ *  aggregate a `CreateForm` makes. */
 export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   deleteEntity: (aggregate) => `Delete ${humanize(aggregate)}`,
   deleteConfirm: (aggregate) => `Delete this ${humanize(aggregate).toLowerCase()}?`,
@@ -185,7 +187,14 @@ export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   // `label(…)`.  The subject is the column's 1-based position, known at
   // generate time, so each position is its own whole message.
   column: (position) => `Column ${position}`,
+  created: (aggregate) => `${humanize(aggregate)} created`,
+  completed: (workflow) => `${humanize(workflow)} completed`,
 };
+
+/** The sentence bases a HAND-BUILT form (Angular, Feliz: no design-pack form
+ *  templates) renders itself — its dynamic-row "Add <item>" button.  A pack's
+ *  own `sentenceChrome` names the rest for the pack-rendered frontends. */
+export const HAND_BUILT_FORM_SENTENCES: readonly string[] = ["addItem"];
 
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
@@ -316,6 +325,9 @@ export function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedCont
  *  A pack that renders neither contributes no such key, so no catalog carries a
  *  sentence nothing reads. */
 export interface FormSentenceScope {
+  /** The system's named layouts: the slot text of those a page selects is part
+   *  of the ui's catalog. */
+  readonly layouts?: readonly LayoutIR[];
   readonly contexts: readonly BoundedContextIR[];
   readonly sentences: readonly string[];
   /** The rendering target keys its IMPLICIT model-text sites by identity
@@ -345,6 +357,12 @@ function ofName(call: ExprIR & { kind: "call" }, argName: string): string | unde
   if (arg?.kind === "ref") return arg.name;
   if (arg?.kind === "literal" && arg.lit === "string") return arg.value;
   return undefined;
+}
+
+/** A form call that supplies its own `onSubmit:` handler renders no default
+ *  success toast, so it reads no `created` / `completed` sentence. */
+function hasCustomSubmit(call: ExprIR & { kind: "call" }): boolean {
+  return (call.argNames ?? []).includes("onSubmit");
 }
 
 /** The model-derived sentences a UI renders, as chrome names, read off the form
@@ -395,16 +413,22 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
         }
       } else if (e.name === "Table" || e.name === "DataGrid") {
         for (const n of fallbackColumnNames(e)) names.add(n);
-      } else if (e.name === "CreateForm" && wants("addItem")) {
-        const agg = aggregates.get(ofName(e, "of") ?? "");
-        if (agg)
+      } else if (e.name === "CreateForm") {
+        const owner = ofName(e, "of");
+        const agg = aggregates.get(owner ?? "");
+        if (agg && wants("addItem"))
           arrayElements(
             createInputFields(agg).filter((f) => !f.optional),
             elements,
           );
-      } else if (e.name === "WorkflowForm" && wants("addItem")) {
-        const wf = workflows.get(ofName(e, "runs") ?? "");
-        if (wf) arrayElements(wf.params, elements);
+        if (owner && wants("created") && !hasCustomSubmit(e))
+          names.add(sentenceChromeName("created", owner));
+      } else if (e.name === "WorkflowForm") {
+        const runs = ofName(e, "runs");
+        const wf = workflows.get(runs ?? "");
+        if (wf && wants("addItem")) arrayElements(wf.params, elements);
+        if (runs && wants("completed") && !hasCustomSubmit(e))
+          names.add(sentenceChromeName("completed", runs));
       }
     });
   for (const page of ui.pages) visit(page.body);

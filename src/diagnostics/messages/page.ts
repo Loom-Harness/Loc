@@ -351,7 +351,12 @@ export const messages = {
         `SLOT primitive, not a children container like \`Stack\` or \`Card\`, so every design pack ` +
         `renders exactly those ${p.max} and the extra ones are silently DROPPED from the page ` +
         `(while still landing in the message catalog).  Wrap the extra content in a \`Stack { … }\` ` +
-        `and pass that as the last slot.`,
+        `and pass that as the last slot.` +
+        (p.name === "Text"
+          ? `  A sentence with inline emphasis is the exception: a \`Text\` whose children are all ` +
+            `strings, \`{hole}\` templates and \`Bold\` / \`Italic\` / \`InlineCode\` spans renders as ` +
+            `ONE translatable message.`
+          : ""),
   "loom.table-filter-unsupported": (p: {
     where: unknown;
     filter: unknown;

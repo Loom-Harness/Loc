@@ -62,6 +62,16 @@ export function t(
   locale();
   return i18n.t(key, defaultMessage, values);
 }
+
+/** \`tRich\` (a rich-text sentence, as HTML) that re-runs its caller on a switch. */
+export function tRich(
+  key: string,
+  defaultMessage: string,
+  values?: Parameters<typeof i18n.t>[2],
+): string {
+  locale();
+  return i18n.tRich(key, defaultMessage, values);
+}
 `;
 }
 
