@@ -1,7 +1,7 @@
 // The bundle memo must MISS on any change to the generated tree, a pin, or
 // the build options, and expire (its inputs include live-registry ranges).
 import { describe, expect, it } from "vitest";
-import { BundleMemo, bundleKey } from "../../web/src/engine/npm/bundle-memo";
+import { BundleMemo, bundleKey } from "../../web/src/engine/npm/bundle-memo.js";
 
 const files = () =>
   new Map<string, string | Uint8Array>([
