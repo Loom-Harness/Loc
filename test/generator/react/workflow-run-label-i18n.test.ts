@@ -54,3 +54,28 @@ describe("WorkflowForm run button", () => {
     expect(page(files)).not.toContain("op.run");
   });
 });
+
+// Every JSX-family frontend reads the same identity key — React, Vue and Svelte
+// through the shared walker form, Angular through its hand-built workflow form.
+describe("WorkflowForm run button on every JSX-family frontend", () => {
+  const FRONTENDS: Array<[platform: string, design: string, file: RegExp]> = [
+    ["react", "shadcn", /home\.tsx$/],
+    ["vue", "vuetify", /home\.vue$/i],
+    ["svelte", "shadcnSvelte", /\+page\.svelte$/],
+    ["angular", "angularMaterial", /home\.component\.(html|ts)$/i],
+  ];
+  for (const [platform, design, file] of FRONTENDS) {
+    it(`${platform} looks the run label up under Sales.PlaceOrder.op.run`, async () => {
+      const files = await generateSystemFiles(
+        SRC(`Stack { Heading { "Place" }, WorkflowForm { runs: PlaceOrder } }`)
+          .replace("platform: react", `platform: ${platform}`)
+          .replace("design: shadcn", `design: ${design}`),
+      );
+      const pages = [...files].filter(([p]) => p.startsWith("web/") && file.test(p));
+      expect(pages.length, `no ${file} under web/`).toBeGreaterThan(0);
+      expect(pages.map(([, c]) => c).join("\n")).toMatch(
+        /\bt\("Sales\.PlaceOrder\.op\.run", "Run"\)/,
+      );
+    });
+  }
+});
