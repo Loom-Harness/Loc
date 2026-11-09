@@ -131,7 +131,12 @@ describe("Phoenix locale matcher (generated Locale module)", () => {
       { translations: catalogs("de", "fr") },
     );
     expect(file(icuFiles, "_web/locale.ex")).toContain("_ = App.Cldr.put_locale(tag)");
-    expect(file(icuFiles, "lib/app/cldr.ex")).toContain('locales: ["en", "de", "fr"]');
+    const cldr = file(icuFiles, "lib/app/cldr.ex");
+    expect(cldr).toContain('@shipped ["en", "de", "fr"]');
+    // A shipped tag CLDR does not define would abort the Cldr compile, so only
+    // the tags CLDR knows (and the source) reach `locales:`.
+    expect(cldr).toContain("String.to_atom(&1) in Cldr.all_locale_names()");
+    expect(cldr).toContain("locales: @known,");
   });
 });
 
@@ -221,5 +226,31 @@ describe("Phoenix per-locale gettext trees", () => {
     const de = file(files, "priv/gettext/de/LC_MESSAGES/default.po");
     expect(de).toContain('"Language: de\\n"');
     expect(de).toContain("a translated catalog");
+  });
+});
+
+describe("Phoenix request locale and error pages", () => {
+  it("a request with no Accept-Language resolves to the source language, not a literal", async () => {
+    const rc = file(await gen(["de", "fr"]), "/request_context.ex");
+    expect(rc).toContain('@source_locale "en"');
+    expect(rc).toContain(
+      'AppWeb.Locale.from_accept_language(first_header(conn, "accept-language")) ||',
+    );
+    expect(rc).not.toContain('|| "en"');
+    expect(rc).toContain("def locale, do: Logger.metadata()[:locale] || @source_locale");
+  });
+
+  it("error pages carry the negotiated lang and dir", async () => {
+    const html = file(await gen(["de", "ar"]), "/controllers/error_html.ex");
+    expect(html).toContain('<html lang="#{lang}" dir="#{dir}">');
+    expect(html).toContain("conn.assigns[:loom_locale]");
+    expect(html).toContain("AppWeb.Locale.from_accept_language(");
+    expect(html).toContain("AppWeb.Locale.dir(tag)");
+  });
+
+  it("an app that ships no matcher renders its source language and direction", async () => {
+    const html = file(await generateSystemFiles(SYSTEM("Stack { }")), "/controllers/error_html.ex");
+    expect(html).toContain('defp locale(_assigns), do: {"en", "ltr"}');
+    expect(html).not.toContain("Locale.from_accept_language");
   });
 });

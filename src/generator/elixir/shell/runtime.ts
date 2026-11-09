@@ -273,7 +273,22 @@ end
 `;
 }
 
-export function renderRequestContext(appModule: string): string {
+/** Where `RequestContext` gets the request locale.  `negotiated` — the app ships
+ *  a `<App>Web.Locale` matcher — resolves `Accept-Language` to a shipped tag; an
+ *  app with no matcher has only its source language. */
+export interface RequestContextLocale {
+  source: string;
+  negotiated: boolean;
+}
+
+export function renderRequestContext(
+  appModule: string,
+  locale: RequestContextLocale = { source: "en", negotiated: false },
+): string {
+  const resolveLocale = locale.negotiated
+    ? `${appModule}Web.Locale.from_accept_language(first_header(conn, "accept-language")) ||
+      @source_locale`
+    : "@source_locale";
   return `# Auto-generated.
 defmodule ${appModule}.RequestContext do
   @moduledoc """
@@ -287,6 +302,7 @@ defmodule ${appModule}.RequestContext do
 
   @correlation_header "x-correlation-id"
   @request_id_header "x-request-id"
+  @source_locale ${JSON.stringify(locale.source)}
 
   @impl Plug
   def init(opts), do: opts
@@ -359,8 +375,10 @@ defmodule ${appModule}.RequestContext do
       generate_id()
   end
 
+  # A shipped tag: the negotiated \`Accept-Language\` match, else the source
+  # language — never a literal the app does not ship.
   defp resolve_locale(conn) do
-    first_header(conn, "accept-language") || "en"
+    ${resolveLocale}
   end
 
   defp first_header(conn, name) do
@@ -410,8 +428,8 @@ defmodule ${appModule}.RequestContext do
   @doc "The authenticated principal's id, or nil before auth has run (or when the deployable carries no auth).  Only the id is carried here, not the whole principal; the full principal lives on conn.assigns.current_user."
   def actor_id, do: Logger.metadata()[:actor_id]
 
-  @doc ~S(The request locale from Accept-Language, defaulting to "en".)
-  def locale, do: Logger.metadata()[:locale] || "en"
+  @doc "The request locale: the shipped tag \`Accept-Language\` selects, else the source language."
+  def locale, do: Logger.metadata()[:locale] || @source_locale
 
   @doc "Epoch milliseconds at request start, or nil outside a request."
   def started_at, do: Logger.metadata()[:started_at]
