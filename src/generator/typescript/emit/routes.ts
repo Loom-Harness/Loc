@@ -16,6 +16,12 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import {
+  BASELINE_SECURITY_HEADERS,
+  HSTS_HEADER,
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import {
   resetTableDiscoverySql,
@@ -489,6 +495,7 @@ export function renderHttpIndex(
       'import type { Context } from "hono";',
       'import { cors } from "hono/cors";',
       'import { HTTPException } from "hono/http-exception";',
+      'import { secureHeaders } from "hono/secure-headers";',
       'import { TrieRouter } from "hono/router/trie-router";',
       'import type { ContentfulStatusCode } from "hono/utils/http-status";',
       'import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";',
@@ -547,6 +554,7 @@ export function renderHttpIndex(
       "  // inbound X-Request-Id header so callers can thread their",
       "  // own id through.",
       '  app.use("*", requestIdMiddleware);',
+      ...renderHonoSecureHeaders(),
       "  // CORS: the compose stack sets CORS_ORIGIN to the frontend origin(s) —",
       "  // a comma-separated allowlist.  When set, only those origins are",
       "  // allowed (with credentials, so the session cookie flows cross-origin).",
@@ -730,4 +738,46 @@ export function renderHttpIndex(
       "}",
     ) + "\n"
   );
+}
+
+/** The baseline security-header mount inside `createApp`: hono's
+ *  `secureHeaders` narrowed to exactly the shared baseline set
+ *  (`src/util/security-headers.ts`).  Its other defaults stay off on purpose —
+ *  `Cross-Origin-Resource-Policy: same-origin` would stop a separate-origin
+ *  frontend from rendering an uploaded file in an `<img>`, and the rest are
+ *  headers no other backend sends. */
+function renderHonoSecureHeaders(): string[] {
+  const baseline = new Map(BASELINE_SECURITY_HEADERS);
+  const value = (name: string): string => baseline.get(name) ?? "";
+  // hono renders `permissionsPolicy` from an object; `feature=()` ⇔ `feature: []`.
+  const permissions = value("Permissions-Policy")
+    .split(",")
+    .map((d) => d.trim().replace(/=\(\)$/, ""))
+    .map((f) => `${JSON.stringify(f)}: []`)
+    .join(", ");
+  return [
+    "  // Baseline security headers on every response (errors included).",
+    `  // Strict-Transport-Security only while ${SECURE_TRANSPORT_ENV} is on (the`,
+    "  // default); the local compose stack serves plain http and turns it off.",
+    `  const secureTransport = ![${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}].includes(`,
+    `    (process.env.${SECURE_TRANSPORT_ENV} ?? "").trim().toLowerCase(),`,
+    "  );",
+    "  app.use(",
+    '    "*",',
+    "    secureHeaders({",
+    `      xContentTypeOptions: ${JSON.stringify(value("X-Content-Type-Options"))},`,
+    `      xFrameOptions: ${JSON.stringify(value("X-Frame-Options"))},`,
+    `      referrerPolicy: ${JSON.stringify(value("Referrer-Policy"))},`,
+    `      permissionsPolicy: { ${permissions} },`,
+    `      strictTransportSecurity: secureTransport ? ${JSON.stringify(HSTS_HEADER[1])} : false,`,
+    "      crossOriginResourcePolicy: false,",
+    "      crossOriginOpenerPolicy: false,",
+    "      originAgentCluster: false,",
+    "      xDnsPrefetchControl: false,",
+    "      xDownloadOptions: false,",
+    "      xPermittedCrossDomainPolicies: false,",
+    "      xXssProtection: false,",
+    "    }),",
+    "  );",
+  ];
 }

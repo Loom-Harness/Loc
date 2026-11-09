@@ -23,6 +23,10 @@ import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 // ---------------------------------------------------------------------------
@@ -1164,8 +1168,13 @@ const POST_LOGIN = process.env.OIDC_POST_LOGIN_REDIRECT ?? "/";
 
 // HttpOnly cookie options shared by the session + refresh + transient PKCE
 // cookies.  SameSite=Lax so the IdP's cross-site redirect back to /callback
-// still carries them.
-const COOKIE = { httpOnly: true, sameSite: "Lax", path: "/" } as const;
+// still carries them.  Secure unless ${SECURE_TRANSPORT_ENV} is off (the local
+// compose stack serves plain http), so the tokens never ride cleartext in a
+// TLS deployment.
+const SECURE_TRANSPORT = ![${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}].includes(
+  (process.env.${SECURE_TRANSPORT_ENV} ?? "").trim().toLowerCase(),
+);
+const COOKIE = { httpOnly: true, secure: SECURE_TRANSPORT, sameSite: "Lax", path: "/" } as const;
 
 interface Endpoints {
   authorization_endpoint: string;
