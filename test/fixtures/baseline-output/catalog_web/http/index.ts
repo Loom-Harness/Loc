@@ -119,7 +119,7 @@ export function createApp(
         return c.json({ status: "forbidden", detail: "missing or wrong reset token" }, 403);
       }
       const found = (
-        await db.execute(sql.raw("select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')"))
+        await db.execute(sql.raw("select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_timer', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')"))
       ).rows as Array<{ schemaname: string; tablename: string }>;
       const targets = found.map(
         (t) => `"${t.schemaname}"."${t.tablename}"`,

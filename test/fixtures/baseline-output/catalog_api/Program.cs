@@ -419,7 +419,7 @@ if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomT
         var targets = new System.Collections.Generic.List<string>();
         await using (var find = conn.CreateCommand())
         {
-            find.CommandText = "select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')";
+            find.CommandText = "select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_timer', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')";
             await using var reader = await find.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
