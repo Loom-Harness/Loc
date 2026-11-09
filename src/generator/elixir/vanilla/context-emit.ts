@@ -36,7 +36,7 @@ import {
   lifecycleGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -80,7 +80,7 @@ import {
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
-import { updateSeamGates } from "./gate.js";
+import { renderGateCondition, updateSeamGates } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
@@ -142,7 +142,7 @@ import { savesLockVersion } from "./version-check-ex.js";
 // …}}` its `with` chain already handles, rather than a 500.
 // ---------------------------------------------------------------------------
 
-/** The `ensure(...)` chain of a merge-patch `update` seam with `mask unless`
+/** The `ensure(...)` chain of a merge-patch `update` seam with `requires` or `mask unless`
  *  write gates, or undefined (the plain seam stays).  Each gate runs only when
  *  the attrs carry the masked key — an absent key keeps the stored value — and
  *  is the mask predicate alone, so a caller's guess at the hidden value cannot
@@ -160,17 +160,35 @@ function gatedUpdateSeam(
     contextModule: facadeMod,
     agg: agg as EnrichedAggregateIR,
   };
-  return gates.map((g) => {
-    const key = g.maskWriteOf!;
+  // A gate that reads an operation param sees the MERGED value (an absent key
+  // is the stored value), bound once ahead of the chain.
+  const paramNames = new Set<string>();
+  for (const g of gates) {
+    walkExprDeep(g.expr, (e) => {
+      if (e.kind === "ref" && e.refKind === "param") paramNames.add(e.name);
+    });
+  }
+  const binds = [...paramNames].map((name) => {
+    const spellings = [...new Set([name, snake(name)])].map((k) => JSON.stringify(k));
+    const lookup = spellings.reduceRight(
+      (acc, k) => `Map.get(attrs, ${k}, ${acc})`,
+      `Map.get(attrs, :${snake(name)}, record.${snake(name)})`,
+    );
+    return `${elixirLocal(name)} = ${lookup}`;
+  });
+  const ensures = gates.map((g) => {
+    const key = g.maskWriteOf;
+    const pred = renderGateCondition(g.expr, (x) => renderExpr(x, rc));
+    const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
+    if (key === undefined) return `:ok <- ensure(${guarded}, ${denialTerm(g)})`;
     const spellings = [...new Set([key, snake(key)])].map((k) => JSON.stringify(k));
     const present = [
       ...spellings.map((k) => `Map.has_key?(attrs, ${k})`),
       `Map.has_key?(attrs, :${snake(key)})`,
     ].join(" or ");
-    const pred = renderExpr(g.expr, rc);
-    const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
     return `:ok <- ensure(not (${present}) or (${guarded}), ${denialTerm(g)})`;
   });
+  return [...binds, ...ensures];
 }
 
 /** The `ensure(...)` with-clauses for one lifecycle action's gates, in
@@ -564,7 +582,16 @@ function renderContextModule(
     // reads the MERGED value of a param (an absent key is the stored value),
     // which is exactly what the update changeset's `get_field/2` answers.
     const updateGates = gatedUpdateSeam(updateOp, facadeMod, agg);
-    const seamActorArg = updateGates && !stampActorArg ? ", current_user \\\\ nil" : stampActorArg;
+    // The seam always takes the principal when gated (the controller passes it
+    // positionally); underscored when no gate and no stamp reads it, so a
+    // param-only gate does not leave an unused binding.
+    const gatesReadPrincipal = updateSeamGates(updateOp).some((g) => stmtUsesCurrentUser(g));
+    const seamActorArg =
+      updateGates && !stampActorArg
+        ? gatesReadPrincipal
+          ? ", current_user \\\\ nil"
+          : ", _current_user \\\\ nil"
+        : stampActorArg;
     // The write itself: the audited form records its row in the save's
     // transaction; the plain form is the repository update.
     const repoUpdateCall = `${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""})`;
