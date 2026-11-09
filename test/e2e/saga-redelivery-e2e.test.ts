@@ -19,8 +19,7 @@ import { mixDepsGet } from "./support/mix-retry.js";
 const ENABLED = process.env.LOOM_SAGA_REDELIVERY_E2E === "1";
 
 // The consumer's workflow lives in a different context than the durable
-// channel where the platform supports a cross-context subscription, so its saga
-// row only dedups if the marker is decided deployable-wide.
+// channel, so its saga row only dedups if the marker is decided deployable-wide.
 const fixture = (platform: string, crossContext: boolean): string => `
 system SagaRedelivery {
   subdomain Catalog {
@@ -100,7 +99,7 @@ interface Leg {
 }
 const LEGS: Leg[] = [
   { platform: "java", crossContext: true, pgPort: 55461, appPort: 4261 },
-  { platform: "elixir", crossContext: false, pgPort: 55462, appPort: 4262 },
+  { platform: "elixir", crossContext: true, pgPort: 55462, appPort: 4262 },
 ];
 
 describe.skipIf(!ENABLED).each(LEGS)(
