@@ -233,7 +233,7 @@ jobs:
           echo "## Tenancy isolation runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the run step above for the captured server stdout.' >> $GITHUB_STEP_SUMMARY
-          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch stamps the caller's org, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
+          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch (the caller own org) stamps it, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
 
 
   tenancy-e2e:
@@ -358,7 +358,7 @@ jobs:
           echo "## Tenancy isolation runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the run step above for the captured server stdout.' >> $GITHUB_STEP_SUMMARY
-          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch stamps the caller's org, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
+          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch (the caller own org) stamps it, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
