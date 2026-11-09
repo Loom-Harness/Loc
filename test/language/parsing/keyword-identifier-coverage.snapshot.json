@@ -942,6 +942,16 @@
     "paramName",
     "stateField"
   ],
+  "i18n": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "id": [
     "lValue",
     "memberAccess",
@@ -1142,6 +1152,16 @@
     "stateField"
   ],
   "kind": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "label": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -1573,6 +1593,16 @@
     "stateField"
   ],
   "platform": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "plural": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -2139,6 +2169,16 @@
     "stateField"
   ],
   "sort": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "source": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

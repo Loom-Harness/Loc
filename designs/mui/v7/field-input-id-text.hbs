@@ -1,1 +1,1 @@
-<TextField label="{{label}}" InputLabelProps=\{{ shrink: true }} {...register("{{path}}")} data-testid="{{testId}}" placeholder={{{placeholderJson}}} error={!!( {{errorExpr}} )} helperText={ {{errorExpr}} } />
+<TextField {{#if labelExpr}}label={ {{{labelExpr}}} }{{else}}label="{{label}}"{{/if}} InputLabelProps=\{{ shrink: true }} {...register("{{path}}")} data-testid="{{testId}}" placeholder={{{placeholderJson}}} error={!!( {{errorExpr}} )} helperText={ {{errorExpr}} } />

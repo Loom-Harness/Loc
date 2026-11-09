@@ -17,15 +17,18 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
+import { sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
   csFieldInvalidProblem,
   csFieldInvalidResult,
   csFixedDetail,
   csLit,
+  csMalformedIdMessage,
   csMissingSuffixLit,
   csNotFoundException,
   csProducesProblem,
@@ -35,6 +38,9 @@ import {
   wireStatusResolver,
 } from "../wire-policy-cs.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
+
+/** FluentValidation's `ValidateAndThrow` extension. */
+const FLUENT = csNsRef("FluentValidation");
 
 /** Controller action method name = PascalCase of the shared operationId,
  *  so Program.cs's `CustomOperationIds` (lower-first of the action name)
@@ -383,7 +389,7 @@ export function renderController(
     ];
   });
 
-  const extraUsingsLines = (shape.extraUsings ?? []).map((n) => `using ${n};`);
+  const extraUsingsLines = sortedCsUsings(shape.extraUsings ?? []);
   // The `Commands` namespace exists only when at least one command file is
   // emitted for the aggregate (cqrs-emit gates them on exactly these three
   // facts): a REST create, a canonical destroy, or an operation.  A read-only
@@ -401,11 +407,9 @@ export function renderController(
       "using Mediator;",
       "using Microsoft.AspNetCore.Mvc;",
       "using Microsoft.Extensions.Logging;",
-      // FluentValidation's `ValidateAndThrow` extension — only when some action
-      // runs a VO-request validator (VO-invariant → 422), else CS8019 unused.
-      shape.createRequestValidator || shape.publicOps.some((o) => o.requestValidator)
-        ? "using FluentValidation;"
-        : null,
+      // FluentValidation's `ValidateAndThrow` extension — rendered iff some
+      // action runs a VO-request validator (VO-invariant → 422).
+      csUsing("FluentValidation"),
       hasCommands ? `using ${ns}.Application.${plural(agg.name)}.Commands;` : null,
       // `Application.Common` holds the shared `AuditEntry` shape the history
       // action returns — imported only when that action is emitted, so a
@@ -448,7 +452,9 @@ export function renderController(
             // constructing the throwing domain VOs below, so a malformed VO
             // field is a FluentValidation 422 (errors[]) not a domain 400.
             ...(shape.createRequestValidator
-              ? [`        new ${shape.createRequestValidator}().ValidateAndThrow(request);`]
+              ? [
+                  `        new ${shape.createRequestValidator}()${FLUENT}.ValidateAndThrow(request);`,
+                ]
               : []),
             `        var cmd = new Create${agg.name}Command(`,
             ...createBody,
@@ -706,7 +712,7 @@ export function renderOperationActionBlock(
     // VO-invariant → 422: validate the wire request before constructing the
     // throwing domain VOs, so a malformed VO field is a 422 not a 400.
     ...(op.requestValidator
-      ? [`        new ${op.requestValidator}().ValidateAndThrow(request);`]
+      ? [`        new ${op.requestValidator}()${FLUENT}.ValidateAndThrow(request);`]
       : []),
     ...wireInLine,
     // Business-narrative line — what the controller was asked to do,
@@ -869,6 +875,7 @@ export function renderExceptionFilter(
   // `httpStatus` map as the structural conflicts above; the defaults are the
   // 422 / 403 literals.
   const domainStatus = wireStatus("domain-floor", overrides);
+  const overflowStatus = wireStatus("arithmetic-overflow", overrides);
   const forbiddenStatus = wireStatus("forbidden", overrides);
   // The domain not-found rung resolves like its four siblings, so
   // `httpStatus NotFound -> <code>` moves this filter's
@@ -1218,6 +1225,18 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
+        // RS-48: a \`checked(...)\` integer \`+ - *\` left its int32 / int64 range.
+        if (context.Exception is System.OverflowException ofe)
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: "ofe.Message" },
+              { name: "status", valueExpr: `${overflowStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, ${overflowStatus}, ${csTitle("arithmetic-overflow", overrides)}, ${csFixedDetail("arithmetic-overflow")}, trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }
         if (context.Exception is AggregateNotFoundException nf)
         {
             ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
@@ -1533,6 +1552,11 @@ public static class ValidationProblem
             error.Exception?.Message ?? error.ErrorMessage;
         static bool IsTypeMismatch(ModelError error) =>
             MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
+        // An id (a Guid on the wire) that is not a uuid is the same field
+        // refusal with the fact's malformed-id sentence: System.Text.Json
+        // names the target type in its text.
+        static bool IsMalformedId(ModelError error) =>
+            MismatchText(error).Contains("System.Guid", StringComparison.Ordinal);
         var mismatched = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
             .ToArray();
@@ -1543,7 +1567,9 @@ public static class ValidationProblem
                 .Select(entry => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
-                    ["message"] = ${csLit(csTypeMismatchMessage())},
+                    ["message"] = entry.Value!.Errors.Any(IsMalformedId)
+                        ? ${csLit(csMalformedIdMessage())}
+                        : ${csLit(csTypeMismatchMessage())},
                 })
                 .ToArray();
             return ${csFieldInvalidResult("mismatchProblem", "            ")};
@@ -1767,6 +1793,106 @@ public sealed class ListResponseWrapperFilter : IDocumentFilter
                 }
             }
         }
+    }
+}
+`;
+}
+
+export const VO_MERGE_FILTER_PATH = "Api/ValueObjectSchemaMergeFilter.cs";
+
+/** Swashbuckle document filter — publishes a value object as ONE component
+ *  named after the VO (`Dims`), as node / python / elixir / java do.  The .NET
+ *  wire types are two CLR records (`DimsRequest` for input, `DimsResponse` for
+ *  output) and Swashbuckle refuses to give two CLR types one schema id, so the
+ *  merge happens on the finished document: the response schema (else the
+ *  request one) is registered under the VO's name, the per-direction components
+ *  are dropped, and every `$ref` to them is retargeted.  `merges` bakes in each
+ *  VO's source schema ids (already disambiguated against `CustomSchemaIds`
+ *  overrides) so nothing is guessed at runtime. */
+export function renderValueObjectSchemaMergeFilter(
+  ns: string,
+  merges: ReadonlyArray<{ name: string; sources: readonly string[] }>,
+): string {
+  return `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
+
+namespace ${ns}.Api;
+
+public sealed class ValueObjectSchemaMergeFilter : IDocumentFilter
+{
+    private static readonly (string Name, string[] Sources)[] Merges = new (string, string[])[]
+    {
+${merges.map((m) => `        (${JSON.stringify(m.name)}, new[] { ${m.sources.map((x) => JSON.stringify(x)).join(", ")} }),`).join("\n")}
+    };
+
+    public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+    {
+        var schemas = swaggerDoc.Components?.Schemas;
+        if (schemas is null) return;
+        var rename = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, sources) in Merges)
+        {
+            if (schemas.ContainsKey(name)) continue;
+            IOpenApiSchema? keep = null;
+            foreach (var source in sources)
+            {
+                if (!schemas.TryGetValue(source, out var schema)) continue;
+                rename[source] = name;
+                if (keep is null || source.EndsWith("Response", StringComparison.Ordinal)) keep = schema;
+            }
+            if (keep is null) continue;
+            foreach (var source in sources) schemas.Remove(source);
+            schemas[name] = keep;
+        }
+        if (rename.Count == 0) return;
+
+        foreach (var schema in schemas.Values.ToList()) Retarget(schema, swaggerDoc, rename);
+        if (swaggerDoc.Paths is null) return;
+        foreach (var path in swaggerDoc.Paths.Values)
+        {
+            if (path.Operations is null) continue;
+            foreach (var operation in path.Operations.Values)
+            {
+                if (operation.Parameters is not null)
+                    foreach (var parameter in operation.Parameters)
+                        if (parameter is OpenApiParameter p && p.Schema is not null)
+                            p.Schema = Retarget(p.Schema, swaggerDoc, rename);
+                if (operation.RequestBody?.Content is { } requestContent)
+                    foreach (var media in requestContent.Values)
+                        if (media.Schema is not null) media.Schema = Retarget(media.Schema, swaggerDoc, rename);
+                if (operation.Responses is null) continue;
+                foreach (var response in operation.Responses.Values)
+                {
+                    if (response.Content is null) continue;
+                    foreach (var media in response.Content.Values)
+                        if (media.Schema is not null) media.Schema = Retarget(media.Schema, swaggerDoc, rename);
+                }
+            }
+        }
+    }
+
+    // A $ref is a distinct OpenApiSchemaReference node (Microsoft.OpenApi 2.0);
+    // inline schemas are mutated in place, so only a reference is replaced.
+    private static IOpenApiSchema Retarget(IOpenApiSchema schema, OpenApiDocument doc, Dictionary<string, string> rename)
+    {
+        if (schema is OpenApiSchemaReference reference)
+            return reference.Reference?.Id is string id && rename.TryGetValue(id, out var to)
+                ? new OpenApiSchemaReference(to, doc)
+                : schema;
+        if (schema is not OpenApiSchema s) return schema;
+        if (s.Items is not null) s.Items = Retarget(s.Items, doc, rename);
+        if (s.AdditionalProperties is not null) s.AdditionalProperties = Retarget(s.AdditionalProperties, doc, rename);
+        if (s.Properties is not null)
+            foreach (var key in s.Properties.Keys.ToList())
+                s.Properties[key] = Retarget(s.Properties[key], doc, rename);
+        foreach (var list in new[] { s.AllOf, s.OneOf, s.AnyOf })
+            if (list is not null)
+                for (var i = 0; i < list.Count; i++) list[i] = Retarget(list[i], doc, rename);
+        return schema;
     }
 }
 `;

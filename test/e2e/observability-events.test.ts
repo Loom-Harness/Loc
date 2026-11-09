@@ -5,25 +5,26 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { generateBackendProject } from "./support/backend-project.js";
+import { requireDocker } from "./support/docker-probe.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Observability events — end-to-end regression guard.  Generates the
 // emitted Hono backend from examples/sales.ddd, installs deps, boots
-// the server against a no-op DATABASE_URL (the pool is lazy so /health
-// never touches the DB), then asserts the structured pino lines we
+// the server against a throwaway postgres container (boot applies the
+// schema migrations before it listens), then asserts the structured pino lines we
 // expect appear in stdout with the catalog envelope.  Sister suite to
 // generated-build.test.ts — same shape, same heavy install cost, same
 // opt-in gate.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
 //
-// Slow (~60–90s with cached node_modules) and requires a free local
-// port + outbound npm registry, so it stays opt-in via
+// Slow (~60–90s with cached node_modules) and requires docker, a free
+// local port + outbound npm registry, so it stays opt-in via
 // LOOM_OBS_E2E=1 — keeps `npm test` fast.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
-const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_OBS_E2E === "1";
 
@@ -79,18 +80,36 @@ describe.skipIf(!ENABLED)(
   "generated Hono backend emits the observability catalog on stdout (LOOM_OBS_E2E=1)",
   () => {
     it("boot + /health round-trip emits the expected catalog stream with correlated request_id", async () => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-obs-"));
+      // Prerequisite check INSIDE the test (not in skipIf), so LOOM_OBS_E2E=1
+      // without docker fails loudly instead of passing silently.
+      requireDocker("LOOM_OBS_E2E=1");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-obs-"));
+      const pgPort = await freePort();
+      const pgContainer = `loom-obs-hono-pg-${Date.now()}`;
       try {
-        execSync(`node ${cli} generate ts examples/sales.ddd -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        // Postgres sidecar — boot runs the schema migrations before it listens.
+        execSync(
+          `docker run -d --rm --name ${pgContainer} ` +
+            `-e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=app ` +
+            `-p ${pgPort}:5432 postgres:18-alpine`,
+          { stdio: "pipe", timeout: 60_000 },
+        );
+        const pgDeadline = Date.now() + 60_000;
+        while (Date.now() < pgDeadline) {
+          try {
+            execSync(`docker exec ${pgContainer} pg_isready -U postgres`, {
+              stdio: "pipe",
+              timeout: 5_000,
+            });
+            break;
+          } catch {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+        const outDir = generateBackendProject(repoRoot, "examples/sales.ddd", "node", tmpDir);
         installGeneratedProject(outDir, { timeout: 180_000 });
 
         const port = await freePort();
-        // DATABASE_URL just has to pass the boot script's presence check;
-        // pg.Pool is lazy so /health (no DB) never connects.  /ready
-        // WOULD touch the DB and 503; we don't hit it here.
         // `detached: true` puts the child + any descendants tsx may
         // spawn into their own process group, so a single
         // `process.kill(-pid, "SIGTERM")` reaches the whole tree.  npx /
@@ -102,7 +121,7 @@ describe.skipIf(!ENABLED)(
           cwd: outDir,
           env: {
             ...process.env,
-            DATABASE_URL: "postgres://nope:nope@127.0.0.1:1/nope",
+            DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${pgPort}/app`,
             PORT: String(port),
             LOG_LEVEL: "debug", // pull in the /health probe's debug line
           },
@@ -236,7 +255,12 @@ describe.skipIf(!ENABLED)(
         expect(ok!.level).toBe("debug"); // health_ok is the prod-quiet level
       } finally {
         try {
-          fs.rmSync(outDir, { recursive: true, force: true });
+          execSync(`docker rm -f ${pgContainer}`, { stdio: "pipe", timeout: 30_000 });
+        } catch {
+          /* best-effort */
+        }
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }

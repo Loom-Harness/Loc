@@ -8,8 +8,7 @@
 // (node-cron is gone) — and that a timer-free deployable is byte-identical.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const WITH_TIMERS = `
 system Reaping {
@@ -49,9 +48,7 @@ system Plain {
 
 describe("timerSource → Hono durable scheduler", () => {
   it("runs cron: on pg-boss (durable + retry + catch-up) and every: in-process", async () => {
-    const { model, errors } = await parseString(WITH_TIMERS);
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(WITH_TIMERS);
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
@@ -88,16 +85,31 @@ describe("timerSource → Hono durable scheduler", () => {
   });
 
   it("wires the durable scheduler at boot (async) and swaps node-cron for pg-boss deps", async () => {
-    const { model } = await parseString(WITH_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(WITH_TIMERS);
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
 
-    const index = get("d/index.ts");
-    expect(index).toContain('import { startTimerScheduler } from "./scheduler"');
-    // Async start + async disposer (pg-boss boot/stop are async).
-    expect(index).toContain("const stopTimers = await startTimerScheduler(db, inProcessEvents)");
-    expect(index).toContain("await stopTimers();");
+    const boot = get("d/boot.ts");
+    expect(boot).toContain('import { startTimerScheduler } from "./scheduler"');
+    // Async start + async disposer (pg-boss boot/stop are async).  The host's
+    // `infra` choice rides through: the playground runs cron in-process.
+    expect(boot).toContain(
+      "const stopTimers = await startTimerScheduler(db, inProcessEvents, { infra: opts.infra });",
+    );
+    expect(boot).toContain("await stopTimers();");
+    expect(get("d/index.ts")).not.toContain("scheduler");
+
+    // `infra: "in-process"` (the browser playground, whose PGlite pg-boss
+    // cannot connect to) swaps pg-boss for the in-memory cron stand-in and
+    // fires every: ticks without the advisory-lock transaction.
+    const scheduler = get("d/scheduler.ts");
+    expect(scheduler).toContain(
+      'opts.infra === "in-process"\n      ? createInProcessCronBoss()\n      : new PgBoss(',
+    );
+    expect(scheduler).toContain('baseLogger.warn({ event: "timer_cron_in_process" });');
+    expect(scheduler).toMatch(
+      /if \(opts\.infra === "in-process"\) \{\n\s+await events\.dispatch\(build\(\)\);/,
+    );
 
     const pkg = get("d/package.json");
     expect(pkg).toContain("pg-boss");
@@ -106,18 +118,17 @@ describe("timerSource → Hono durable scheduler", () => {
   });
 
   it("is byte-identical for a timer-free deployable (no scheduler artifacts)", async () => {
-    const { model } = await parseString(NO_TIMERS);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(NO_TIMERS);
     const keys = [...files.keys()];
     expect(keys.some((k) => k.endsWith("d/scheduler.ts"))).toBe(false);
 
     const get = (suffix: string): string =>
       [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1] ?? "";
     expect(get("d/package.json")).not.toContain("pg-boss");
-    const index = get("d/index.ts");
-    expect(index).not.toContain("startTimerScheduler");
-    expect(index).not.toContain("scheduler");
+    const boot = get("d/boot.ts");
+    expect(boot).not.toContain("startTimerScheduler");
+    expect(boot).not.toContain("scheduler");
     // The plain boot path — no shared dispatcher construction.
-    expect(index).toContain("const app = createApp(db);");
+    expect(boot).toContain("const app = createApp(db);");
   });
 });

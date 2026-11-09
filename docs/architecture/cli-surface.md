@@ -9,8 +9,6 @@
 | Command | Role |
 |---|---|
 | `ddd parse <file>` | parse + validate; non-zero exit on diagnostics |
-| `ddd generate ts <file> -o <out>` | single Hono project (legacy single-context) |
-| `ddd generate dotnet <file> -o <out>` | single .NET project (legacy) |
 | `ddd generate system <file> -o <out>` | full multi-deployable tree + `docker-compose.yml` |
 | `ddd verify <file> -o <out>` | run generated suites → traceability rollup → `.loom/verification.{json,md}` |
 | `ddd snapshot <file> -o <out>` | capture immutable provenance rule snapshot under `.loom/snapshots/` |
@@ -59,7 +57,7 @@ A multi-verb **steward** group:
 
 | Verb | Role |
 |---|---|
-| `ddd i18n init` | scaffold `<repo>/locales/` + `.loom/source.lock.json` |
+| `ddd i18n init` | scaffold `<repo>/locales/<locale>/<ns>.json` + `.loom/source.lock/<ns>.json` |
 | `ddd i18n sync` | three-way merge (BASE = source.lock, OURS = translator file, THEIRS = current source) → updated locale files + refreshed lock |
 
 Both write under the author-owned `<repo>/locales/` tree (never under

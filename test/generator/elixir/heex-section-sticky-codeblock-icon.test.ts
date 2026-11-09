@@ -130,7 +130,7 @@ describe("HEEx primitive — CodeBlock", () => {
     // one makes the ui translatable, so it rides gettext.  The SOURCE beside it
     // is code and stays verbatim.
     expect(heex).toMatch(
-      /<div class="loom-code-block-title"><%= pgettext\("page\.\w+\.codeBlockTitle\.\w+", "Setup"\) %><\/div>/,
+      /<div class="loom-code-block-title"><%= pgettext\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Setup"\) %><\/div>/,
     );
   });
 
@@ -181,7 +181,7 @@ describe("HEEx primitive — Icon", () => {
     // accessible name is a user-visible slot, so it binds as a `{…}` expression
     // rather than shipping English at every locale.
     expect(heex).toMatch(
-      /role="img" aria-label=\{pgettext\("page\.\w+\.iconLabel\.\w+", "Search"\)\}/,
+      /role="img" aria-label=\{pgettext\("\w+\.page\.\w+\.iconLabel\.\w+", "Search"\)\}/,
     );
     expect(heex).not.toContain('aria-hidden="true"');
   });

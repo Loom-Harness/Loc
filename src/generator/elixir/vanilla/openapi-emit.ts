@@ -39,13 +39,14 @@ import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
-  isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
@@ -64,7 +65,6 @@ import { commandCreateResult } from "../../../ir/util/workflow-command-route.js"
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isReserved } from "../../../util/target-identifiers.js";
 import {
@@ -82,6 +82,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
 import { routesPolymorphicRead } from "./base-reader.js";
+import { exInt32Range } from "./codec-spelling-ex.js";
 import { denialOverrides, denialStatus } from "./denial.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
@@ -515,6 +516,12 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  // A `File` field references the one named `FileRef` component every backend
+  // publishes; the module exists only when some schema reaches for it.
+  if ([...files.values()].some((c) => c.includes(`${webModule}.Api.Schemas.FileRef`))) {
+    files.set(`${schemaDir}/file_ref.ex`, renderFileRefSchema(webModule));
+  }
+
   for (const [path, content] of files) {
     const fixed = withoutStructOnReservedKey(content);
     if (fixed !== content) files.replace(path, fixed);
@@ -615,7 +622,7 @@ function renderApiSpec(
   const pathEntries: string[] = [];
 
   // Workflow paths: POST /workflows/<slug>
-  for (const { wf } of allWorkflows) {
+  for (const { wf, ctx } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
     // `create(…): T` answers 200 with the value (`respond_result`), typed by
@@ -645,7 +652,7 @@ function renderApiSpec(
               workflowIsGuarded(wf),
               undefined,
               {
-                readsAggregate: workflowCanAnswerNotFound(wf),
+                readsAggregate: workflowCanAnswerNotFound(wf, ctx),
               },
             )}
           }
@@ -660,11 +667,6 @@ function renderApiSpec(
   for (const wf of observableWorkflows) {
     const slug = snake(wf.name);
     const T = upperFirst(wf.name);
-    const corr = (wf.instanceWireShape ?? []).find((f) => f.source === "id");
-    const corrValueType = corr
-      ? (wireTypeInfo(corr.type, "response").idValueType ?? "guid")
-      : "guid";
-    const idSchema = OPENAPI_ID_VALUE[corrValueType] ?? OPENAPI_ID_VALUE.guid;
     pathEntries.push(`      "/workflows/${slug}/instances" => %OpenApiSpex.PathItem{
         get: %OpenApiSpex.Operation{
           summary: "List ${wf.name} instances",
@@ -684,7 +686,7 @@ function renderApiSpec(
           operationId: "${camelId(opWorkflowInstanceById(wf.name))}",
           tags: ["workflows"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idSchema}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -694,23 +696,6 @@ function renderApiSpec(
           }
         }
       }`);
-  }
-
-  // Map the aggregate's `idValueType` to the OpenAPI path-param schema
-  // shape Hono and .NET emit.  Without this, every `:id` parameter
-  // landed as plain `{type: :string}`, which surfaces in the parity
-  // diff as `path-param types: hono=[string:uuid] phoenix=[string]`
-  // (caught by `pathParamSignatures` in test/_helpers/openapi-normalize.ts).
-  function idParamSchema(idValueType: string): string {
-    switch (idValueType) {
-      case "guid":
-        return "%OpenApiSpex.Schema{type: :string, format: :uuid}";
-      case "int":
-      case "long":
-        return "%OpenApiSpex.Schema{type: :integer}";
-      default:
-        return "%OpenApiSpex.Schema{type: :string}";
-    }
   }
 
   // Aggregate CRUD paths: GET /<plural>, GET /<plural>/{id}, POST /<plural>
@@ -777,9 +762,7 @@ ${pagingQueryParams()}
       : "";
     // The polymorphic base read: documented iff the router mounts it.
     if (isAbstractBase(agg)) {
-      pathEntries.push(
-        ...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule, idParamSchema(agg.idValueType)),
-      );
+      pathEntries.push(...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule));
     } else
       pathEntries.push(
         `      "/${aggSlug}" => %OpenApiSpex.PathItem{
@@ -808,7 +791,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opGetById(agg.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -828,7 +811,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opDestroy(agg.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             204 => %OpenApiSpex.Response{description: "No Content"}${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "destroy")!.errorStatuses, notFoundStatus), schemasModule)}
@@ -854,7 +837,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opFind(agg.name, "history"))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -894,7 +877,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opOperation(agg.name, op.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
             required: ${!commandBodyOptional(op.params)},
@@ -952,7 +935,7 @@ ${pagingQueryParams()}
           operationId: "${camelId(opOperation(agg.name, `can_${op.name}`))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -964,58 +947,6 @@ ${pagingQueryParams()}
       }`,
         );
       }
-    }
-    for (const entry of derivedOps.filter((o) => o.kind === "find" && !isAllFind(o))) {
-      const find = entry.find!;
-      // A paged explicit find (`find x(): T paged`) shares the `<Agg>Paged`
-      // envelope and gains the page/pageSize/sort/dir controls, mirroring the
-      // paged auto-findAll above (and the Hono/.NET/Java/Python emitters).
-      const findPaged = pagedReturn(find.returnType);
-      const isArrayReturn = find.returnType.kind === "array";
-      const findRespMod = findPaged
-        ? `${schemasModule}.${findPaged.name}`
-        : isArrayReturn
-          ? listRespMod
-          : respMod;
-      // Filter params cross as query parameters — Hono/.NET declare them,
-      // so Phoenix must too (name + type + required), or the parity gate's
-      // query-param dimension diffs `phoenix=[]`.  Required mirrors Hono's
-      // `zodFor`: a nullable param is optional, everything else required.
-      const queryParamLines = find.params.map(
-        (p) =>
-          `            %OpenApiSpex.Parameter{name: :${p.name}, in: :query, required: ${
-            wireTypeInfo(p.type, "request").isNullable ? "false" : "true"
-          }, schema: ${openApiType(p.type, schemasModule)}}`,
-      );
-      // Paged finds append the shared page/pageSize/sort/dir controls after
-      // the declared params.
-      if (findPaged) queryParamLines.push(pagingQueryParams());
-      const queryParams = queryParamLines.join(",\n");
-      const queryParamsBlock =
-        queryParamLines.length > 0 ? `\n          parameters: [\n${queryParams}\n          ],` : "";
-      pathEntries.push(
-        `      "${specPath(entry)}" => %OpenApiSpex.PathItem{
-        get: %OpenApiSpex.Operation{
-          summary: "${find.name} on ${agg.name}",
-          operationId: "${camelId(opFind(agg.name, find.name))}",
-          tags: ["${aggSlug}"],${queryParamsBlock}
-          responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "OK",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${findRespMod}}}
-            }${
-              // The declared set is the DERIVED one, so it carries the 403 a
-              // gated union find answers and the resolved union-absent
-              // status.
-              statusResponseEntries(
-                withResolvedNotFound(entry.errorStatuses, notFoundStatus),
-                schemasModule,
-              )
-            }
-          }
-        }
-      }`,
-      );
     }
   }
 
@@ -1100,7 +1031,7 @@ end
  *  it is a cross-backend ruling, not this row. */
 const INT32_SCHEMA =
   `%OpenApiSpex.Schema{type: :integer, format: :int32, ` +
-  `minimum: ${INT32_MIN}, maximum: ${INT32_MAX}}`;
+  `minimum: ${exInt32Range().min}, maximum: ${exInt32Range().max}}`;
 
 /** Wire-primitive → OpenApiSpex %Schema{} literal.  Money crosses as
  *  `{type: string, format: decimal}` for cross-backend wire parity
@@ -1119,17 +1050,15 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "%OpenApiSpex.Schema{type: :string, format: :date}",
   guid: "%OpenApiSpex.Schema{type: :string, format: :uuid}",
   json: "%OpenApiSpex.Schema{type: :object}",
-  File: "%OpenApiSpex.Schema{type: :object, properties: %{url: %OpenApiSpex.Schema{type: :string}, key: %OpenApiSpex.Schema{type: :string}, contentType: %OpenApiSpex.Schema{type: :string}, size: %OpenApiSpex.Schema{type: :integer}}, required: [:url, :key, :contentType, :size]}",
+  // Never read: `openApiType` answers a `File` with the named `FileRef` module.
+  File: "%OpenApiSpex.Schema{type: :object}",
 };
 
-/** Id value-type → OpenApiSpex %Schema{} literal.  Mirrors the
- *  path-param schema used by `idParamSchema` above. */
-const OPENAPI_ID_VALUE: Record<string, string> = {
-  guid: "%OpenApiSpex.Schema{type: :string, format: :uuid}",
-  int: "%OpenApiSpex.Schema{type: :integer}",
-  long: "%OpenApiSpex.Schema{type: :integer}",
-  string: "%OpenApiSpex.Schema{type: :string}",
-};
+/** The OpenApiSpex %Schema{} literal of an `X id` — every identity is a
+ *  guid, a uuid-format string — the shape Hono and .NET emit for an id body
+ *  field and an `{id}` path param, so the parity diff's path-param dimension
+ *  agrees (`pathParamSignatures` in test/_helpers/openapi-normalize.ts). */
+const OPENAPI_ID_SCHEMA = "%OpenApiSpex.Schema{type: :string, format: :uuid}";
 
 /** Map a TypeIR to an OpenApiSpex %Schema{} literal snippet.
  *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity /
@@ -1258,9 +1187,10 @@ function openApiType(t: TypeIR, schemasModule: string): string {
   }
   switch (info.refKind) {
     case "primitive":
+      if (info.primitive === "File") return `${schemasModule}.FileRef`;
       return OPENAPI_PRIMITIVE[info.primitive!];
     case "id":
-      return OPENAPI_ID_VALUE[info.idValueType!]!;
+      return OPENAPI_ID_SCHEMA;
     case "enum":
       // Named string schema carrying the value-set.  Module atom → the
       // resolver registers it in components and rewrites to a `$ref`.
@@ -1375,11 +1305,18 @@ function renderProperties(
   return { propsLines, requiredAtoms };
 }
 
-/** Convert WireField[] to the uniform shape renderProperties expects. */
+/** Convert WireField[] to the uniform shape renderProperties expects.  A
+ *  `mask unless` field is redacted to null for a caller who fails the
+ *  predicate, so — like an optional field — it is not required (the same
+ *  required set every other backend serves). */
 function wireFieldsToProps(
   fields: WireField[],
 ): Array<{ name: string; type: TypeIR; optional: boolean }> {
-  return fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional }));
+  return fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+    optional: f.optional || f.maskUnless !== undefined,
+  }));
 }
 
 /** Property keys that break the `Jason.Encoder` derive `OpenApiSpex.schema`
@@ -1423,6 +1360,29 @@ ${propsBlock}
     },
     required: ${requiredBlock}
   }${deriveOpt})
+end
+`;
+}
+
+/** The `FileRef` schema module — the wire object a `File` field crosses as. */
+function renderFileRefSchema(webModule: string): string {
+  return `# Auto-generated.
+defmodule ${webModule}.Api.Schemas.FileRef do
+  @moduledoc "Reference to a stored file — the wire shape of a \`File\` field."
+
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "FileRef",
+    type: :object,
+    properties: %{
+      url: %OpenApiSpex.Schema{type: :string},
+      key: %OpenApiSpex.Schema{type: :string},
+      contentType: %OpenApiSpex.Schema{type: :string},
+      size: %OpenApiSpex.Schema{type: :integer}
+    },
+    required: [:url, :key, :contentType, :size]
+  })
 end
 `;
 }
@@ -1545,7 +1505,7 @@ function renderAggregateResponseSchema(
   // `<Part>Response` name, so its type is peeled back to the part name before
   // `openApiType` re-appends `Response` (never `<Part>ResponseResponse`).
   // Identical to the wireShape path for a scaffolded record.
-  const declared = payloads.find((p) => p.kind === "response" && p.name === `${agg.name}Response`);
+  const declared = declaredResponseFor(payloads, agg);
   const props = declared
     ? declaredResponseProps(agg, declared, payloads)
     : wireFieldsToProps(forApiRead(wireFieldsFor(agg)));
@@ -1641,7 +1601,6 @@ function renderAuditEntrySchema(webModule: string): string {
 
 function renderCreateResponseSchema(agg: AggregateIR, webModule: string): string {
   const moduleName = `${webModule}.Api.Schemas.Create${agg.name}Response`;
-  const idSchema = OPENAPI_ID_VALUE[agg.idValueType] ?? OPENAPI_ID_VALUE.guid;
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "OpenApiSpex schema for #{__MODULE__}."
@@ -1652,7 +1611,7 @@ defmodule ${moduleName} do
     title: "Create${agg.name}Response",
     type: :object,
     properties: %{
-      id: ${idSchema}
+      id: ${OPENAPI_ID_SCHEMA}
     },
     required: [:id]
   })
@@ -1723,8 +1682,6 @@ function polymorphicPathEntries(
   ctx: EnrichedBoundedContextIR,
   aggSlug: string,
   schemasModule: string,
-  /** The `{id}` path-parameter schema (`idParamSchema`). */
-  idSchema: string,
 ): string[] {
   if (!routesPolymorphicRead(base, ctx)) return [];
   const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
@@ -1753,7 +1710,7 @@ ${pageParams}
           operationId: "${camelId(opGetById(base.name))}",
           tags: ["${aggSlug}"],
           parameters: [
-            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idSchema}}
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${OPENAPI_ID_SCHEMA}}
           ],
           responses: %{
             200 => %OpenApiSpex.Response{
@@ -1875,11 +1832,13 @@ function renderOperationRequestSchema(
   // `zodFor` (nullable → `.nullish()` → optional in OpenAPI); hardcoding
   // `false` here made Phoenix mark those params required and tripped the
   // parity gate's required-set dimension (UpdateProjectRequest drift).
+  // A merge-patch update (RS-47) requires no key.
+  const patch = isMergePatchUpdate(op);
   const fields: Array<{ name: string; type: TypeIR; optional: boolean }> = op.params.map(
     (p: ParamIR) => ({
       name: p.name,
       type: p.type,
-      optional: wireTypeInfo(p.type, "request").isNullable,
+      optional: patch || wireTypeInfo(p.type, "request").isNullable,
     }),
   );
   return renderSchemaModule(

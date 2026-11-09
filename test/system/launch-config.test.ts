@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DOTNET_TFM } from "../../src/generator/dotnet/emit/program.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // M26 — `.vscode/launch.json` fan-out across every debuggable backend
@@ -62,8 +61,7 @@ async function filesFor(
   src: string,
   options: { sourcemap?: boolean } = {},
 ): Promise<Map<string, string>> {
-  const model = await parseValid(src);
-  return generateSystems(model, options).files;
+  return generateSystemFiles(src, options);
 }
 
 function findFile(files: Map<string, string>, suffix: string): string {

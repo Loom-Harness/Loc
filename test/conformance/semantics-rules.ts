@@ -270,7 +270,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-14",
-    title: "`version` increments on every persisted mutation, document shapes included",
+    title: "`rowVersion` increments on every persisted mutation, document shapes included",
     trigger:
       "a `versioned` aggregate with `shape: document` (jsonb-stored): create, invoke an operation, read back",
     observable:
@@ -451,7 +451,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   },
   {
     id: "RS-20",
-    title: "`version` counts persisted mutations, not entity-graph dirtiness",
+    title: "`rowVersion` counts persisted mutations, not entity-graph dirtiness",
     trigger:
       "a `versioned` aggregate whose mutation touches only a CHILD (a single `contains`), whose create also writes a value-object collection, or whose command re-assigns a value the row already holds",
     observable:
@@ -652,15 +652,15 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   {
     id: "RS-26",
     title: "An omitted UPDATE field is a client error, never a silent default",
-    trigger: "`active: bool = true`; a PUT body omitting `active`",
+    trigger: "`active: bool = true`; an operation body omitting `active`",
     observable:
-      'PUT without "active" is REJECTED (the field is required input) — it does NOT set active=false, and does not re-apply the create default either',
+      'a command without "active" is REJECTED (the field is required input); the merge-patch `update` (RS-47) keeps the stored value — neither sets active=false or re-applies the create default',
     // The exact inverse of RS-6, and the half that eats data.  RS-6 says an
     // omitted CREATE bool materializes its declared default; a default is a
     // CONSTRUCTION rule, so on update — where there is nothing to construct —
-    // "absent" cannot mean "the default".  Loom's update contract is
-    // full-replacement (PUT carries every field), so an omitted field is simply
-    // a missing required one.
+    // "absent" cannot mean "the default".  On a command an omitted field is
+    // simply a missing required one; on the merge-patch `update` (RS-47) it is
+    // the stored value.
     //
     // Applying a wire default there silently rewrote stored state: for
     // `active: bool = true` a PUT omitting `active` set it to FALSE — not even
@@ -1537,6 +1537,53 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "the witness is test/fixtures/corpus/concurrency-two-writers.ddd, whose golden is test/behavioral/wire-golden/concurrency-two-writers.json; the concurrent half is `__twoWriterProbe` in test/behavioral/wire-differential.mjs",
     ],
     tier: "behavioral",
+  },
+  {
+    id: "RS-47",
+    title:
+      "The generated `update` body is a JSON Merge Patch: an absent key keeps the stored value, `null` clears a `T?` field",
+    trigger:
+      "`merge-patch-update.ddd`: a `with crudish` aggregate with required and optional fields of every shape plus a one-member and a two-member rule, updated by patches that omit fields, null an optional one, null a required one, and carry one member of the two-member rule",
+    observable:
+      'an omitted key reads back unchanged; `null` clears an optional field; `null` on a required field is 422 `{ pointer, message: "<field> is required" }` before the row loads; `{}` is a 204 no-op; a rule is a wire 422 only when the patch carries every member it reads, otherwise the domain floor judges the merged state',
+    // The update operation is recognised from its SHAPE — `update(...)` whose
+    // body only assigns each parameter to the same-named field — so the crudish
+    // update keeps its contract after `unfold`.  One predicate decides it for
+    // every backend (`mergePatchFields`, src/ir/util/merge-patch.ts), and the
+    // same module says which members a rule reads (`ruleMembers`).  Before the
+    // ruling every backend read the body as a full replacement, so an update
+    // omitting an optional field cleared it, and a caller who could not read a
+    // `mask unless` field could not update the row without wiping it (#3600).
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "#4109 (owner ruling, D-ABSENCE-MODEL); #3600",
+      "the witness is test/fixtures/corpus/merge-patch-update.ddd, whose golden is test/behavioral/wire-golden/merge-patch-update.json; per-backend emission is pinned by test/generator/merge-patch-update.test.ts",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-48",
+    title:
+      'Integer arithmetic in domain code that leaves its declared range is a 422 "Value out of range", never a wrap and never a 500',
+    trigger:
+      "`stock + n`, `a * b`, `a - b` or `-n` over `int` / `long` operands in an aggregate operation, workflow, handler or domain service, with a result outside int32 (`int`) or int64 (`long`)",
+    observable:
+      'the request is refused 422 `application/problem+json` with `title` "Unprocessable Entity" and `detail` "Value out of range" (the domain-floor status, remappable via `httpStatus DomainError`), and the row keeps its stored value',
+    // One predicate decides which nodes are checked for every backend
+    // (`checkedBinaryKind` / `checkedUnaryKind`, src/generator/_expr/checked-int.ts);
+    // the fact is the `arithmetic-overflow` rejection class of wirePolicy.  node
+    // and python compare the result against the bound, elixir raises the typed
+    // GuardError from a `case`, java renders `Math.*Exact` and .NET `checked(...)`,
+    // the last two mapped from ArithmeticException / OverflowException by their
+    // exception advice / filter.  Before the ruling node, python and elixir
+    // persisted an out-of-range value (a 500 from the database CHECK) and java and
+    // .NET wrapped silently (#3585).
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "#3585 (owner ruling 2026-11-03)",
+      "gated statically by test/generator/_expr/checked-int.test.ts; `long` keeps its ruled node ceiling of 2^53-1 (D-LONG-AVG-DEFAULTS) so a long result past it is refused on node only",
+    ],
+    tier: "static",
   },
 ];
 

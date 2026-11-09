@@ -39,6 +39,7 @@
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
@@ -166,7 +167,7 @@ function instanceOperation(
   // renders through the walker's own scope (a QueryView `data:` binding maps to
   // the unwrapped provider value), so it names the record in scope here.
   const versionExpr = sendsIfMatchPrecondition(agg, op)
-    ? `${emitExpr(inst.receiver, ctx)}.version`
+    ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
   return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
 }
@@ -487,7 +488,7 @@ export const flutterTarget: WalkerTarget = {
       `: const SizedBox.shrink()`;
     return (
       `InkWell(onTap: ${onTap}, child: Semantics(button: true, ` +
-      `label: ${spec.sortByLabel ?? dartString(`Sort by ${header}`)}, child: Row(mainAxisSize: MainAxisSize.min, ` +
+      `child: Row(mainAxisSize: MainAxisSize.min, ` +
       // The caption is a user-visible slot (`columnHeader`): under i18n it
       // arrives as a Dart translation EXPRESSION, otherwise as raw text this
       // spells as a string literal — byte-identical to before.
@@ -972,6 +973,11 @@ export const flutterTarget: WalkerTarget = {
     return `(switch (${lineage}) { final __p? => ${tile}, _ => const SizedBox.shrink() })`;
   },
 
+  // `LocaleSwitcher {}` → the generated `lib/i18n.dart` widget, a dropdown over
+  // the shipped locales.  It listens to `localeNotifier` itself and switching
+  // rebuilds the whole tree (`setLocale`), so the call site needs no state.
+  renderLocaleSwitcher: () => "const LocaleSwitcher()",
+
   // `Timeline(of: <entries>)` — the entity audit trail (docs/audit.md), the
   // whole-primitive Dart fork of the shared JSX renderers
   // (`_walker/primitives/timeline.ts`).  `entries` is the surrounding
@@ -1143,18 +1149,6 @@ export const flutterTarget: WalkerTarget = {
   // VALUE (`localizedNamedValue`, D-I18N-ATTR) is spelled with i18n off.
   // The same single-quoted escaping the translation runtime uses for its keys.
   renderStringLiteral: dartStringLit,
-  // A holed message as ONE Dart string with `${…}` interpolation, not a `+`
-  // chain — that is how Dart spells this, and how the sortable header's
-  // `'Sort by $header'` was already written.
-  renderStringConcat: (parts) =>
-    `'${parts
-      .map((p) =>
-        "expr" in p
-          ? `\${${p.expr}}`
-          : p.text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\$/g, "\\$"),
-      )
-      .join("")}'`,
-
   // A call into the generated Dart translation runtime (M-T1.11).  The JS
   // frontends' `t(key, default, { name: expr })` is close but not Dart — the
   // values bag is a typed map literal, and the strings are single-quoted with
@@ -1168,6 +1162,16 @@ export const flutterTarget: WalkerTarget = {
     }
     return `t(${args.join(", ")})`;
   },
+  // Implicit model-text sites (form labels, enum options, submit buttons, the
+  // `EnumBadge` value) are keyed by identity through `renderTranslate`.
+  modelTextImplicitSites: true,
+  // An `EnumBadge`'s value → label lookup: a map literal over the wire value,
+  // the raw value when no entry matches.  The immediately-applied function takes
+  // a NULLABLE `Object?` so a nullable and a non-null subject both analyze clean.
+  renderEnumLabelLookup: (entries, subject) =>
+    `((Object? v) => <String, String>{${entries
+      .map((e) => `${dartStringLit(e.value)}: ${e.label}`)
+      .join(", ")}}[v?.toString()] ?? v?.toString() ?? '')(${subject})`,
   // A conditional child → a ternary over two widgets (a single child expression,
   // valid anywhere a widget is expected).
   renderConditionalChild: (cond, thenS, elseS, _depth) => `(${cond} ? ${thenS} : ${elseS})`,

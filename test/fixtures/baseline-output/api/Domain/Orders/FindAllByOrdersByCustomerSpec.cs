@@ -11,6 +11,6 @@ public sealed class FindAllByOrdersByCustomerSpec : Specification<Order>
 {
     public FindAllByOrdersByCustomerSpec(string customerId)
     {
-        Query.Where(new OrdersByCustomerCriterion(customerId).ToExpression());
+        Query.Where(new OrdersByCustomerCriterion(customerId).ToExpression()).OrderBy(x => x.Id);
     }
 }

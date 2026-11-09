@@ -27,6 +27,7 @@
 // Mirrors the established vanilla repository-emit.ts shape.
 // ---------------------------------------------------------------------------
 
+import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -151,6 +152,8 @@ function renderRetrievalModule(
     // Retrieval params bind via Ecto pin syntax (`^needle`) inside the
     // `from ... where: ...` macro.
     filterArgs: true,
+    // A reference-collection membership queries the association's join table.
+    refCollOwnerModule: aggModule,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
   // The retrieval's own `where` predicate, over the target's `base_query/0`.
@@ -161,7 +164,7 @@ function renderRetrievalModule(
   // Build the Ecto pipeline in stages.  `from(...)` opens, conditional
   // `limit`/`offset` apply pagination opts (`page: [limit: 10, offset: 0]`
   // surfaces as `opts[:limit]` / `opts[:offset]` at the call site), then
-  // `order_by` closes when a `sort:` clause is declared.  Each stage is a
+  // `order_by` closes (the declared `sort:` plus the `id` tie-break).  Each stage is a
   // pipe step so the source compiles cleanly even when pagination opts
   // are absent.
   const pipeline: string[] = [];
@@ -169,7 +172,7 @@ function renderRetrievalModule(
   pipeline.push(`    query = from(record in ${source}, where: ${ownWhere})`);
   pipeline.push(`    query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query`);
   pipeline.push(`    query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query`);
-  if (sortClause) pipeline.push(`    query = ${sortClause}`);
+  pipeline.push(`    query = ${sortClause}`);
   // A call-site `ignoring` arrives as `skip_filters:` and the actor as
   // `current_user:`; `Repo.prepare_query/3` reads both.
   const read =
@@ -321,15 +324,18 @@ end
 `;
 }
 
-function renderSortClause(sort: SortTermIR[]): string | undefined {
-  if (sort.length === 0) return undefined;
+function renderSortClause(sort: SortTermIR[]): string {
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`):
+  // an unsorted retrieval still reads in `id` order, never the database's
+  // physical order, so a criterion `find` takes the same first row on every
+  // backend.
   // Render each term as `asc: record.<field>` / `desc: record.<field>`.
   // Nested paths (`order.customer.name`) lower to a `record.customer.name`
   // chain — Ecto's `order_by` accepts the dotted form when the path is
   // through preloaded relations.  Retrievals don't yet declare `loads:`,
   // so today every sort term is a single-segment field; the dotted form
   // still parses cleanly for the future case.
-  const terms = sort.map((t) => {
+  const terms = readSortFor(sort).map((t) => {
     const path = t.path.map((seg) => snake(seg.name)).join(".");
     return `${t.direction}: record.${path}`;
   });

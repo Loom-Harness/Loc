@@ -19,15 +19,33 @@ import {
   isAggregate,
   isDomainService,
   isExpectStmt,
+  isLetStmt,
+  isListLit,
+  isMemberSuffix,
+  isPostfixChain,
+  isStringLit,
   isTestBlock,
+  isTestPrincipal,
   isValueObject,
+  type LetStmt,
   type Model,
   type Statement,
   type TestBlock,
+  type TestPrincipal,
   type ValueObject,
 } from "../../language/generated/ast.js";
-import type { ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
+import { classifyRepoArg, queryNamesOf } from "../../language/repo-query-arg.js";
+import { bypassReadMethodName } from "../../util/repository-contract.js";
+import type {
+  BypassReadIR,
+  ExprIR,
+  TestIR,
+  TestPrincipalClaimIR,
+  TestPrincipalIR,
+  TestStmtIR,
+} from "../types/loom-ir.js";
 import type { OriginRef } from "../types/origin.js";
+import { resolveBypass } from "./lower-capabilities.js";
 import { lowerExpr } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env } from "./lower-types.js";
@@ -87,17 +105,64 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
   for (const s of block.body) {
     if (isExpectStmt(s)) {
       statements.push(expectStmtIR(lowerExpr(s.expr, inner), cstText(s.expr), originFor(s)));
+    } else if (isTestPrincipal(s)) {
+      statements.push({ kind: "principal", principal: lowerTestPrincipal(s)! });
     } else {
       const r = lowerStatement(s as Statement, inner);
-      statements.push(r.stmt);
+      statements.push(isLetStmt(s) ? widenByIdRead(r.stmt, s, inner) : r.stmt);
       inner = r.envAfter;
     }
   }
+  const principal = lowerTestPrincipal(block.principal);
   return {
     name: block.name,
     statements,
     verifiesTestCase: block.verifies?.ref?.name,
     origin: originFor(block),
+    ...(principal ? { principal } : {}),
+  };
+}
+
+/** Lower an `as { … }` clause to its claim map.  A value that is not a string
+ *  literal or a list of string literals is `loom.test-principal-value` at AST
+ *  validation, so it is dropped here rather than guessed at. */
+export function lowerTestPrincipal(node: TestPrincipal | undefined): TestPrincipalIR | undefined {
+  if (!node) return undefined;
+  const claims: TestPrincipalClaimIR[] = [];
+  for (const c of node.claims) {
+    const v = c.value;
+    let value: string | string[] | undefined;
+    if (isStringLit(v)) value = v.value;
+    else if (isListLit(v) && v.elements.every(isStringLit)) {
+      value = v.elements.map((e) => (isStringLit(e) ? e.value : ""));
+    }
+    if (value === undefined) continue;
+    claims.push({ name: c.name, value, origin: originFor(c) });
+  }
+  return { claims, origin: originFor(node) };
+}
+
+/** A context integration test's `let o = Order.find(id) ignoring …`: the read
+ *  calls its own widened method, so name it on the lowered call and carry the
+ *  source + stance enrichment derives that method from.  Any other `let`
+ *  passes through unchanged (placement refuses `ignoring` everywhere else in a
+ *  test body). */
+function widenByIdRead(stmt: TestStmtIR, s: LetStmt, env: Env): TestStmtIR {
+  const chain = s.expr;
+  if (stmt.kind !== "let" || stmt.expr.kind !== "method-call" || !isPostfixChain(chain)) {
+    return stmt;
+  }
+  const stance = resolveBypass(chain);
+  if (!stance.bypassAll && !stance.bypassCaps) return stmt;
+  const call = stmt.expr;
+  const arg = chain.suffixes.at(-1);
+  const positional = arg && isMemberSuffix(arg) ? arg.args?.find((a) => !a.name)?.value : undefined;
+  if (call.member !== "find" || classifyRepoArg(positional, queryNamesOf(env.ctx)) === "criterion")
+    return stmt;
+  const bypassRead: BypassReadIR = { source: { kind: "id" }, ...stance };
+  return {
+    ...stmt,
+    expr: { ...call, member: bypassReadMethodName(bypassRead.source, bypassRead), bypassRead },
   };
 }
 

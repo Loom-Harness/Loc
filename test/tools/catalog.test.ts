@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type {
   DiffReport,
   GenerateReport,
+  MigrationStatusReport,
   ModelView,
   Outline,
   PatchResult,
   PrimitiveCatalog,
+  RecordMigrationReport,
   SnapshotReport,
   ValidateReport,
 } from "../../src/api/index.js";
@@ -200,6 +202,126 @@ describe("agent-tool catalog", () => {
     })) as DiffReport;
     expect(broken.ok).toBe(false);
     expect(broken.diagnostics.map((d) => d.code)).toContain("loom.migration-chain-invalid");
+  });
+
+  describe("loom_migration_status / loom_migration_record", () => {
+    const shop = (fields: string) => `system Shop {
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sales], dataSources: [st] }
+  subdomain Selling { context Sales {
+    aggregate Order with crudish { ${fields} }
+    repository Orders for Order { }
+  } }
+}
+`;
+    const record = async (args: Record<string, unknown>) =>
+      (await callTool("loom_migration_record", {
+        now: "20260301000000",
+        ...args,
+      })) as RecordMigrationReport;
+    const status = async (args: Record<string, unknown>) =>
+      (await callTool("loom_migration_status", args)) as MigrationStatusReport;
+    const asChain = (r: RecordMigrationReport) =>
+      r.files.map((f) => ({ name: f.name, content: f.content }));
+
+    it("a model with no chain is wholly unrecorded and records as each module's Initial", async () => {
+      const v1 = shop("reference: string");
+      const before = await status({ source: v1 });
+      expect(before.ok).toBe(true);
+      expect(before.recorded).toBe(false);
+      expect(before.unrecorded).toBe(true);
+      expect(before.destructive).toBe(false);
+      expect(before.modules.map((m) => [m.module, m.head, m.unrecordedSteps > 0])).toEqual([
+        ["Selling", undefined, true],
+      ]);
+
+      const initial = await record({ source: v1, name: "initial" });
+      expect(initial.ok).toBe(true);
+      expect(initial.files.map((f) => f.path)).toEqual([
+        "migrations/20260301000000_selling_initial.json",
+      ]);
+      expect(JSON.parse(initial.files[0]!.content).name).toBe("Initial");
+
+      const after = await status({ source: v1, migrations: asChain(initial) });
+      expect(after.recorded).toBe(true);
+      expect(after.unrecorded).toBe(false);
+      expect(after.head).toEqual({
+        version: "20260301000000",
+        module: "Selling",
+        name: "Initial",
+      });
+      // Nothing changed since the head: an empty recording, still ok.
+      const again = await record({ source: v1, migrations: asChain(initial), name: "noop" });
+      expect(again.ok).toBe(true);
+      expect(again.files).toEqual([]);
+    });
+
+    it("a destructive change is refused until it is acknowledged", async () => {
+      const v1 = shop("reference: string\n    note: string?");
+      const chain = asChain(await record({ source: v1, name: "initial" }));
+      const v2 = shop("reference: string");
+
+      const pending = await status({ source: v2, migrations: chain });
+      expect(pending.unrecorded).toBe(true);
+      expect(pending.destructive).toBe(true);
+      expect(pending.modules[0]?.destructiveMessage).toMatch(/destructive/);
+
+      const refused = await record({ source: v2, migrations: chain, name: "drop-note" });
+      expect(refused.ok).toBe(false);
+      expect(refused.needsAcknowledgement).toBe(true);
+      expect(refused.files).toEqual([]);
+      expect(refused.diagnostics.map((d) => d.code)).toContain("loom.migration-destructive");
+
+      const acked = await record({
+        source: v2,
+        migrations: chain,
+        name: "drop-note",
+        allowDestructive: true,
+      });
+      expect(acked.ok).toBe(true);
+      const entry = JSON.parse(acked.files[0]!.content);
+      expect(entry.name).toBe("DropNote");
+      expect(entry.allowDestructive).toBe(true);
+      expect(entry.steps.map((st: { op: string }) => st.op)).toEqual(["dropColumn"]);
+    });
+
+    it("refuses a bad or taken name, a chain that does not read, and a source with no system", async () => {
+      const v1 = shop("reference: string");
+      const chain = asChain(await record({ source: v1, name: "initial" }));
+      const v2 = shop("reference: string\n    note: string?");
+
+      const badName = await record({ source: v2, migrations: chain, name: "AddNote" });
+      expect(badName.ok).toBe(false);
+      expect(badName.needsAcknowledgement).toBe(false);
+      expect(badName.diagnostics.map((d) => d.code)).toEqual(["loom.migration-name-invalid"]);
+      const taken = await record({ source: v2, migrations: chain, name: "initial" });
+      expect(taken.diagnostics.map((d) => d.code)).toEqual(["loom.migration-name-invalid"]);
+
+      const broken = [{ name: "x.json", content: "<<<<<<<" }];
+      const brokenStatus = await status({ source: v2, migrations: broken });
+      expect(brokenStatus.ok).toBe(false);
+      expect(brokenStatus.diagnostics.map((d) => d.code)).toEqual(["loom.migration-chain-invalid"]);
+      const brokenRecord = await record({ source: v2, migrations: broken, name: "add-note" });
+      expect(brokenRecord.diagnostics.map((d) => d.code)).toEqual(["loom.migration-chain-invalid"]);
+
+      const loose = await status({ source: CLEAN });
+      expect(loose.ok).toBe(true);
+      expect(loose.unrecorded).toBe(false);
+      expect(loose.diagnostics.map((d) => d.code)).toEqual(["loom.no-system"]);
+      const looseRecord = await record({ source: CLEAN, name: "initial" });
+      expect(looseRecord.ok).toBe(false);
+      expect(looseRecord.diagnostics.map((d) => d.code)).toEqual(["loom.no-system"]);
+
+      const invalid = await status({ source: BARE });
+      expect(invalid.ok).toBe(false);
+      await expect(record({ source: v1, name: "x", now: "today" })).rejects.toThrow(
+        /YYYYMMDDHHMMSS/,
+      );
+      await expect(record({ source: v1, name: "x", allowDestructive: "yes" })).rejects.toThrow(
+        /must be a boolean/,
+      );
+    });
   });
 
   it("loom_snapshot captures nothing for a model with no provenanced field", async () => {

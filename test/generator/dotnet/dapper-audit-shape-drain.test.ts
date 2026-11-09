@@ -19,23 +19,8 @@
 // deliberately ONE file — the property under test is that the three emitters
 // AGREE, and a per-shape copy is exactly how they drifted apart.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(source, { validation: true });
-  const syntax = doc.parseResult?.parserErrors ?? [];
-  if (syntax.length) {
-    throw new Error(`.ddd fixture has ${syntax.length} syntax error(s): ${syntax[0]?.message}`);
-  }
-  return doc.parseResult?.value as Model;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** One audited aggregate per persistence shape.  `header` is spliced onto the
  *  `aggregate` line, `body` supplies the shape's required members. */
@@ -94,7 +79,7 @@ const SHAPES: Array<{ shape: string; source: string }> = [
 describe("Dapper drains the audit buffer on every persistence shape", () => {
   for (const { shape, source } of SHAPES) {
     it(`${shape}: injects IAuditWriter and drains it inside the save transaction`, async () => {
-      const files = generateSystems(await build(source)).files;
+      const files = await generateSystemFiles(source);
       const repo = files.get("d/Infrastructure/Repositories/DocRepository.cs");
       expect(repo, `no DocRepository.cs for ${shape}`).toBeDefined();
       const src = repo!;
@@ -127,9 +112,7 @@ describe("Dapper drains the audit buffer on every persistence shape", () => {
 
   // The un-audited emit must not pay for any of this — the seam is additive.
   it("an un-audited aggregate gets no writer, no drain", async () => {
-    const files = generateSystems(
-      await build(sys("", "create(name: string) { name := name }")),
-    ).files;
+    const files = await generateSystemFiles(sys("", "create(name: string) { name := name }"));
     const src = files.get("d/Infrastructure/Repositories/DocRepository.cs")!;
     expect(src).not.toContain("IAuditWriter");
     expect(src).not.toContain("_audit");

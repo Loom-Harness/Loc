@@ -2,19 +2,18 @@
 // bundle (VFS-npm plugin, NO esm.sh) → import in Node → boot PGlite +
 // the generated Hono app → dispatch + round-trip a product.
 //
-// Runs the SAME pipeline the browser runtime worker runs, against two
-// generator shapes:
+// Runs the SAME pipeline the browser runtime worker runs, through
+// `generateSystems` (per-context `pgSchema(...)` — tables live under e.g.
+// `sales`, so the repositories query schema-qualified relations
+// `from "sales"."products"`).
 //
-//   1. legacy single-context (`generateTypeScript`, unqualified
-//      `pgTable(...)` — tables live in `public`), and
-//   2. system mode (`generateSystems`, per-context `pgSchema(...)` —
-//      tables live under e.g. `sales`, so the repositories query
-//      schema-qualified relations `from "sales"."products"`).
-//
-// Case 2 is the reliable gate for the per-context-pgSchema regression:
-// the playground's `synthDDL` must `CREATE SCHEMA` + schema-qualify its
-// DDL, or the backend boots but every query 500s on a missing `sales.*`
-// relation.  The browser e2e (`e2e/runtime.spec.ts`) covers the same
+// It is the reliable gate for the per-context-pgSchema regression:
+// the schema must be created and schema-qualified, or the backend boots but
+// every query 500s on a missing `sales.*` relation.  System mode migrates
+// the way the runtime worker does: nothing is created while the model has
+// no recorded migration; once the initial migration is recorded, the chain's
+// SQL (the generated backend's own `db/migrations/`) builds the schema, and a
+// recorded evolution migrates it in place with the rows kept.  The browser e2e (`e2e/runtime.spec.ts`) covers the same
 // path but self-skips when the npm registry is unreachable; this Node
 // smoke runs wherever CI has network, with no skip.
 //
@@ -34,11 +33,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import { createDddServices } from "../../out/language/ddd-module.js";
-import { generateTypeScript } from "../../out/platform/hono/v4/emit.js";
 import { API_BASE_PATH } from "../../out/util/api-base.js";
-import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { generateSystems } from "../../out/system/index.js";
 import {
+  bootEntryFor,
   devStubEntryFor,
   makeEntryStdin,
   pgliteAssetUrl,
@@ -46,7 +44,8 @@ import {
   schemaPathFor,
   RUNTIME_VERSIONS,
 } from "../src/bundle/plugin.ts";
-import { synthDDL } from "../src/runtime/ddl.ts";
+import { migrationPlan, recordMigration } from "../src/build/evolution.ts";
+import { chainDdl, migrateChain } from "../src/runtime/migrate.ts";
 import { install } from "../src/engine/npm/install.ts";
 import { makeVfsNpmPlugin } from "../src/engine/npm/esbuild-vfs-plugin.ts";
 import { postProcessNpmBundle } from "../src/engine/npm/postprocess.ts";
@@ -65,6 +64,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const REALM_ONLY = process.argv.includes("--realm-only");
 
 const EXPECTED_EXPORTS = [
+  "bootApp",
   "createApp",
   "schema",
   "drizzle",
@@ -94,11 +94,10 @@ function fail(msg) {
   process.exit(1);
 }
 
-/** Parse + generate a single source file, returning the generated file
- *  Map plus the chosen Hono entry path.  `mode: "legacy"` uses the
- *  single-context emitter (entry at the root); `mode: "system"` uses
- *  the system composer (entry under the deployable slug). */
-async function generateBackend(sourcePath, mode) {
+/** Parse + generate a single source file through the system composer,
+ *  returning the generated file Map plus the Hono entry path (under the
+ *  deployable slug). */
+async function generateBackend(sourcePath) {
   const text = readFileSync(sourcePath, "utf8");
   const services = createDddServices(NodeFileSystem);
   const docs = services.shared.workspace.LangiumDocuments;
@@ -106,10 +105,6 @@ async function generateBackend(sourcePath, mode) {
   await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
   if ((doc.diagnostics ?? []).some((d) => d.severity === 1)) {
     fail(`parse/validation errors in ${path.basename(sourcePath)}`);
-  }
-  if (mode === "legacy") {
-    const files = generateTypeScript(doc.parseResult.value, BACKEND_PINS);
-    return { files, entry: "http/index.ts" };
   }
   const { files } = generateSystems(doc.parseResult.value);
   const entry = [...files.keys()].find((p) => /^[^/]+\/http\/index\.ts$/.test(p));
@@ -143,7 +138,42 @@ function pgliteAssets() {
  *  additionally asserts the synthesised DDL declares a Postgres schema —
  *  so the system-mode case can't silently degrade into testing an
  *  unqualified backend (which would no longer guard the regression). */
-async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectAuth }) {
+const ENTRY = "/workspace/main.ddd";
+
+/** The workspace tree the build worker plans and records from: the entry
+ *  source plus the chain files recorded so far. */
+function workspaceTree(text, chain) {
+  return { entryPath: ENTRY, files: [{ kind: "file", path: ENTRY, content: text }, ...chain] };
+}
+
+async function recordChain(text, name, chain) {
+  const r = await recordMigration({ current: workspaceTree(text, chain), name, now: "20261108120000" });
+  if (!r.ok) fail(`recording "${name}" failed: ${JSON.stringify(r.diagnostics)}`);
+  return [...chain, ...r.files.map((f) => ({ kind: "file", path: f.path, content: f.content }))];
+}
+
+async function planFor(text, chain) {
+  const r = await migrationPlan({ current: workspaceTree(text, chain) });
+  if (!r.ok || r.plan.kind !== "chain") fail(`migration plan failed: ${JSON.stringify(r)}`);
+  return r.plan;
+}
+
+async function userSchemas(pglite) {
+  const res = await pglite.query(
+    "SELECT nspname FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' ORDER BY 1",
+  );
+  return res.rows.map((r) => r.nspname);
+}
+
+async function runCase({
+  label,
+  sourcePath,
+  mode,
+  expectSchemaQualified,
+  expectAuth,
+  evolve,
+  afterBoot,
+}) {
   // Per-CASE identity for the emitted bundle.  It used to be the `mode` alone,
   // which is not unique: `await import()` caches by URL, so a second case with
   // the same mode re-imported the FIRST case's already-evaluated module and
@@ -155,7 +185,7 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
   console.log(`\n=== case: ${label} (${path.basename(sourcePath)}) ===`);
 
   console.log("# 1/5 generating…");
-  const { files, entry } = await generateBackend(sourcePath, mode);
+  const { files, entry } = await generateBackend(sourcePath);
   const schemaPath = schemaPathFor(entry);
   if (!resolveInFs(files, entry) || !resolveInFs(files, schemaPath)) {
     fail(`entry/schema missing (${entry} / ${schemaPath})`);
@@ -165,8 +195,7 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
   console.log("# 2/5 installing real npm tarballs + bundling (VFS plugin, no esm.sh)…");
   const vfs = new Map();
   for (const [p, c] of files) vfs.set("/" + p, c);
-  // The Hono deployable's package.json sits next to its entry: at the
-  // root for legacy mode, under the slug for system mode.
+  // The Hono deployable's package.json sits next to its entry, under the slug.
   const slugMatch = entry.match(/^(.+)\/http\/index\.ts$/);
   const pkgPath = slugMatch ? `${slugMatch[1]}/package.json` : "package.json";
   const pkg = JSON.parse(files.get(pkgPath) ?? "{}");
@@ -186,7 +215,12 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
       // with "No user verifier is registered" — the same #2571 gap the runtime
       // engine had.  Today's fixtures declare no auth, so this is a no-op that
       // keeps the two boot paths from drifting apart again.
-      contents: makeEntryStdin(entry, schemaPath, devStubEntryFor(vfs, entry)),
+      contents: makeEntryStdin(
+        entry,
+        schemaPath,
+        devStubEntryFor(vfs, entry),
+        bootEntryFor(vfs, entry),
+      ),
       resolveDir: "/",
       sourcefile: "__entry__.ts",
       loader: "ts",
@@ -248,12 +282,32 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
     if (!(name in mod)) fail(`bundle missing export: ${name}`);
   }
 
-  console.log("# 4/5 DDL synth + PGlite + createApp…");
-  const ddl = synthDDL(mod.schema, {
-    is: mod.is,
-    Table: mod.Table,
-    getTableConfig: mod.getTableConfig,
-  });
+  const assets = await pgliteAssets();
+  const pglite = new mod.PGlite(assets);
+  await pglite.exec("SELECT 1;");
+  const text = readFileSync(sourcePath, "utf8");
+  let chain = [];
+  let ddl;
+  console.log("# 4/5 recorded migrations + PGlite + createApp…");
+  // No chain: the whole schema is unrecorded, and nothing is created.
+  const before = await userSchemas(pglite);
+  const unrecorded = await migrateChain(pglite, await planFor(text, chain));
+  if (!("blocked" in unrecorded) || !unrecorded.blocked.initial) {
+    fail(`a model with no recorded migration must not migrate, got ${JSON.stringify(unrecorded)}`);
+  }
+  const after = await userSchemas(pglite);
+  if (JSON.stringify(after) !== JSON.stringify(before)) {
+    fail(`an unrecorded initial migration created schemas: ${before} → ${after}`);
+  }
+  console.log("# no recorded migration — database left untouched");
+  chain = await recordChain(text, "initial", chain);
+  const plan = await planFor(text, chain);
+  const res = await migrateChain(pglite, plan);
+  if (!("applied" in res) || res.applied.length === 0) {
+    fail(`the recorded initial migration did not apply: ${JSON.stringify(res)}`);
+  }
+  ddl = chainDdl(plan.units);
+  console.log(`# applied ${res.applied.join(", ")}`);
   if (expectSchemaQualified) {
     // Guards that this case is genuinely exercising a pgSchema-qualified
     // backend (the regression surface) — not silently a public-schema one.
@@ -261,20 +315,18 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
       console.log("--- DDL ---\n" + ddl + "\n-----------");
       fail("expected a CREATE SCHEMA in the system-mode DDL (pgSchema not exercised)");
     }
-    if (!/CREATE TABLE IF NOT EXISTS "[^"]+"\."products"/.test(ddl)) {
+    if (!/CREATE TABLE (IF NOT EXISTS )?"[^"]+"\."products"/.test(ddl)) {
       console.log("--- DDL ---\n" + ddl + "\n-----------");
       fail('expected a schema-qualified "products" table in the system-mode DDL');
     }
     console.log("# DDL is schema-qualified (CREATE SCHEMA + qualified products table)");
   }
 
-  const assets = await pgliteAssets();
-  const pglite = new mod.PGlite(assets);
-  await pglite.exec("SELECT 1;");
-  await pglite.exec(ddl);
   const db = mod.drizzle(pglite, { schema: mod.schema });
-  const app = mod.createApp(db);
-  console.log("# app booted");
+  // The runtime worker's boot call, verbatim: the generated start-up sequence
+  // with the browser's answers (no IdP, no broker, no second connection).
+  const { app, stop } = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
+  console.log("# app booted (bootApp)");
 
   console.log("# 5/5 dispatching requests against in-process backend…");
   // Domain routes mount under the shared API base path (`/api`); infra
@@ -337,21 +389,65 @@ async function runCase({ label, sourcePath, mode, expectSchemaQualified, expectA
     console.log(`# auth: dev stub registered — /auth/me answered ${meBody}`);
   }
 
+  if (evolve) {
+    // A recorded schema change migrates the SAME database in place: the
+    // product created above survives, and the new column exists.
+    const evolved = text.replace(evolve.from, evolve.to);
+    if (evolved === text) fail(`the evolution edit did not apply to ${path.basename(sourcePath)}`);
+    const pending = await migrateChain(pglite, await planFor(evolved, chain));
+    if (!("blocked" in pending) || pending.blocked.initial) {
+      fail(`an unrecorded change must leave the database as it is, got ${JSON.stringify(pending)}`);
+    }
+    chain = await recordChain(evolved, evolve.name, chain);
+    const res = await migrateChain(pglite, await planFor(evolved, chain));
+    if (!("applied" in res) || res.applied.length !== 1) {
+      fail(`the recorded evolution did not apply exactly one unit: ${JSON.stringify(res)}`);
+    }
+    const col = await pglite.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = $1",
+      [evolve.column],
+    );
+    if (col.rows.length !== 1) fail(`column ${evolve.column} missing after ${res.applied[0]}`);
+    const kept = await app.fetch(new Request(productsUrl));
+    const keptBody = JSON.parse(await kept.text());
+    const keptRows = Array.isArray(keptBody) ? keptBody : keptBody.items;
+    if (keptRows?.length !== 1 || keptRows[0].sku !== "WIDGET-1") {
+      fail(`the product did not survive ${res.applied[0]}: ${JSON.stringify(keptBody)}`);
+    }
+    console.log(`# evolved in place by ${res.applied[0]} — ${evolve.column} added, 1 product kept`);
+  }
+
+  if (afterBoot) await afterBoot(app);
+
+  await stop();
   await pglite.close();
 }
 
-await runCase({
-  label: "legacy single-context (unqualified pgTable)",
-  sourcePath: path.resolve(here, "../../examples/sales.ddd"),
-  mode: "legacy",
-  expectSchemaQualified: false,
-});
+/** Poll `GET url` until `accept(rows)` holds, or fail after `ms`. */
+async function waitForRows(app, url, accept, what, ms = 8000) {
+  const deadline = Date.now() + ms;
+  let last;
+  while (Date.now() < deadline) {
+    const res = await app.fetch(new Request(url));
+    const body = JSON.parse(await res.text());
+    last = Array.isArray(body) ? body : body.items;
+    if (Array.isArray(last) && accept(last)) return last;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  fail(`${what} within ${ms} ms; last rows ${JSON.stringify(last)}`);
+}
 
 await runCase({
   label: "system mode (per-context pgSchema)",
   sourcePath: path.resolve(here, "../src/examples/sales-system.ddd"),
   mode: "system",
   expectSchemaQualified: true,
+  evolve: {
+    name: "add-barcode",
+    from: "        sku: string\n        price: Money\n",
+    to: "        sku: string\n        barcode: string?\n        price: Money\n",
+    column: "barcode",
+  },
 });
 
 // `auth: required` (#2571).  The preview boots `createApp`, which asserts a
@@ -364,6 +460,47 @@ await runCase({
   mode: "system",
   expectSchemaQualified: true,
   expectAuth: true,
+});
+
+// The generated start-up sequence (#4775).  Booting bare `createApp(db)`
+// skipped the broker transports, the consumer loop and the timers, so this
+// case's channel subscriber and `every:` timer never fired in the preview.
+await runCase({
+  label: "boot sequence (channel consumer + every: timer through bootApp)",
+  sourcePath: path.resolve(here, "fixtures/boot-sequence-smoke.ddd"),
+  mode: "system",
+  expectSchemaQualified: true,
+  afterBoot: async (app) => {
+    const base = `http://localhost${API_BASE_PATH}`;
+    const list = await app.fetch(new Request(`${base}/products`));
+    const product = JSON.parse(await list.text()).items?.[0];
+    if (!product?.id) fail("no product to announce");
+    const announced = await app.fetch(
+      new Request(`${base}/products/${product.id}/announce`, { method: "POST" }),
+    );
+    if (announced.status >= 400) {
+      fail(`POST announce returned ${announced.status}: ${await announced.text()}`);
+    }
+    // `ProductAnnounced` rides a redis-bound channel: it reaches the
+    // co-located `Notify` workflow only through the publish tee, the
+    // in-process broker and the consumer loop.
+    await waitForRows(
+      app,
+      `${base}/notices`,
+      (rows) => rows.some((r) => r.sku === product.sku),
+      "the channel subscriber did not create a Notice",
+    );
+    console.log("# channel: ProductAnnounced reached the co-located subscriber");
+    // `pulse` ticks every second; each tick starts a `Pulse` saga that
+    // creates a Beat.
+    const beats = await waitForRows(
+      app,
+      `${base}/beats`,
+      (rows) => rows.some((r) => r.source === "timer"),
+      "the every: timer did not fire",
+    );
+    console.log(`# timer: every: fired (${beats.length} beat(s))`);
+  },
 });
 
 console.log("\n# all green");

@@ -1,31 +1,19 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFromFile, generateBackendFromSource } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 
-async function buildModel(file: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(
-    URI.file(path.join(repoRoot, file)),
-  );
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return doc.parseResult.value as Model;
-}
-
 describe("typescript generator", () => {
   it("emits the expected file set for sales.ddd", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const keys = [...files.keys()].sort();
     expect(keys).toContain("domain/ids.ts");
     expect(keys).toContain("domain/value-objects.ts");
@@ -41,8 +29,7 @@ describe("typescript generator", () => {
   });
 
   it("renders the Order aggregate with branded ids and operations", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const order = files.get("domain/order.ts")!;
     expect(order).toMatch(/export class Order/);
     expect(order).toMatch(/Ids\.OrderId/);
@@ -53,8 +40,7 @@ describe("typescript generator", () => {
   });
 
   it("renders OrderLine with implicit id and parent injection", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const order = files.get("domain/order.ts")!;
     expect(order).toMatch(
       /OrderLine\._create\(\{ id: Ids\.newOrderLineId\(\), parentId: this\._id/,
@@ -62,8 +48,7 @@ describe("typescript generator", () => {
   });
 
   it("emits a vitest test file when `test` blocks are declared", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const tests = files.get("domain/order.test.ts")!;
     expect(tests).toMatch(/import { describe, it, expect } from "vitest"/);
     expect(tests).toMatch(/it\("money literal builds"/);
@@ -76,11 +61,7 @@ describe("typescript generator", () => {
     // lowers to `.length` (previously the factory call typed as the
     // string fallback, leaving `.count` un-lowered — a TS type error +
     // runtime `undefined`).
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Shop {
         enum OS { Draft, Confirmed }
         aggregate Order {
@@ -100,11 +81,8 @@ describe("typescript generator", () => {
         }
         repository Orders for Order { }
       }
-      `,
-      { validation: true },
-    );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1)).toEqual([]);
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+      `;
+    const files = await generateBackendFromSource(src, "node");
     const tests = files.get("domain/order.test.ts")!;
     expect(tests).toMatch(/expect\(order\.lines\.length\)\.toBe\(1\)/);
     expect(tests).not.toMatch(/order\.lines\.count/);
@@ -114,11 +92,7 @@ describe("typescript generator", () => {
     // domain-services.md rev. 4 — a `function` may have a pure block body
     // (`{ let … precondition … return … }`) alongside the unchanged
     // expression form (`= Expression`, which stays a single-line method).
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Shop {
         aggregate Cart {
           weight: decimal
@@ -135,11 +109,8 @@ describe("typescript generator", () => {
         }
         repository Carts for Cart { }
       }
-      `,
-      { validation: true },
-    );
-    expect((doc.diagnostics ?? []).filter((d) => d.severity === 1)).toEqual([]);
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+      `;
+    const files = await generateBackendFromSource(src, "node");
     const cart = files.get("domain/cart.ts")!;
     // Expression form stays the single-line `{ return expr; }` shape.  PUBLIC:
     // the routes file and a workflow body call an aggregate `function` from
@@ -159,8 +130,7 @@ describe("typescript generator", () => {
   });
 
   it("emits Dockerfile + .dockerignore", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const dockerfile = files.get("Dockerfile")!;
     expect(dockerfile).toMatch(/FROM node:24-alpine AS build/);
     expect(dockerfile).toMatch(/FROM node:24-alpine AS runtime/);
@@ -175,8 +145,7 @@ describe("typescript generator", () => {
 
   describe("container basics", () => {
     it("http/index.ts mounts /ready that pings the DB and returns 503 on failure", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const httpIndex = files.get("http/index.ts")!;
       expect(httpIndex).toMatch(/app\.get\("\/ready"/);
       // Drizzle ping via sql`select 1` — cheap, dialect-agnostic.
@@ -188,8 +157,7 @@ describe("typescript generator", () => {
     });
 
     it("root index.ts captures the server and listens for SIGTERM/SIGINT", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const idx = files.get("index.ts")!;
       expect(idx).toMatch(/const server = serve\(/);
       expect(idx).toMatch(/process\.on\("SIGTERM"/);
@@ -199,8 +167,7 @@ describe("typescript generator", () => {
     });
 
     it("root index.ts fails fast on missing DATABASE_URL", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const idx = files.get("index.ts")!;
       expect(idx).toMatch(/if \(!process\.env\.DATABASE_URL\)/);
       expect(idx).toMatch(/DATABASE_URL is required/);
@@ -209,8 +176,7 @@ describe("typescript generator", () => {
 
   describe("request observability", () => {
     it("emits obs/als.ts wiring the ambient RequestContext into AsyncLocalStorage", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const als = files.get("obs/als.ts")!;
       // Non-HTTP code (repository, dispatcher, domain on --trace) resolves
       // the ambient RequestContext (correlation id, principal, locale,
@@ -231,8 +197,7 @@ describe("typescript generator", () => {
     });
 
     it("request-id middleware opens the RequestContext and echoes correlation on both headers", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const reqId = files.get("obs/request-id.ts")!;
       expect(reqId).toMatch(/import \{ type RequestContext, requestContextStore \} from "\.\/als"/);
       expect(reqId).toMatch(/await requestContextStore\.run\(ctx, async \(\) => \{/);
@@ -249,8 +214,7 @@ describe("typescript generator", () => {
       // (the default) the generated domain file MUST be free of any
       // observability infra import or instrumentation.  Domain purity by
       // construction.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS); // no emitTrace
+      const files = await generateBackendFromFile("examples/sales.ddd", "node"); // no emitTrace
       const orderDomain = files.get("domain/order.ts")!;
       expect(orderDomain).not.toMatch(/from "\.\.\/obs\/als"/);
       expect(orderDomain).not.toMatch(/requestLog\(\)/);
@@ -259,8 +223,9 @@ describe("typescript generator", () => {
     });
 
     it("--trace on: _assertInvariants gains an __op param threaded by every call site", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS, { emitTrace: true });
+      const files = await generateBackendFromFile("examples/sales.ddd", "node", {
+        emitTrace: true,
+      });
       const orderDomain = files.get("domain/order.ts")!;
       // The trace-on signature picks up an __op string param so
       // invariant_evaluated lines can carry op context — invariants run
@@ -289,8 +254,9 @@ describe("typescript generator", () => {
     });
 
     it("--trace on: success responses bind the payload + emit wire_out before c.json", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS, { emitTrace: true });
+      const files = await generateBackendFromFile("examples/sales.ddd", "node", {
+        emitTrace: true,
+      });
       const routes = files.get("http/order.routes.ts")!;
       // create: payload bound to `out` so c.json doesn't re-evaluate, +
       // wire_out fires immediately before the return.
@@ -309,8 +275,7 @@ describe("typescript generator", () => {
     });
 
     it("--trace off: success responses keep the original one-line c.json (no binding, no wire_out)", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS); // no emitTrace
+      const files = await generateBackendFromFile("examples/sales.ddd", "node"); // no emitTrace
       const routes = files.get("http/order.routes.ts")!;
       expect(routes).not.toMatch(/event: "wire_out"/);
       expect(routes).not.toMatch(/const out =/);
@@ -322,8 +287,7 @@ describe("typescript generator", () => {
     });
 
     it("boot script wires pool.on('error') to a db_disconnected warn line", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const index = files.get("index.ts")!;
       // pool 'error' fires on a dropped backend connection (DB restart,
       // network blip) — operators see the cause at boot/diagnostic time
@@ -335,8 +299,9 @@ describe("typescript generator", () => {
     });
 
     it("--trace on: operation route emits wire_in after body parse, off keeps no wire_in", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const filesOn = generateTypeScript(model, HONO_PINS, { emitTrace: true });
+      const filesOn = await generateBackendFromFile("examples/sales.ddd", "node", {
+        emitTrace: true,
+      });
       const routesOn = filesOn.get("http/order.routes.ts")!;
       // wire_in fires AFTER `const body = c.req.valid("json");` so the
       // validated shape is what's logged.  `keys: Object.keys(body as
@@ -349,14 +314,15 @@ describe("typescript generator", () => {
 
       // Off: no wire_in lines, no keys-of-body — operation route stays
       // byte-identical to the pre-Phase-6d shape at the body-parse seam.
-      const filesOff = generateTypeScript(model, HONO_PINS); // no emitTrace
+      const filesOff = await generateBackendFromFile("examples/sales.ddd", "node"); // no emitTrace
       const routesOff = filesOff.get("http/order.routes.ts")!;
       expect(routesOff).not.toMatch(/event: "wire_in"/);
     });
 
     it("--trace on: repository wraps findById + save in tx_begin/tx_commit/tx_rollback + child_synced per upsert", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS, { emitTrace: true });
+      const files = await generateBackendFromFile("examples/sales.ddd", "node", {
+        emitTrace: true,
+      });
       const repo = files.get("db/repositories/order-repository.ts")!;
       // Each of the two transactional methods (findById + save) opens
       // with tx_begin, wraps the inner body in try { … }, emits tx_commit
@@ -381,8 +347,7 @@ describe("typescript generator", () => {
     });
 
     it("--trace off: repository stays free of tx_* + child_synced (no try/catch wrap)", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS); // no emitTrace
+      const files = await generateBackendFromFile("examples/sales.ddd", "node"); // no emitTrace
       const repo = files.get("db/repositories/order-repository.ts")!;
       // No tx_* logs, no try/catch wrapper, no child_synced — body
       // stays at the original 6-space indent and the existing
@@ -395,8 +360,7 @@ describe("typescript generator", () => {
     });
 
     it("--trace off: invariant emission stays byte-identical to no-trace output", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS); // no emitTrace
+      const files = await generateBackendFromFile("examples/sales.ddd", "node"); // no emitTrace
       const orderDomain = files.get("domain/order.ts")!;
       // No __op param, no invariant_evaluated lines, no __inv_<i>_ok
       // temps — the trace-off path must produce identical source to
@@ -410,9 +374,10 @@ describe("typescript generator", () => {
     });
 
     it("--trace on: domain file injects requestLog import + value_computed + precondition_evaluated", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      // Mirror what the CLI does for `generate ts <ddd> --trace`.
-      const files = generateTypeScript(model, HONO_PINS, { emitTrace: true });
+      // Mirror what the CLI does for `generate system <ddd> --trace`.
+      const files = await generateBackendFromFile("examples/sales.ddd", "node", {
+        emitTrace: true,
+      });
       const orderDomain = files.get("domain/order.ts")!;
       // requestLog import — only when --trace is on, so the default
       // artefact's domain layer never touches an infra import.
@@ -433,8 +398,7 @@ describe("typescript generator", () => {
     });
 
     it("health + ready probes emit health_ok / db_error / health_degraded via the request logger", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const httpIndex = files.get("http/index.ts")!;
       // /health → liveness probe — debug line so probe traffic only
       // surfaces under LOG_LEVEL=debug, not the default info stream.
@@ -455,8 +419,7 @@ describe("typescript generator", () => {
     });
 
     it("repository emits aggregate_loaded / repository_save / find_executed / event_dispatched via requestLog()", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const repo = files.get("db/repositories/order-repository.ts")!;
       // ALS-backed logger import — repository methods have no `c` in scope.
       expect(repo).toMatch(/import \{ requestLog \} from "\.\.\/\.\.\/obs\/als"/);
@@ -486,7 +449,7 @@ describe("typescript generator", () => {
     });
 
     it("repository emits find_executed at every read return, empty branch included", async () => {
-      const model = await parseValid(`
+      const src = `
         context Sales {
           aggregate Order { code: string  unique (code) }
           repository Orders for Order { }
@@ -499,8 +462,10 @@ describe("typescript generator", () => {
             return r
           }
         }
-      `);
-      const repo = generateTypeScript(model, HONO_PINS).get("db/repositories/order-repository.ts")!;
+      `;
+      const repo = (await generateBackendFromSource(src, "node")).get(
+        "db/repositories/order-repository.ts",
+      )!;
       // The single-row key lookup: a no-result query is still observable…
       expect(repo).toContain(
         'requestLog().debug({ event: "find_executed", aggregate: "Order", find: "findByCode", rows: 0 });',
@@ -518,8 +483,7 @@ describe("typescript generator", () => {
     });
 
     it("emits obs/log.ts with a configured pino base logger", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const log = files.get("obs/log.ts")!;
       // Standard structured logger — pino, not hand-rolled console.log.
       expect(log).toMatch(/from "pino"/);
@@ -538,8 +502,7 @@ describe("typescript generator", () => {
     });
 
     it("emits obs/request-id.ts with the correlation-id middleware + bound child logger", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const reqId = files.get("obs/request-id.ts")!;
       // Mints a fresh UUID when no inbound header is set.
       expect(reqId).toMatch(/randomUUID\(\)/);
@@ -568,8 +531,7 @@ describe("typescript generator", () => {
     });
 
     it("boot script emits structured server lifecycle events via pino", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const index = files.get("index.ts")!;
       expect(index).toMatch(/import \{ baseLogger \} from "\.\/obs\/log"/);
       // server_starting (before listen) + server_listening (after) +
@@ -583,16 +545,14 @@ describe("typescript generator", () => {
     });
 
     it("generated package.json pins pino + pino-pretty", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const pkg = JSON.parse(files.get("package.json")!);
       expect(pkg.dependencies.pino).toMatch(/^\^?\d/);
       expect(pkg.devDependencies["pino-pretty"]).toMatch(/^\^?\d/);
     });
 
     it("http/index.ts mounts requestIdMiddleware before cors and any business route", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const httpIndex = files.get("http/index.ts")!;
       expect(httpIndex).toMatch(/import \{ requestIdMiddleware \} from "\.\.\/obs\/request-id"/);
       expect(httpIndex).toMatch(/app\.use\("\*", requestIdMiddleware\)/);
@@ -606,8 +566,7 @@ describe("typescript generator", () => {
     });
 
     it("per-aggregate app.onError threads trace_id into every error envelope", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const routes = files.get("http/order.routes.ts")!;
       // trace_id pulled off the context via a typed cast (the
       // sub-router's OpenAPIHono is constructed without a typed
@@ -629,8 +588,7 @@ describe("typescript generator", () => {
     });
 
     it("routes emit catalog log events at the right levels via the bound child logger", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const routes = files.get("http/order.routes.ts")!;
       // Business-narrative info lines from the create + operation seams.
       // The renderer bridges `c.get("log")` through an untyped cast
@@ -662,8 +620,7 @@ describe("typescript generator", () => {
   });
 
   it("Hono routes use @hono/zod-openapi and expose /openapi.json", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const orderRoutes = files.get("http/order.routes.ts")!;
     expect(orderRoutes).toMatch(/from "@hono\/zod-openapi"/);
     expect(orderRoutes).toMatch(/createRoute\(\{/);
@@ -679,8 +636,7 @@ describe("typescript generator", () => {
   });
 
   it("emits a full wire-shape OrderResponse + findAll route + repo serializer", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const orderRoutes = files.get("http/order.routes.ts")!;
     // Response carries every aggregate field + parts + derived.
     expect(orderRoutes).toMatch(/OrderResponse = z\.object/);
@@ -699,17 +655,15 @@ describe("typescript generator", () => {
 
   it("lowers `where` filter expressions to Drizzle operators (not a TODO comment)", async () => {
     // sales.ddd declares the criterion; a handler reading it emits its query.
-    const withRead = await parseValid(
-      readFileSync(path.join(repoRoot, "examples/sales.ddd"), "utf8").replace(
-        "  repository Orders for Order { }",
-        `  repository Orders for Order { }
+    const withRead = readFileSync(path.join(repoRoot, "examples/sales.ddd"), "utf8").replace(
+      "  repository Orders for Order { }",
+      `  repository Orders for Order { }
   queryHandler ListActiveForCustomer(c: Customer id): Order[] {
     let r = Orders.all(OrdersActiveForCustomer(c))
     return r
   }`,
-      ),
     );
-    const files = generateTypeScript(withRead, HONO_PINS);
+    const files = await generateBackendFromSource(withRead, "node");
     const repo = files.get("db/repositories/order-repository.ts")!;
     // sales.ddd's `OrdersActiveForCustomer` criterion is
     //   this.customerId == forCustomer && this.status == Draft
@@ -736,11 +690,7 @@ describe("typescript generator", () => {
     // undefined variable for `contains shipping: Address` — `npx tsc`
     // caught it as a no-undef use, but more importantly the
     // generated runtime code couldn't compile.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context T {
         aggregate Order {
           sku: string
@@ -749,10 +699,8 @@ describe("typescript generator", () => {
           entity Address { street: string }
         }
       }
-    `,
-      { validation: true },
-    );
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+    `;
+    const files = await generateBackendFromSource(src, "node");
     const repo = files.get("db/repositories/order-repository.ts")!;
     // The `all()` method now eagerly loads `shipping` via inArray +
     // builds a per-parent map keyed by parentId; hydrate looks up
@@ -768,11 +716,7 @@ describe("typescript generator", () => {
   });
 
   it("re-homes an extern operation to an aggregate-owned hook (base + scaffold-once subclass)", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
         aggregate Order {
@@ -785,10 +729,8 @@ describe("typescript generator", () => {
         }
         repository Orders for Order { }
       }
-    `,
-      { validation: true },
-    );
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+    `;
+    const files = await generateBackendFromSource(src, "node");
 
     // 1. The old injected handler registry is GONE (extern (b) Phase 2).
     expect(files.has("domain/order-extern.ts")).toBe(false);
@@ -842,8 +784,7 @@ describe("typescript generator", () => {
 
   describe("extern handler exception envelope", () => {
     it("domain/errors.ts exports ExternHandlerError", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const errors = files.get("domain/errors.ts")!;
       expect(errors).toMatch(/export class ExternHandlerError extends Error/);
       // Carries op + agg names + the inner cause.
@@ -855,11 +796,7 @@ describe("typescript generator", () => {
     });
 
     it("per-aggregate routes call the extern op directly — no handler wrap, no editor", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
-        `
+      const src = `
         context Sales {
           enum OrderStatus { Draft, Confirmed }
           aggregate Order {
@@ -872,10 +809,8 @@ describe("typescript generator", () => {
           }
           repository Orders for Order { }
         }
-      `,
-        { validation: true },
-      );
-      const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+      `;
+      const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/order.routes.ts")!;
       // The op is aggregate-owned now: the route just calls it (preconditions →
       // hook → invariants run inside the method).  No editor, no registry, no
@@ -894,8 +829,7 @@ describe("typescript generator", () => {
       // failures is the published contract for request-validation
       // errors.  Forking it would break every OpenAPI-generated
       // client.  Pin the absence.
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const httpIndex = files.get("http/index.ts")!;
       const orderRoutes = files.get("http/order.routes.ts")!;
       expect(httpIndex).not.toMatch(/defaultHook/);
@@ -903,11 +837,7 @@ describe("typescript generator", () => {
     });
 
     it("workflow extern op-call calls the aggregate-owned op directly", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
-        `
+      const src = `
         context Sales {
           enum OrderStatus { Draft, Confirmed }
           aggregate Order {
@@ -924,10 +854,8 @@ describe("typescript generator", () => {
           }
     }
         }
-      `,
-        { validation: true },
-      );
-      const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+      `;
+      const files = await generateBackendFromSource(src, "node");
       const wf = files.get("http/workflows.ts")!;
       // The op is aggregate-owned now: the workflow just calls it (preconditions
       // → hook → invariants run inside the method).  No registry, no editor, no
@@ -940,11 +868,7 @@ describe("typescript generator", () => {
   });
 
   it("emits Hono workflow routes for non-transactional workflow", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
         aggregate Customer {
@@ -978,10 +902,8 @@ describe("typescript generator", () => {
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+    `;
+    const files = await generateBackendFromSource(src, "node");
     const wf = files.get("http/workflows.ts")!;
 
     // Imports + Zod schema for params. The Customer class itself isn't
@@ -1018,11 +940,7 @@ describe("typescript generator", () => {
   });
 
   it("emits a transactional workflow wrapped in db.transaction", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context T {
         aggregate Customer {
           name: string
@@ -1042,10 +960,8 @@ describe("typescript generator", () => {
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+    `;
+    const files = await generateBackendFromSource(src, "node");
     const wf = files.get("http/workflows.ts")!;
     expect(wf).toMatch(/await db\.transaction\(async \(tx\) => \{/);
     // The tx repository gets the buffering dispatcher, flushed after commit
@@ -1059,11 +975,7 @@ describe("typescript generator", () => {
     expect(saveIdx).toBeLessThan(txClose);
   });
   it("workflow op-call to a parameterless extern calls the aggregate-owned op", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
         aggregate Order {
@@ -1080,10 +992,8 @@ describe("typescript generator", () => {
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+    `;
+    const files = await generateBackendFromSource(src, "node");
     const wf = files.get("http/workflows.ts")!;
 
     // No registry import, no handler dance — the op is aggregate-owned.
@@ -1095,11 +1005,7 @@ describe("typescript generator", () => {
   });
 
   it("workflow op-call to a parameterized extern passes the args straight through", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Sales {
         aggregate Order {
           customerId: string
@@ -1118,12 +1024,8 @@ describe("typescript generator", () => {
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const wf = generateTypeScript(doc.parseResult.value as Model, HONO_PINS).get(
-      "http/workflows.ts",
-    )!;
+    `;
+    const wf = (await generateBackendFromSource(src, "node")).get("http/workflows.ts")!;
     expect(wf).toMatch(/order\.deduct\(amount\);/);
     expect(wf).not.toMatch(/await handler\(order/);
   });
@@ -1139,11 +1041,7 @@ describe("typescript generator", () => {
     // the bundle.  This test asserts that http/workflows.ts emits
     // the schema declarations needed to make its request schemas
     // self-contained, exactly like http/<agg>.routes.ts already does.
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context Banking {
         enum AccountStatus { Open, Frozen, Closed }
         valueobject Money {
@@ -1171,21 +1069,17 @@ describe("typescript generator", () => {
       create(
           fromAccount: Account id,
           toAccount: Account id,
-          amount: Money,
+          amount: Money
         ) {
-          let from = Accounts.get(fromAccount)
+          let source = Accounts.get(fromAccount)
           let to = Accounts.get(toAccount)
-          from.withdraw(amount)
+          source.withdraw(amount)
           to.deposit(amount)
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const wf = generateTypeScript(doc.parseResult.value as Model, HONO_PINS).get(
-      "http/workflows.ts",
-    )!;
+    `;
+    const wf = (await generateBackendFromSource(src, "node")).get("http/workflows.ts")!;
     // The Money schema is declared as a local const, with the
     // openapi("Money") tag so it appears in /openapi.json.  Invariant
     // refinements stay outside the openapi name (see emitWireSchema).
@@ -1206,11 +1100,7 @@ describe("typescript generator", () => {
   });
 
   it("emits explicit isolationLevel for transactional(level) workflows", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
+    const src = `
       context T {
         aggregate Customer {
           name: string
@@ -1253,12 +1143,8 @@ describe("typescript generator", () => {
         }
     }
       }
-    `,
-      { validation: true },
-    );
-    const wf = generateTypeScript(doc.parseResult.value as Model, HONO_PINS).get(
-      "http/workflows.ts",
-    )!;
+    `;
+    const wf = (await generateBackendFromSource(src, "node")).get("http/workflows.ts")!;
     expect(wf).toMatch(/\}, \{ isolationLevel: "serializable" \}\);/);
     expect(wf).toMatch(/\}, \{ isolationLevel: "repeatable read" \}\);/);
     expect(wf).toMatch(/\}, \{ isolationLevel: "read uncommitted" \}\);/);
@@ -1277,8 +1163,7 @@ describe("typescript generator", () => {
     // (`activeForCustomer`) and no migration indexes it (D-INDEX-SUGGEST).
     // The OrderLine part gets a parentId index so findById's eager-load
     // join doesn't sequential-scan.
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateTypeScript(model, HONO_PINS);
+    const files = await generateBackendFromFile("examples/sales.ddd", "node");
     const schema = files.get("db/schema.ts")!;
     expect(schema).toMatch(/import \{[^}]*\bindex\b[^}]*\} from "drizzle-orm\/pg-core"/);
     expect(schema).toMatch(
@@ -1706,8 +1591,7 @@ describe("typescript generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (Hono Zod refines)", () => {
     it("absorbs single-field invariants on a value-object schema into idiomatic native chains", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       // sales.ddd Money: `invariant amount >= 0` + `invariant currency.length == 3`.
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Strict `z.number()`, not `z.coerce.number()`: a JSON body carries a
@@ -1730,22 +1614,21 @@ describe("typescript generator", () => {
     });
 
     it("absorbs single-field op-precondition into idiomatic chain on <Op>Request", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       // sales.ddd Order.addLine: `precondition qty > 0` (with int qty).
       const orderRoutes = files.get("http/order.routes.ts")!;
       // `qty > 0` → recognised as min(1) on the int field.
       expect(orderRoutes).toMatch(
         // The published `format: int32` sits between the base type and the
-        // declared bound: `qty > 0` is tighter than the int4 range, so the range
-        // itself is dropped and only the format remains (F11).
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
+        // declared bound: `qty > 0` is tighter than the int4 FLOOR, so only the
+        // floor is dropped; the int4 ceiling stays (a one-sided bound must not
+        // lose the other side, F11).
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
       );
     });
 
     it("mirrors create wire constraints onto the crudish Update<Agg>Request (SYS-1)", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       // M-T6.8/SYS-1: sales.ddd Customer `invariant email.length > 0` now
       // constrains the UPDATE request DTO too (not just create), so an invalid
       // update is rejected at the wire boundary (422) instead of the domain floor.
@@ -1756,8 +1639,7 @@ describe("typescript generator", () => {
     });
 
     it("excludes invariants referencing aggregate state from Create<Agg>Request", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // sales.ddd Order has `invariant lines.count > 0 when status == Confirmed`.
       // `lines` is a containment, not in the create-request body — the
@@ -1774,8 +1656,7 @@ describe("typescript generator", () => {
     });
 
     it("excludes preconditions referencing helper-fns / aggregate state from <Op>Request", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateTypeScript(model, HONO_PINS);
+      const files = await generateBackendFromFile("examples/sales.ddd", "node");
       const orderRoutes = files.get("http/order.routes.ts")!;
       // Order.addLine has `precondition isMutable()` — references
       // `this.status` via a helper-fn.  Must NOT appear as a refine
@@ -1795,11 +1676,7 @@ describe("typescript generator", () => {
     });
 
     it("absorbs `string.matches(literal)` as `z.string().regex(/.../)` on Hono routes", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
-        `
+      const src = `
           context Auth {
             aggregate User {
               email: string
@@ -1809,10 +1686,8 @@ describe("typescript generator", () => {
             }
             repository Users for User { }
           }
-        `,
-        { validation: true },
-      );
-      const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+        `;
+      const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/user.routes.ts")!;
       expect(routes).toMatch(
         /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.regex\(\/\^\[\^@\]\+@\.\+\$\/, \{ message: "Email is not in the expected format" \}\)/,
@@ -1820,11 +1695,7 @@ describe("typescript generator", () => {
     });
 
     it("renders `matches` in domain code as a `/pattern/.test(...)` regex literal", async () => {
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
-        `
+      const src = `
           context Auth {
             aggregate User {
               email: string
@@ -1833,10 +1704,8 @@ describe("typescript generator", () => {
             }
             repository Users for User { }
           }
-        `,
-        { validation: true },
-      );
-      const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+        `;
+      const files = await generateBackendFromSource(src, "node");
       const userClass = files.get("domain/user.ts")!;
       expect(userClass).toMatch(/\/\^\[\^@\]\+@\.\+\$\/\.test\(this\._email\)/);
     });
@@ -1844,11 +1713,7 @@ describe("typescript generator", () => {
     it("emits cross-field invariants as `.refine()` with field-path attribution", async () => {
       // Use an in-memory model with a synthetic cross-field invariant
       // since sales.ddd's only cross-field rule is non-translatable.
-      const { parseHelper } = await import("langium/test");
-      const services = createDddServices(NodeFileSystem);
-      const helper = parseHelper(services.Ddd);
-      const doc = await helper(
-        `
+      const src = `
           context Shop {
             aggregate Reservation {
               fromTime: int
@@ -1858,10 +1723,8 @@ describe("typescript generator", () => {
             }
             repository Reservations for Reservation { }
           }
-        `,
-        { validation: true },
-      );
-      const files = generateTypeScript(doc.parseResult.value as Model, HONO_PINS);
+        `;
+      const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/reservation.routes.ts")!;
       // `fromTime < toTime` is cross-field — falls through to .refine.
       expect(routes).toMatch(

@@ -1,10 +1,8 @@
 import { implicitUsingIdAlias } from "../bcl-collision.js";
 import { csNewIdValue, csValueTypeForId } from "../render-expr.js";
 
-// Per-aggregate / per-part identity record-struct.  `valueType` and
-// `newExpr` are determined by `csValueTypeForId` / `csNewIdValue` —
-// e.g. guid → `Guid` / `Guid.NewGuid()`, string → `string` /
-// `Guid.NewGuid().ToString()`.
+// Per-aggregate / per-part identity record-struct wrapping a `Guid`
+// (`csValueTypeForId`), minted by `csNewIdValue`.
 /**
  * A TPH CONCRETE's id class, emitted as a global type ALIAS for the hierarchy
  * root's (M-T5.7).
@@ -40,9 +38,9 @@ global using ${name}Id = ${ns}.Domain.Ids.${rootName}Id;
 `;
 }
 
-export function renderId(name: string, idValueType: string, ns: string): string {
-  const valueType = csValueTypeForId(idValueType);
-  const newExpr = csNewIdValue(idValueType);
+export function renderId(name: string, ns: string): string {
+  const valueType = csValueTypeForId();
+  const newExpr = csNewIdValue();
   // `EventId` and its kin also arrive through an implicit SDK `global using`;
   // the alias makes the bare name mean this record everywhere (bcl-collision.ts).
   const alias = implicitUsingIdAlias(`${name}Id`, ns);

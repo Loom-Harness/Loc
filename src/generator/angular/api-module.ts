@@ -25,17 +25,14 @@ import {
 } from "../../ir/util/audit-history.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import {
-  aggregateHasProvenanced,
-  clientFinds,
-  findHookPath,
-  historyHookName,
-} from "../_frontend/api-module.js";
+import { aggregateHasProvenanced, clientFinds, historyHookName } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 
@@ -390,7 +387,10 @@ export function buildAngularApiModule(
   const ops = agg.operations.filter((o) => o.visibility === "public");
   const opRequests = ops.flatMap((op) => [
     `export interface ${upperFirst(op.name)}${single}Request {`,
-    ...op.params.map((p) => `  ${p.name}: ${wireTsType(p.type)};`),
+    // A masked merge-patch key may be left out (the stored value stays).
+    ...op.params.map(
+      (p) => `  ${p.name}${maskedPatchParams(op).has(p.name) ? "?" : ""}: ${wireTsType(p.type)};`,
+    ),
     "}",
     "",
   ]);
@@ -473,7 +473,7 @@ export function buildAngularApiModule(
           ? [
               `    mutationFn: (input: ${reqType}) =>`,
               `      firstValueFrom(`,
-              `        service.${op.name}(id, input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", id])?.version)),`,
+              `        service.${op.name}(id, input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", id])?.${ROW_VERSION_FIELD})),`,
               `      ),`,
             ]
           : [
@@ -503,7 +503,7 @@ export function buildAngularApiModule(
       ...(sendsIfMatchPrecondition(agg, op)
         ? [
             `      firstValueFrom(`,
-            `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.version)),`,
+            `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.${ROW_VERSION_FIELD})),`,
             `      ),`,
           ]
         : [`      firstValueFrom(service.${op.name}(vars.id, vars.input)),`]),
@@ -532,11 +532,13 @@ export function buildAngularApiModule(
   // envelope typing is a later slice; the read path only needs the row shape.)
   const finds = paramFinds(single, repo, findRoutes);
   const findReturnTs = (f: FindIR): string =>
-    f.returnType.kind === "array"
-      ? `${responseName}[]`
-      : f.returnType.kind === "optional"
-        ? `${responseName} | null`
-        : responseName;
+    pagedReturn(f.returnType)
+      ? pagedName
+      : f.returnType.kind === "array"
+        ? `${responseName}[]`
+        : f.returnType.kind === "optional"
+          ? `${responseName} | null`
+          : responseName;
   // The find query type — the shared walker (`adjustFindHookArgs`) renders a
   // find's args into a single `{ <param>: <value>, … }` object, so the Angular
   // factory takes one `<Find><Agg>Query` object (matching that call shape) and
@@ -545,11 +547,17 @@ export function buildAngularApiModule(
   const findQueryInterfaces = finds.flatMap((f) => [
     `export interface ${findQueryType(f)} {`,
     ...f.params.map((p) => `  ${p.name}: ${wireTsType(p.type)};`),
+    // A paged find's page controls ride the same query bag the walker builds
+    // (`adjustFindHookArgs`); they default server-side, so each is optional.
+    ...(pagedReturn(f.returnType)
+      ? ["  page?: number;", "  pageSize?: number;", "  sort?: string;", "  dir?: string;"]
+      : []),
     "}",
     "",
   ]);
   const findMethods = finds.flatMap((f) => {
-    const path = findHookPath(tag, f, servedFindRoute(single, f, findRoutes));
+    const path = servedFindRoute(single, f, findRoutes)?.path;
+    if (path === undefined) return [];
     return [
       "",
       `  ${f.name}(query: ${findQueryType(f)}) {`,
@@ -661,7 +669,7 @@ export function buildAngularApiModule(
     ...(historyFind ? emitAngularAuditEntryTypes() : []),
     ...findQueryInterfaces,
     // Paged-by-default findAll envelope + query input (M-T2.6).
-    ...(allPaged
+    ...(allPaged || finds.some((f) => pagedReturn(f.returnType))
       ? [
           `export interface ${pagedName} {`,
           `  items: ${responseName}[];`,
@@ -671,6 +679,10 @@ export function buildAngularApiModule(
           "  totalPages: number;",
           "}",
           "",
+        ]
+      : []),
+    ...(allPaged
+      ? [
           "export interface AllQuery {",
           "  page?: number;",
           "  pageSize?: number;",

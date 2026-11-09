@@ -5,8 +5,7 @@
 // status (404 in the spike) and a success variant to HTTP 200.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -21,7 +20,7 @@ const SRC = `
 `;
 
 async function routes(): Promise<string> {
-  const files = generateHono(await parseValid(SRC));
+  const files = await generateBackendFiles(SRC, "node");
   return files.get("http/order.routes.ts")!;
 }
 
@@ -68,6 +67,9 @@ describe("hono routes — exception-less operation returns (spike)", () => {
 
   it("returns the success variant as HTTP 200", async () => {
     const r = await routes();
-    expect(r).toContain("return c.json(result, 200);");
+    // The aggregate's own arm answers its projection read after the save.
+    expect(r).toContain(
+      'return c.json((result.type === "Order" ? { type: "Order" as const, ...(repo.toWire(await repo.getById(aggregate.id)) as Record<string, unknown>) } : result) as unknown as z.infer<typeof OrderOrNotFoundSuccess>, 200);',
+    );
   });
 });

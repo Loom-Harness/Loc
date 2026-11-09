@@ -2,13 +2,13 @@
 
 Reading data: the `repository` and its read contract, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.find(<Criterion>)` / `Repo.all(<Criterion>, sort:)` and `retrieval` query bundles with `sort`/`loads`, the `paged` read shape, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (contract verb / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `SortItem` (also the `sort:` slot of a member call), `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.parse-error#retrieval-literal-removed`, `loom.repo-verb-renamed`, `loom.repo-get-criterion`, `loom.repo-find-retrieval`, `loom.repo-all-arg`, `loom.repo-sort-placement`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `SortItem` (also the `sort:` slot of a member call), `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.parse-error#retrieval-literal-removed`, `loom.repo-verb-renamed`, `loom.repo-get-criterion`, `loom.repo-find-retrieval`, `loom.repo-all-arg`, `loom.repo-sort-placement`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.duplicate-repository`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
 ## `repository` — the read contract
 
-A `repository` binds reads to one aggregate: `repository Name for Agg`, with an optional, empty `{ }`. It declares no reads of its own. Every read is one of the contract verbs (`src/util/repository-contract.ts`), each generated on every repository that is called with it:
+A `repository` binds reads to one aggregate: `repository Name for Agg`, with an optional, empty `{ }`. An aggregate has at most one repository per context: a second `repository … for Agg` is refused (`loom.duplicate-repository`), since every repository exposes the same contract and a second one would only be another name for the same store. It declares no reads of its own. Every read is one of the contract verbs (`src/util/repository-contract.ts`), each generated on every repository that is called with it:
 
 | Call | Reads | Yields |
 |---|---|---|
@@ -202,7 +202,7 @@ end
 
 ## The queryable subset
 
-A `criterion` body (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs, `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
+A `criterion` body (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs (a whole value object — `this.<vo> == v`, `this.<vo> == null` — is refused: it is stored as its fields, not one column), `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
 
 ```ddd
 // rejected: `.count` on a list is a projection needing a subquery
@@ -304,7 +304,7 @@ end
 
 ### Gating a read — `policy { read X requires … }`
 
-Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, a `scaffoldGet` route, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use a criterion to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
+Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, a `scaffoldGet` route, any hand-written `queryHandler` / `commandHandler` that reads the aggregate through its repository, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use a criterion to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
 
 ```ddd
 repository Orders for Order
@@ -504,7 +504,7 @@ end
 ```
 ::: end
 
-The inline twin inside a handler / workflow body is `Repo.all(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-unknown-criterion` / `-criterion-mismatch` / `-criterion-arity`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
+The inline twin inside a handler / workflow body is `Repo.all(<Criterion>(args), page: { offset: 0, limit: N })` (optionally `… ignoring …`, see below): the criterion must exist on that aggregate with the right arity (`loom.findall-criterion-mismatch` / `-criterion-arity`; an undeclared name is `loom.workflow-run-unknown-retrieval`), and in a workflow body the `page:` bound is mandatory — an unbounded list read is `loom.findall-no-page`.
 
 A read position (an api `GET`/`HEAD` route, a `queryHandler`, a `reading` service) may not reach the mutating repository face — a read-method route bound to a mutating `commandHandler` is `loom.read-context-repo-write`. Domain-service reads have their own rules (`loom.domain-service-read-unsupported`, `-cross-context-read` — [chapter 23](23-domain-services-and-seeds.md)), and a repository read inside a test `expect(...)` must be `let`-bound first (`loom.integration-find-must-bind` — [chapter 18](18-testing.md)).
 
@@ -524,9 +524,25 @@ The per-backend output of a widened read is under [Widened single-row reads](#wi
 | Position | Spelling |
 |---|---|
 | a query-time projection's `where` slot — **before** `join` / `group by` / `select` | `from Order as o ignoring softDeletable  group by …` |
-| an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.all(Big()) ignoring *` |
-| an `if let` source (`find(<Criterion>)`, `findBy`) | `if let o = Orders.find(ByRef(r)) ignoring softDeletable { … }` |
-| a single-row read in a `domainService` operation (`find(<Criterion>)`, `findById`, `getBy`, `findBy`) | `return Orders.find(id) ignoring * != null` |
+| an inline list read bound by a `let` (`all(<Criterion | Retrieval>)`), or a natural-key `getBy` / `findBy` | `let xs = Orders.all(Big()) ignoring *` |
+| in a workflow, reactor or handler body: a `let` or an `if let` over `find(<Criterion>)`, `find(id)` or `findBy` | `let o = Orders.find(ByRef(r)) ignoring softDeletable` · `if let o = Orders.find(id) ignoring * { … }` |
+| an `if let` source over `findBy`, anywhere | `if let p = Products.findBy(sku: s) ignoring * { … }` |
+| a read in a `domainService` operation, in any expression position (`find(<Criterion>)`, `find(id)`, `getBy`, `findBy`, `all(<Criterion | Retrieval>)`) | `return Orders.find(id) ignoring * != null` · `return (Orders.all(Big()) ignoring *).count` |
+| a context integration `test`: a `let` over `find(id)` | `let o = Order.find(id) ignoring softDeletable` |
+
+A widened list read runs a retrieval of its own, named for its stance (`findAllBy<C>Ignoring<Caps>`, or `<Retrieval>Ignoring<Caps>` for a declared one), derived in enrichment with the stance on it, so the shared retrieval every other caller runs keeps its filters:
+
+```ts
+// node — let xs = Orders.all(Big()) ignoring softDeletable
+async runFindAllByBigIgnoringSoftDeletable(page?: { offset?: number; limit?: number }): Promise<Order[]> {
+  let query = this.db.select().from(schema.orders).where(bigCriterion()).orderBy(asc(schema.orders.id)).$dynamic();
+```
+
+```python
+# python — the same read
+async def run_find_all_by_big_ignoring_soft_deletable(self, offset: int | None = None, limit: int | None = None) -> list[Order]:
+    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(loom_ignoring=frozenset({"softDeletable"}))
+```
 
 ### Widened single-row reads
 
@@ -853,6 +869,10 @@ Enum.map(rows, fn record -> %{orderId: record.order_id, attempts: record.attempt
 ```
 ::: end
 
+### A source in another context
+
+`from` may name an aggregate declared in another context of the subdomain (`context Reports { projection Volume { … from Order as o … } }` over `Orders.Order`). The read applies that aggregate's own read scope — its tenant floor, its capability filters, its TPH discriminator — exactly as a projection declared beside it would, and `ignoring` names the capabilities the aggregate declares there. The per-row arm reads through a find synthesised on the source's repository; node, python and .NET synthesise it only for projections in the aggregate's own context, so on those backends a cross-context per-row read is refused (`loom.projection-cross-context-source-unsupported`). The direct-table arms (whole-table aggregation, `group by`) read the table themselves and work on all five.
+
 ### The source has to have columns
 
 The two **direct-table** arms — the whole-table aggregation and the grouped read — name columns on the source aggregate's own table, because the arithmetic happens in SQL. Three source shapes have no such columns, and the read is refused on **every** backend (`loom.projection-columnless-source`): `persistedAs: eventLog` (no state table), `shape: document` (the table is `(id, data, version)`; refused per column named — `count()` alone is fine), and a TPC abstract base (no table of its own). The way out is a different *read* — the per-row arm, or a folded projection.
@@ -861,7 +881,7 @@ One more condition bites the surviving document `count()`: a capability-filtered
 
 ### Folded — `keyed by` + `on(e: Event)`
 
-A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). An `on(e: E)` handler IS the subscription (**D-PROJECTION-IMPLICIT-SUB**): a fold whose event no `channel` carries still dispatches in-process on all five backends, so no carrying channel is required. The warning that once demanded one, `loom.projection-event-uncarried`, was retired with the decision; folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)).
+A projection with no query clauses and one or more `on(e: <Event>) { … }` handlers is a **materialized read model**: a table with one row per `keyed by` key, updated by a pure fold on each event. `keyed by` must name a declared id-shaped field (`loom.projection-key-unknown` / `-key-not-id`); the routing key is `e.<key>` unless `by <expr>` says otherwise (an event without the key field and no `by` is `loom.projection-event-unkeyed`). The grammar makes `keyed by` optional — but a *fold* without it has no key to route by and is refused by that same `loom.projection-event-unkeyed`; the keyless ("singleton") projection is the query-time whole-table aggregation above, not a fold. Each event type folds in exactly one handler (`loom.projection-duplicate-on`), and the body is a **pure fold** — `:=` assignments and `let` only; an `emit`, a call, a guard or a `return` is `loom.projection-fold-impure` (use a workflow `on(e)` reactor instead). An `on(e: E)` handler IS the subscription (**D-PROJECTION-IMPLICIT-SUB**): a fold whose event no `channel` carries still dispatches in-process on all five backends, so no carrying channel is required. The warning that once demanded one, `loom.projection-event-uncarried`, was retired with the decision; folding an event that carries a `mask unless` field would launder the masked value into an unredacted row, so it is refused too (`loom.field-mask-projection-source` — see [chapter 17](17-auth.md)). Under `tenancy by` a fold over `tenantOwned` producers' events is tenant-scoped: each row is stamped with the event's tenant (read from the event metadata), keyed by `(tenant_id, <key>)`, and every read applies the tenant floor; a fold over only `crossTenant` producers is exempt, and one mixing the two is refused (`loom.tenancy-folded-projection-mixed`) — see [`../tenancy.md`](../tenancy.md#folded-projections--rows-carry-the-events-tenant).
 
 ```ddd
 event OrderConfirmed { orderRef: Order id, at: datetime }

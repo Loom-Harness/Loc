@@ -7,12 +7,22 @@
 
 import type { MenuLinkIR, PageIR, UiIR } from "../types/loom-ir.js";
 
-/** A page's string-literal `menu { <key>: "…" }` entry (`section` / `label`). */
+/** A page's `menu { <key>: … }` text entry (`section` / `label`): a string
+ *  literal, or the English default of a `label(…)` / `plural(…)` call. */
 export function menuMetaString(page: PageIR, key: string): string | undefined {
   const entry = page.menuMeta?.entries.find((e) => e.name === key);
   if (!entry) return undefined;
+  if (entry.value.kind === "modelText") return entry.value.defaultText;
   if (entry.value.kind !== "literal" || entry.value.lit !== "string") return undefined;
   return entry.value.value;
+}
+
+/** The model-identity catalog key of a page's `menu { <key>: label(…) }` entry,
+ *  or undefined when the entry is absent or a plain literal (whose key is the
+ *  page-scoped content hash instead). */
+export function menuMetaIdentityKey(page: PageIR, key: string): string | undefined {
+  const entry = page.menuMeta?.entries.find((e) => e.name === key);
+  return entry?.value.kind === "modelText" ? entry.value.key : undefined;
 }
 
 /** The page a `link Page { … }` menu entry targets.  Matches on the resolved

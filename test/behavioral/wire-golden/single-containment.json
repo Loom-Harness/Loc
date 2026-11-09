@@ -26,12 +26,12 @@
       "body": {
         "code": "SC1",
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "shipment": {
           "carrier": "UPS",
           "id": "<volatile:key>",
           "trackingCode": "1Z999"
-        },
-        "version": 2
+        }
       }
     },
     {
@@ -49,12 +49,12 @@
       "body": {
         "code": "SC2",
         "id": "<volatile:key>",
+        "rowVersion": 3,
         "shipment": {
           "carrier": "UPS",
           "id": "<volatile:key>",
           "trackingCode": "1Z999"
-        },
-        "version": 3
+        }
       }
     },
     {
@@ -67,12 +67,12 @@
           {
             "code": "SC2",
             "id": "<volatile:key>",
+            "rowVersion": 3,
             "shipment": {
               "carrier": "UPS",
               "id": "<volatile:key>",
               "trackingCode": "1Z999"
-            },
-            "version": 3
+            }
           }
         ],
         "page": 1,
@@ -144,18 +144,12 @@
       "seq": 11,
       "method": "POST",
       "path": "/api/orders/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "code is required",
-            "pointer": "/code"
-          }
-        ],
+        "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

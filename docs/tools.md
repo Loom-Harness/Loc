@@ -28,8 +28,6 @@ makes the shorthand real for a shell session.)
 ```bash
 ddd new <name> [--platform …] [--template …]      # scaffold a starter project
 ddd parse <file.ddd>                              # parse + validate (AST + IR), multi-file aware
-ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript project (legacy)
-ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
@@ -132,10 +130,8 @@ build output into a tree whose identity files are yours (M-FT.13, finding
 G9). It does not emit the project tree; the README walks you
 through `ddd generate system main.ddd -o .` and `docker compose up`.
 
-`generate ts` / `generate dotnet` work on **legacy** sources (bare
-`context` declarations) and produce a single project for the chosen
-platform.  `generate system` works on sources that declare one or more
-`system { … }` blocks and produces a multi-project tree:
+`generate system` works on a source that declares a `system { … }` with at
+least one deployable and produces a multi-project tree:
 
 ```
 <outdir>/
@@ -155,8 +151,28 @@ project from the merged model.  See
 for the language surface; the original design rationale is preserved
 at [`plans/multi-file-source.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-file-source.md).
 
-`generate ts` / `generate dotnet` remain single-file: they read just
-the file you point them at, no import-graph walking.
+A source with contexts but no deployable generates nothing: the run fails
+with a hint showing the `system` to add — platform and database are the
+author's choice, so there is no implicit default deployable:
+
+```ddd
+// The lines the hint adds:
+system SalesSystem {
+  storage db { type: postgres }
+  resource salesState { for: Sales, kind: state, use: db }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+}
+
+// The existing source, unchanged:
+context Sales {
+  aggregate Order {
+    total: int
+  }
+}
+```
+
+A root-level `context` is re-parented into the system, so these lines go
+beside the existing source unchanged.
 
 Each deployable's folder name is a lowercase slug derived from the
 deployable's name (e.g. `catalogWeb` → `catalog_web`); inside the
@@ -166,7 +182,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system`, `generate ts`, `generate dotnet`, and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
+| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
 | `-w, --watch` | every `generate` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
@@ -332,20 +348,108 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 
 | Command | What it does |
 |---|---|
-| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.en.json` (front of the pipeline only, no codegen) |
-| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>.json` (every key as `TODO:`) and the source lock if absent |
-| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale, then advance the lock; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
-| `ddd i18n status <file>` | what `sync` would do; exits non-zero if any locale has pending changes |
-| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers and missing keys; `--strict` exits non-zero on any finding (the CI gate) |
-| `ddd i18n prune <file>` | delete keys the source no longer emits (deliberate, never automatic) |
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
+| `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
+| `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
+| `ddd i18n check <file> [--strict]` | per locale: invalid ICU, placeholder-set or plural-form mismatches against the source, untranslated keys, translations needing review, keys the source no longer emits, leftover legacy markers; plus source overrides the source no longer emits. `--strict` exits non-zero on any finding, or when there are no locale files at all (the CI gate) |
+| `ddd i18n approve <file> [keys…] [--locale l]` | clear the needs-review flag on translations that still read right after a source change (every open flag when no key is given) |
+| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.loom/exchange/<locale>.xlf\|.po` |
+| `ddd i18n import <file> <exchange> [--locale l] [--format xliff\|po]` | read a translated XLIFF / PO back into the locale files; units with invalid ICU, placeholders or plural forms are rejected and reported (exit 1), the rest are written |
+| `ddd i18n prune <file>` | delete keys (and source overrides) the source no longer emits (deliberate, never automatic) |
 
 The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
 overrides it; `generate system --locales <dir>` reads the same tree):
 
-- **BASE** — `locales/.loom/source.lock.json`, the source catalog as of the last
-  successful sync;
-- **OURS** — `locales/<locale>.json`, owned by the translator;
+- **BASE** — `locales/.loom/source.lock/<ns>.json`, the source catalog as of the
+  last successful sync;
+- **OURS** — `locales/<locale>/<ns>.json`, owned by the translator;
 - **THEIRS** — the fresh extraction.
+
+**Layout.** One file per namespace, where `<ns>` is `_chrome`, `_system`, a
+bounded-context name or a `ui` name. `_chrome.json` stores keys verbatim
+(`chrome.*`, `pack.*`, `msg.*`, anything outside the other namespaces); every
+other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
+`locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
+`src/i18n/namespace.ts`. The merge runs per key and per file.
+
+A pre-split tree (`locales/<locale>.json` + `locales/.loom/source.lock.json`) is
+rewritten by `ddd i18n sync` (idempotent; legacy `page.*`/`component.*`/`menu.*`
+keys are re-filed under their ui). `sync` refuses a locale present in both
+layouts.
+
+**Source-language overrides.** `locales/<source>/<ns>.json` (the language named by
+`i18n { source }`, `en` by default) holds *overrides* of the source text, keyed
+like any other namespace file. They change the default every `t()` carries, the
+generated source catalog and the extraction, so editing one makes `sync` flag
+every translation of that string.
+
+**Untranslated and needs-review are out of band.** A locale file holds finished
+translations only, so a translation tool (Crowdin, Lokalise, Weblate, Phrase)
+reads every value in it as a real translation.
+
+- *Untranslated* is **absence**: `init` and `sync` write no placeholder for a new
+  source string. `check` lists the gaps; `status` stays quiet about a gap the
+  lock already knows.
+- *Needs review* (the source changed under an existing translation) keeps the
+  translation as the value and records the flag in
+  `locales/.loom/review/<locale>/<ns>.json` as `{ translation, previousSource,
+  source }`. The flag clears when the value is edited, or with `ddd i18n approve`.
+  A reworded string re-keys (its hash changes); where the old and new key differ
+  only in the trailing hash and the pairing is 1:1, the new, untranslated key gets
+  a hint entry (`previousSource`, `previousTranslation`) so the translator sees
+  what it replaced.
+- *Stale* translations (`--keep-stale`) live in `locales/.loom/stale/<locale>/<ns>.json`.
+- *Renames and moves.* A model-identity key (`<Ctx>.<Type>.<facet>[.<member>]`)
+  changes when the model element does. `sync` re-keys the translation (and its
+  review flag) in every locale, into the new namespace file on a context move,
+  instead of dropping it and starting a new untranslated key. Two sources, in
+  order:
+  1. **Declared** — the same `migration "<name>" { … }` steps `ddd migrate`
+     reads: `Order -> PurchaseOrder` (every facet of the type),
+     `Order.qty -> quantity` (the `field` key), `Sales.Order -> Billing.Order`
+     (a move). No i18n-specific syntax; steps are ledger-inert once carried.
+  2. **Inferred** — for what a block cannot name (ops, enum values, rules,
+     error messages, or a project with no block): exactly one key vanished and
+     one appeared with the same shape (same member facet in the same type, same
+     name/message facet in the same context, or same type and member in another
+     context) *and* the same source text. Ambiguous groups are left alone.
+
+  Each carried key prints under the locale as `renamed: <old> -> <new>
+  (migration block | inferred …)`, and `status` counts it as pending. When the
+  English text changed with the rename (a default label derives from the
+  identifier, so `qty -> quantity` does), the translation is kept and flagged
+  needs-review through the ordinary source-changed path. Source-language
+  overrides are not re-keyed; `check` lists the old ones as stale.
+
+A tree written by an older Loom (`TODO: …` values, diff3 conflict blocks inside
+values, `_stale.<key>` entries) migrates through `ddd i18n sync`: `TODO:` values
+become absent keys, a conflict block becomes its OURS text plus a review flag,
+`_stale.*` entries move to the stale sidecar. `status` and `check` report the
+pending migration until `sync` has run; it is idempotent.
+
+**What `check` validates.** Each translation must parse as ICU MessageFormat
+(`{name}`, `{n, number}`, `plural` / `selectordinal` / `select`, apostrophe
+quoting) and reference exactly the placeholder names its source does (order is
+free). Every `plural` / `selectordinal` must supply each CLDR form the locale
+uses and none it lacks (Polish: `one few many other`; Japanese: `other`);
+`=N` selectors are always allowed. The rules are in `src/i18n/icu.ts`.
+
+**Exchange files.** `export` lists every source key of the locale: XLIFF
+`<trans-unit id="<runtime key>">` (PO: `msgctxt`) with the source, the current
+translation, its state (`new` / `translated` / `needs-review`, as
+`state="needs-review-translation"` / `#, fuzzy`), context notes (key family, page
+or component, slot, namespace, key, source length) and, when known, the previous
+source and previous translation. `import` matches by key, skips untranslated
+units, ignores keys the source no longer emits, validates like `check`, and sets
+or clears the review flag from the unit's state.
+
+**Pseudo-locale `en-XA`.** `ddd i18n init <file> en-XA` generates a full locale
+from the source: accented letters, ~30% padding and `[ … ]` brackets, with ICU
+placeholders and plural branches intact (`Welcome` → `[Ŵéļçöɱé ~~~]`). `sync`
+regenerates it (it is never merged), `status` reports it out of date, and it
+ships like any locale. Run a UI in `en-XA`: text that is still plain ASCII is
+a string that bypassed `t()`.
 
 **Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
 source tree and never writes under `locales/`; reconciling translations is a
@@ -354,9 +458,10 @@ advances only after every locale has reconciled: rewriting it on every codegen
 would make BASE equal THEIRS, and the merge would have nothing to act on.
 
 **What ships.** `generate system` emits each locale it finds into every frontend
-with a translation runtime, but drops values the translator has not finished
-(`TODO:` values, unresolved conflict markers, `_stale.*` shadows), so `t(key,
-default)` falls back to the source-language default per key. A locale created by
+with a translation runtime. Untranslated keys are simply absent, and any legacy
+in-band `TODO:` / conflict-marker / `_stale.*` value still on disk is dropped, so
+`t(key, default)` falls back to the source-language default per key. A
+translation flagged needs-review still ships. A locale created by
 `init` is registered even while its catalog is still empty.
 
 ## Watch mode
@@ -365,7 +470,7 @@ Useful during model design — every save of the `.ddd` file triggers a
 regen:
 
 ```bash
-ddd generate ts examples/sales.ddd -o ./out --watch
+ddd generate system examples/sales.ddd -o ./out --watch
 ```
 
 Implementation note: `fs.watch` with a 100ms debounce.  No fancy

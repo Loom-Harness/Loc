@@ -3,7 +3,7 @@
 {{innerIndent}}<div className="flex flex-col gap-4">
 {{#each fieldHtmls}}{{../deepIndent}}{{{this}}}
 {{/each}}{{deepIndent}}<div className="mt-4 flex justify-end gap-2">
-{{deeperIndent}}<Button type="submit" disabled={ {{submitPendingExpr}} } data-testid="{{submitTestid}}">{{submitLabel}}</Button>
+{{deeperIndent}}<Button type="submit" disabled={ {{submitPendingExpr}} } data-testid="{{submitTestid}}">{{{submitLabel}}}</Button>
 {{deepIndent}}</div>
 {{innerIndent}}</div>
 {{indent}}</form>

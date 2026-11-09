@@ -85,9 +85,10 @@ public sealed class CustomersController : ControllerBase
         HttpMetrics.RecordDomainOperation("Customer", "update");
         var cmd = new UpdateCommand(
             new CustomerId(id),
-            request.Username,
-            request.Email,
-            request.Age
+            (request.Username is null ? default! : request.Username!),
+            (request.Email is null ? default! : request.Email!),
+            (request.Age is null ? default! : request.Age!.Value),
+            request.PatchedKeys()
         );
         await _mediator.Send(cmd);
         return NoContent();

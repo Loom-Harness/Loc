@@ -103,7 +103,9 @@ describe("walker primitives — Icon", () => {
     // is itself enough to make the ui translatable — the accessible name binds
     // through `t()` rather than shipping English at every locale.
     const tsx = await emit(`Icon { svg: "<svg/>", label: "Search" }`);
-    expect(tsx).toMatch(/role="img" aria-label=\{t\("page\.\w+\.iconLabel\.\w+", "Search"\)\}/);
+    expect(tsx).toMatch(
+      /role="img" aria-label=\{t\("\w+\.page\.\w+\.iconLabel\.\w+", "Search"\)\}/,
+    );
     expect(tsx).not.toContain('aria-hidden="true"');
   });
 
@@ -146,7 +148,7 @@ describe("walker primitives — CodeBlock", () => {
     // translates; the SOURCE beside it is code and stays verbatim.
     const tsx = await emit(`CodeBlock { source: "npm i", title: "Install", language: "bash" }`);
     expect(tsx).toMatch(
-      /<div className="loom-code-block-title">\{t\("page\.\w+\.codeBlockTitle\.\w+", "Install"\)\}<\/div>/,
+      /<div className="loom-code-block-title">\{t\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Install"\)\}<\/div>/,
     );
     expect(tsx).toMatch(/<code className="language-bash">npm i<\/code>/);
   });

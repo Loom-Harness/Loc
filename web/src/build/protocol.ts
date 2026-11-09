@@ -35,7 +35,7 @@ export interface VirtualFile {
   hash?: string;
 }
 
-export type GenerateMode = "system" | "ts" | "none";
+export type GenerateMode = "system" | "none";
 
 /** One HTTP operation the generated API exposes, as platform-neutral data.
  *  Derived in the worker from `deriveContextOperations`
@@ -97,7 +97,7 @@ export interface GenerateOk {
    *  side effects: the emitted tree, the download `.zip` and every
    *  byte-identity fixture stay exactly as they were, because the artifact
    *  is only ADDED to `files` when the caller actually asked for
-   *  `sourcemap: true`.  Absent for `mode: "ts"` / `"none"`, which record
+   *  `sourcemap: true`.  Absent for `mode: "none"`, which records
    *  no regions. */
   sourcemap?: LoomSourceMapType;
   /** Platform-neutral operation + channel inventory for the API view
@@ -277,6 +277,36 @@ export interface RecordMigrationOk {
 
 export type RecordMigrationResult = RecordMigrationOk | EvolutionFail;
 
+/** `migrate.plan` — what a boot may do to the runtime's database: the
+ *  recorded chain beside the entry, rendered to the SQL the Hono backend's
+ *  migration files carry, and the model's unrecorded changes. */
+export interface MigrationPlanParams {
+  current: EvolutionTree;
+}
+
+export interface MigrationPlanOk {
+  ok: true;
+  plan: MigrationPlan;
+  /** One database per `storage` the system's Node deployables bind, each with
+   *  the units of the modules those deployables host — the union of their
+   *  schemas.  Empty for a source without a system (one database, `plan`). */
+  storages: StoragePlan[];
+  diagnostics: BuildDiagnostic[];
+}
+
+/** One playground database: a `storage` (or, for a Node deployable bound to
+ *  no postgres storage, that deployable's own database) and the deployables
+ *  that read and write it. */
+export interface StoragePlan {
+  /** The storage's name, or `deployable:<slug>` for a deployable's own. */
+  key: string;
+  /** Slugs (generated folder names) of the Node deployables bound to it. */
+  deployables: string[];
+  plan: MigrationPlan;
+}
+
+export type MigrationPlanResult = MigrationPlanOk | EvolutionFail;
+
 /** A single VFS entry shipped over the wire — file entries carry
  *  `content`, directory entries carry only their `path`.  Re-exports
  *  the in-process VFS tagged union so the protocol and the
@@ -284,6 +314,7 @@ export type RecordMigrationResult = RecordMigrationOk | EvolutionFail;
  *  worker boundary in this shape so an empty folder created on the
  *  main thread survives a worker respawn. */
 import type { VfsEntry } from "../vfs/types.js";
+import type { MigrationPlan } from "../runtime/protocol.js";
 export type { VfsEntry };
 
 export interface VfsWriteOk {
@@ -330,6 +361,7 @@ export type BuildRpcRequest =
   | { id: number; method: "snapshot"; params: GenerateParams }
   | { id: number; method: "evolution"; params: EvolutionParams }
   | { id: number; method: "migrate.record"; params: RecordMigrationParams }
+  | { id: number; method: "migrate.plan"; params: MigrationPlanParams }
   | { id: number; method: "vfs.write"; params: { entries: VfsEntry[] } }
   | { id: number; method: "vfs.delete"; params: { paths: string[] } };
 
@@ -340,6 +372,7 @@ export interface BuildRpcResponse {
     | SnapshotResult
     | EvolutionResult
     | RecordMigrationResult
+    | MigrationPlanResult
     | VfsWriteResult
     | VfsDeleteResult;
   error?: { message: string };

@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -31,8 +32,8 @@ import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
-import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { pyCalendarDateWire, pyEnvelopeInstant } from "./codec-spelling.js";
+import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spelling.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
@@ -434,7 +435,15 @@ export function buildPyDispatchFile(
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
       "PostCommitDispatcher",
-      ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
+      ...[
+        ...new Set([
+          ...eventNames,
+          ...esEventNames,
+          ...emittedEventNames,
+          // The outbox codec constructs every durable event by name.
+          ...(hasOutbox ? durableEvents.map((e) => e.name) : []),
+        ]),
+      ].sort(),
     ].join(", ")}`,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
     ...resourceImports,
@@ -485,7 +494,7 @@ function reposIn(
     walkWorkflowStmtsDeep(root, (st) => {
       // Per-kind SELECTION only — `walkWorkflowStmtsDeep` owns the recursion.
       if (st.kind === "repo-let" || st.kind === "repo-run") add(st);
-      if (st.kind === "for-each") st.savesPerIteration.forEach(add);
+      if (st.kind === "for-each" || st.kind === "variant-match") nestedSaves(st).forEach(add);
       if (st.kind === "if-let") {
         add(st);
         st.savesInThen.forEach(add);
@@ -521,10 +530,16 @@ function stateHelpers(wf: WorkflowIR): string {
 function projectionStateHelper(proj: ProjectionIR): string {
   const row = schemaRow(`${proj.name}Row`);
   const corr = snake(proj.correlationField as string);
+  // A tenant-scoped fold row is keyed by `(tenant, key)` (`fold-tenancy.ts`).
+  const tenancy = foldTenancyFor(proj);
+  const tenantCol = tenancy ? snake(foldTenantColumns(tenancy).tenant.field) : undefined;
+  const where = tenantCol
+    ? `${row}.${corr} == key, ${row}.${tenantCol} == tenant`
+    : `${row}.${corr} == key`;
   return lines(
-    `async def _load_${snake(proj.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
+    `async def _load_${snake(proj.name)}(session: AsyncSession, key: str${tenantCol ? ", tenant: str" : ""}) -> ${row} | None:`,
     `    return (`,
-    `        await session.execute(${SELECT}(${row}).where(${row}.${corr} == key).limit(1))`,
+    `        await session.execute(${SELECT}(${row}).where(${where}).limit(1))`,
     "    ).scalars().first()",
   );
 }
@@ -540,14 +555,30 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   const keyExpr = on.correlation
     ? renderPyExpr(on.correlation, { thisName: "state" })
     : `${param}.${corr}`;
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching frame's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const seed = cols
+    ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant, ${snake(cols.dataKey.field)}=__origin.get("orgPath") or __tenant`
+    : `${corr}=__key`;
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,
     ") -> None:",
+    ...(cols
+      ? [
+          `    __origin = ${PY.current_event_origin}() or {}`,
+          `    __tenant = __origin.get("tenant")`,
+          "    if __tenant is None:",
+          "        return",
+        ]
+      : []),
     `    __key = str(${keyExpr})`,
-    `    state = await _load_${snake(proj.name)}(session, __key)`,
+    `    state = await _load_${snake(proj.name)}(session, __key${cols ? ", __tenant" : ""})`,
     "    if state is None:",
-    `        state = ${row}(${corr}=__key)`,
+    `        state = ${row}(${seed})`,
     "        session.add(state)",
   ];
   for (const stmt of on.statements) out.push(renderProjectionFoldStmt(stmt, proj, on));
@@ -806,7 +837,7 @@ function handlerFn(
     }
   }
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${snake(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
@@ -927,7 +958,7 @@ function esHandlerFn(
   }
   if (usesState) out.push(`    state = ${fns.fold}(__key, __events)`);
   for (const r of reposIn(statements, saves)) {
-    out.push(`    ${snake(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
+    out.push(`    ${pythonIdent(r.repoName)} = ${repoClass(r.aggName)}(session, events)`);
   }
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
@@ -1361,7 +1392,7 @@ function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
   // `Codec` fact's `envelopeInstantWire`).
   if (t.kind === "primitive" && t.name === "datetime") return pyEnvelopeInstant(expr);
   if (t.kind === "primitive" && t.name === "date") return pyCalendarDateWire(expr);
-  if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
+  if (t.kind === "primitive" && t.name === "money") return pyMoneyWire(expr);
   const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
   if (t.kind === "valueobject" && fields) {
     // A value object crosses as a DSL-keyed JSON object — the frozen

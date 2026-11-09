@@ -10,7 +10,7 @@ import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const services = createDddServices(NodeFileSystem);
 const parse = parseHelper<Model>(services.Ddd);
@@ -28,8 +28,7 @@ describe("k8s cluster-smoke assets", () => {
   });
 
   it("emits a `enabled`-gated workload for every backend in the matrix", async () => {
-    const doc = await parse(readFileSync(DDD, "utf8"), { validation: false });
-    const files = generateSystems(doc.parseResult.value, { emitKubernetes: true }).files;
+    const files = await generateSystemFiles(readFileSync(DDD, "utf8"), { emitKubernetes: true });
     for (const b of BACKENDS) {
       const dep = files.get(`helm/templates/${b}-deployment.yaml`);
       expect(dep, `${b}-deployment.yaml`).toBeDefined();

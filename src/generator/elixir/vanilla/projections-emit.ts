@@ -1,3 +1,5 @@
+import { foldFloorTerms, foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { projectionTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   EnrichedBoundedContextIR,
   EnumIR,
@@ -8,7 +10,6 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
@@ -84,9 +85,8 @@ function renderProjectionRowSchema(
 ): string {
   const corr = proj.correlationField as string;
   const corrField = proj.stateFields.find((f) => f.name === corr);
-  const pkType =
-    corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
-  const table = tableNameFor(proj.name);
+  const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
+  const table = projectionTableName(proj);
   const fieldLines = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => {
@@ -99,6 +99,33 @@ function renderProjectionRowSchema(
       return `    field :${snake(f.name)}, ${ecto}`;
     });
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
+  // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
+  // `(tenant_id, <key>)` — a composite primary key — and carries its org path.
+  const tenancy = foldTenancyFor(proj);
+  if (tenancy) {
+    const keyLines = [
+      ...tenancy.metadata
+        .filter((m) => m.required)
+        .map((m) => `    field :${m.column}, :string, primary_key: true`),
+      `    field :${snake(corr)}, ${pkType}, primary_key: true`,
+    ];
+    const extra = tenancy.metadata
+      .filter((m) => !m.required)
+      .map((m) => `    field :${m.column}, :string`);
+    return `# Auto-generated.
+defmodule ${projectionRowModule(contextModule, proj)} do
+  @moduledoc "Read model folded from foreign events for the ${upperFirst(proj.name)} projection."
+
+  use Ecto.Schema
+
+${prefixLine}  @primary_key false
+  schema "${table}" do
+${[...keyLines, ...fieldLines, ...extra].join("\n")}
+    timestamps()
+  end
+end
+`;
+  }
   return `# Auto-generated.
 defmodule ${projectionRowModule(contextModule, proj)} do
   @moduledoc "Read model folded from foreign events for the ${upperFirst(proj.name)} projection."
@@ -135,7 +162,7 @@ export function emitVanillaProjectionsController(
     `# Auto-generated.
 defmodule ${webModule}.ProjectionsController do
   use ${webModule}, :controller
-  alias ${webModule}.ProblemDetails
+${projections.some(({ proj }) => foldTenancyFor(proj)) ? "  import Ecto.Query, only: [from: 2]\n" : ""}  alias ${webModule}.ProblemDetails
 
   @moduledoc """
   Read-only HTTP entry points for projection read models (projection.md).
@@ -198,46 +225,54 @@ function renderProjectionActions(
     JSON.stringify(`Forbidden: projection ${proj.name}`),
     denialOverrides(ctx),
   );
-  if (gateExpr) {
-    return `  @doc "GET /api/projections/${slug}"
-  def ${slug}_index(conn, _params) do
-${cuBind}    if not (${gateExpr}) do
-      ${denial}
-    else
-      data = Enum.map(${appModule}.Repo.all(${rowMod}), fn row -> %{${mapFields}} end)
-      json(conn, data)
-    end
-  end
-
-  @doc "GET /api/projections/${slug}/:key"
-  def ${slug}_show(conn, %{"key" => key}) do
-${cuBind}    if not (${gateExpr}) do
-      ${denial}
-    else
-      case ${appModule}.Repo.get(${rowMod}, key) do
-        nil ->
-          ProblemDetails.not_found_response(conn, "${upperFirst(proj.name)}", key)
-
-        row ->
-          json(conn, %{${mapFields}})
-      end
-    end
-  end`;
-  }
+  // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
+  // the row's tenant column equals the request principal's claim.
+  const tenancy = foldTenancyFor(proj);
+  const floor = tenancy ? foldFloorTerms(tenancy) : [];
+  const scopeBinds = floor.map(
+    (t, i) =>
+      `scope${i} = to_string(Map.get(Map.get(conn.assigns, :current_user), :${snake(t.claim)}))`,
+  );
+  const corrCol = snake(proj.correlationField as string);
+  const listRead =
+    floor.length > 0
+      ? `${appModule}.Repo.all(from(r in ${rowMod}, where: ${floor.map((t, i) => `r.${t.column} == ^scope${i}`).join(" and ")}))`
+      : `${appModule}.Repo.all(${rowMod})`;
+  const keyRead =
+    floor.length > 0
+      ? `${appModule}.Repo.get_by(${rowMod}, ${[`${corrCol}: key`, ...floor.map((t, i) => `${t.column}: scope${i}`)].join(", ")})`
+      : `${appModule}.Repo.get(${rowMod}, key)`;
+  const indent = (text: string, by: string): string =>
+    text
+      .split("\n")
+      .map((l) => (l === "" ? l : by + l))
+      .join("\n");
+  const indexBody = [
+    ...scopeBinds,
+    `data = Enum.map(${listRead}, fn row -> %{${mapFields}} end)`,
+    `json(conn, data)`,
+  ].join("\n");
+  const showBody = [
+    ...scopeBinds,
+    `case ${keyRead} do`,
+    `  nil ->`,
+    `    ProblemDetails.not_found_response(conn, "${upperFirst(proj.name)}", key)`,
+    ``,
+    `  row ->`,
+    `    json(conn, %{${mapFields}})`,
+    `end`,
+  ].join("\n");
+  const guarded = (body: string): string =>
+    gateExpr
+      ? `${cuBind}    if not (${gateExpr}) do\n      ${denial}\n    else\n${indent(body, "      ")}\n    end`
+      : indent(body, "    ");
   return `  @doc "GET /api/projections/${slug}"
   def ${slug}_index(conn, _params) do
-    data = Enum.map(${appModule}.Repo.all(${rowMod}), fn row -> %{${mapFields}} end)
-    json(conn, data)
+${guarded(indexBody)}
   end
 
   @doc "GET /api/projections/${slug}/:key"
   def ${slug}_show(conn, %{"key" => key}) do
-    case ${appModule}.Repo.get(${rowMod}, key) do
-      nil ->
-        ProblemDetails.not_found_response(conn, "${upperFirst(proj.name)}", key)
-
-      row ->
-        json(conn, %{${mapFields}})
-    end
+${guarded(showBody)}
   end`;
 }

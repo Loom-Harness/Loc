@@ -107,7 +107,7 @@ describe("feliz operation forms", () => {
     // The submit carries the route id (instance-qualified op) + a validity guard,
     // plus the `<plural>-op-<op>-submit` testid the op page-object method clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.renameProductOpFormValid model.RenameProductOpForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text "Rename Product" ]',
+      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.renameProductOpFormValid model.RenameProductOpForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text (I18n.t "Cat.Product.op.rename" "Rename") ]',
     );
     // The form container carries `<plural>-op-<op>-form` (waited for after the
     // trigger click, detached after submit).

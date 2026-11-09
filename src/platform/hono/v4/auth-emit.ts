@@ -1,3 +1,4 @@
+import { audienceDeclared, audienceUnsetReason } from "../../../generator/_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
@@ -95,10 +96,11 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
   const usage = oidc
-    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`index.ts\` registers
- *  the OIDC verifier and never calls this, so a running server ignores
- *  \`x-loom-dev-claims\`.  The Loom playground preview registers it instead,
- *  because no identity provider is reachable from its browser worker.  Locally,
+    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`bootApp\` registers
+ *  the OIDC verifier and calls this only under \`verifier: "dev-stub"\`, which
+ *  \`index.ts\` never passes, so a running server ignores \`x-loom-dev-claims\`.
+ *  The Loom playground preview passes it, because no identity provider is
+ *  reachable from its browser worker.  Locally,
  *  sign in through the compose stack's bundled dev IdP.`
     : ` *  Dev-only: the Loom playground (or curl) can override the claims by sending a
  *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
@@ -119,13 +121,7 @@ import { registerUserVerifier } from "./verifier";
 ${usage} */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
-    // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
-    // only through the closure's inferred return type — and the header branch
-    // below spreads \`JSON.parse(...)\`, whose \`any\` widens that union to \`any\`
-    // and swallows the check entirely.  That is how a raw \`"0000…"\` string sat
-    // in a \`customerId: Ids.CustomerId\` slot and still passed \`tsc --noEmit\`.
-    // The annotation puts the declared claim shape back in the checker's way.
-    const base: UserClaims = ${indentBy(renderStubUserLiteral(user), "    ")};
+    const base = devStubClaims();
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
     let decoded: unknown;
@@ -143,6 +139,19 @@ export function registerDevStubVerifier(): void {
     }
     return { ...base, ...decoded };
   });
+}
+
+/** The built-in dev-stub identity: one value per declared \`user { … }\` field.
+ *  Also the principal a context integration test runs as, with its
+ *  \`as { … }\` claims spread over it.
+ *
+ *  ANNOTATED on purpose: the verifier spreads \`JSON.parse(...)\` over this, and
+ *  that \`any\` would otherwise swallow the check of the literal entirely — a raw
+ *  \`"0000…"\` string in a \`customerId: Ids.CustomerId\` slot passed
+ *  \`tsc --noEmit\` that way.  The return type puts the declared claim shape back
+ *  in the checker's way. */
+export function devStubClaims(): UserClaims {
+  return ${indentBy(renderStubUserLiteral(user), "  ")};
 }
 
 /** Thrown by the dev stub for a present-but-undecodable \`x-loom-dev-claims\`
@@ -384,6 +393,14 @@ function renderMiddleware(
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
+  // The same derivation for a principal built OUTSIDE a request (a context
+  // integration test): no header, so the operating scope is the principal's
+  // own \`orgPath\`.
+  const buildPrincipal = orgPathClaim
+    ? `const orgPath = ${orgPathExpr};\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath)${orgContext ? ", orgContextPath: orgPath" : ""} };`
+    : arrayClaimDefaults.length > 0
+      ? `const user: User = { ${claimsSpread} };`
+      : `const user: User = claims;`;
   // The registry-lookup seam.  The auth layer can't reach the db (it is
   // constructed at boot and injected into repositories), so — like the verifier
   // — the resolver is REGISTERED at boot (index.ts) with a closure that reads
@@ -617,6 +634,45 @@ export function requireCurrentUser(): User {
   }
   return user as User;
 }
+
+/** Run \`fn\` in a fresh ambient frame whose principal is built from \`claims\`
+ *  exactly as the middleware builds a request's — the seam a context
+ *  integration test binds its principal through, so every
+ *  \`requireCurrentUser()\` reader under it (tenant stamps, scope filters,
+ *  gates) sees that principal. */
+export async function runAsUser<T>(claims: UserClaims, fn: () => Promise<T>): Promise<T> {
+  ${buildPrincipal}
+  return requestContextStore.run(
+    {
+      correlationId: randomUUID(),
+      currentUser: user,
+      actorId: ${idField ? `String(user.${idField})` : "null"},
+      locale: "en",
+      startedAt: Date.now(),
+      scopeId: randomUUID(),
+      parentId: null,
+      traceId: "",
+      spanId: "",
+      log: baseLogger,
+    },
+    fn,
+  );
+}
+
+/** Rebind the principal of the CURRENT ambient frame (opened by
+ *  \`runAsUser\`) — a test body's \`as { … }\` line, after which every
+ *  ambient-principal reader sees the new principal. */
+export async function actAsUser(claims: UserClaims): Promise<void> {
+  ${buildPrincipal}
+  const ctx = requestContext();
+  if (ctx == null) throw new Error("actAsUser needs an ambient frame — call it inside runAsUser.");
+  ctx.currentUser = user;${
+    idField
+      ? `
+  ctx.actorId = String(user.${idField});`
+      : ""
+  }
+}
 ${renderSystemPrincipal(user, orgPathClaim, orgContext)}`;
 }
 
@@ -766,9 +822,10 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   // the same model shipping enforceable isolation on four backends and an
   // unenforceable one on the fifth.  `envOverridableExpr` already collapses
   // both cases: declared → `process.env.OIDC_AUDIENCE ?? "<declared>"`,
-  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value (unset, or
-  // an explicit `OIDC_AUDIENCE=""`) skips the `aud` check — the same documented
-  // opt-out the Phoenix verifier carries.
+  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value skips the
+  // `aud` check only when nothing is declared; under a declared `audience:` it
+  // rejects every token (see `_auth/audience.ts`).
+  const declared = audienceDeclared(auth);
   const audienceConst = `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`;
   // The doc comment must describe the options actually emitted above — a
   // comment asserting a control the file does not implement is worse than no
@@ -789,9 +846,9 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
     ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
  *  audience, then maps claims onto User.  Returns null to reject (→ 401).
  *
- *  \`audience:\` is declared, so the \`aud\` check is ON unless the deploy env
- *  overrides it — \`OIDC_AUDIENCE\` replaces the declared value, and an
- *  explicit \`OIDC_AUDIENCE=""\` turns the check off (the documented opt-out). */`
+ *  \`audience:\` is declared, so the \`aud\` check is always ON —
+ *  \`OIDC_AUDIENCE\` replaces the declared value, and an audience that
+ *  resolves EMPTY rejects every token (fail closed), it never skips the check. */`
     : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
  *  maps claims onto User.  Returns null to reject (→ 401).
  *
@@ -873,11 +930,18 @@ import { registerUserVerifier } from "./verifier";
 // read process.env at boot; an empty issuer fails loudly at first verify.
 const ISSUER = ${issuerExpr};${audienceConst}
 
-// \`aud\` is validated only when an audience is actually configured — an empty
+${
+  declared
+    ? `// The model declares an audience, so \`aud\` is always validated: a token minted
+// for a DIFFERENT client of the same issuer is rejected, and an EMPTY AUDIENCE
+// (OIDC_AUDIENCE unset or "") rejects every token rather than skip the check.
+const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };`
+    : `// \`aud\` is validated only when an audience is actually configured — an empty
 // AUDIENCE (nothing declared and OIDC_AUDIENCE unset, or an explicit
 // OIDC_AUDIENCE="") skips the check, which is the documented opt-out.  With one
 // set, a token minted for a DIFFERENT client of the same issuer is rejected.
-const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };`
+}
 
 // Lazily discover the issuer's JWKS endpoint via the OIDC discovery
 // document, then cache a remote JWK set (jose refreshes + caches keys).
@@ -960,7 +1024,17 @@ ${toUserLines.join("\n")}
 ${verifierDoc}
 export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => {
   const token = bearer(req);
-  if (!token) return null;
+  if (!token) return null;${
+    declared
+      ? `
+  // A declared audience that resolves empty fails closed: jose skips the
+  // \`aud\` check for an empty \`audience\` option, so refuse here instead.
+  if (!AUDIENCE) {
+    ${renderHonoStoreLogCall("authTokenRejected", `reason: ${JSON.stringify(audienceUnsetReason(auth))}`)}
+    return null;
+  }`
+      : ""
+  }
   try {
     const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
     return toUser(payload);

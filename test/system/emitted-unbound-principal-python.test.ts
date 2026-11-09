@@ -14,10 +14,11 @@
 // was green.
 //
 // THE MATRIX is the set of read paths a principal-referencing predicate can
-// reach, because the defect was path-specific: a widened single-row read
-// (`find(C) ignoring …`, its own repository method) threads the principal as a
-// parameter, while a `retrieval` and a query-time projection have DSL-fixed
-// signatures that take none.  Any future read path
+// reach, because the defect was path-specific: a handler binds the principal
+// as a parameter, while a `retrieval`, a query-time projection and a widened
+// single-row read (`find(C) ignoring …`, called from bodies that hold no
+// principal) have signatures that take none and read the ambient accessor.
+// Any future read path
 // that forgets the ambient accessor lands here the same way.
 //
 // NON-VACUITY is asserted twice: each case requires the generation to have
@@ -105,7 +106,7 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
     body: `      repository WorkOrders for WorkOrder { }`,
   },
   {
-    what: "a widened read that DECLARES the principal (its parameter is the binding)",
+    what: "a widened read over a principal criterion (reads the ambient principal)",
     body: `      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       repository WorkOrders for WorkOrder
       queryHandler GetMineAnywhere(): WorkOrder {
@@ -113,12 +114,8 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
       }`,
   },
   {
-    // THE CASE THAT JUSTIFIES THE PER-`def` UNIT.  Both reads land in one
-    // repository module: the widened read's method binds `current_user: User`,
-    // so the FILE contains a binding and a file-level check reads green — while
-    // the retrieval's method, two defs down, binds nothing.  Only a
-    // per-function unit separates them, and reverting the fix must still fail
-    // HERE.
+    // Both reads land in one repository module and neither may bind the
+    // principal as a parameter: each reads the ambient accessor.
     what: "a widened read and a retrieval in the SAME repository module",
     body: `      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyOrders() of WorkOrder { where: Mine() }
@@ -176,6 +173,7 @@ describe("emitted Python never reads `current_user` in a def that never bound it
       retrieval MyOrders() of WorkOrder { where: Mine() }
       repository WorkOrders for WorkOrder
       queryHandler GetMineAnywhere(): WorkOrder {
+        requires currentUser.id != ""
         if let x = WorkOrders.find(Mine()) ignoring * { return x } else { notFound "not_found" }
       }`),
     );
@@ -184,11 +182,13 @@ describe("emitted Python never reads `current_user` in a def that never bound it
       reading,
       "no emitted python function reads the principal — the sweep is vacuous",
     ).not.toEqual([]);
-    // The widened read's method is the one that legitimately binds it as a
-    // parameter.
-    expect(reading.some((u) => u.endsWith(":: find_first_mine_ignoring_all"))).toBe(true);
-    // …and the retrieval's method, which binds nothing, must therefore NOT
-    // appear as a bare reader: it goes through `require_current_user()`.
+    // The handler is the one that legitimately binds it as a parameter (its
+    // `requires` gate reads it).
+    expect(reading.some((u) => u.endsWith(":: get_mine_anywhere"))).toBe(true);
+    // …while the retrieval's and the widened read's methods, which bind
+    // nothing, must NOT appear as bare readers: both go through
+    // `require_current_user()`.
+    expect(reading.some((u) => u.endsWith(":: find_first_mine_ignoring_all"))).toBe(false);
     const repo = files.get("ops_svc/app/db/repositories/work_order_repository.py");
     expect(repo).toBeDefined();
     expect(repo!).toContain("require_current_user().id");

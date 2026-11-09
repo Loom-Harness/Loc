@@ -22,10 +22,11 @@
 // Beside the table, one invariant holds in EVERY position that admits a
 // mutation: each aggregate mutation is covered by a save of the same local in
 // its own scope or an enclosing one (`loom.workflow-mutation-unsaved`).  The
-// mutation is the callee's declared effect (`a.withdraw(x)` bound with `let`,
-// a `mutating` domain service bound with `let`), while the save list is
-// derived from the statement shapes; a mutation no save covers is a change the
-// body would silently lose on every backend.
+// mutation is the callee's declared effect, while the save list is derived
+// from the statement shapes; a mutation no save covers is a change the body
+// would silently lose on every backend.  A call whose error-carrying result is
+// bound with `let` is the exception: its save follows the `match` over that
+// result (`call-result-checks.ts`, `loom.workflow-mutation-result-unmatched`).
 //
 // What this file does NOT own, because the construct has no IR form by the
 // time it could look: an explicit `Repo.save(x)` (`loom.workflow-explicit-save`,
@@ -53,6 +54,7 @@ import type {
 import type { OriginRef } from "../../types/origin.js";
 import { contextSaveResolver } from "../../util/domain-service-tier.js";
 import { bodyEffects, type EffectBodyIR } from "../../util/effects.js";
+import { checkGuardedCallResults } from "./call-result-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** The codes a position's vocabulary refuses an effect with. */
@@ -242,6 +244,9 @@ function checkMutationsSaved(
   for (const e of effects) {
     if (e.kind !== "mutate" || e.target.kind !== "aggregate") continue;
     const t = e.target;
+    // A guarded call's mutation is saved by the `match` over its result;
+    // `checkGuardedCallResults` owns it.
+    if (t.result !== undefined) continue;
     if (t.name !== "" && !bound.has(t.name)) continue;
     const covered =
       t.name !== "" && persists.some((p) => p.name === t.name && scopeCovers(p.scope, e.scope));
@@ -306,7 +311,9 @@ export function validateWorkflowEffectVocabulary(
     }
   };
   for (const { position, body } of workflowBodies(wf)) {
-    checkBody(position, bodyEffects(body, resolver), site, refusal, diags);
+    const effects = bodyEffects(body, resolver);
+    checkBody(position, effects, site, refusal, diags);
+    checkGuardedCallResults(body, effects, site, diags);
   }
 }
 
@@ -328,13 +335,15 @@ export function validateHandlerEffectVocabulary(
       source: `${ctx.name}/${h.name}`,
       origin: ctx.origin,
     };
+    const effects = bodyEffects(h, resolver);
     checkBody(
       position,
-      bodyEffects(h, resolver),
+      effects,
       site,
       () => diagMessage("loom.query-handler-saves", { name: ctx.name, qName: h.name }),
       diags,
     );
+    checkGuardedCallResults(h, effects, site, diags);
   };
   for (const c of ctx.commandHandlers ?? []) check("command-handler", "commandHandler", c);
   for (const q of ctx.queryHandlers ?? []) check("query-handler", "queryHandler", q);

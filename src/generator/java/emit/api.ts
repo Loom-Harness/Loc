@@ -1,4 +1,9 @@
 import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
+import {
   fieldFixedMessage,
   type WireRejectionClass,
   wireFixedDetail,
@@ -10,6 +15,7 @@ import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  OperationIR,
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -24,16 +30,18 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { findUnionSpec } from "../../_payload/union-wire.js";
-import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
-import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
-import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_RESTRICT_VIOLATION,
+  PG_UNIQUE_VIOLATION,
+} from "../../_persistence/pg-sqlstate.js";
+import { jid } from "../java-ident.js";
+import { renderJavaExpr } from "../render-expr.js";
 import {
   javaErrorVariantLines,
   javaLit,
@@ -41,9 +49,9 @@ import {
   javaSentence,
 } from "../wire-policy-java.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
-import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
+import { JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
-import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
+import { declaredFinds, isPagedAutoAll } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
 import { javaIdValueType, wireJavaType } from "./wire.js";
@@ -95,7 +103,7 @@ export interface ControllerCtx {
  *  `page`/`pageSize`/`sort`/`dir` query params are deliberately NOT here: a
  *  find param of that name collides on the WIRE (two values for one query
  *  key), which a Java-local rename would only hide. */
-const FIND_ROUTE_METHOD_NAMES: ReadonlySet<string> = new Set([
+const _FIND_ROUTE_METHOD_NAMES: ReadonlySet<string> = new Set([
   "service",
   "currentUserAccessor",
   "currentUser",
@@ -129,13 +137,14 @@ export function renderJavaController(
   // methods and request records stay — the explicit handler may call them.
   const routed = (o: ApiOperationIR | undefined): ApiOperationIR | undefined =>
     o?.claimedByExplicitRoute ? undefined : o;
-  const findEntries = derivedOps.filter(
-    (o) => o.kind === "find" && !isAllFind(o) && !o.claimedByExplicitRoute,
-  );
-  // Optimistic concurrency (`versioned`): a mutation carries the client's
-  // expected version in the `If-Match` header (think-time CAS), forwarded to the
-  // service.  Non-versioned aggregates thread nothing → byte-identical routes.
-  const versioned = aggregateIsVersioned(agg);
+  // Optimistic concurrency: an operation route reads the client's expected
+  // version from the `If-Match` header (think-time CAS) exactly where the
+  // `checksVersion` fact says `if-match`, and forwards it to the service.
+  // Other routes thread nothing → byte-identical routes.
+  const readsIfMatchFor = (op: OperationIR): boolean =>
+    readsIfMatch(operationVersionCheck(agg, op));
+  const destroyReadsIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const versioned = agg.operations.some(readsIfMatchFor) || destroyReadsIfMatch;
   //
   // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
   // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
@@ -147,13 +156,14 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
-  const ifMatchHeaderParam = versioned
-    ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
-    : "";
-  const ifMatchServiceArg = versioned ? ", IfMatch.expectedVersion(ifMatch)" : "";
+  const ifMatchHeader = `, @RequestHeader(value = "If-Match", required = false) String ifMatch`;
+  const ifMatchHeaderParam = (op: OperationIR): string =>
+    readsIfMatchFor(op) ? ifMatchHeader : "";
+  const ifMatchServiceArg = (op: OperationIR): string =>
+    readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
   // path-variable / find-param spellings below derive their own import.
-  const idJava = javaIdValueType(agg.idValueType);
+  const idJava = javaIdValueType();
 
   // Authorization gates on finds (default-deny) — a `requires <expr>` runs in
   // the controller action before delegating to the service, throwing
@@ -202,9 +212,6 @@ export function renderJavaController(
   };
 
   const unionImports = new Set<string>();
-  /** Set when a find arm throws the shared find-absence 404 (RS-22/RS-27), so
-   *  the controller imports `AggregateNotFoundException` only where it uses it. */
-  let anyFindAbsenceThrow = false;
   // Extern ops route identically — the service dispatches to the
   // user-supplied handler instead of an aggregate method.
   // The side-effect-free `can_<op>` companion of a `when`-gated operation
@@ -280,13 +287,13 @@ export function renderJavaController(
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+            ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
           `        return switch (result) {`,
           ...arms,
           `        };`,
@@ -310,13 +317,13 @@ export function renderJavaController(
         return [
           opMapping,
           hasParams
-            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+            ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
           `        return ResponseEntity.ok(result);`,
           `    }`,
           ``,
@@ -327,143 +334,17 @@ export function renderJavaController(
         opMapping,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
-          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
+          ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @${VALID} @RequestBody ${reqType} request${ifMatchHeaderParam(op)}) {`
+          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam(op)}) {`,
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
         hasParams
-          ? `        service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
-          : `        service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
+          ? `        service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg(op)});`
+          : `        service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg(op)});`,
         `    }`,
         ``,
         ...canRouteLines(op),
       ];
-    }
-  });
-
-  const findRoutes = findEntries.flatMap((entry) => {
-    const f = entry.find!;
-    {
-      // An id-typed find param (`find byOrder(order: Order id)`) binds as its
-      // RAW underlying type (`UUID`/`long`/…) and wraps into the id class at the
-      // service call — Spring has no `String → <Agg>Id` value-type converter, so
-      // binding `@RequestParam OrderId` 500s.  Mirrors the getById path variable
-      // (`@PathVariable UUID id` → `new OrderId(id)`).
-      // M-T6.36 — a param named after a Java reserved word binds under a
-      // MANGLED java identifier, so the query-parameter key has to be named
-      // explicitly (`@RequestParam("case") String case_`); Spring would
-      // otherwise publish `?case_=` on java alone.  `requestParam` is the
-      // bare `@RequestParam` for every other name, so output is unmoved.
-      // A find param named like a name the route method spells itself (the
-      // injected `service`, the `r`/`response`/`result`/`problem` locals, the
-      // gate's `currentUser`) binds under a `_`-suffixed Java parameter
-      // (`javaLocals`), its query key named explicitly by `requestParam` — the
-      // same split as the keyword mangle above.  Unmoved for every other name.
-      const locals = javaLocals(
-        f.params.map((p) => p.name),
-        FIND_ROUTE_METHOD_NAMES,
-      );
-      const declared = f.params.map((p) => {
-        const local = localOf(locals, p.name);
-        return p.type.kind === "id"
-          ? `${requestParam(p.name, local)} ${javaIdValueType(p.type.valueType)} ${local}`
-          : `${requestParam(p.name, local)} ${renderJavaType(p.type)} ${local}`;
-      });
-      const params = declared.join(", ");
-      const args = f.params
-        .map((p) => {
-          const local = localOf(locals, p.name);
-          return p.type.kind === "id" ? `new ${p.type.targetName}Id(${local})` : local;
-        })
-        .join(", ");
-      // Union find (`Order or NotFound` / `Order option`): the service returns
-      // the success variant's `<Agg>Response` (or null).  Per exception-less.md
-      // §4 the 200 body is that success variant DIRECTLY — never a tagged union
-      // component (an error variant belongs at its status, not in a 200 schema) —
-      // so found → 200 `<Agg>Response`, absent → bare 404 (`none`) or an RFC-7807
-      // ProblemDetail at the error's mapped status (with the `resource` extension
-      // when declared).  Wire-identical to `<Agg>?` / `<Agg> option`.
-      const spec = ctx.boundedContext
-        ? findUnionSpec(f.returnType, agg.name, ctx.boundedContext)
-        : null;
-      if (spec) {
-        if (spec.absent.kind === "none") anyFindAbsenceThrow = true;
-        const absent =
-          spec.absent.kind === "none"
-            ? // RS-22/RS-27 — THROW, so the `@RestControllerAdvice` renders the
-              // five-member envelope.  `ResponseEntity.notFound().build()` is
-              // Spring's own bare 404 with an EMPTY BODY and never reaches the
-              // advice; it would also make this controller emit two different
-              // wires for shapes `payloads.md` declares wire-identical, since
-              // the `error`-variant branch below builds a
-              // real ProblemDetail.
-              [`            throw ${JAVA_FIND_ABSENCE_THROW};`]
-            : (() => {
-                return javaErrorVariantLines({
-                  tag: spec.absent.tag,
-                  overrides: ctx.boundedContext?.errorStatusOverrides,
-                  problemType: PROBLEM_DETAIL,
-                  mediaType: MEDIA_TYPE,
-                  indent: "            ",
-                  props: spec.absent.hasResource
-                    ? [`problem.setProperty("resource", "${agg.name}");`]
-                    : [],
-                  emit: "return",
-                });
-              })();
-        return [
-          `    @GetMapping("${relativeOpPath(entry)}")`,
-          `    public ResponseEntity<?> ${f.name}${agg.name}(${params}) {`,
-          ...(f.requires ? findGateLines(f, locals) : []),
-          `        var r = service.${jid(f.name)}(${args});`,
-          `        if (r == null) {`,
-          ...absent,
-          `        }`,
-          `        return ResponseEntity.ok(r);`,
-          `    }`,
-          ``,
-        ];
-      }
-      if (isPagedFind(f)) {
-        const pagedParams = [...declared, ...JAVA_PAGED_QUERY_PARAMS].join(", ");
-        const pagedArgs = [args, "page, pageSize, sort, dir"].filter(Boolean).join(", ");
-        // F2-W-07 — return the CONCRETE `<Agg>Paged` record, exactly as the
-        // auto-findAll route below does.  Returning the raw `Paged<T>` generic
-        // made springdoc name the component `Paged<Agg>Response`, while node
-        // (`.openapi("<Agg>Paged")`), python (`response_model=<Agg>Paged`),
-        // elixir (`<Agg>Paged` schema) and .NET (`CustomSchemaIds` mapping
-        // `Paged<T>` → `<Agg>Paged`) all publish `<Agg>Paged` for the same
-        // route.  The service still returns `Paged<T>`; the controller wraps.
-        return [
-          `    @GetMapping("${relativeOpPath(entry)}")`,
-          `    public ${agg.name}Paged ${f.name}${agg.name}(${pagedParams}) {`,
-          ...(f.requires ? findGateLines(f, locals) : []),
-          `        var result = service.${jid(f.name)}(${pagedArgs});`,
-          `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
-          `    }`,
-          ``,
-        ];
-      }
-      const single = f.returnType.kind !== "array";
-      if (single) anyFindAbsenceThrow = true;
-      const retType = single ? `ResponseEntity<${agg.name}Response>` : `List<${agg.name}Response>`;
-      return [
-        `    @GetMapping("${relativeOpPath(entry)}")`,
-        `    public ${retType} ${f.name}${agg.name}(${params}) {`,
-        ...(f.requires ? findGateLines(f, locals) : []),
-        single
-          ? `        var response = service.${jid(f.name)}(${args});`
-          : `        return service.${jid(f.name)}(${args});`,
-        single
-          ? // RS-22/RS-27 — same repair as the `option` arm above: an OPTIONAL
-            // find (`find byEmail(...): Customer?`) is wire-identical to
-            // `Customer option`, so its miss must carry the same five-member
-            // envelope rather than Spring's bare empty 404.
-            `        if (response == null) throw ${JAVA_FIND_ABSENCE_THROW};\n        return ResponseEntity.ok(response);`
-          : null,
-        `    }`,
-        ``,
-      ].filter((l): l is string => l !== null);
     }
   });
 
@@ -476,8 +357,10 @@ export function renderJavaController(
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-        `    public void destroy${agg.name}(@PathVariable ${idJava} id) {`,
-        `        service.destroy${agg.name}(new ${idClass}(id));`,
+        `    public void destroy${agg.name}(@PathVariable ${idJava} id${destroyReadsIfMatch ? ifMatchHeader : ""}) {`,
+        `        service.destroy${agg.name}(new ${idClass}(id)${
+          destroyReadsIfMatch ? ", IfMatch.expectedVersion(ifMatch)" : ""
+        });`,
         `    }`,
         ``,
       ]
@@ -551,7 +434,6 @@ export function renderJavaController(
             `    }`,
             ``,
           ]),
-    ...findRoutes,
     ...destroyRoutes,
   ];
   while (body[body.length - 1] === "") body.pop();
@@ -576,7 +458,6 @@ export function renderJavaController(
     // does not import from its own package.
     versioned && ctx.pkg !== `${ctx.basePkg}.api` ? `import ${ctx.basePkg}.api.IfMatch;` : null,
     anyFindGate ? `import ${ctx.basePkg}.domain.common.ForbiddenException;` : null,
-    anyFindAbsenceThrow ? `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;` : null,
     anyFindGateUsesUser ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
     // Entity history — the shared `AuditEntry` wire record.  Under byLayer the
     // controller already lives in `<base>.api`, so the import is emitted only
@@ -911,6 +792,7 @@ export function renderApiExceptionAdvice(
   const title = (cls: WireRejectionClass): string =>
     javaLit(wireTitle(cls, structuralErrorStatuses));
   const fixed = (cls: WireRejectionClass): string => javaLit(wireFixedDetail(cls));
+  const overflowStatus = wireStatus("arithmetic-overflow", structuralErrorStatuses);
   const fieldInvalid = wireStatus("field-invalid");
   // The advice does not know which aggregate a restrict violation concerns, so
   // the subject is the generic "This resource".
@@ -1111,6 +993,18 @@ export function renderApiExceptionAdvice(
     `        return respond(problem(${domainStatus}, ${title("domain-floor")}, e.getMessage(), request), ${domainStatus});`,
     `    }`,
     ``,
+    // RS-48: the `Math.*Exact` calls a checked integer `+ - *` renders throw
+    // `ArithmeticException("integer overflow" | "long overflow")` — the domain
+    // floor's 422 with the fact's fixed sentence.  Any other ArithmeticException
+    // (a BigDecimal division by zero) is not modelled and keeps the catch-all.
+    `    @ExceptionHandler(ArithmeticException.class)`,
+    `    public ResponseEntity<ProblemDetail> onArithmetic(ArithmeticException e, WebRequest request) {`,
+    `        if (!"integer overflow".equals(e.getMessage()) && !"long overflow".equals(e.getMessage())) return onUnhandled(e, request);`,
+    `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${overflowStatus});`,
+    `        httpMetrics.recordDomainFault("domain_error");`,
+    `        return respond(problem(${overflowStatus}, ${title("arithmetic-overflow")}, ${fixed("arithmetic-overflow")}, request), ${overflowStatus});`,
+    `    }`,
+    ``,
     `    @ExceptionHandler(DisallowedException.class)`,
     `    public ResponseEntity<ProblemDetail> onDisallowed(DisallowedException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", e.getMessage(), "status", ${disallowedStatus});`,
@@ -1129,7 +1023,9 @@ export function renderApiExceptionAdvice(
       `        // \`foreign_key_violation\` (23503).  Keying the still-referenced arm on`,
       `        // 23503 is why it never fired here and a delete fell through to the`,
       `        // unique-violation arm, answering a conflict about values that already`,
-      `        // exist.  \`unique (...)\` is 23505.  Anything else is a conflict too.`,
+      `        // exist.  \`unique (...)\` is 23505 and is the only conflict this arm`,
+      `        // answers; any other SQLState (a 23514 check violation, a 23502 not-null)`,
+      `        // is not a uniqueness clash and takes the catch-all 500, as on node and .NET.`,
       hasReferencedDelete &&
         `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
       hasReferencedDelete &&
@@ -1149,6 +1045,7 @@ export function renderApiExceptionAdvice(
       hasDanglingRef &&
         `            return respond(problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, request), ${domainStatus});`,
       hasDanglingRef && `        }`,
+      `        if (!${JSON.stringify(PG_UNIQUE_VIOLATION)}.equals(sqlState(e))) return onUnhandled(e, request);`,
       `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", ${uniqueDetail}, "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
       `        return respond(problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, request), ${uniquenessStatus});`,
@@ -1193,7 +1090,38 @@ export function renderApiExceptionAdvice(
     `        if (overflow != null) {`,
     `            return onWireFormat(new WireFormatException(overflow, ${javaLit(fieldFixedMessage("integer-range"))}), request);`,
     `        }`,
+    `        var badId = malformedIdPointer(e);`,
+    `        if (badId != null) {`,
+    `            return onWireFormat(new WireFormatException(badId, ${javaLit(fieldFixedMessage("malformed-id"))}), request);`,
+    `        }`,
     `        return respond(problem(${wireStatus("malformed-body")}, ${title("malformed-body")}, ${fixed("malformed-body")}, request), ${wireStatus("malformed-body")});`,
+    `    }`,
+    ``,
+    // A body `X id` that is not a uuid (`{"agent":"nope"}`) is well-formed JSON
+    // with one refused FIELD value — `malformed-id`, a `field-invalid` 422 at
+    // its pointer (wirePolicy), never the syntax-error 400.
+    `    /** The RFC 6901 pointer of the uuid field Jackson refused as malformed,`,
+    `     *  or null when the failure is anything else (a real syntax error). */`,
+    `    private static String malformedIdPointer(Throwable e) {`,
+    `        boolean badUuid = false;`,
+    `        java.util.List<tools.jackson.core.JacksonException.Reference> path = java.util.List.of();`,
+    `        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {`,
+    `            if (t instanceof tools.jackson.databind.exc.InvalidFormatException ife`,
+    `                    && java.util.UUID.class.equals(ife.getTargetType())) badUuid = true;`,
+    `            if (t instanceof tools.jackson.core.JacksonException je && je.getPath().size() > path.size()) {`,
+    `                path = je.getPath();`,
+    `            }`,
+    `        }`,
+    `        return badUuid && !path.isEmpty() ? pointerOfPath(path) : null;`,
+    `    }`,
+    ``,
+    `    private static String pointerOfPath(java.util.List<tools.jackson.core.JacksonException.Reference> path) {`,
+    `        var out = new StringBuilder();`,
+    `        for (var ref : path) {`,
+    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
+    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
+    `        }`,
+    `        return out.toString();`,
     `    }`,
     ``,
     `    /** The RFC 6901 pointer of the integral field Jackson refused as out of`,
@@ -1209,13 +1137,7 @@ export function renderApiExceptionAdvice(
     `                path = je.getPath();`,
     `            }`,
     `        }`,
-    `        if (!coercion || path.isEmpty()) return null;`,
-    `        var out = new StringBuilder();`,
-    `        for (var ref : path) {`,
-    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
-    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
-    `        }`,
-    `        return out.toString();`,
+    `        return coercion && !path.isEmpty() ? pointerOfPath(path) : null;`,
     `    }`,
     ``,
     // A path `{id}` / typed query param that will not CONVERT — `GET

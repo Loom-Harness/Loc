@@ -1,3 +1,4 @@
+import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
 import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -13,10 +14,12 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { lowerRestrictionToSqlAlchemy } from "./find-predicate.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -37,6 +40,10 @@ import {
   writeGuardInApp,
 } from "./repository-builder.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
+
+const sa = (name: string): string => pyRef("sqlalchemy", name);
+const COLLECTION = pyRef("collections.abc", "Collection");
+const authUser = (name: string): string => pyRef("app.auth.user", name);
 
 /** `from app.domain.events import <Event>` — an event dataclass. */
 const eventRef = (name: string): string => pyRef("app.domain.events", name);
@@ -69,6 +76,16 @@ export function buildPyEventSourcedRepositoryFile(
     .map((ap) => ctx.events.find((ev) => ev.name === ap.event))
     .filter((ev): ev is EventIR => ev != null);
 
+  // Stream tenancy (`stream-tenancy.ts`): a `tenantOwned` stream carries its
+  // tenant as stored-event metadata.  Every load applies the read-scope fact's
+  // tenancy restrictions over the log's metadata columns (`_stream_scope`),
+  // and adopts the stream's tenant onto the folded instance.
+  const tenancy = streamTenancyFor(agg, ctx.aggregates);
+  const scoped = (tenancy?.restrictions.length ?? 0) > 0;
+  const adopt = (r: string): string =>
+    `inst._adopt_stream_tenant(${(tenancy?.metadata ?? []).map((m) => `${r}.${m.column}`).join(", ")})`;
+  const loadAll = (bypass?: IgnoringClause): string => `self._load_all(${ignoringSet(bypass)})`;
+
   const allFilter = allFindOf(repo)?.filter;
   const allCond = allFilter ? renderPyExpr(allFilter, { thisName: "a" }) : null;
   const allUsesPrincipal = exprUsesCurrentUser(allFilter);
@@ -83,13 +100,19 @@ export function buildPyEventSourcedRepositoryFile(
     "        rows = (",
     "            await self._session.execute(",
     `                ${R.select}(${row})
-                .where(${row}.stream_type == "${agg.name}", ${row}.stream_id == id)
+                .where(${row}.stream_type == "${agg.name}", ${row}.stream_id == id${scoped ? ", *_stream_scope()" : ""})
                 .order_by(${row}.version)`,
     "            )",
     "        ).scalars().all()",
     "        if not rows:",
     "            return None",
-    `        return ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`,
+    ...(tenancy
+      ? [
+          `        inst = ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`,
+          `        ${adopt("rows[0]")}`,
+          "        return inst",
+        ]
+      : [`        return ${agg.name}._from_events(id, [self._row_to_event(row) for row in rows])`]),
     "",
     `    async def get_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`,
     "        found = await self.find_by_id(id)",
@@ -115,23 +138,57 @@ export function buildPyEventSourcedRepositoryFile(
           `        return [a for a in await self._all_unfiltered() if ${allCond}]`,
           "",
         ]),
-    `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
-    "        rows = (",
-    "            await self._session.execute(",
-    `                ${R.select}(${row})
+    ...(tenancy
+      ? [
+          `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
+          `        return await ${loadAll(allFindOf(repo))}`,
+          "",
+          // The one stream scan: scoped by the tenancy restrictions (minus
+          // what the read's `ignoring` drops), each folded stream adopting the
+          // tenant its stored events carry.
+          `    async def _load_all(self, ignoring: ${COLLECTION}[str] = frozenset()) -> list[${aggRef(agg)}]:`,
+          "        rows = (",
+          "            await self._session.execute(",
+          `                ${R.select}(${row})
+                .where(${row}.stream_type == "${agg.name}"${scoped ? ", *_stream_scope(ignoring)" : ""})
+                .order_by(${row}.stream_id, ${row}.version)`,
+          "            )",
+          "        ).scalars().all()",
+          `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
+          `        first_row: dict[str, ${row}] = {}`,
+          "        for row_ in rows:",
+          "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
+          "            first_row.setdefault(str(row_.stream_id), row_)",
+          `        out: list[${aggRef(agg)}] = []`,
+          "        for sid, evs in by_stream.items():",
+          `            inst = ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs)`,
+          `            ${adopt("first_row[sid]")}`,
+          "            out.append(inst)",
+          "        return out",
+        ]
+      : [
+          `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${aggRef(agg)}]:`,
+          "        rows = (",
+          "            await self._session.execute(",
+          `                ${R.select}(${row})
                 .where(${row}.stream_type == "${agg.name}")
                 .order_by(${row}.stream_id, ${row}.version)`,
-    "            )",
-    "        ).scalars().all()",
-    `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
-    "        for row_ in rows:",
-    "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
-    "        return [",
-    `            ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs) for sid, evs in by_stream.items()`,
-    "        ]",
+          "            )",
+          "        ).scalars().all()",
+          `        by_stream: dict[str, list[${R.DomainEvent}]] = {}`,
+          "        for row_ in rows:",
+          "            by_stream.setdefault(str(row_.stream_id), []).append(self._row_to_event(row_))",
+          "        return [",
+          `            ${agg.name}._from_events(${pyIdType(agg.name)}(sid), evs) for sid, evs in by_stream.items()`,
+          "        ]",
+        ]),
     ...emittableFinds(repo).flatMap((f) => [
       "",
-      inMemoryFind(agg, f, allCond == null ? "self.all()" : "self._all_unfiltered()"),
+      inMemoryFind(
+        agg,
+        f,
+        tenancy ? loadAll(f) : allCond == null ? "self.all()" : "self._all_unfiltered()",
+      ),
     ]),
     // Criterion reads call `run_<retrieval>` whatever the saving shape.  A
     // stream has no state columns, so the runner filters the folded aggregates
@@ -168,6 +225,16 @@ export function buildPyEventSourcedRepositoryFile(
     // handle loaded before another append commit a decision taken on its
     // stale fold.
     "            version = aggregate._stream_version",
+    // A new stream is stamped with the principal's tenant (the capability's
+    // `onCreate` stamp, which refuses a principal with no tenant claim);
+    // every later append carries the loaded stream's tenant forward — never
+    // the caller's.
+    ...(tenancy
+      ? [
+          "            if version == 0:",
+          `                aggregate._stamp_on_create(${R.require_current_user}())`,
+        ]
+      : []),
     ...(aggregateIsVersioned(agg)
       ? [
           "            if expected_version is not None and version != expected_version:",
@@ -190,20 +257,29 @@ export function buildPyEventSourcedRepositoryFile(
     "                            type=type(ev).type,",
     "                            data=self._event_to_data(ev),",
     `                            occurred_at=${PY.datetime}.now(${PY.UTC}),`,
+    ...(tenancy?.metadata ?? []).map(
+      (m) => `                            ${m.column}=aggregate.${m.column},`,
+    ),
     "                        )",
     "                    )",
     `                except ${R.IntegrityError} as err:`,
     '                    if getattr(getattr(err, "orig", None), "sqlstate", None) == "23505":',
     `                        ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")} from err`,
     "                    raise",
-    "                await self._events.dispatch(ev)",
+    ...(tenancy
+      ? [
+          "                with self._origin_frame(aggregate):",
+          "                    await self._events.dispatch(ev)",
+        ]
+      : ["                await self._events.dispatch(ev)"]),
     "            aggregate._stream_version = version",
     "        await self._session.flush()",
     `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
     "",
-    rowToEvent(agg, events, row),
+    ...(tenancy ? [originFrameMethod(agg), ""] : []),
+    rowToEvent(agg, events, row, ctx),
     "",
-    eventToData(events),
+    eventToData(events, ctx),
     "",
     toWireStub(agg, ctx),
     // `mask unless` response redaction (pairwise F6 — the python half of F2).
@@ -220,8 +296,79 @@ export function buildPyEventSourcedRepositoryFile(
     PY_IMPORTS,
     "",
     "",
+    ...(scoped ? [streamScopeFn(agg, ctx, row), "", ""] : []),
     body,
     "",
+  );
+}
+
+/** The `ignoring` clause of a read, as the frozenset its stream load takes —
+ *  "" when it drops nothing (the load's default applies every restriction). */
+interface IgnoringClause {
+  bypassAll?: boolean;
+  bypassCaps?: readonly string[];
+}
+function ignoringSet(bypass: IgnoringClause | undefined): string {
+  if (bypass?.bypassAll) return 'frozenset({"*"})';
+  const caps = [...new Set(bypass?.bypassCaps ?? [])];
+  return caps.length === 0 ? "" : `frozenset({${caps.map((c) => JSON.stringify(c)).join(", ")}})`;
+}
+
+/** `_stream_scope(ignoring)` — the tenancy restrictions of the aggregate's
+ *  read-scope fact lowered over the event-log row's tenant metadata columns
+ *  (the columns carry the `tenantOwned` field names, so the predicate is the
+ *  one a `tenantOwned` table applies).  A read with no principal sees no
+ *  stream, exactly like the read-scope hook of a relational aggregate. */
+function streamScopeFn(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  row: string,
+): string {
+  const restrictions = streamTenancyFor(agg, ctx.aggregates)?.restrictions ?? [];
+  const crit = `${sa("ColumnElement")}[bool]`;
+  return lines(
+    `def _stream_scope(ignoring: ${COLLECTION}[str] = frozenset()) -> list[${crit}]:`,
+    `    """${agg.name}'s stream scope: its tenancy restrictions over the stream's tenant metadata."""`,
+    `    user = ${authUser("current_user")}()`,
+    `    out: list[${crit}] = []`,
+    ...restrictions.flatMap((r) => {
+      const lowered =
+        lowerRestrictionToSqlAlchemy(r.predicate!, agg, ctx, row, "user") ??
+        // Dropping this would ship an unscoped stream — a hard stop, not a fallback.
+        refuseOutOfVocabulary("sqlalchemy-filter", `stream tenancy of '${agg.name}'`);
+      const guard =
+        r.bypassable && r.capability !== undefined
+          ? `    if "*" not in ignoring and ${JSON.stringify(r.capability)} not in ignoring:`
+          : undefined;
+      const indent = guard ? "        " : "    ";
+      return [
+        ...(guard ? [guard] : []),
+        `${indent}out.append(${sa("false")}() if user is None else ${lowered.expr})`,
+      ];
+    }),
+    "    return out",
+  );
+}
+
+/** `_origin_frame(aggregate)` — the events' origin is their STREAM's tenant
+ *  (`eventTenantMetadataFor`): the outbox capture and the CloudEvents envelope
+ *  (`tenantid` / `loomorgpath`) read the ambient origin, so when the raising
+ *  principal's tenant is not the stream's (a `policy`-widened subtree append)
+ *  the dispatch runs in the stream tenant's frame.  The common case — same
+ *  tenant — keeps the request's own. */
+function originFrameMethod(agg: EnrichedAggregateIR): string {
+  return lines(
+    `    def _origin_frame(self, aggregate: ${aggRef(agg)}) -> ${pyRef("contextlib", "AbstractContextManager")}[None]:`,
+    `        origin = ${authUser("current_event_origin")}()`,
+    '        if origin is not None and origin.get("tenant") == aggregate.tenant_id:',
+    `            return ${pyRef("contextlib", "nullcontext")}()`,
+    `        return ${authUser("event_origin_frame")}(`,
+    "            {",
+    '                "tenant": aggregate.tenant_id,',
+    '                "orgPath": aggregate.data_key,',
+    '                "causedBy": None if origin is None else origin.get("causedBy"),',
+    "            }",
+    "        )",
   );
 }
 
@@ -287,11 +434,16 @@ function pyParam(t: TypeIR): string {
 }
 
 /** Stream row → event dataclass (wire keys are the DSL spellings). */
-function rowToEvent(agg: EnrichedAggregateIR, events: EventIR[], row: string): string {
+function rowToEvent(
+  agg: EnrichedAggregateIR,
+  events: EventIR[],
+  row: string,
+  ctx: EnrichedBoundedContextIR,
+): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
     `            return ${eventRef(ev.name)}(${ev.fields
-      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`)
+      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type, ctx)}`)
       .join(", ")})`,
   ]);
   return lines(
@@ -302,9 +454,21 @@ function rowToEvent(agg: EnrichedAggregateIR, events: EventIR[], row: string): s
   );
 }
 
-export function fromData(name: string, t: TypeIR): string {
-  const access = `data["${name}"]`;
+/** Decode the event field `name` from the JSONB payload `data`. */
+export function fromData(name: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+  return decodeValue(`data["${name}"]`, t, ctx);
+}
+
+/** Decode the JSON value `access` to its domain type.  A value object is
+ *  rebuilt through its constructor (which re-checks the invariant) from the
+ *  nested `{"<field>": …}` map {@link encodeValue} wrote; an optional VO or a
+ *  VO/other array decodes element-wise, `null` staying `None`. */
+function decodeValue(access: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
+  // An optional scalar/id/enum stays `None` when the payload holds `null`;
+  // the value-object and array arms below carry their own guard.
+  if (t.kind === "optional" && inner.kind !== "valueobject" && inner.kind !== "array")
+    return `(None if ${access} is None else ${decodeValue(access, inner, ctx)})`;
   switch (inner.kind) {
     case "primitive":
       switch (inner.name) {
@@ -329,16 +493,29 @@ export function fromData(name: string, t: TypeIR): string {
       return `${pyIdType(inner.targetName)}(${PY.cast}(str, ${access}))`;
     case "enum":
       return `${pyVoOrEnum(inner.name)}(${PY.cast}(str, ${access}))`;
+    case "valueobject": {
+      const vo = findValueObjectInScope(ctx, inner.name);
+      if (!vo) return `${PY.cast}(str, ${access})`;
+      const map = `${PY.cast}(dict[str, object], ${access})`;
+      const args = vo.fields.map((vf) => decodeValue(`${map}["${vf.name}"]`, vf.type, ctx));
+      const built = `${pyVoOrEnum(vo.name)}(${args.join(", ")})`;
+      return t.kind === "optional" ? `(None if ${access} is None else ${built})` : built;
+    }
+    case "array": {
+      const list = `${PY.cast}(list[object], ${access})`;
+      const comp = `[${decodeValue("__e", inner.element, ctx)} for __e in ${list}]`;
+      return t.kind === "optional" ? `(None if ${access} is None else ${comp})` : comp;
+    }
     default:
       return `${PY.cast}(str, ${access})`;
   }
 }
 
 /** Event dataclass → the JSONB payload (DSL-keyed, JSON-safe values). */
-function eventToData(events: EventIR[]): string {
+function eventToData(events: EventIR[], ctx: EnrichedBoundedContextIR): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} isinstance(ev, ${eventRef(ev.name)}):`,
-    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
+    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type, ctx)}`).join(", ")}}`,
   ]);
   return lines(
     `    def _event_to_data(self, ev: ${R.DomainEvent}) -> dict[str, object]:`,
@@ -347,11 +524,33 @@ function eventToData(events: EventIR[]): string {
   );
 }
 
-export function toData(expr: string, t: TypeIR): string {
+const ENCODED_SCALARS: ReadonlySet<string> = new Set(["datetime", "date", "money"]);
+
+/** Encode the event field value `expr` to its JSON-safe payload form.  A value
+ *  object becomes its nested `{"<field>": …}` map (the shape {@link decodeValue}
+ *  reads back); an array encodes element-wise when its elements need it. */
+export function toData(expr: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
+  const nullable = (v: string): string =>
+    t.kind === "optional" ? `(None if ${expr} is None else ${v})` : v;
+  // `.isoformat()` / `str()` on an unset optional would raise; guard it first.
+  if (t.kind === "optional" && inner.kind === "primitive" && ENCODED_SCALARS.has(inner.name))
+    return nullable(toData(expr, inner, ctx));
   if (inner.kind === "primitive" && (inner.name === "datetime" || inner.name === "date"))
     return `${expr}.isoformat()`;
   if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
+  if (inner.kind === "valueobject") {
+    const vo = findValueObjectInScope(ctx, inner.name);
+    if (!vo) return expr;
+    const fields = vo.fields.map(
+      (vf) => `"${vf.name}": ${toData(`${expr}.${pythonIdent(vf.name)}`, vf.type, ctx)}`,
+    );
+    return nullable(`{${fields.join(", ")}}`);
+  }
+  if (inner.kind === "array") {
+    const el = toData("__e", inner.element, ctx);
+    return el === "__e" ? expr : nullable(`[${el} for __e in ${expr}]`);
+  }
   return expr;
 }
 

@@ -105,7 +105,6 @@ export function validateComposeUniqueness(sys: SystemIR, diags: LoomDiagnostic[]
 // ---------------------------------------------------------------------------
 
 export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  if ((sys.channelSources ?? []).length === 0) return;
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
   // channel name -> owning context (channels are context members; bare names
@@ -115,7 +114,7 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
     for (const c of m.contexts)
       for (const ch of c.channels ?? [])
         channelOwner.set(ch.name, { ctxName: c.name, carries: ch.carries });
-  const csByName = new Map(sys.channelSources.map((cs) => [cs.name, cs]));
+  const csByName = new Map((sys.channelSources ?? []).map((cs) => [cs.name, cs]));
 
   // The event names a deployable's hosted contexts consume (reactor `on`,
   // event-triggered `create … by`, projection folds) — the same trigger set
@@ -127,7 +126,7 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
   // 1. Unbound channelSource.
   if (sys.deployables.length > 0) {
     const wired = new Set(sys.deployables.flatMap((d) => d.channelSourceNames ?? []));
-    for (const cs of sys.channelSources) {
+    for (const cs of sys.channelSources ?? []) {
       if (wired.has(cs.name)) continue;
       diags.push({
         severity: "warning",
@@ -185,10 +184,28 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
 
     // 3. Consumer unwired while the channel is broker-bound elsewhere.
     if (!platformOwnsBackend(dep.platform)) continue; // frontends consume via M-T1.10 realtime
-    for (const [chName, csNames] of activeBindings) {
-      const owner = channelOwner.get(chName);
-      if (!owner) continue;
+    for (const [chName, owner] of channelOwner) {
       if (!owner.carries.some((e) => consumed.has(e))) continue;
+      const csNames = activeBindings.get(chName);
+      if (!csNames) {
+        // Unbound channel: events only travel in-process, so a consumer on a
+        // different deployable than the producer never receives them.
+        if (hosted.has(owner.ctxName)) continue;
+        if (!sys.deployables.some((d) => d.contextNames.includes(owner.ctxName))) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.channel-consumer-unwired",
+          message: diagMessage("loom.channel-consumer-unwired#unbound", {
+            name: dep.name,
+            chName,
+            carries: owner.carries.filter((e) => consumed.has(e)).join(", "),
+            ctxName: owner.ctxName,
+          }),
+          source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
+        });
+        continue;
+      }
       if (csNames.some((n) => listed.has(n))) continue;
       diags.push({
         severity: "error",

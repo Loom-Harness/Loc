@@ -40,31 +40,31 @@ const repo = path.resolve(here, "../..");
  * run, and update the table in docs/ci-gating.md in the same commit.
  */
 const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
-  ["behavioral-e2e.yml", 15],
-  ["behavioral-e2e-python.yml", 10],
-  ["behavioral-e2e-java.yml", 30],
-  ["behavioral-e2e-dotnet.yml", 25],
-  ["behavioral-e2e-dapper.yml", 20],
-  ["behavioral-e2e-mikroorm.yml", 25],
-  ["behavioral-e2e-elixir.yml", 20],
+  ["behavioral-e2e.yml", 20],
+  ["behavioral-e2e-python.yml", 15],
+  ["behavioral-e2e-java.yml", 45],
+  ["behavioral-e2e-dotnet.yml", 35],
+  ["behavioral-e2e-dapper.yml", 30],
+  ["behavioral-e2e-mikroorm.yml", 35],
+  ["behavioral-e2e-elixir.yml", 30],
 ];
 
 /**
- * The job-execution p95 each budget above was derived FROM, in seconds (java
- * measured 2026-09-10 at n=40; node 2026-11-01, censored; the rest 2026-10-05
- * at n=20). Kept so the
- * ratchet can re-run the rule rather than trusting the arithmetic was done
- * right once — the number in the workflow must be what the rule produces from
- * the number in the doc, not merely a number three files agree on.
+ * The job-execution p95 each budget above was derived FROM, in seconds
+ * (2026-11-02, n=20 successful runs per leg; python and dapper were also being
+ * killed at their old caps, so theirs are lower bounds). Kept so the ratchet
+ * can re-run the rule rather than trusting the arithmetic was done right once —
+ * the number in the workflow must be what the rule produces from the number in
+ * the doc, not merely a number three files agree on.
  */
 const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
-  "behavioral-e2e.yml": 600, // censored at the old 10m cap (2026-11-01), see docs/ci-gating.md
-  "behavioral-e2e-python.yml": 385, // 6m25s
-  "behavioral-e2e-java.yml": 1186, // 19m46s — censored, see docs/ci-gating.md
-  "behavioral-e2e-dotnet.yml": 828, // 13m48s
-  "behavioral-e2e-dapper.yml": 782, // 13m02s
-  "behavioral-e2e-mikroorm.yml": 905, // 15m05s
-  "behavioral-e2e-elixir.yml": 730, // 12m10s
+  "behavioral-e2e.yml": 681, // 11m21s
+  "behavioral-e2e-python.yml": 596, // 9m56s — lower bound, 5 cap kills
+  "behavioral-e2e-java.yml": 1620, // 27m00s
+  "behavioral-e2e-dotnet.yml": 1350, // 22m30s
+  "behavioral-e2e-dapper.yml": 1172, // 19m32s — lower bound, 4 cap kills
+  "behavioral-e2e-mikroorm.yml": 1318, // 21m58s
+  "behavioral-e2e-elixir.yml": 1179, // 19m39s
 };
 
 const read = (p: string) => readFileSync(path.join(repo, p), "utf8");

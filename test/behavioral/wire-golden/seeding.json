@@ -20,9 +20,9 @@
         "display": "Delta",
         "id": "<volatile:key>",
         "name": "Delta",
+        "rowVersion": 1,
         "size": 9,
-        "tier": "Free",
-        "version": 1
+        "tier": "Free"
       }
     },
     {
@@ -41,9 +41,9 @@
         "display": "Delta-2",
         "id": "<volatile:key>",
         "name": "Delta-2",
+        "rowVersion": 2,
         "size": 10,
-        "tier": "Pro",
-        "version": 2
+        "tier": "Pro"
       }
     },
     {
@@ -63,7 +63,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "g1",
-        "version": 1,
+        "rowVersion": 1,
         "widgetId": "<volatile:key>"
       }
     },
@@ -82,7 +82,7 @@
       "body": {
         "id": "<volatile:key>",
         "label": "g2",
-        "version": 2,
+        "rowVersion": 2,
         "widgetId": "<volatile:key>"
       }
     },

@@ -5,19 +5,22 @@
 // evaluate — see buffer-polyfill.ts for the specific lines.
 import "../buffer-polyfill";
 import { synthDDL } from "./ddl";
-import { pgliteAssetUrl } from "../bundle/plugin.js";
-import { fnv1a32 } from "../util/hash.js";
 import type { LogLine } from "../util/log-line.js";
 import { installConsoleTee, setLogSink } from "./console-tee.js";
+import { errText } from "./migrate.js";
+import { serviceFetch } from "./service-fetch.js";
+import { StorageHostHandle } from "./storage-client.js";
 import type {
-  BootResult,
   DispatchResult,
-  QueryResult,
+  HttpCall,
+  HttpReply,
+  LoadResult,
   RuntimeProgress,
   RuntimeRpcRequest,
   RuntimeRpcResponse,
   SerializedRequest,
   SerializedResponse,
+  StartResult,
 } from "./protocol.js";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -44,136 +47,76 @@ function progress(phase: RuntimeProgress["phase"], note?: string): void {
 // console-tee.ts for why a per-RPC patch lost every structured line.
 installConsoleTee();
 
-// PGlite's normal boot path computes WASM/data URLs relative to its
-// own `import.meta.url` and fetches them at runtime.  When the
-// bundle is loaded from a `blob:` URL the relative resolution lands
-// on a nonexistent path.  PGlite's escape hatch is the
-// `{ pgliteWasmModule, initdbWasmModule, fsBundle }` constructor
-// options: pre-compile / pre-fetch the artifacts and it skips its
-// own URL-based loading entirely.  See bundle/plugin.ts
-// `pgliteAssetUrl` for the shared (jsdelivr-hosted) source.
-
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
+  /** The generated start-up sequence (`boot.ts`) — absent from a bundle whose
+   *  backend emits none, which then boots through bare `createApp`. */
+  bootApp?: (
+    db: unknown,
+    opts: { verifier: "dev-stub"; infra: "in-process" },
+  ) => Promise<{ app: { fetch: (req: Request) => Promise<Response> }; stop: () => Promise<void> }>;
   schema: Record<string, unknown>;
-  drizzle: (pglite: unknown, opts: { schema: Record<string, unknown> }) => unknown;
-  // `new PGlite()`, `new PGlite(options)`, or `new PGlite(dataDir, options)`.
-  // PGlite picks the right overload based on whether the first arg is
-  // a string.  `dataDir` of `":memory:"` (or omitted) is in-memory;
-  // `"opfs-ahp://<name>"` enables OPFS persistence.
-  PGlite: new (
-    dataDirOrOptions?: string | unknown,
-    options?: unknown,
-  ) => PgliteHandle;
+  drizzle: (client: unknown, opts: { schema: Record<string, unknown> }) => unknown;
+  /** `@electric-sql/pglite/worker`'s client: the deployable's connection to
+   *  its storage, which runs in the infra worker (see storage-client.ts). */
+  PGliteWorker: new (worker: unknown, options?: unknown) => StorageConnection;
   is: (value: unknown, type: unknown) => boolean;
   Table: unknown;
   getTableConfig: (t: unknown) => never;
 }
 
-interface PgliteHandle {
-  exec: (sql: string) => Promise<unknown>;
-  query: (
-    sql: string,
-    params?: unknown[],
-  ) => Promise<{
-    rows: Array<Record<string, unknown>>;
-    fields?: Array<{ name: string; dataTypeID: number }>;
-    affectedRows?: number;
-  }>;
-  close?: () => Promise<void>;
+interface StorageConnection {
+  waitReady: Promise<void>;
+  close(): Promise<void>;
 }
 
-// PGlite/Postgres can reject with a plain object (a serialized
-// protocol error: `{ message, severity, code, … }`) rather than an
-// `Error`.  The naive `String(err)` then prints "[object Object]",
-// hiding the only useful detail.  Dig out a real message, falling
-// back to a JSON dump so nothing is ever swallowed.
-function errText(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const msg = (err as { message?: unknown }).message;
-    if (typeof msg === "string" && msg.length > 0) return msg;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      /* circular / non-serialisable — fall through */
-    }
-  }
-  return String(err);
-}
-
-// Reset the database by dropping every user-defined schema, not just
-// `public`.  System-mode backends place their tables under a
-// per-context pgSchema (e.g. `sales`) whenever the source resolves a
-// dataSource, so a `DROP SCHEMA public CASCADE` alone leaves those
-// tables behind — the subsequent IF-NOT-EXISTS DDL then no-ops and the
-// stale shape (or a schema-drift mismatch) survives the reset.  This
-// drops public + every generated schema, preserving only Postgres'
-// own schemas and (optionally) our `__loom` bookkeeping schema.
-function dropUserSchemasSql(includeLoom: boolean): string {
-  const loomFilter = includeLoom ? "" : " AND nspname <> '__loom'";
-  return (
-    "DO $$ DECLARE s text; BEGIN " +
-    "FOR s IN SELECT nspname FROM pg_namespace " +
-    `WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'${loomFilter} ` +
-    "LOOP EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', s); END LOOP; " +
-    "EXECUTE 'CREATE SCHEMA IF NOT EXISTS public'; END $$;"
-  );
-}
-
-let cachedPgliteWasm: WebAssembly.Module | null = null;
-let cachedInitdbWasm: WebAssembly.Module | null = null;
-let cachedFsBundle: Blob | null = null;
-
-async function loadPgliteAssets(): Promise<{
-  pgliteWasmModule: WebAssembly.Module;
-  initdbWasmModule: WebAssembly.Module;
-  fsBundle: Blob;
-}> {
-  if (!cachedPgliteWasm || !cachedInitdbWasm || !cachedFsBundle) {
-    const [pgliteRes, initdbRes, dataRes] = await Promise.all([
-      fetch(pgliteAssetUrl("pglite.wasm")),
-      fetch(pgliteAssetUrl("initdb.wasm")),
-      fetch(pgliteAssetUrl("pglite.data")),
-    ]);
-    if (!pgliteRes.ok) throw new Error(`pglite.wasm fetch failed: ${pgliteRes.status}`);
-    if (!initdbRes.ok) throw new Error(`initdb.wasm fetch failed: ${initdbRes.status}`);
-    if (!dataRes.ok) throw new Error(`pglite.data fetch failed: ${dataRes.status}`);
-    const [pgliteMod, initdbMod, dataBlob] = await Promise.all([
-      WebAssembly.compileStreaming(pgliteRes),
-      WebAssembly.compileStreaming(initdbRes),
-      dataRes.blob(),
-    ]);
-    cachedPgliteWasm = pgliteMod;
-    cachedInitdbWasm = initdbMod;
-    cachedFsBundle = dataBlob;
-  }
-  return {
-    pgliteWasmModule: cachedPgliteWasm,
-    initdbWasmModule: cachedInitdbWasm,
-    fsBundle: cachedFsBundle,
-  };
-}
-
-interface RuntimeState {
-  app: { fetch: (req: Request) => Promise<Response> };
-  pglite: PgliteHandle;
-  ddl: string;
-  /** Blob URL the bundle was loaded from.  Tracked here so we can
-   *  revoke on reset and on the next boot — without this, every
-   *  successful Boot leaks one URL for the worker's lifetime. */
+/** The imported bundle, between `load` and `start`. */
+interface Loaded {
+  mod: BundleModule;
+  /** Blob URL the bundle was imported from — revoked on reset and on the
+   *  next load, or every boot would leak one for the worker's lifetime. */
   bundleUrl: string;
-  /** Cached `mod.PGlite` ctor for `wipe()` to reuse.  We could
-   *  instead `mod.drizzle(state.pglite, ...)` to rebuild the app,
-   *  but DROP+CREATE inside the existing PGlite is simpler. */
-  PGlite: BundleModule["PGlite"];
-  drizzle: BundleModule["drizzle"];
-  schema: BundleModule["schema"];
-  createApp: BundleModule["createApp"];
 }
 
-let state: RuntimeState | null = null;
+interface Started {
+  app: { fetch: (req: Request) => Promise<Response> };
+  /** Stops what `bootApp` started (timers, channel consumers, the outbox
+   *  relay) — run before the storage connection closes on Reset and
+   *  re-boot. */
+  stop: () => Promise<void>;
+  storage: StorageConnection;
+}
+
+/** The network `fetch`, kept before `load` wraps it. */
+const realFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+/** Backend→backend calls awaiting the main thread's `httpReply`. */
+const pendingHttp = new Map<number, (r: DispatchResult) => void>();
+let nextHttpCall = 1;
+
+/** Hand a request for another deployable to the main thread, which owns every
+ *  worker and runs it through that deployable's app. */
+function forwardHttp(host: string, request: SerializedRequest): Promise<DispatchResult> {
+  return new Promise((resolve) => {
+    const httpCall = nextHttpCall++;
+    pendingHttp.set(httpCall, resolve);
+    self.postMessage({ httpCall, host, request } satisfies HttpCall);
+  });
+}
+
+/** Give the bundle this deployable's env and its route to the others, before
+ *  it is imported: the generated clients read `process.env.<X>_URL` and call
+ *  `fetch` while the module's top level runs.  A worker is one deployable, so
+ *  the env is per deployable by construction.  The postprocess shim in the
+ *  bundle fills in the rest of `process` around this `env`. */
+function installEnv(env: Record<string, string> | undefined, hosts: readonly string[]): void {
+  const g = globalThis as unknown as { process?: { env?: Record<string, string> } };
+  g.process = { ...(g.process ?? {}), env: { ...(env ?? {}) } };
+  globalThis.fetch = serviceFetch(new Set(hosts), forwardHttp, realFetch);
+}
+
+let loaded: Loaded | null = null;
+let started: Started | null = null;
 
 // Default cap on a single dispatch.  A generated op with an
 // infinite loop or a runaway query would otherwise hang the worker
@@ -181,31 +124,41 @@ let state: RuntimeState | null = null;
 // UI looks frozen with no recovery path.
 const DEFAULT_DISPATCH_TIMEOUT_MS = 30_000;
 
-async function tearDownState(): Promise<void> {
-  if (!state) return;
-  try {
-    await state.pglite.close?.();
-  } catch {
-    // best-effort
+async function tearDown(): Promise<void> {
+  if (started) {
+    try {
+      await started.stop();
+    } catch {
+      // best-effort
+    }
+    try {
+      await started.storage.close();
+    } catch {
+      // best-effort
+    }
+    started = null;
   }
-  try {
-    URL.revokeObjectURL(state.bundleUrl);
-  } catch {
-    // best-effort
+  if (loaded) {
+    try {
+      URL.revokeObjectURL(loaded.bundleUrl);
+    } catch {
+      // best-effort
+    }
+    loaded = null;
   }
-  state = null;
 }
 
-async function boot(
+/** Import the deployable's bundle.  `synthDdl` also derives the schema from
+ *  its Drizzle tables — the schema of a source without a system, which the
+ *  storage then applies. */
+async function load(
   bundleCode: string,
-  dataDir?: string,
-  fresh = false,
-): Promise<BootResult> {
-  const start = performance.now();
-  // Tear down a previous boot if present (close PGlite + revoke its
-  // bundle URL).
-  await tearDownState();
-
+  synthDdl: boolean,
+  env?: Record<string, string>,
+  serviceHosts: readonly string[] = [],
+): Promise<LoadResult> {
+  await tearDown();
+  installEnv(env, serviceHosts);
   progress("import-bundle");
   const blob = new Blob([bundleCode], { type: "application/javascript" });
   const url = URL.createObjectURL(blob);
@@ -214,209 +167,60 @@ async function boot(
     mod = (await import(/* @vite-ignore */ url)) as unknown as BundleModule;
   } catch (err) {
     URL.revokeObjectURL(url);
-    return {
-      ok: false,
-      message: `Bundle import failed: ${errText(err)}`,
-    };
+    return { ok: false, message: `Bundle import failed: ${errText(err)}` };
   }
-  // Keep the blob URL alive for the lifetime of the module — some
-  // browsers re-fetch sub-resources lazily.  Stored on `state` so
-  // tearDownState can revoke it on reset / next boot.
-
-  // Try the requested persistent backend first; fall back to
-  // in-memory if the browser refuses (Safari < 17, restrictive
-  // iframe sandboxing, etc.).  `persistent` flag flows back to the
-  // UI so the badge can say "in-memory" instead of misleadingly
-  // claiming "persisted" when storage is actually ephemeral.
-  let pglite;
-  let persistent = false;
+  // The blob URL stays alive with the module — some browsers re-fetch
+  // sub-resources lazily.
+  loaded = { mod, bundleUrl: url };
+  if (!synthDdl) return { ok: true };
+  progress("ddl-synth");
   try {
-    progress("pglite-assets");
-    const assets = await loadPgliteAssets();
-    // NOT "init": measured, `new PGlite(...)` is 0.7 ms and does nothing.
-    // Postgres' real startup — WASM instantiation, initdb, materialising the
-    // data dir — is deferred to the FIRST exec, i.e. `ddl-meta` below, which
-    // took 5469 ms against 5.9 ms for the second exec.  Naming this "init"
-    // cost a diagnosis cycle: a field report showed it passing and we read
-    // that as "PGlite is up", when it only meant the constructor returned.
-    progress("pglite-construct");
-    if (dataDir && dataDir !== ":memory:") {
-      try {
-        pglite = new mod.PGlite(dataDir, assets);
-        persistent = true;
-      } catch (err) {
-        console.warn(
-          `[runtime] persistent dataDir "${dataDir}" rejected, falling back to :memory:`,
-          err,
-        );
-        pglite = new mod.PGlite(assets);
-      }
-    } else {
-      pglite = new mod.PGlite(assets);
-    }
-  } catch (err) {
     return {
-      ok: false,
-      message: `PGlite boot failed: ${errText(err)}`,
+      ok: true,
+      ddl: synthDDL(mod.schema, { is: mod.is, Table: mod.Table, getTableConfig: mod.getTableConfig }),
     };
-  }
-
-  // Recovery path: a persistent island whose stored data is
-  // incompatible with the current schema can fail every boot, and the
-  // normal Reset is unreachable without a booted instance.  `fresh`
-  // wipes both the user schema and our bookkeeping schema here — after
-  // PGlite has opened cleanly but before any DDL — so the subsequent
-  // apply starts from a blank database.
-  if (fresh) {
-    try {
-      // `includeLoom: true` — a full wipe also clears the schema-hash
-      // bookkeeping so the following apply is treated as a first boot.
-      await pglite.exec(dropUserSchemasSql(true));
-    } catch (err) {
-      return {
-        ok: false,
-        message: `Reset of stored data failed: ${errText(err)}`,
-      };
-    }
-  }
-
-  let ddl: string;
-  try {
-    progress("ddl-synth");
-    ddl = synthDDL(mod.schema, {
-      is: mod.is,
-      Table: mod.Table,
-      getTableConfig: mod.getTableConfig,
-    });
   } catch (err) {
-    return {
-      ok: false,
-      message: `DDL synth failed: ${errText(err)}`,
-    };
+    return { ok: false, message: `DDL synth failed: ${errText(err)}` };
   }
-
-  let migrated = false;
-  try {
-    migrated = await migrateOrApplyDDL(pglite, ddl, progress);
-  } catch (err) {
-    return {
-      ok: false,
-      message: `DDL execution failed: ${errText(err)}\n--- DDL ---\n${ddl}`,
-    };
-  }
-
-  let app: BundleModule["createApp"] extends (db: unknown) => infer R ? R : never;
-  try {
-    const db = mod.drizzle(pglite, { schema: mod.schema });
-    progress("create-app");
-    app = mod.createApp(db);
-  } catch (err) {
-    return {
-      ok: false,
-      message: `createApp failed: ${errText(err)}`,
-    };
-  }
-
-  state = {
-    app,
-    pglite,
-    ddl,
-    bundleUrl: url,
-    PGlite: mod.PGlite,
-    drizzle: mod.drizzle,
-    schema: mod.schema,
-    createApp: mod.createApp,
-  };
-  return {
-    ok: true,
-    ddl,
-    durationMs: Math.round(performance.now() - start),
-    persistent,
-    migrated,
-  };
 }
 
-// Apply DDL idempotently on a possibly-pre-existing PGlite, with
-// schema-drift detection.
-//
-// We keep a tiny `__loom.schema_meta` bookkeeping table (one row,
-// `key='ddl_hash'`, `value=<fnv1a32 of the DDL string>`) in a
-// separate schema so it survives `DROP SCHEMA public CASCADE`.
-// On boot we compute the hash of the current DDL and compare:
-//
-//   - First boot (table missing or row absent): apply DDL,
-//     record hash.  Returns `migrated = false` (this isn't a
-//     migration, it's an initial setup).
-//   - Subsequent boot, hash matches: skip — the persistent
-//     PGlite already has the right schema, the user's rows are
-//     intact.  Returns `migrated = false`.
-//   - Subsequent boot, hash differs: drop public schema, re-apply
-//     new DDL, update hash.  Returns `migrated = true` so the
-//     UI can flash a "schema changed — DB reset" message.  This
-//     is necessary because IF-NOT-EXISTS DDL would otherwise
-//     leave stale tables that don't match the new generated
-//     repositories' expectations.
-async function migrateOrApplyDDL(
-  pglite: PgliteHandle,
-  ddl: string,
-  progress: (phase: RuntimeProgress["phase"], note?: string) => void,
-): Promise<boolean> {
-  // Scale of the work this call is about to do, carried on every mark below
-  // so a kill reports not just WHICH step but how much it was chewing.
-  const scale = `${ddl.split(";").length - 1} stmts, ${Math.round(ddl.length / 1024)}KB`;
-  progress("ddl-meta", scale);
-  // Bootstrap the meta table.  Both statements are idempotent.
-  await pglite.exec(
-    "CREATE SCHEMA IF NOT EXISTS __loom; " +
-      "CREATE TABLE IF NOT EXISTS __loom.schema_meta (" +
-      "  key text PRIMARY KEY, " +
-      "  value text NOT NULL" +
-      ");",
-  );
-  const newHash = fnv1a32(ddl);
-  const result = await pglite.query(
-    "SELECT value FROM __loom.schema_meta WHERE key = $1",
-    ["ddl_hash"],
-  );
-  const oldHash =
-    result.rows.length > 0 ? String(result.rows[0]["value"]) : null;
-
-  if (oldHash === newHash) {
-    // Same schema — nothing to do.  Skips even the IF-NOT-EXISTS
-    // round-trip, saving a few milliseconds on each warm reload.
-    return false;
+/** Connect to the storage and start the app on it. */
+async function start(channel: string): Promise<StartResult> {
+  if (!loaded) return { ok: false, message: "No bundle loaded — load first." };
+  const { mod } = loaded;
+  progress("storage-connect");
+  let storage: StorageConnection;
+  try {
+    storage = new mod.PGliteWorker(new StorageHostHandle(channel));
+    await storage.waitReady;
+  } catch (err) {
+    return { ok: false, message: `Storage connection failed: ${errText(err)}` };
   }
-
-  let migrated = false;
-  if (oldHash !== null) {
-    // Schema drifted: drop and recreate.  CASCADE is essential —
-    // foreign-keyed rows would otherwise block the drop.  Drops every
-    // generated schema (a system-mode backend's `sales` etc.), not
-    // just `public`, while keeping our `__loom` hash bookkeeping.
-    progress("ddl-drop", scale);
-    await pglite.exec(dropUserSchemasSql(false));
-    migrated = true;
+  try {
+    const db = mod.drizzle(storage, { schema: mod.schema });
+    progress("create-app");
+    if (mod.bootApp) {
+      // The deployed start-up sequence minus `serve()`: seeds, verifier,
+      // dispatchers, channel consumers, outbox relay, timers.  The preview
+      // reaches no IdP and no broker, so it takes the dev-stub verifier and
+      // the in-process broker + cron.
+      const booted = await mod.bootApp(db, { verifier: "dev-stub", infra: "in-process" });
+      started = { app: booted.app, stop: booted.stop, storage };
+    } else {
+      started = { app: mod.createApp(db), stop: async () => {}, storage };
+    }
+    return { ok: true };
+  } catch (err) {
+    await storage.close().catch(() => undefined);
+    return { ok: false, message: `${mod.bootApp ? "bootApp" : "createApp"} failed: ${errText(err)}` };
   }
-  if (ddl.trim().length > 0) {
-    progress("ddl-apply", scale);
-    await pglite.exec(ddl);
-  }
-
-  // Record the new hash.  ON CONFLICT for the case where the row
-  // existed (drift) and INSERT for first boot.
-  await pglite.query(
-    "INSERT INTO __loom.schema_meta (key, value) VALUES ($1, $2) " +
-      "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-    ["ddl_hash", newHash],
-  );
-  return migrated;
 }
 
 async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
-  if (!state) {
+  if (!started) {
     return { ok: false, message: "Runtime not booted — call /boot first." };
   }
-  const start = performance.now();
+  const begin = performance.now();
   try {
     const request = new Request(req.url, {
       method: req.method,
@@ -437,7 +241,7 @@ async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
     });
     let response: Response;
     try {
-      response = await Promise.race([state.app.fetch(request), timeoutPromise]);
+      response = await Promise.race([started.app.fetch(request), timeoutPromise]);
     } finally {
       if (timeoutId !== null) clearTimeout(timeoutId);
     }
@@ -452,87 +256,30 @@ async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
       headers,
       body,
     };
-    return { ok: true, response: out, durationMs: Math.round(performance.now() - start) };
+    return { ok: true, response: out, durationMs: Math.round(performance.now() - begin) };
   } catch (err) {
     return {
       ok: false,
       message: errText(err),
     };
-  }
-}
-
-// Run an arbitrary SQL statement against the booted PGlite for the
-// Database console.  Single-statement (PGlite's `query` runs one
-// parameterless statement) — enough for SELECT browsing and ad-hoc
-// INSERT/UPDATE/DELETE.  The same timeout race as `dispatch` guards
-// against a runaway query wedging the worker.
-async function query(sql: string): Promise<QueryResult> {
-  if (!state) {
-    return { ok: false, message: "Runtime not booted — boot first." };
-  }
-  const start = performance.now();
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const timeoutPromise = new Promise<never>((_resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error(`query timed out after ${DEFAULT_DISPATCH_TIMEOUT_MS} ms`));
-      }, DEFAULT_DISPATCH_TIMEOUT_MS);
-    });
-    const res = await Promise.race([state.pglite.query(sql), timeoutPromise]);
-    return {
-      ok: true,
-      fields: (res.fields ?? []).map((f) => f.name),
-      rows: res.rows ?? [],
-      affectedRows: res.affectedRows ?? 0,
-      durationMs: Math.round(performance.now() - start),
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      message: errText(err),
-    };
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 }
 
 async function reset(): Promise<{ ok: true }> {
-  await tearDownState();
+  await tearDown();
   return { ok: true };
-}
-
-// Drop every user object inside the currently-booted PGlite, then
-// re-apply DDL from the cached schema metadata.  Works the same
-// for in-memory and OPFS-backed PGlite — for OPFS the underlying
-// data island is preserved (so the next reload reattaches a clean
-// schema), but the rows are gone.  No-op when not booted.
-async function wipe(): Promise<{ ok: boolean; message?: string }> {
-  if (!state) {
-    return { ok: false, message: "Runtime not booted — nothing to wipe." };
-  }
-  try {
-    // Drop every user-defined schema (public + any generated
-    // per-context schema like `sales`) and recreate `public` — the
-    // shortest path to "remove every user object and start fresh".
-    // We then re-run the saved DDL to recreate the tables in the same
-    // shape.  Keeps `__loom` so the schema-hash bookkeeping survives.
-    await state.pglite.exec(dropUserSchemasSql(false));
-    if (state.ddl.trim().length > 0) {
-      await state.pglite.exec(state.ddl);
-    }
-    // The drizzle db + Hono app are still bound to the same
-    // PGlite instance, so they keep working without a rebuild.
-    return { ok: true };
-  } catch (err) {
-    return {
-      ok: false,
-      message: errText(err),
-    };
-  }
 }
 
 self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   const req = ev.data;
+  // An answer, not an RPC: settle the call and leave the log sink alone —
+  // a dispatch is awaiting it.
+  if (req.method === "httpReply") {
+    const reply: HttpReply = req.params;
+    pendingHttp.get(reply.httpCall)?.(reply.result);
+    pendingHttp.delete(reply.httpCall);
+    return;
+  }
   const response: RuntimeRpcResponse = { id: req.id };
   const logs: LogLine[] = [];
   // Route this RPC's console output (incl. the bundle's pino lines) into
@@ -540,24 +287,17 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   setLogSink(logs);
   try {
     switch (req.method) {
-      case "boot":
-        response.result = await boot(
-          req.params.bundleCode,
-          req.params.dataDir,
-          req.params.fresh,
-        );
+      case "load":
+        response.result = await load(req.params.bundleCode, req.params.synthDdl, req.params.env, req.params.serviceHosts);
+        break;
+      case "start":
+        response.result = await start(req.params.channel);
         break;
       case "dispatch":
         response.result = await dispatch(req.params);
         break;
-      case "query":
-        response.result = await query(req.params.sql);
-        break;
       case "reset":
         response.result = await reset();
-        break;
-      case "wipe":
-        response.result = await wipe();
         break;
       default:
         response.error = {

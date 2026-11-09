@@ -31,26 +31,36 @@
 //     or natural-key `.getBy(…)` / `.findBy(…)` read (`lower-workflow.ts`'s
 //     `isLetStmt` arm, whose `repo-run` arms spread `resolveBypass` and whose
 //     key-lookup arm reads the stance off the chain);
-//   - an `if let` source over a natural-key `.findBy(…)` or a criterion
-//     `.find(<Criterion>)` read (`findBy` / `find` are `T?`, so `if let` is
-//     where they are bound);
+//   - in a workflow, reactor or handler body, a `let` or `if let` over a
+//     single-row read — `.find(<Criterion>)`, `.find(id)`, `.findBy(…)` —
+//     which lowers to the read's own widened method (`bypassRead`);
+//   - an `if let` source over a natural-key `.findBy(…)` anywhere;
 //   - an expression in a `domainService` operation over a single-row read —
-//     `.find(<Criterion>)`, `.find(id)`, `.getBy(…)` / `.findBy(…)`
-//     (`matchRepoRead`, which every service read lowers through, reads the
-//     stance off the chain for exactly these).
+//     `.find(<Criterion>)`, `.find(id)`, `.getBy(…)` / `.findBy(…)` — or a
+//     list read `.all(<Criterion | Retrieval>)` (`matchRepoRead`, which every
+//     service read lowers through, reads the stance off the chain for exactly
+//     these: the single-row reads call their own widened method, the list
+//     read runs its own widened retrieval);
+//   - in a context integration `test`, `let o = Agg.find(id) ignoring …`
+//     (`lower-test.ts` names the widened method on the read).
 //
 // Every other position drops it.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { type RepoArgShape, repositoryVerbFor } from "../../util/repository-contract.js";
 import {
   isBoundedContext,
+  isCommandHandler,
   isDomainServiceOperation,
   isIfLetStmt,
   isLetStmt,
   isMemberSuffix,
+  isOnDecl,
   isPostfixChain,
+  isQueryHandler,
+  isTestBlock,
+  isWorkflowCreateDecl,
   type Model,
   type PostfixChain,
 } from "../generated/ast.js";
@@ -75,12 +85,38 @@ function spelling(chain: PostfixChain): string {
   return chain.bypassAll ? "ignoring *" : `ignoring ${(chain.bypass ?? []).join(", ")}`;
 }
 
-/** The repository verbs whose `ignoring` stance the `let` lowerer reads. */
+/** The repository verbs whose `ignoring` stance the `let` lowerer reads in
+ *  any body. */
 const LET_VERBS: ReadonlySet<RepoArgShape> = new Set(["query-or-none", "key"]);
-/** The repository verbs whose `ignoring` stance the `if let` lowerer reads. */
-const IF_LET_VERBS: ReadonlySet<RepoArgShape> = new Set(["key", "criterion"]);
+/** The single-row verbs whose `ignoring` stance a `let` / `if let` reads in a
+ *  workflow, reactor or handler body (`lower-workflow.ts`). */
+const BODY_ROW_VERBS: ReadonlySet<RepoArgShape> = new Set(["id", "key", "criterion"]);
 /** The repository verbs whose `ignoring` stance a domain-service read reads. */
-const SERVICE_VERBS: ReadonlySet<RepoArgShape> = new Set(["id", "key", "criterion"]);
+const SERVICE_VERBS: ReadonlySet<RepoArgShape> = new Set([
+  "id",
+  "key",
+  "criterion",
+  "query-or-none",
+]);
+
+/** Is `node` inside a body `lower-workflow.ts` lowers — a workflow `create`,
+ *  an `on` reactor, or a command / query handler? */
+function inWorkflowBody(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(
+      node,
+      (n) => isWorkflowCreateDecl(n) || isOnDecl(n) || isCommandHandler(n) || isQueryHandler(n),
+    ) !== undefined
+  );
+}
+
+/** Is `node` inside a context integration `test` (one written in a context,
+ *  not an aggregate / value object / domain-service unit test)? */
+function inContextTest(node: AstNode): boolean {
+  const test = AstUtils.getContainerOfType(node, isTestBlock);
+  if (!test) return false;
+  return test.target ? isBoundedContext(test.target.ref) : isBoundedContext(test.$container);
+}
 
 /** Is a chain-borne `ignoring` consumed where `chain` sits? */
 function consumed(chain: PostfixChain): boolean {
@@ -94,10 +130,18 @@ function consumed(chain: PostfixChain): boolean {
   // carries no stance; only `all(<Ref>)` reads one.
   if (c.args === "query-or-none" && !queryRefOf(positional)) return false;
   const parent = chain.$container;
-  if (isLetStmt(parent) && chain.$containerProperty === "expr" && LET_VERBS.has(c.args)) {
-    return true;
+  if (isLetStmt(parent) && chain.$containerProperty === "expr") {
+    if (LET_VERBS.has(c.args)) return true;
+    if (BODY_ROW_VERBS.has(c.args) && inWorkflowBody(chain)) return true;
+    // A context integration test reads by id through the aggregate's
+    // repository (`let o = Order.find(id) ignoring *`).
+    if (c.args === "id" && inContextTest(chain)) return true;
   }
-  if (isIfLetStmt(parent) && chain.$containerProperty === "source" && IF_LET_VERBS.has(c.args)) {
+  if (
+    isIfLetStmt(parent) &&
+    chain.$containerProperty === "source" &&
+    (c.args === "key" || (BODY_ROW_VERBS.has(c.args) && inWorkflowBody(chain)))
+  ) {
     return true;
   }
   return (

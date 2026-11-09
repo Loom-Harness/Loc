@@ -135,8 +135,12 @@ function AppShellLayout() {
               </Group>
             </Anchor>
           </Group>
-{{#if authUi}}          <Button variant="default" size="xs" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
-{{/if}}        </Group>
+{{#if localeSwitcherJsx}}          <Group gap="sm">
+            {{{localeSwitcherJsx}}}
+{{#if authUi}}            <Button variant="default" size="xs" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}          </Group>
+{{else}}{{#if authUi}}          <Button variant="default" size="xs" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}{{/if}}        </Group>
       </AppShell.Header>
       <AppShell.Navbar p="md" {{{primaryNavAria}}}>
         <Stack gap={4} data-testid="nav-sidebar">
@@ -178,7 +182,8 @@ function {{name}}Layout() {
 }
 
 {{/each}}export default function App() {
-  return (
+{{#if useLocaleStatement}}  {{{useLocaleStatement}}}
+{{/if}}  return (
 {{#if hasRealtimeHandlers}}    <>
       <RealtimeHandlers />
 {{/if}}    <React.Suspense fallback={<RouteLoading />}>

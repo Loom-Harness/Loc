@@ -1,6 +1,6 @@
 // F5d — orchestrator rewire — proves that the dotnet system orchestrator
 // dispatches CQRS emission through the cqrs StyleAdapter +
-// byLayer LayoutAdapter when running in system mode.  The byte-
+// byLayer LayoutAdapter.  The byte-
 // identical guarantee comes from the existing dotnet fixture suite
 // (test/generator/dotnet/*) — those tests assert the produced Map
 // hasn't changed.  This file's job is to prove the dispatch path
@@ -16,9 +16,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as byLayerModule from "../../src/generator/dotnet/adapters/by-layer-layout.js";
 import * as cqrsStyleModule from "../../src/generator/dotnet/adapters/cqrs-style.js";
-import { generateSystems } from "../../src/system/index.js";
-import { generateDotnet } from "../_helpers/generate.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYSTEM_SRC = `
 system Sys {
@@ -43,24 +41,11 @@ system Sys {
 }
 `;
 
-// Legacy single-context source — no `system` declaration.  Triggers
-// the orchestrator's non-system path which keeps the direct emitCqrs
-// call (no EmitCtx to dispatch through).
-const LEGACY_SRC = `
-context Orders {
-  aggregate Order {
-    name: string
-    create(name: string) { name := name }
-  }
-  repository Orders for Order {}
-}
-`;
-
 describe("F5d — dotnet orchestrator rewire (system mode)", () => {
-  it("dispatches CQRS through cqrsStyleAdapter.emitForAggregate when system mode is active", async () => {
+  it("dispatches CQRS through cqrsStyleAdapter.emitForAggregate for every dotnet aggregate", async () => {
     const spy = vi.spyOn(cqrsStyleModule.cqrsStyleAdapter, "emitForAggregate");
     try {
-      const files = (await generateSystems(await parseValid(SYSTEM_SRC))).files;
+      const files = await generateSystemFiles(SYSTEM_SRC);
       // The adapter was invoked at least once per dotnet aggregate.
       expect(spy).toHaveBeenCalled();
       const call = spy.mock.calls[0]!;
@@ -78,7 +63,7 @@ describe("F5d — dotnet orchestrator rewire (system mode)", () => {
   it("dispatches through both the style and layout adapter (path comes from byLayer.pathFor)", async () => {
     const layoutSpy = vi.spyOn(byLayerModule.byLayerLayoutAdapter, "pathFor");
     try {
-      await generateSystems(await parseValid(SYSTEM_SRC));
+      await generateSystemFiles(SYSTEM_SRC);
       // The path adapter was called at least once for each CQRS-emitted
       // file — every produced artifact's path comes from `pathFor`.
       expect(layoutSpy.mock.calls.length).toBeGreaterThan(0);
@@ -90,22 +75,6 @@ describe("F5d — dotnet orchestrator rewire (system mode)", () => {
       }
     } finally {
       layoutSpy.mockRestore();
-    }
-  });
-});
-
-describe("F5d — dotnet orchestrator (legacy single-context mode)", () => {
-  it("keeps the direct emitCqrs path when no system is in scope", async () => {
-    const spy = vi.spyOn(cqrsStyleModule.cqrsStyleAdapter, "emitForAggregate");
-    try {
-      const files = generateDotnet(await parseValid(LEGACY_SRC));
-      // The adapter was NOT invoked — the legacy path stays inline.
-      expect(spy).not.toHaveBeenCalled();
-      // The legacy path still produces the expected file set.
-      expect(files.has("Application/Orders/Commands/CreateOrderCommand.cs")).toBe(true);
-      expect(files.has("Api/OrdersController.cs")).toBe(true);
-    } finally {
-      spy.mockRestore();
     }
   });
 });

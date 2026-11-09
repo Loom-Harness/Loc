@@ -14,11 +14,14 @@
 // slice — so the emitted set always compiles.
 
 import type { BoundedContextIR, CriterionIR, ExprIR } from "../../ir/types/loom-ir.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { csUsing } from "../_imports/dotnet.js";
 import { BCL_COLLIDING_TYPE_NAMES } from "./bcl-collision.js";
+import { CS } from "./cs-symbols.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 
 /** The `IsSatisfiedBy` parameter name — matches the abstract base
@@ -53,7 +56,30 @@ export function canEmitToExpressionFor(
   const crit = ctx.criteria.find((c) => c.name === criterionName);
   if (!crit) return false;
   if (candidateName(crit, ctx) !== aggName) return false;
-  return firstNonQueryableNode(crit.body) === null;
+  return hasQueryFace(crit.body);
+}
+
+/** Does a criterion body get the EF `ToExpression()` query face?  It must be
+ *  in the queryable subset AND read no reference collection: a
+ *  `this.<refColl>.contains(x)` membership lives in a join table EF `Ignore`s on
+ *  the owner, so the only translatable form is a subquery against the
+ *  DbContext's join set, which a Domain-layer expression cannot name.  Such a
+ *  read is filtered by the repository instead (`retrievalWhereInRepository`). */
+function hasQueryFace(body: ExprIR): boolean {
+  if (firstNonQueryableNode(body) !== null) return false;
+  let readsRefColl = false;
+  walkExprDeep(body, (e) => {
+    if (
+      e.kind === "method-call" &&
+      e.member === "contains" &&
+      e.receiverType.kind === "array" &&
+      e.receiverType.element.kind === "id" &&
+      refCollectionFieldName(e.receiver) !== null
+    ) {
+      readsRefColl = true;
+    }
+  });
+  return !readsRefColl;
 }
 
 /** The aggregate name a criterion is a `Criterion<T>` over, or `undefined`
@@ -104,9 +130,10 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   // The *query* face is emitted only for criteria in the queryable subset —
   // `ToExpression()` is meant for EF `IQueryable`/`Where`, so a body that
   // can't translate to SQL gets the evaluate face only.
-  const queryable = firstNonQueryableNode(c.body) === null;
-  // Namespaces beyond the SDK implicit-usings set the body reaches into
-  // (e.g. `matches` → `System.Text.RegularExpressions`).
+  const queryable = hasQueryFace(c.body);
+  // Project namespaces the body reaches into (a domain-service call); the
+  // BCL ones (`Regex`, `Expression`) are written through `ref` and land in
+  // their slots below.
   const usings = new Set<string>([
     `${ns}.Domain.Common`,
     `${ns}.Domain.${plural(candidate)}`,
@@ -116,10 +143,11 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     "System.Linq",
   ]);
   collectCsExprUsings(c.body, usings, ns);
-  if (queryable) usings.add("System.Linq.Expressions");
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
+    csUsing("System.Text.RegularExpressions"),
+    csUsing("System.Linq.Expressions"),
     // The candidate aggregate's name may be a BCL type this file's usings also
     // bring into scope (`criterion … of Task` → CS0104 against
     // `System.Threading.Tasks.Task`, which is what the shipped dotnet starter
@@ -148,7 +176,7 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     // later slice). Selectability decides: only queryable criteria carry it.
     queryable ? "" : null,
     queryable
-      ? `    public Expression<Func<${candidate}, bool>> ToExpression() => ${CANDIDATE} => ${body};`
+      ? `    public ${CS.Expression}<Func<${candidate}, bool>> ToExpression() => ${CANDIDATE} => ${body};`
       : null,
     "}",
   );

@@ -11,19 +11,12 @@
 //      import explicitly; Hono namespace-imports `* as Ids` and so was blind),
 //   3. multi-arg operation bodies serializing only the first argument.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
 import { resourceEnvUrlVar } from "../../../src/util/resource-env.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 async function emit(src: string) {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper(services.Ddd);
-  const doc = await helper(src, { validation: true });
-  return generateSystems(doc.parseResult.value as Model).files;
+  return generateSystemFiles(src);
 }
 
 /** `create(orderId: <T>)` — the param type is the knob: `Order id` is the
@@ -129,8 +122,13 @@ describe("Python typed in-system api client", () => {
       // table and emits standalone models with no `wire_models` import. The
       // int4 bound is the SERVER's to enforce; a client-side copy would buy
       // nothing and drag the alias into a module that imports nothing else.
-      /class OrderResponse\(BaseModel\):[\s\S]*version: int/,
+      /class OrderResponse\(BaseModel\):[\s\S]*\brow_version: int/,
     );
+    // The callee answers in wire names: a multi-word field validates through
+    // its camel alias (without it, every response fails with
+    // `row_version Field required`).
+    expect(src).toContain('row_version: int = Field(alias="rowVersion")');
+    expect(src).toContain("from pydantic import BaseModel, Field");
     // The pydantic twin of zod's `.parse` — a real runtime check, not a cast.
     expect(src).toContain("return OrderResponse.model_validate(res.json())");
   });

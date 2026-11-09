@@ -103,7 +103,8 @@ function pageOf(files: Map<string, string>, suffix: string): string {
 /** The catalog key for one authored string in one slot ROLE — derived through
  *  the SHARED helper, so this asserts "the page emits the key the catalog
  *  carries" rather than re-spelling the key format here. */
-const keyFor = (role: string, message: string): string => messageKey("page.Home", role, message);
+const keyFor = (role: string, message: string): string =>
+  messageKey("WebApp.page.Home", role, message);
 
 const SLOTS: ReadonlyArray<[role: string, message: string]> = [
   ["inputLabel", "Email address"],

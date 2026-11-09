@@ -534,13 +534,9 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, ctx: JpqlCtx): str
     const other = idSide === e.left ? e.right : e.left;
     const claim = principalClaimOf(other);
     if (idSide && claim) {
-      const idType = selfIdTypeOf(idSide)!;
       const idPath = `${ctx.alias}.id.value`;
       const claimIsString = claim.type?.kind === "primitive" && claim.type.name === "string";
-      const accessor =
-        idType.valueType === "guid" && claimIsString
-          ? guidClaimAccessorName(claim.member)
-          : claim.member;
+      const accessor = claimIsString ? guidClaimAccessorName(claim.member) : claim.member;
       const spel = renderPrincipal(accessor, ctx);
       return idSide === e.left ? `${idPath} ${op} ${spel}` : `${spel} ${op} ${idPath}`;
     }

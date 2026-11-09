@@ -18,8 +18,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "first",
-        "version": 1
+        "rowVersion": 1,
+        "text": "first"
       }
     },
     {
@@ -36,8 +36,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "second",
-        "version": 2
+        "rowVersion": 2,
+        "text": "second"
       }
     },
     {
@@ -60,8 +60,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "second",
-        "version": 2
+        "rowVersion": 2,
+        "text": "second"
       }
     },
     {
@@ -73,8 +73,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "text": "second",
-            "version": 2
+            "rowVersion": 2,
+            "text": "second"
           }
         ],
         "page": 1,
@@ -146,18 +146,12 @@
       "seq": 12,
       "method": "POST",
       "path": "/api/notes/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "text is required",
-            "pointer": "/text"
-          }
-        ],
+        "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

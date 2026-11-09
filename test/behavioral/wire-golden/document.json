@@ -25,6 +25,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 2,
         "sections": [
           {
             "body": "B",
@@ -34,7 +35,6 @@
         ],
         "stage": "Pending",
         "title": "T1",
-        "version": 2,
         "viewCount": 0
       }
     },
@@ -52,6 +52,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 3,
         "sections": [
           {
             "body": "B",
@@ -61,7 +62,6 @@
         ],
         "stage": "Published",
         "title": "T2",
-        "version": 3,
         "viewCount": 5
       }
     },
@@ -79,6 +79,7 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
+        "rowVersion": 4,
         "sections": [
           {
             "body": "B",
@@ -88,7 +89,6 @@
         ],
         "stage": "Published",
         "title": "T2",
-        "version": 4,
         "viewCount": 6
       }
     },
@@ -101,6 +101,7 @@
         "items": [
           {
             "id": "<volatile:key>",
+            "rowVersion": 4,
             "sections": [
               {
                 "body": "B",
@@ -110,7 +111,6 @@
             ],
             "stage": "Published",
             "title": "T2",
-            "version": 4,
             "viewCount": 6
           }
         ],
@@ -128,6 +128,7 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "rowVersion": 4,
           "sections": [
             {
               "body": "B",
@@ -137,7 +138,6 @@
           ],
           "stage": "Published",
           "title": "T2",
-          "version": 4,
           "viewCount": 6
         }
       ]
@@ -215,8 +215,8 @@
       "body": {
         "archived": false,
         "id": "<volatile:key>",
-        "title": "Plan",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Plan"
       }
     },
     {
@@ -241,8 +241,8 @@
         {
           "archived": false,
           "id": "<volatile:key>",
-          "title": "Plan",
-          "version": 1
+          "rowVersion": 1,
+          "title": "Plan"
         }
       ]
     },
@@ -256,8 +256,8 @@
           {
             "archived": false,
             "id": "<volatile:key>",
-            "title": "Plan",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Plan"
           }
         ],
         "page": 1,
@@ -281,8 +281,8 @@
       "body": {
         "archived": false,
         "id": "<volatile:key>",
-        "title": "Plan v2",
-        "version": 2
+        "rowVersion": 2,
+        "title": "Plan v2"
       }
     },
     {
@@ -301,6 +301,111 @@
     },
     {
       "seq": 24,
+      "method": "POST",
+      "path": "/api/policies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "box": {
+          "label": "b",
+          "primary": {
+            "ruleKey": "r2",
+            "thresholds": [
+              {
+                "minValue": 11
+              }
+            ]
+          }
+        },
+        "id": "<volatile:key>",
+        "name": "P1",
+        "rowVersion": 1,
+        "rules": [
+          {
+            "ruleKey": "r1",
+            "thresholds": [
+              {
+                "minValue": 3
+              },
+              {
+                "minValue": 7
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/policies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/policies/{id}",
+      "status": 200,
+      "body": {
+        "box": {
+          "label": "c",
+          "primary": {
+            "ruleKey": "r3",
+            "thresholds": []
+          }
+        },
+        "id": "<volatile:key>",
+        "name": "P2",
+        "rowVersion": 2,
+        "rules": []
+      }
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/policies",
+      "status": 200,
+      "body": [
+        {
+          "box": {
+            "label": "c",
+            "primary": {
+              "ruleKey": "r3",
+              "thresholds": []
+            }
+          },
+          "id": "<volatile:key>",
+          "name": "P2",
+          "rowVersion": 2,
+          "rules": []
+        }
+      ]
+    },
+    {
+      "seq": 29,
+      "method": "DELETE",
+      "path": "/api/policies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/policies",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 31,
       "method": "PATCH",
       "path": "/api/articles",
       "status": 405,
@@ -313,7 +418,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 32,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -326,7 +431,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 33,
       "method": "POST",
       "path": "/api/articles",
       "status": 400,
@@ -339,7 +444,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 34,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 404,
@@ -352,7 +457,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 35,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 404,
@@ -365,7 +470,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 36,
       "method": "POST",
       "path": "/api/articles/{id}/bump",
       "status": 415,

@@ -38,11 +38,10 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
-import { MONEY_MAX_EXCLUSIVE, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
@@ -57,11 +56,14 @@ import {
   findUsesPrincipal,
   listUsesPrincipal,
 } from "./capability-filter.js";
-import {
-  aggregateHasDomainFloorCodes,
-  aggregateHasResidualInvariants,
-} from "./changeset-invariant-emit.js";
+import { opPersistInvariantPipes } from "./changeset-emit.js";
 import { aggregateBodyValueObjectFields, opAssignedFields } from "./changeset-validators.js";
+import {
+  exInt32Range,
+  exMoneyColumnSql,
+  exMoneyGrammarRegex,
+  exMoneyMaxExclusive,
+} from "./codec-spelling-ex.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -78,9 +80,11 @@ import {
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
 import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
+import { updateSeamGates } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { paramGuardClause } from "./op-param-guards.js";
+import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import {
   collectOpGuardClauses,
   isReturningOperation,
@@ -137,6 +141,37 @@ import { savesLockVersion } from "./version-check-ex.js";
 // (a workflow create step, a seed) then gets the typed `{:error, {:forbidden,
 // …}}` its `with` chain already handles, rather than a 500.
 // ---------------------------------------------------------------------------
+
+/** The `ensure(...)` chain of a merge-patch `update` seam with `mask unless`
+ *  write gates, or undefined (the plain seam stays).  Each gate runs only when
+ *  the attrs carry the masked key — an absent key keeps the stored value — and
+ *  is the mask predicate alone, so a caller's guess at the hidden value cannot
+ *  change the answer.  The attrs arrive camelCase from the REST action and
+ *  snake_case from the LiveView form, so both spellings count as present. */
+function gatedUpdateSeam(
+  updateOp: OperationIR | undefined,
+  facadeMod: string,
+  agg: AggregateIR,
+): string[] | undefined {
+  const gates = updateSeamGates(updateOp);
+  if (gates.length === 0) return undefined;
+  const rc: RenderCtx = {
+    thisName: "record",
+    contextModule: facadeMod,
+    agg: agg as EnrichedAggregateIR,
+  };
+  return gates.map((g) => {
+    const key = g.maskWriteOf!;
+    const spellings = [...new Set([key, snake(key)])].map((k) => JSON.stringify(k));
+    const present = [
+      ...spellings.map((k) => `Map.has_key?(attrs, ${k})`),
+      `Map.has_key?(attrs, :${snake(key)})`,
+    ].join(" or ");
+    const pred = renderExpr(g.expr, rc);
+    const guarded = stmtUsesCurrentUser(g) ? `not is_nil(current_user) and (${pred})` : `(${pred})`;
+    return `:ok <- ensure(not (${present}) or (${guarded}), ${denialTerm(g)})`;
+  });
+}
 
 /** The `ensure(...)` with-clauses for one lifecycle action's gates, in
  *  declaration order.  Same `ensure/2` + `denialTerm` protocol as the operation
@@ -311,6 +346,7 @@ function renderNumericParamHelpers(
   needsInt32: boolean,
   needsDate = false,
   needsVo = false,
+  needsId = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -332,7 +368,7 @@ function renderNumericParamHelpers(
   end
 
   defp __loom_decimal_param(record, field, value) when is_binary(value) do
-    if Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value) do
+    if Regex.match?(${exMoneyGrammarRegex()}, value) do
       if __loom_money_in_range?(Decimal.new(value)) do
         {:ok, Decimal.new(value)}
       else
@@ -349,11 +385,11 @@ function renderNumericParamHelpers(
   # RANGE, not format: the grammar already passed, and what is left is a
   # magnitude question the COLUMN answers.  Without this a 40-digit price is a
   # well-formed decimal string Decimal.new/1 happily accepts, so it reached
-  # NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client
+  # ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client
   # fault (M-T6.60 divergence 3).  The bound is derived from the column's own
   # precision, so one constant governs the guard and the DDL.
   defp __loom_money_in_range?(%Decimal{} = value) do
-    Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)}))
+    Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()}))
   end
 `;
   const int = `
@@ -374,7 +410,7 @@ function renderNumericParamHelpers(
   defp __loom_int32_param(_record, _field, nil), do: {:ok, nil}
 
   defp __loom_int32_param(_record, _field, value)
-       when is_integer(value) and value >= ${INT32_MIN} and value <= ${INT32_MAX},
+       when is_integer(value) and value >= ${exInt32Range().min} and value <= ${exInt32Range().max},
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
@@ -398,6 +434,17 @@ function renderNumericParamHelpers(
 
   defp __loom_date_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid date")}
+`;
+  // A uuid `X id` param: the same check the find-param and path-id edges make
+  // (36 characters that cast), refused with the fact's `malformed-id` message.
+  const id = `
+  defp __loom_id_param(_record, _field, nil), do: {:ok, nil}
+
+  defp __loom_id_param(record, field, value) do
+    if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
+      do: {:ok, value},
+      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")})}
+  end
 `;
   // A value-object param is cast against its declared fields; each member error
   // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
@@ -426,10 +473,13 @@ function renderNumericParamHelpers(
   defp __loom_vo_param(record, field, value, _types, _required),
     do: {:error, __loom_param_error(record, field, value, "Invalid value")}
 `;
+  // `__loom_id_param` builds its own changeset, so an id-only context must not
+  // carry the shared error helper (`--warnings-as-errors` rejects it unused).
+  const needsErr = needsDecimal || needsInt || needsInt32 || needsDate || needsVo;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsVo ? vo : ""}`;
+${needsErr ? err : ""}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsId ? id : ""}${needsVo ? vo : ""}`;
 }
 
 function renderContextModule(
@@ -509,11 +559,18 @@ function renderContextModule(
     // operation, so a plain delegate left the most common audited write with
     // no trail.  The row commits in the save's transaction.
     const updateOp = agg.operations.find((o) => o.name === "update");
-    const updateSeam = updateOp?.audited
-      ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
-    ${appModule}.Repo.transaction(fn ->
-      case ${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""}) do
-        {:ok, updated} ->
+    // The merge-patch `update`'s `mask unless` write gates run HERE — the one
+    // seam the REST action and the LiveView edit form both call.  Each gate
+    // reads the MERGED value of a param (an absent key is the stored value),
+    // which is exactly what the update changeset's `get_field/2` answers.
+    const updateGates = gatedUpdateSeam(updateOp, facadeMod, agg);
+    const seamActorArg = updateGates && !stampActorArg ? ", current_user \\\\ nil" : stampActorArg;
+    // The write itself: the audited form records its row in the save's
+    // transaction; the plain form is the repository update.
+    const repoUpdateCall = `${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""})`;
+    const auditedWrite = (pad: string): string => `${pad}${appModule}.Repo.transaction(fn ->
+${pad}  case ${repoUpdateCall} do
+${pad}    {:ok, updated} ->
 ${auditRecordCall({
   appModule,
   operationId: `update${aggPascal}`,
@@ -522,18 +579,28 @@ ${auditRecordCall({
   targetId: "updated.id",
   before: wireSnapshot("record", false, appModule),
   after: wireSnapshot("updated", false, appModule),
-  indent: "          ",
+  indent: `${pad}      `,
 })}
 
-          updated
+${pad}      updated
 
-        {:error, reason} ->
-          ${appModule}.Repo.rollback(reason)
-      end
-    end)
+${pad}    {:error, reason} ->
+${pad}      ${appModule}.Repo.rollback(reason)
+${pad}  end
+${pad}end)`;
+    const updateSeam = updateGates
+      ? `  def update_${aggSnake}(record, attrs${seamActorArg}${versionedArg}) do
+    with ${updateGates.join(",\n         ")} do
+${updateOp?.audited ? auditedWrite("      ") : `      ${repoUpdateCall}`}
+    end
   end
 `
-      : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
+      : updateOp?.audited
+        ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
+${auditedWrite("    ")}
+  end
+`
+        : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
     // Skip ops whose names collide with the CRUD defdelegates above —
     // notably `update`/`destroy` from `with crudish` would redefine
     // `update_<agg>/2`/`delete_<agg>/1` otherwise.  The CRUD seam
@@ -629,10 +696,14 @@ ${auditRecordCall({
     // `change_<agg>(record, params)` for validate).  Delegates to the
     // per-aggregate Changeset module's `base_changeset/2`.  A DOCUMENT
     // aggregate has no `base_changeset` (it round-trips via
-    // `document_changeset`), so the facade is skipped there.
+    // `document_changeset`); its form fields live on the embedded `Data`
+    // struct, so the facade builds the `Data` changeset the form binds.
     const changesetMod = `${facadeMod}.${aggPascal}Changeset`;
     const changeFacade = isDoc
-      ? ""
+      ? `\n
+  @doc "Blank-or-seeded Ecto changeset over the ${aggPascal} document's embedded data, for the create/update forms."
+  def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),
+    do: ${facadeMod}.${aggPascal}.Data.changeset(record_or_struct.data || %${facadeMod}.${aggPascal}.Data{}, attrs)`
       : `\n
   @doc "Blank-or-seeded Ecto changeset for the ${aggPascal} create/operation forms."
   def change_${aggSnake}(record_or_struct \\\\ %${facadeMod}.${aggPascal}{}, attrs \\\\ %{}),
@@ -1063,9 +1134,15 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const needsDateParam = assembledBody.includes("__loom_date_param(");
   const needsVoParam = assembledBody.includes("__loom_vo_param(");
+  const needsIdParam = assembledBody.includes("__loom_id_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam || needsVoParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam)}`
+    needsDecimalParam ||
+    needsIntParam ||
+    needsInt32Param ||
+    needsDateParam ||
+    needsVoParam ||
+    needsIdParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam, needsIdParam)}`
       : "";
 
   return `# Auto-generated.
@@ -1105,6 +1182,10 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     ) {
       return true;
     }
+    const updateOp = agg.operations.find((o) => o.name === "update");
+    if (updateSeamGates(updateOp).length > 0) {
+      return true;
+    }
     return (agg.operations ?? []).some(
       (op) => !CRUD_RESERVED_NAMES.has(op.name) && (opHasGuards(op) || opHasWhenGate(op)),
     );
@@ -1119,9 +1200,7 @@ function contextEmitsEvent(ctx: BoundedContextIR): boolean {
   return ctx.aggregates.some(
     (agg) =>
       !isEventSourced(agg) &&
-      ((agg.operations ?? []).some(
-        (op) => !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => s.kind === "emit"),
-      ) ||
+      ((agg.operations ?? []).some((op) => !CRUD_RESERVED_NAMES.has(op.name) && opEmitsEvent(op)) ||
         createBodyStatements(agg).some((s) => s.kind === "emit")),
   );
 }
@@ -1394,6 +1473,7 @@ function renderContextRefCollHelpers(appModule: string, includeResolve: boolean)
 // silently.
 function renderExternOpFunction(
   facadeMod: string,
+  ctx: BoundedContextIR,
   agg: AggregateIR,
   aggPascal: string,
   aggSnake: string,
@@ -1439,14 +1519,9 @@ function renderExternOpFunction(
         `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
-  // Re-assert the aggregate's cross-field invariants after the hook mutates and
-  // before the write (D3c) — byte-identical when the aggregate has none.
-  const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): the domain-floor twin when a messaged invariant is present.
-  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
-  const invPipe = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.${invFn}()`
-    : "";
+  // Re-assert the aggregate's invariants after the hook mutates and before the
+  // write (D3c) — empty when the aggregate has none.
+  const invPipe = opPersistInvariantPipes(agg, ctx, `${aggModule}Changeset`, 6);
   // Persist EVERY scalar column off the returned struct, not an empty
   // `change(%{})`: `force_change`, because the changeset data already carries
   // the new value.  See `externPersistForceChanges`.
@@ -1488,7 +1563,7 @@ function renderNamedOpFunction(
   // returned struct.  Handled by its own renderer (the empty-changeset path below
   // was the silent-204 bug this fixes — proposal §1b).
   if (isExternOp(op)) {
-    return renderExternOpFunction(facadeMod, agg, aggPascal, aggSnake, op);
+    return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op);
   }
   const opSnake = snake(op.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
@@ -1534,66 +1609,6 @@ function renderNamedOpFunction(
         `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
-  // S5a: a body that `emit`s a domain event is restructured to persist-then-
-  // dispatch — the `emit`s are hoisted out of the interleaved body and fanned
-  // out (Dispatcher + broadcast) AFTER `persist_change` commits, so no phantom
-  // event fires on a failed write and each event reaches the context Dispatcher
-  // (saga seam), not just the subscriber-less raw broadcast.  A named op always
-  // persists, so the `{:ok, saved}` seam always exists.
-  const emits = opEmitsEvent(op);
-  const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-  // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
-  // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
-  // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
-  // with the aggregate change.  So the persist + emit pair is wrapped in one
-  // `Repo.transaction`; the emit lines then sit two columns deeper.  An
-  // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
-  // byte-identical layout.
-  const txWrapEmits = emits && opEmitsDurableEvent(op, channels);
-  const dispatchLines =
-    emits && !txWrapEmits
-      ? renderEmitDispatchLines(
-          op,
-          rc,
-          hasDispatcher,
-          "        ",
-          `${ctx.name}.${agg.name}.${op.name}`,
-          opFragments,
-          channels,
-        )
-      : [];
-  // Durable emit: the phases straddle the transaction — event binds ahead of it
-  // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
-  // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
-  // inside the tx let SSE / LiveView subscribers observe an event whose write
-  // then rolled back.
-  const durableEmit = txWrapEmits
-    ? renderDurableEmitDispatchParts(
-        op,
-        rc,
-        hasDispatcher,
-        { bind: "    ", dispatch: "          ", broadcast: "        " },
-        `${ctx.name}.${agg.name}.${op.name}`,
-        opFragments,
-        channels,
-      )
-    : { bind: [], dispatch: [], broadcast: [] };
-
-  // Render the body (guards / assigns / let) — shared with the returning-op
-  // path; a non-returning body never carries a `return` arm.  The statement index
-  // disambiguates per-write provenance temp vars.  When emitting, the `emit`s are
-  // rendered post-commit (below), not inline.  `bodyStmts` is kept alongside
-  // `bodyLines` (rather than only the mapped-over result) so a source-map
-  // collector can zip the two SAME-length, SAME-order arrays back together via
-  // `statementSubRegions` — a hoisted `emit` is deliberately excluded from
-  // both, matching the "regular body" scope this milestone covers (see
-  // `OpFragment` in operation-returns-emit.ts).
-  // The `when` state gate + `requires`/`precondition` guards are hoisted into a
-  // leading `with :ok <- ensure(...)` chain so an expected denial returns a typed
-  // tuple (`{:error, :disallowed}` 409 / `{:error, :forbidden}` 403 /
-  // `{:error, :precondition_failed}` 422) BEFORE the mutation/persist runs, instead
-  // of raising an ArgumentError (→ 500).  Exclude the guard STATEMENTS from the
-  // in-body statements (the `when` gate is a predicate field, not a statement).
   const guardClauses = [
     // Wire-format guards lead, so a malformed param is refused before the body
     // mutates anything (M-T6.48).  Their presence alone moves this op onto the
@@ -1604,41 +1619,6 @@ function renderNamedOpFunction(
       .filter((c): c is string => c != null),
     ...collectOpGuardClauses(agg.name, op, rc),
   ];
-  const bodyStmts = op.statements.filter((s) => {
-    if (s.kind === "requires" || s.kind === "precondition") return false;
-    if (emits && s.kind === "emit") return false;
-    return true;
-  });
-  const bodyLines = bodyStmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
-  if (opFragments && bodyLines.length > 0) {
-    opFragments.push({
-      fragmentText: bodyLines.join("\n"),
-      subRegions: [
-        // F-021 — see `declarationSubRegion`.
-        ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
-        ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
-      ],
-    });
-  }
-
-  // Persist the fields the body assigned (deduped, declaration order) + the
-  // co-located `<field>_provenance` backing columns — shared with the
-  // returning-op persist tail.  A reference collection (`X id[]` → `many_to_many`)
-  // resolves its mutated id list back to target structs and `put_assoc`s them;
-  // see `persistPutBodies`.  Re-indented per persist path (4-space for the plain
-  // pipe, 6-space inside the `changeset =` assignment).
-  const putBodies = persistPutBodies(
-    op,
-    agg,
-    facadeMod.split(".")[0]!,
-    facadeMod.split(".").slice(1).join("."),
-    relationalContainments,
-    ctx.aggregates,
-    valueRowFieldsOf(agg, ctx),
-  );
-  const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
-  const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
-
   // An op that rewrites a relation-backed field — a containment (embedded
   // `embeds_*` OR relational `has_*` child table) or a value-object collection —
   // rebinds `record.<field>` in the body, then persists via `put_embed` /
@@ -1650,101 +1630,203 @@ function renderNamedOpFunction(
   // struct `record_before` so the relation diff sees the real before/after;
   // scalar columns still `force_change` regardless of the base.  See
   // `opRewritesRelation`.  Byte-identical for every other op.
-  const rewritesRelation = opRewritesRelation(op, agg);
+  const rewritesRelation = opPaths(op).some((p) => opRewritesRelation(p, agg));
   const persistBase = rewritesRelation ? "record_before" : "record";
   const captureBase = rewritesRelation ? "    record_before = record\n" : "";
 
-  // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
-  //
-  // History: RS-14 first gave this path a PLAIN version bump
-  // (`change(%{version: version + 1})`) so the wire value advanced — but a
-  // plain bump carries no CAS filter, so two writers racing an operation both
-  // landed and the second silently overwrote the first (a lost update the
-  // other four backends answer with 409).  The bump now comes from
-  // `optimistic_lock(:version)`, which bumps by exactly 1 (RS-14's wire values
-  // are unchanged) AND filters the UPDATE on the version the row was loaded
-  // with — a stale write raises `Ecto.StaleEntryError`, rescued to
-  // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
-  // the same protocol the generic PATCH seam has always used.
-  const opVersioned = savesLockVersion(agg);
-  const opLockPipe6 = opVersioned ? "\n      |> Ecto.Changeset.optimistic_lock(:version)" : "";
-  const opLockPipe = opVersioned ? "\n    |> Ecto.Changeset.optimistic_lock(:version)" : "";
+  // One linear body + its persist tail.  For a body that branches per path
+  // (`op-tree.ts`) this runs once per leaf, over that path as its own linear
+  // operation: `segment` names the statements the leaf renders as body lines
+  // (the rest of the path already ran above it), and `indexBase` keeps the
+  // per-statement temporaries distinct along the path.  A linear body is its
+  // own single leaf.
+  const leafParts = (
+    op: OperationIR,
+    segment?: ReadonlySet<StmtIR>,
+    indexBase = 0,
+  ): { bodyLines: string[]; persist: string } => {
+    // S5a: a body that `emit`s a domain event is restructured to persist-then-
+    // dispatch — the `emit`s are hoisted out of the interleaved body and fanned
+    // out (Dispatcher + broadcast) AFTER `persist_change` commits, so no phantom
+    // event fires on a failed write and each event reaches the context Dispatcher
+    // (saga seam), not just the subscriber-less raw broadcast.  A named op always
+    // persists, so the `{:ok, saved}` seam always exists.
+    const emits = opEmitsEvent(op);
+    const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
+    // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+    // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
+    // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
+    // with the aggregate change.  So the persist + emit pair is wrapped in one
+    // `Repo.transaction`; the emit lines then sit two columns deeper.  An
+    // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
+    // byte-identical layout.
+    const txWrapEmits = emits && opEmitsDurableEvent(op, channels);
+    const dispatchLines =
+      emits && !txWrapEmits
+        ? renderEmitDispatchLines(
+            op,
+            rc,
+            hasDispatcher,
+            "        ",
+            `${ctx.name}.${agg.name}.${op.name}`,
+            opFragments,
+            channels,
+          )
+        : [];
+    // Durable emit: the phases straddle the transaction — event binds ahead of it
+    // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
+    // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
+    // inside the tx let SSE / LiveView subscribers observe an event whose write
+    // then rolled back.
+    const durableEmit = txWrapEmits
+      ? renderDurableEmitDispatchParts(
+          op,
+          rc,
+          hasDispatcher,
+          { bind: "    ", dispatch: "          ", broadcast: "        " },
+          `${ctx.name}.${agg.name}.${op.name}`,
+          opFragments,
+          channels,
+        )
+      : { bind: [], dispatch: [], broadcast: [] };
 
-  // Operation persistence re-runs the aggregate's cross-field invariants (the
-  // audit's "operation persist skips validation"): the plain `change(%{})` +
-  // `put_change` path bypasses every changeset validator, so a `handle := …`
-  // mutation could break `handle != email`.  Pipe the persisted changeset
-  // through the changeset module's `validate_invariants/1` before the write so an
-  // unmet invariant returns `{:error, changeset}` (422) instead of committing.
-  // Gated on residual invariants → byte-identical when the aggregate has none.
-  const changesetMod = `${aggModule}Changeset`;
-  // M-T1.11 (c): an operation persist is the DOMAIN FLOOR — with a messaged
-  // invariant present it runs the `validate_domain_floor/1` twin, so a messaged
-  // violation answers the domain-floor 422 with its errors[] entry (not the
-  // request changeset's "Validation failed").
-  const invFn = aggregateHasDomainFloorCodes(agg) ? "validate_domain_floor" : "validate_invariants";
-  const invPipe = aggregateHasResidualInvariants(agg) ? `\n    |> ${changesetMod}.${invFn}()` : "";
-  const invPipe6 = aggregateHasResidualInvariants(agg)
-    ? `\n      |> ${changesetMod}.${invFn}()`
-    : "";
-  // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
-  // is persisted through `force_change`, which runs no validator; re-run its
-  // constructor so a refused value answers the domain-floor 422 with an
-  // `errors[]` entry instead of committing.  Only when THIS op assigns such a
-  // field (the changeset module emits the function for the aggregate-level
-  // union of the same derivation), so every other op is byte-identical.
-  const opAssigned = opAssignedFields(op);
-  const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
-    opAssigned.has(f.field),
-  );
-  const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
-  const bodyVoPipe6 = bodyVoPipeOn
-    ? `\n      |> ${changesetMod}.validate_body_value_objects()`
-    : "";
+    // Render the body (guards / assigns / let) — shared with the returning-op
+    // path; a non-returning body never carries a `return` arm.  The statement index
+    // disambiguates per-write provenance temp vars.  When emitting, the `emit`s are
+    // rendered post-commit (below), not inline.  `bodyStmts` is kept alongside
+    // `bodyLines` (rather than only the mapped-over result) so a source-map
+    // collector can zip the two SAME-length, SAME-order arrays back together via
+    // `statementSubRegions` — a hoisted `emit` is deliberately excluded from
+    // both, matching the "regular body" scope this milestone covers (see
+    // `OpFragment` in operation-returns-emit.ts).
+    // The `when` state gate + `requires`/`precondition` guards are hoisted into a
+    // leading `with :ok <- ensure(...)` chain so an expected denial returns a typed
+    // tuple (`{:error, :disallowed}` 409 / `{:error, :forbidden}` 403 /
+    // `{:error, :precondition_failed}` 422) BEFORE the mutation/persist runs, instead
+    // of raising an ArgumentError (→ 500).  Exclude the guard STATEMENTS from the
+    // in-body statements (the `when` gate is a predicate field, not a statement).
+    const bodyStmts = op.statements.filter((s) => {
+      if (segment && !segment.has(s)) return false;
+      if (s.kind === "requires" || s.kind === "precondition") return false;
+      if (emits && s.kind === "emit") return false;
+      return true;
+    });
+    const bodyLines = bodyStmts.map((s, i) => renderReturningStmt(s, ctx, rc, indexBase + i));
+    if (opFragments && bodyLines.length > 0) {
+      opFragments.push({
+        fragmentText: bodyLines.join("\n"),
+        subRegions: [
+          // F-021 — see `declarationSubRegion`.
+          ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+          ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+        ],
+      });
+    }
 
-  const prelude = [...paramBinds, ...bodyLines].join("\n");
-  const preludeBlock = prelude
-    ? `${beforeBind}${captureBase}${prelude}\n`
-    : `${beforeBind}${captureBase}`;
-
-  // Persist tail.  Without provenance or audit: the plain changeset pipe.  With
-  // either: build the changeset, then run the save + (history flush and/or audit
-  // record) in ONE shared transaction so the derived rows commit atomically with
-  // the aggregate update.
-  const appModule = facadeMod.split(".")[0]!;
-  const aggPascalName = upperFirst(agg.name);
-  const txTail: string[] = [];
-  if (hasProv) txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
-  if (hasAudit) {
-    txTail.push(
-      auditRecordCall({
-        appModule,
-        operationId: `${op.name}${aggPascalName}`,
-        action: op.name,
-        targetType: aggPascalName,
-        targetId: "saved.id",
-        before: "audit_before",
-        after: wireSnapshot("saved", false, appModule),
-        indent: "          ",
-      }),
+    // Persist the fields the body assigned (deduped, declaration order) + the
+    // co-located `<field>_provenance` backing columns — shared with the
+    // returning-op persist tail.  A reference collection (`X id[]` → `many_to_many`)
+    // resolves its mutated id list back to target structs and `put_assoc`s them;
+    // see `persistPutBodies`.  Re-indented per persist path (4-space for the plain
+    // pipe, 6-space inside the `changeset =` assignment).
+    const putBodies = persistPutBodies(
+      op,
+      agg,
+      facadeMod.split(".")[0]!,
+      facadeMod.split(".").slice(1).join("."),
+      relationalContainments,
+      ctx.aggregates,
+      valueRowFieldsOf(agg, ctx),
     );
-  }
-  const dispatchBlock = dispatchLines.join("\n");
-  let persist: string;
-  if (txWrapEmits) {
-    // Durable emit: the outbox INSERT rides `Repo.transaction` together with
-    // the persist (+ any prov/audit rows), so "aggregate saved" and "event
-    // owed" commit or roll back as one.
+    const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
+    const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
+
+    // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
     //
-    // The PubSub BROADCAST does not ride it.  That is the SSE / LiveView wire,
-    // and a broadcast inside the tx is observable before the commit — a
-    // rollback then leaves subscribers holding an event whose write never
-    // happened.  So: bind the event structs first, INSERT inside, broadcast in
-    // the post-commit `{:ok, saved}` arm (the ordering the non-durable branches
-    // below already use).  `Repo.transaction`'s result is unwrapped through
-    // `tx_result` so the outer `{:ok, saved}` / `{:error, reason}` shape is
-    // unchanged.
-    persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
+    // History: RS-14 first gave this path a PLAIN version bump
+    // (`change(%{version: version + 1})`) so the wire value advanced — but a
+    // plain bump carries no CAS filter, so two writers racing an operation both
+    // landed and the second silently overwrote the first (a lost update the
+    // other four backends answer with 409).  The bump now comes from
+    // `optimistic_lock(:version)`, which bumps by exactly 1 (RS-14's wire values
+    // are unchanged) AND filters the UPDATE on the version the row was loaded
+    // with — a stale write raises `Ecto.StaleEntryError`, rescued to
+    // `{:error, :conflict}` in `persist_change/1` (→ 409 at the controller),
+    // the same protocol the generic PATCH seam has always used.
+    const opVersioned = savesLockVersion(agg);
+    const opLockPipe6 = opVersioned
+      ? `\n      |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+      : "";
+    const opLockPipe = opVersioned
+      ? `\n    |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
+      : "";
+
+    // Operation persistence re-runs the aggregate's invariants: the plain
+    // `change(%{})` + `force_change` path bypasses every changeset validator, so a
+    // `qty := n` could break `invariant qty >= 0` and a `handle := …` could break
+    // `handle != email`.  Both halves of the floor run before the write — the
+    // single-field `validate_field_invariants/1` and the residual
+    // `validate_invariants/1` (`validate_domain_floor/1` when a messaged rule
+    // carries a wire code, so its violation answers the domain-floor 422 with its
+    // errors[] entry) — and an unmet one returns `{:error, changeset}` (422)
+    // instead of committing.
+    const changesetMod = `${aggModule}Changeset`;
+    const invPipe = opPersistInvariantPipes(agg, ctx, changesetMod, 4);
+    const invPipe6 = opPersistInvariantPipes(agg, ctx, changesetMod, 6);
+    // M-T5.1 — a value object this op's body BUILT (`qty := Qty { value: n }`)
+    // is persisted through `force_change`, which runs no validator; re-run its
+    // constructor so a refused value answers the domain-floor 422 with an
+    // `errors[]` entry instead of committing.  Only when THIS op assigns such a
+    // field (the changeset module emits the function for the aggregate-level
+    // union of the same derivation), so every other op is byte-identical.
+    const opAssigned = opAssignedFields(op);
+    const bodyVoPipeOn = aggregateBodyValueObjectFields(agg, ctx.valueObjects).some((f) =>
+      opAssigned.has(f.field),
+    );
+    const bodyVoPipe = bodyVoPipeOn ? `\n    |> ${changesetMod}.validate_body_value_objects()` : "";
+    const bodyVoPipe6 = bodyVoPipeOn
+      ? `\n      |> ${changesetMod}.validate_body_value_objects()`
+      : "";
+
+    // Persist tail.  Without provenance or audit: the plain changeset pipe.  With
+    // either: build the changeset, then run the save + (history flush and/or audit
+    // record) in ONE shared transaction so the derived rows commit atomically with
+    // the aggregate update.
+    const appModule = facadeMod.split(".")[0]!;
+    const aggPascalName = upperFirst(agg.name);
+    const txTail: string[] = [];
+    if (opHasProvSite(op))
+      txTail.push(`          ${appModule}.Provenance.flush(${appModule}.Repo)`);
+    if (hasAudit) {
+      txTail.push(
+        auditRecordCall({
+          appModule,
+          operationId: `${op.name}${aggPascalName}`,
+          action: op.name,
+          targetType: aggPascalName,
+          targetId: "saved.id",
+          before: "audit_before",
+          after: wireSnapshot("saved", false, appModule),
+          indent: "          ",
+        }),
+      );
+    }
+    const dispatchBlock = dispatchLines.join("\n");
+    let persist: string;
+    if (txWrapEmits) {
+      // Durable emit: the outbox INSERT rides `Repo.transaction` together with
+      // the persist (+ any prov/audit rows), so "aggregate saved" and "event
+      // owed" commit or roll back as one.
+      //
+      // The PubSub BROADCAST does not ride it.  That is the SSE / LiveView wire,
+      // and a broadcast inside the tx is observable before the commit — a
+      // rollback then leaves subscribers holding an event whose write never
+      // happened.  So: bind the event structs first, INSERT inside, broadcast in
+      // the post-commit `{:ok, saved}` arm (the ordering the non-durable branches
+      // below already use).  `Repo.transaction`'s result is unwrapped through
+      // `tx_result` so the outer `{:ok, saved}` / `{:error, reason}` shape is
+      // unchanged.
+      persist = `${durableEmit.bind.length > 0 ? `${durableEmit.bind.join("\n")}\n\n` : ""}    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1768,12 +1850,12 @@ ${durableEmit.broadcast.join("\n")}
       {:error, reason} ->
         {:error, reason}
     end`;
-  } else if (hasProv || hasAudit) {
-    persist = emits
-      ? // Emit + prov/audit: commit the state change (+ derived rows) in the
-        // transaction, then dispatch AFTER commit (outside the tx fn) so a
-        // rollback drops the events too.
-        `    changeset =
+    } else if (opHasProvSite(op) || hasAudit) {
+      persist = emits
+        ? // Emit + prov/audit: commit the state change (+ derived rows) in the
+          // transaction, then dispatch AFTER commit (outside the tx fn) so a
+          // rollback drops the events too.
+          `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1797,7 +1879,7 @@ ${dispatchBlock}
       {:error, reason} ->
         {:error, reason}
     end`
-      : `    changeset =
+        : `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1811,12 +1893,12 @@ ${txTail.join("\n")}
           ${appModule}.Repo.rollback(reason)
       end
     end)`;
-  } else {
-    persist = emits
-      ? // Emit, no prov/audit: persist then dispatch after `{:ok, saved}`, so a
-        // failed write cannot fire a phantom event, and the event reaches the
-        // context Dispatcher (saga seam) + the raw broadcast.
-        `    changeset =
+    } else {
+      persist = emits
+        ? // Emit, no prov/audit: persist then dispatch after `{:ok, saved}`, so a
+          // failed write cannot fire a phantom event, and the event reaches the
+          // context Dispatcher (saga seam) + the raw broadcast.
+          `    changeset =
       ${persistBase}
       |> Ecto.Changeset.change(%{})${putBlock6}${bodyVoPipe6}${opLockPipe6}${invPipe6}
 
@@ -1828,10 +1910,33 @@ ${dispatchBlock}
       {:error, reason} ->
         {:error, reason}
     end`
-      : `    ${persistBase}
+        : `    ${persistBase}
     |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
-  }
+    }
+    return { bodyLines, persist };
+  };
+  const linear = isOpTree(op.statements) ? undefined : leafParts(op);
+  const innerLines = linear
+    ? [...linear.bodyLines, linear.persist]
+    : renderOpTree(op.statements, {
+        renderStmt: (s, i) => renderReturningStmt(s, ctx, rc, i),
+        renderCond: (e) => renderExpr(e, rc),
+        guardClauses: (guards) =>
+          guards.map((g) => renderOpGuardClause(g, rc, new Set(op.params.map((p) => p.name)))),
+        renderLeaf: (path, segment) => {
+          const parts = leafParts(
+            { ...op, statements: path },
+            new Set(segment),
+            path.length - segment.length,
+          );
+          return [...parts.bodyLines, parts.persist];
+        },
+      });
+  const prelude = [...paramBinds, ...innerLines].join("\n");
+  const preludeBlock = prelude
+    ? `${beforeBind}${captureBase}${prelude}`
+    : `${beforeBind}${captureBase}`;
 
   // A guarded op hoists its guards into a leading `with ensure(...)` chain: param
   // binds stay before the `with`, and the body + persist tail move inside the
@@ -1843,9 +1948,9 @@ ${dispatchBlock}
     guardClauses.length > 0
       ? `${beforeBind}${captureBase}${paramBinds.length > 0 ? `${paramBinds.join("\n")}\n` : ""}${wrapOpBodyWithGuards(
           guardClauses,
-          [...bodyLines, persist],
+          innerLines,
         ).join("\n")}`
-      : `${preludeBlock}${persist}`;
+      : preludeBlock;
 
   return `  @doc "Named operation \`${op.name}\` on \`${aggPascal}\` — runs the body, persists the assigned fields."
   @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::

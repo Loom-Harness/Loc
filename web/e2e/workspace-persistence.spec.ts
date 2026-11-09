@@ -11,7 +11,12 @@
 // No network needed — runs everywhere the playground bundle does.
 
 import { expect, test } from "@playwright/test";
-import { prependMarker, waitForPlaygroundReady } from "./_helpers";
+import {
+  fatalConsoleErrors,
+  prependMarker,
+  selectExample,
+  waitForPlaygroundReady,
+} from "./_helpers";
 
 test("editor change → reload → source restored from IDB", async ({ page, context }) => {
   await context.clearCookies();
@@ -68,4 +73,29 @@ test("editor change → reload → source restored from IDB", async ({ page, con
   // reload.  Monaco renders text inside `.view-line` divs.
   const firstLine = page.locator(".monaco-editor .view-line").first();
   await expect(firstLine).toContainText(marker, { timeout: 10_000 });
+});
+
+// Creating a workspace from an example is a workspace SWITCH: the build worker
+// is respawned onto the new workspace while the previous one's RPCs can still
+// be pending.  Those rejections must be handled (retried on the new worker, or
+// dropped as belonging to the project the user left) — never surface as an
+// unhandled "Build worker respawned" rejection — and the Generate that follows
+// must run against the new workspace's files.
+test("switching to a new workspace from an example raises no unhandled rejection", async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
+
+  await page.goto("/");
+  await waitForPlaygroundReady(page);
+  await selectExample(page, /Acme \(multi-deployable system\)/);
+
+  await page.getByTestId("btn-generate").click();
+  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+
+  expect(fatalConsoleErrors(consoleErrors)).toEqual([]);
 });

@@ -5,8 +5,7 @@
 // marker and the ABSENCE of a broken `<Wf>Repository` reference.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (platform: string) => `
   system S {
@@ -34,7 +33,7 @@ const src = (platform: string) => `
 `;
 
 async function allFiles(platform: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(src(platform)))).files;
+  const files = await generateSystemFiles(src(platform));
   return [...files.values()].join("\n \n");
 }
 

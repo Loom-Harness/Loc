@@ -140,7 +140,7 @@ describe("Button disabled: + loading: named args", () => {
     // strings, so i18n is on and the name binds through `t()` (M-T1.11,
     // `buttonAria` slot) — a string-less app keeps the static `aria-label="…"`.
     expect(content).toMatch(
-      /<Button[^>]*\baria-label=\{t\("page\.X\.buttonAria\.\w+", "Delete order"\)\}/,
+      /<Button[^>]*\baria-label=\{t\("\w+\.page\.X\.buttonAria\.\w+", "Delete order"\)\}/,
     );
   });
 });

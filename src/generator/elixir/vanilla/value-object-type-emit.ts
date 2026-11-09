@@ -1,6 +1,6 @@
-import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import type { EnumIR, PrimitiveName, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
-import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 
 // ---------------------------------------------------------------------------
 // The Phoenix backend's single-value-object column type, and value-object
@@ -91,6 +91,18 @@ function voFieldsSpec(
   return `[${entries.join(", ")}]`;
 }
 
+/** The scalars a value-object member is re-cast to on load. */
+const CANONICAL_SCALARS: ReadonlySet<PrimitiveName> = new Set([
+  "int",
+  "long",
+  "decimal",
+  "money",
+  "bool",
+  "datetime",
+  "guid",
+  "string",
+]);
+
 /** One field's type term inside the spec.  Leaves are the Ecto type the
  *  aggregate's own column of that type uses; enums carry their declared
  *  values; anything unmapped is `:any` (kept as loaded). */
@@ -114,26 +126,11 @@ function fieldSpec(
       return en ? `{:enum, [${en.values.map((v) => `:${v}`).join(", ")}]}` : ":string";
     }
     case "id":
-      return ":binary_id";
+      return exEctoIdType();
     case "primitive":
-      switch (t.name) {
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          return LOOM_DATETIME_MODULE;
-        case "guid":
-          return "Ecto.UUID";
-        case "string":
-          return ":string";
-        default:
-          return ":any";
-      }
+      // The scalars a stored value object re-casts on load; the rest (a
+      // `date`, a `json` / `File` member) keep the term they were loaded as.
+      return CANONICAL_SCALARS.has(t.name) ? exEctoScalarType(t.name) : ":any";
     default:
       return ":any";
   }

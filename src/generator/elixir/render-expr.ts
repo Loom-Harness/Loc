@@ -1,3 +1,4 @@
+import { INTEGER_OVERFLOW_DETAIL } from "../../ir/enrich/wire-policy.js";
 import type {
   BinOp,
   DerivedIR,
@@ -7,6 +8,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
+import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -18,6 +20,7 @@ import {
   TENANT_OWNED_DATA_KEY_FIELD,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
+import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
@@ -30,6 +33,12 @@ import {
 } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
+import {
+  checkedBinaryKind,
+  checkedUnaryKind,
+  DECLARED_INT_RANGE,
+  type IntegralKind,
+} from "../_expr/checked-int.js";
 import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
@@ -48,6 +57,9 @@ import {
   type UnaryExpr,
 } from "../_expr/target.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
+import { exPgInstantType } from "./vanilla/codec-spelling-ex.js";
+import { appModuleOf, guardErrorModule } from "./vanilla/denial.js";
+import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,9 @@ import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-ob
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by a body that owns no event dispatch (a pure domain core, a
+   *  private-operation helper): an `emit` statement renders nothing there. */
+  dropEmits?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */
@@ -88,6 +103,11 @@ export interface RenderCtx {
   repoRunActor?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
+  /** Set by a COMMAND body (a workflow's `run`, an explicit handler): the
+   *  body's write-scope requirement (`ir/util/write-scope-guards.ts`), so each
+   *  op-call / delete / mutating service call re-loads the rows it writes
+   *  through `get_<agg>_for_write` first.  Unset on a reactor. */
+  writeScope?: WriteScopeContext;
   /** Set by the workflow `run/1` and explicit-handler bodies: a `getById` load
    *  tags its miss `{:not_found, "<Agg> <id> not found"}` (and a natural-key
    *  `getBy` its miss `{:not_found, "not_found"}`) so the dispatcher answers
@@ -126,6 +146,12 @@ export interface RenderCtx {
    *  parameters.  Off everywhere else (op / derived / invariant bodies use
    *  plain locals + the in-memory `Decimal.*` API). */
   filterArgs?: boolean;
+  /** Inside an Ecto query filter (`filterArgs`), the Ecto schema module of the
+   *  aggregate being read.  A `this.<refColl>.contains(x)` membership then
+   *  renders as an `id in subquery(...)` over the `many_to_many` association —
+   *  the same `assoc` join the repository's find path uses — instead of the
+   *  in-memory `Enum.member?`, which is not valid inside `where:`. */
+  refCollOwnerModule?: string;
   /** Renders the aggregate-`id` expression (`{kind:"id"}`) as this bare
    *  local instead of `<thisName>.id`.  Set by the event-sourced create
    *  command runner, where the new aggregate id is a freshly generated
@@ -231,6 +257,15 @@ function integralOperand(t: TypeIR | undefined): "" | "?" | null {
   return t?.kind === "optional" ? "?" : "";
 }
 
+/** `a ?? b` — `case` matches ONLY `nil` (`||` would also swallow `false`), binds
+ *  the left once, and evaluates the fallback only on the `nil` clause.  The
+ *  binder is not underscore-prefixed (an underscored variable that is read
+ *  warns, and generated Elixir compiles with warnings as errors); each `case`
+ *  clause scopes it, so nested coalesces cannot collide. */
+function renderElixirCoalesce(left: string, fallback: string): string {
+  return `(case ${left} do nil -> ${fallback}; loom_c -> loom_c end)`;
+}
+
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
@@ -258,8 +293,9 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // Bare object literals appear in e2e contexts; not expected in domain
   // expression bodies.
   object: (fields) => `%{${fields.map((f) => `${snake(f.name)}: ${f.value}`).join(", ")}}`,
-  unary: (op, operand, e) => renderUnary(op, operand, e),
-  binary: (l, r, e) => renderBinary(l, r, e),
+  unary: (op, operand, e, ctx) =>
+    exCheckedInt(renderUnary(op, operand, e), checkedUnaryKind(e), ctx),
+  binary: (l, r, e, ctx) => exCheckedInt(renderBinary(l, r, e), checkedBinaryKind(e), ctx),
   // Lower to the keyword `if cond, do: …, else: …` form — SELF-PARENTHESIZED,
   // like the Python leaf and for the same reason.  Elixir's keyword-list `if`
   // swallows everything after it up to the enclosing terminator, so a bare one
@@ -273,6 +309,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // the keyword list at the value boundary where it belongs.  Cheap: the pair
   // of parens is inert wherever the bare form already parsed.
   ternary: (cond, then, otherwise) => `(if ${cond}, do: ${then}, else: ${otherwise})`,
+  coalesce: renderElixirCoalesce,
   convert: (value, e) => renderElixirConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -323,6 +360,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
 export const ELIXIR_CTX_FREE_LEAVES = {
   escapeStringLiteral: ELIXIR_TARGET.escapeStringLiteral,
   literal: (lit: LiteralKind, value: string) => renderLiteral(lit, value),
+  coalesce: renderElixirCoalesce,
   convert: (value: string, e: ConvertExpr) => renderElixirConvert(e.target, e.from, value),
   duration: renderDurationInMemory,
   i18nFormat: ELIXIR_TARGET.i18nFormat,
@@ -430,9 +468,16 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `get_<agg>/1` (`find_by_id`) facade; a custom find maps to the per-find
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
- *  resolves them as bare same-module calls. */
-export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
-  return op === "load" || op === "load-optional"
+ *  resolves them as bare same-module calls.  A widened by-id read
+ *  (`find(id) ignoring …`) has a method of its own, so it maps to that
+ *  method's delegate, not to `get_<agg>`. */
+export function contextFindFnFor(
+  op: RepoOp,
+  method: string,
+  aggregate: string,
+  widened = false,
+): string {
+  return isByIdOp(op) && !widened
     ? `get_${snake(aggregate)}`
     : elixirFindFacadeFn(method, aggregate);
 }
@@ -445,7 +490,14 @@ export function contextFindFnFor(op: RepoOp, method: string, aggregate: string):
  *  absent row being `{:error, :not_found}` or `{:ok, nil}`).  Shared by the
  *  `let` and the `if let` over the same read. */
 export function optionalReadLookup(
-  read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
+  read: {
+    op: RepoOp;
+    method: string;
+    aggregate: string;
+    retrievalName?: string;
+    /** A widened read (`… ignoring …`) calls its own method. */
+    widened?: boolean;
+  },
   args: readonly string[],
   contextModule: string,
   /** The retrieval reads the request actor and the caller has `current_user`
@@ -462,9 +514,10 @@ export function optionalReadLookup(
   }
   // A declared find takes the actor positionally after its own params (its
   // context facade is `<find>_<agg>(args…, current_user \\ nil)`).
-  const findArgs = passActor && !isByIdOp(read.op) ? [...args, "current_user"] : args;
+  const byId = isByIdOp(read.op) && !read.widened;
+  const findArgs = passActor && !byId ? [...args, "current_user"] : args;
   return {
-    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${findArgs.join(", ")})`,
+    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate, read.widened)}(${findArgs.join(", ")})`,
     hit: "{:ok, hit}",
   };
 }
@@ -883,17 +936,22 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
   // `__ref_id_list/1` helper first — the same helper the `+=`/`-=` mutation path
   // uses, and which handles the not-loaded case (`%NotLoaded{}` → `[]`).
   //
-  // NB: this only ever runs in DOMAIN-LOGIC contexts (operation bodies).  The
-  // repository FIND path intercepts a `contains` where-clause BEFORE render-expr
-  // (`containsRefCollField` → a real join query in `repository-emit.ts`), so an
-  // Ecto-query-mode `Enum.member?` is never emitted here.  Detection is
-  // structural: `contains`, receiverType array<id>, a single arg.
+  // Inside an Ecto query (`filterArgs`) with `refCollOwnerModule` set — a
+  // retrieval `where` — the membership is an `id in subquery(...)` over the
+  // association instead; the repository FIND path intercepts a whole-`where`
+  // `contains` before render-expr (`containsRefCollField` → a join query in
+  // `repository-emit.ts`).  Detection is structural: `contains`, receiverType
+  // array<id>, a single arg.
   if (
     e.member === "contains" &&
     e.receiverType.kind === "array" &&
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
+    if (field && ctx.refCollOwnerModule) {
+      return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;
+    }
     return `Enum.member?(__ref_id_list(${recv}), ${args[0]})`;
   }
   if (e.isCollectionOp) {
@@ -1297,12 +1355,16 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       const read = e.repoRead!;
       if (read.retrievalName) {
         const fn = `run_${snake(read.retrievalName)}_${snake(read.aggregate)}`;
-        const call = `${fn}(${args.join(", ")})`;
+        // A widened list read's `ignoring` stance rides the `skip_filters:` opt
+        // the retrieval hands to `Repo.prepare_query/3`, as on the workflow
+        // `repo-run`; without it the read keeps every filter.
+        const skip = skipFiltersOption(read);
+        const call = `${fn}(${[...args, ...(skip ? [skip] : [])].join(", ")})`;
         return read.op === "select-one"
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate, !!read.bypassRead);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent (`findById` is the read that answers absence), and
@@ -1400,6 +1462,17 @@ function renderNew(fields: { name: string; value: string }[], e: NewExpr, ctx: R
 // Unary
 // ---------------------------------------------------------------------------
 
+/** Range-check an integer `+ - *` result (RS-48).  Elixir integers are
+ *  unbounded, so the declared int32 / int64 bound is enforced here; the refusal
+ *  is the typed `<App>.GuardError` of the precondition rung, which every
+ *  controller already answers with the domain floor's 422. */
+function exCheckedInt(expr: string, kind: IntegralKind | null, ctx: RenderCtx): string {
+  if (kind === null || !ctx.contextModule) return expr;
+  const { min, max } = DECLARED_INT_RANGE[kind];
+  const guard = guardErrorModule(appModuleOf(ctx.contextModule));
+  return `(case ${expr} do v when v >= ${min} and v <= ${max} -> v; _ -> raise(${guard}, kind: :precondition, message: ${elixirString(INTEGER_OVERFLOW_DETAIL)}) end)`;
+}
+
 function renderUnary(op: "-" | "!", operand: string, e: UnaryExpr, inFilter = false): string {
   if (op === "!") return `not ${operand}`;
   // Negating a money/decimal `Decimal` struct: native `-` is `:erlang.-/1`,
@@ -1445,6 +1518,7 @@ function isDecimalOperand(operand: ExprIR): boolean {
     case "call":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -1942,7 +2016,7 @@ function renderEctoTemporalBinary(l: string, r: string, e: BinaryExpr): string |
   // side is already typed by the table, and a nested interval fragment must
   // NOT be cast (the suffix would bind to `make_interval(...)`, not the sum),
   // so this is a POSITIVE test for the bound-scalar shapes only.
-  const cast = isBoundDatetimeOperand(otherRaw) ? "::timestamptz" : "";
+  const cast = isBoundDatetimeOperand(otherRaw) ? `::${exPgInstantType()}` : "";
   return `fragment("?${cast} ${e.op} make_interval(${MAKE_INTERVAL_ARG[dur.unit]} => ?)", ${side}, ${amount})`;
 }
 

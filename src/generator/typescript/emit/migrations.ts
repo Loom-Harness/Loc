@@ -29,7 +29,8 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // chain on every generate, never read back off disk.
 // ---------------------------------------------------------------------------
 
-const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
+/** Separator between the statements of one migration file. */
+export const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
 
 /** Migration file/journal tag.  Qualified with the module: the version
  *  alone is unique, but every module's first generation is named
@@ -48,13 +49,16 @@ const WHEN_BASE = Date.UTC(2026, 0, 1, 0, 0, 0);
 /** One migration file: a generation's transactional unit (`<tag>.sql`), or
  *  its non-transactional one (`<tag>_concurrent.sql`, which sorts right after
  *  it and is marked with {@link NO_TRANSACTION_MARKER} on its first line). */
-interface MigrationUnit {
+export interface MigrationUnit {
   version: string;
   tag: string;
   sql: string;
 }
 
-function migrationUnits(migrations: readonly MigrationsIR[]): MigrationUnit[] {
+/** The migration files the chain renders to, in chain order.  The
+ *  playground's runtime applies exactly these units to its in-browser
+ *  database, so what it runs and what a deployed Hono backend runs agree. */
+export function migrationUnits(migrations: readonly MigrationsIR[]): MigrationUnit[] {
   const units: MigrationUnit[] = [];
   for (const m of migrations) {
     if (m.steps.length === 0) continue;

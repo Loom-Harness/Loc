@@ -14,7 +14,13 @@
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
-import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnumIR,
+  ExprIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
@@ -28,11 +34,25 @@ import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
-import { chromeKey, chromeMessage, opDialogChrome } from "../_walker/i18n-chrome.js";
+import {
+  chromeKey,
+  chromeMessage,
+  opDialogChrome,
+  sentenceChromeName,
+} from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
+import { paramLabelOwner } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
 import { gridCols, slugify } from "../_walker/shared/args.js";
+import { sourceText } from "../_walker/source-text.js";
+import {
+  enumLabelLookup,
+  enumOptionTuples,
+  fieldLabelCall,
+  homeOf,
+  opLabelCall,
+} from "./heex-model-text.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
@@ -51,7 +71,9 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
-import { elixirI18nString, formChromeAttr } from "./i18n.js";
+import { formChromeAttr, pgettextCall } from "./i18n.js";
+import { renderLocaleSelect } from "./locale.js";
+import { updateSeamGates } from "./vanilla/gate.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
@@ -176,8 +198,9 @@ export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
       // A user-visible named slot (`modalTitle`) — translated under i18n,
       // the raw escaped literal otherwise (byte-identical).
       if (arg.kind === "literal" && typeof arg.value === "string") titleEnglish = arg.value;
+      if (arg.kind === "modelText") titleEnglish = arg.defaultText;
       title =
-        arg.kind === "literal"
+        arg.kind === "literal" || arg.kind === "modelText"
           ? renderInTemplate(arg, ctx, "modalTitle")
           : renderExpr(arg, { ...ctx, position: "template" });
     } else if (name === "trigger") {
@@ -272,16 +295,18 @@ ${heading}${childrenHeex}
   // rendered it: English at every locale (audit finding A13).  `renderInTemplate`
   // with the same role emits `<%= pgettext(<key>, <default>) %>` and derives the
   // identical key; with i18n off it is the escaped literal, byte-identical.
-  let label = escapeHeexText(humanize(opName));
+  const opCall = opLabelCall(ctx, ofName, opName);
+  let label = opCall ? `<%= ${opCall} %>` : escapeHeexText(humanize(opName));
   if (triggerExpr && triggerExpr.kind === "call" && triggerExpr.name === "Button") {
     for (let i = 0; i < triggerExpr.args.length; i++) {
       const n = triggerExpr.argNames?.[i];
       const a = triggerExpr.args[i]!;
-      if (!n && a.kind === "literal") label = renderInTemplate(a, ctx, "button");
+      if (!n && (a.kind === "literal" || a.kind === "modelText"))
+        label = renderInTemplate(a, ctx, "button");
     }
   }
   const testidAttr = testIdAttr(expr, ctx);
-  const heading = title || humanize(opName);
+  const heading = title || (opCall ? `<%= ${opCall} %>` : humanize(opName));
   // The modal's close icon is named by the shared op-dialog rule, so it never
   // shares the submit button's accessible name (`operation close` → "Close
   // dialog").
@@ -290,18 +315,36 @@ ${heading}${childrenHeex}
     Boolean(ctx.i18nPrefix),
   );
 
+  // A merge-patch `update` input for a `mask unless` field renders only for a
+  // caller who can read it: the form would otherwise pre-fill the clear value
+  // off the Ecto struct, and submitting the key is refused by the mask write
+  // gate.  Left out, the key is absent and the stored value stays.
+  const maskedInput = (name: string): string | undefined => {
+    const gate = op ? updateSeamGates(op).find((g) => g.maskWriteOf === name) : undefined;
+    if (!gate) return undefined;
+    if (!ctx.authEnabled) return "false";
+    return `@current_user != nil and (${renderExpr(gate.expr, { ...ctx, position: "template" })})`;
+  };
   const inputs =
     params.length > 0
-      ? params.map(
-          (p) =>
-            `    ${renderFieldInputForField(
-              p,
-              formAssign,
-              ctx.enumsByName,
-              ctx.idOptionsBindings,
-              ctx.valueObjectsByName,
-            )}`,
-        )
+      ? params.map((p) => {
+          const gated = maskedInput(p.name);
+          const input = `    ${renderFieldInputForField(
+            p,
+            formAssign,
+            ctx.enumsByName,
+            ctx.idOptionsBindings,
+            ctx.valueObjectsByName,
+            "@",
+            undefined,
+            {
+              ctx,
+              home: homeOf(ctx, ofName),
+              owner: agg ? paramLabelOwner(agg, p.name) : undefined,
+            },
+          )}`;
+          return gated ? `    <%= if ${gated} do %>${input.trim()}<% end %>` : input;
+        })
       : [`    <%!-- ${opSnake} has no parameters --%>`];
 
   // A `when`-gated op: the trigger (and the modal's submit) render `disabled`
@@ -432,6 +475,7 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
           ctx.valueObjectsByName,
           "@",
           testidNs ? `${testidNs}-input-${pparam.name}` : undefined,
+          { ctx, home: undefined, owner: runsWorkflow.name },
         )}`,
       );
     }
@@ -455,6 +499,7 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
             ctx.valueObjectsByName,
             "@",
             testidNs ? `${testidNs}-input-${f.name}` : undefined,
+            { ctx, home: homeOf(ctx, agg.name), owner: agg.name },
           )}`,
         );
       }
@@ -466,11 +511,14 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // The submit control the page objects click (`<ns>-submit`).  Without it a
   // driver has to fall back to text matching, which breaks under i18n.
   const submitTestid = testidNs ? ` data-testid="${escapeHeexAttr(`${testidNs}-submit`)}"` : "";
+  // A create form's submit button is the aggregate's `create` operation label.
+  const createCall = ofPascal ? opLabelCall(ctx, ofPascal, "create") : undefined;
+  const submitText = createCall ? `<%= ${createCall} %>` : "Submit";
   return [
     `<.simple_form for={@form} phx-submit="${submitEvent}"${testidAttr}>`,
     ...inputs,
     `  <:actions>`,
-    `    <.button type="submit"${submitTestid}>Submit</.button>`,
+    `    <.button type="submit"${submitTestid}>${submitText}</.button>`,
     `  </:actions>`,
     `</.simple_form>`,
   ].join("\n");
@@ -539,9 +587,18 @@ function renderFieldInputForField(
    *  carries no literal `testid:`, in which case nothing is emitted (rather
    *  than an unaddressable placeholder). */
   testid?: string,
+  /** Identity-keyed label sites: the walk context, the form's home context and
+   *  the model type the field is declared on (`undefined` = the input names no
+   *  model fact and keeps its English). */
+  modelText?: { ctx: WalkContext; home: BoundedContextIR | undefined; owner: string | undefined },
 ): string {
   const fieldName = snake(f.name);
   const label = humanize(f.name);
+  const labelCall = modelText
+    ? fieldLabelCall(modelText.ctx, modelText.home, modelText.owner, f.name)
+    : undefined;
+  // `label="Name"` literal, or the `{pgettext(…)}` expression form under i18n.
+  const labelAttr = labelCall ? `{${labelCall}}` : `"${label}"`;
   // `.input` collects unknown attributes into its `:global` rest and spreads
   // them onto the rendered `<input>`/`<select>`/`<textarea>`, so `data-testid`
   // rides straight through to the element Playwright fills.
@@ -556,8 +613,11 @@ function renderFieldInputForField(
   if (inner.kind === "enum" && enumsByName) {
     const en = enumsByName.get(inner.name);
     if (en) {
-      const options = en.values.map((v) => JSON.stringify(v)).join(", ");
-      return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="select" label="${label}" options={[${options}]}${tid} />`;
+      // Under i18n the options are `{label, value}` tuples whose label is the
+      // identity-keyed gettext call; otherwise the flat value list.
+      const tuples = modelText ? enumOptionTuples(modelText.ctx, modelText.home, en) : undefined;
+      const options = (tuples ?? en.values.map((v) => JSON.stringify(v))).join(", ");
+      return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="select" label=${labelAttr} options={[${options}]}${tid} />`;
     }
   }
   // `X id` fields render as `<.input type="select" options={@x_options}>`.
@@ -568,7 +628,7 @@ function renderFieldInputForField(
   if (inner.kind === "id" && idOptionsBindings) {
     idOptionsBindings.add(inner.targetName);
     const optionsVar = `${snake(inner.targetName)}_options`;
-    return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="select" label="${label}" options={@${optionsVar}}${tid} />`;
+    return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="select" label=${labelAttr} options={@${optionsVar}}${tid} />`;
   }
   // Value-object fields render as `<.inputs_for :let={<f>_form}>`
   // with one nested `<.input>` per VO field.  The `:let` local
@@ -599,10 +659,12 @@ function renderFieldInputForField(
             // name (`…-input-price-amount`), the exact shape `fillBlock`
             // drives for a value-object create input.
             testid ? `${testid}-${sub.name}` : undefined,
+            modelText ? { ...modelText, owner: vo.name } : undefined,
           ),
         )
         .join(" ");
-      return `<fieldset><legend>${label}</legend><.inputs_for :let={${nestedFormVar}} field={${assignPrefix}${formAssign}[:${fieldName}]}>${subInputs}</.inputs_for></fieldset>`;
+      const legend = labelCall ? `<%= ${labelCall} %>` : label;
+      return `<fieldset><legend>${legend}</legend><.inputs_for :let={${nestedFormVar}} field={${assignPrefix}${formAssign}[:${fieldName}]}>${subInputs}</.inputs_for></fieldset>`;
     }
   }
   const inputType = htmlInputTypeForIRType(f.type);
@@ -616,7 +678,7 @@ function renderFieldInputForField(
     : isMoney
       ? ` pattern="^-?\\d+(\\.\\d+)?$" inputmode="decimal"`
       : "";
-  return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="${inputType}" label="${label}"${extraAttrs}${tid} />`;
+  return `<.input field={${assignPrefix}${formAssign}[:${fieldName}]} type="${inputType}" label=${labelAttr}${extraAttrs}${tid} />`;
 }
 
 /** Map a TypeIR to the HTML `<input type="…">` attribute the form
@@ -998,15 +1060,23 @@ export function renderTableColumn(
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   const labelArg = positionals[0];
   const isLiteralLabel = labelArg?.kind === "literal" && labelArg.lit === "string";
-  const label = isLiteralLabel ? labelArg.value : `Column ${index + 1}`;
+  const label = isLiteralLabel
+    ? labelArg.value
+    : labelArg?.kind === "modelText"
+      ? sourceText(labelArg.key, labelArg.defaultText)
+      : `Column ${index + 1}`;
   // The header is a user-visible slot (`columnHeader`): a plain literal
   // rides `pgettext` through the `{…}` expression-attribute form the `<:col>`
   // slot's `label` takes.  Off i18n it is the quoted literal — byte-identical.
   // A NON-literal header keeps the escaped `Column N` fallback (HEEx has no
   // attribute interpolation for an arbitrary expression here).
+  // A `label(…)` header is identity-keyed (`<Ctx>.<Type>.field.<f>`), not
+  // role-keyed: under i18n it rides the same `{pgettext(…)}` attribute form.
   const labelAttrValue = isLiteralLabel
     ? localizedHeexAttr(labelArg, ctx, "columnHeader")
-    : undefined;
+    : labelArg?.kind === "modelText" && ctx.i18nPrefix
+      ? `{${pgettextCall(labelArg.key, labelArg.defaultText)}}`
+      : undefined;
   const accessor = lambdaArg ?? positionals[1];
   if (accessor && accessor.kind === "lambda" && accessor.body) {
     // The row variable is a :let={o} slot binding — a local variable, NOT
@@ -1708,11 +1778,37 @@ export function renderDateDisplay(
   return `<time datetime={to_string(${val})}${testidAttr}><%= Calendar.strftime(${val}, "%Y-%m-%d") %></time>`;
 }
 
+/** The translated-label lookup of an `EnumBadge` value whose enum is known —
+ *  the member's resolved type, else (a table row binding, whose member types
+ *  are not resolved) the field's declared type on the row's aggregate. */
+function enumBadgeLookup(
+  value: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): string | undefined {
+  const unwrap = (t: TypeIR | undefined): TypeIR | undefined =>
+    t?.kind === "optional" ? unwrap(t.inner) : t;
+  let enumName: string | undefined;
+  const typed = unwrap(value.memberType);
+  if (typed?.kind === "enum") enumName = typed.name;
+  else if (value.receiver.kind === "ref") {
+    const aggName =
+      ctx.instanceTypes?.get(value.receiver.name) ?? ctx.rowTypes?.get(value.receiver.name);
+    const rowAgg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const declared = unwrap(rowAgg?.fields.find((f) => f.name === value.member)?.type);
+    if (declared?.kind === "enum") enumName = declared.name;
+  }
+  if (!enumName) return undefined;
+  return enumLabelLookup(ctx, enumName, renderExpr(value, { ...ctx, position: "template" }));
+}
+
 /** `EnumBadge(enum_value)` → `<.badge>` with the enum value. */
 export function renderEnumBadge(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const testidAttr = testIdAttr(expr, ctx);
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const val = positionals[0] ? renderInTemplate(positionals[0], ctx) : "";
+  const first = positionals[0];
+  const lookup =
+    first?.kind === "member" && ctx.i18nPrefix ? enumBadgeLookup(first, ctx) : undefined;
+  const val = lookup ? `<%= ${lookup} %>` : first ? renderInTemplate(first, ctx) : "";
   return `<span class="badge badge-enum"${testidAttr}>${val}</span>`;
 }
 
@@ -1976,7 +2072,22 @@ export function renderAvatar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  (a single spinner size, like the packs that don't vary it). */
 export function renderLoader(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const testidAttr = testIdAttr(expr, ctx);
-  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label="Loading"${testidAttr}></div>`;
+  const name = heexChrome(ctx, "loading");
+  const aria = name.call !== undefined ? `{${name.call}}` : `"${escapeHeexAttr(name.english)}"`;
+  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label=${aria}${testidAttr}></div>`;
+}
+
+/** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under its
+ *  own generate-time name (`Deutsch`, `Français`).  Choosing one writes the
+ *  `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs the
+ *  server-side negotiation reads first (the URL, then the cookie).  The locale
+ *  list is threaded into the walk context at generate time. */
+export function renderLocaleSwitcher(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  ctx: WalkContext,
+): string {
+  const testidAttr = testIdAttr(expr, ctx) || ' data-testid="locale-switcher"';
+  return renderLocaleSelect(ctx.appModule, ctx.locales ?? [], testidAttr);
 }
 
 /** `Money(value, currency?, decimals?)` → a money span.  An optional
@@ -2059,13 +2170,12 @@ export function renderDestroyForm(
       byId: true,
     });
   }
-  const human = humanize(ofName);
   const testidAttr = testIdAttr(expr, ctx);
-  // The prompt and the button label are emitter-built chrome: the shared
-  // `chrome.deleteConfirm` / `chrome.deleteEntity` messages every frontend
-  // reads, with the entity name substituted for the `{entity}` hole.
-  const confirm = heexChrome(ctx, "deleteConfirm", { entity: human.toLowerCase() });
-  const label = heexChrome(ctx, "deleteEntity", { entity: human });
+  // The prompt and the button label are emitter-built chrome: the per-aggregate
+  // `chrome.deleteConfirm.<Agg>` / `chrome.deleteEntity.<Agg>` whole sentences
+  // every frontend reads.
+  const confirm = heexChrome(ctx, sentenceChromeName("deleteConfirm", ofName));
+  const label = heexChrome(ctx, sentenceChromeName("deleteEntity", ofName));
   const confirmAttr =
     confirm.call !== undefined ? `{${confirm.call}}` : `"${escapeHeexAttr(confirm.english)}"`;
   const labelText =
@@ -2073,23 +2183,12 @@ export function renderDestroyForm(
   return `<.button phx-click="${eventName}" phx-value-id={@id} data-confirm=${confirmAttr} class="btn-danger"${testidAttr}>${labelText}</.button>`;
 }
 
-/** A shared `chrome.<name>` string whose ICU holes take GENERATE-time values
- *  (an entity name).  `english` is the filled sentence; `call` — present under
- *  i18n — the Elixir expression that resolves the message through gettext and
- *  substitutes each hole into the active locale's text. */
-function heexChrome(
-  ctx: WalkContext,
-  name: string,
-  holes: Readonly<Record<string, string>>,
-): { english: string; call?: string } {
-  const message = chromeMessage(name);
-  const english = message.replace(/\{(\w+)\}/g, (whole, hole: string) => holes[hole] ?? whole);
+/** A shared `chrome.<name>` sentence.  `english` is the message; `call` —
+ *  present under i18n — the Elixir expression that resolves it through gettext. */
+function heexChrome(ctx: WalkContext, name: string): { english: string; call?: string } {
+  const english = chromeMessage(name);
   if (!ctx.i18nPrefix) return { english };
-  let call = `pgettext(${elixirI18nString(chromeKey(name))}, ${elixirI18nString(message)})`;
-  for (const [hole, value] of Object.entries(holes)) {
-    call = `String.replace(${call}, ${elixirI18nString(`{${hole}}`)}, ${elixirI18nString(value)})`;
-  }
-  return { english, call };
+  return { english, call: pgettextCall(chromeKey(name), english) };
 }
 
 /** `Tabs(Tab(label, body), …)` → a client-side tab switcher.  All panels are

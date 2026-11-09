@@ -27,7 +27,7 @@
         },
         "id": "<volatile:key>",
         "name": "ada",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -48,7 +48,7 @@
             },
             "id": "<volatile:key>",
             "name": "ada",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -80,7 +80,7 @@
         },
         "id": "<volatile:key>",
         "name": "ada",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {

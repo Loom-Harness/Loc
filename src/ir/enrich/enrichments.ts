@@ -1,7 +1,7 @@
 import { descriptorFor } from "../../platform/metadata.js";
 import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
-import { isKeyLookupOp } from "../../util/repository-contract.js";
+import { isKeyLookupOp, retrievalBaseName } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
 import {
   forEachGenericInstance,
@@ -37,7 +37,6 @@ import type {
   FieldIR,
   FindIR,
   GenericCtorName,
-  IdValueType,
   LoadPlanIR,
   LoomInterface,
   LoomModel,
@@ -82,15 +81,23 @@ import {
 import {
   walkExprDeep,
   walkStmtExprsDeep,
+  walkTestStmtExprsDeep,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../util/walk.js";
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { foldTenancyVerdict } from "./fold-tenancy.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
-import { applyPolicyReadGates } from "./policy-read-gates.js";
+import {
+  applyMaskFindGates,
+  applyMaskHandlerGates,
+  applyMaskWriteGates,
+  fieldRedactedInInspect,
+} from "./mask-taint.js";
+import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -277,6 +284,7 @@ function enrichSystem(
   // declaration.  See `applyRegistrySelfScope` below.
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
+    .map((m) => applyFoldTenancy(m, sys))
     .map((m) => applyPolicyReadLevels(m, sys))
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
@@ -474,6 +482,24 @@ function assignMigrationsOwner(
 // Idempotent: the origin marker makes a second enrichment pass a no-op.
 // ---------------------------------------------------------------------------
 
+/** Record the principal claim a tenant-scoped folded projection's rows are
+ *  scoped by (`ProjectionIR.foldTenantClaim`).  The verdict reads the producers
+ *  of the folded events across the whole system, which a backend emitting one
+ *  context cannot see — see `fold-tenancy.ts`. */
+function applyFoldTenancy(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
+  const tenancy = sys.tenancy;
+  if (!tenancy) return m;
+  return {
+    ...m,
+    contexts: m.contexts.map((c) => ({
+      ...c,
+      projections: c.projections.map((p) =>
+        foldTenancyVerdict(p, sys) === "scoped" ? { ...p, foldTenantClaim: tenancy.claimField } : p,
+      ),
+    })),
+  };
+}
+
 function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
   const tenancy = sys.tenancy;
   if (!tenancy) return m;
@@ -495,7 +521,7 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
         if ((agg.contextFilterOrigins ?? []).includes(TENANCY_SELF_SCOPE_ORIGIN)) return agg;
         // Incompatible claim type: derive nothing — IR validation rejects
         // the model (`loom.tenancy-claim-type-mismatch`).
-        if (tenancyClaimBinding(agg.idValueType, claimType) === "mismatch") return agg;
+        if (tenancyClaimBinding(claimType) === "mismatch") return agg;
         const filters = agg.contextFilters ?? [];
         const origins =
           agg.contextFilterOrigins ?? filters.map((): string | undefined => undefined);
@@ -839,17 +865,6 @@ export function enrichContext(
     const inherited = baseFields.filter((f) => !ownNames.has(f.name));
     return inherited.length > 0 ? [...inherited, ...a.fields] : a.fields;
   };
-  // The id value-type is a hierarchy-wide fact: the TPH table (and the TPC
-  // polymorphic reader) key on the ROOT base's id type, so a concrete that
-  // didn't redeclare `ids` inherits the root's — otherwise a base declaring
-  // `ids int` yields an INTEGER table column but a concrete whose wire/Id
-  // defaults to `guid` (mismatch → every insert/read on the concrete breaks).
-  const rootIdValueTypeFor = (a: AggregateIR, seen: Set<string>): IdValueType => {
-    if (!a.extendsAggregate || seen.has(a.name)) return a.idValueType;
-    seen.add(a.name);
-    const base = byName.get(a.extendsAggregate);
-    return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
-  };
   // A concrete's writes are bound by every `unique (…)` key an ancestor
   // declares, so the keys land on the concrete too.  Root-most keys first.
   //   * TPC (`ownTable`): the concrete is a standalone table — without the copy
@@ -876,9 +891,7 @@ export function enrichContext(
   const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
-    const idValueType = rootIdValueTypeFor(a, new Set<string>());
     const fieldsChanged = merged !== a.fields;
-    const idChanged = idValueType !== a.idValueType;
     const own = a.uniqueKeys ?? [];
     const ownKeys = new Set(own.map((uk) => uk.columns.join(",")));
     const inherited =
@@ -887,43 +900,49 @@ export function enrichContext(
             (uk) => !ownKeys.has(uk.columns.join(",")),
           )
         : [];
-    if (!fieldsChanged && !idChanged && inherited.length === 0) return a;
+    if (!fieldsChanged && inherited.length === 0) return a;
     return {
       ...a,
       fields: merged,
-      idValueType,
       ...(inherited.length > 0 ? { uniqueKeys: [...inherited, ...own] } : {}),
     };
   });
-  const aggregates = withInheritance.map((a) => enrichAggregate(a, valueObjects, urlStyle));
+  // A `mask unless` field's write sinks inherit its predicate as a hoisted
+  // gate (`mask-taint.ts`).
+  const aggregates = withInheritance.map((a) =>
+    applyMaskWriteGates(enrichAggregate(a, valueObjects, urlStyle)),
+  );
   // paged-run (paged-queryHandler): a paged `queryHandler` over
   // `Repo.all(<Criterion>)` needs the #1904 paged FIND repo-method synthesized
   // onto its aggregate's repository so the Hono handler can call it.  Layered
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizeBypassReadFinds(
-    synthesizeKeyLookupFinds(
-      synthesizePagedQueryHandlerFinds(
-        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-        // `applyPolicyReadGates` sits between them: it puts the
-        // `policy { read X requires … }` gate on the injected `all`, which
-        // history then copies.
-        ensureHistoryFind(
-          aggregates,
-          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+  const repositories = applyMaskFindGates(
+    synthesizeBypassReadFinds(
+      synthesizeKeyLookupFinds(
+        synthesizePagedQueryHandlerFinds(
+          // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+          // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+          // `applyPolicyReadGates` sits between them: it puts the
+          // `policy { read X requires … }` gate on the injected `all`, which
+          // history then copies.
+          ensureHistoryFind(
+            aggregates,
+            applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+          ),
+          ctx.queryHandlers,
+          ctx.criteria,
+          ctx.retrievals,
         ),
-        ctx.queryHandlers,
-        ctx.criteria,
-        ctx.retrievals,
+        aggregates,
+        keyLookupReads(ctx),
       ),
       aggregates,
-      keyLookupReads(ctx),
+      ctx.criteria,
+      bypassReads(ctx),
     ),
     aggregates,
-    ctx.criteria,
-    bypassReads(ctx),
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -985,8 +1004,21 @@ export function enrichContext(
     ctx.commandHandlers,
   );
   const projections = ctx.projections.map((p) => enrichProjection(p, aggregates));
+  // A handler read that filters on a masked field inherits the mask as a
+  // leading read gate, like the `policy { read … }` gate beside it.
+  const maskScope = { aggregates, repositories, criteria: ctx.criteria, retrievals };
+  const queryHandlers = applyMaskHandlerGates(
+    applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
+    maskScope,
+  );
+  const commandHandlers = applyMaskHandlerGates(
+    applyHandlerReadGates(ctx.commandHandlers, ctx.policyReadGates),
+    maskScope,
+  );
   return {
     ...ctx,
+    ...(queryHandlers ? { queryHandlers } : {}),
+    ...(commandHandlers ? { commandHandlers } : {}),
     valueObjects,
     enums,
     aggregates,
@@ -1059,7 +1091,7 @@ function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
 function bypassReads(ctx: BoundedContextIR): BypassRead[] {
   const out: BypassRead[] = [];
   const noteStmt = (st: WorkflowStmtIR): void => {
-    if (st.kind === "if-let" && st.bypassRead) {
+    if ((st.kind === "if-let" || st.kind === "repo-let") && st.bypassRead) {
       out.push({ repoName: st.repoName, read: st.bypassRead });
     }
   };
@@ -1075,6 +1107,19 @@ function bypassReads(ctx: BoundedContextIR): BypassRead[] {
           if (read?.bypassRead) out.push({ repoName: read.repo, read: read.bypassRead });
         });
       }
+    }
+  }
+  // A context integration test reads through the aggregate's repository by
+  // aggregate name (`let o = Order.find(id) ignoring …`).
+  const noteTestExpr = (e: ExprIR): void => {
+    if (e.kind !== "method-call" || !e.bypassRead || e.receiver.kind !== "ref") return;
+    const aggName = e.receiver.name;
+    const repo = ctx.repositories.find((r) => r.aggregateName === aggName);
+    if (repo) out.push({ repoName: repo.name, read: e.bypassRead });
+  };
+  for (const t of ctx.tests ?? []) {
+    for (const st of t.statements) {
+      walkTestStmtExprsDeep(st, noteTestExpr);
     }
   }
   return out;
@@ -1109,6 +1154,7 @@ function synthesizeFindAllRetrievals(
     retrievalName: string;
     sort?: SortTermIR[];
     loadPlan?: LoadPlanIR;
+    stance?: ReadStance;
   }): void => {
     if (!synth.retrievalName || seen.has(synth.retrievalName)) return;
     const crit = crits.find((c) => c.name === synth.name);
@@ -1130,30 +1176,43 @@ function synthesizeFindAllRetrievals(
       // shape.  Default to no sort / whole-load for a bare `findAll` / `find`.
       sort: synth.sort ?? [],
       loadPlan: synth.loadPlan ?? { kind: "whole" },
+      ...stanceOf(synth.stance),
     });
   };
-  for (const wf of workflows) {
-    for (const st of allWorkflowStmts(wf)) {
-      // `Repo.all(<Criterion>)` (repo-run), the `if let` /
-      // `Repo.find(<Criterion>)` (if-let) source and a `let`-bound
-      // `Repo.find(<Criterion>)` (repo-let) ride a `findAllBy<Criterion>`
-      // retrieval; the single-result two carry no sort/loads (they take the
-      // first row).  Collect the criterion + shaping from whichever shape.
-      if (st.kind === "repo-run" && st.synthCriterion) {
-        materialise({
-          name: st.synthCriterion.name,
-          retrievalName: st.retrievalName,
-          sort: st.synthSort,
-          loadPlan: st.synthLoadPlan,
-        });
-      } else if (st.kind === "if-let" && st.synthCriterion.name) {
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
-        // `let c = Repo.find(<Criterion>)` — the same single-result run.
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      }
+  // A widened read of a DECLARED retrieval (`Repo.all(R) ignoring …`) runs
+  // its own copy of `R`, named for the stance (`widenedRetrievalName`).
+  const widen = (retrievalName: string, stance: ReadStance): void => {
+    if (seen.has(retrievalName)) return;
+    const baseName = retrievalBaseName(retrievalName, stance);
+    const shared = base.find((r) => r.name === baseName);
+    if (!shared || baseName === retrievalName) return; // refused by the IR validator
+    seen.add(retrievalName);
+    out.push({ ...shared, name: retrievalName, ...stanceOf(stance) });
+  };
+  // `Repo.all(<Criterion>)` (repo-run), the `if let` / `Repo.find(<Criterion>)`
+  // (if-let) source and a `let`-bound `Repo.find(<Criterion>)` (repo-let) ride
+  // a `findAllBy<Criterion>` retrieval; the single-result two carry no
+  // sort/loads (they take the first row).  Collect the criterion + shaping
+  // from whichever shape.
+  const noteStmt = (st: WorkflowStmtIR): void => {
+    if (st.kind === "repo-run" && st.synthCriterion) {
+      materialise({
+        name: st.synthCriterion.name,
+        retrievalName: st.retrievalName,
+        sort: st.synthSort,
+        loadPlan: st.synthLoadPlan,
+        stance: st,
+      });
+    } else if (st.kind === "repo-run" && hasStance(st)) {
+      widen(st.retrievalName, st);
+    } else if (st.kind === "if-let" && st.synthCriterion.name) {
+      materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+    } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+      // `let c = Repo.find(<Criterion>)` — the same single-result run.
+      materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
     }
-  }
+  };
+  for (const wf of workflows) for (const st of allWorkflowStmts(wf)) noteStmt(st);
   // Domain-service `reading`-tier bodies ride the SAME synthetic retrievals: a
   // `Repo.all(<Criterion>)` in a `domainService` operation lowers to a
   // `repo-read` Call carrying `synthCriterion` + `retrievalName` (mirror of the
@@ -1163,7 +1222,7 @@ function synthesizeFindAllRetrievals(
   for (const svc of domainServices ?? []) {
     for (const op of svc.operations) {
       for (const stmt of op.body) {
-        collectRepoReadCriteria(stmt, materialise);
+        collectRepoReadCriteria(stmt, materialise, widen);
       }
     }
   }
@@ -1174,23 +1233,23 @@ function synthesizeFindAllRetrievals(
   // and the read hits the whole-table `findAll` (or references a missing
   // `runFindAllBy...` method).  Underpins the paged-run queryHandler.
   for (const h of [...(queryHandlers ?? []), ...(commandHandlers ?? [])]) {
-    for (const st of flattenHandlerStmts(h.statements)) {
-      if (st.kind === "repo-run" && st.synthCriterion) {
-        materialise({
-          name: st.synthCriterion.name,
-          retrievalName: st.retrievalName,
-          sort: st.synthSort,
-          loadPlan: st.synthLoadPlan,
-        });
-      } else if (st.kind === "if-let" && st.synthCriterion.name) {
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
-        // `let c = Repo.find(<Criterion>)` — the same single-result run.
-        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
-      }
-    }
+    for (const st of flattenHandlerStmts(h.statements)) noteStmt(st);
   }
   return out;
+}
+
+/** A read's `ignoring` stance, as a repo-run / find / retrieval carries it. */
+type ReadStance = { bypassAll?: boolean; bypassCaps?: string[] };
+
+function hasStance(s: ReadStance): boolean {
+  return !!s.bypassAll || (s.bypassCaps?.length ?? 0) > 0;
+}
+
+/** The stance fields to spread onto a derived find / retrieval — none for a
+ *  plain read, so its IR stays byte-identical. */
+function stanceOf(s: ReadStance | undefined): ReadStance {
+  if (s?.bypassAll) return { bypassAll: true };
+  return s?.bypassCaps?.length ? { bypassCaps: [...s.bypassCaps] } : {};
 }
 
 /** Walk a flat handler statement body (`queryHandler` / `commandHandler`),
@@ -1247,13 +1306,18 @@ function synthesizePagedQueryHandlerFinds(
             (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
           ),
         },
+        // A widened read (`… ignoring …`) pages past the filters it names;
+        // its find is named for the stance, so it is never the shared one.
+        ...stanceOf(run),
         synthesized: true,
       });
       continue;
     }
     // A named retrieval: its `where` filters the page, its `sort:` orders it
-    // unless the caller picks a whitelisted `sort` column.
-    const r = (retrievals ?? []).find((x) => x.name === run.retrievalName);
+    // unless the caller picks a whitelisted `sort` column.  A widened read
+    // pages the shared retrieval's `where` past the filters it names.
+    const baseName = retrievalBaseName(run.retrievalName, run);
+    const r = (retrievals ?? []).find((x) => x.name === baseName);
     if (!r) continue;
     repo.finds.push({
       name: pagedRunFindName(run),
@@ -1262,6 +1326,7 @@ function synthesizePagedQueryHandlerFinds(
       filter: r.where,
       ...(r.criterionRef ? { criterionRef: r.criterionRef } : {}),
       ...(r.sort.length > 0 ? { defaultSort: r.sort } : {}),
+      ...stanceOf(run),
       synthesized: true,
     });
   }
@@ -1270,22 +1335,25 @@ function synthesizePagedQueryHandlerFinds(
 
 /** Walk an operation-body statement's expressions and materialise the synthetic
  *  retrieval behind every `repo-read` Call that carries a `synthCriterion`
- *  (`Repo.all(<Criterion>)` in a `domainService` reading op). */
+ *  (`Repo.all(<Criterion>)` in a `domainService` reading op), or derive the
+ *  widened copy of a declared retrieval a `Repo.all(R) ignoring …` read runs. */
 function collectRepoReadCriteria(
   stmt: StmtIR,
-  materialise: (synth: { name: string; retrievalName: string }) => void,
+  materialise: (synth: { name: string; retrievalName: string; stance?: ReadStance }) => void,
+  widen: (retrievalName: string, stance: ReadStance) => void,
 ): void {
   walkStmtExprsDeep(stmt, (e) => {
-    if (
-      e.kind === "call" &&
-      e.callKind === "repo-read" &&
-      e.repoRead?.synthCriterion &&
-      e.repoRead.retrievalName
-    ) {
+    if (e.kind !== "call" || e.callKind !== "repo-read") return;
+    const read = e.repoRead;
+    if (!read?.retrievalName) return;
+    if (read.synthCriterion) {
       materialise({
-        name: e.repoRead.synthCriterion.name,
-        retrievalName: e.repoRead.retrievalName,
+        name: read.synthCriterion.name,
+        retrievalName: read.retrievalName,
+        stance: read,
       });
+    } else if (hasStance(read)) {
+      widen(read.retrievalName, read);
     }
   });
 }
@@ -1784,8 +1852,7 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
       return concat(concat(lit("'"), access), lit("'"));
     }
     if (t.kind === "primitive" || t.kind === "id" || t.kind === "enum") {
-      const fromPrimitive =
-        t.kind === "primitive" ? t.name : t.kind === "id" ? t.valueType : undefined;
+      const fromPrimitive = t.kind === "primitive" ? t.name : t.kind === "id" ? "guid" : undefined;
       return { kind: "convert", target: "string", from: fromPrimitive, value: access };
     }
     return null;
@@ -1925,13 +1992,16 @@ function synthesizeInspect(agg: AggregateIR, voLookup: Map<string, ValueObjectIR
   pushField("id", {
     kind: "convert",
     target: "string",
-    from: agg.idValueType,
+    from: "guid",
     value: { kind: "id" },
   });
 
   // Stored properties.
   for (const f of agg.fields) {
-    const isSensitive = !!f.sensitivity && f.sensitivity.length > 0;
+    // A `mask unless` field is as sensitive as a declared one: `inspect` is what
+    // `toString()` / `Inspect` delegate to — the text a log line or an
+    // exception carries, which no principal check guards.
+    const isSensitive = fieldRedactedInInspect(f);
     pushField(f.name, valueForField(f.name, f.type, isSensitive, f.optional === true));
   }
 
@@ -2012,7 +2082,6 @@ function associationsForAggregate(agg: AggregateIR): AssociationIR[] {
       fieldName: f.name,
       ownerAgg: agg.name,
       targetAgg: target.targetName,
-      valueType: target.valueType,
       joinTable: `${snake(agg.name)}_${snake(f.name)}`,
       ownerFk,
       targetFk,

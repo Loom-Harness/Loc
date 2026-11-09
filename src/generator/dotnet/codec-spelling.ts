@@ -20,9 +20,10 @@ import {
   scalarCodec,
   scalarCodecOf,
 } from "../../ir/enrich/codec.js";
-import type { IdValueType, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
+import type { PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import type { ColumnType } from "../../ir/types/migrations-ir.js";
 import { numericEncode } from "../_numeric/target.js";
+import { CS } from "./cs-symbols.js";
 import { CS_NUMERIC, csDecimalToWireDouble } from "./numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -66,9 +67,9 @@ export function csSqlType(name: PrimitiveName): string {
     : csSqlTypeName(scalarCodec(name).column);
 }
 
-/** The Postgres type name of an `X id` / primary key of this value type. */
-export function csIdSqlType(valueType: IdValueType): string {
-  return csSqlTypeName(idColumn(valueType));
+/** The Postgres type name of an `X id` / primary key. */
+export function csIdSqlType(): string {
+  return csSqlTypeName(idColumn());
 }
 
 /** The Postgres type name of a JSON column (a `json` / `File` field, a value
@@ -173,7 +174,7 @@ export function csCalendarDateParseExact(expr: string, culture: string = CULTURE
 
 /** `DateOnly.TryParseExact` over the wire text, for the request boundary. */
 export function csCalendarDateTryParseExact(expr: string, outVar: string): string {
-  return `DateOnly.TryParseExact(${expr}, "${calendarDateFormat()}", CultureInfo.InvariantCulture, DateTimeStyles.None, out var ${outVar})`;
+  return `DateOnly.TryParseExact(${expr}, "${calendarDateFormat()}", ${CS.CultureInfo}.InvariantCulture, ${CS.DateTimeStyles}.None, out var ${outVar})`;
 }
 
 // ---------------------------------------------------------------------------

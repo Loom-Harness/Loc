@@ -1,3 +1,4 @@
+import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent } from "../../../util/naming.js";
@@ -50,7 +51,7 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
     "",
     "",
     ...POST_COMMIT_LINES,
-    ...(hasEvents ? ["", "", ...POST_COMMIT_DISPATCHER_LINES] : []),
+    ...(hasEvents ? ["", "", ...postCommitDispatcherLines(eventLogCarriesTenant(ctx))] : []),
     "",
   );
 }
@@ -73,7 +74,34 @@ const POST_COMMIT_LINES: readonly string[] = [
   ")",
 ];
 
-/** The outermost link `make_dispatcher` returns (app/dispatch.py). */
+const COPY_CONTEXT = pyRef("contextvars", "copy_context");
+const CREATE_TASK = pyRef("asyncio", "create_task");
+
+/** The outermost link `make_dispatcher` returns (app/dispatch.py).
+ *
+ *  `keepFrame`: some stream of the deployable is tenant-scoped
+ *  (`stream-tenancy.ts`), so an append may dispatch inside its stream tenant's
+ *  event-origin frame (`event_origin_frame`), which has closed again by the
+ *  time the post-commit list runs.  The queued delivery then runs in a copy of
+ *  the RAISING context, so the outbox capture, the channel envelope and a
+ *  projection fold read the event's own origin. */
+function postCommitDispatcherLines(keepFrame: boolean): readonly string[] {
+  if (!keepFrame) return POST_COMMIT_DISPATCHER_LINES;
+  return [
+    ...POST_COMMIT_DISPATCHER_LINES.slice(0, -6),
+    "        inner = self._inner",
+    "        # The raising frame rides along (its event origin is the event's).",
+    `        frame = ${COPY_CONTEXT}()`,
+    "",
+    "        async def deliver() -> None:",
+    "            # Closed in the copy too: work it dispatches in turn runs inline.",
+    "            frame.run(post_commit.set, None)",
+    `            await ${CREATE_TASK}(inner.dispatch(event), context=frame)`,
+    "",
+    "        pending.append(deliver)",
+  ];
+}
+
 const POST_COMMIT_DISPATCHER_LINES: readonly string[] = [
   "class PostCommitDispatcher:",
   `    """Defers an event to the request's post-commit list.`,

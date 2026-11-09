@@ -1,3 +1,10 @@
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import {
+  aggregateTableName,
+  partTableName,
+  projectionTableName,
+} from "../../../ir/enrich/storage-names.js";
+import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -23,7 +30,7 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { pyRef } from "../../_imports/python.js";
 import { pyIdColumnType, pyIntColumnType } from "../codec-spelling.js";
 import {
@@ -45,7 +52,7 @@ import { provColumn } from "./provenance.js";
 // ---------------------------------------------------------------------------
 // `app/db/schema.py` — SQLAlchemy 2 typed declarative models.  Table /
 // column / index naming mirrors the Drizzle schema exactly (snake_case
-// columns, `tableNameFor(name)` tables, part FK column
+// columns, the `src/ir/enrich/storage-names.ts` tables, part FK column
 // `<parent>_id` behind the `parent_id` attribute, join tables
 // `snake(owner)_snake(field)` with composite PK + reverse index) so
 // every backend reads/writes the same shared Postgres DDL.
@@ -112,7 +119,14 @@ export function renderPySchema(
     // canonical document triple `(id, data, version)`.
     if (effectiveSavingShape(agg as EnrichedAggregateIR, resolveDataSource?.(agg)) === "document") {
       const dds = resolveDataSource?.(agg);
-      models.push(renderDocumentModel(agg, dds?.schema, dds?.tablePrefix));
+      models.push(
+        renderDocumentModel(
+          agg,
+          aggregateTableName(agg, ctx.aggregates),
+          dds?.schema,
+          dds?.tablePrefix,
+        ),
+      );
       continue;
     }
     // shape: embedded: the root stays a queryable row, but each
@@ -131,11 +145,22 @@ export function renderPySchema(
     const prefix = ds?.tablePrefix;
     // TPC base: owns no table (each concrete is standalone).
     if (agg.isAbstract) continue;
-    models.push(renderModel(agg.name, agg, undefined, ctx, schema, prefix));
+    models.push(
+      renderModel(
+        agg.name,
+        aggregateTableName(agg, ctx.aggregates),
+        agg,
+        undefined,
+        ctx,
+        schema,
+        prefix,
+      ),
+    );
     for (const part of agg.parts) {
       models.push(
         renderModel(
           part.name,
+          partTableName(part),
           part,
           directParentName(agg, part.name, agg.name),
           ctx,
@@ -170,7 +195,10 @@ export function renderPySchema(
   // event-sourced stream gets its own `<owner>_events` model, matching the
   // repository + migrations.  Aggregate binding fixes the schema/prefix first
   // (an owner with both an ES aggregate and an ES workflow shares one log).
-  const eventLogs = new Map<string, { schema?: string; prefix?: string }>();
+  const eventLogs = new Map<
+    string,
+    { schema?: string; prefix?: string; carriesTenant?: boolean }
+  >();
   for (const agg of ctx.aggregates) {
     if (agg.persistedAs !== "eventLog") continue;
     const owner = resolveStreamContext?.(agg.name) ?? ctx.name;
@@ -178,6 +206,8 @@ export function renderPySchema(
       const ds = resolveDataSource?.(agg);
       eventLogs.set(owner, { schema: ds?.schema, prefix: ds?.tablePrefix });
     }
+    // A tenant-scoped stream's log carries the tenant metadata columns.
+    if (isTenantScopedStream(agg)) eventLogs.get(owner)!.carriesTenant = true;
   }
   for (const wf of ctx.workflows) {
     if (!wf.eventSourced) continue;
@@ -187,7 +217,7 @@ export function renderPySchema(
     }
   }
   for (const [owner, info] of eventLogs) {
-    models.push(renderEventLogModel(owner, info.schema, info.prefix));
+    models.push(renderEventLogModel(owner, info.schema, info.prefix, info.carriesTenant));
   }
   // Persisted workflow-correlation state (workflow-and-applier.md A2-S2):
   // one row per running instance, keyed by the correlation field.  The
@@ -284,13 +314,15 @@ interface FieldOwner {
 
 function renderModel(
   name: string,
+  /** The row's table (`aggregateTableName` / `partTableName`). */
+  table: string,
   owner: FieldOwner,
   parentName: string | undefined,
   ctx: EnrichedBoundedContextIR,
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(name)}`;
+  const tableName = `${prefix ?? ""}${table}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     ...(parentName
@@ -363,8 +395,13 @@ function renderColumn(c: PyColumn): string {
 /** Document-shaped aggregate (`shape: document`): the whole tree is one
  *  jsonb blob, so the table is the canonical document triple — `id` (PK),
  *  `data` (the serialised tree, JSONB), `version` (optimistic counter). */
-function renderDocumentModel(agg: AggregateIR, schema?: string, prefix?: string): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
+function renderDocumentModel(
+  agg: AggregateIR,
+  table: string,
+  schema?: string,
+  prefix?: string,
+): string {
+  const tableName = `${prefix ?? ""}${table}`;
   return lines(
     `class ${agg.name}Row(Base):`,
     `    __tablename__ = "${tableName}"`,
@@ -372,7 +409,7 @@ function renderDocumentModel(agg: AggregateIR, schema?: string, prefix?: string)
     "",
     `    id: Mapped[str] = mapped_column(${SA.Uuid}(as_uuid=False), primary_key=True)`,
     `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
-    `    version: Mapped[int] = mapped_column(${SA.Integer})`,
+    `    ${ROW_VERSION_COLUMN}: Mapped[int] = mapped_column(${SA.Integer})`,
   );
 }
 
@@ -388,7 +425,7 @@ function renderEmbeddedModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
+  const tableName = `${prefix ?? ""}${aggregateTableName(agg, ctx.aggregates)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
   ];
@@ -420,7 +457,12 @@ function renderEmbeddedModel(
  *  aggregate id / workflow correlation key, `version` its gap-free per-stream
  *  position (the optimistic-concurrency control).  `seq` is the context-global
  *  monotonic cursor (`BIGSERIAL`, DB-assigned, carried inert). */
-function renderEventLogModel(ctxName: string, schema?: string, prefix?: string): string {
+function renderEventLogModel(
+  ctxName: string,
+  schema?: string,
+  prefix?: string,
+  carriesTenant = false,
+): string {
   const tableName = `${prefix ?? ""}${contextEventsTableName(ctxName)}`;
   return lines(
     `class ${contextEventRowClassName(ctxName)}(Base):`,
@@ -440,6 +482,13 @@ function renderEventLogModel(ctxName: string, schema?: string, prefix?: string):
     `    type: Mapped[str] = mapped_column(${SA.Text})`,
     `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
     `    occurred_at: Mapped[${PY.datetime}] = mapped_column(${SA.DateTime}(timezone=True))`,
+    // The tenant metadata of a tenant-scoped stream (`stream-tenancy.ts`):
+    // nullable, because the log's other streams leave it unset.
+    ...(carriesTenant
+      ? STREAM_TENANT_METADATA.map(
+          (m) => `    ${m.column}: Mapped[str | None] = mapped_column(${SA.Text})`,
+        )
+      : []),
   );
 }
 
@@ -534,7 +583,7 @@ function renderProjectionStateModel(
   ctx: EnrichedBoundedContextIR,
   schema?: string,
 ): string {
-  const tableName = tableNameFor(proj.name);
+  const tableName = projectionTableName(proj);
   const corr = proj.correlationField as string;
   const cols: PyColumn[] = [];
   for (const f of proj.stateFields) {
@@ -555,6 +604,17 @@ function renderProjectionStateModel(
     }
     // Force nullable on every non-key column.
     cols.push(...columnsForFields([f], ctx).map((c) => ({ ...c, optional: true })));
+  }
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
+  // composite key `(tenant_id, <key>)`) and its org path.
+  for (const m of foldTenancyFor(proj)?.metadata ?? []) {
+    const [c] = columnsForFields(
+      [{ name: m.field, type: { kind: "primitive", name: "string" }, optional: !m.required }],
+      ctx,
+    );
+    cols.push(
+      m.required ? { ...c!, optional: false, primaryKey: true } : { ...c!, optional: true },
+    );
   }
   return lines(
     `class ${proj.name}Row(Base):`,
@@ -610,7 +670,15 @@ function tphModels(
   const owner = tableOwnerName(agg, ctx.aggregates);
   for (const part of agg.parts) {
     models.push(
-      renderModel(part.name, part, directParentName(agg, part.name, owner), ctx, schema, prefix),
+      renderModel(
+        part.name,
+        partTableName(part),
+        part,
+        directParentName(agg, part.name, owner),
+        ctx,
+        schema,
+        prefix,
+      ),
     );
   }
   for (const assoc of (agg as EnrichedAggregateIR).associations ?? []) {
@@ -635,7 +703,7 @@ function renderTphModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${tableNameFor(base.name)}`;
+  const tableName = `${prefix ?? ""}${aggregateTableName(base, ctx.aggregates)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: pyIdColumnType(), optional: false, primaryKey: true },
     { attr: "kind", pyType: "str", saType: "Text", optional: false },

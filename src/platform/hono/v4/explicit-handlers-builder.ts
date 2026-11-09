@@ -1,3 +1,4 @@
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   reasonPhrase,
@@ -55,6 +56,12 @@ import {
 // ---------------------------------------------------------------------------
 
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import {
+  discriminatedUnionZod,
+  opUnionResponses,
+  type UnionMemberField,
+  unionMemberObjects,
+} from "../../../generator/_payload/union-wire.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -82,7 +89,12 @@ import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { type EntryResult, entryErrorTags, entryResult } from "../../../ir/util/entry-result.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -97,12 +109,24 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { type RoutedParamSource, routedParamSource } from "../../../ir/util/routed-handler.js";
-import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkWorkflowStmtExprsDeep, workflowEmits } from "../../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import { emitWireSchema, QUERY_BOOL, wireToDomainExpr, zodFor } from "./routes-builder.js";
+import {
+  emitWireSchema,
+  QUERY_BOOL,
+  txWrapperCall,
+  wireToDomainExpr,
+  zodFor,
+  zodForResponse,
+  zodForResponseInner,
+} from "./routes-builder.js";
 import {
   collectReposForWorkflow,
+  entryErrorAnswer,
+  entryResultLines,
   honoWorkflowStmtTarget,
   mergeHandlerReadPortRepos,
   readPortResolver,
@@ -145,18 +169,11 @@ const externImplFilePath = (name: string): string =>
 const externImplModule = (name: string): string =>
   `../application/${handlerKebab(name)}-handler-impl`;
 
-/** Path-param zod for a wire-coerced route segment.  Ids resolve by their value
- *  type (guid → uuid string, int/long → coerced integer, string → plain);
- *  scalars mirror the same numeric/textual split.  Matches the `corrVt` switch
- *  in `emitInstanceRoutes` (non-guid-id-http-params.md). */
+/** Path-param zod for a wire-coerced route segment.  An id is a guid — a
+ *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
+ *  scalars split numeric/textual. */
 function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (t.kind === "id") {
-    return t.valueType === "guid"
-      ? "UuidString"
-      : t.valueType === "int" || t.valueType === "long"
-        ? "z.coerce.number().int()"
-        : "z.string()";
-  }
+  if (t.kind === "id") return "UuidString";
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -193,7 +210,8 @@ function returnEntity(
   ctx: EnrichedBoundedContextIR,
 ): { agg: string; isCollection: boolean; respName: string } | undefined {
   const norm = normalizeHandlerReturn(h.returnType, ctx);
-  if (!norm) return undefined;
+  // An expected-failure union projects arm by arm (`entryHandlerBody`).
+  if (!norm || norm.kind === "union") return undefined;
   const info = wireTypeInfo(norm, "response");
   if (info.refKind !== "entity") return undefined;
   const owning =
@@ -326,6 +344,7 @@ function emitRouteHandler(
   route: RouteIR,
   h: Handler,
   ctx: EnrichedBoundedContextIR,
+  usingMikro: boolean,
 ): string[] {
   // paged-run queryHandler: `queryHandler H(...): <Agg> paged { let r =
   // Repo.run(<Criterion>(args)); return r }`.  Handled before the generic path
@@ -390,7 +409,7 @@ function emitRouteHandler(
   // the `repo.toWire(...) as z.infer<typeof <Agg>Response>` body then agrees with
   // the schema under strict tsc (the scaffolded aggregate GET route's contract).
   const typedResponseName = hasReturn && ret && !ret.isCollection ? ret.respName : undefined;
-  const out: string[] = [];
+  let out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
   out.push(`    method: "${method}",`);
@@ -421,8 +440,23 @@ function emitRouteHandler(
   if (reqParts.length > 0) {
     out.push(`    request: { ${reqParts.join(", ")} },`);
   }
+  // An expected-failure result (`T or E`): 200 declares the success arms and
+  // each error arm's status its problem body, as on an operation route.
+  const er = h.extern ? undefined : entryResult(h, ctx);
+  const split =
+    er && h.returnType?.kind === "union" ? opUnionResponses(h.returnType.variants, ctx) : null;
+  const responsesAt = out.length;
   out.push(`    responses: {`);
-  if (hasReturn) {
+  if (split) {
+    out.push(
+      `      200: { description: "OK", content: { "application/json": { schema: ${split.successName} } } },`,
+    );
+    for (const st of split.errorStatuses) {
+      out.push(
+        `      ${st.status}: { description: ${JSON.stringify(reasonPhrase(st.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${st.arms.map((a) => a.problemName).join(", ")}]) } } },`,
+      );
+    }
+  } else if (hasReturn) {
     out.push(
       `      200: { description: "OK", content: { "application/json": { schema: ${typedResponseName ?? "z.unknown()"} } } },`,
     );
@@ -446,6 +480,21 @@ function emitRouteHandler(
     );
   }
   out.push(`    },`);
+  if (split) {
+    // A status an error arm answers is declared once, with the arm's problem body.
+    const armStatuses = new Set(split.errorStatuses.map((st) => `${st.status}:`));
+    const seen = new Set<string>();
+    const resp = out.splice(responsesAt);
+    out.push(
+      ...resp.filter((l) => {
+        const key = l.trim().split(" ")[0]!;
+        if (!armStatuses.has(key)) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    );
+  }
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
   if (pathSlots.length > 0) out.push(`    const params = httpCtx.req.valid("param");`);
@@ -524,8 +573,26 @@ function emitRouteHandler(
     ctx,
   );
   const repoVarByAgg = new Map(repos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  if (er) {
+    out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro));
+    out.push(`  },`);
+    out.push(`);`);
+    return out;
+  }
+  // A body that re-checks a held row's write scope runs in one transaction
+  // (aggregate events buffered until it commits), so a row outside the scope
+  // fails the whole command and rolls back the rows it already changed.  The
+  // body renders into `out` at the plain indent and is re-indented into the
+  // transaction callback below.
+  const writeScope = writeScopeContext(h.statements, ctx);
+  const inTx = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
+  const head = out;
+  out = [];
+  const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];
   for (const r of repos) {
-    out.push(`    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
+    out.push(
+      `    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
+    );
   }
   // A handler that returns a domain aggregate projects it to its wire shape via
   // the owning repo's `toWire(...)` (the same projection the read routes
@@ -537,7 +604,7 @@ function emitRouteHandler(
     retRepoVar = repoVarByAgg.get(ret.agg);
     if (!retRepoVar) {
       retRepoVar = lowerFirst(plural(ret.agg));
-      out.push(`    const ${retRepoVar} = new ${ret.agg}Repository(db, events);`);
+      out.push(`    const ${retRepoVar} = new ${ret.agg}Repository(${handle}, ${dispatcher});`);
     }
   }
   // Load → mutate → save body, rendered through the shared Hono workflow stmt
@@ -545,7 +612,7 @@ function emitRouteHandler(
   const readPortArgs = readPortResolver(ctx);
   const chunks = renderWorkflowStmtChunks(
     h.statements,
-    honoWorkflowStmtTarget(ctx, paramExprs, "this"),
+    honoWorkflowStmtTarget(ctx, paramExprs, "this", undefined, writeScope),
     "    ",
   );
   out.push(...chunks.flat());
@@ -565,19 +632,114 @@ function emitRouteHandler(
       !!retRepoVar &&
       !!ctx.aggregates.find((a) => a.name === ret.agg && aggHasFieldMask(a));
     out.push(...maskBind(retMasked, "    "));
+    // A `T?` entity return answers its miss as the find-absence 404, never a
+    // `toWire(null)`: bind the value once, refuse null, project the binding.
+    const absentIs404 = !!ret && routedAbsenceAnswers404(h, ctx);
+    let projected = retExpr;
+    if (absentIs404) {
+      out.push(`    const __found = ${retExpr};`);
+      out.push(
+        `    if (__found == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+      );
+      projected = "__found";
+    }
     const payload = ret
       ? ret.isCollection
-        ? `${retExpr}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
+        ? `${projected}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
         : typedResponseName
-          ? `${wireRespH(retMasked, retRepoVar!, retExpr)} as z.infer<typeof ${typedResponseName}>`
-          : `${wireRespH(retMasked, retRepoVar!, retExpr)}`
+          ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
+          : `${wireRespH(retMasked, retRepoVar!, projected)}`
       : `${retExpr} as unknown`;
     out.push(`    return httpCtx.json(${payload}, 200);`);
   } else {
     out.push(`    return httpCtx.body(null, 204);`);
   }
-  out.push(`  },`);
-  out.push(`);`);
+  if (inTx) {
+    head.push(`    const __deferred = deferredDispatcher(events);`);
+    head.push(`    const __response = await ${txWrapperCall(usingMikro)}`);
+    for (const l of out) head.push(l === "" ? l : `  ${l}`);
+    head.push(`    });`);
+    head.push(`    await __deferred.flush();`);
+    head.push(`    return __response;`);
+  } else {
+    head.push(...out);
+  }
+  head.push(`  },`);
+  head.push(`);`);
+  return head;
+}
+
+/** The body of a handler whose result declares an expected failure (`T or
+ *  E`): it runs in ONE transaction, with aggregate events buffered until it
+ *  commits.  An `error` answer rolls the whole command back — its saves and
+ *  the error arm's own writes — announces nothing, and answers the error at
+ *  its mapped status as problem+json; a success commits, flushes the events
+ *  and answers 200 with the tagged success arm. */
+function entryHandlerBody(
+  h: Handler,
+  er: EntryResult,
+  ctx: EnrichedBoundedContextIR,
+  paramExprs: Map<string, string>,
+  repos: readonly { aggName: string; repoName: string }[],
+  usingMikro: boolean,
+): string[] {
+  const out: string[] = [];
+  const all = [...repos];
+  for (const arm of er.arms) {
+    if (arm.kind === "aggregate" && !all.some((r) => r.aggName === arm.name)) {
+      all.push({ aggName: arm.name, repoName: plural(arm.name) });
+    }
+  }
+  const repoVarByAgg = new Map(all.map((r) => [r.aggName, lowerFirst(r.repoName)]));
+  const hasEmit = workflowEmits(h.statements).length > 0;
+  out.push(`    let handlerResult!: { type: string } & Record<string, unknown>;`);
+  out.push(`    const __rollback = new Error("expected failure");`);
+  out.push(`    const __deferred = deferredDispatcher(events);`);
+  if (hasEmit) out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
+  out.push(`    try {`);
+  out.push(`      await db.${usingMikro ? "transactional" : "transaction"}(async (tx) => {`);
+  for (const r of all) {
+    out.push(
+      `        const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
+    );
+  }
+  const readPortArgs = readPortResolver(ctx);
+  out.push(
+    ...renderWorkflowStmtChunks(
+      h.statements,
+      honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
+      "        ",
+    ).flat(),
+  );
+  for (const save of h.savesAtExit) {
+    out.push(`        await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+  }
+  const errorTest = entryErrorTags(er)
+    .map((t) => `handlerResult.type === ${JSON.stringify(t)}`)
+    .join(" || ");
+  out.push(
+    ...entryResultLines(
+      er,
+      (e) => renderExprWithParams(e, paramExprs, "this", readPortArgs),
+      repoVarByAgg,
+      "{}",
+      "        ",
+      "handlerResult",
+    ),
+  );
+  out.push(`        if (${errorTest}) throw __rollback;`);
+  out.push(`      });`);
+  out.push(`    } catch (err) {`);
+  out.push(`      if (err !== __rollback) throw err;`);
+  out.push(`    }`);
+  out.push(...entryErrorAnswer(er, ctx, "    ", "handlerResult"));
+  out.push(`    await __deferred.flush();`);
+  if (hasEmit) out.push(`    for (const ev of workflowEvents) await events.dispatch(ev);`);
+  const successName =
+    h.returnType?.kind === "union" ? opUnionResponses(h.returnType.variants, ctx).successName : "";
+  out.push(
+    `    return httpCtx.json(handlerResult as unknown as z.infer<typeof ${successName}>, 200);`,
+  );
   return out;
 }
 
@@ -595,9 +757,14 @@ export function buildExplicitRoutesFile(
    *  same map (and the same derivation) the workflow leg gets.  Defaulted so a
    *  caller with no system context stays byte-identical. */
   resourceSourceTypes: Map<string, string> = new Map(),
+  /** `persistence: mikroorm` — the router's `db` is an `EntityManager`, whose
+   *  transaction seam is `transactional`, not drizzle's `transaction`. */
+  usingMikro = false,
 ): string | undefined {
   const byName = new Map(contexts.map((c) => [c.name, c] as const));
   const routeBlocks: string[][] = [];
+  const unionDecls: string[] = [];
+  const unionSeen = new Set<string>();
   // Body params seed the VO/enum wire-schema closure below: every body param
   // whose type resolves to a value object / enum is rendered by `zodFor` as a
   // bare `<Name>Schema` reference, so that schema must be declared in-scope.
@@ -669,7 +836,29 @@ export function buildExplicitRoutesFile(
       }
     }
     if (h.extern) externImplImports.set(externImplFn(h.name), externImplModule(h.name));
-    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx));
+    // An expected-failure result's OpenAPI split: the 200 success arms and each
+    // error arm's problem body, declared once per file.
+    if (!h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)) {
+      const split = opUnionResponses(h.returnType.variants, ctx);
+      const fieldZod = (f: UnionMemberField): string =>
+        f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
+      if (!unionSeen.has(split.successName)) {
+        unionSeen.add(split.successName);
+        const members = unionMemberObjects(split.success, fieldZod, zodForResponseInner);
+        unionDecls.push(
+          `const ${split.successName} = ${discriminatedUnionZod(members)}.openapi("${split.successName}");`,
+        );
+      }
+      for (const arm of split.errors) {
+        if (unionSeen.has(arm.problemName)) continue;
+        unionSeen.add(arm.problemName);
+        const fields = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
+        unionDecls.push(
+          `const ${arm.problemName} = ProblemDetails.extend({ ${fields} }).openapi("${arm.problemName}");`,
+        );
+      }
+    }
+    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro));
   }
   if (routeBlocks.length === 0) return undefined;
 
@@ -693,6 +882,7 @@ export function buildExplicitRoutesFile(
     dedupeByName(allVOs.filter((v) => reachable.valueObjects.has(v.name))),
   );
   const schemaDecls: string[] = [];
+  schemaDecls.push(...unionDecls);
   for (const e of usedEnums) {
     const values = e.values.map((v) => `"${v}"`).join(", ");
     schemaDecls.push(`const ${e.name}Schema = z.enum([${values}]).openapi("${e.name}");`);
@@ -883,11 +1073,19 @@ export function buildExplicitRoutesFile(
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
-  if (/\bIds\.\w/.test(bodyStr)) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
   }
-  imports.push(`import type { DomainEventDispatcher } from "../domain/events";`);
+  // An expected-failure handler buffers its aggregate events
+  // (`deferredDispatcher`) and may collect workflow emits (`Events.`).
+  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
+  const withDeferred =
+    'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
+  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
+  const eventsNsLine = 'import type * as Events from "../domain/events";';
+  const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
+  imports.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
   imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
   imports.push(`import type * as schema from "../db/schema";`);
   // Scaffold-once extern impl modules (one per extern handler routed here).
@@ -975,7 +1173,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const imports: string[] = [`import { ExternHandlerError } from "../domain/errors";`];
-  if (/\bIds\.\w/.test(scan)) imports.push(`import * as Ids from "../domain/ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   for (const agg of aggRefs) {
     imports.push(`import { ${agg} } from "../domain/${lowerFirst(agg)}";`);
   }

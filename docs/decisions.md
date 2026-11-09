@@ -1864,7 +1864,12 @@ LSP `WorkspaceEdit`, never applied to disk** (consistent with pure tools).
 playground's Migrations dock shows a human): `loom_snapshot` `{source}→SnapshotReport`
 (the `ddd snapshot` provenance capture, returned as data — **no file emission**)
 and `loom_diff` `{source,baseline?}→DiffReport` (the schema-migration + wire-
-contract delta a change implies, with the destructive/breaking gate surfaced).
+contract delta a change implies, with the destructive/breaking gate surfaced),
+plus `loom_migration_status` `{source,migrations?}` and `loom_migration_record`
+`{source,migrations?,name,allowDestructive?}` — `ddd migrate status` / `add` as
+data, the record RETURNING the new chain files.  Applying a migration to a
+database has a side effect, so it is a host tool, never a catalog one: the
+playground's chat adds `loom_migration_apply` over its runtime database.
 Folded from the superseded `language-services-and-agent-tools` proposal; the
 navigational verbs gate on fixing the LSP providers' real bugs (operation
 rename) first. `loom_read_model` / `loom_list_primitives` / `loom_snapshot` /
@@ -2535,6 +2540,10 @@ it.
 ---
 
 ## D-ENVELOPE-RATIFY — `X envelope` is a single-row find, not an `{id, ts, body}` carrier
+
+**Superseded (2026-11-03):** with declared finds removed (#3951) the keyword had
+no position where it meant anything but `T`, so it is removed — refused as
+`loom.envelope-removed`, whose quick fix drops it (#4122).
 
 **Status:** applied — the proposed default took effect 2026-09-13 (merged to `main` 2026-09-11 in #2863; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 
@@ -4231,7 +4240,8 @@ M-T3.8 stays open and commissioned.
 
 ## D-ELIXIR-IF-BRANCH — the four refused `if`-branch shapes on Phoenix are a declared limit of the linear body renderer, not a per-target gap
 
-**Status:** applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
+**Status:** superseded for the `if` statement by the owner ruling on #3463 item 4 (2026-10-21): model validity must not depend on the target backend.  `loom.elixir-if-stmt-unsupported` is gone.  Lowering puts every early `return` in branch-total form (`src/ir/util/if-normal-form.ts`) for all five backends, and the Phoenix operation renderers split an `if` whose branches decide a persist, guard, `emit` or provenanced write into one complete body per path (`src/generator/elixir/vanilla/op-tree.ts`); `opHasProvSite` now looks inside branches on every backend.  The rationale below still describes the statement `match` (`loom.elixir-match-stmt-unsupported`).
+Previously: applied — the proposed default took effect 2026-09-24 (merged to `main` 2026-09-22 in #2970; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
 Raised by wave C2 packet 2m, which was asked to build the four sub-shapes
 `loom.elixir-if-stmt-unsupported` still refuses or re-class them.
 
@@ -4562,6 +4572,22 @@ for the paths that actually ship. Until both hold, retirement trades a pure
 function for a source of truth that is absent 100 % of the time and wrong 20 %
 of the rest.
 
+**Both conditions now hold.**
+- **Records match the derived shape.** Every row in classes A, B3 and C of
+  `test/system/wire-contract-divergence.test.ts` is closed. The rows that
+  remain are the representational `<Part>Response` naming (B1, B2), which
+  every emitter un-suffixes.
+- **Records exist for every shipped context.** Every context exposed by an
+  implicit `api X from <Subdomain>` or by a deployable's `contexts: [...]`
+  now carries the `scaffoldHandlers` contract records. The census reads the
+  corpus as written and finds no uncontracted node.
+
+One gap is still open, and the census pins it exactly: a record field cannot
+carry `mask unless`. So `declaredResponseFor`
+(`src/ir/util/declared-response.ts`) keeps masked aggregates on the derived
+shape. The decision is open for re-review: what is left is moving consumers
+onto the records and retiring `.loom/wire-spec.json`.
+
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`
 (`apiReadFields`); the response-DTO emitters on all five backends; missions
@@ -4807,19 +4833,23 @@ in another context reported only `'requires' must be of type 'bool', got
 in context A; policies are context-local — redeclare it in B". The type
 system types such a call `bool` (`outOfScopePolicyCall`,
 `src/language/type-system.ts`), so the named error is the only one raised.
-The detection has two limits:
-
-- It covers the call forms `P(args)` and `Ctx.P(args)` (the qualified
-  spelling an author tries first when sharing a policy). A bare name has too
-  many other readings.
-- It sees only one document. In a multi-file model, a context declared in
-  another file is not searched, and that case keeps the old wording.
+The detection covers every way a policy is reached: the call forms `P(args)`
+and `Ctx.P(args)` (the qualified spelling an author tries first when sharing a
+policy), a bare `P` that nothing in scope claims (no binding, member or enum
+value of that name), and a call to a top-level function whose body names `P`
+(the function is inlined at the call site, so `P` resolves against the
+calling context; reported there). It searches the whole compilation unit, not
+the calling document: context names are unique across the workspace, so a
+policy declared in another file is always in another context, and a
+one-document scan let that call through to lowering, which emitted a call to
+a function no backend defines.
 
 Sharing a policy across contexts (at subdomain or system level) needs its own
 language decision. It is a separate mission.
 
 **Touches:** `src/ir/validate/checks/default-deny-checks.ts`,
 `src/language/validators/policy-fn.ts`, `src/language/type-system.ts`,
+`src/language/typing/qualified-policy.ts`, `src/language/typing/decl-index.ts`,
 `src/diagnostics/messages.ts`, `docs/auth.md`,
 `docs/language-reference/17-auth.md`, `docs/language.md`.
 
@@ -5856,9 +5886,18 @@ types, money grammar and bounds, `.isoformat()`). .NET (EF Core and Dapper)
 spells it in `src/generator/dotnet/codec-spelling.ts` and `numeric-codec.ts`,
 guarded by `test/generator/dotnet/codec-census.test.ts` (Postgres column types,
 money bound and grammar, the `yyyy-MM-dd` / `fff` formats, the `ToString("o")`
-envelope time). The other two backends move onto the fact one at a time. Until
-each does, it boots `corpus/provenance-money` as a tracked expected failure
-(`BEHAVIOURAL_XFAIL`, #4402).
+envelope time). java/Spring spells it in `src/generator/java/codec-spelling.ts`
+and `numeric-codec.ts`, guarded by `test/generator/java/codec-census.test.ts`
+(the `?::jsonb` casts, money scale, bound and grammar, the int range, the
+`truncatedTo(MILLIS)` instant, `LocalDate` text, the `Instant.now().toString()`
+envelope time); a lineage value goes through the emitted `ProvWire` helper.
+elixir (plain Phoenix / Ecto) spells it in
+`src/generator/elixir/vanilla/codec-spelling-ex.ts`, `numeric-codec.ts` and
+`datetime-type-emit.ts` (the `Loom.Datetime` Ecto type, whose `wire/1` is the
+instant's spelling), guarded by `test/generator/elixir/codec-census.test.ts`
+(Ecto schema and migration types, the money bound, scale and grammar, the int
+range, `to_iso8601` / `DateTime.truncate`, the Ecto datetime types). Every
+backend is on the fact.
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the
@@ -5911,8 +5950,8 @@ call statement dropped it, and a workflow answered 204.
 - **A read does not encode absence as an error.** `T or NotFound` finds go; a
   read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
   standard 404). (#3951)
-- **Workflows return `or E` too**, once a workflow body can `match` a result
-  (#3367). (#3916)
+- **Workflows return `or E` too**: a routed command entry point answers an
+  expected failure, rolled back whole on the error (see Consequences). (#3916)
 - **The wire is the boundary.** In process an `E` is a value; a route renders
   it as problem+json at its `httpStatus` (D-WIRE-POLICY,
   `errorVariantResponse`), never as a 200 union.
@@ -5920,13 +5959,95 @@ call statement dropped it, and a workflow answered 204.
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
 (`src/language/validators/unhandled-result.ts`). A workflow / handler body
 handles a bound result with the statement `match` (#3367; D-FOR-IN-DOMAIN's
-amendment) or by reading it; binding the result of a MUTATING aggregate
-operation there is still refused (`loom.workflow-mutation-unsaved`).
+amendment) or by reading it.
 Every backend's operation route or handler checks the error variant before it
 stamps, saves, audits or publishes (Java also marks the transaction
 rollback-only, since its loaded aggregate is a managed entity); the
 `operation-returns` corpus golden pins the unchanged read-back on every
 behavioural leg.
+
+A workflow / handler body that binds a MUTATING call whose result has an
+`error` variant (`let r = a.withdraw(x)`, or `let r = Transfer.run(…)` over a
+`mutating` domain service) holds a tentative change, so the same rule applies
+inside the body: the body must `match r`
+(`loom.workflow-mutation-result-unmatched`), each non-error arm saves the
+mutated aggregate at its end and publishes what it drained, and an error arm
+saves nothing for it — its change and its events are dropped. On EF Core and
+JPA, which flush a loaded entity whether or not it was saved, the error arm
+detaches it through the repository's `Discard` / `discard`; node and python
+write only on a save. An `else` arm that covers both a success and an error
+variant is refused, and so is any other change to the same aggregate in that
+body. A bound mutating call whose result has no `error` variant is saved at the
+body's exit, exactly like the call statement. Phoenix refuses the bound form
+(`loom.elixir-bound-mutating-call-unsupported`).
+
+```ddd
+workflow Pay {
+  create(id: Account id, amt: int) {
+    let a = Accounts.get(id)
+    let r = a.withdraw(amt)          // withdraw(amt): int or Insufficient
+    match r {
+      int left => { }                // a is saved here
+      Insufficient e => { notFound } // a's change is dropped
+    }
+  }
+}
+```
+
+```ts
+// node — d/http/workflows.ts
+const a = await accounts.getById(id);
+const r = a.withdraw(amt);
+switch (r.type) {
+  case "int": {
+    const left = r.value;
+    await accounts.save(a);
+    break;
+  }
+  case "Insufficient": {
+    const e = r;
+    throw new AggregateNotFoundError("Resource not found");
+    break;
+  }
+}
+```
+
+A routed command entry point — the workflow `create` its `POST` serves, a
+`commandHandler`, a `queryHandler` — may itself answer `or E`, from a tail
+`return` or from the `return` ending each arm of its terminal `match`
+(13-workflows.md, "Expected failures").  "An error leaves no trace" then
+covers the WHOLE command, not one call: the entry point runs in one
+transaction whether or not it is `transactional`, and an error answer rolls
+back everything it did — the saves before the `match`, the saga row,
+outbox / audit / provenance rows, the error arm's own writes — and dispatches
+no event; the route translates the error exactly as an operation route does.
+
+```ddd
+workflow Pay {
+  create(account: Account id, amt: int): Receipt or PaymentDeclined {
+    let a = Accounts.get(account)
+    let r = a.withdraw(amt)
+    match r {
+      int left => { return Receipt { left: left } }
+      Insufficient e => { let n = Note.create(text: "declined")  return PaymentDeclined { available: amt - e.needed } }
+    }
+  }
+}
+```
+
+```ts
+// node — the rollback marker leaves the transaction; nothing is flushed or dispatched
+  if (workflowResult.type === "PaymentDeclined") throw __rollback;
+});
+} catch (err) { if (err !== __rollback) throw err; }
+if (!(workflowResult.type === "PaymentDeclined")) await __deferred.flush();
+if (workflowResult.type === "PaymentDeclined") return httpCtx.json({ ...workflowResult, … status: 409 … }, 409, …);
+```
+
+(.NET rolls back the `IUnitOfWork` transaction and leaves the event deferral
+unflushed; Java marks the `@Transactional` rollback-only, so no AFTER_COMMIT
+listener sees its events; Python's 4xx answer rolls back the request
+session.  Elixir refuses it, `loom.elixir-entry-result-unsupported`.)
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 
@@ -5962,6 +6083,15 @@ of an `option` find, in a workflow, handler or domain-service body, binds the
 `T?` exactly as a find declared `T?` does: the binding may be null, and its
 reads go through `?.`, `??` or an `if let x = R.find(…) { … } else { … }`
 branch.
+
+The merge-patch update is RS-47. "The generated update" is recognised by shape —
+an `update` operation whose body only assigns each parameter to the
+same-named field (`mergePatchFields`, `src/ir/util/merge-patch.ts`) — so a
+`crudish` update keeps the contract after `unfold`. `null` on a required field
+is the missing-field 422 (`"<field> is required"`). A wire rule is judged in
+the request schema only when the patch carries every member it reads, and by
+the domain floor over the merged state otherwise. A caller no longer has to
+send a `mask unless` field it cannot read (#3600).
 
 ## D-CREATE-CALL-STYLE — an aggregate's `create` is called like a method; the record form is retired
 

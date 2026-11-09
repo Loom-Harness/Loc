@@ -57,7 +57,7 @@ function bypassFind(
   const name = bypassReadMethodName(read.source, read);
   const returnType: TypeIR = { kind: "optional", inner: entity };
   if (read.source.kind === "id") {
-    const idType: TypeIR = { kind: "id", targetName: agg.name, valueType: agg.idValueType };
+    const idType: TypeIR = { kind: "id", targetName: agg.name };
     const filter: ExprIR = {
       kind: "binary",
       op: "==",
@@ -84,9 +84,8 @@ function bypassFind(
   }
   const critName = read.source.name;
   const crit = criteria.find((c) => c.name === critName);
-  // A missing criterion, or one over another candidate, is refused in phase ⑦
-  // (`loom.findall-unknown-criterion` / `loom.findall-criterion-mismatch`);
-  // there is no method to derive.
+  // A criterion over another candidate is refused in phase ⑦
+  // (`loom.findall-criterion-mismatch`); there is no method to derive.
   const candidate = crit?.targetType.kind === "entity" ? crit.targetType.name : undefined;
   if (!crit || candidate !== agg.name) {
     return undefined;

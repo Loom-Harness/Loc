@@ -178,20 +178,30 @@ jobs:
             if (!open.length) return;                       // nothing to close
             const issue = open[0];
 
-            // Latest completed run per workflow on main, any event: a nightly
-            // schedule failure alarms the same as a push failure, so recovery
-            // has to clear it too.
+            // Latest completed run per workflow on main, read per UNATTENDED
+            // event: a nightly schedule failure alarms the same as a push
+            // failure, so recovery has to clear it too.  The query is split by
+            // event because `workflow_run` runs (PR gate's per-check
+            // re-evaluations and this alarm's own) also carry
+            // head_branch=main and arrive by the hundred: an unfiltered
+            // 500-run window spans a few hours, holds no nightly at all, and
+            // reads a red nightly as green.
             const latest = new Map();
-            for (let page = 1; page <= 5; page += 1) {
-              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
-                ...context.repo, branch: 'main', status: 'completed',
-                per_page: 100, page,
-              });
-              for (const run of data.workflow_runs) {
-                // The API returns newest first, so the first sighting wins.
-                if (!latest.has(run.workflow_id)) latest.set(run.workflow_id, run);
+            for (const event of ['push', 'schedule', 'workflow_dispatch']) {
+              for (let page = 1; page <= 3; page += 1) {
+                const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                  ...context.repo, branch: 'main', status: 'completed', event,
+                  per_page: 100, page,
+                });
+                for (const run of data.workflow_runs) {
+                  // Newest across events wins: each page is newest first.
+                  const seen = latest.get(run.workflow_id);
+                  if (!seen || new Date(run.created_at) > new Date(seen.created_at)) {
+                    latest.set(run.workflow_id, run);
+                  }
+                }
+                if (data.workflow_runs.length < 100) break;
               }
-              if (data.workflow_runs.length < 100) break;
             }
 
             const stillRed = [...latest.values()].filter((r) => r.conclusion === 'failure');

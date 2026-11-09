@@ -1,3 +1,4 @@
+import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
@@ -30,7 +31,11 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../../ir/util/walk.js";
-import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+} from "../../../ir/util/workflow-command-route.js";
+import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
@@ -45,6 +50,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -64,8 +70,16 @@ import { voRecord } from "./dto.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
 import {
+  entryControllerJava,
+  entryErrorTestJava,
+  entryResultJavaLines,
+  entryUnionFiles,
+  entryUnionJava,
+} from "./entry-result.js";
+import {
   bearsNestedRecord,
   collectWireToDomainImports,
+  domainToWire,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
@@ -80,6 +94,12 @@ const ISOLATION = javaRef("org.springframework.transaction.annotation", "Isolati
 const MEDIA_TYPE = javaRef("org.springframework.http", "MediaType");
 const RESPONSE_ENTITY = javaRef("org.springframework.http", "ResponseEntity");
 const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
+const PROBLEM_DETAIL = javaRef("org.springframework.http", "ProblemDetail");
+const URI_REF = javaRef("java.net", "URI");
+const TX_ASPECT = javaRef(
+  "org.springframework.transaction.interceptor",
+  "TransactionAspectSupport",
+);
 
 /** Render a variant-`match` whose scrutinee is a UNION-FIND binding: the
  *  repository returns the bare success aggregate (null on absence — no union
@@ -302,21 +322,36 @@ export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR):
 // recursion live in the spine; the base indent (8 spaces) is threaded in by
 // the driver and `for-each` bodies step +`indentUnit` (4 spaces), matching
 // the pre-seam hand-indentation exactly.
-/** The package resolver for the unions a context's domain services return:
- *  their carrier records are emitted into the services package, so a body in
- *  another package that matches over a service result imports them. */
+/** The package resolver for the unions a workflow / handler body can match
+ *  over: a domain service's return union has its carrier records in the
+ *  services package, an aggregate operation's in that aggregate's entity
+ *  package (`let r = a.withdraw(x)`).  A body in another package imports
+ *  them from there. */
 export function domainServiceUnionPkgOf(
   ctx: EnrichedBoundedContextIR,
   servicesPkg: string | undefined,
+  entityPkgOf?: (aggName: string) => string,
 ): ((unionName: string) => string | undefined) | undefined {
-  if (!servicesPkg) return undefined;
-  const names = new Set<string>();
-  for (const svc of ctx.domainServices ?? []) {
-    for (const op of svc.operations) {
-      if (op.returnType?.kind === "union") names.add(unionInstanceName(op.returnType.variants));
+  const pkgs = new Map<string, string>();
+  if (servicesPkg) {
+    for (const svc of ctx.domainServices ?? []) {
+      for (const op of svc.operations) {
+        if (op.returnType?.kind === "union") {
+          pkgs.set(unionInstanceName(op.returnType.variants), servicesPkg);
+        }
+      }
     }
   }
-  return names.size > 0 ? (u) => (names.has(u) ? servicesPkg : undefined) : undefined;
+  if (entityPkgOf) {
+    for (const agg of ctx.aggregates) {
+      for (const op of agg.operations) {
+        const name =
+          op.returnType?.kind === "union" ? unionInstanceName(op.returnType.variants) : undefined;
+        if (name && !pkgs.has(name)) pkgs.set(name, entityPkgOf(agg.name));
+      }
+    }
+  }
+  return pkgs.size > 0 ? (u) => pkgs.get(u) : undefined;
 }
 
 export function javaWorkflowStmtTarget(
@@ -347,6 +382,13 @@ export function javaWorkflowStmtTarget(
    *  Omitted ⇒ the saves render bare, byte-identical (the reactor dispatcher
    *  re-publishes on its own). */
   publisher?: string,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command method, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
+  /** The generated `auth` package — set when a save may publish a
+   *  tenant-scoped stream's events (see `javaPublishDrained`). */
+  authPkg?: string,
 ): WorkflowStmtTarget {
   // The Java local a body binding (`let` / repo / factory / for-each / if-let
   // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
@@ -356,7 +398,16 @@ export function javaWorkflowStmtTarget(
   const bound = (name: string): string => boundLocal(renderCtx, name);
   const saveLines = (inner: string, save: { name: string; aggName: string }): string[] => [
     `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
-    ...(publisher ? [`${inner}${publishDrainedLine(bound(save.name), publisher)}`] : []),
+    ...(publisher
+      ? [
+          `${inner}${javaPublishDrained(
+            bound(save.name),
+            publisher,
+            ctx.aggregates.find((a) => a.name === save.aggName),
+            authPkg,
+          )}`,
+        ]
+      : []),
   ];
   return {
     indentUnit: "    ",
@@ -399,14 +450,15 @@ export function javaWorkflowStmtTarget(
       // where `orderId` is an `OrderId`, which does not compile.
       // The two optional reads that do not answer `T`-or-null directly: a
       // criterion read runs the shared retrieval for one row (the `if let`
-      // lookup), and `findById` answers `Optional<T>`.
+      // lookup), and `findById` answers `Optional<T>`.  A widened read
+      // (`… ignoring …`) calls its own method, which answers `T`-or-null.
       if (s.op === "select-one" && s.retrievalName) {
         const rendered = s.args.map((a) => renderJavaExpr(a, renderCtx));
         return [
           `${indent}var ${bound(s.name)} = ${firstRowOf(repoField(s.aggName), s.retrievalName, rendered)};`,
         ];
       }
-      if (s.op === "load-optional") {
+      if (s.op === "load-optional" && !s.bypassRead) {
         return [
           `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.findById(${args}).orElse(null);`,
         ];
@@ -473,7 +525,12 @@ export function javaWorkflowStmtTarget(
           `Forbidden: ${g.source}`,
         )});`;
       });
-      return [...gateLines, `${indent}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`];
+      // `let r = a.op(…)` binds the call's value; the bare statement discards it.
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [
+        ...gateLines,
+        `${indent}${bind}${bound(s.target)}.${jid(s.op)}(${callArgs.join(", ")});`,
+      ];
     },
     repoDelete: (s, indent) => {
       // `<Repo>.delete(o)` → `<repo>.delete(<entity>)`.  The Spring Data
@@ -537,10 +594,10 @@ export function javaWorkflowStmtTarget(
       const lookup =
         s.op === "bound"
           ? args.join(", ")
-          : s.op === "load-optional"
-            ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
-            : s.findMethod
-              ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+          : s.findMethod
+            ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+            : s.op === "load-optional"
+              ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
               : firstRowOf(repoField(s.aggName), s.retrievalName, args);
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.flatMap((sv) => saveLines(inner, sv));
@@ -571,6 +628,12 @@ export function javaWorkflowStmtTarget(
       const inner = `${indent}    `;
       const savesAt = (pad: string, saves: readonly { name: string; aggName: string }[]) =>
         saves.flatMap((sv) => saveLines(pad, sv));
+      // An error arm over a guarded call's result drops the call's change first:
+      // the entity is managed, and the commit would flush it otherwise.
+      const discardsAt = (
+        pad: string,
+        drops: readonly { name: string; aggName: string }[] | undefined,
+      ) => (drops ?? []).map((d) => `${pad}${repoField(d.aggName)}.discard(${bound(d.name)});`);
       if (s.subjectShape === "absence") {
         const { present, absent } = presenceSides(s, armLines, elseLines);
         const lines = (side: PresenceSide | undefined) =>
@@ -604,6 +667,7 @@ export function javaWorkflowStmtTarget(
               : `unusedArm${i}`;
         out.push(
           `${indent}    case ${carrier} ${binder} -> {`,
+          ...discardsAt(caseInner, arm.discardsInArm),
           ...(arm.binding && scalar
             ? [`${caseInner}var ${jid(arm.binding)} = ${binder}.value();`]
             : []),
@@ -616,6 +680,7 @@ export function javaWorkflowStmtTarget(
       if (s.elseBody) {
         out.push(
           `${indent}    default -> {`,
+          ...discardsAt(caseInner, s.discardsInElse),
           ...shift(elseLines),
           ...savesAt(caseInner, s.savesInElse),
           `${indent}    }`,
@@ -638,13 +703,28 @@ export function javaWorkflowStmtTarget(
     // flushes them at the `@Transactional` boundary (plus the explicit
     // exit-`save` the workflow emits for new aggregates).
     domainServiceCall: (s, indent) => {
-      return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
+      const bind = s.result ? `var ${bound(s.result.name)} = ` : "";
+      return [`${indent}${bind}${renderJavaExpr(s.call, renderCtx)};`];
     },
     // The exception a by-id miss throws, so the advice's not-found arm renders
     // the identical ProblemDetails.
     notFound: (s, indent) => [
       `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(s))});`,
     ],
+    // A held row is re-loaded through `getById` — the write-scope load every
+    // mutation route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope throws the same not-found (→ 404), and
+    // the `@Transactional` service rolls back.
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, indent) => [
+              `${indent}${repoField(g.aggName)}.getById(${bound(g.name)}.id());`,
+            ],
+          },
+        }
+      : {}),
   };
 }
 
@@ -666,6 +746,29 @@ function publishDrainedLine(binding: string, publisher: string): string {
   return `for (var __e : ${binding}.pullEvents()) ${publisher}.publishEvent(__e);`;
 }
 
+/** Publish what a just-saved aggregate drained, in the right event origin.  A
+ *  tenant-scoped event stream's events carry the STREAM's tenant
+ *  (`stream-tenancy.ts`): the outbox capture, the channel envelope and a fold
+ *  read the ambient origin, so when the raising principal's tenant is not the
+ *  stream's (a `policy`-widened subtree append) the publish runs in the stream
+ *  tenant's event-origin frame — the twin of the aggregate service's
+ *  `publishEvents`.  Every other aggregate publishes in the caller's frame.
+ *  `authPkg` is the generated `auth` package (`<base>.auth`). */
+export function javaPublishDrained(
+  binding: string,
+  publisher: string,
+  agg: Parameters<typeof isTenantScopedStream>[0] | undefined,
+  authPkg: string | undefined,
+): string {
+  if (!agg || !authPkg || !isTenantScopedStream(agg)) return publishDrainedLine(binding, publisher);
+  return (
+    `{ var __s = ${binding}; var __o = ${authPkg}.User.currentEventOrigin(); ` +
+    `Runnable __pub = () -> { for (var __e : __s.pullEvents()) ${publisher}.publishEvent(__e); }; ` +
+    `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __s.tenantId())) __pub.run(); ` +
+    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __s.dataKey(), __o == null ? null : __o.causedBy()), __pub); }`
+  );
+}
+
 /** The `<Ctx>Workflows` field holding Spring's `ApplicationEventPublisher`. */
 const WORKFLOW_PUBLISHER = "eventPublisher";
 
@@ -675,13 +778,9 @@ const WORKFLOW_PUBLISHER = "eventPublisher";
  *  `if let` / `for` branch counts. */
 function workflowPublishes(wf: WorkflowIR): boolean {
   if (wf.savesAtExit.length > 0) return true;
-  return anyWorkflowStmt(
-    wf,
-    (s) =>
-      s.kind === "emit" ||
-      (s.kind === "for-each" && s.savesPerIteration.length > 0) ||
-      (s.kind === "if-let" && s.savesInThen.length + s.savesInElse.length > 0),
-  );
+  // A save staged inside a loop iteration, an `if let` branch or a `match` arm
+  // publishes what it drained, exactly like an exit save.
+  return anyWorkflowStmt(wf, (s) => s.kind === "emit" || nestedSaves(s).length > 0);
 }
 
 /** Does the body carry a workflow-level `emit` anywhere (branches included)? */
@@ -1172,7 +1271,7 @@ export function renderJavaWorkflows(
       {
         ...wfRenderCtx,
         paramExpr: (n) => paramLocals.get(n),
-        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg),
+        unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg, wctx.entityPkgOf),
       },
       workflowBoundNames([wf.statements]),
       new Set([
@@ -1213,6 +1312,8 @@ export function renderJavaWorkflows(
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
         publishes ? WORKFLOW_PUBLISHER : undefined,
+        writeScopeContext(wf.statements, ctx),
+        authed ? `${wctx.basePkg}.auth` : undefined,
       ),
       "            ",
     );
@@ -1237,7 +1338,12 @@ export function renderJavaWorkflows(
       : [];
     const saves = wf.savesAtExit.flatMap((s) => [
       `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
-      `            ${publishDrainedLine(boundLocal(bodyRenderCtx, s.name), WORKFLOW_PUBLISHER)}`,
+      `            ${javaPublishDrained(
+        boundLocal(bodyRenderCtx, s.name),
+        WORKFLOW_PUBLISHER,
+        ctx.aggregates.find((a) => a.name === s.aggName),
+        authed ? `${wctx.basePkg}.auth` : undefined,
+      )}`,
     ]);
     const eventsDecl = wfEmits
       ? [
@@ -1264,16 +1370,66 @@ export function renderJavaWorkflows(
     // (an id's raw `value()`), read inside the class-level `@Transactional`
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
-    const resultLines = result
-      ? [
-          `            var workflowResult = ${renderJavaExpr(result.value, wfRenderCtx)}${result.type.kind === "id" ? ".value()" : ""};`,
-        ]
-      : [];
+    const er = commandCreateEntryResult(wf, ctx);
+    const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+    const resultLines =
+      er && result?.type.kind === "union"
+        ? [
+            `            ${entryUnionJava(result.type)} workflowResult = null;`,
+            ...entryResultJavaLines(
+              er,
+              result.type,
+              (e) => renderJavaExpr(e, bodyRenderCtx),
+              (n) => boundLocal(bodyRenderCtx, n),
+              (u, tag) => {
+                const pkg = bodyRenderCtx.unionPkgOf?.(u);
+                return pkg ? javaRef(pkg, `${u}_${tag}`) : `${u}_${tag}`;
+              },
+              ctx,
+              "            ",
+              "workflowResult",
+              undefined,
+              repoField,
+            ),
+            // An error answer rolls the whole command back: every write it made
+            // is discarded at the `@Transactional` boundary, and the events it
+            // published reach no AFTER_COMMIT listener.
+            `            if (${entryErrorTestJava(er, result.type, "workflowResult")}) {`,
+            `                ${TX_ASPECT}.currentTransactionStatus().setRollbackOnly();`,
+            `                return workflowResult;`,
+            `            }`,
+          ]
+        : selfResult
+          ? [
+              `            var workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
+                wf.instanceWireShape ?? []
+              )
+                .map((f) => domainToWire(f.type, `state.${jid(f.name)}()`))
+                .join(", ")});`,
+            ]
+          : result
+            ? [
+                `            var workflowResult = ${renderJavaExpr(result.value, wfRenderCtx)}${result.type.kind === "id" ? ".value()" : ""};`,
+              ]
+            : [];
+    if (er && result?.type.kind === "union") {
+      for (const f of entryUnionFiles(result.type, ctx, wctx.pkg, wctx.basePkg)) {
+        out.set(f.name, { category: "request-dto", content: f.content });
+      }
+    }
+    const resultJava =
+      er && result?.type.kind === "union"
+        ? entryUnionJava(result.type)
+        : selfResult
+          ? `${upperFirst(wf.name)}InstanceResponse`
+          : result
+            ? workflowResultWireRef(result.type)
+            : "void";
     methods.push(
       ...(isolation
         ? [`    @Transactional(isolation = ${ISOLATION}.${javaIsolation(isolation)})`]
         : []),
-      `    public ${result ? workflowResultWireRef(result.type) : "void"} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
+      `    public ${resultJava} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
       // A workflow is a per-dispatch boundary: run it in a child execution frame
       // (fresh scope_id, parent_id ← the request's root scope) so its audit /
       // provenance rows record their call-structure position.
@@ -1566,6 +1722,31 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
+    const er = commandCreateEntryResult(wf, ctx);
+    if (er && result.type.kind === "union") {
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    public ${RESPONSE_ENTITY}<?> ${lowerFirst(wf.name)}(${sig}) {`,
+        `        var result = ${call};`,
+        ...entryControllerJava(er, result.type, ctx, "result", "        ", {
+          problemDetail: PROBLEM_DETAIL,
+          uri: URI_REF,
+          mediaType: MEDIA_TYPE,
+          responseEntity: RESPONSE_ENTITY,
+        }),
+        `    }`,
+        ``,
+      ];
+    }
+    if (result.type.kind === "entity" && result.type.name === wf.name) {
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,
+        `        return ${call};`,
+        `    }`,
+        ``,
+      ];
+    }
     const wire = workflowResultWireJava(result.type);
     if (wire === "String") {
       ctlJson = true;
@@ -1625,7 +1806,7 @@ export function renderJavaWorkflows(
  *  id's raw `value` type, else the scalar itself.  Only the kinds phase ④
  *  admits (`loom.workflow-return-type-unsupported`) reach here. */
 function workflowResultWireJava(t: TypeIR): string {
-  return t.kind === "id" ? javaValueTypeForId(t.valueType) : renderJavaType(t);
+  return t.kind === "id" ? javaValueTypeForId() : renderJavaType(t);
 }
 
 /** `workflowResultWireJava` as it is spelled in a compilation unit: a `UUID`

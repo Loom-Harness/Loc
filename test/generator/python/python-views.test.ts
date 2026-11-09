@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — criteria / retrievals (plan S11).  Criteria
@@ -20,9 +19,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python retrievals", () => {
@@ -33,7 +30,7 @@ describe("python retrievals", () => {
       "async def run_by_status_sorted(self, s: OrderStatus, offset: int | None = None, limit: int | None = None) -> list[Order]:",
     );
     expect(repo).toContain(
-      "query = select(OrderRow).where((OrderRow.status == s)).order_by(OrderRow.placed_at.desc())",
+      "query = select(OrderRow).where((OrderRow.status == s)).order_by(OrderRow.placed_at.desc(), OrderRow.id.asc())",
     );
     expect(repo).toContain("query = query.offset(offset)");
     expect(repo).toContain("query = query.limit(limit)");

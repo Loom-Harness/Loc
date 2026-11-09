@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // A context with an aggregate covering the field kinds a seed renders:
 // string, int, enum (bare ref), and a value-object field (BuilderCall →
@@ -41,9 +40,7 @@ const FIXTURE = `system AcmeSeed {
 `;
 
 async function build(): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 function find(
@@ -73,17 +70,18 @@ describe("Hono database seeding (Phase 2, domain path)", () => {
     expect(seed).toContain("async function seedDemo(");
   });
 
-  it("wires the seeder into package.json and index.ts boot", async () => {
+  it("wires the seeder into package.json and the boot sequence", async () => {
     const files = await build();
     const pkg = JSON.parse(find(files, /\/package\.json$/));
     expect(pkg.scripts["db:seed"]).toBe("tsx db/seed-cli.ts");
 
-    // The project-root index.ts (not http/index.ts).
+    // Seeds run inside bootApp (boot.ts), which the project-root index.ts
+    // (not http/index.ts) calls after migrating — and the playground runs too.
+    const boot = find(files, /(^|\/)boot\.ts$/);
+    expect(boot).toContain('import { runSeeds } from "./db/seed"');
+    expect(boot).toContain("await runSeeds(db);");
     const index = find(files, /(^|\/)index\.ts$/, (k) => !/\/http\//.test(k));
-    expect(index).toContain('import { runSeeds } from "./db/seed"');
-    expect(index).toContain("await runSeeds(db);");
-    // Seeding runs after migrations.
-    expect(index.indexOf("await migrate(")).toBeLessThan(index.indexOf("await runSeeds("));
+    expect(index.indexOf("await migrate(")).toBeLessThan(index.indexOf("await bootApp(db)"));
   });
 
   it("keeps db/seed.ts a pure module — the CLI entry lives in db/seed-cli.ts", async () => {
@@ -107,9 +105,7 @@ describe("Hono database seeding (Phase 2, domain path)", () => {
       /seed demo \{[\s\S]*?\n {6}\}\n/,
       "",
     );
-    const { model, errors } = await parseString(noSeed);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(noSeed);
     for (const k of files.keys()) expect(k).not.toMatch(/\/db\/seed\.ts$/);
     const pkg = JSON.parse(find(files, /\/package\.json$/));
     expect(pkg.scripts["db:seed"]).toBeUndefined();
@@ -135,9 +131,7 @@ describe("Hono seeding — raw explicit-id path", () => {
   }`;
 
   it("emits direct INSERTs via db.execute(sql.raw(...)) with explicit id + FK", async () => {
-    const { model, errors } = await parseString(RAW);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const seed = find(generateSystems(model).files, /\/db\/seed\.ts$/);
+    const seed = find(await generateSystemFiles(RAW), /\/db\/seed\.ts$/);
     // Schema-qualified, because every accepted model qualifies: a backend
     // deployable hosting a context MUST bind a dataSource for it
     // (`loom.datasource-binding-missing`), and that binding puts the
@@ -179,9 +173,7 @@ describe("Hono seeding — the raw INSERT is schema-qualified", () => {
   }`;
 
   it("qualifies the raw INSERT with the aggregate's dataSource schema", async () => {
-    const { model, errors } = await parseString(RAW_WITH_SCHEMA);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(RAW_WITH_SCHEMA);
     const seed = find(files, /\/db\/seed\.ts$/);
     expect(seed).toContain('INSERT INTO \\"sales\\".\\"customers\\"');
     // …the same qualifier the drizzle schema and the migration DDL use, which is
@@ -214,9 +206,7 @@ describe("Hono seeding — event-sourced aggregate (M-T6.52)", () => {
   }`;
 
   it("appends the creation event through the domain create + repository save", async () => {
-    const { model, errors } = await parseString(ES);
-    if (errors.length) throw new Error(errors.join("\n"));
-    const seed = find(generateSystems(model).files, /\/db\/seed\.ts$/);
+    const seed = find(await generateSystemFiles(ES), /\/db\/seed\.ts$/);
     // The object-literal create call carries ONLY the create action's own
     // param (`owner`) — never `balance`, which forCreateInput(agg.fields)
     // would have included.

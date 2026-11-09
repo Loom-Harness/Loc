@@ -76,13 +76,16 @@ describe("i18n message extraction", () => {
       }`),
     );
     const byMessage = Object.entries(cat);
-    expect(byMessage).toContainEqual([expect.stringMatching(/^page\.Home\.heading\./), "Welcome"]);
     expect(byMessage).toContainEqual([
-      expect.stringMatching(/^page\.Home\.text\./),
+      expect.stringMatching(/^Web\.page\.Home\.heading\./),
+      "Welcome",
+    ]);
+    expect(byMessage).toContainEqual([
+      expect.stringMatching(/^Web\.page\.Home\.text\./),
       "Browse orders",
     ]);
     expect(byMessage).toContainEqual([
-      expect.stringMatching(/^page\.Home\.empty\./),
+      expect.stringMatching(/^Web\.page\.Home\.empty\./),
       "Nothing here",
     ]);
   });
@@ -114,8 +117,8 @@ describe("i18n message extraction", () => {
     );
     const keys = Object.keys(cat);
     expect(keys).toHaveLength(2);
-    expect(keys.some((k) => k.startsWith("page.P.heading."))).toBe(true);
-    expect(keys.some((k) => k.startsWith("page.P.text."))).toBe(true);
+    expect(keys.some((k) => k.startsWith("Web.page.P.heading."))).toBe(true);
+    expect(keys.some((k) => k.startsWith("Web.page.P.text."))).toBe(true);
     // Same string ⇒ the two keys share the trailing content hash.
     const hashes = keys.map((k) => k.split(".").pop());
     expect(hashes[0]).toBe(hashes[1]);
@@ -140,8 +143,8 @@ describe("i18n message extraction", () => {
     const messages = Object.values(cat);
     expect(messages).toContain("Dashboard");
     expect(messages).toContain("Reports");
-    expect(Object.keys(cat).some((k) => k.startsWith("page.Home.title."))).toBe(true);
-    expect(Object.keys(cat).some((k) => k.startsWith("menu.section."))).toBe(true);
+    expect(Object.keys(cat).some((k) => k.startsWith("Web.page.Home.title."))).toBe(true);
+    expect(Object.keys(cat).some((k) => k.startsWith("Web.menu.section."))).toBe(true);
   });
 
   it("collectUiMessages is deterministic and pure", async () => {
@@ -264,7 +267,7 @@ describe("i18n message extraction — interpolated (ICU) entries", () => {
     );
     const cat = buildMessageCatalog(enrichLoomModel(lowerModel(model)).systems[0]!);
     expect(Object.values(cat)).toContain("Order {status}"); // named display
-    expect(Object.keys(cat).some((k) => k.startsWith("page.D.heading."))).toBe(true);
+    expect(Object.keys(cat).some((k) => k.startsWith("Web.page.D.heading."))).toBe(true);
   });
 
   it("keys the ICU entry over the positional form — a field rename keeps the key", async () => {

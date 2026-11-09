@@ -745,7 +745,7 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
     psql(
       server,
       "vocollection",
-      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+      `INSERT INTO "ord"."orders" ("id", "note", "row_version") ` +
         `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
     );
 
@@ -779,7 +779,7 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
         `FROM information_schema.columns ` +
         `WHERE table_schema = 'ord' AND table_name = 'orders'`,
     );
-    expect(cols).toBe("id,note,version");
+    expect(cols).toBe("id,note,row_version");
 
     // (e) The seeded row survived, and a NEW row still inserts — the assertion
     // the whole finding is about.
@@ -787,7 +787,7 @@ export async function runValueCollectionEvolutionGate(): Promise<void> {
     psql(
       server,
       "vocollection",
-      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+      `INSERT INTO "ord"."orders" ("id", "note", "row_version") ` +
         `VALUES ('22222222-2222-2222-2222-222222222222', 'post-migration', 1)`,
     );
     psql(
@@ -867,7 +867,7 @@ export async function runFieldDefaultEvolutionGate(): Promise<void> {
     psql(
       pg,
       "fielddefault",
-      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+      `INSERT INTO "ord"."orders" ("id", "note", "row_version") ` +
         `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
     );
 
@@ -935,7 +935,7 @@ export async function runFieldDefaultEvolutionGate(): Promise<void> {
         psql(
           pg,
           "fielddefault",
-          `INSERT INTO "${schema}"."orders" ("id", "note", "version") ` +
+          `INSERT INTO "${schema}"."orders" ("id", "note", "row_version") ` +
             `VALUES ('22222222-2222-2222-2222-222222222222', 'omitted', 1)`,
         );
         return undefined;
@@ -952,7 +952,7 @@ export async function runFieldDefaultEvolutionGate(): Promise<void> {
     psql(
       pg,
       "fielddefault",
-      `INSERT INTO "ord"."orders" ("id", "note", "status", "version") ` +
+      `INSERT INTO "ord"."orders" ("id", "note", "status", "row_version") ` +
         `VALUES ('33333333-3333-3333-3333-333333333333', 'post-migration', 'shipped', 1)`,
     );
     expect(
@@ -1349,8 +1349,8 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
     // versioned table.  The TPH shared table used to miss that default (the
     // add then went through the field-default backfill path, which drops the
     // default again), so a migrated TPH table disagreed with a plain one.
-    psql(server, DB, `ALTER TABLE ledger.machines DROP COLUMN version`);
-    dropBaselineColumn(tree, "machines", "version");
+    psql(server, DB, `ALTER TABLE ledger.machines DROP COLUMN row_version`);
+    dropBaselineColumn(tree, "machines", "row_version");
 
     // --- v2: + softDeletable → partial ------------------------------------
     generate(v2Src, driver.platform, tree);
@@ -1363,12 +1363,12 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
         server,
         DB,
         `SELECT coalesce(column_default, '<none>') || ' ' || is_nullable FROM information_schema.columns
-          WHERE table_schema = 'ledger' AND table_name = 'machines' AND column_name = 'version'`,
+          WHERE table_schema = 'ledger' AND table_name = 'machines' AND column_name = 'row_version'`,
       ),
       "v2: the TPH shared table's version column is NOT NULL DEFAULT 1",
     ).toBe("1 NO");
     expect(
-      psql(server, DB, `SELECT string_agg(DISTINCT version::text, ',') FROM ledger.machines`),
+      psql(server, DB, `SELECT string_agg(DISTINCT row_version::text, ',') FROM ledger.machines`),
       "v2: every pre-existing TPH row is at version 1",
     ).toBe("1");
     const latheRead = await fetch(`${v2.base}/api/lathes/${lathe.id}`);
@@ -1553,7 +1553,7 @@ export async function runCrossContextMoveGate(driver?: BackendDriver): Promise<v
     apply(tree, "move", v1Files);
 
     const noteId = "11111111-1111-1111-1111-111111111111";
-    insertRow(server, "move", "a", "notes", { id: noteId, text: "kept", version: "1" });
+    insertRow(server, "move", "a", "notes", { id: noteId, text: "kept", row_version: "1" });
     insertRow(server, "move", "a", "lines", {
       id: "22222222-2222-2222-2222-222222222222",
       note_id: noteId,

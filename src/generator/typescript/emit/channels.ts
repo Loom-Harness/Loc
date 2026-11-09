@@ -26,7 +26,9 @@ import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.j
 import { lines } from "../../../util/code-builder.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { tsEnvelopeInstant } from "../codec-spelling.js";
+import { T, TT } from "../ts-symbols.js";
 import { TS_WIRE_DECODE } from "../wire-codec.js";
 
 /** The per-binding driver pick in `createChannelTransports` — a direct
@@ -109,7 +111,6 @@ export function renderChannelsModule(
   const voImports = new Set<string>();
   const voValueImports = new Set<string>();
   const enumImports = new Set<string>();
-  let decoderUsesIds = false;
   let decoderUsesDecimal = false;
   const visitType = (t: TypeIR): void => {
     if (t.kind === "valueobject" || t.kind === "entity") {
@@ -120,7 +121,6 @@ export function renderChannelsModule(
       } else if (!fields) voImports.add(t.name);
     }
     if (t.kind === "enum") enumImports.add(t.name);
-    if (t.kind === "id") decoderUsesIds = true;
     if (t.kind === "primitive" && t.name === "money") decoderUsesDecimal = true;
     if (t.kind === "array") visitType(t.element);
     if (t.kind === "optional") visitType(t.inner);
@@ -141,20 +141,18 @@ export function renderChannelsModule(
       "// CloudEvents 1.0 envelopes between deployables;",
       "// the consumer loop feeds received events into the same in-process",
       "// dispatcher local reactors use.",
-      hasRabbit ? 'import amqp from "amqplib";' : null,
+      tsImportSlot("amqplib"),
       decoderUsesDecimal ? 'import Decimal from "decimal.js";' : null,
-      hasRedis ? 'import { Redis } from "ioredis";' : null,
-      hasKafka ? 'import { type Consumer, Kafka, logLevel, type Producer } from "kafkajs";' : null,
+      tsImportSlot("ioredis"),
+      tsImportSlot("kafkajs"),
       `import type { ${eventImports.join(", ")} } from "../domain/events";`,
-      decoderUsesIds ? 'import type * as Ids from "../domain/ids";' : null,
+      tsImportSlot("~/domain/ids"),
       domainValueImports.length > 0
         ? `import { ${[...domainValueImports, ...domainTypeImports.map((n) => `type ${n}`)].join(", ")} } from "../domain/value-objects";`
         : domainTypeImports.length > 0
           ? `import type { ${domainTypeImports.join(", ")} } from "../domain/value-objects";`
           : null,
-      carriesOrigin
-        ? 'import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";'
-        : null,
+      tsImportSlot("~/auth/middleware"),
       'import { baseLogger } from "../obs/log";',
       "",
       "/** CloudEvents 1.0 JSON envelope — the cross-backend wire contract",
@@ -218,6 +216,66 @@ export function renderChannelsModule(
       "  ): Promise<() => void>;",
       "  close(): Promise<void>;",
       "}",
+      "",
+      "/** In-memory transport: every binding inside this process, no broker.",
+      ' * The stand-in `bootApp({ infra: "in-process" })` uses where no broker',
+      " * exists (the browser playground).  A broadcast subscriber gets every",
+      " * envelope; a consumer group gets each envelope once, round-robin across",
+      " * its members.  Delivery is asynchronous, as from a broker: the publisher",
+      " * never waits on a consumer.  Nothing is retained, replayed or",
+      " * dead-lettered — the broker semantics beyond fan-out are not emulated. */",
+      "export function createInProcessTransport(): ChannelTransport {",
+      "  type Handler = (envelope: LoomEventEnvelope) => Promise<void>;",
+      "  const subscribers = new Map<string, { group: string | null; handler: Handler }[]>();",
+      "  const turns = new Map<string, number>();",
+      '  baseLogger.warn({ event: "channel_transport_in_process" });',
+      "  const deliver = (address: string, envelope: LoomEventEnvelope, handler: Handler): void => {",
+      "    setTimeout(() => {",
+      "      void handler(envelope).catch((err) => {",
+      "        baseLogger.warn({",
+      '          event: "channel_consume_failed",',
+      "          address,",
+      "          type: envelope.type,",
+      "          error: err instanceof Error ? err.message : String(err),",
+      "        });",
+      "      });",
+      "    }, 0);",
+      "  };",
+      "  return {",
+      "    async publish(address, envelope) {",
+      "      const groups = new Map<string, Handler[]>();",
+      "      for (const s of subscribers.get(address) ?? []) {",
+      "        if (s.group === null) {",
+      "          deliver(address, envelope, s.handler);",
+      "          continue;",
+      "        }",
+      "        const members = groups.get(s.group) ?? [];",
+      "        members.push(s.handler);",
+      "        groups.set(s.group, members);",
+      "      }",
+      "      for (const [group, members] of groups) {",
+      "        const key = `${address}\\u0000${group}`;",
+      "        const turn = turns.get(key) ?? 0;",
+      "        turns.set(key, turn + 1);",
+      "        deliver(address, envelope, members[turn % members.length] as Handler);",
+      "      }",
+      "    },",
+      "    async subscribe(address, group, handler) {",
+      "      const entry = { group, handler };",
+      "      const list = subscribers.get(address) ?? [];",
+      "      list.push(entry);",
+      "      subscribers.set(address, list);",
+      "      return () => {",
+      "        const current = subscribers.get(address);",
+      "        const i = current ? current.indexOf(entry) : -1;",
+      "        if (current && i >= 0) current.splice(i, 1);",
+      "      };",
+      "    },",
+      "    async close() {",
+      "      subscribers.clear();",
+      "    },",
+      "  };",
+      "}",
       ...(hasRedis
         ? [
             "",
@@ -225,8 +283,8 @@ export function renderChannelsModule(
             " * subscriber connection is required by the redis protocol (a",
             " * connection in subscribe mode can't publish). */",
             "export function createRedisTransport(url: string): ChannelTransport {",
-            "  const pub = new Redis(url, { lazyConnect: false, maxRetriesPerRequest: 3 });",
-            "  const sub = new Redis(url, { lazyConnect: false, maxRetriesPerRequest: 3 });",
+            `  const pub = new ${T.Redis}(url, { lazyConnect: false, maxRetriesPerRequest: 3 });`,
+            `  const sub = new ${T.Redis}(url, { lazyConnect: false, maxRetriesPerRequest: 3 });`,
             "  const handlers = new Map<string, Set<(e: LoomEventEnvelope) => Promise<void>>>();",
             '  sub.on("message", (address: string, message: string) => {',
             "    const set = handlers.get(address);",
@@ -290,10 +348,10 @@ export function renderChannelsModule(
             " * CHANNEL_MAX_ATTEMPTS, then parks via DLX `loom.dlx` into",
             " * `loom.dlq.<address>`. */",
             "export function createRabbitTransport(url: string): ChannelTransport {",
-            "  let connPromise: Promise<amqp.ChannelModel> | null = null;",
-            "  let chPromise: Promise<amqp.Channel> | null = null;",
-            "  const channel = (): Promise<amqp.Channel> => {",
-            "    connPromise ??= amqp.connect(url);",
+            `  let connPromise: Promise<${TT.amqp}.ChannelModel> | null = null;`,
+            `  let chPromise: Promise<${TT.amqp}.Channel> | null = null;`,
+            `  const channel = (): Promise<${TT.amqp}.Channel> => {`,
+            `    connPromise ??= ${T.amqp}.connect(url);`,
             "    chPromise ??= connPromise.then((c) => c.createChannel());",
             "    return chPromise;",
             "  };",
@@ -419,14 +477,14 @@ export function renderChannelsModule(
             "          password: decodeURIComponent(userinfo.slice(colon + 1)),",
             "        } as const)",
             "      : undefined;",
-            "  const kafka = new Kafka({",
+            `  const kafka = new ${T.Kafka}({`,
             '    clientId: "loom-channels",',
             '    brokers: hosts.split(","),',
-            "    logLevel: logLevel.NOTHING,",
+            `    logLevel: ${T.logLevel}.NOTHING,`,
             "    ...(sasl ? { sasl } : {}),",
             "  });",
-            "  let producerPromise: Promise<Producer> | null = null;",
-            "  const producer = (): Promise<Producer> => {",
+            `  let producerPromise: Promise<${TT.Producer}> | null = null;`,
+            `  const producer = (): Promise<${TT.Producer}> => {`,
             "    producerPromise ??= (async () => {",
             "      const p = kafka.producer();",
             "      await p.connect();",
@@ -434,7 +492,7 @@ export function renderChannelsModule(
             "    })();",
             "    return producerPromise;",
             "  };",
-            "  const consumers: Consumer[] = [];",
+            `  const consumers: ${TT.Consumer}[] = [];`,
             "  // Idempotent topic ensure — subscribing to a not-yet-produced topic",
             "  // throws UNKNOWN_TOPIC_OR_PARTITION (consumers don't auto-create),",
             "  // so the first subscriber creates it with the broker's defaults.",
@@ -537,6 +595,9 @@ export function renderChannelsModule(
       ),
       "] as const;",
       "",
+      "/** One wired channel binding. */",
+      "export type ChannelBinding = (typeof CHANNEL_BINDINGS)[number];",
+      "",
       "// event type -> broker address.  Ephemeral events publish inline in the",
       "// tee; durable (`work`) events pass through to the outbox and publish on",
       "// relay drain (design §5).",
@@ -553,7 +614,7 @@ export function renderChannelsModule(
             "/** The event origin as envelope extension attributes — an absent slot",
             " * is omitted, never sent as null (CloudEvents extensions are strings). */",
             "function originAttributes(",
-            "  origin: EventOrigin | null,",
+            `  origin: ${TT.EventOrigin} | null,`,
             '): Pick<LoomEventEnvelope, "tenantid" | "loomorgpath" | "loomcausedby"> {',
             "  if (origin === null) return {};",
             "  return {",
@@ -565,7 +626,7 @@ export function renderChannelsModule(
             "",
             "/** The inverse: the origin a received envelope names, or null when it",
             " * names none (a producer without auth, a timer-raised event). */",
-            "function originOf(envelope: LoomEventEnvelope): EventOrigin | null {",
+            `function originOf(envelope: LoomEventEnvelope): ${TT.EventOrigin} | null {`,
             "  const { tenantid, loomorgpath, loomcausedby } = envelope;",
             "  if (tenantid === undefined && loomorgpath === undefined && loomcausedby === undefined) return null;",
             "  return { tenant: tenantid ?? null, orgPath: loomorgpath ?? null, causedBy: loomcausedby ?? null };",
@@ -605,7 +666,7 @@ export function renderChannelsModule(
       `    time: ${tsEnvelopeInstant("new Date()")},`,
       '    datacontenttype: "application/json",',
       "    loomchannel: address,",
-      ...(carriesOrigin ? ["    ...originAttributes(currentEventOrigin()),"] : []),
+      ...(carriesOrigin ? [`    ...originAttributes(${T.currentEventOrigin}()),`] : []),
       ...(hasKafka
         ? [
             "    ...(keyValue === undefined || keyValue === null ? {} : { loomkey: String(keyValue) }),",
@@ -616,11 +677,19 @@ export function renderChannelsModule(
       "}",
       "",
       "/** One shared transport per broker URL for the process (publisher tee +",
-      " * consumer loop reuse the same connections). */",
-      "export function createChannelTransports(): Map<string, ChannelTransport> {",
+      " * consumer loop reuse the same connections).  `transportFor`, when given,",
+      " * supplies every binding's transport instead and no broker URL is read —",
+      " * the in-process stand-in, or an emulated broker. */",
+      "export function createChannelTransports(",
+      "  transportFor?: (binding: ChannelBinding) => ChannelTransport,",
+      "): Map<string, ChannelTransport> {",
       "  const byUrl = new Map<string, ChannelTransport>();",
       "  const byEnv = new Map<string, ChannelTransport>();",
       "  for (const b of CHANNEL_BINDINGS) {",
+      "    if (transportFor) {",
+      "      byEnv.set(b.csName, transportFor(b));",
+      "      continue;",
+      "    }",
       "    const url = process.env[b.envVar];",
       "    if (!url) {",
       "      throw new Error(",
@@ -783,7 +852,7 @@ export function renderChannelsModule(
       "          return;",
       "        }",
       carriesOrigin
-        ? "        await runAsEventOrigin(originOf(envelope), () => dispatcher.dispatch(event));"
+        ? `        await ${T.runAsEventOrigin}(originOf(envelope), () => dispatcher.dispatch(event));`
         : "        await dispatcher.dispatch(event);",
       "        baseLogger.info({",
       '          event: "channel_consumed",',

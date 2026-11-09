@@ -65,11 +65,9 @@ describe("node embedded capability filter (DEBT-02 slice 2)", () => {
     expect(await repo()).toContain("where(wishlistScope())");
   });
 
-  // KNOWN DEFECT: an embedded aggregate's plain `Repo.find(C)` read emits no
-  // repository method (a routed handler calls `runFindAllBy<C>` regardless),
-  // so there is no criterion read here to AND the scope into.  Flip to `it`
-  // once the embedded repository emits it.
-  it.fails("ANDs the scope into a criterion read's own predicate", async () => {
+  // An embedded criterion read (`runFindAllBy<C>`) is the relational SQL
+  // query, so the scope ANDs into the criterion's predicate.
+  it("ANDs the scope into a criterion read's own predicate", async () => {
     expect(await repo()).toMatch(
       /async runFindAllByWishlistsByLabel\(l: string[\s\S]*?where\(and\(wishlistsByLabelCriterion\(l\), wishlistScope\(\)\)\)/,
     );
@@ -152,11 +150,9 @@ describe("node embedded principal (tenancy) capability filter (DEBT-02 Slice A)"
     expect(await principalRepo()).toContain("where(and(eq(schema.orders.id, id), orderScope()))");
   });
 
-  // KNOWN DEFECT: an embedded aggregate's plain `Repo.find(C)` read emits no
-  // repository method (a routed handler calls `runFindAllBy<C>` regardless),
-  // so there is no criterion read here to AND the scope into.  Flip to `it`
-  // once the embedded repository emits it.
-  it.fails("ANDs the scope into a criterion read's own predicate", async () => {
+  // An embedded criterion read (`runFindAllBy<C>`) is the relational SQL
+  // query, so the scope ANDs into the criterion's predicate.
+  it("ANDs the scope into a criterion read's own predicate", async () => {
     expect(await principalRepo()).toMatch(
       /async runFindAllByOrdersByCode\(code: string[\s\S]*?where\(and\(ordersByCodeCriterion\(code\), orderScope\(\)\)\)/,
     );

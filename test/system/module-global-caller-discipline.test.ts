@@ -86,6 +86,14 @@ const WAIVED: Record<string, Waiver> = {
       "looks the macro up during a later `validate()`, so removing them in a teardown " +
       "would make the fixtures unresolvable.",
   },
+  "test/macro/macro-synthesised-diagnostic-range.test.ts:registerMacro": {
+    disposition: "additive-permanent",
+    reason:
+      "Registers the uniquely named `loomTestWithLateFees` once behind a `lookupMacro` " +
+      "guard, after booting the stdlib, like `misbehaving-macro-diagnostics.test.ts`.  It " +
+      "must stay registered for the `validate()` call that expands it, and no reader " +
+      "asserts an exact registry set.",
+  },
   "test/macro/registry-unit.test.ts:registerMacro": {
     disposition: "snapshot-replay",
     reason:
@@ -164,7 +172,7 @@ describe("callers of module-global mutators dispose of what they write", () => {
     // This is the control: without it, renaming a mutator (or breaking the
     // walker) turns the whole gate green while it checks nothing.
     expect(sites.length).toBeGreaterThanOrEqual(6);
-    expect(sites.map((s) => s.mutator).filter((m) => m === "registerMacro").length).toBe(3);
+    expect(sites.map((s) => s.mutator).filter((m) => m === "registerMacro").length).toBe(4);
   });
 
   it("leaves nothing undisposed", () => {

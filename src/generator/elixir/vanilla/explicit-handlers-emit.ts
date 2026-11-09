@@ -43,7 +43,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
-import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -56,17 +56,15 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
+import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
-import {
-  aggregateUsesPrincipalContextFilter,
-  customFindReadsActor,
-  findUsesPrincipal,
-} from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
@@ -86,9 +84,9 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
-import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
   type BodyLine,
+  bodyReadsActor,
   collectParamRefs,
   collectWorkflowStmtParamRefs,
   lookupServiceTier,
@@ -98,9 +96,9 @@ import {
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
-/** One `"snake_key" => snake_var` binding of the `run/1` string-keyed params
- *  destructure.  `key` is the wire field name (snake) the request arrives under;
- *  `var` is the bound local (same snake token — the destructure introduces it). */
+/** One `"wireName" => snake_var` binding of the `run/1` string-keyed params
+ *  destructure.  `key` is the wire name the request arrives under; `var` is the
+ *  snake-cased local the destructure introduces. */
 interface Destructure {
   key: string;
   var: string;
@@ -161,11 +159,10 @@ function collectRecordFieldsInStmt(
   walkWorkflowStmtExprsDeep(st, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
-/** The `run/1` params destructure of a handler, wire-preserving under the
- *  M-T5.10 handler-param rewrite.  A plain id/scalar param binds from its own
- *  snake key exactly as before; a `command`/`query` RECORD param is FLATTENED —
- *  each field the body reads (`cmd.<field>`) binds from the SAME snake key an
- *  equivalent flat param used, so the request wire is byte-identical.  Only
+/** The `run/1` params destructure of a handler.  A plain id/scalar param binds
+ *  from its wire-name key; a `command`/`query` RECORD param is FLATTENED — each
+ *  field the body reads (`cmd.<field>`) binds from the SAME key an equivalent
+ *  flat param would, so the request wire is identical either way.  Only
  *  referenced fields/params are bound (unused → `--warnings-as-errors`).  Also
  *  returns the record-param name set so the body renderer can rewrite
  *  `cmd.<field>` → the flat local. */
@@ -187,11 +184,15 @@ function handlerDestructure(
 
   const entries: Destructure[] = [];
   const seen = new Set<string>();
+  // The map key is the WIRE name: Phoenix hands `params` over with the keys the
+  // client sent, and every client (the published spec, the other four backends'
+  // goldens) spells a multi-word param `commitSha`, not `commit_sha` — a snake key
+  // would make every well-formed request a MatchError.  Only the local is
+  // snake-cased, as in the workflow emitter.
   const push = (name: string): void => {
-    const key = snake(name);
-    if (seen.has(key)) return;
-    seen.add(key);
-    entries.push({ key, var: escapeElixirIdent(key) });
+    if (seen.has(name)) return;
+    seen.add(name);
+    entries.push({ key: name, var: escapeElixirIdent(snake(name)) });
   };
   for (const p of h.params) {
     const rec = requestRecordFor(p.type, ctx);
@@ -210,10 +211,26 @@ function handlerDestructure(
  *  fallible clauses, whose `do`-branch runs any `emit` side-effects then returns
  *  `{:ok, <returnValue>}`.  When the body has no fallible clause (a pure
  *  `return <literal>`), there is no `with` — just the result (and emits). */
-function assembleHandlerBody(lines: BodyLine[], resultExpr: string): string {
+function assembleHandlerBody(
+  lines: BodyLine[],
+  resultExpr: string,
+  /** A `T?` entity return: a nil result answers the find-absence 404 term the
+   *  controller's `{:not_found, detail}` arm renders, never `{:ok, nil}`. */
+  absentIs404 = false,
+): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
-  const doLines = [...emitLines.map((l) => l.text), `{:ok, ${resultExpr}}`];
+  const doLines = [
+    ...emitLines.map((l) => l.text),
+    ...(absentIs404
+      ? [
+          `case ${resultExpr} do`,
+          `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
+          `  loom_found -> {:ok, loom_found}`,
+          `end`,
+        ]
+      : [`{:ok, ${resultExpr}}`]),
+  ];
   if (withClauses.length === 0) {
     return doLines.map((l) => `    ${l}`).join("\n");
   }
@@ -341,6 +358,7 @@ function renderHandlerModule(
     domainServiceTier: (service, opName) => lookupServiceTier(ctx, service, opName),
     readingServiceModule: contextModuleFq,
     ...(threadsActor ? { repoRunActor: true } : {}),
+    writeScope: writeScopeContext(h.statements, ctx),
   };
 
   // The `return <expr>` is rendered into the with-chain's do-branch by
@@ -356,7 +374,22 @@ function renderHandlerModule(
     ownResult: true,
   });
   const resultExpr = h.returnValue ? renderExpr(h.returnValue, renderCtx) : ":ok";
-  const body = assembleHandlerBody(lines, resultExpr);
+  const assembled = assembleHandlerBody(lines, resultExpr, routedAbsenceAnswers404(h, ctx));
+  // A body that re-checks a held row's write scope runs in one transaction,
+  // so a row outside the scope fails the whole command and rolls back the
+  // rows it already changed.
+  const body = handlerRechecksWriteScope(h, ctx)
+    ? [
+        `    ${appModule}.Repo.transaction(fn ->`,
+        `      case (`,
+        ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
+        `      ) do`,
+        `        {:ok, result} -> result`,
+        `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
+        `      end`,
+        `    end)`,
+      ].join("\n")
+    : assembled;
   // Emit the `Context` alias iff the body actually references the context
   // module — a `with`-clause alone is NOT proof (a handler whose `with`
   // clauses only call `D.Resources.*` references no context module, so the
@@ -398,7 +431,24 @@ end
  *  (a `requires` gate or an expression), or a principal-filtered `Repo.run`
  *  read?  Then its `run` takes `current_user` and the route passes it. */
 function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  return handlerUsesCurrentUser(h) || handlerThreadsActor(h, ctx);
+  return (
+    handlerUsesCurrentUser(h) ||
+    handlerThreadsActor(h, ctx) ||
+    writeScopeGuardsOf(h, ctx).some((g) => {
+      const agg = ctx.aggregates.find((a) => a.name === g.aggName);
+      return agg !== undefined && aggregateUsesPrincipalContextFilter(agg);
+    })
+  );
+}
+
+/** Every write-scope re-check in the handler's body. */
+function writeScopeGuardsOf(h: Handler, ctx: EnrichedBoundedContextIR) {
+  return h.extern ? [] : bodyWriteScopeGuards(h.statements, writeScopeContext(h.statements, ctx));
+}
+
+/** Does the handler's body re-check some held row's write scope? */
+function handlerRechecksWriteScope(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  return writeScopeGuardsOf(h, ctx).length > 0;
 }
 
 /** Does a (non-extern) handler run a criterion read — `Repo.run(<C>)`, or the
@@ -407,31 +457,7 @@ function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
  *  or a `currentUser` criterion)?  Then the read forwards `current_user` as its
  *  opt; without it the retrieval fails closed to no rows. */
 function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  if (h.extern) return false;
-  const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
-  // A declared (or `ignoring`-synthesized) repository find that still scopes by
-  // the actor — the optional-read lookup passes `current_user` to it.
-  const findReads = (aggName: string, method: string | undefined): boolean =>
-    !!method && customFindReadsActor(ctx, aggName, method);
-  let found = false;
-  for (const top of h.statements) {
-    walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "repo-run" && reads(st.retrievalName)) found = true;
-      if (
-        st.kind === "repo-let" &&
-        st.returnType.kind === "optional" &&
-        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.method))
-      )
-        found = true;
-      if (
-        st.kind === "if-let" &&
-        st.op !== "bound" &&
-        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.findMethod))
-      )
-        found = true;
-    });
-  }
-  return found;
+  return !h.extern && bodyReadsActor([h.statements], ctx);
 }
 
 /** Emit the `run/1` handler modules for every explicit `commandHandler` /
@@ -574,8 +600,10 @@ function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
   return found;
 }
 
+/** A path param keeps its declared (wire) name, as the derived routes' do: the
+ *  handler's `run/1` matches every param — path, query, body — by wire name. */
 function phoenixPath(path: string): string {
-  return path.replace(/\{(\w+)\}/g, (_, name: string) => `:${snake(name)}`);
+  return path.replace(/\{(\w+)\}/g, ":$1");
 }
 
 /** Emit one `<Api>RoutesController` per served api whose route list is
@@ -723,7 +751,7 @@ ${pagingElseArm("ProblemDetails", "    ")}
       continue;
     }
     if (!handler.extern) {
-      if (handlerLoadsById(handler)) loadsById = true;
+      if (handlerLoadsById(handler) || routedAbsenceAnswers404(handler, ctx)) loadsById = true;
       if (!handler.returnType) hasVoid = true;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;

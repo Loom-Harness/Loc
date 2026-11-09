@@ -6,8 +6,7 @@
 // conformance parity is unaffected; only the code organisation differs.
 
 import { describe, expect, it } from "vitest";
-import { generateHono, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -20,8 +19,9 @@ const SRC = `
 
 describe("typescript generator — reified criteria (retrieval)", () => {
   it("emits a module-level criterion fn the run method calls", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/customer-repository.ts",
+    )!;
     // The predicate is reified once, outside the class.
     expect(repo).toMatch(
       /const inRegionCriterion = \(rgn: string\) => eq\(schema\.customers\.region, rgn\);/,

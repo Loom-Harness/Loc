@@ -30,7 +30,7 @@
 // an unordered read answers differently from run to run and backend to backend.
 // Where ids are UUIDv7 (node), `id` order also tracks creation order.
 
-import type { AggregateIR, ExprIR, SortTermIR } from "../types/loom-ir.js";
+import type { AggregateIR, ExprIR, SortTermIR, TypeIR } from "../types/loom-ir.js";
 import {
   type AggPool,
   baseOf,
@@ -48,6 +48,7 @@ import {
   ROOT_ORG_CLAIM_FIELD,
   TENANCY_SELF_SCOPE_ORIGIN,
   TENANT_OWNED_CAPABILITY,
+  TENANT_OWNED_TENANT_ID_FIELD,
 } from "../util/tenant-stance.js";
 
 /** What a restriction is.
@@ -232,6 +233,56 @@ export function readScopeFor(
   return { aggregate: agg.name, restrictions, subtypeRestrictions };
 }
 
+/** The read scope of a tenant-scoped FOLDED projection's rows
+ *  (`fold-tenancy.ts`): the `tenantOwned` floor over the row's `tenantId`
+ *  column — `this.tenantId == currentUser.<claim>`, the predicate a
+ *  `tenantOwned` table read applies.  A fold row is written by the fold, never
+ *  by a `policy`-widened command, so its scope is the floor alone: a producer's
+ *  deep/global read level does not widen the read model. */
+export function foldRowReadScope(
+  projection: string,
+  claim: string,
+  opts: ReadScopeOptions = {},
+): ReadScope {
+  const str: TypeIR = { kind: "primitive", name: "string" };
+  const user: TypeIR = { kind: "entity", name: "__User__" };
+  const predicate: ExprIR = {
+    kind: "binary",
+    op: "==",
+    left: {
+      kind: "member",
+      receiver: { kind: "this" },
+      member: TENANT_OWNED_TENANT_ID_FIELD,
+      receiverType: { kind: "entity", name: projection },
+      memberType: str,
+    },
+    right: {
+      kind: "member",
+      receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: user },
+      member: claim,
+      receiverType: user,
+      memberType: str,
+    },
+    leftType: str,
+    rightType: str,
+    resultType: { kind: "primitive", name: "bool" },
+  } as ExprIR;
+  const floor: ReadRestriction = {
+    kind: "tenancy",
+    predicate,
+    capability: TENANT_OWNED_CAPABILITY,
+    bypassable: true,
+    declaredOn: projection,
+    inherited: false,
+    tenancy: "tenant",
+  };
+  return {
+    aggregate: projection,
+    restrictions: isBypassedBy(floor.capability, opts.ignoring) ? [] : [floor],
+    subtypeRestrictions: [],
+  };
+}
+
 /** The discriminator a read of `agg` is scoped by, or undefined when it reads
  *  a table of its own. */
 export function readDiscriminator(scope: ReadScope): string | undefined {
@@ -259,6 +310,20 @@ export interface ReadOrderTerm {
  *  database's physical order. */
 export function readOrderFor(declared?: readonly SortTermIR[]): ReadOrderTerm[] {
   return defaultSortOrder(declared) ?? [{ field: "id", direction: "asc" }];
+}
+
+/** `readOrderFor` in `SortTermIR` form, for the emitters that render a
+ *  retrieval's `sort:` through their own sort-path renderer: the declared terms
+ *  with an `id asc` term appended unless one already sorts by `id`.  An
+ *  unsorted retrieval — a criterion `find(C)` taking the first match, or
+ *  `all(C)` — therefore reads in `id` order on every backend instead of the
+ *  database's physical order, so every backend answers the same first row. */
+export function readSortFor(declared?: readonly SortTermIR[]): SortTermIR[] {
+  const terms = [...(declared ?? [])];
+  if (!terms.some((t) => t.path.length === 1 && t.path[0]!.name === "id")) {
+    terms.push({ path: [{ name: "id", collection: false }], direction: "asc" });
+  }
+  return terms;
 }
 
 // ---------------------------------------------------------------------------

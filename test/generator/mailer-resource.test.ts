@@ -8,8 +8,7 @@
 // the emitted vendor clients is each backend's build-gate job (4.6-email-b).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** A one-context system whose workflow calls `mail.send(...)`, parameterised
  *  by target platform and mailer sourceType. */
@@ -48,7 +47,7 @@ const find = (files: Map<string, string>, re: RegExp): string | undefined =>
 
 describe("mailer resource — hono/node", () => {
   it("emits an smtp client module with a mail$send helper + nodemailer dep", async () => {
-    const { files } = generateSystems(await parseValid(src("node", "smtp")));
+    const files = await generateSystemFiles(src("node", "smtp"));
     const mod = files.get("d/resources/smtp.ts")!;
     expect(mod).toMatch(/import nodemailer from "nodemailer";/);
     expect(mod).toMatch(/mailFrom = process\.env\.MAIL_FROM \?\? "no-reply@acme.test"/);
@@ -60,7 +59,7 @@ describe("mailer resource — hono/node", () => {
   });
 
   it("renders the resource-op call site awaited inline", async () => {
-    const { files } = generateSystems(await parseValid(src("node", "smtp")));
+    const files = await generateSystemFiles(src("node", "smtp"));
     const wf = find(files, /workflows\.ts$/)!;
     expect(wf).toMatch(/import \{ mail\$send \} from "\.\.\/resources\/smtp"/);
     expect(wf).toMatch(
@@ -69,14 +68,10 @@ describe("mailer resource — hono/node", () => {
   });
 
   it("ses uses the SES SDK; sendgrid uses @sendgrid/mail", async () => {
-    const ses = generateSystems(await parseValid(src("node", "ses"))).files.get(
-      "d/resources/ses.ts",
-    )!;
+    const ses = (await generateSystemFiles(src("node", "ses"))).get("d/resources/ses.ts")!;
     expect(ses).toMatch(/@aws-sdk\/client-ses/);
     expect(ses).toMatch(/new SendEmailCommand/);
-    const sg = generateSystems(await parseValid(src("node", "sendgrid"))).files.get(
-      "d/resources/sendgrid.ts",
-    )!;
+    const sg = (await generateSystemFiles(src("node", "sendgrid"))).get("d/resources/sendgrid.ts")!;
     expect(sg).toMatch(/import sgMail from "@sendgrid\/mail";/);
     expect(sg).toMatch(/sgMail\.send\(\{ to, from: mailFrom, subject, text: body \}\)/);
   });
@@ -84,7 +79,7 @@ describe("mailer resource — hono/node", () => {
 
 describe("mailer resource — cross-backend emission", () => {
   it("dotnet emits SmtpResources.Mail_Send via MailKit + the call site", async () => {
-    const { files } = generateSystems(await parseValid(src("dotnet", "smtp")));
+    const files = await generateSystemFiles(src("dotnet", "smtp"));
     const mod = find(files, /Resources\/SmtpResources\.cs$/)!;
     expect(mod).toMatch(/using MailKit\.Net\.Smtp;/);
     expect(mod).toMatch(
@@ -94,7 +89,7 @@ describe("mailer resource — cross-backend emission", () => {
   });
 
   it("dotnet csproj carries MailKit + suppresses its transitive NU1902 advisory", async () => {
-    const { files } = generateSystems(await parseValid(src("dotnet", "smtp")));
+    const files = await generateSystemFiles(src("dotnet", "smtp"));
     const csproj = find(files, /\.csproj$/)!;
     expect(csproj).toMatch(/<PackageReference Include="MailKit" Version="[\d.]+" \/>/);
     // The suppress keeps `dotnet build /warnaserror` (NuGet audit → NU1902)
@@ -108,7 +103,7 @@ describe("mailer resource — cross-backend emission", () => {
   });
 
   it("dotnet csproj pins the patched System.Security.Cryptography.Pkcs over MailKit's transitive", async () => {
-    const { files } = generateSystems(await parseValid(src("dotnet", "smtp")));
+    const files = await generateSystemFiles(src("dotnet", "smtp"));
     const csproj = find(files, /\.csproj$/)!;
     // MailKit → MimeKit resolves Pkcs 8.0.0 (GHSA-2fmv-rv2c-59x7 moderate,
     // GHSA-846f-f764-76mx high → NU1902/NU1903 under /warnaserror); 8.0.2 is
@@ -120,8 +115,8 @@ describe("mailer resource — cross-backend emission", () => {
   });
 
   it("dotnet csproj emits no NuGetAuditSuppress when no mailer is consumed", async () => {
-    const { files } = generateSystems(
-      await parseValid(`
+    const files = await generateSystemFiles(
+      `
 system Sys {
   subdomain D { context Sales {
     aggregate Order with crudish { name: string }
@@ -131,7 +126,7 @@ system Sys {
   storage pg { type: postgres }
   resource salesState { for: Sales, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Sales], dataSources: [salesState], serves: A, port: 4000 }
-}`),
+}`,
     );
     const csproj = find(files, /\.csproj$/)!;
     expect(csproj).not.toMatch(/NuGetAuditSuppress/);
@@ -139,7 +134,7 @@ system Sys {
   });
 
   it("java emits SmtpResources.mailSend via Jakarta Mail + the call site", async () => {
-    const { files } = generateSystems(await parseValid(src("java", "smtp")));
+    const files = await generateSystemFiles(src("java", "smtp"));
     const mod = find(files, /SmtpResources\.java$/)!;
     expect(mod).toMatch(/import jakarta\.mail\.Transport;/);
     expect(mod).toMatch(/public static void mailSend\(String to, String subject, String body\)/);
@@ -147,7 +142,7 @@ system Sys {
   });
 
   it("python emits mail_send via aiosmtplib + the awaited call site", async () => {
-    const { files } = generateSystems(await parseValid(src("python", "smtp")));
+    const files = await generateSystemFiles(src("python", "smtp"));
     const mod = find(files, /resources\/smtp\.py$/)!;
     expect(mod).toMatch(/import aiosmtplib/);
     expect(mod).toMatch(/async def mail_send\(to: str, subject: str, body: str\) -> None:/);
@@ -155,7 +150,7 @@ system Sys {
   });
 
   it("phoenix emits mail_send via Swoosh + the call site", async () => {
-    const { files } = generateSystems(await parseValid(src("elixir", "smtp")));
+    const files = await generateSystemFiles(src("elixir", "smtp"));
     const mod = find(files, /resources\/smtp\.ex$/)!;
     expect(mod).toMatch(/Swoosh\.Adapters\.SMTP\.deliver/);
     expect(mod).toMatch(/def mail_send\(to, subject, body\)/);
@@ -168,20 +163,14 @@ system Sys {
 // nodemailer parses the URL itself; the other four decode + authenticate.
 describe("mailer resource — smtp auth from the connection URL", () => {
   it("python passes username/password from the parsed URL", async () => {
-    const mod = find(
-      generateSystems(await parseValid(src("python", "smtp"))).files,
-      /resources\/smtp\.py$/,
-    )!;
+    const mod = find(await generateSystemFiles(src("python", "smtp")), /resources\/smtp\.py$/)!;
     expect(mod).toMatch(/username=parsed\.username or None/);
     expect(mod).toMatch(/password=parsed\.password or None/);
     expect(mod).toMatch(/use_tls=parsed\.scheme == "smtps"/);
   });
 
   it("java installs an Authenticator + starttls/ssl when the URL carries credentials", async () => {
-    const mod = find(
-      generateSystems(await parseValid(src("java", "smtp"))).files,
-      /SmtpResources\.java$/,
-    )!;
+    const mod = find(await generateSystemFiles(src("java", "smtp")), /SmtpResources\.java$/)!;
     expect(mod).toMatch(/uri\.getUserInfo\(\)/);
     expect(mod).toMatch(/mail\.smtp\.auth/);
     expect(mod).toMatch(/new Authenticator\(\)/);
@@ -190,7 +179,7 @@ describe("mailer resource — smtp auth from the connection URL", () => {
 
   it("dotnet authenticates + picks SecureSocketOptions from the URL", async () => {
     const mod = find(
-      generateSystems(await parseValid(src("dotnet", "smtp"))).files,
+      await generateSystemFiles(src("dotnet", "smtp")),
       /Resources\/SmtpResources\.cs$/,
     )!;
     expect(mod).toMatch(/uri\.UserInfo/);
@@ -200,10 +189,7 @@ describe("mailer resource — smtp auth from the connection URL", () => {
   });
 
   it("phoenix passes username/password/auth/tls when the URL carries credentials", async () => {
-    const mod = find(
-      generateSystems(await parseValid(src("elixir", "smtp"))).files,
-      /resources\/smtp\.ex$/,
-    )!;
+    const mod = find(await generateSystemFiles(src("elixir", "smtp")), /resources\/smtp\.ex$/)!;
     expect(mod).toMatch(/uri\.userinfo/);
     expect(mod).toMatch(/username: user/);
     expect(mod).toMatch(/auth: :always/);
@@ -213,15 +199,11 @@ describe("mailer resource — smtp auth from the connection URL", () => {
 
 describe("mailer resource — dev compose sidecar", () => {
   it("smtp storage emits a Mailpit sidecar; ses/sendgrid emit none", async () => {
-    const smtp = generateSystems(await parseValid(src("node", "smtp"))).files.get(
-      "docker-compose.yml",
-    )!;
+    const smtp = (await generateSystemFiles(src("node", "smtp"))).get("docker-compose.yml")!;
     expect(smtp).toMatch(/image: axllent\/mailpit:latest/);
     expect(smtp).toMatch(/MP_SMTP_AUTH_ACCEPT_ANY: 1/);
 
-    const ses = generateSystems(await parseValid(src("node", "ses"))).files.get(
-      "docker-compose.yml",
-    )!;
+    const ses = (await generateSystemFiles(src("node", "ses"))).get("docker-compose.yml")!;
     expect(ses).not.toMatch(/mailpit/);
   });
 });

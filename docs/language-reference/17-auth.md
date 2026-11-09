@@ -198,7 +198,7 @@ if bypass_path?(conn.request_path), do: conn, else:
 - `oidc { issuer, clientId, clientSecret, audience, scopes: […] }` — each value is a `"literal"` or `env("VAR")`, so secrets never land in source. A missing `clientId` is `loom.auth-missing-client-id`.
   - **`audience:` is optional, and its default is unsafe.** The emitted verifier validates the signature (JWKS), the `issuer` and `exp`; the `aud` claim is checked only when an audience actually *resolves*, so with none, *any* token minted by the same issuer — including one issued to a different client in the same realm — is accepted. Verified against a running generated API: a token carrying `aud: some-other-app` from the configured issuer returned 200. The generated `auth/oidc.ts` says so in a comment above the call it actually makes, and omitting `audience:` now also raises `loom.auth-oidc-no-audience` (**warning**).
 
-    Two ways to turn it on, and the env one needs no regeneration: **`OIDC_AUDIENCE` in the deploy environment** (it supplies an audience when the model declares none, and overrides the declared value when it does — every backend reads it), or **`audience: env("OIDC_AUDIENCE")`** in the `oidc { … }` block. An empty value (`OIDC_AUDIENCE=""`) is the documented opt-out.
+    Two ways to turn it on, and the env one needs no regeneration: **`OIDC_AUDIENCE` in the deploy environment** (it supplies an audience when the model declares none, and overrides the declared value when it does — every backend reads it), or **`audience: env("OIDC_AUDIENCE")`** in the `oidc { … }` block. An empty value (`OIDC_AUDIENCE=""`, or unset) skips the check only when the model declares no `audience:`; under a declared one it **rejects every token** (fail closed).
 
     It is **not** defaulted to `clientId`, because the generator's own Keycloak realm mints access tokens with `aud: account` unless an audience mapper is configured — the default would break the shipped demo. See [`../auth.md`](../auth.md#token-audience-aud).
 - `sessions: cookie | jwt` (default `cookie`), `enforcement: denyByDefault | opt` (default `denyByDefault` since M-T3.1 — an `auth` block that names no `enforcement:` is deny-by-default; write `enforcement: opt` to keep the pre-flip opt-in posture, or run `node scripts/codemod-enforcement-opt.mjs` over a project that relied on it — see [`requires`](#requires--the-authorization-gate-http-403) and [`../migrations.md`](../migrations.md#the-enforcement-default-flip-m-t31)).
@@ -422,7 +422,7 @@ policy CanClose(prio: int): bool = currentUser.permissions.contains(permissions.
 operation close() requires IsAgent() || CanClose(priority) { … }
 ```
 
-A policy function is **context-local**: calling one from another bounded context — bare (`IsAdmin()`) or qualified with its context (`Orders.IsAdmin()`) — is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"). Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
+A policy function is **context-local**: calling one from another bounded context — bare (`IsAdmin()`), qualified with its context (`Orders.IsAdmin()`), referenced without parentheses (`requires IsAdmin`), or through a top-level function whose body calls it (the function is inlined where it is called) — is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"), whichever file declares the policy. Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
 
 The call is **inlined at the gate** — no function is emitted, and the `ForbiddenError` message keeps the author's source text:
 
@@ -505,7 +505,7 @@ Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy
 
 ### `read` — who may read an aggregate
 
-The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, and the scaffolded List page. It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.
+The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, the scaffolded List page, and every `queryHandler` / `commandHandler` whose body reads the aggregate (a hand-written routed handler gets the gate as a leading `requires`, so it answers the same 403 as the derived routes; a handler reading several gated aggregates carries one gate per aggregate, in first-read order). It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.
 
 ```ddd
 repository Orders for Order { }

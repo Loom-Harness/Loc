@@ -1,4 +1,4 @@
-import { readFilterRestrictions, readScopeFor } from "../../ir/enrich/read-scope.js";
+import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
@@ -17,10 +17,12 @@ import {
   type RepositoryIR,
   type RetrievalIR,
   type TypeIR,
-  type WorkflowStmtIR,
+  type WireField,
 } from "../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -52,7 +54,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { mapExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
@@ -63,7 +65,6 @@ import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { PY_PROV_SUFFIX, provColumn, provenancedFieldsOf } from "./emit/provenance.js";
 import {
   documentWriteScopeBody,
-  type FilterBypass,
   lowerToSqlAlchemy,
   type PyPredicate,
   requireLowered,
@@ -321,13 +322,6 @@ export function buildPyRepositoryFile(
   // The WRITE-scope guard predicate (authorization) — null unless
   // the aggregate's write scope is narrower than its read scope.
   const writePred = writeScopePredicate(agg, ctx);
-  // Inline `Repo.findAll(<Criterion>) ignoring …` / `Repo.run(…) ignoring …`
-  // call-sites lower to `run_<retrieval>(…)`; that method is SHARED across
-  // sites, so its baked-in capability filter must OMIT the UNION of the caps
-  // every inline site bypasses (named-filter-bypass.md §11.6 — the static
-  // analogue of java's `inlineRunBypassesByRetrieval`).  Keyed by retrieval
-  // name; empty when no inline read of this aggregate carries `ignoring`.
-  const inlineRunBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
   const scoped = aggHasReadRestrictions(agg, ctx);
   // Pin the enriched element type — the AggregateIR ∩ Enriched
   // intersection's `.parts` otherwise infers the un-enriched element.
@@ -416,10 +410,7 @@ export function buildPyRepositoryFile(
     `        rows = (await self._session.execute(${R.select}(${root}).where(${root}.id.in_(list(ids))))).scalars().all()`,
     `        return ${hydrateListExpr(agg)}`,
     ...queryProjectionViews(agg, ctx).flatMap((v) => ["", viewFindMethod(agg, v, ctx)]),
-    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
-      "",
-      runMethod(agg, r, ctx, inlineRunBypasses.get(r.name)),
-    ]),
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => ["", runMethod(agg, r, ctx)]),
     "",
     saveMethod(agg, ctx, aggVar),
     canonicalDestroy(agg) ? ["", deleteMethod(agg)] : null,
@@ -442,6 +433,17 @@ export function buildPyRepositoryFile(
 
 // --- finds -------------------------------------------------------------------
 
+/** The method behind a widened single-row read (`find(C) ignoring …` /
+ *  `find(id) ignoring …` / `findBy(…) ignoring …`) — derived in enrichment,
+ *  never route-exposed, called from workflow / handler / service bodies. */
+function isWidenedRowRead(find: FindIR): boolean {
+  return (
+    !!find.synthesized &&
+    find.returnType.kind === "optional" &&
+    (!!find.bypassAll || (find.bypassCaps?.length ?? 0) > 0)
+  );
+}
+
 /** One repository method per user-declared find.  A `where` clause
  *  lowers to a SQLAlchemy predicate; a clause-less find falls back to
  *  convention-matching its params to columns. */
@@ -454,15 +456,19 @@ export function relationalFindMethod(
   const root = schemaRow(rowClassName(agg.name));
   const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   // currentUser-scoped finds take the actor as the trailing parameter;
-  // the predicate renders `current_user.<claim>` as a plain bind value.
-  if (findUsesCurrentUser(find)) params.push(`current_user: ${R.User}`);
+  // the predicate renders `current_user.<claim>` as a plain bind value.  A
+  // widened single-row read's method is called from bodies only, which hold
+  // no `current_user` to pass, so it reads the AMBIENT principal instead —
+  // exactly as the criterion's shared retrieval does (`principalOpts`).
+  const ambient = isWidenedRowRead(find);
+  if (findUsesCurrentUser(find) && !ambient) params.push(`current_user: ${R.User}`);
   // §F2 (Wave 2 packet 2.4): a DECLARED `find.filter` that fails to lower
   // must REFUSE, not silently fall through as "no filter" — `requireLowered`
   // is what stops a validator gap here from becoming an unfiltered read.
   const pred = find.filter
     ? requireLowered(
         `find '${find.name}' on '${agg.name}'`,
-        lowerToSqlAlchemy(find.filter, agg, ctx),
+        lowerToSqlAlchemy(find.filter, agg, ctx, ambient ? principalOpts(find.filter) : undefined),
       )
     : null;
   // A `find … ignoring <Cap>`/`ignoring *` drops the named restrictions for
@@ -642,45 +648,6 @@ export function aggregateRetrievals(
   );
 }
 
-/** The UNION bypass spec per retrieval name, drawn from the inline
- *  `Repo.findAll(<Criterion>) ignoring …` / `Repo.run(<Retrieval>(…)) ignoring …`
- *  call-sites in `ctx`'s workflows that hit `aggName`.  A retrieval's
- *  `run_<name>` impl method is SHARED across call-sites, so its baked-in
- *  bypass must cover EVERY site: `bypassAll` if any site bypasses all, else the
- *  union of the named caps.  Empty map when no inline read of `aggName` carries
- *  an `ignoring` clause.  Mirrors java's `inlineRunBypassesByRetrieval`. */
-export function inlineRunBypassesByRetrieval(
-  ctx: EnrichedBoundedContextIR,
-  aggName: string,
-): Map<string, FilterBypass> {
-  const acc = new Map<string, { bypassAll: boolean; caps: Set<string> }>();
-  // Every statement, nested ones included (a loop body, an `if let` branch, a
-  // `match` arm).
-  const collect = (stmts: readonly WorkflowStmtIR[]): void => {
-    for (const s of stmts.flatMap(allStmts)) {
-      if (
-        s.kind === "repo-run" &&
-        s.aggName === aggName &&
-        (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)
-      ) {
-        const cur = acc.get(s.retrievalName) ?? { bypassAll: false, caps: new Set<string>() };
-        if (s.bypassAll) cur.bypassAll = true;
-        for (const c of s.bypassCaps ?? []) cur.caps.add(c);
-        acc.set(s.retrievalName, cur);
-      }
-    }
-  };
-  for (const wf of ctx.workflows) {
-    for (const c of wf.creates) collect(c.statements);
-    for (const on of wf.subscriptions ?? []) collect(on.statements);
-  }
-  const out = new Map<string, FilterBypass>();
-  for (const [name, v] of acc) {
-    out.set(name, v.bypassAll ? { bypassAll: true } : { bypassCaps: [...v.caps] });
-  }
-  return out;
-}
-
 /** Per-query-projection repository find — the lowered filter over the source
  *  aggregate (no filter → all).  The query-projection router calls this. */
 function viewFindMethod(
@@ -721,33 +688,41 @@ export function runMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   ctx: EnrichedBoundedContextIR,
-  bypass?: FilterBypass,
   /** False on the embedded repository, which hydrates per row (no
    *  `_hydrate_many`) — the same switch `relationalFindMethod` takes. */
   bulkHydrate = true,
 ): string {
   const root = schemaRow(rowClassName(agg.name));
+  // The runner appends its own `offset` / `limit` paging keywords (callers
+  // pass them by name), so a criterion param of either name would be a
+  // duplicate argument — a SyntaxError.  The colliding param is renamed in the
+  // signature and the predicate instead; callers pass criterion args
+  // positionally, so the rename is invisible to them.
+  const renames = runnerParamRenames(retrieval.params.map((p) => p.name));
+  const where = renames.size > 0 ? renameParamRefs(retrieval.where, renames) : retrieval.where;
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
-    lowerToSqlAlchemy(retrieval.where, agg, ctx, principalOpts(retrieval.where)),
+    lowerToSqlAlchemy(where, agg, ctx, principalOpts(where)),
   );
-  const orderBy =
-    retrieval.sort.length > 0
-      ? `.order_by(${retrieval.sort
-          .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
-          .join(", ")})`
-      : "";
+  // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`)
+  // — never the database's physical order, so a criterion `find` taking the
+  // first match answers the same row as every other backend.
+  const orderBy = `.order_by(${readSortFor(retrieval.sort)
+    .map((t) => `${root}.${pythonIdent(t.path[0]!.name)}.${t.direction}()`)
+    .join(", ")})`;
   const params = [
     "self",
-    ...retrieval.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...retrieval.params.map(
+      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+    ),
     "offset: int | None = None",
     "limit: int | None = None",
   ];
   return lines(
     `    async def run_${snake(retrieval.name)}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
-    // An inline `ignoring` call-site reaching this retrieval drops the
-    // bypassed restrictions (the union across sites).
-    `        query = ${R.select}(${root})${whereClause(pred)}${orderBy}${pyIgnoringOption(bypass)}`,
+    // A widened read's own retrieval (`… ignoring …`) drops the restrictions
+    // its stance names; the shared retrieval carries none.
+    `        query = ${R.select}(${root})${whereClause(pred)}${orderBy}${pyIgnoringOption(retrieval)}`,
     "        if offset is not None:",
     "            query = query.offset(offset)",
     "        if limit is not None:",
@@ -777,18 +752,22 @@ export function pyInMemoryRunMethod(
   },
 ): string {
   const name = `run_${snake(retrieval.name)}`;
+  const renames = runnerParamRenames(retrieval.params.map((p) => p.name));
+  const where = renames.size > 0 ? renameParamRefs(retrieval.where, renames) : retrieval.where;
   const params = [
     "self",
-    ...retrieval.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...retrieval.params.map(
+      (p) => `${pythonIdent(renames.get(p.name) ?? p.name)}: ${renderPyType(p.type)}`,
+    ),
     "offset: int | None = None",
     "limit: int | None = None",
   ];
-  const conds = [opts.capability?.expr, renderPyExpr(retrieval.where, { thisName: "x" })]
+  const conds = [opts.capability?.expr, renderPyExpr(where, { thisName: "x" })]
     .filter((c): c is string => c != null)
     .map((c) => `(${c})`);
   // A capability or criterion naming `currentUser` reads the ambient
   // principal — the call site passes none, exactly as for the relational runner.
-  const bindPrincipal = !!opts.capability?.usesPrincipal || exprUsesCurrentUser(retrieval.where);
+  const bindPrincipal = !!opts.capability?.usesPrincipal || exprUsesCurrentUser(where);
   // Stable sorts applied last-key-first give the multi-key order with a
   // per-term direction.
   const sorts = [...retrieval.sort]
@@ -810,6 +789,34 @@ export function pyInMemoryRunMethod(
     findExecutedLine(agg, name, "len(result)"),
     "        return result",
   );
+}
+
+/** The runner's own paging keywords, which a criterion param must not reuse. */
+const RUNNER_PAGING_PARAMS: ReadonlySet<string> = new Set(["offset", "limit"]);
+
+/** Criterion param name → the name the runner declares it under: a param that
+ *  collides with a paging keyword takes a trailing `_` (repeated until it is
+ *  free of every other param).  Empty when nothing collides. */
+function runnerParamRenames(params: readonly string[]): Map<string, string> {
+  const renames = new Map<string, string>();
+  const taken = new Set(params.map((p) => pythonIdent(p)));
+  for (const p of params) {
+    if (!RUNNER_PAGING_PARAMS.has(pythonIdent(p))) continue;
+    let name = `${p}_`;
+    while (taken.has(pythonIdent(name))) name = `${name}_`;
+    taken.add(pythonIdent(name));
+    renames.set(p, name);
+  }
+  return renames;
+}
+
+/** `e` with every reference to a renamed PARAM spelled by its new name. */
+function renameParamRefs(e: ExprIR, renames: ReadonlyMap<string, string>): ExprIR {
+  if (e.kind === "ref" && e.refKind === "param") {
+    const name = renames.get(e.name);
+    return name ? { ...e, name } : e;
+  }
+  return mapExprChildren(e, (c) => renameParamRefs(c, renames));
 }
 
 // --- hydration (row → domain) ----------------------------------------------
@@ -1423,15 +1430,15 @@ function saveMethod(
     // Guarded upsert (optimistic concurrency): on an INSERT-conflict, only
     // overwrite when the stored `version` still equals the caller's expected
     // value, bumping it by one; a stale write matches the `where` against no
-    // row, so `RETURNING id` comes back empty → ConcurrencyError → 409.  A
+    // row, so `RETURNING version` comes back empty → ConcurrencyError → 409.  A
     // fresh INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = rootPairs
       .map(([k]) => k)
-      .filter((k) => k !== "id" && k !== "version")
+      .filter((k) => k !== "id" && k !== ROW_VERSION_COLUMN)
       .map((k) => `"${k}": root[${JSON.stringify(k)}]`);
-    setEntries.push(`"version": ${root}.version + 1`);
+    setEntries.push(`"${ROW_VERSION_COLUMN}": ${root}.${ROW_VERSION_COLUMN} + 1`);
     out.push(
-      `        _expected = ${aggVar}.version if expected_version is None else expected_version`,
+      `        _expected = ${aggVar}.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
     );
     out.push("        _guarded = await self._session.execute(");
     out.push(`            ${R.insert}(${root})`);
@@ -1441,14 +1448,17 @@ function saveMethod(
     out.push(`                set_={${setEntries.join(", ")}},`);
     out.push(
       kindGuard
-        ? `                where=${R.and_}(${root}.version == _expected, ${kindGuard}),`
-        : `                where=${root}.version == _expected,`,
+        ? `                where=${R.and_}(${root}.${ROW_VERSION_COLUMN} == _expected, ${kindGuard}),`
+        : `                where=${root}.${ROW_VERSION_COLUMN} == _expected,`,
     );
     out.push("            )");
-    out.push(`            .returning(${root}.id)`);
-    out.push("        )");
-    out.push("        if _guarded.first() is None:");
-    out.push(`            ${pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`)}`);
+    out.push(
+      ...pyGuardedSaveTail(
+        root,
+        aggVar,
+        pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`),
+      ),
+    );
   } else {
     out.push("        await self._session.execute(");
     out.push(
@@ -1694,20 +1704,25 @@ function syncValueCollection(
 ): string[] {
   const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
   const vo = findValueObjectInScope(ctx, vc.voName);
-  // Flattened VO column kwargs: `amount=Decimal(str(__e.amount)), …`.
+  // Loop variables are named per collection: one save method holds several
+  // loops, and `mypy --strict` rejects a name rebound to a different element type.
+  const field = snake(vc.fieldName);
+  const idx = `__i_${field}`;
+  const elem = `__e_${field}`;
+  // Flattened VO column kwargs: `amount=Decimal(str(__e_<field>.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
     (vf) =>
-      `${pythonIdent(vf.name)}=${persistScalar(`__e.${pythonIdent(vf.name)}`, vf.type, false)}`,
+      `${pythonIdent(vf.name)}=${persistScalar(`${elem}.${pythonIdent(vf.name)}`, vf.type, false)}`,
   );
   return [
     "        await self._session.execute(",
     `            ${R.delete}(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
     "        )",
-    `        for __i, __e in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
+    `        for ${idx}, ${elem} in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
     "            await self._session.execute(",
     `                ${R.insert}(${vcRow}).values(`,
     `                    ${vc.parentFk}=${aggVar}.id,`,
-    "                    ordinal=__i,",
+    `                    ordinal=${idx},`,
     ...voKwargs.map((p) => `                    ${p},`),
     "                )",
     "            )",
@@ -1922,9 +1937,11 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
 
 /** The read-masked wire fields of an aggregate (`field: T mask unless <expr>`,
  *  authorization.md §5) — the API-read wire fields whose `maskUnless` predicate
- *  is set.  Empty when the aggregate declares no field mask. */
-export function maskedWireFields(agg: EnrichedAggregateIR): FieldIR[] {
-  return agg.fields.filter((f) => f.maskUnless !== undefined);
+ *  is set: each masked field, plus every `derived` the visibility taint
+ *  (`src/ir/enrich/mask-taint.ts`) marks as computed from one.  Empty when the
+ *  aggregate declares no field mask. */
+export function maskedWireFields(agg: EnrichedAggregateIR): WireField[] {
+  return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
 }
 
 /** True iff `agg` declares at least one `mask unless` field — the gate for
@@ -1975,11 +1992,4 @@ export function partWireMethod(
     wireProjection(p, "e", ctx).map((pair) => `            ${pair},`),
     "        }",
   );
-}
-
-/** `root` and every workflow statement nested inside it. */
-function allStmts(root: WorkflowStmtIR): WorkflowStmtIR[] {
-  const out: WorkflowStmtIR[] = [];
-  walkWorkflowStmtsDeep(root, (s) => out.push(s));
-  return out;
 }

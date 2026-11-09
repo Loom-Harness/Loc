@@ -1,11 +1,16 @@
 // Domain-service emission (TS / Hono) — domain-services.md, v1 Shape A.
 //
-// Each `domainService Pricing { operation quote(...) {...} }` lowers to an
-// exported namespace of pure functions:
+// Each `domainService Pricing { operation quote(...) {...} }` lowers to
+// module-level pure functions gathered into one exported const object (a
+// `namespace` is non-erasable syntax, which node's type-stripping and
+// `erasableSyntaxOnly` reject):
 //
-//   export namespace Pricing {
-//     export function quote(cart: Cart, customer: Customer): Money { ... }
-//   }
+//   function pricing_quote(cart: Cart, customer: Customer): Money { ... }
+//   export const Pricing = { quote: pricing_quote } as const;
+//
+// Every function carries an explicit return type (`void` when the operation
+// declares none), so a body that calls a sibling through `Pricing.x(...)` does
+// not make the const's type circular.
 //
 // The operation bodies render through the shared TS statement/expression
 // path (`renderTsStatements` / `renderTsExpr`) — parameters resolve as
@@ -39,6 +44,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
@@ -79,7 +85,6 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
   const usedVoOrEnum = [...voNames, ...enumNames].filter(referenced).sort();
   const usedAggs = [...aggNames].filter(referenced).sort();
   const usesMoney = /\bDecimal\b/.test(scanBody) || /money/.test([...sigTypeNames].join(" "));
-  const usesIds = /\bIds\.\w/.test(scanBody) || sigCarriesId(ctx);
   // Domain-error classes the rendered bodies throw.  A `precondition` in a
   // domain-service operation renders `throw new DomainError(...)` exactly as an
   // aggregate operation does, but this file derives its imports from the body
@@ -103,7 +108,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
       "// Domain services — stateless pure calculators (domain-services.md).",
       "// Auto-generated: do not edit.",
       usesMoney ? 'import Decimal from "decimal.js";' : null,
-      usesIds ? 'import * as Ids from "./ids";' : null,
+      tsImportSlot("~/domain/ids"),
       usedErrors.length > 0 ? `import { ${usedErrors.join(", ")} } from "./errors";` : null,
       usedVoOrEnum.length > 0
         ? `import { ${usedVoOrEnum.join(", ")} } from "./value-objects";`
@@ -152,32 +157,38 @@ export function domainServiceNamesInExprs(exprs: readonly (ExprIR | undefined)[]
 }
 
 function renderService(svc: DomainServiceIR, ctx: BoundedContextIR): string {
+  const fnName = (op: DomainServiceOperationIR): string =>
+    `${lowerFirst(svc.name)}_${lowerFirst(op.name)}`;
   return lines(
-    `export namespace ${svc.name} {`,
-    ...svc.operations.map((op) => indentBlock(renderOperation(op, ctx))),
-    "}",
+    ...svc.operations.map((op) => renderOperation(op, fnName(op), ctx)),
+    `export const ${svc.name} = {`,
+    ...svc.operations.map((op) => `  ${lowerFirst(op.name)}: ${fnName(op)},`),
+    "} as const;",
     "",
   );
 }
 
-function renderOperation(op: DomainServiceOperationIR, ctx: BoundedContextIR): string {
+function renderOperation(
+  op: DomainServiceOperationIR,
+  fnName: string,
+  ctx: BoundedContextIR,
+): string {
   // Read-port parameters (domain-services.md rev. 4): a `reading`-tier
   // op takes one repository handle per repo it reads, AHEAD of the user params —
   // `accounts: AccountRepository` — exactly the handle the body's `repo-read`
   // arms render against (`await accounts.byHolder(holder)`) and the orchestrating
-  // workflow supplies.  A PURE op has no ports, so its declaration is unchanged
-  // (byte-identical).  Each read-port repository read makes the operation `async`
-  // (the repo methods are awaited), and its return type is wrapped in a Promise.
+  // workflow supplies.  Each read-port repository read makes the operation
+  // `async` (the repo methods are awaited), and its return type is wrapped in a
+  // Promise.
   const ports = readPortsForOperation(op);
   const portParams = ports.map((p) => `${lowerFirst(p.repo)}: ${repoPortName(p.aggregate)}`);
   const userParams = op.params.map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
-  const kw = isReading ? "export async function" : "export function";
-  const ret = op.returnType
-    ? `: ${isReading ? `Promise<${renderOperationReturnType(op.returnType, ctx)}>` : renderOperationReturnType(op.returnType, ctx)}`
-    : "";
-  return lines(`${kw} ${lowerFirst(op.name)}(${params})${ret} {`, renderTsStatements(op.body), "}");
+  const kw = isReading ? "async function" : "function";
+  const inner = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
+  const ret = isReading ? `Promise<${inner}>` : inner;
+  return lines(`${kw} ${fnName}(${params}): ${ret} {`, renderTsStatements(op.body), "}", "");
 }
 
 /** The distinct read-port repositories (`<Aggregate>Repository` classes) every
@@ -217,40 +228,4 @@ function collectTypeNames(t: TypeIR, into: Set<string>): void {
       collectTypeNames(t.arg, into);
       break;
   }
-}
-
-/** True when any signature carries an `id` type or money (`Ids.*` / Decimal
- *  imports get pulled in then even if the body text didn't re-mention them). */
-function sigCarriesId(ctx: BoundedContextIR): boolean {
-  const carries = (t: TypeIR): boolean => {
-    switch (t.kind) {
-      case "id":
-        return true;
-      case "array":
-        return carries(t.element);
-      case "optional":
-        return carries(t.inner);
-      case "union":
-        return t.variants.some(carries);
-      case "genericInstance":
-        return carries(t.arg);
-      default:
-        return false;
-    }
-  };
-  return ctx.domainServices.some((svc) =>
-    svc.operations.some(
-      (op) =>
-        op.params.some((p) => carries(p.type)) || (op.returnType ? carries(op.returnType) : false),
-    ),
-  );
-}
-
-/** Indent a multiline block by two spaces for nesting inside the
- *  `namespace { … }` wrapper. */
-function indentBlock(block: string): string {
-  return block
-    .split("\n")
-    .map((l) => (l.length > 0 ? `  ${l}` : l))
-    .join("\n");
 }

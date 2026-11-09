@@ -24,7 +24,7 @@ import type { NavSectionVM } from "../_frontend/menu-emitter.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { renderRequiresGuardInTemplate } from "./heex-walker-core.js";
-import { elixirI18nString } from "./i18n.js";
+import { pgettextCall } from "./i18n.js";
 
 export interface RenderSidebarComponentArgs {
   ui: UiIR;
@@ -73,9 +73,7 @@ export function renderSidebarComponent(args: RenderSidebarComponentArgs): string
    *  aggregate/workflow sidebar) has no key, so it stays the escaped literal —
    *  byte-identical to the pre-i18n sidebar.  A13b. */
   const navLabel = (label: string, key: string | undefined): string =>
-    i18nEnabled && key
-      ? `<%= pgettext(${elixirI18nString(key)}, ${elixirI18nString(label)}) %>`
-      : escapeHeex(label);
+    i18nEnabled && key ? `<%= ${pgettextCall(key, label)} %>` : escapeHeex(label);
 
   // The Phoenix default is one link per routed page, so a custom page is
   // already in it; the shared emitter MERGES its `menu { … }`-carrying pages

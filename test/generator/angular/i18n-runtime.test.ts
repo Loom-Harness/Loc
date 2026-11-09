@@ -3,8 +3,8 @@
 // "<default>") }}` interpolations for literal text slots (keyed IDENTICALLY to
 // the `.loom/messages.en.json` catalog, via the SHARED walker seam), plus a
 // generated `src/lib/i18n.ts` shim and `src/lib/locales/en.json`.  The seam's
-// `../i18n` import is rewritten to `../../lib/i18n` (pages sit two hops under
-// `src/`), and `t` is re-exposed as a component member — Angular resolves
+// `../i18n` import is rewritten to `../../lib/locale` (the signal-reading `t`;
+// pages sit two hops under `src/`), and `t` is re-exposed as a component member — Angular resolves
 // template interpolations against the instance.  A string-less app is
 // byte-identical to pre-i18n.
 
@@ -73,7 +73,7 @@ describe("Angular i18n runtime", () => {
     const home = homeOf(files);
     expect(home).toMatch(/\{\{ t\("[^"]*", "Orders"\) \}\}/); // literal heading translated
     // `status` is a page-scope ref — interpolated, never a t() call.
-    expect(home).not.toContain('t("page.Home.text');
+    expect(home).not.toContain('t("Web.page.Home.text');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -121,9 +121,8 @@ describe("Angular i18n runtime", () => {
     );
     const i18n = [...files].find(([p]) => p.endsWith("src/lib/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain(
-      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
-    );
+    expect(i18n).toContain("formatterFor(current, message).format(formatValues(message, values))");
+    expect(i18n).toContain("new IntlMessageFormat(message, locale)");
     const pkg = [...files].find(([p]) => p.endsWith("web/package.json"))![1];
     expect(pkg).toContain("intl-messageformat");
   });
@@ -140,8 +139,9 @@ describe("Angular i18n runtime", () => {
     expect(app).toContain(`[attr.aria-label]='t("chrome.primaryNav", "Primary navigation")'`);
     // `t` is imported one hop shallower than a page (App sits at `src/app/`) and
     // lifted to a component member so the interpolation resolves against the
-    // instance.
-    expect(app).toContain(`import { t } from "../lib/i18n";`);
+    // instance.  It comes from the signal-reading wrapper (`lib/locale`), so an
+    // OnPush view re-renders when the locale switches.
+    expect(app).toContain(`import { t } from "../lib/locale";`);
     expect(app).toContain("protected readonly t = t;");
     // The merged locale catalog carries the chrome default.
     const locale = [...files].find(([p]) => p.endsWith("src/lib/locales/en.json"))![1];
@@ -187,7 +187,7 @@ describe("Angular i18n runtime", () => {
     // The binding survives, delimited by `"` with the expression's own `"`
     // entity-escaped — and the apostrophe is left intact inside it.
     expect(home).toMatch(
-      /\[attr\.aria-label\]="t\(&quot;page\.Home\.iconLabel\.\w+&quot;, &quot;Bob's badge&quot;\)"/,
+      /\[attr\.aria-label\]="t\(&quot;Web\.page\.Home\.iconLabel\.\w+&quot;, &quot;Bob's badge&quot;\)"/,
     );
     // …and the catalog still carries the untouched source string.
     const catalog = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1];

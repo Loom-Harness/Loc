@@ -155,9 +155,8 @@ const SRC = `
 `;
 
 /** The emitted Hono workflow-routes module, reached through the SYSTEM
- *  orchestrator — the path `ddd generate system` actually runs, so phases ①/④
- *  are asserted as well as ⑤/⑥/⑦
- *  (`test/system/legacy-generate-path-ratchet.test.ts` pins this choice). */
+ *  orchestrator — the path `ddd generate system` runs, so phases ①/④ are
+ *  asserted as well as ⑤/⑥/⑦. */
 async function workflowsModule(): Promise<string> {
   const files = await generateSystemFiles(SRC);
   const key = [...files.keys()].find((k) => k.endsWith("/http/workflows.ts"));

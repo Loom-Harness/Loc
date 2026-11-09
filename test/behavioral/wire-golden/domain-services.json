@@ -23,7 +23,7 @@
         },
         "holder": "alice",
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -45,7 +45,7 @@
         },
         "holder": "alice2",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -60,7 +60,7 @@
         },
         "holder": "alice2",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -82,7 +82,7 @@
         },
         "holder": "alice2",
         "id": "<volatile:key>",
-        "version": 3
+        "rowVersion": 3
       }
     },
     {
@@ -104,7 +104,7 @@
         },
         "holder": "alice2",
         "id": "<volatile:key>",
-        "version": 4
+        "rowVersion": 4
       }
     },
     {
@@ -126,7 +126,7 @@
         },
         "holder": "bob",
         "id": "<volatile:key>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -148,7 +148,7 @@
         },
         "holder": "alice2",
         "id": "<volatile:key>",
-        "version": 5
+        "rowVersion": 5
       }
     },
     {
@@ -163,7 +163,7 @@
         },
         "holder": "bob",
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -180,7 +180,7 @@
             },
             "holder": "alice2",
             "id": "<volatile:key>",
-            "version": 5
+            "rowVersion": 5
           },
           {
             "balance": {
@@ -189,7 +189,7 @@
             },
             "holder": "bob",
             "id": "<volatile:key>",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,

@@ -71,9 +71,9 @@ describe("feliz stateless primitives (Icon / Tabs)", () => {
     // user-visible slot (`tabLabel`, M-T1.11) — so it binds the F# translation
     // runtime rather than baking an F# string literal.
     expect(app).toMatch(
-      /Html\.input \[ prop\.type'\.radio; prop\.name "loom_tabs_overview_details"; prop\.role "tab"; prop\.className "tab"; prop\.ariaLabel \(I18n\.t "page\.\w+\.tabLabel\.\w+" "Overview"\); prop\.defaultChecked true \]/,
+      /Html\.input \[ prop\.type'\.radio; prop\.name "loom_tabs_overview_details"; prop\.role "tab"; prop\.className "tab"; prop\.ariaLabel \(I18n\.t "\w+\.page\.\w+\.tabLabel\.\w+" "Overview"\); prop\.defaultChecked true \]/,
     );
-    expect(app).toMatch(/prop\.ariaLabel \(I18n\.t "page\.\w+\.tabLabel\.\w+" "Details"\)/);
+    expect(app).toMatch(/prop\.ariaLabel \(I18n\.t "\w+\.page\.\w+\.tabLabel\.\w+" "Details"\)/);
     expect(app).toContain('Html.div [ prop.role "tabpanel"; prop.className "tab-content p-4"');
     // The panel bodies are the walked children (Card + Text).
     expect(app).toContain('prop.className "card bg-base-100 shadow"');

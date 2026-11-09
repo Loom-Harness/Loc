@@ -133,6 +133,7 @@ export function structEvaluable(
     case "this":
     case "action-ref":
     case "lambda":
+    case "modelText":
     case "authz-filter":
     case "duration":
       return false;

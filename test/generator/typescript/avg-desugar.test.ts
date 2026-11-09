@@ -6,8 +6,8 @@
 // (`+` + `/`).  Both are optional (empty collection → null).
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
+import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
   context Sales {
@@ -28,8 +28,7 @@ describe("typescript generator — avg(λ) desugar", () => {
   });
 
   it("desugars a money `avg` to an empty-guarded decimal.js `.plus`/`.div` mean", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateHono(model).get("domain/order.ts")!;
+    const domain = (await generateBackendFiles(SRC, "node")).get("domain/order.ts")!;
     const line = domain.split("\n").find((l) => l.includes("get a("))!;
     expect(line).toBeDefined();
     // empty collection → null
@@ -42,8 +41,7 @@ describe("typescript generator — avg(λ) desugar", () => {
   });
 
   it("desugars a plain-numeric (int) `avg` to a native int sum over an exact division", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateHono(model).get("domain/order.ts")!;
+    const domain = (await generateBackendFiles(SRC, "node")).get("domain/order.ts")!;
     const line = domain.split("\n").find((l) => l.includes("get b("))!;
     expect(line).toBeDefined();
     expect(line).toContain("length === 0 ? null");

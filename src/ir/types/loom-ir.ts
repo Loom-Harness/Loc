@@ -37,9 +37,12 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../util/walk.js";
+import {
+  bodyWriteScopeGuards,
+  type WriteScopeHost,
+  writeScopeContext,
+} from "../util/write-scope-guards.js";
 import type { OriginRef } from "./origin.js";
-
-export type IdValueType = "guid" | "int" | "long" | "string";
 
 export type PrimitiveName =
   | "int"
@@ -125,10 +128,15 @@ export type SensitivityTags = readonly string[];
  *  structural-print, playground inspector) return the literal
  *  `"slot"` so editors and diagnostics still read sensibly when a
  *  slot-typed component param surfaces in a label.  React's
- *  `propType` recognises the variant and emits `ReactNode`. */
+ *  `propType` recognises the variant and emits `ReactNode`.
+ *
+ *  The `"id"` arm is an `X id` reference to an aggregate or entity part.
+ *  Every identity is a guid — there is no per-aggregate id value type, so
+ *  backends spell an id's underlying scalar (column, wire format, CLR/Java
+ *  type) as their guid form unconditionally. */
 export type TypeIR =
   | { kind: "primitive"; name: PrimitiveName; sensitivity?: SensitivityTags }
-  | { kind: "id"; targetName: string; valueType: IdValueType; sensitivity?: SensitivityTags }
+  | { kind: "id"; targetName: string; sensitivity?: SensitivityTags }
   | { kind: "enum"; name: string; sensitivity?: SensitivityTags }
   | { kind: "valueobject"; name: string; sensitivity?: SensitivityTags }
   | { kind: "entity"; name: string; sensitivity?: SensitivityTags }
@@ -187,7 +195,7 @@ export type TypeIR =
  *  rendered STRUCTURALLY (an inline `{ value, lineage }` object) rather than
  *  monomorphized to a named DTO, so it never reaches
  *  `monomorphizeGenericInstances`. */
-export type GenericCtorName = "paged" | "envelope" | "provenanced";
+export type GenericCtorName = "paged" | "provenanced";
 
 export interface ParamIR {
   name: string;
@@ -307,8 +315,6 @@ export interface AssociationIR {
   ownerAgg: string;
   /** The referenced aggregate (`Pokemon`). */
   targetAgg: string;
-  /** The id value type of the target reference. */
-  valueType: IdValueType;
   /** Join-table name, `snake(owner)_snake(field)` — distinct per
    * field even when several fields target the same aggregate. */
   joinTable: string;
@@ -525,7 +531,6 @@ export interface ApplyIR {
 export interface EntityPartIR {
   name: string;
   parentName: string;
-  parentIdValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -566,7 +571,6 @@ export interface WireField {
 
 export interface AggregateIR {
   name: string;
-  idValueType: IdValueType;
   fields: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
@@ -790,11 +794,37 @@ export interface TestIR {
    *  the test declares no link.  Enrichment uses it to mark a TestCase
    *  as backed by an executable test. */
   verifiesTestCase?: string;
+  /** The `as { … }` principal the test runs as — the claims it overrides on
+   *  the dev-stub principal.  Undefined when the test declares no clause (it
+   *  then runs as the dev-stub principal unchanged).  Only a context
+   *  integration test carries one (`loom.test-principal-placement`). */
+  principal?: TestPrincipalIR;
+}
+
+/** A test's declared principal: an ordered claim map keyed by `user { … }`
+ *  field name.  Every value is fixed data — a string, or a list of strings
+ *  for a `string[]` claim — so each backend renders it as a literal of the
+ *  claim's declared type, read off the system's user block. */
+export interface TestPrincipalIR {
+  claims: TestPrincipalClaimIR[];
+  origin?: OriginRef;
+}
+
+export interface TestPrincipalClaimIR {
+  /** The `user { … }` field the claim sets. */
+  name: string;
+  value: string | readonly string[];
+  origin?: OriginRef;
 }
 
 export type TestStmtIR =
   | StmtIR
   | { kind: "expect"; expr: ExprIR; source: string }
+  /** A bare `as { … }` body line: the statements after it run as this
+   *  principal (the dev-stub identity with these claims spread over it),
+   *  until the next such line.  Context integration and api e2e tests only
+   *  (`loom.test-principal-placement` / `loom.e2e-principal-ui`). */
+  | { kind: "principal"; principal: TestPrincipalIR }
   | {
       kind: "expect-throws";
       expr: ExprIR;
@@ -818,6 +848,12 @@ export type TestStmtIR =
 export interface EnumIR {
   name: string;
   values: string[];
+  /** Declared at the root of a file, outside every bounded context (the shared
+   *  kernel).  Enrichment folds such an enum into every context's `enums`, so
+   *  where it was DECLARED is an input fact this flag keeps: its model-text
+   *  keys file under `_system` (`src/util/model-text-key.ts`), not under
+   *  whichever context happens to render it. */
+  systemLevel?: true;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
    * diagnostic about this node print `path:line:col`. */
@@ -827,6 +863,8 @@ export interface EnumIR {
 export interface ValueObjectIR {
   name: string;
   fields: FieldIR[];
+  /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
+  systemLevel?: true;
   derived: DerivedIR[];
   invariants: InvariantIR[];
   functions: FunctionIR[];
@@ -1142,6 +1180,13 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** The `ignoring` stance of a widened list read's own retrieval
+   *  (`widenedRetrievalName`): `ignoring *` → `bypassAll`, `ignoring A, B` →
+   *  `bypassCaps`.  Set only on the retrievals enrichment derives for a
+   *  `Repo.all(…) ignoring …` read; the shared retrieval never carries one.
+   *  See `FindIR.bypassAll`. */
+  bypassAll?: boolean;
+  bypassCaps?: string[];
   /** Provenance back to the `retrieval` declaration — the span its
    *  diagnostics point at. */
   origin?: OriginRef;
@@ -1520,7 +1565,15 @@ export interface CommandHandlerIR {
    *  workflow statement renderer has no `return` arm — workflow handles never
    *  return a value).  A backend renders the body statements, then
    *  `return <returnValue>`.  Absent for a `: void`-equivalent handler. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A top-level `queryHandler name(params): T { … }` application-layer member
@@ -1541,7 +1594,15 @@ export interface QueryHandlerIR {
   /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A
    *  query always produces a response, so this is effectively always present —
    *  optional only so a malformed (return-less) body lowers without a cast. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A workflow starter declared via `create [name](params) [by <expr>] { … }`
@@ -1572,7 +1633,15 @@ export interface CreateIR {
    *  shared workflow statement vocabulary has no `return` arm — see
    *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
    *  return, annotated or not, so the validator can refuse the unannotated one. */
-  returnValue?: ExprIR;
+  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+   *  variant each answered value produces, by tag — one entry when
+   *  `returnValue` is a tail `return`, else one per arm of the value `match`
+   *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
+   *  body ending in a terminal statement `match` whose arms `return` lowers
+   *  to that statement `match` (arms keep their statements) plus this value
+   *  `match` over the same subject — the value is answered after the body.
+   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
+  returnTags?: string[];
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic
@@ -1639,6 +1708,14 @@ export interface ProjectionIR {
    *  token then the state fields, mirroring `WorkflowIR.instanceWireShape`.
    *  Populated by `enrichLoomModel`. */
   wireShape?: WireField[];
+  /** The principal claim (`tenancy by user.<claim>`) a FOLDED projection's rows
+   *  are tenant-scoped by — set by enrichment when the fold folds events of a
+   *  tenant-scoped producer (`foldTenancyVerdict` in
+   *  `src/ir/enrich/fold-tenancy.ts` answers `scoped`).  Stored because the
+   *  verdict reads every context's producers of the folded events, which a
+   *  backend emitting one context cannot see; consume it only through
+   *  `foldTenancyFor`.  Absent ⇒ the fold is unscoped. */
+  foldTenantClaim?: string;
   /** Provenance chain back to the `.ddd` source. */
   origin?: OriginRef;
 }
@@ -1659,6 +1736,15 @@ export interface ProjectionQueryIR {
    *  folded-hybrid case).  A workflow / projection source is `select`-projection
    *  only (no `join`s). */
   sourceKind?: "aggregate" | "workflow" | "projection";
+  /** The bounded context `source` is declared in, as name resolution linked
+   *  it.  A projection may read a source declared in ANOTHER context of its
+   *  subdomain (`context Reports { projection V { from Order … } }` over
+   *  `Orders.Order`), so `source` alone is ambiguous to a backend that emits
+   *  per context: its capability filters, tenancy floor, table and module all
+   *  belong to the HOME context.  Resolve it through
+   *  `projectionSourceContext` (`src/ir/util/projection-source.ts`), never by
+   *  looking `source` up in the projection's own context. */
+  sourceContext?: string;
   /** The author's alias for the source candidate (`from Order as o`).  `this`
    *  / bare stays the default; the alias resolves identically (like
    *  `criterion … of T as o`). */
@@ -1819,9 +1905,36 @@ export type IfLetOp =
   | Extract<RepoOp, "select-one" | "load-by-key-optional" | "load-optional">
   | "bound";
 
+/** The local a mutating call statement binds its value to
+ *  (`let r = a.withdraw(x)` / `let r = Transfer.run(…)`).
+ *
+ *  `errorVariants` lists the wire tags of the result union's `error` variants
+ *  (empty when the result has none).  When it is non-empty the call's
+ *  mutations are TENTATIVE (D-FAILURE-MODEL: an operation that answers its
+ *  error leaves no trace): the body must `match` the result, and the
+ *  aggregates the call mutates are saved at the end of each arm that is not an
+ *  error variant — never at the body's exit, and never in an error arm.  Like
+ *  a `match` arm's `isError`, error-ness is resolved where the error
+ *  declarations are in scope (lowering), so it is carried here. */
+export interface CallResultBindingIR {
+  name: string;
+  type: TypeIR;
+  errorVariants: string[];
+}
+
 export type WorkflowStmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the gate enrichment prepends to a handler that reads this
+       *  aggregate (`policy { read X requires … }`, `applyHandlerReadGates`).
+       *  It authorizes the READ only, so `validateDefaultDeny` does not count
+       *  it as the handler's own exposure gate. */
+      readGateOf?: string;
+      origin?: OriginRef;
+    }
   | {
       kind: "emit";
       eventName: string;
@@ -1857,6 +1970,13 @@ export type WorkflowStmtIR =
        *  carry the criterion's arguments.  Absent for every other op. */
       retrievalName?: string;
       synthCriterion?: { name: string };
+      /** A widened single-row read (`let c = Repo.find(<Criterion>) ignoring …`
+       *  / `let o = Repo.find(id) ignoring …`): the source and stance of the
+       *  method `method` names, which enrichment synthesises
+       *  (`synthesizeBypassReadFinds`).  `retrievalName` is then absent — the
+       *  read runs its own method, not the shared retrieval — and a backend
+       *  calls `method` the way it calls an `if let`'s `findMethod`. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {
@@ -1910,11 +2030,15 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
+      // `a.withdraw(x)` as a statement, or `let r = a.withdraw(x)` — a call to
+      // an operation of the aggregate the local `target` holds.  Either form
+      // mutates `target`; `result` is present for the `let`-bound form.
       kind: "op-call";
       target: string;
       aggName: string;
       op: string;
       args: ExprIR[];
+      result?: CallResultBindingIR;
       origin?: OriginRef;
     }
   | {
@@ -1975,6 +2099,11 @@ export type WorkflowStmtIR =
       service: string;
       op: string;
       call: ExprIR;
+      /** `let r = Transfer.run(…)` over a `mutating` operation: the local the
+       *  call's value is bound to.  The bound form saves the aggregate args the
+       *  service mutates exactly as the bare statement does.  (A let-bound call
+       *  to a service that mutates nothing rides `expr-let`.) */
+      result?: CallResultBindingIR;
       origin?: OriginRef;
     }
   | {
@@ -2023,9 +2152,10 @@ export type WorkflowStmtIR =
       findMethod?: string;
       /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
       key?: KeyLookupIR;
-      /** A `Repo.find(<Criterion>) ignoring …` source: the criterion and the
-       *  stance of the widened read `findMethod` names.  `synthCriterion`
-       *  still names the criterion (it is validated like any criterion read);
+      /** A `Repo.find(<Criterion>) ignoring …` / `Repo.find(id) ignoring …`
+       *  source: the criterion (or id) and the stance of the widened read
+       *  `findMethod` names.  For a criterion source `synthCriterion` still
+       *  names the criterion (it is validated like any criterion read);
        *  `retrievalName` is empty, as the read does not run the shared
        *  retrieval. */
       bypassRead?: BypassReadIR;
@@ -2067,7 +2197,10 @@ export type WorkflowStmtIR =
       //
       // Like `if-let`, each branch saves what it creates or mutates at its
       // own end (`savesInArm` / `savesInElse`): a conditional branch cannot
-      // hoist its saves to the flat `savesAtExit`.
+      // hoist its saves to the flat `savesAtExit`.  Over a guarded call's
+      // result (`let r = a.withdraw(x)` with an `error` variant) the non-error
+      // branches also save what the call mutated, and the error branches drop
+      // it (`discardsInArm` / `discardsInElse`).
       kind: "variant-match";
       subject: ExprIR;
       /** Resolved type of the subject — an `or`-union, or `T?`. */
@@ -2083,9 +2216,18 @@ export type WorkflowStmtIR =
         isError: boolean;
         body: WorkflowStmtIR[];
         savesInArm: { name: string; aggName: string; repoName: string }[];
+        /** When the subject is a guarded call's result (`CallResultBindingIR`)
+         *  and this arm is an error variant: the aggregates whose tentative
+         *  change the arm drops.  Absent when the arm drops nothing.  A backend
+         *  whose persistence tracks loaded entities (EF Core, JPA) detaches
+         *  them, so no later flush writes the change; one that writes only on
+         *  an explicit save renders nothing. */
+        discardsInArm?: { name: string; aggName: string; repoName: string }[];
       }[];
       elseBody?: WorkflowStmtIR[];
       savesInElse: { name: string; aggName: string; repoName: string }[];
+      /** `discardsInArm` for the `else` arm. */
+      discardsInElse?: { name: string; aggName: string; repoName: string }[];
       origin?: OriginRef;
     }
   | {
@@ -2587,6 +2729,10 @@ export interface SystemIR {
    *  emitter translates the framework-agnostic tokens into Mantine /
    *  shadcn / etc. theming knobs. */
   theme?: ThemeIR;
+  /** System-wide i18n settings.  Always present: `source` is the declared
+   *  `i18n { source: … }` tag, or {@link DEFAULT_SOURCE_LOCALE} when the block
+   *  is absent. */
+  i18n: I18nIR;
   /** UI declarations at system scope.  Each is referenced by
    *  zero-or-more deployables via `DeployableIR.uiName`.  Empty when
    *  the system declares no `ui { ... }` blocks.  Order preserves
@@ -2728,6 +2874,21 @@ export type StorageKind =
  *  the platform's defaults.  Color values are validated to be
  *  CSS hex strings (#RGB / #RRGGBB / #RRGGBBAA); radius is one
  *  of the five named scale steps. */
+/** The default source language of a system with no `i18n { … }` block. */
+export const DEFAULT_SOURCE_LOCALE = "en";
+
+/** The source language of a system.  Tolerates a hand-built system with no
+ *  `i18n` (the default source). */
+export function sourceLocaleOf(sys: { i18n?: I18nIR }): string {
+  return sys.i18n?.source ?? DEFAULT_SOURCE_LOCALE;
+}
+
+/** The resolved `i18n { … }` block of a system. */
+export interface I18nIR {
+  /** BCP-47 tag of the language the `.ddd` text is written in. */
+  source: string;
+}
+
 export interface ThemeIR {
   /** Brand color — e.g. "#3b82f6".  Mantine emitter generates a
    *  10-shade ramp from this hex and registers it as the project's
@@ -2847,6 +3008,9 @@ export interface TestE2EIR {
   statements: TestStmtIR[];
   /** Traceability back-link — see `TestIR.verifiesTestCase`. */
   verifiesTestCase?: string;
+  /** The `as { … }` principal — see `TestIR.principal`.  The suite sends it as
+   *  the dev-stub claims override for every request of this block. */
+  principal?: TestPrincipalIR;
 }
 
 // ---------------------------------------------------------------------------
@@ -3519,7 +3683,19 @@ export interface UiParamBindingIR {
 
 export type StmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the write gate enrichment prepends to an operation that
+       *  assigns a caller-supplied value to a `mask unless` field
+       *  (`applyMaskWriteGates`, `src/ir/enrich/mask-taint.ts`) — the masked
+       *  field's name.  It authorizes the WRITE of that one field only, so it
+       *  is not the operation's own exposure gate (`validateDefaultDeny`) and
+       *  not a client-evaluable action gate. */
+      maskWriteOf?: string;
+      origin?: OriginRef;
+    }
   | { kind: "let"; name: string; expr: ExprIR; type: TypeIR; origin?: OriginRef }
   | {
       kind: "assign";
@@ -3650,8 +3826,26 @@ export type StmtIR =
       value: ExprIR;
       variantTag?: string;
       variantShape?: "record" | "scalar" | "none";
+      /**
+       * A returned value `match` whose arms build union variants is tagged per
+       * arm: one entry per arm (`arms` for the predicate form, `variantArms`
+       * for the variant form), then one for its `else`.  Each arm answers its
+       * own tag, and an `error` variant is the error path only when its arm
+       * runs.  Set only on an exhaustive match whose every arm resolves to a
+       * declared variant; `variantTag` / `variantShape` are absent then.
+       * `distributeUnionReturn` (`src/ir/util/union-return.ts`) expands it
+       * into one tagged `return` per arm.
+       */
+      armVariants?: ReturnVariantIR[];
       origin?: OriginRef;
     };
+
+/** The union variant a `return` produces: its wire discriminator and how the
+ *  value carries on the wire (see the `return` statement). */
+export interface ReturnVariantIR {
+  variantTag: string;
+  variantShape: "record" | "scalar" | "none";
+}
 
 /**
  * A path used as the LHS of an assignment / collection mutation.  All
@@ -3868,6 +4062,11 @@ export type ExprIR =
        *  the thrown error into the union) around a variant-match on the
        *  result; every other consumer ignores it. */
       awaited?: boolean;
+      /** A context integration test's widened by-id read
+       *  (`let o = Order.find(id) ignoring …`): `member` names the read's own
+       *  method (`bypassReadMethodName`), which enrichment synthesises on the
+       *  aggregate's repository from this source and stance. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {
@@ -3976,6 +4175,12 @@ export type ExprIR =
          *  filters (`ignoring …`): `method` names the read's own method and
          *  there is no `retrievalName`. */
         bypassRead?: BypassReadIR;
+        /** The `ignoring` stance of a widened list read (`all(<Ref>) ignoring
+         *  …`): `retrievalName` then names the read's own retrieval
+         *  (`widenedRetrievalName`), which enrichment derives with this
+         *  stance on it. */
+        bypassAll?: boolean;
+        bypassCaps?: string[];
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
@@ -4197,6 +4402,24 @@ export type ExprIR =
       origin?: OriginRef;
     }
   /**
+   * The translated text a user sees for a model element — the lowered
+   * `label(Task)` / `plural(Task)` / `label(Task.title)` / `label(Status.Draft)`
+   * intrinsic (i18n identity keys).  `key` is the context-qualified identity key
+   * (`Projects.Task.name.other`) and `defaultText` its English default
+   * (`"Tasks"`), both built by `src/util/model-text-key.ts`.
+   *
+   * UI-only: the validator (`loom.model-text-outside-ui`) keeps it out of every
+   * domain-logic position, so the backend `ExprTarget`s never see one.  A
+   * frontend renders it as a call into its translation runtime
+   * (`t(key, defaultText)`), or as the bare default when the UI has no runtime.
+   */
+  | {
+      kind: "modelText";
+      key: string;
+      defaultText: string;
+      origin?: OriginRef;
+    }
+  /**
    * Predicate-arms expression — first arm whose
    * `cond` evaluates to `true` returns its `value`; if no arm
    * matches, `otherwise` (when present) is the fallthrough.  Lives
@@ -4377,11 +4600,15 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *
  *  3. A `notFound` statement — the body answering the rung explicitly (the
  *     `else` of an `if let` over a criterion read).
+ *  4. A write-scope re-check (`ir/util/write-scope-guards.ts`): a body that
+ *     mutates or deletes a row it holds, in `host`'s context where that
+ *     aggregate's write scope is narrowed, re-loads it through the write-scope
+ *     load, which answers 404 for a row outside the caller's scope.
  *
  *  Everything else that reads is absence-shaped and cannot throw: `repo-run` /
  *  `findAll` return arrays, `if-let` exists precisely to handle the empty case,
  *  and a criterion `find` read renders as `[0] ?? null`. */
-export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
+export function workflowCanAnswerNotFound(wf: WorkflowIR, host?: WriteScopeHost): boolean {
   /** A repository read throws on an absent row when it is a must-exist read
    *  (`getById` / `getBy`).  An unknown method is not evidence that it
    *  throws — it is a phase-⑦ error (`loom.workflow-unknown-repository-method`). */
@@ -4405,6 +4632,11 @@ export function workflowCanAnswerNotFound(wf: WorkflowIR): boolean {
       if (!read) return;
       if (readThrows(read.op)) canNotFound = true;
     });
+  }
+  // Producer 4 — the write-scope re-check.
+  if (!canNotFound && host) {
+    canNotFound =
+      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, host)).length > 0;
   }
   return canNotFound;
 }
@@ -4523,26 +4755,61 @@ export function typeUsesMoney(t: TypeIR | undefined): boolean {
  *  field. */
 export function exprUsesMoney(e: ExprIR | undefined): boolean {
   if (!e) return false;
-  if (e.kind === "literal" && e.lit === "money") return true;
-  if (e.kind === "binary") {
-    if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
-    return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+  // Exhaustive and `never`-checked: this layer cannot import `ir/util/walk.ts`
+  // (it imports these types), so the child enumeration lives here, slot for
+  // slot with `walkExprChildren`.
+  switch (e.kind) {
+    case "literal":
+      return e.lit === "money";
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+    case "modelText":
+    case "authz-filter":
+      return false;
+    case "binary":
+      if (typeUsesMoney(e.leftType) || typeUsesMoney(e.resultType)) return true;
+      return exprUsesMoney(e.left) || exprUsesMoney(e.right);
+    case "member":
+      return exprUsesMoney(e.receiver);
+    case "method-call":
+      return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
+    case "call":
+      return (
+        e.args.some(exprUsesMoney) || (e.style?.entries ?? []).some((s) => exprUsesMoney(s.value))
+      );
+    case "ternary":
+      return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
+    case "unary":
+      return exprUsesMoney(e.operand);
+    case "paren":
+      return exprUsesMoney(e.inner);
+    case "lambda":
+      return exprUsesMoney(e.body) || (e.block ?? []).some(stmtUsesMoney);
+    case "new":
+    case "object":
+      return e.fields.some((f) => exprUsesMoney(f.value));
+    case "list":
+      return e.elements.some(exprUsesMoney);
+    case "convert":
+      return e.target === "money" || exprUsesMoney(e.value);
+    case "duration":
+      return exprUsesMoney(e.amount);
+    case "i18nFormat":
+      return exprUsesMoney(e.inner);
+    case "match":
+      return (
+        exprUsesMoney(e.subject) ||
+        e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
+        e.variantArms.some((a) => exprUsesMoney(a.value)) ||
+        exprUsesMoney(e.otherwise)
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
-  if (e.kind === "member") return exprUsesMoney(e.receiver);
-  if (e.kind === "method-call") return exprUsesMoney(e.receiver) || e.args.some(exprUsesMoney);
-  if (e.kind === "ternary")
-    return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
-  if (e.kind === "unary") return exprUsesMoney(e.operand);
-  if (e.kind === "paren") return exprUsesMoney(e.inner);
-  if (e.kind === "call") return e.args.some(exprUsesMoney);
-  if (e.kind === "lambda") return exprUsesMoney(e.body);
-  if (e.kind === "new" || e.kind === "object") return e.fields.some((f) => exprUsesMoney(f.value));
-  if (e.kind === "match")
-    return (
-      e.arms.some((a) => exprUsesMoney(a.cond) || exprUsesMoney(a.value)) ||
-      exprUsesMoney(e.otherwise)
-    );
-  return false;
 }
 
 function stmtUsesMoney(s: StmtIR): boolean {

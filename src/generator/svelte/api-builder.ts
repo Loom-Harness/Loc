@@ -18,14 +18,15 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   aggregateHasProvenanced,
   clientFinds,
   dualTypeAliases,
   emitOperationUnionResponse,
-  findHookPath,
   historyHookName,
+  opRequestFields,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -131,7 +132,7 @@ export function buildSvelteApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `${upperFirst(op.name)}${agg.name}Request`,
-        op.params.map((p) => ({ name: p.name, base: zodForRequest(p.type) })),
+        opRequestFields(op),
         opInvariants,
         new Set(op.params.map((p) => p.name)),
       ),
@@ -316,7 +317,9 @@ export function buildSvelteApiModule(
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
     // F-023 — the version comes from the by-id query cache: the row the user is
     // looking at, under the key this hook already invalidates on success.
-    const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
+    const occArg = sendsIfMatchPrecondition(agg, op)
+      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
+      : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id()]);`);
     }
@@ -359,6 +362,8 @@ export function buildSvelteApiModule(
   if (repo) {
     for (const find of repo.finds) {
       if (find.name === "all") continue;
+      const findRoute = servedFindRoute(agg.name, find, findRoutes);
+      if (!findRoute) continue;
       const findSnake = snake(find.name);
       const paged = pagedReturn(find.returnType);
       const union = unionForFind(find.returnType, ctx);
@@ -398,9 +403,7 @@ export function buildSvelteApiModule(
       lines.push(
         `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(
-        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, findRoutes))}\${qs ? "?" + qs : ""}\`);`,
-      );
+      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  }));`);

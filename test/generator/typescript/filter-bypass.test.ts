@@ -7,9 +7,8 @@
 // hand-written (bare) `filter` is never bypassable.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
 import { scopeFn } from "../../_helpers/drizzle-scope.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   system S {
@@ -44,7 +43,7 @@ const SRC = `
 
 let cache: Map<string, string> | undefined;
 async function repo(): Promise<string> {
-  cache ??= (await generateSystems(await parseValid(SRC))).files;
+  cache ??= await generateSystemFiles(SRC);
   const k = [...cache.keys()].find((key) => key.endsWith("db/repositories/order-repository.ts"));
   expect(k, "order-repository.ts not emitted").toBeDefined();
   return cache.get(k!)!;
@@ -95,14 +94,13 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
     );
   });
 
-  // KNOWN DEFECT: a widened LIST read (`let xs = Repo.findAll(C) ignoring …`,
-  // which the validator accepts as a bypass home) keeps the scope conjunct —
-  // the `ignoring` is silently dropped and the read narrows by
-  // `and(ordersAnyCriterion(), orderScope())`.  Flip to `it` once it widens.
-  it.fails("`findAll(C) ignoring <Cap>` drops the bypassed conjunct from the list read", async () => {
+  // A widened LIST read in a handler runs its own retrieval, named for its
+  // stance, which leaves the bypassed conjunct out; the shared retrieval keeps it.
+  it("`all(C) ignoring <Cap>` in a handler drops the bypassed conjunct from the list read", async () => {
     const r = await repo();
-    expect(r).toContain(".where(ordersAnyCriterion())");
-    expect(r).not.toContain(".where(and(ordersAnyCriterion(), orderScope()))");
+    expect(whereClause(r, "runFindAllByOrdersAnyIgnoringSoftDeletable")).toBe(
+      "ordersAnyCriterion()",
+    );
   });
 
   it("CRUD reads (findById / findManyByIds) keep the capability filter", async () => {
@@ -133,7 +131,7 @@ const PROJ_SRC = `
 describe("node/Drizzle projection `ignoring` emission", () => {
   let pcache: Map<string, string> | undefined;
   async function projRepo(): Promise<string> {
-    pcache ??= (await generateSystems(await parseValid(PROJ_SRC))).files;
+    pcache ??= await generateSystemFiles(PROJ_SRC);
     const k = [...pcache.keys()].find((key) => key.endsWith("db/repositories/order-repository.ts"));
     expect(k, "order-repository.ts not emitted").toBeDefined();
     return pcache.get(k!)!;

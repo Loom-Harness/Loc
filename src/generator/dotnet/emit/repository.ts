@@ -1,3 +1,4 @@
+import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -18,10 +19,12 @@ import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fiel
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
+import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
-import { domainFindShape, orderByClauseFor } from "../find-emit.js";
+import { domainFindShape, inMemoryOrderByClauseFor } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -30,12 +33,23 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import { retrievalRepositoryWhere, retrievalWhereInRepository } from "../spec-emit.js";
 import { csSentence } from "../wire-policy-cs.js";
+import { documentFindCapFilter } from "./document-cap-filter.js";
 import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from "./efcore.js";
 import { csClaimStampsFor } from "./entity.js";
-import { eventDbSetName, eventRecordClass } from "./event-store.js";
+import {
+  eventDbSetName,
+  eventRecordClass,
+  streamOriginFrameLines,
+  streamScopePredicate,
+  streamScopeWhere,
+} from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
+
+/** Ardalis' `IQueryable.WithSpecification` extension (a retrieval run). */
+const ARDALIS_EF = csNsRef("Ardalis.Specification.EntityFrameworkCore");
 
 /** The locals an EF relational `find` method (plain + paged) declares for
  *  itself — each yields to a same-named find param. */
@@ -65,6 +79,9 @@ export function renderRepositoryInterface(
    *  aggregate's own `<Agg>Id`; a TPH (`sharedTable`) concrete passes its base's
    *  `<Base>Id` (the shared single-table key it inherits). */
   idClass: string = `${agg.name}Id`,
+  /** True when some workflow / handler body drops a tentative change to this
+   *  aggregate (`discardedAggregates`): the interface then carries `Discard`. */
+  discards = false,
 ): string {
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
@@ -129,6 +146,15 @@ export function renderRepositoryInterface(
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
         : []),
+      // Drop a loaded aggregate's unsaved changes, so no later flush writes
+      // them.  A store that writes only on `SaveAsync` has nothing to drop,
+      // hence the no-op default; the EF impl detaches the tracked graph.
+      ...(discards
+        ? [
+            "    /// <summary>Drop the unsaved changes of a loaded aggregate: nothing writes them later.</summary>",
+            `    void Discard(${agg.name} aggregate) { }`,
+          ]
+        : []),
       ...findLines.flat(),
       ...retrievalLines.flat(),
       "}",
@@ -157,6 +183,8 @@ export function renderRepositoryImpl(
     /** True when --trace is in effect — brackets the EF
      *  SaveChangesAsync with tx_begin / tx_commit / tx_rollback. */
     emitTrace?: boolean;
+    /** Emit `Discard` (see `renderRepositoryInterface`'s `discards`). */
+    discards?: boolean;
     /** Context retrievals targeting this aggregate + their LINQ body
      *  fragments — emit a `Run<Name>Async` method each. */
     retrievals?: RetrievalIR[];
@@ -216,15 +244,17 @@ export function renderRepositoryImpl(
   // A find returning aggregates hydrates their reference collections (`X id[]`
   // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
   // collection stayed null on every find — the paged `all` included — and the
-  // query handler's `d.Tags.Select(…)` threw (500).  Found by M-T6.94's corpus
-  // case.  Emitted only when a find needs it, so the helper is never unused.
+  // query handler's `d.Tags.Select(…)` threw (500).  A criterion runner
+  // (`Run<Retrieval>Async`) returns aggregates too, so it hydrates the same
+  // way.  Emitted only when a read needs it, so the helper is never unused.
   const findsHydrate =
     associations.length > 0 &&
-    finds.some(
-      (f) =>
-        !!pagedReturn(f.returnType) ||
-        hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
-    );
+    ((options?.retrievals ?? []).length > 0 ||
+      finds.some(
+        (f) =>
+          !!pagedReturn(f.returnType) ||
+          hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
+      ));
   const saveDiffSyncLines = buildSaveDiffSyncLines(associations);
   // Optimistic concurrency (`versioned`): on an UPDATE (the entity is tracked,
   // not freshly added), guard the write on the loaded version — overridden by
@@ -239,7 +269,7 @@ export function renderRepositoryImpl(
     ? [
         "        if (entry.State != EntityState.Added && entry.State != EntityState.Detached)",
         "        {",
-        "            var __version = entry.Property(x => x.Version);",
+        `            var __version = entry.Property(x => x.${ROW_VERSION_PASCAL});`,
         "            var __expected = expectedVersion;",
         "            if (__expected.HasValue) __version.OriginalValue = __expected.Value;",
         "            __version.CurrentValue = __version.OriginalValue + 1;",
@@ -434,6 +464,12 @@ export function renderRepositoryImpl(
       ["__q", "result"],
     );
     const own = csReadOwnParams(r.params.map((p) => p.name));
+    // A `where` over a join table (`this.<refColl>.contains(x)`) needs the
+    // DbContext, so it is applied here and the spec carries only the sort.
+    const repoWhere = retrievalWhereInRepository(r, agg);
+    const applySpec = repoWhere
+      ? `${retrievalRepositoryWhere(r, agg)}${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec())`
+      : `${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs}))`;
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -443,7 +479,10 @@ export function renderRepositoryImpl(
       // adapter-side, above.
       `        var ${L("__q")} = _db.${readSet}.AsQueryable();`,
       ...bypassBody(L("__q"), own.bypass),
-      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
+      `        var ${L("result")} = await ${L("__q")}${applySpec}.ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
+      ...(associations.length > 0
+        ? [`        await HydrateReferenceCollectionsAsync(${L("result")}, ${own.ct});`]
+        : []),
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
@@ -464,7 +503,7 @@ export function renderRepositoryImpl(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.Extensions.Logging;",
       // `.WithSpecification(...)` for `Run<Name>Async` retrieval methods.
-      retrievals.length > 0 ? "using Ardalis.Specification.EntityFrameworkCore;" : null,
+      csUsing("Ardalis.Specification.EntityFrameworkCore"),
       `using ${ns}.Domain.${plural(agg.name)};`,
       ...domainAliases,
       `using ${ns}.Domain.Common;`,
@@ -642,6 +681,37 @@ export function renderRepositoryImpl(
             "        var __db = _db.TrackerOf(aggregate);",
             `        __db.${writeSet}.Remove(aggregate);`,
             "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
+            "    }",
+          ]
+        : []),
+      // A tracked entity is written by the next SaveChanges on its context
+      // whether or not it was saved, so a dropped change leaves the tracker:
+      // the root and every loaded containment below it.
+      ...(options?.discards
+        ? [
+            "",
+            `    public void Discard(${agg.name} aggregate)`,
+            "    {",
+            "        var __db = _db.TrackerOf(aggregate);",
+            "        var __pending = new Stack<object>();",
+            "        __pending.Push(aggregate);",
+            "        while (__pending.Count > 0)",
+            "        {",
+            "            var __entry = __db.Entry(__pending.Pop());",
+            "            if (__entry.State == EntityState.Detached) continue;",
+            "            foreach (var __nav in __entry.Navigations)",
+            "            {",
+            "                if (__nav.CurrentValue is System.Collections.IEnumerable __many)",
+            "                {",
+            "                    foreach (var __child in __many) __pending.Push(__child);",
+            "                }",
+            "                else if (__nav.CurrentValue is { } __one)",
+            "                {",
+            "                    __pending.Push(__one);",
+            "                }",
+            "            }",
+            "            __entry.State = EntityState.Detached;",
+            "        }",
             "    }",
           ]
         : []),
@@ -843,39 +913,6 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // shape — a silent cross-tenant read.  node/java/python filter document reads
 // in-app the same way.
 // ---------------------------------------------------------------------------
-/** The in-app capability-filter suffix a document-store FIND applies to its
- *  rehydrated rows, honouring the find's `ignoring` clause (C2, M-T6.75).
- *  No clause → the shared `_CapabilityVisible` (every filter).  A bypass keeps
- *  only the filters it does not name — same selection rule as
- *  `bypassedFilterNames` on the relational path: `ignoring *` drops every
- *  bypassable filter, `ignoring A` drops the filters whose contributing
- *  capability is `A`, and a deny sentinel is never dropped. */
-function docFindCapFilter(
-  agg: EnrichedAggregateIR,
-  f: { bypassAll?: boolean; bypassCaps?: string[] },
-  capPredicate: string | null,
-): string {
-  if (!capPredicate) return "";
-  const filters = agg.contextFilters ?? [];
-  const origins = agg.contextFilterOrigins ?? [];
-  const caps = new Set(f.bypassCaps ?? []);
-  if (!f.bypassAll && caps.size === 0) return ".Where(_CapabilityVisible)";
-  const kept = filters.filter((p, i) => {
-    if (isDenyFilter(p)) return true;
-    if (f.bypassAll) return false;
-    const origin = origins[i];
-    return !(origin != null && caps.has(origin));
-  });
-  if (kept.length === filters.length) return ".Where(_CapabilityVisible)";
-  if (kept.length === 0) return "";
-  const pred = kept
-    .map(
-      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
-    )
-    .join(" && ");
-  return `.Where(x => ${pred})`;
-}
-
 export function renderDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -933,6 +970,10 @@ export function renderDocumentRepositoryImpl(
   // while a method body `=> false;` is clean.  Principal claims resolve through
   // the ambient accessor, re-read per call, exactly like the reified retrieval
   // spec and the Dapper adapter's non-EF reads.
+  const docFilterTerms = (agg.contextFilters ?? []).map((predicate, i) => {
+    const capability = agg.contextFilterOrigins?.[i];
+    return capability != null ? { predicate, capability } : { predicate };
+  });
   const capPredicate =
     (agg.contextFilters ?? []).length > 0
       ? (agg.contextFilters ?? [])
@@ -1006,7 +1047,7 @@ export function renderDocumentRepositoryImpl(
     // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
     // every filter whatever a find bypasses.  A deny sentinel is never
     // bypassable (deny wins over `ignoring *`).
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${documentFindCapFilter(agg, docFilterTerms, f)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -1132,8 +1173,8 @@ export function renderDocumentRepositoryImpl(
             // concurrency token's ORIGINAL value makes SaveChanges issue
             // `UPDATE … WHERE version = <expected>`; zero rows raise EF's
             // native DbUpdateConcurrencyException → the RS-40 409.
-            "        var __expected = expectedVersion ?? aggregate.Version;",
-            "        if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+            `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
+            `        if (__existing != null) _db.Entry(__existing).Property(x => x.${ROW_VERSION_PASCAL}).OriginalValue = __expected;`,
             "        var __nextVersion = __existing == null ? 1 : __expected + 1;",
             // INSERT only: a jsonb aggregate is not EF-tracked, so the
             // AuditableInterceptor never stamps it.  Must run BEFORE the
@@ -1142,15 +1183,15 @@ export function renderDocumentRepositoryImpl(
             ...(docCreateStamps
               ? ["        if (__existing == null) aggregate._StampOnCreate();"]
               : []),
-            "        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { Version = __nextVersion }, __json);",
+            `        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { ${ROW_VERSION_PASCAL} = __nextVersion }, __json);`,
             "        if (__existing == null)",
             "        {",
-            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, Version = __nextVersion });`,
+            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, ${ROW_VERSION_PASCAL} = __nextVersion });`,
             "        }",
             "        else",
             "        {",
             "            __existing.Data = __data;",
-            "            __existing.Version = __nextVersion;",
+            `            __existing.${ROW_VERSION_PASCAL} = __nextVersion;`,
             "        }",
           ]
         : [
@@ -1165,12 +1206,12 @@ export function renderDocumentRepositoryImpl(
             "        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot(), __json);",
             "        if (__existing == null)",
             "        {",
-            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, Version = 1 });`,
+            `            _db.${setName}.Add(new ${agg.name}Document { Id = aggregate.Id.Value, Data = __data, ${ROW_VERSION_PASCAL} = 1 });`,
             "        }",
             "        else",
             "        {",
             "            __existing.Data = __data;",
-            "            __existing.Version += 1;",
+            `            __existing.${ROW_VERSION_PASCAL} += 1;`,
             "        }",
           ]),
       "        await _db.SaveChangesAsync(cancellationToken);",
@@ -1242,6 +1283,8 @@ export function renderEventSourcedRepositoryImpl(
   options?: {
     extraUsings?: readonly string[];
     idClass?: string;
+    /** The context's aggregates — the pool the stream-tenancy fact resolves in. */
+    pool?: AggPool;
     /** Context retrievals over this aggregate — each a `Run<Name>Async`
      *  answered in memory (`inMemoryRunMethodLines`). */
     retrievals?: readonly RetrievalIR[];
@@ -1262,6 +1305,12 @@ export function renderEventSourcedRepositoryImpl(
     (n) => `using ${n} = ${ns}.Domain.${plural(agg.name)}.${n};`,
   );
   const idClass = options?.idClass ?? `${agg.name}Id`;
+  // Stream tenancy (stream-tenancy.ts): the tenant is metadata of the stored
+  // events, adopted onto the folded instance; every read applies the fact's
+  // tenancy restrictions in-app over it.
+  const pool = options?.pool ?? [];
+  const tenancy = streamTenancyFor(agg, pool);
+  const defaultScope = streamScopePredicate(agg, pool);
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
@@ -1280,7 +1329,7 @@ export function renderEventSourcedRepositoryImpl(
   // The event types this aggregate's stream can contain — the events its
   // appliers fold.  Drives the `RowToEvent` deserialiser dispatch.
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const idValue = csValueTypeForId(agg.idValueType);
+  const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"
       ? "Guid.Parse(__kv.Key)"
@@ -1331,7 +1380,9 @@ export function renderEventSourcedRepositoryImpl(
 
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = inMemoryFilter(body?.filterClause ?? "");
+    // The unscoped fold, narrowed by the tenancy restrictions this find does
+    // not `ignoring`.
+    const filter = inMemoryFilter(body?.filterClause ?? "") + streamScopeWhere(agg, pool, f);
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
     const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
       .replace(`.ToListAsync(${ct})`, ".ToList()")
@@ -1416,8 +1467,21 @@ export function renderEventSourcedRepositoryImpl(
         { name: "found", valueExpr: "__rows.Count > 0" },
       ])}`,
       "        if (__rows.Count == 0) return null;",
-      `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+      ...(tenancy
+        ? [
+            // A foreign tenant's stream reads as absent (404): no existence leak.
+            // The command (append) load rides this too.
+            `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
+            `        __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__rows[0].${upperFirst(m.field)}`).join(", ")});`,
+            ...(defaultScope
+              ? [`        return _TenantVisible(__inst) ? __inst : null;`]
+              : [`        return __inst;`]),
+          ]
+        : [`        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`]),
       "    }",
+      ...(defaultScope
+        ? ["", `    private static bool _TenantVisible(${agg.name} x) => ${defaultScope};`]
+        : []),
       ...writeScopeMethod,
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
@@ -1443,6 +1507,9 @@ export function renderEventSourcedRepositoryImpl(
       // re-read lets a handle loaded before another append keep a decision
       // taken on its stale fold.
       "            var __version = aggregate._StreamVersion;",
+      // A NEW stream is stamped from the principal (the capability's `onCreate`
+      // stamp); every later append carries the loaded stream's tenant forward.
+      ...(tenancy ? ["            if (__version == 0) aggregate._StampOnCreate();"] : []),
       `            var __appended = new List<${recordCls}>();`,
       "            foreach (var __ev in __pending)",
       "            {",
@@ -1455,6 +1522,11 @@ export function renderEventSourcedRepositoryImpl(
       "                    Type = __ev.GetType().Name,",
       "                    Data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json),",
       "                    OccurredAt = DateTime.UtcNow,",
+      ...(tenancy
+        ? tenancy.metadata.map(
+            (m) => `                    ${upperFirst(m.field)} = aggregate.${upperFirst(m.field)},`,
+          )
+        : []),
       "                };",
       `                _db.${dbSet}.Add(__rec);`,
       "                __appended.Add(__rec);",
@@ -1487,6 +1559,7 @@ export function renderEventSourcedRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
+      ...(tenancy ? streamOriginFrameLines(ns, "        ") : []),
       "        foreach (var ev in __pending)",
       "        {",
       `            ${renderDotnetLogCall("eventDispatched", [
@@ -1512,7 +1585,20 @@ export function renderEventSourcedRepositoryImpl(
       "            }",
       "            __list.Add(RowToEvent(__r));",
       "        }",
-      `        return __byStream.Select(__kv => ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value)).ToList();`,
+      ...(tenancy
+        ? [
+            // Each stream adopts its first row's tenant metadata.
+            "        var __first = __rows.GroupBy(__r => __r.StreamId).ToDictionary(__g => __g.Key, __g => __g.First());",
+            "        return __byStream.Select(__kv =>",
+            "        {",
+            `            var __inst = ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value);`,
+            `            __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__first[__kv.Key].${upperFirst(m.field)}`).join(", ")});`,
+            "            return __inst;",
+            "        }).ToList();",
+          ]
+        : [
+            `        return __byStream.Select(__kv => ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value)).ToList();`,
+          ]),
       "    }",
       "",
       `    private static IDomainEvent RowToEvent(${recordCls} __r)`,
@@ -1593,7 +1679,7 @@ export function inMemoryRunMethodLines(
       currentUserExpr: AMBIENT_CURRENT_USER,
     });
     const conds = [...caps, `(${where})`].join(" && ");
-    const order = orderByClauseFor(r, x);
+    const order = inMemoryOrderByClauseFor(r, x);
     return [
       "",
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,

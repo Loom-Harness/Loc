@@ -330,7 +330,7 @@ such flag.
   | Capability | NOT NULL column | Existing rows | On a populated table |
   |---|---|---|---|
   | `softDeletable` | `is_deleted` | `false`, unambiguously (no row was ever soft-deleted before the capability) | added `DEFAULT false`, the default dropped in the same migration, as a field default (above). No flag, no block |
-  | `versioned` | `version` | `1` | a real `DEFAULT 1` column, never blocking |
+  | `versioned` | `row_version` | `1` | a real `DEFAULT 1` column, never blocking |
   | `tenantOwned` | `tenant_id` | unknown: which tenant owns a pre-tenancy row is a business fact, and a wrong guess leaks it | **refused**, with a line naming the capability and why |
   | `auditable` | `created_at`/`updated_at`/`created_by`/`updated_by` | unknown: the real creation time and author are lost | **refused**, same |
 
@@ -1026,7 +1026,7 @@ migrations/
 ```bash
 ddd migrate add initial app.ddd             # first recorded generation: each module's Initial
 ddd migrate add rename-order-qty app.ddd    # every later schema change, kebab-case name
-ddd migrate status app.ddd [--json]         # each module's head, and what is not recorded yet
+ddd migrate status app.ddd [--json]         # each module's head, what is not recorded yet, and whether recording it is destructive
 ddd migrate remove app.ddd                  # delete the newest entry (one no database has applied)
 ddd migrate rebase app.ddd                  # after a merge leaves two heads, re-record one on top of the other
 ddd generate system app.ddd -o out          # renders the chain; never records anything
@@ -1036,9 +1036,20 @@ ddd generate system app.ddd -o out          # renders the chain; never records a
 is checked against.
 
 **The playground keeps the same files** in its workspace, beside the entry
-`.ddd`. Its generate renders the chain and refuses drift the same way. Its
-Migrations tab shows the status and records new entries (`migrate add`); see
-[playground.md](playground.md).
+`.ddd`. Its generate renders the chain; drift is a warning there rather than a
+refusal, because the playground gates its database instead: Boot applies the
+recorded entries its in-browser database has not applied (the same SQL the
+generated Hono backend's `db/migrations/` carries) and leaves the database as
+it is while the model has unrecorded changes. A workspace with no chain gets
+no implicit initial migration — its database is created once the initial
+migration is recorded. Its Migrations tab shows the status and records new
+entries (`migrate add`); see [playground.md](playground.md).
+
+**Agents get the same two verbs as tools.** `loom_migration_status` and
+`loom_migration_record` ([mcp.md](mcp.md)) are `migrate status` and
+`migrate add` over a source plus the chain's files, on the same cores; the
+record returns the new entries rather than writing them, and refuses a
+destructive change until `allowDestructive: true` acknowledges it.
 
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and
@@ -1095,7 +1106,7 @@ produces tables. The shape depends on the aggregate's saving shape, persistence
 mode, and inheritance:
 
 **Aggregate → table.** `aggregate Order` → table `orders` (`plural(snake(name))`),
-`id` PK typed from `idValueType`, one column per scalar/enum/`X id` field.
+`id` PK (a `uuid` — every identity is a guid), one column per scalar/enum/`X id` field.
 The spelling lives in one place, `tableNameFor` (`src/util/storage-names.ts`), with
 the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableName`,
 `associationTables`) in `src/ir/enrich/storage-names.ts`; every backend's ORM mapping
@@ -1323,9 +1334,10 @@ table.
 default — the macro layer splices the `versioned` capability into each one that
 is not event-sourced (`persistedAs: eventLog`, whose `(stream_id, version)`
 stream already is its concurrency control) — so a plain aggregate gains a
-`version INTEGER NOT NULL DEFAULT 1` state column; writing `with versioned` is
+`row_version INTEGER NOT NULL DEFAULT 1` state column (the `rowVersion`
+member; `version` stays free for domain data); writing `with versioned` is
 redundant. Every backend's save path emits
-a guarded `UPDATE … WHERE id = $1 AND version = $2` (bumping `version`) and returns
+a guarded `UPDATE … WHERE id = $1 AND row_version = $2` (bumping `row_version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
 
@@ -1580,7 +1592,8 @@ how the elixir migration emitter *renders* that column type, so:
   ```
 
   for every declared `datetime` column (the stamped `created_at` / `updated_at`
-  of an `auditable` aggregate included) and the event-log `occurred_at`. Loom
+  of an `auditable` aggregate included), the `at` of `audit_records` and
+  `provenance_records`, and the event-log `occurred_at`. Loom
   emits no such step: a type change that does not move the IR is invisible to
   the diff that would have to produce it — the same limit the RS-37 note above
   records for values.

@@ -106,12 +106,14 @@ describe("node — one stamp helper pair per aggregate", () => {
       'import { stampInsertTicket, stampUpdateTicket } from "../audit-stamp";',
     );
     expect(ticketRepo).toMatch(
-      /\.values\(stampInsertTicket\(\{[\s\S]*?version: 1 \}, aggregate\)\)/,
+      /\.values\(stampInsertTicket\(\{[\s\S]*?rowVersion: 1 \}, aggregate\)\)/,
     );
-    expect(ticketRepo).toMatch(/\.set\(stampUpdateTicket\(\{[\s\S]*?version: expected \+ 1 \}\)\)/);
+    expect(ticketRepo).toMatch(
+      /\.set\(stampUpdateTicket\(\{[\s\S]*?rowVersion: expected \+ 1 \}\)\)/,
+    );
 
     const noteRepo = find(files, /repositories\/note-repository\.ts$/);
-    expect(noteRepo).toMatch(/\.values\(stampInsertNote\(\{[\s\S]*?version: 1 \}\)\)/);
+    expect(noteRepo).toMatch(/\.values\(stampInsertNote\(\{[\s\S]*?rowVersion: 1 \}\)\)/);
   });
 
   it("the mikroorm adapter calls the same per-aggregate helpers", async () => {
@@ -123,7 +125,7 @@ describe("node — one stamp helper pair per aggregate", () => {
       /em\.insert\(TicketRow, stampInsertTicket\([\s\S]*?, aggregate\)\);/,
     );
     expect(find(files, /repositories\/note-repository\.ts$/)).toMatch(
-      /em\.insert\(NoteRow, stampInsertNote\([\s\S]*?version: 1 \}\)\);/,
+      /em\.insert\(NoteRow, stampInsertNote\([\s\S]*?rowVersion: 1 \}\)\);/,
     );
   });
 });

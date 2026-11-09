@@ -33,10 +33,15 @@ import {
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
-import { commandCreateResult, commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
-import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import {
+  commandCreateEntryResult,
+  commandCreateResult,
+  commandWorkflowsOf,
+} from "../../ir/util/workflow-command-route.js";
+import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
+  plural,
   pythonIdent,
   pythonWireIdent,
   snake,
@@ -52,6 +57,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -63,6 +69,11 @@ import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { responsePyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
+import {
+  entryErrorPyLines,
+  entryErrorStatusesPy,
+  entryResultPyLines,
+} from "./entry-result-emit.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { PY } from "./py-symbols.js";
 import {
@@ -299,17 +310,14 @@ function lookupOp(
  *  `this-derived` — the refKinds `lower-expr.ts` gives an own-state name)
  *  reached through any statement's expressions.  `walkWorkflowStmtExprsDeep`
  *  visits an `assign`'s VALUE but not its PathIR target, so the write half is
- *  checked directly; recurses into `for-each` / `if-let` nested bodies for
- *  both halves. */
+ *  checked directly, over every nested body. */
 function usesOwnState(statements: WorkflowStmtIR[]): boolean {
-  const hasAssign = (sts: WorkflowStmtIR[]): boolean =>
-    sts.some((s) => {
-      if (s.kind === "assign") return true;
-      if (s.kind === "for-each") return hasAssign(s.body);
-      if (s.kind === "if-let") return hasAssign(s.thenBody) || hasAssign(s.elseBody ?? []);
-      return false;
+  let assigns = false;
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (s) => {
+      if (s.kind === "assign") assigns = true;
     });
-  if (hasAssign(statements)) return true;
+  if (assigns) return true;
   let found = false;
   for (const s of statements) {
     walkWorkflowStmtExprsDeep(s, (e) => {
@@ -350,8 +358,10 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
       }
     }
     walkWorkflowStmtChildren(st, { workflowStmt: visit });
-    if (st.kind === "for-each") {
-      for (const s of st.savesPerIteration) {
+    if (st.kind === "for-each" || st.kind === "variant-match") {
+      // A loop iteration's and a match arm's saves (an arm may create an
+      // aggregate no read in the body names).
+      for (const s of nestedSaves(st)) {
         out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
       }
     }
@@ -394,7 +404,7 @@ export function pyReadPortResolver(
     const svc = ctx.domainServices.find((s) => s.name === service);
     const operation = svc?.operations.find((o) => o.name === op);
     if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => snake(p.repo));
+    return readPortsForOperation(operation).map((p) => pythonIdent(p.repo));
   };
 }
 
@@ -618,29 +628,41 @@ function workflowRoute(
   // currentUser-referencing one binds the actor off the request scope
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
+  const needsRequest = usesUser || commandCreateEntryResult(wf, ctx) !== undefined;
   const sig = [
     pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
-    ...(usesUser ? [PY_REQUEST_PARAM] : []),
+    ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
   // `create(…): T { … return <expr> }` — 200 with the value; FastAPI publishes
   // the 200 schema from the return annotation (the response-direction wire type
   // the aggregate DTOs use: an id is its `str`).  No result keeps the 204.
   const result = commandCreateResult(wf);
+  // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
+  // is injected by `install_openapi`), each error arm at its mapped status.
+  const er = commandCreateEntryResult(wf, ctx);
+  const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+  const returnAnnotation = er
+    ? `dict[str, object] | ${H.JSONResponse}`
+    : selfResult
+      ? "dict[str, object]"
+      : result
+        ? responsePyType(result.type, ctx)
+        : H.Response;
   const out: string[] = [
-    `@router.post("/${snake(wf.name)}", status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
+    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${upperFirst(wf.name)}InstanceResponse, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
       "workflow",
       workflowIsGuarded(wf),
-      [],
+      er ? entryErrorStatusesPy(er, ctx) : [],
       conflictResolver(ctx),
       {
-        readsAggregate: workflowCanAnswerNotFound(wf),
+        readsAggregate: workflowCanAnswerNotFound(wf, ctx),
       },
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
     `@${IN_CHILD_CONTEXT}`,
-    `async def ${snake(wf.name)}_workflow(${sig}) -> ${result ? responsePyType(result.type, ctx) : H.Response}:`,
+    `async def ${snake(wf.name)}_workflow(${sig}) -> ${returnAnnotation}:`,
     ...(usesUser ? [PY_USER_BIND] : []),
     // Workflow narrative — `workflow_started` at the route entry; shared catalog
     // identity (field `workflow`) across every backend.
@@ -742,7 +764,7 @@ function workflowRoute(
   const repos = mergeReadPortRepos(reposFor(wf), wf, ctx);
   for (const r of repos) {
     out.push(
-      `        ${snake(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
+      `        ${pythonIdent(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
     );
   }
   const hasEmit = workflowEmits(wf.statements).length > 0;
@@ -772,6 +794,7 @@ function workflowRoute(
       ctx,
       collectLiveLetNames(wf.statements, wf.savesAtExit),
       saveLines,
+      writeScopeContext(wf.statements, ctx),
     ),
     "        ",
   );
@@ -790,10 +813,34 @@ function workflowRoute(
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
   // a later `on` reactor for the same key routes instead of dropping the event.
   if (corrParam) out.push("        await session.flush()");
-  if (result) {
+  const resultCtx = {
+    thisName: corrParam ? "state" : "self",
+    readPortArgs: pyReadPortResolver(ctx),
+  };
+  if (er && result?.type.kind === "union") {
     out.push(
-      `        workflow_result = ${renderPyExpr(result.value, { thisName: corrParam ? "state" : "self", readPortArgs: pyReadPortResolver(ctx) })}`,
+      ...entryResultPyLines(
+        er,
+        result.type,
+        (e) => renderPyExpr(e, resultCtx),
+        ctx,
+        "        ",
+        "workflow_result",
+        (agg) => snake(repos.find((r) => r.aggName === agg)?.repoName ?? plural(agg)),
+        (f) => instanceFieldValue("state", f),
+        wf.instanceWireShape ?? [],
+      ),
+      // The 4xx answer is what rolls the request's transaction back.
+      ...entryErrorPyLines(er, ctx, "workflow_result", H.JSONResponse, "        "),
     );
+  } else if (selfResult) {
+    out.push(
+      `        workflow_result: dict[str, object] = {${(wf.instanceWireShape ?? [])
+        .map((f) => `"${f.name}": ${instanceFieldValue("state", f)}`)
+        .join(", ")}}`,
+    );
+  } else if (result) {
+    out.push(`        workflow_result = ${renderPyExpr(result.value, resultCtx)}`);
   }
   if (hasEmit) {
     out.push(`        dispatcher = ${dispatcherExpr}`);
@@ -889,14 +936,9 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // snake-cased attrs `instance_field_value` projects, so the projection,
   // operationIds, and route paths stay identical to the state path.
   const fns = esFns(wf);
-  // The `{id}` param annotation derives from the correlation id's value type —
-  // guid → the uuid-format str `ID_PARAM`, int/long → `int`, string → plain
-  // `str` — parity with Hono / .NET / Java / Phoenix by construction
-  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
-  const corrVt = workflowCorrIdValueType(wf);
-  const idParam = corrVt === "guid" ? ID_PARAM : corrVt === "string" ? "id: str" : "id: int";
-  // `_load_<wf>_events` / `_fold_<wf>` key streams as str; a numeric id stringifies.
-  const idAsKey = corrVt === "int" || corrVt === "long" ? "str(id)" : "id";
+  // The correlation id is a guid, so the `{id}` param is the uuid-format str
+  // `ID_PARAM` — parity with Hono / .NET / Java / Phoenix.
+  const idParam = ID_PARAM;
   const list = wf.eventSourced
     ? lines(
         `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
@@ -917,10 +959,10 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
         `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
         gateLines,
-        `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
+        `    __stream = await ${dispatchFn(fns.load)}(session, id)`,
         "    if not __stream:",
         `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-        `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
+        `    row = ${dispatchFn(fns.fold)}(id, __stream)`,
         `    return {${proj("row")}}`,
       )
     : lines(
@@ -976,12 +1018,16 @@ export function pyWorkflowStmtTarget(
   ctx: EnrichedBoundedContextIR | undefined,
   usedLets: ReadonlySet<string> | undefined,
   saveLines: PySaveLines,
+  /** The body's write-scope requirement — present on a command body (a
+   *  workflow's command route, an explicit command handler); a reactor
+   *  passes none. */
+  writeScope?: WriteScopeContext,
 ): WorkflowStmtTarget {
   /** The awaited criterion retrieval run capped at one row — the
    *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
    *  `if let`. */
   const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
-    `await ${snake(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
+    `await ${pythonIdent(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -1015,7 +1061,7 @@ export function pyWorkflowStmtTarget(
         return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
       }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
-      const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.${snake(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
       // awaited call (a missing id still raises → 404) but drop the dead
       // binding, or ruff rejects the unused local (F841).  `usedLets` here is
@@ -1029,7 +1075,7 @@ export function pyWorkflowStmtTarget(
         ...(st.page?.offset ? [`offset=${renderPyExpr(st.page.offset, rctx)}`] : []),
         ...(st.page?.limit ? [`limit=${renderPyExpr(st.page.limit, rctx)}`] : []),
       ].join(", ");
-      const call = `await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
+      const call = `await ${pythonIdent(st.repoName)}.run_${snake(st.retrievalName)}(${args})`;
       // A `run` retrieval is a read (no exit-save), so a binding never read is
       // dead — keep the (still-awaited) call but drop the assignment, or ruff
       // rejects the unused local (F841).  Mirrors the `exprLet` arm.
@@ -1085,13 +1131,19 @@ export function pyWorkflowStmtTarget(
           `${i}    raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
         ];
       });
-      return [...gateLines, `${i}${snake(st.target)}.${snake(st.op)}(${args})`];
+      // `let r = a.op(…)` binds the call's value (unless nothing reads it —
+      // ruff F841); the bare statement discards it.
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [...gateLines, `${i}${bind}${snake(st.target)}.${snake(st.op)}(${args})`];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
       // repository's `delete(id)` takes the aggregate's id token, so append
-      // `.id`.  Repo var mirrors the repo-let arm (`snake(repoName)`).
-      return [`${i}await ${snake(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
+      // `.id`.  Repo var mirrors the repo-let arm (`pythonIdent(repoName)`).
+      return [`${i}await ${pythonIdent(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
     },
     forEach: (st, i, body) => {
       const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
@@ -1115,15 +1167,15 @@ export function pyWorkflowStmtTarget(
       // answer the row or `None`, so they bind directly; a `bound` source
       // narrows an optional binding already in scope.
       const byName = (method: string): string[] => [
-        `${i}${v} = await ${snake(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+        `${i}${v} = await ${pythonIdent(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
       ];
       const lookup =
         st.op === "bound"
           ? [`${i}${v} = ${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")}`]
-          : st.op === "load-optional"
-            ? byName("findById")
-            : st.findMethod
-              ? byName(st.findMethod)
+          : st.findMethod
+            ? byName(st.findMethod)
+            : st.op === "load-optional"
+              ? byName("findById")
               : [
                   `${i}${hits} = ${runFirstRow(st.repoName, st.retrievalName, st.retrievalArgs)}`,
                   `${i}${v} = ${hits}[0] if ${hits} else None`,
@@ -1205,12 +1257,30 @@ export function pyWorkflowStmtTarget(
     domainServiceCall: (st, i) => {
       const rendered = renderPyExpr(st.call, rctx);
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
-      return [`${i}${bare}`];
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [`${i}${bind}${bare}`];
     },
     // The error a by-id miss raises, so the app's not-found handler renders
     // the identical ProblemDetails.
     notFound: (st, i) => [
       `${i}raise ${PY.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))})`,
     ],
+    // A held row is re-loaded through `get_by_id_for_write` — the load every
+    // mutation route uses — before the statement mutates or deletes it; a row
+    // outside the caller's write scope raises the same not-found (→ 404), and
+    // the request's transaction rolls back on the error answer.
+    ...(writeScope
+      ? {
+          writeScope: {
+            cx: writeScope,
+            guard: (g, i) => [
+              `${i}await ${pythonIdent(g.repoName)}.get_by_id_for_write(${snake(g.name)}.id)`,
+            ],
+          },
+        }
+      : {}),
   };
 }

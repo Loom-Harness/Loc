@@ -111,6 +111,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { upperFirst } from "../../util/naming.js";
+import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { felizTarget } from "./feliz-target.js";
 import {
@@ -139,6 +140,8 @@ export interface FelizComponentCtx {
   /** True when this ui has extractable user-visible strings (M-T1.11) — literal
    *  text then keys to the catalog under `component.<Name>`. */
   i18nEnabled: boolean;
+  /** The hosting ui's name — the leading segment of every catalog key. */
+  uiName: string;
   /** Wire RECORD type names this App.fs actually emits (read off the rendered
    *  domain records).  A param naming a type outside this set is not spellable
    *  here, so its component stays deferred. */
@@ -348,7 +351,7 @@ function renderOne(
     // is what `felizTarget.renderDerivedRead` spells.
     new Set(c.derived.map((d) => d.name)),
     ctx.authUi,
-    ctx.i18nEnabled ? `component.${c.name}` : undefined,
+    ctx.i18nEnabled ? componentKeyPrefix({ name: ctx.uiName }, c) : undefined,
   );
   const body = result.tsx.trim();
   // A body that CALLS a model- or dispatch-taking sibling component emits

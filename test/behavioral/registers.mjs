@@ -232,18 +232,6 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
-/** A provenanced field's lineage (`provenance-money`): the `Codec` fact writes
- *  every scalar there in its wire form — money as its RS-12 string (#3527).
- *  The java and elixir legs still record the domain value, so the first
- *  lineage assertion (a money one) fails — java with a JSON number, elixir
- *  with an unscaled Decimal string. */
-const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
-const moneyLineage = (re) => ({
-  issue: "#4402",
-  expect: "fail",
-  tests: { [MONEY_LINEAGE_BLOCK]: re },
-  reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
-});
 /** The two-writer probe's test name (`__twoWriterProbe`, wire-differential.mjs) —
  *  the one test a `race` entry may pin: only a race can show what it measures. */
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
@@ -267,18 +255,6 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
-    // The guarded save flushes the dirty entity (its stale `version` included)
-    // before the `where version = :expected` bump, so two simultaneous writers
-    // carrying one `If-Match` both land.  The sequential stale tag is refused.
-    "concurrency-two-writers": {
-      issue: "#3521",
-      expect: "fail",
-      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
-      race:
-        "the lost write needs both requests to load before either saves, which only the server's own timing decides; a run whose pairs all serialise passes",
-      reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
-    },
   },
   python: {
     // A routed command handler's body model takes snake_case keys.
@@ -295,25 +271,50 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    "provenance-money": moneyLineage('to be "3000\\.3000"'),
+    // An expected-failure entry point (`T or E`) is refused on Phoenix, so
+    // generation stops at phase ⑦ (unsupported register).
+    "workflow-expected-failure": {
+      issue: "#4571",
+      expect: "error",
+      match: "loom\\.elixir-entry-result-unsupported",
+      reason:
+        "a workflow `create` / handler answering `T or E`: the Phoenix routes have no tagged result and no rollback seam that undoes the whole command on the error",
+    },
+    // The scaffolded handler answers its operation's `T or E`, an
+    // expected-failure entry point Phoenix refuses (unsupported register).
+    "scaffold-handlers-or-e": {
+      issue: "#4571",
+      expect: "error",
+      match: "loom\\.elixir-entry-result-unsupported",
+      reason:
+        "a scaffolded commandHandler answering its operation's `T or E`: the Phoenix routes have no tagged result and no rollback seam",
+    },
+    // A mutating call bound with `let` is refused on Phoenix, so generation
+    // stops at phase ⑦ (unsupported register).
+    "match-op-result": {
+      issue: "#4541",
+      expect: "error",
+      match: "loom\\.elixir-bound-mutating-call-unsupported",
+      reason:
+        "`let r = a.withdraw(x)` in a workflow body: the Phoenix with-chain sites match an op call's `{:ok, _}` away and never bind its result",
+    },
     // A value object nested inside another is cast as `:map`, so the nested
-    // VO's invariant never runs and the bad create commits.
+    // VO's invariant would never run; the capability table refuses the shape
+    // on elixir until it does.
     "vo-root-kernel": {
       issue: "#4017",
-      expect: "fail",
-      tests: { "a shared-kernel value object round-trips": "expected the call to reject, but it resolved" },
-      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`)",
+      expect: "error",
+      match: "loom\\.target-unsupported .*value object 'Outer' field '\\w+' \\(a 'UnLocode', which declares an invariant\\)",
+      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`), so the shape is refused on elixir",
     },
-    // The document-shape create demands the defaulted capability field, so
-    // no `Note` can be written: the block and every document ladder seed 422.
+    // The document-shape create demands the defaulted capability field, so no
+    // `Note` could be written; the capability table refuses the pair on elixir
+    // (`persistence:document` with `capability:softDeletable`) until it can.
     "find-bypass": {
       issue: "#4224",
-      expect: "fail",
-      tests: {
-        "a bypassing read drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
-        "document — ": "seed POST /api/notes → 422",
-      },
-      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`",
+      expect: "error",
+      match: "loom\\.target-unsupported .*`persistence:document` with `capability:softDeletable`",
+      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`, so the pair is refused on elixir",
     },
     "workflow-two-handles-containment": {
       issue: "#3838",

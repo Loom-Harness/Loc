@@ -1,11 +1,4 @@
-import type {
-  AuthIR,
-  AuthValueIR,
-  FieldIR,
-  IdValueType,
-  SystemIR,
-  TypeIR,
-} from "../../../ir/types/loom-ir.js";
+import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
 import {
   guidClaimAccessorName,
@@ -17,7 +10,8 @@ import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
-import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
+import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
+import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   devClaimFields,
@@ -28,6 +22,7 @@ import { claimFromOriginString } from "../../_auth/origin-claim.js";
 import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaIntOutOfRange } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
@@ -41,10 +36,6 @@ export interface OrgPathRegistry {
   /** `plural(snake(registry.name))` — the registry's Flyway state table
    *  (already schema-qualified when the datasource pins a schema). */
   table: string;
-  /** The registry id's value type — drives the claim→id SQL bind conversion
-   *  (a `string` claim against a `guid` id parses to UUID at the lookup site,
-   *  fail-closed like the JPQL principal accessor). */
-  idValueType: IdValueType;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +83,9 @@ export function renderAuthFiles(
   // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
   // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
   if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
+  // An enum-typed claim (`tier: Tier`) likewise names a type emitted into
+  // `<basePkg>.domain.enums`, not this package.
+  if (claimEnumNames(fields).length > 0) imports.add(`${basePkg}.domain.enums.*`);
   const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
   // Derived `currentUser.orgPath` — the caller's tenant materialized path
   // (multi-tenancy).  An extra record accessor (not a component), so
@@ -385,6 +379,18 @@ export function renderAuthFiles(
       ``,
       `    void set(User user) {`,
       `        HOLDER.set(user);`,
+      `    }`,
+      ``,
+      `    /** Make \`user\` the ambient principal of this thread (null clears it) —`,
+      `     *  the seam a context integration test binds its principal through, so`,
+      `     *  every ambient-principal reader (tenancy filters, stamps, gates) sees`,
+      `     *  it as it would a request's. */`,
+      `    public static void actAs(User user) {`,
+      `        if (user == null) {`,
+      `            HOLDER.remove();`,
+      `        } else {`,
+      `            HOLDER.set(user);`,
+      `        }`,
       `    }`,
       ``,
       `    /** Run \`body\` with the system principal of \`origin\` as the ambient`,
@@ -757,18 +763,10 @@ function renderOrgPathResolver(pkg: string): string {
 }
 
 function renderOrgPathResolverConfig(pkg: string, registry: OrgPathRegistry): string {
-  // The tenancy claim binds as the registry id's SQL type at the lookup site:
-  // a `string` claim against a `guid` id parses to UUID (throwing on a
-  // non-UUID claim -> caught by OrgPathResolver -> claim fallback); other id
-  // types bind their parsed value; a same-typed string claim binds directly.
-  const bind =
-    registry.idValueType === "guid"
-      ? "java.util.UUID.fromString(claim)"
-      : registry.idValueType === "int"
-        ? "Integer.parseInt(claim)"
-        : registry.idValueType === "long"
-          ? "Long.parseLong(claim)"
-          : "claim";
+  // The tenancy claim binds as the registry's guid id at the lookup site: it
+  // parses to UUID (throwing on a non-UUID claim -> caught by OrgPathResolver
+  // -> claim fallback).
+  const bind = "java.util.UUID.fromString(claim)";
   const sql = `SELECT data_key FROM ${registry.table} WHERE id = ?`;
   return lines(
     `package ${pkg};`,
@@ -848,7 +846,7 @@ const JAVA_SCALAR_DECODERS: Readonly<Partial<Record<string, { fn: string; boxed:
 /** A `Function<Object, T>` decoding one claim value to a non-string claim
  *  type (null when wrongly shaped / unparseable), or `undefined` when the
  *  type has no claim decoding (value objects, enums, money, json keep the
- *  stub value).  An `X id` claim decodes its id's VALUE type and is then
+ *  stub value).  An `X id` claim decodes as a guid and is then
  *  constructed through the emitted strong-id record — the value
  *  node/python/elixir carry as the raw claim. */
 function javaClaimDecoder(t: TypeIR): { decode: string; boxed: string } | undefined {
@@ -857,9 +855,11 @@ function javaClaimDecoder(t: TypeIR): { decode: string; boxed: string } | undefi
     return d ? { decode: `OidcUserVerifier::${d.fn}`, boxed: d.boxed } : undefined;
   }
   if (t.kind === "id") {
-    const d = JAVA_SCALAR_DECODERS[t.valueType];
     const cls = renderJavaType(t);
-    return d ? { decode: `v -> mapOrNull(${d.fn}(v), ${cls}::new)`, boxed: cls } : undefined;
+    return {
+      decode: `v -> mapOrNull(${JAVA_SCALAR_DECODERS.guid!.fn}(v), ${cls}::new)`,
+      boxed: cls,
+    };
   }
   return undefined;
 }
@@ -999,7 +999,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   ``,
   `    private static Integer asInt(Object v) {`,
   `        Long n = asLong(v);`,
-  `        return n == null || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE ? null : n.intValue();`,
+  `        return n == null || ${javaIntOutOfRange("n")} ? null : n.intValue();`,
   `    }`,
   ``,
   `    private static ${J.BigDecimal} asDecimal(Object v) {`,
@@ -1103,6 +1103,16 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        if (token == null) {`,
     `            return null;`,
     `        }`,
+    ...(audienceDeclared(auth)
+      ? [
+          `        // The model declares an audience: one that resolves EMPTY fails`,
+          `        // closed (every token rejected), it never turns the aud check off.`,
+          `        if (AUDIENCE == null || AUDIENCE.isEmpty()) {`,
+          `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${JSON.stringify(audienceUnsetReason(auth))});`,
+          `            return null;`,
+          `        }`,
+        ]
+      : []),
     `        try {`,
     `            JWTClaimsSet claims = processor().process(token, null);`,
     `            Map<String, Object> payload = claims.toJSONObject();`,
@@ -1150,9 +1160,9 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
-    `        // the documented opt-out every backend honours.  Nimbus given ""`,
-    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        // An EMPTY audience skips the aud check — reachable only when the`,
+    `        // model declares no audience.  Nimbus given "" would demand`,
+    `        // aud == "" and reject every token, so fold it to null.`,
     `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
     `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,

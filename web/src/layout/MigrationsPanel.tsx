@@ -231,20 +231,52 @@ function chainStatusLine(chain: ChainStatusView | null, recordable: boolean): st
 }
 
 function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
+  return (
+    <Stack gap={4} px="sm" pb={6} style={{ flexShrink: 0 }} data-testid="migration-chain">
+      <Text
+        size="xs"
+        c={e.chain?.forkHeads ? "red" : "dimmed"}
+        data-testid="migration-chain-status"
+      >
+        {chainStatusLine(e.chain, recordableOf(e))}
+      </Text>
+      <RecordMigrationForm ctx={ctx} e={e} testid="migration-record" />
+    </Stack>
+  );
+}
+
+/** Whether recording `e` would write anything.  With a chain, the listed
+ *  migrations ARE what recording writes.  Without one, recording starts the
+ *  chain from every current table (each module's Initial, never
+ *  destructive), whatever the diff against the last save. */
+export function recordableOf(e: EvolutionOk): boolean {
+  return e.chain === null ? e.tables.length > 0 : !e.chain.forkHeads && e.chain.unrecordedSteps > 0;
+}
+
+/** The record action — name, the destructive acknowledgement, Record — over
+ *  `ctx.recordMigration`, the one path that writes chain entries.  The
+ *  Migrations tab and the pipeline strip's Record dialog both render it;
+ *  `testid` prefixes its test ids so the two never collide. */
+export function RecordMigrationForm({
+  ctx,
+  e,
+  testid,
+  onRecorded,
+}: {
+  ctx: LayoutCtx;
+  e: EvolutionOk;
+  testid: string;
+  onRecorded?: () => void;
+}): JSX.Element | null {
   const [name, setName] = useState("");
   const [allowDestructive, setAllowDestructive] = useState(false);
   const [recording, setRecording] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  // With a chain, the listed migrations ARE what recording writes.  Without
-  // one, recording starts the chain from every current table (each module's
-  // Initial, never destructive), whatever the diff against the last save.
-  const recordable =
-    e.chain === null ? e.tables.length > 0 : !e.chain.forkHeads && e.chain.unrecordedSteps > 0;
+  const recordable = recordableOf(e);
   const destructive = e.chain !== null && e.migrations.some((m) => m.destructive);
   const validName = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
   const canRecord =
     ctx.buildClient != null &&
-    ctx.workspace.store != null &&
     ctx.sourcesWritable &&
     recordable &&
     validName &&
@@ -265,21 +297,16 @@ function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
         setMessage({ ok: true, text: MIGRATIONS.recorded(r.files.length) });
         setName("");
         setAllowDestructive(false);
+        onRecorded?.();
       }
     } finally {
       setRecording(false);
     }
   };
 
+  if (!recordable && !message) return null;
   return (
-    <Stack gap={4} px="sm" pb={6} style={{ flexShrink: 0 }} data-testid="migration-chain">
-      <Text
-        size="xs"
-        c={e.chain?.forkHeads ? "red" : "dimmed"}
-        data-testid="migration-chain-status"
-      >
-        {chainStatusLine(e.chain, recordable)}
-      </Text>
+    <Stack gap={4}>
       {recordable && (
         <Group gap={8} wrap="wrap">
           <TextInput
@@ -288,9 +315,12 @@ function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
             aria-label={MIGRATIONS.nameLabel}
             value={name}
             onChange={(ev) => setName(ev.currentTarget.value)}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter" && canRecord) void record();
+            }}
             error={name !== "" && !validName}
             style={{ width: 200 }}
-            data-testid="migration-record-name"
+            data-testid={`${testid}-name`}
           />
           {destructive && (
             <Checkbox
@@ -298,7 +328,7 @@ function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
               label={MIGRATIONS.destructiveFlag}
               checked={allowDestructive}
               onChange={(ev) => setAllowDestructive(ev.currentTarget.checked)}
-              data-testid="migration-record-destructive"
+              data-testid={`${testid}-destructive`}
             />
           )}
           <Button
@@ -307,14 +337,14 @@ function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
             disabled={!canRecord}
             leftSection={recording ? <Loader size={10} /> : undefined}
             onClick={() => void record()}
-            data-testid="migration-record"
+            data-testid={testid}
           >
             {MIGRATIONS.record}
           </Button>
         </Group>
       )}
       {message && (
-        <Text size="xs" c={message.ok ? "green" : "red"} data-testid="migration-record-result">
+        <Text size="xs" c={message.ok ? "green" : "red"} data-testid={`${testid}-result`}>
           {message.text}
         </Text>
       )}
@@ -423,7 +453,7 @@ const TINT_COLOUR: Record<TableTint, string> = {
   untouched: "gray",
 };
 
-function TintLegend({ tables }: { tables: TintedTable[] }): JSX.Element | null {
+export function TintLegend({ tables }: { tables: TintedTable[] }): JSX.Element | null {
   if (tables.length === 0) return null;
   const counts = tintCounts(tables);
   const order: TableTint[] = ["added", "changed", "removed", "untouched"];
@@ -440,7 +470,7 @@ function TintLegend({ tables }: { tables: TintedTable[] }): JSX.Element | null {
   );
 }
 
-function SchemaDiagram({ tables }: { tables: TintedTable[] }): JSX.Element {
+export function SchemaDiagram({ tables }: { tables: TintedTable[] }): JSX.Element {
   if (tables.length === 0) {
     return (
       <Text size="xs" c="dimmed" data-testid="evolution-diagram-empty">
@@ -533,7 +563,7 @@ function TableCard({ t }: { t: TintedTable }): JSX.Element {
 // and the data that would go.
 // ---------------------------------------------------------------------
 
-function MigrationCard({ m }: { m: MigrationView }): JSX.Element {
+export function MigrationCard({ m }: { m: MigrationView }): JSX.Element {
   const drops = m.destructive ? destructiveDrops(m) : [];
   return (
     <Box

@@ -79,7 +79,7 @@ describe("python TPH write paths carry the kind discriminator", () => {
     const car = files.get("api/app/db/repositories/car_repository.py") ?? "";
     const guard = car.split("\n").find((l) => l.trim().startsWith("where=")) ?? "";
     expect(guard, "guarded upsert emitted").not.toEqual("");
-    expect(guard).toContain("VehicleRow.version == _expected");
+    expect(guard).toContain("VehicleRow.row_version == _expected");
     expect(guard).toContain('VehicleRow.kind == "Car"');
     // Zero rows matched -> the same ConcurrencyError a lost race raises, rather
     // than a silent kind flip.
@@ -103,7 +103,7 @@ describe("python TPH write paths carry the kind discriminator", () => {
     expect(del).toContain("delete(BikeRow).where(BikeRow.id == id)");
     expect(del).not.toContain("and_(");
     const guard = bike.split("\n").find((l) => l.trim().startsWith("where=")) ?? "";
-    expect(guard).toContain("BikeRow.version == _expected");
+    expect(guard).toContain("BikeRow.row_version == _expected");
     expect(guard).not.toContain("kind");
   });
 });

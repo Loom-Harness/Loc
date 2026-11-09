@@ -8,7 +8,16 @@
 
 import type { LayoutCtx } from "./ctx";
 import { formatBytes } from "./ctx";
-import { BLOCKER, countOf, STAGE, STAGE_HINT, STAGE_ORDER, type StageId } from "./vocabulary";
+import { bootAwaitsInitialMigration } from "./pending-migration";
+import {
+  BLOCKER,
+  BOOT_PENDING_COUNT,
+  countOf,
+  STAGE,
+  STAGE_HINT,
+  STAGE_ORDER,
+  type StageId,
+} from "./vocabulary";
 
 export type StageState = "idle" | "running" | "ok" | "failed" | "blocked";
 
@@ -40,6 +49,8 @@ export type StageInputs = Pick<
   | "honoBundle"
   | "ddl"
   | "bootErrorMessage"
+  | "bootPending"
+  | "pendingMigration"
 >;
 
 function deriveValidate(c: StageInputs): StageView {
@@ -111,8 +122,29 @@ function deriveBoot(c: StageInputs): StageView {
   if (!c.honoBundle) {
     return { ...base, state: "blocked", count: null, blocker: BLOCKER.boot, enabled: false };
   }
+  // Nothing recorded: a boot would create nothing, so it waits for the
+  // initial migration the strip's badge records.
+  if (bootAwaitsInitialMigration(c.pendingMigration)) {
+    return {
+      ...base,
+      state: "blocked",
+      count: BOOT_PENDING_COUNT,
+      blocker: BLOCKER.bootInitial,
+      enabled: false,
+    };
+  }
   if (c.bootErrorMessage) {
     return { ...base, state: "failed", count: null, blocker: null, enabled: true };
+  }
+  if (c.bootPending) {
+    return {
+      ...base,
+      state: "failed",
+      count: BOOT_PENDING_COUNT,
+      blocker: null,
+      hint: c.bootPending.message,
+      enabled: true,
+    };
   }
   if (c.ddl) {
     return { ...base, state: "ok", count: null, blocker: null, hint: "Booted — click to reboot.", enabled: true };

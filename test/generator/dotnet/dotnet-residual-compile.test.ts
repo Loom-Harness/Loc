@@ -177,7 +177,7 @@ describe.each(ADAPTERS)("%s: .NET residual /warnaserror failures", (adapter, pla
     const wf = await file(platform, "Application/Workflows/FollowStartItemNamedHandler.cs");
     expect(wf).toContain('RunByTokenAsync("a", __cancellationToken: cancellationToken)');
     expect(wf).toContain(
-      'RunFindAllByTokAsync("b", "c", __bypass: FilterBypass.BypassAll(), __cancellationToken: cancellationToken)',
+      'RunFindAllByTokIgnoringAllAsync("b", "c", __bypass: FilterBypass.BypassAll(), __cancellationToken: cancellationToken)',
     );
     expect(wf).toContain(
       'RunFindAllByTokAsync("d", "e", (null, 1), __cancellationToken: cancellationToken)',

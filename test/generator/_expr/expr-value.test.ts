@@ -205,6 +205,11 @@ function pyProgram(rows: readonly ValueRow[]): string {
     "import json",
     "from decimal import Decimal",
     "",
+    // The emitted `app.domain.errors.check_int` (RS-48), minus its DomainError.
+    "def check_int(v, lo, hi):",
+    "    if v < lo or v > hi: raise ValueError('Value out of range')",
+    "    return v",
+    "",
     "def _show(v):",
     "    if isinstance(v, bool): return 'bool', 'true' if v else 'false'",
     "    if isinstance(v, Decimal): return 'num', format(v, 'f')",

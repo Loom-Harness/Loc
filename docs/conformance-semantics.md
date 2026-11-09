@@ -268,9 +268,9 @@ the conforming backends, and the fix that established it.
 
 ### RS-11 · A created `versioned` aggregate reads back at version 1
 - **Guarantee.** A freshly-created `versioned` aggregate reads back with
-  `version` = **1** — the canonical value, fixed by the capability declaration
-  `version: int token = 1` (`src/macros/prelude.ts`), mirrored to
-  `version INTEGER NOT NULL DEFAULT 1`.
+  `rowVersion` = **1** — the canonical value, fixed by the capability declaration
+  `rowVersion: int token = 1` (`src/macros/prelude.ts`), mirrored to
+  `row_version INTEGER NOT NULL DEFAULT 1`.
 - **Trigger.** A `versioned` aggregate created via `POST`, then read.
 - **Observable.** Every backend now reads back `1`. node stamps `version = 1`
   in its versioned save *and* (since M-T6.63) seeds it in the factory too, so the
@@ -337,12 +337,10 @@ the conforming backends, and the fix that established it.
 - **Lineage gap (#3527).** A provenanced `money` field's lineage
   (`inputs[].value`, `computedValue`) is a wire context too: the owner ruled
   (2026-10-21) that it carries the same fixed-scale string. The `Codec` fact
-  (`src/ir/enrich/codec.ts`, D-CODEC) records this as `lineage: "wire"`. node
-  conforms; it wrote decimal.js's unscaled `"3000.3"` until the fact. java and
-  .NET send a JSON number, elixir an unscaled Decimal string, and python 500s
-  on the write. Those four boot `corpus/provenance-money` as tracked expected
-  failures until each is moved onto the fact. Pinned by the
-  `provenance-money` wire golden.
+  (`src/ir/enrich/codec.ts`, D-CODEC) records this as `lineage: "wire"`. node,
+  python, .NET and java conform. elixir sends an unscaled Decimal string and
+  boots `corpus/provenance-money` as a tracked expected failure until it is
+  moved onto the fact. Pinned by the `provenance-money` wire golden.
 
 ### RS-13 · A create `POST` returns the id envelope, not the whole aggregate
 - **Guarantee.** A create `POST /api/<plural>` answers `201` with the id
@@ -370,8 +368,8 @@ the conforming backends, and the fix that established it.
   shapes}.json`); fixed in the same PR, so the waiver is gone and the gate
   enforces the envelope unconditionally. Tier: **behavioral**.
 
-### RS-14 · `version` increments on every persisted mutation, document shapes included
-- **Guarantee.** A `versioned` aggregate reads back `version: 2` after one
+### RS-14 · `rowVersion` increments on every persisted mutation, document shapes included
+- **Guarantee.** A `versioned` aggregate reads back `rowVersion: 2` after one
   post-create mutation — `1` at create (RS-11), `+1` per persisted mutation —
   **regardless of `shape:`**.
 - **Trigger.** A `versioned` aggregate with `shape: document` (jsonb-stored):
@@ -614,8 +612,8 @@ the conforming backends, and the fix that established it.
   (2026-07-31), after the rule had already been recorded as all-five conforming.
   Both verified on booted apps. Tier: **behavioral**.
 
-### RS-20 · `version` counts persisted mutations, not entity-graph dirtiness
-- **Guarantee.** `version` is `1` at create and `+1` per persisted mutation,
+### RS-20 · `rowVersion` counts persisted mutations, not entity-graph dirtiness
+- **Guarantee.** `rowVersion` is `1` at create and `+1` per persisted mutation,
   **independent of which part of the aggregate graph changed** (RS-11 + RS-14)
   **and of whether any column value actually differs**. A command that ran and
   was persisted bumps the counter; that is what "optimistic concurrency token"
@@ -699,17 +697,14 @@ the conforming backends, and the fix that established it.
   so there was no later seam that *could* have added it. Fixed at the producer,
   from the `variantTag` / `variantShape` the IR already carries on the `return`
   statement (the same two fields the TS backend reads).
-- **Two shapes remain unimplemented everywhere.** The **aggregate** success
-  variant — `operation adjust(): Item or NotFound` falling through, or ending in
-  `return this` — has **no conforming oracle**. Node's emitted domain method for
-  the fall-through has no `return` at all (the route `c.json`s `undefined`), and
-  its `return this` renders `{ type, ...this }`, which spreads the domain
-  class's *private* `_`-prefixed fields. Vanilla is deliberately left untagged
-  there rather than guessing at a contract no shipped backend implements. The
-  `Conforms` line below is therefore scoped to the shapes that have an oracle:
-  scalar, record literal, and `none`.
+- **The aggregate success variant.** `operation withdraw(): Account or
+  Insufficient` ending in `return this` answers the aggregate's wire projection
+  tagged with its name — `{"type":"Account", "id":…, …}` — recorded by the
+  `op-return-this` golden and booted on all five backends (elixir tags it in
+  the persisted success arm). The fall-through form (no `return` at all) still
+  has no conforming oracle: node's emitted method has no `return`.
 - **Conforms.** node, dotnet, java, python, elixir — for the scalar / record /
-  `none` variants. The aggregate variant is an open gap on all five.
+  `none` variants and the aggregate `return this` arm.
 - **Provenance.** Found 2026-07-31 by the M-T9.11 gate on `operation-returns`
   (dotnet leg); violated again 2026-08-01 on the elixir leg's first real boot.
   Tier: **behavioral**.
@@ -854,12 +849,14 @@ the conforming backends, and the fix that established it.
   (`tenancy-owned` `$.tenantId`). Tier: **behavioral**.
 
 ### RS-26 · An omitted UPDATE field is a client error, never a silent default
-- **Guarantee.** A field omitted from a full-replacement `PUT` is **rejected** as
-  missing required input. It is not silently set to a zero value, and the create
-  default is **not** re-applied.
-- **Trigger.** `active: bool = true`; a PUT body omitting `active`.
-- **Observable.** `PUT` without `"active"` is rejected — it does **not** store
-  `active=false`.
+- **Guarantee.** A field omitted from an operation body is **never** silently
+  set to a zero value, and the create default is **not** re-applied. On a
+  command it is **rejected** as missing required input. The generated `update`
+  is a merge patch instead ([RS-47](#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)):
+  there the omitted field keeps its stored value — still not a default.
+- **Trigger.** `active: bool = true`; an operation body omitting `active`.
+- **Observable.** A command without `"active"` is rejected; the merge-patch
+  `update` without it keeps the stored value. Neither stores `active=false`.
 - **Relation to [RS-6](#rs-6--boolean-create-defaults-materialize-at-the-wire-boundary).**
   The exact inverse, and the half that eats data. RS-6 says an omitted *create*
   bool materializes its declared default. A default is a **construction** rule,
@@ -1832,14 +1829,17 @@ nothing and the test passes vacuously.
 - **Extended by owner ruling (#3593, D-CODEC).** The same form applies to a
   `datetime` in a provenance lineage and inside a channel (CloudEvents)
   envelope or realtime frame. The lineage half is booted by
-  `corpus/provenance-money` (node, python, .NET; java and elixir are tracked
-  expected failures there on their money lineage first). In the envelope, node
+  `corpus/provenance-money` on every backend. In the envelope, node
   spells `time` canonically but still serializes a `datetime` in `data` and in
   a realtime frame with `JSON.stringify` (`.000Z` on a whole second); python
   spells all three through `iso()`; .NET spells all three through the same wire
-  instant (`CanonicalInstant`); elixir still puts sub-millisecond digits there
-  (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
-  `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
+  instant (`CanonicalInstant`); java spells all three through
+  `javaInstantWire`; elixir spells the envelope `time` and a `datetime` in
+  `data` through `Loom.Datetime.wire/1`, and its realtime frame is not yet
+  audited (#3394). None of the envelope is goldened. Elixir's audit and provenance `at` is the same millisecond
+  `Loom.Datetime` instant (its column is a `datetime`, so `timestamptz`); only
+  Ecto's own `inserted_at` / `updated_at`, which never reach a wire, stay
+  `:utc_datetime`. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).
 - **Conforms.** node, dotnet, java, python, elixir.
@@ -1912,7 +1912,9 @@ nothing and the test passes vacuously.
   parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
   422 with one `errors[]` entry per absent key —
   `{ "pointer": "/reason", "message": "reason is required" }` — before the
-  row is loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  row is loaded, on operations, workflows and `route`d handlers. (The generated
+  `update` takes a merge patch, RS-47: `{}` is a valid no-op there, and only an
+  explicit `null` on a required field earns this entry.) Elixir used to hand
   the nil to the operation body and answer **500**; the `require_command_params`
   controller plug refuses it first. The sentence was each framework's own
   (node `Invalid input: expected string, received undefined`, python `Field
@@ -2174,8 +2176,9 @@ nothing and the test passes vacuously.
   409, and the version moves by one: the loser is refused by the header check
   when the winner committed first, and by the guarded save when both loaded
   before either saved. A lost check is a 409 the client may retry; the server
-  never re-runs the command. A `create` and (until it is implemented, though
-  ruled `if-match`) the canonical `destroy` check no version;
+  never re-runs the command. The canonical `destroy` of a `versioned`
+  aggregate reads `If-Match` the same way (a stale tag is the 409, the row stays);
+  a `create` checks no version;
   a workflow or handler save is checked against the version its handle loaded
   (RS-41).
 - **Trigger.** `test/fixtures/corpus/concurrency-two-writers.ddd`: stale tags on
@@ -2198,3 +2201,125 @@ nothing and the test passes vacuously.
 - **Provenance.** #3593 item 6. Tier: **behavioral**:
   `test/behavioral/wire-golden/concurrency-two-writers.json`, diffed by every
   wire-gated leg.
+
+### RS-47 · The generated `update` body is a JSON Merge Patch: an absent key keeps the stored value, `null` clears a `T?` field
+- **Guarantee.** The body of an aggregate's `update` operation that only assigns
+  each parameter to the same-named field (`with crudish` writes one) is a
+  [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) merge patch on every
+  backend:
+  - a key the body leaves out keeps the stored value;
+  - `null` clears an optional (`T?`) field;
+  - `null` on a required field is refused at the wire with the missing-field
+    entry, `{ "pointer": "/title", "message": "title is required" }`, before the
+    row loads (422, `Validation failed`);
+  - any other value sets the field.
+
+  The handler loads the row, passes the stored value for every absent key and
+  calls the operation as before, so its gates, invariants, lifecycle stamps and
+  `If-Match` check (RS-46) run unchanged. An empty patch `{}` is a valid no-op
+  that still counts as a persisted mutation (RS-20: the version moves). No key
+  of the request schema is `required`; only a `T?` member is nullable.
+- **Rules over a patch.** A wire rule (an invariant or precondition the request
+  schema checks, `ruleStage`) is judged at the schema stage only when the patch
+  carries every member it reads (`ruleMembers`, `src/ir/util/merge-patch.ts`).
+  A patch that leaves one out passes the schema, and the domain floor judges the
+  MERGED state — the RS-15 422 with the rule's `errors[]` entry. When the
+  schema stage refuses, the domain floor never runs.
+- **Trigger.** `test/fixtures/corpus/merge-patch-update.ddd`:
+
+  ```ddd
+  aggregate Memo with crudish {
+    title: string
+    note: string?
+    pages: int
+    minPages: int = 0
+    invariant pages >= 0 message "Pages cannot be negative"
+    invariant minPages <= pages message "A memo has at least its minimum pages"
+  }
+  ```
+
+  `update(m, { title: "Renamed" })` keeps `note` and `pages`;
+  `{ note: null }` clears `note`; `{ title: null }` is a 422; `{ pages: -1 }` is
+  the wire 422 (`/pages`); `{ minPages: 5 }` against a stored `pages: 3` is the
+  domain-floor 422.
+- **Where it lives.** One IR predicate decides which operation is a merge patch
+  and which members a rule reads (`mergePatchFields` / `ruleMembers`,
+  `src/ir/util/merge-patch.ts`); each backend reads it:
+
+  ```ts
+  // node — http/memo.routes.ts
+  const UpdateMemoRequest = z.object({
+    title: z.string().refine((s: string) => !s.includes("\u0000")).optional(),
+    note: z.string().nullish(),
+    // …
+  }).openapi("UpdateMemoRequest")
+    .refine((data: any) => data.minPages === undefined || data.pages === undefined || (data.minPages <= data.pages), { /* … */ });
+  aggregate.update((body.title === undefined ? aggregate.title : body.title), (body.note === undefined ? aggregate.note : (body.note == null ? null : body.note)), /* … */);
+  ```
+  ```python
+  # python — app/http/memo_routes.py: absence is `model_fields_set`
+  found.update((body.title if body.title is not None else found.title), (body.note if "note" in body.model_fields_set else found.note), ...)
+  ```
+
+  .NET's `Update<Agg>Request` and java's are classes whose setters record the
+  keys the body carried (`PatchedKeys()` / `has(key)`), because a JSON
+  deserializer calls a setter only for a key that is present, `null` included;
+  the .NET handler and the java service pass the stored value for every other
+  key. Elixir's update changeset is already a merge — `cast/3` leaves an absent
+  key's stored value — so it drops the full-replacement presence and clearing
+  checks, refuses a required `null` in the `refuse_null_patch_params` plug, and
+  re-stages each messaged rule by the keys the patch carried
+  (`validate_patch_invariants/2`).
+- **Masked fields.** A caller who cannot read a `mask unless` field no longer
+  has to send it, so an update no longer wipes what the caller could not see
+  (#3600). A caller who sends one still writes it — the write side is not
+  masked (`docs/auth.md`).
+- **Relation to [RS-26](#rs-26--an-omitted-update-field-is-a-client-error-never-a-silent-default).**
+  RS-26's half that still holds is "never a silent default": an absent key is
+  not the declared default, not a zero value and not `null`; it is the stored
+  value. Every operation that is not a merge-patch `update` stays a command with
+  positional parameters, and RS-26 applies to it unchanged.
+- **The split when ruled.** All five backends read the body as a full
+  replacement: an `update` omitting `note` cleared it, and one omitting a
+  required field was a 422 (#4109).
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** #4109 (owner ruling: the generated update is a JSON Merge
+  Patch, D-ABSENCE-MODEL); #3600. Tier: **behavioral** —
+  `test/behavioral/wire-golden/merge-patch-update.json`, diffed by every
+  wire-gated leg; the per-backend emission is pinned by
+  `test/generator/merge-patch-update.test.ts`.
+
+### RS-48 · Integer arithmetic in domain code that leaves its declared range is a 422 "Value out of range", never a wrap and never a 500
+- **Guarantee.** An integer `+`, `-`, `*` or unary `-` evaluated in domain code
+  (an aggregate operation, a workflow, a handler, a domain service) whose result
+  is outside the operand type's range — int32 for `int`, int64 for `long` —
+  answers the domain floor: **422** `application/problem+json`, `title`
+  `Unprocessable Entity`, `detail` `Value out of range`, no `errors[]`
+  (wirePolicy rejection class `arithmetic-overflow`; the status follows
+  `httpStatus DomainError`). The write is refused and the row keeps its stored
+  value. A result is never wrapped and never reaches the database.
+  Constant expressions (`2 + 3`), `money`/`decimal` arithmetic and integer
+  division (which widens to `decimal`) are not covered.
+- **Trigger.** `stock + n` where `stock` is `2147483647` and `n` is `1`;
+  `a * b` over two `long`s; `-n` where `n` is `-2147483648`.
+- **Observable.** `POST …/restock {"n": 1}` → `422`, `detail: "Value out of
+  range"`; a following `GET` reads the old `stock`.
+- **The split when ruled (#3585).** node, python and elixir computed the
+  out-of-range value and failed at the database CHECK (a 500); java and .NET
+  wrapped silently (`2147483647 + 1` stored as `-2147483648`).
+- **Per-backend shape.** One predicate (`checkedBinaryKind` / `checkedUnaryKind`,
+  `src/generator/_expr/checked-int.ts`) selects the checked nodes for all five.
+  node wraps the result in an inline range guard throwing `DomainError`;
+  python in `check_int(value, lo, hi)` raising `DomainError`; elixir in a `case`
+  raising `<App>.GuardError, kind: :precondition`; java renders
+  `Math.addExact` / `subtractExact` / `multiplyExact` / `negateExact`, mapped
+  from `ArithmeticException("integer overflow" | "long overflow")` by
+  `ApiExceptionAdvice`; .NET renders `checked(...)`, mapped from
+  `OverflowException` by `DomainExceptionFilter`. EF-query and Ecto-query
+  filter renderings are unchecked (the database evaluates them).
+- **Not part of the guarantee (named).** `long` keeps its ruled node ceiling
+  (`D-LONG-AVG-DEFAULTS`): node refuses a `long` result past 2^53−1, the other
+  four past int64. The refusal carries no `errors[]` pointer.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** #3585 (owner ruling 2026-11-03). Tier: **static** —
+  `test/generator/_expr/checked-int.test.ts`.

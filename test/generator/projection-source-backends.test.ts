@@ -8,8 +8,8 @@
 // negative assertions deliberately do not match).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
+import { uncheckedInt } from "../_helpers/unchecked-int.js";
 
 const src = (platform: string, select = "orderId = t.orderId, total = t.total") => `
   system S {
@@ -36,7 +36,7 @@ const src = (platform: string, select = "orderId = t.orderId, total = t.total") 
 `;
 
 async function allFiles(platform: string, select?: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(src(platform, select)))).files;
+  const files = await generateSystemFiles(src(platform, select));
   return [...files.values()].join("\n \n");
 }
 
@@ -99,7 +99,7 @@ describe("query-time projection `from <Projection>` — arithmetic on a row fiel
   for (const { platform, projected } of ARITHMETIC) {
     it(`${platform}: emits plain arithmetic, never a string-convert of the operand`, async () => {
       const all = await allFiles(platform, "orderId = t.orderId, total = t.total + 1");
-      expect(all).toMatch(projected);
+      expect(uncheckedInt(all)).toMatch(projected);
       expect(all).not.toMatch(/Total \+ 1\.ToString\(/);
       expect(all).not.toMatch(/total\(\) \+ String\.valueOf\(1\)/);
       expect(all).not.toMatch(/record\.total <> to_string\(1\)/);

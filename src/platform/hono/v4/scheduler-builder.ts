@@ -22,7 +22,9 @@
 // reactor fires with no new machinery.  Emitted ONLY when the deployable owns at
 // least one timerSource; a timer-free deployable is byte-identical to before.
 
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 
@@ -33,7 +35,7 @@ import { lines } from "../../../util/code-builder.js";
  *  type-safe zero. */
 function tickFieldValue(field: FieldIR): string {
   const t = field.type;
-  if (t.kind === "id") return `Ids.new${t.targetName}Id()`;
+  if (t.kind === "id") return `${T.Ids}.new${t.targetName}Id()`;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
@@ -81,17 +83,6 @@ function partitionByCadence(timers: readonly TimerSourceIR[]): {
     (ts.cadence.kind === "cron" ? cron : interval).push(ts);
   }
   return { cron, interval };
-}
-
-/** Does any field of any owned timer's event reference an id type?  Gates the
- *  `import * as Ids` (kept out of a timer whose ticks carry no id). */
-function anyTickUsesId(
-  timers: readonly TimerSourceIR[],
-  eventByName: Map<string, EventIR>,
-): boolean {
-  return timers.some((ts) =>
-    (eventByName.get(ts.event)?.fields ?? []).some((f) => f.type.kind === "id"),
-  );
 }
 
 /** Whether any owned timer uses a real cron expression.  Gates the durable
@@ -244,7 +235,7 @@ function cronBlock(
         `    // boundary is > 60s old (outside pg-boss's own send window, so no`,
         `    // double-fire) and later than the last recorded run, replay it once.`,
         `    {`,
-        `      const prev = CronExpressionParser.parse(${cronLit}, { currentDate: new Date() }).prev().toDate();`,
+        `      const prev = ${T.CronExpressionParser}.parse(${cronLit}, { currentDate: new Date() }).prev().toDate();`,
         `      const ageSec = (Date.now() - prev.getTime()) / 1000;`,
         ...store.readWatermark("      "),
         `      if (!last) {`,
@@ -261,7 +252,13 @@ function cronBlock(
 
   return [
     "  // ── cron timers: pg-boss (durable, retried, single-fire across replicas) ──",
-    "  const boss = new PgBoss({ connectionString: process.env.DATABASE_URL });",
+    '  // `infra: "in-process"` swaps in the in-memory stand-in: pg-boss',
+    "  // opens its own Postgres connection, which a host without one (the browser",
+    "  // playground's PGlite) cannot give it.",
+    "  const boss: CronBoss =",
+    '    opts.infra === "in-process"',
+    "      ? createInProcessCronBoss()",
+    `      : new ${T.PgBoss}({ connectionString: process.env.DATABASE_URL });`,
     '  boss.on("error", (err) =>',
     '    baseLogger.error({ event: "timer_emit_failed", timer: "(pg-boss)",',
     "      error: err instanceof Error ? err.message : String(err) }),",
@@ -314,6 +311,15 @@ function intervalBlock(
     "      }",
     "      running = true;",
     "      try {",
+    "        // One process and no replicas: nothing to contend with, and a host",
+    "        // with a single database connection (the browser playground's",
+    "        // PGlite) would deadlock running the tick's own writes inside the",
+    "        // lock's transaction.",
+    '        if (opts.infra === "in-process") {',
+    "          await events.dispatch(build());",
+    '          baseLogger.info({ event: "timer_fired", timer: name });',
+    "          return;",
+    "        }",
     ...store.lockedTransaction("        ", [
       "          if (!locked) {",
       '            baseLogger.debug({ event: "timer_lock_contended", timer: name });',
@@ -338,6 +344,74 @@ function intervalBlock(
   ];
 }
 
+/** The pg-boss surface the cron block uses, and its in-memory stand-in for a
+ *  host with no Postgres connection to give pg-boss (the browser playground).
+ *  The stand-in arms one timer per scheduled queue at the next cron boundary
+ *  and runs its worker there; `send` runs the worker at once (the catch-up
+ *  replay).  It is announced at warn level, because what pg-boss adds —
+ *  durability, retry, single-fire across replicas — is not emulated. */
+const IN_PROCESS_CRON_BOSS = lines(
+  "/** The pg-boss surface the cron timers use. */",
+  "interface CronBoss {",
+  '  on(event: "error", listener: (err: unknown) => void): unknown;',
+  "  start(): Promise<unknown>;",
+  "  stop(): Promise<void>;",
+  "  createQueue(name: string): Promise<unknown>;",
+  "  work(name: string, handler: () => Promise<void>): Promise<unknown>;",
+  "  schedule(name: string, cron: string, data: object, options: object): Promise<unknown>;",
+  "  send(name: string, data: object, options: object): Promise<unknown>;",
+  "}",
+  "",
+  "/** In-memory stand-in for pg-boss: each scheduled queue fires its worker at",
+  " * every cron boundary while the process runs.  Not durable, no retry, no",
+  " * single-fire across replicas. */",
+  "function createInProcessCronBoss(): CronBoss {",
+  "  const workers = new Map<string, () => Promise<void>>();",
+  "  const pending = new Set<ReturnType<typeof setTimeout>>();",
+  "  let stopped = false;",
+  "  const run = (name: string): void => {",
+  "    const work = workers.get(name);",
+  "    if (!work) return;",
+  "    void work().catch((err) =>",
+  '      baseLogger.error({ event: "timer_emit_failed", timer: name,',
+  "        error: err instanceof Error ? err.message : String(err) }),",
+  "    );",
+  "  };",
+  "  const arm = (name: string, cron: string): void => {",
+  "    if (stopped) return;",
+  `    const next = ${T.CronExpressionParser}.parse(cron, { currentDate: new Date() }).next().toDate();`,
+  "    const handle = setTimeout(() => {",
+  "      pending.delete(handle);",
+  "      run(name);",
+  "      arm(name, cron);",
+  "    }, Math.max(0, next.getTime() - Date.now()));",
+  "    pending.add(handle);",
+  "  };",
+  "  return {",
+  "    on: () => undefined,",
+  "    async start() {",
+  '      baseLogger.warn({ event: "timer_cron_in_process" });',
+  "    },",
+  "    async stop() {",
+  "      stopped = true;",
+  "      for (const handle of pending) clearTimeout(handle);",
+  "      pending.clear();",
+  "    },",
+  "    async createQueue() {},",
+  "    async work(name, handler) {",
+  "      workers.set(name, handler);",
+  "    },",
+  "    async schedule(name, cron) {",
+  "      arm(name, cron);",
+  "    },",
+  "    async send(name) {",
+  "      run(name);",
+  "    },",
+  "  };",
+  "}",
+  "",
+);
+
 /**
  * Render `scheduler.ts` for a deployable's owned timers.  `eventByName` resolves
  * each timer's `for:` event to its declared field shape (for the tick struct).
@@ -351,21 +425,20 @@ export function renderTimerScheduler(
   usingMikro = false,
 ): string {
   const { cron, interval } = partitionByCadence(timers);
-  const usesIds = anyTickUsesId(timers, eventByName);
   const store = usingMikro ? MIKRO_TIMER_STORE : DRIZZLE_TIMER_STORE;
 
   return lines(
     "// Auto-generated — durable timer scheduler (scheduling.md).",
     "// cron: → pg-boss (durable, retried, single-fire); every: → in-process.",
     "// Emitted only when this deployable owns timerSources.",
-    cron.length > 0 ? `import { PgBoss } from "pg-boss";` : false,
-    cron.length > 0 ? `import { CronExpressionParser } from "cron-parser";` : false,
+    tsImportSlot("pg-boss"),
+    tsImportSlot("cron-parser"),
     // The persistence-adapter store's own imports.  Ordered as the drizzle path
     // emitted them (sql, NodePgDatabase, … then `schema` after the domain
     // imports) so the default output is byte-identical; the mikro store has a
     // single import and no `schema` module to reference.
     ...store.imports.filter((i) => !i.includes("./db/schema")),
-    usesIds ? `import * as Ids from "./domain/ids";` : false,
+    tsImportSlot("~/domain/ids"),
     `import type * as Events from "./domain/events";`,
     `import type { DomainEventDispatcher } from "./domain/events";`,
     ...store.imports.filter((i) => i.includes("./db/schema")),
@@ -386,11 +459,13 @@ export function renderTimerScheduler(
           "",
         )
       : false,
+    cron.length > 0 ? IN_PROCESS_CRON_BOSS : false,
     "// Starts every owned timer.  Async: pg-boss boot is async, and the returned",
     "// disposer awaits a clean pg-boss shutdown.",
     "export async function startTimerScheduler(",
     `  db: ${store.dbType},`,
     "  events: DomainEventDispatcher,",
+    '  opts: { infra?: "external" | "in-process" } = {},',
     "): Promise<() => Promise<void>> {",
     "  const disposers: Array<() => void | Promise<void>> = [];",
     "",

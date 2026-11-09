@@ -8,8 +8,7 @@
 // the .NET snapshot-seam nested-ParentId mistyping.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Carts {
@@ -32,8 +31,7 @@ const SRC = `
 
 describe("dotnet generator — snapshot-fold part-in-part ParentId", () => {
   it("brands each nested snapshot ParentId to its DIRECT parent's id class", async () => {
-    const model = await parseValid(SRC);
-    const snaps = generateDotnet(model).get("Domain/Carts/CartSnapshots.cs")!;
+    const snaps = (await generateBackendFiles(SRC, "dotnet")).get("Domain/Carts/CartSnapshots.cs")!;
 
     // Box is contained by the root Cart → CartId (root-level, unchanged).
     expect(snaps).toContain("public sealed record BoxSnapshot");
@@ -55,8 +53,7 @@ describe("dotnet generator — snapshot-fold part-in-part ParentId", () => {
   });
 
   it("keeps the snapshot ParentId type in lockstep with the entity State.ParentId", async () => {
-    const model = await parseValid(SRC);
-    const files = generateDotnet(model);
+    const files = await generateBackendFiles(SRC, "dotnet");
     // Entity State + snapshot ParentId must agree so `e.ParentId = s.ParentId;`
     // (and `ParentId = ParentId` in ToSnapshot) compile.
     const item = files.get("Domain/Carts/Item.cs")!;

@@ -52,16 +52,26 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
+import { modelTextEntry } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import {
+  type FormInputModelText,
+  formInputModelText,
+  paramLabelOwner,
+} from "../_walker/model-text-sites.js";
+import { sourceText } from "../_walker/source-text.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
+import { dartStringLit } from "./i18n.js";
 // ---------------------------------------------------------------------------
 // Widget-name helpers — the ONE place the view seam and the class emitter agree
 // on the generated widget class name.  A collision here (seam emits `X`, emitter
@@ -119,6 +129,12 @@ export interface FlutterFormField {
   jsonKey: string;
   /** Human label shown on the input's `InputDecoration.labelText`. */
   label: string;
+  /** The label as a Dart EXPRESSION — a `t('<identity key>', '<default>')` call
+   *  — when the ui is translatable and the input names a model fact; absent ⇒
+   *  the literal {@link label}. */
+  labelExpr?: string;
+  /** For an enum input: each value's option label as a Dart expression. */
+  optionExprs?: Readonly<Record<string, string>>;
   /** The widget kind derived from the type. */
   kind: FlutterInputKind;
   /** Whether the client MUST supply this field (required → validated). */
@@ -168,6 +184,10 @@ export interface FlutterFormField {
   objectFields?: {
     jsonKey: string;
     label: string;
+    /** {@link FlutterFormField.labelExpr}, for this cell. */
+    labelExpr?: string;
+    /** {@link FlutterFormField.optionExprs}, for this cell. */
+    optionExprs?: Readonly<Record<string, string>>;
     kind: "text" | "number-int" | "number-double" | "bool" | "enum" | "datetime";
     /** `money` sub-field — submits as a fixed-scale decimal string. */
     money?: boolean;
@@ -196,6 +216,9 @@ export interface FlutterFormSpec {
   /** The submit button's label (`Create Product` / `Discount` / `Delete
    *  Product`). */
   submitLabel: string;
+  /** {@link submitLabel} as a Dart expression (`t('<identity key>', …)`) when
+   *  the ui is translatable; absent ⇒ the literal. */
+  submitExpr?: string;
   /** The prepared input fields (empty for a destroy form). */
   fields: FlutterFormField[];
   /** LOUD form-field drop markers (M-A).  One `// TODO(flutter form-field): …`
@@ -588,11 +611,106 @@ function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Identity-keyed model text (i18n)
+// ---------------------------------------------------------------------------
+
+/** The translatable-ui switch the spec builders take: its presence means the
+ *  ui ships `lib/i18n.dart`, so a form's labels, enum options and submit button
+ *  render through `t(<identity key>, <default>)`; `contexts` resolve the key
+ *  namespace.  Absent ⇒ every site keeps its literal English, byte-identical. */
+export interface FlutterFormText {
+  readonly contexts: readonly EnrichedBoundedContextIR[];
+}
+
+/** `t('<key>', '<default>')` — the Dart translation call for a model fact. */
+function dartTranslate(key: string, defaultText: string): string {
+  return `t(${dartStringLit(key)}, ${dartStringLit(sourceText(key, defaultText))})`;
+}
+
+/** Where a form's inputs come from, for keying their text by model identity. */
+interface FormTextSource {
+  readonly inputs: readonly { name: string; type: TypeIR }[];
+  readonly ownerOf: (name: string) => string | undefined;
+  readonly bc: EnrichedBoundedContextIR | undefined;
+  readonly text: FlutterFormText;
+}
+
+function inputTextOf(
+  src: FormTextSource,
+  path: readonly string[],
+  leaf: string,
+  /** Label a flattened value-object leaf by its whole path (`Address Street`),
+   *  each segment its own identity key — the translated twin of the literal
+   *  `addr geo lat` label, which keeps two sibling value objects' same-named
+   *  leaves tellable apart.  False: the leaf's own label alone. */
+  joinPath = false,
+): { labelExpr: string; optionExprs?: Record<string, string> } | undefined {
+  const textOf = (p: readonly string[], l: string): FormInputModelText | undefined =>
+    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, src.text.contexts);
+  const t = textOf(path, leaf);
+  if (!t) return undefined;
+  const segments =
+    joinPath && path.length > 0 ? path.map((k, i) => textOf(path.slice(0, i), k)) : [];
+  const joined =
+    segments.length > 0 && segments.every((s) => s !== undefined)
+      ? [...segments, t].map((s) => dartTranslate(s!.key, s!.defaultText))
+      : undefined;
+  return {
+    labelExpr: joined ? `[${joined.join(", ")}].join(' ')` : dartTranslate(t.key, t.defaultText),
+    ...(t.enumOptions
+      ? {
+          optionExprs: Object.fromEntries(
+            t.enumOptions.map((o) => [o.value, dartTranslate(o.key, o.defaultText)]),
+          ),
+        }
+      : {}),
+  };
+}
+
+/** Attach the identity-keyed label / option expressions to the prepared fields
+ *  (and the cells of an object-array), in place.  A flattened value-object leaf
+ *  resolves through its `objectPath`. */
+function attachModelText(fields: FlutterFormField[], src: FormTextSource | undefined): void {
+  if (!src) return;
+  for (const f of fields) {
+    const own = inputTextOf(src, f.objectPath ?? [], f.jsonKey, true);
+    if (own) {
+      f.labelExpr = own.labelExpr;
+      if (own.optionExprs) f.optionExprs = own.optionExprs;
+    }
+    for (const sf of f.objectFields ?? []) {
+      const cell = inputTextOf(src, [...(f.objectPath ?? []), f.jsonKey], sf.jsonKey);
+      if (!cell) continue;
+      sf.labelExpr = cell.labelExpr;
+      if (cell.optionExprs) sf.optionExprs = cell.optionExprs;
+    }
+  }
+}
+
+/** The submit button's identity-keyed `<Agg>.op.<op>` text, or undefined. */
+function opSubmitExpr(
+  aggName: string,
+  opName: string,
+  bc: EnrichedBoundedContextIR | undefined,
+  text: FlutterFormText | undefined,
+): string | undefined {
+  if (!text || !bc) return undefined;
+  const e = modelTextEntry({
+    ctx: modelTextContextOf(aggName, bc, text.contexts),
+    type: aggName,
+    facet: "op",
+    member: opName,
+  });
+  return dartTranslate(e.key, e.defaultText);
+}
+
 /** Build the `FlutterFormSpec` for a `CreateForm(of: agg)`. */
 export function flutterCreateForm(
   agg: EnrichedAggregateIR,
   bc: EnrichedBoundedContextIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  text?: FlutterFormText,
 ): FlutterFormSpec {
   const inputs = createInputFields(agg);
   const { fields, dropped } = prepareFields(
@@ -602,6 +720,8 @@ export function flutterCreateForm(
     aggregatesByName,
   );
   attachRules(fields, agg.invariants, new Set(inputs.map((i) => i.name)));
+  attachModelText(fields, text && { inputs, ownerOf: () => agg.name, bc, text });
+  const submitExpr = opSubmitExpr(agg.name, "create", bc, text);
   return {
     widgetName: createFormWidgetName(agg.name),
     kind: "create",
@@ -609,6 +729,7 @@ export function flutterCreateForm(
     needsId: false,
     pathExpr: `/${routeSegmentFor(agg.name)}`,
     submitLabel: `Create ${humanize(agg.name)}`,
+    ...(submitExpr ? { submitExpr } : {}),
     fields,
     dropped,
     destructive: false,
@@ -627,9 +748,12 @@ export function flutterOperationForm(
    *  still type-checks; a missing aggregate means the preconditions alone are
    *  classified. */
   agg?: EnrichedAggregateIR,
+  text?: FlutterFormText,
 ): FlutterFormSpec {
+  // The masked merge-patch keys stay off the form (`operationFormParams`).
+  const formParams = operationFormParams(op);
   const { fields, dropped } = prepareFields(
-    op.params,
+    formParams,
     enumsFromBc(bc),
     vosFromBc(bc),
     aggregatesByName,
@@ -637,8 +761,18 @@ export function flutterOperationForm(
   attachRules(
     fields,
     [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
-    new Set(op.params.map((pp) => pp.name)),
+    new Set(formParams.map((pp) => pp.name)),
   );
+  attachModelText(
+    fields,
+    text && {
+      inputs: formParams,
+      ownerOf: (name) => (agg ? paramLabelOwner(agg, name) : undefined),
+      bc,
+      text,
+    },
+  );
+  const submitExpr = opSubmitExpr(aggName, op.name, bc, text);
   const opPath = snake(op.routeSlug ?? op.name);
   return {
     widgetName: operationFormWidgetName(aggName, op.name),
@@ -647,6 +781,7 @@ export function flutterOperationForm(
     needsId: true,
     pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}/${opPath}`,
     submitLabel: humanize(op.name),
+    ...(submitExpr ? { submitExpr } : {}),
     fields,
     dropped,
     destructive: false,
@@ -679,6 +814,7 @@ export function flutterWorkflowForm(
   wf: WorkflowIR,
   bc: EnrichedBoundedContextIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  text?: FlutterFormText,
 ): FlutterFormSpec {
   const { fields, dropped } = prepareFields(
     wf.params,
@@ -686,6 +822,7 @@ export function flutterWorkflowForm(
     vosFromBc(bc),
     aggregatesByName,
   );
+  attachModelText(fields, text && { inputs: wf.params, ownerOf: () => wf.name, bc, text });
   return {
     widgetName: workflowFormWidgetName(wf.name),
     kind: "create",
@@ -729,6 +866,7 @@ function collectBodyForms(
   bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
   out: FlutterFormSpec[],
   seen: Set<string>,
+  text?: FlutterFormText,
 ): void {
   const push = (spec: FlutterFormSpec): void => {
     if (seen.has(spec.widgetName)) return;
@@ -738,7 +876,16 @@ function collectBodyForms(
   const pushOp = (agg: EnrichedAggregateIR, opName: string): void => {
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
     if (op)
-      push(flutterOperationForm(agg.name, op, bcByAggregate.get(agg.name), aggregatesByName, agg));
+      push(
+        flutterOperationForm(
+          agg.name,
+          op,
+          bcByAggregate.get(agg.name),
+          aggregatesByName,
+          agg,
+          text,
+        ),
+      );
   };
   // Aggregate-typed bindings in scope, so the INSTANCE-QUALIFIED
   // `OperationForm { data.<op> }` the Detail scaffold emits inside its QueryView
@@ -756,7 +903,7 @@ function collectBodyForms(
         const ofArg = namedArg(e, "of");
         const agg = ofArg?.kind === "ref" ? aggregatesByName.get(ofArg.name) : undefined;
         if (agg && isConstructible(agg))
-          push(flutterCreateForm(agg, bcByAggregate.get(agg.name), aggregatesByName));
+          push(flutterCreateForm(agg, bcByAggregate.get(agg.name), aggregatesByName, text));
       } else if (e.name === "OperationForm") {
         const ofArg = namedArg(e, "of");
         const opArg = namedArg(e, "op");
@@ -814,10 +961,18 @@ export function collectPageForms(
   body: ExprIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
   bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  i18n = false,
 ): FlutterFormSpec[] {
   if (!body) return [];
   const out: FlutterFormSpec[] = [];
-  collectBodyForms(body, aggregatesByName, bcByAggregate, out, new Set());
+  collectBodyForms(
+    body,
+    aggregatesByName,
+    bcByAggregate,
+    out,
+    new Set(),
+    i18n ? { contexts: [...new Set(bcByAggregate.values())] } : undefined,
+  );
   return out;
 }
 
@@ -827,13 +982,15 @@ export function collectFlutterForms(
   ui: UiIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
   bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  i18n = false,
 ): FlutterFormSpec[] {
   if (!ui) return [];
   const out: FlutterFormSpec[] = [];
   const seen = new Set<string>();
+  const text = i18n ? { contexts: [...new Set(bcByAggregate.values())] } : undefined;
   for (const page of ui.pages ?? []) {
     if (!page.body) continue;
-    collectBodyForms(page.body, aggregatesByName, bcByAggregate, out, seen);
+    collectBodyForms(page.body, aggregatesByName, bcByAggregate, out, seen, text);
   }
   return out;
 }
@@ -848,6 +1005,7 @@ function collectBodyWorkflowForms(
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
   out: FlutterFormSpec[],
   seen: Set<string>,
+  text?: FlutterFormText,
 ): void {
   const walk = (e: ExprIR): void => {
     if (e.kind === "call" && e.name === "WorkflowForm") {
@@ -856,7 +1014,7 @@ function collectBodyWorkflowForms(
       // An event-only saga has no command route (`emitsCommandRoute`) — no form widget.
       if (wf && emitsCommandRoute(wf) && !seen.has(workflowFormWidgetName(wf.name))) {
         seen.add(workflowFormWidgetName(wf.name));
-        out.push(flutterWorkflowForm(wf, bcByWorkflow.get(wf.name), aggregatesByName));
+        out.push(flutterWorkflowForm(wf, bcByWorkflow.get(wf.name), aggregatesByName, text));
       }
     }
     for (const c of exprChildren(e)) walk(c);
@@ -871,10 +1029,19 @@ export function collectPageWorkflowForms(
   workflowsByName: ReadonlyMap<string, WorkflowIR>,
   bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  i18n = false,
 ): FlutterFormSpec[] {
   if (!body) return [];
   const out: FlutterFormSpec[] = [];
-  collectBodyWorkflowForms(body, workflowsByName, bcByWorkflow, aggregatesByName, out, new Set());
+  collectBodyWorkflowForms(
+    body,
+    workflowsByName,
+    bcByWorkflow,
+    aggregatesByName,
+    out,
+    new Set(),
+    i18n ? { contexts: [...new Set(bcByWorkflow.values())] } : undefined,
+  );
   return out;
 }
 
@@ -885,13 +1052,23 @@ export function collectFlutterWorkflowForms(
   workflowsByName: ReadonlyMap<string, WorkflowIR>,
   bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  i18n = false,
 ): FlutterFormSpec[] {
   if (!ui) return [];
   const out: FlutterFormSpec[] = [];
   const seen = new Set<string>();
+  const text = i18n ? { contexts: [...new Set(bcByWorkflow.values())] } : undefined;
   for (const page of ui.pages ?? []) {
     if (!page.body) continue;
-    collectBodyWorkflowForms(page.body, workflowsByName, bcByWorkflow, aggregatesByName, out, seen);
+    collectBodyWorkflowForms(
+      page.body,
+      workflowsByName,
+      bcByWorkflow,
+      aggregatesByName,
+      out,
+      seen,
+      text,
+    );
   }
   return out;
 }
@@ -1296,8 +1473,10 @@ function validatorArg(f: FlutterFormField): string {
 
 /** The Flutter input widget for one field (a single build-children element). */
 function fieldWidget(f: FlutterFormField): string {
-  const label = `'${dartStr(f.label)}'`;
-  const decoration = `const InputDecoration(labelText: ${label})`;
+  // A translated label is a runtime call, so nothing it feeds can be `const`.
+  const label = f.labelExpr ?? `'${dartStr(f.label)}'`;
+  const kw = f.labelExpr ? "" : "const ";
+  const decoration = `${kw}InputDecoration(labelText: ${label})`;
   switch (f.kind) {
     case "text":
       return `TextFormField(controller: ${ctrlId(f.wireName)}, decoration: ${decoration}${validatorArg(f)})`;
@@ -1305,13 +1484,17 @@ function fieldWidget(f: FlutterFormField): string {
     case "number-double":
       return `TextFormField(controller: ${ctrlId(f.wireName)}, keyboardType: TextInputType.number, decoration: ${decoration}${validatorArg(f)})`;
     case "bool":
-      return `SwitchListTile(title: const Text(${label}), value: ${stateId(f.wireName)}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v))`;
+      return `SwitchListTile(title: ${kw}Text(${label}), value: ${stateId(f.wireName)}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v))`;
     case "enum": {
       const items = (f.enumValues ?? [])
-        .map((v) => `DropdownMenuItem(value: '${dartStr(v)}', child: Text('${dartStr(v)}'))`)
+        .map(
+          (v) =>
+            `DropdownMenuItem(value: '${dartStr(v)}', child: Text(${f.optionExprs?.[v] ?? `'${dartStr(v)}'`}))`,
+        )
         .join(", ");
+      const itemsConst = f.optionExprs ? "" : "const ";
       const validator = f.required ? ", validator: (v) => v == null ? 'Required' : null" : "";
-      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, items: const [${items}], onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
+      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, items: ${itemsConst}[${items}], onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
     }
     case "fk-select": {
       // Options load at runtime (`_<name>Options`); the label is the target's
@@ -1326,7 +1509,7 @@ function fieldWidget(f: FlutterFormField): string {
       // `Form`'s validator sweep.
       return (
         `Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: <Widget>[` +
-        `OutlinedButton.icon(icon: const Icon(Icons.upload_file), label: const Text(${label}), onPressed: ${pickerId(f.wireName)}), ` +
+        `OutlinedButton.icon(icon: const Icon(Icons.upload_file), label: ${kw}Text(${label}), onPressed: ${pickerId(f.wireName)}), ` +
         `const SizedBox(width: 12), ` +
         `Expanded(child: Text(${stateId(f.wireName)}?.key ?? 'No file selected', overflow: TextOverflow.ellipsis)), ` +
         `]))`
@@ -1426,7 +1609,7 @@ function objectCellWidget(
   i: number,
 ): string {
   const slot = `row[${i}]`;
-  const lbl = `'${dartStr(sf.label)}'`;
+  const lbl = sf.labelExpr ?? `'${dartStr(sf.label)}'`;
   switch (sf.kind) {
     case "bool":
       return (
@@ -1437,12 +1620,16 @@ function objectCellWidget(
       );
     case "enum": {
       const items = (sf.enumValues ?? [])
-        .map((v) => `DropdownMenuItem(value: '${dartStr(v)}', child: Text('${dartStr(v)}'))`)
+        .map(
+          (v) =>
+            `DropdownMenuItem(value: '${dartStr(v)}', child: Text(${sf.optionExprs?.[v] ?? `'${dartStr(v)}'`}))`,
+        )
         .join(", ");
+      const itemsConst = sf.optionExprs ? "" : "const ";
       return (
         `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
         `DropdownButtonFormField<String>(initialValue: ${slot} as String?, isExpanded: true, ` +
-        `decoration: InputDecoration(isDense: true, labelText: ${lbl}), items: const [${items}], ` +
+        `decoration: InputDecoration(isDense: true, labelText: ${lbl}), items: ${itemsConst}[${items}], ` +
         `onChanged: (v) => setState(() => ${slot} = v))))`
       );
     }
@@ -1668,14 +1855,15 @@ function destroySubmitMethod(spec: FlutterFormSpec): string[] {
 
 /** The submit button element for a form's build children. */
 function submitButton(spec: FlutterFormSpec): string {
-  const label = `'${dartStr(spec.submitLabel)}'`;
+  const label = spec.submitExpr ?? `'${dartStr(spec.submitLabel)}'`;
+  const kw = spec.submitExpr ? "" : "const ";
   const style = spec.destructive
     ? "style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Theme.of(context).colorScheme.onError), "
     : "";
   // The button itself can't be const (its `onPressed` closes over `_submit`), but
   // its literal-text child can.
   const guard = spec.gateProbe ? "(_submitting || widget.blocked)" : "_submitting";
-  return `ElevatedButton(${style}onPressed: ${guard} ? null : _submit, child: const Text(${label}))`;
+  return `ElevatedButton(${style}onPressed: ${guard} ? null : _submit, child: ${kw}Text(${label}))`;
 }
 
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
@@ -1784,6 +1972,12 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   );
 }
 
+/** True when a rendered widget calls the generated translation runtime `t(…)`
+ *  (the lookbehind keeps `Text(` / `.set(` / identifiers ending in `t` out). */
+function callsTranslate(dart: string): boolean {
+  return /(?<![\w.$])t\('/.test(dart);
+}
+
 /** Emit `lib/forms.dart` — every form widget a ui hosts.  Returns "" when the
  *  ui hosts no forms (the caller then emits no file). */
 export function renderFormsFile(
@@ -1814,6 +2008,7 @@ export function renderFormsFile(
     flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
+    ...(blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
     ...(usesFile ? ["import 'models.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),

@@ -15,6 +15,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
@@ -24,6 +25,7 @@ import {
   documentCapabilityBody,
   lowerToSqlAlchemy,
 } from "./find-predicate.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { PY_NUMERIC, pyDocumentDecimalDecode } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -36,7 +38,6 @@ import {
   allFindOf,
   emittableFinds,
   findExecutedLine,
-  inlineRunBypassesByRetrieval,
   PY_PAGED_FIND_PARAMS,
   partRef,
   partWireMethod,
@@ -118,9 +119,9 @@ export function buildPyDocumentRepositoryFile(
   // A versioned root rehydrates its `version` from the authoritative column, so
   // every root load threads `<row>.version` alongside the jsonb blob.
   const fromDocCall = (rowVar: string): string =>
-    versioned ? `${fromDoc}(${rowVar}.data, ${rowVar}.version)` : `${fromDoc}(${rowVar}.data)`;
-
-  const runBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
+    versioned
+      ? `${fromDoc}(${rowVar}.data, ${rowVar}.${ROW_VERSION_COLUMN})`
+      : `${fromDoc}(${rowVar}.data)`;
 
   const body = lines(
     `class ${agg.name}Repository:`,
@@ -199,7 +200,7 @@ export function buildPyDocumentRepositoryFile(
     // `run_<retrieval>` whatever the saving shape.  The blob is not queryable
     // per field, so the runner filters in-app over a RAW load (not the
     // capability-narrowed `all()`), re-applying the capability conjunct minus
-    // what the call-sites' `ignoring` clauses drop.
+    // what a widened read's own retrieval (`… ignoring …`) drops.
     ...aggregateRetrievals(agg, ctx).flatMap((r) => [
       "",
       pyInMemoryRunMethod(agg, r, {
@@ -207,7 +208,10 @@ export function buildPyDocumentRepositoryFile(
           `        rows = (await self._session.execute(${R.select}(${row}).order_by(${row}.id))).scalars().all()`,
           `        items = [${fromDocCall("r")} for r in rows]`,
         ],
-        capability: documentCapabilityBody(agg, "x", runBypasses.get(r.name)),
+        capability: documentCapabilityBody(agg, "x", {
+          bypassAll: r.bypassAll,
+          bypassCaps: r.bypassCaps,
+        }),
       }),
     ]),
     "",
@@ -220,33 +224,34 @@ export function buildPyDocumentRepositoryFile(
     // fresh INSERT seeds the row at the aggregate's own version (the shared 0
     // create-default), and an INSERT-conflict only overwrites when the stored
     // `version` still equals the caller's expected value, bumping it by one.  A
-    // stale write matches no row, so `RETURNING id` is empty → ConcurrencyError.
+    // stale write matches no row, so `RETURNING version` is empty → ConcurrencyError.
     // The `version` COLUMN is authoritative (the blob copy lags a write and is
     // ignored on load — see `entityFromDoc`), so the loaded aggregate's version
     // is the write-time expectation when no `If-Match` was sent.
     ...(versioned
       ? [
-          "        _expected = aggregate.version if expected_version is None else expected_version",
+          `        _expected = aggregate.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
           "        _guarded = await self._session.execute(",
           `            ${R.insert}(${row})`,
-          "            .values(id=aggregate.id, data=data, version=aggregate.version)",
+          `            .values(id=aggregate.id, data=data, ${ROW_VERSION_COLUMN}=aggregate.${ROW_VERSION_COLUMN})`,
           "            .on_conflict_do_update(",
           '                index_elements=["id"],',
-          `                set_={"data": data, "version": ${row}.version + 1},`,
-          `                where=${row}.version == _expected,`,
+          `                set_={"data": data, "${ROW_VERSION_COLUMN}": ${row}.${ROW_VERSION_COLUMN} + 1},`,
+          `                where=${row}.${ROW_VERSION_COLUMN} == _expected,`,
           "            )",
-          `            .returning(${row}.id)`,
-          "        )",
-          "        if _guarded.first() is None:",
-          `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
+          ...pyGuardedSaveTail(
+            row,
+            "aggregate",
+            pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id"),
+          ),
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,
           "        if existing is None:",
-          `            self._session.add(${row}(id=aggregate.id, data=data, version=1))`,
+          `            self._session.add(${row}(id=aggregate.id, data=data, ${ROW_VERSION_COLUMN}=1))`,
           "        else:",
           "            existing.data = data",
-          "            existing.version += 1",
+          `            existing.${ROW_VERSION_COLUMN} += 1`,
         ]),
     "        await self._session.flush()",
     `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
@@ -381,7 +386,7 @@ function findMethod(
       `        rows = (await self._session.execute(${R.select}(${schemaRow(rowClassName(agg.name))}).order_by(${schemaRow(rowClassName(agg.name))}.id))).scalars().all()`,
       ...(bindPrincipal ? [`        current_user = ${R.require_current_user}()`] : []),
       aggregateIsVersioned(agg)
-        ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.version) for r in rows]`
+        ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.${ROW_VERSION_COLUMN}) for r in rows]`
         : `        items = [_${snake(agg.name)}_from_doc(r.data) for r in rows]`,
     ];
     if (isPaged) {
@@ -479,8 +484,8 @@ export function entityFromDoc(
   const entries: string[] = [`id=${pyIdType(entity.name)}(${PY.cast}(str, d["id"]))`];
   if (!isRoot) entries.push(`parent_id=${pyIdType(root.name)}(${PY.cast}(str, d["parent_id"]))`);
   for (const f of entity.fields) {
-    if (rootVersioned && f.name === "version") {
-      entries.push("version=version");
+    if (rootVersioned && f.name === ROW_VERSION_FIELD) {
+      entries.push(`${ROW_VERSION_COLUMN}=${ROW_VERSION_COLUMN}`);
       continue;
     }
     entries.push(`${pythonIdent(f.name)}=${deserialize(f.type, `d["${snake(f.name)}"]`, ctx)}`);
@@ -499,7 +504,7 @@ export function entityFromDoc(
   // The JSONB column types as `object`; cast each access to the doc dict.
   return lines(
     rootVersioned
-      ? `def _${snake(entity.name)}_from_doc(raw: object, version: int) -> ${partRef(root, entity.name)}:`
+      ? `def _${snake(entity.name)}_from_doc(raw: object, ${ROW_VERSION_COLUMN}: int) -> ${partRef(root, entity.name)}:`
       : `def _${snake(entity.name)}_from_doc(raw: object) -> ${partRef(root, entity.name)}:`,
     `    d = ${PY.cast}(dict[str, object], raw)`,
     `    return ${partRef(root, entity.name)}._rehydrate(${entries.join(", ")})`,

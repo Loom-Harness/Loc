@@ -19,8 +19,8 @@
       "body": {
         "estimate": null,
         "id": "<volatile:key>",
-        "title": "Ship it",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Ship it"
       }
     },
     {
@@ -40,8 +40,8 @@
       "body": {
         "estimate": 3,
         "id": "<volatile:key>",
-        "title": "Sized",
-        "version": 1
+        "rowVersion": 1,
+        "title": "Sized"
       }
     },
     {
@@ -79,8 +79,8 @@
       "body": {
         "estimate": null,
         "id": "<volatile:key>",
-        "title": "Shipped",
-        "version": 2
+        "rowVersion": 2,
+        "title": "Shipped"
       }
     },
     {
@@ -93,14 +93,14 @@
           {
             "estimate": null,
             "id": "<volatile:key>",
-            "title": "Shipped",
-            "version": 2
+            "rowVersion": 2,
+            "title": "Shipped"
           },
           {
             "estimate": 3,
             "id": "<volatile:key>",
-            "title": "Sized",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Sized"
           }
         ],
         "page": 1,
@@ -139,8 +139,8 @@
           {
             "estimate": 3,
             "id": "<volatile:key>",
-            "title": "Sized",
-            "version": 1
+            "rowVersion": 1,
+            "title": "Sized"
           }
         ],
         "page": 1,
@@ -192,18 +192,12 @@
       "seq": 14,
       "method": "POST",
       "path": "/api/tickets/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "title is required",
-            "pointer": "/title"
-          }
-        ],
+        "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

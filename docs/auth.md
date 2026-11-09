@@ -50,7 +50,9 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   reactors are not client-reachable, so they are excluded);
 - **every read of an aggregate** — the list read `GET /api/<plural>`, the
   single-record read `GET /api/<plural>/{id}`, each repository `find`'s route,
-  and the audit history read — gated by ONE line in the context's `policy`
+  the audit history read, and every routed `queryHandler` / `commandHandler`
+  whose body reads the aggregate through its repository (`get` / `find` /
+  `getBy` / `findBy` / `all`) — gated by ONE line in the context's `policy`
   block (see [Read gates](#read-gates)):
 
   ```ddd
@@ -832,7 +834,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
-| `loom.policy-out-of-scope` | a `PolicyName(args)` or `Ctx.PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
+| `loom.policy-out-of-scope` | a policy reached from a context other than its declaring one, in any file of the project — a `PolicyName(args)` call, a `Ctx.PolicyName(args)` call, a bare `PolicyName` reference, or a call to a top-level function whose body names the policy (the function is inlined at the call site) — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
@@ -858,6 +860,49 @@ policy {
   filter, writes fail too.
 - **`deny write on X`** denies **write** only: reads still work, but every instance
   mutation (update-style ops, `destroy`, applier dispatch) 404s.
+
+**Every mutation re-checks the write scope, whatever loaded the row.** A workflow
+command or `commandHandler` can hold a row no write-scope load produced — one
+`Repo.all(<criterion>)` returned, a `find`, a loop variable. Before such a body
+mutates (an operation call, a `mutating` domain-service call) or removes a row it
+holds, it re-loads that row through the same write-scope load the op route uses.
+A row outside the caller's write scope — `deny write`, or the own-org floor under
+`allow deep` — fails the **whole** body with the op route's 404, and the body runs
+in one transaction, so the rows it already changed roll back. Rows are never
+filtered out silently. A row the body itself created is exempt (it is not stored
+yet). The requirement is derived from the body's `mutate` / `delete` effects
+(`src/ir/util/write-scope-guards.ts`).
+
+**Event reactors are not re-checked.** A reactor runs as the
+[system principal](#the-system-principal--currentuserissystem), not as the user
+whose command raised the event, so a held-row mutation in a reactor body skips
+this re-check. That command already passed the caller's write scope, and a
+reaction may legitimately update rows outside that caller's write scope — a
+parent org's rollup, a counter another org owns. A reaction that must stay inside
+the originating user's scope says so with an explicit gate on `causedBy` or the
+event's own fields.
+
+```ddd
+workflow touchLedgers {
+  create() {
+    let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
+    for l in rows { l.touch() }      // under `deny write on Ledger` → 404, nothing changes
+  }
+}
+```
+```ts
+// node / Hono — the body runs in one transaction; each held row re-loads
+// through `getById` (the write-scope load) before its mutation
+await db.transaction(async (tx) => {
+  const ledgers = new LedgerRepository(tx, __deferred);
+  const rows = await ledgers.runFindAllByAnyLedger({ offset: 0, limit: 50 });
+  for (const l of rows) {
+    await ledgers.getById(l.id);
+    l.touch();
+    await ledgers.save(l);
+  }
+});
+```
 
 Deny is **all-or-nothing at the aggregate** — there is no level word (a partial
 deny is field-masking / row-clause territory, a later slice). It composes as an
@@ -1002,12 +1047,75 @@ defp serialize(record) do
 end
 ```
 
+#### Where a masked value flows — the visibility taint
+
+A mask protects the field only if every place its value reaches applies it.
+Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink either
+**inherits** the predicate or is **refused** in phase ⑦:
+
+| Sink | What happens |
+| --- | --- |
+| a `derived` that reads a masked field (directly or through another derived) | redacts under the conjunction of the masks it reads — it is on the wire with `maskUnless`, so every backend's masked serializer nulls it |
+| a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
+| an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
+| a `create` | not a sink: a new row has no stored value to overwrite |
+| the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
+| an event whose payload reads a masked value, carried on a `channel` | refused — `loom.field-mask-event-channel` (a subscriber receives the message with no principal in scope); a folded projection of it is refused by `loom.field-mask-projection-source` |
+| a `unique (…)` key over a masked field | refused unless the create requires the mask predicate — `loom.field-mask-unique-oracle` (a 409 answers whether a guessed value exists) |
+
+Every inherited gate is the mask predicate alone.  It reads only `currentUser`
+(`loom.field-mask-not-current-user`), never the row or the value the caller
+sent, so a right guess at the hidden value and a wrong one get the same answer.
+
+```ddd
+aggregate Employee with crudish {
+  name: string
+  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+  derived band: string = name + " / " + string(salary)   // redacts with salary
+}
+```
+
+```ts
+// generated (Hono) — the masked serializer nulls the derived too
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.salary = null;
+if (!(currentUser !== null && ((currentUser.permissions).includes("hr.unmask")))) wire.band = null;
+```
+
+#### Masked fields and the generated `update`
+
+A caller who cannot read a masked field cannot change it either.  The generated
+`update` (`with crudish`) is a JSON Merge Patch
+([RS-47](conformance-semantics.md#rs-47--the-generated-update-body-is-a-json-merge-patch-an-absent-key-keeps-the-stored-value-null-clears-a-t-field)),
+so a caller who reads the field as `null` leaves it out of the patch and the
+stored value stays.  A body that **carries** the masked key — any value,
+including the one already stored — is refused with 403 unless the caller
+satisfies the mask predicate, and nothing is written.  Any other operation that
+writes a parameter into a masked field requires the predicate outright.
+
+```ddd
+aggregate Employee with crudish {
+  name: string
+  salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+}
+```
+
+```ts
+// generated (Hono) — http/employee.routes.ts: gated on the KEY, not its value
+if (body.salary !== undefined && !((currentUser.permissions).includes("hr.unmask"))) throw new ForbiddenError("Forbidden: mask unless — only a caller who can read Employee.salary may change it");
+aggregate.update((body.name === undefined ? aggregate.name : body.name), (body.salary === undefined ? aggregate.salary : body.salary));
+```
+
+The gate is a hoisted `requires`, so it runs wherever the operation's gates run
+(the route, a workflow step, and on Phoenix the context seam the LiveView edit
+form also calls).  A client that echoes a whole read body back sends the masked
+key as `null`, so it is refused: send only the keys you mean to change.
+
 **Status (M-T3.2 item 6).** Grammar + IR + printer + wire contract + validation,
 plus read redaction on **all five backends** (node, .NET, Python, Java, Elixir),
 have shipped — a `mask unless` field now redacts fail-closed on every backend.
-A write-side field gate (`write(...)` / `readonly when`) was tried and **reverted**
-(redundant with a post-load `requires` on the operation, which is also row-aware);
-gate field writes with `operation update(…) requires <field> == this.<field> || <caller-check>`.
+The write side inherits the mask as a hoisted gate (above); a gate of your own
+on another field has the same shape:
+`operation update(…) requires <field> == this.<field> || <caller-check>`.
 
 | Diagnostic | When |
 | --- | --- |
@@ -1015,6 +1123,8 @@ gate field writes with `operation update(…) requires <field> == this.<field> |
 | `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
+| `loom.field-mask-event-channel` | an event a `channel` carries reads a masked value in its payload |
+| `loom.field-mask-unique-oracle` | a `unique` key includes a masked field and the create does not require the mask predicate |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
 
 ### Read gates
@@ -1033,7 +1143,18 @@ policy {
 The gate covers **every read** of the aggregate: the list `GET /<plural>`, the
 by-id `GET /<plural>/{id}`, each declared find's route, the audit history read
 (`GET /<plural>/{id}/history`), and the scaffolded List page (client-side, so
-its nav entry hides for a refused principal).  An exposure-level gate — a
+its nav entry hides for a refused principal).  It also covers a hand-written
+routed `queryHandler` / `commandHandler` whose body reads the aggregate through
+its repository (`get` / `find` / `getBy` / `findBy` / `all`, at any nesting
+depth): enrichment prepends the gate to the handler body as a leading
+`requires` — one per distinct gated aggregate the body reads, in first-read
+order, rendered as the same `Forbidden: read Order requires …` 403 on all five
+backends, ahead of the first repository call.  Because the gate is
+`currentUser`-only it never depends on a handler parameter, so it is hoisted
+unconditionally; a leading `requires` that already spells the same predicate is
+not repeated, and `scaffoldGet` relies on this instead of splicing the gate
+itself.  An `extern` handler is bodyless and keeps its own impl.  An
+exposure-level gate — a
 `scaffoldPaged(requires:)`, a route / handler `requires` — still ANDs on top.
 
 It emits an in-handler **403** at the top of each of those routes, evaluated
@@ -1367,9 +1488,11 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > built-in identity.
 
 **Under `auth { oidc }` the stub is preview-only.** The Hono backend still
-emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
-so a running app ignores the header. The playground preview registers the stub
-instead, because no identity provider is reachable from its browser worker —
+emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
+registers the stub only when the host passes `verifier: "dev-stub"`, which the
+server's `index.ts` never does, so a running app ignores the header. The
+playground preview passes it, because no identity provider is reachable from
+its browser worker —
 that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
 header there answers 401, not 400, since the OIDC middleware does not know the
 stub).
@@ -1388,6 +1511,13 @@ derived from the declared shape, so a non-optional field is never null and the
 same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
+
+The same identity is what a model's **tests** run as. A context integration
+`test` binds it (in process, through the seam the middleware binds a request's)
+and a `test e2e` block may set claims over it with an `as { … }` clause — the
+clause rides this header — so a `requires` 403 or a `mask unless` redaction
+under a second principal is assertable from the model itself
+([testing reference](language-reference/18-testing.md#running-as-a-principal)).
 
 A non-optional **id-typed** claim (`customerId: Customer id`) gets the same
 all-zero identity, but **constructed through the emitted id type** rather than
@@ -1450,20 +1580,25 @@ on at deploy time without editing the `.ddd`).
 **The value is always env-overridable, declared or not.** All five backends read
 `OIDC_AUDIENCE`, falling back to the declared value:
 
-| declared | resolves to |
-| --- | --- |
-| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` |
-| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` |
-| *(undeclared)* | `OIDC_AUDIENCE` if set, else unset → `aud` not checked |
+| declared | resolves to | resolves EMPTY (`OIDC_AUDIENCE` unset or `""`) |
+| --- | --- | --- |
+| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` | only via `OIDC_AUDIENCE=""` → **every token rejected** |
+| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` | **every token rejected** |
+| `audience: env("API_AUD")` | `OIDC_AUDIENCE` if set, else `API_AUD` | **every token rejected** |
+| *(undeclared)* | `OIDC_AUDIENCE` if set | `aud` not checked |
 
 So an operator can enforce audience isolation on a stack that never declared one
 by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 
-> **Turning it back OFF is the same on every backend.** An EMPTY audience —
-> `OIDC_AUDIENCE` unset, or set to `""` — skips the check on all five. (Until
-> the claims-eval fix D7, dotnet, java and python treated `""` as a *declared*
-> audience no token carries and rejected every token; python and dotnet did so
-> even with the variable merely unset under `audience: env("OIDC_AUDIENCE")`.)
+> **A declared audience fails closed.** Once the model declares `audience:`, an
+> audience that resolves empty does not turn the check off: every verifier
+> rejects every token (401) and logs `auth_token_rejected` with the reason
+> `oidc audience is declared but resolved empty: set OIDC_AUDIENCE`. A deploy env
+> that forgot the variable gets a stack that refuses everyone, not one that
+> accepts tokens minted for any other client of the same issuer. The only way
+> to skip the `aud` check is to declare no `audience:` (which raises
+> `loom.auth-oidc-no-audience`) and leave `OIDC_AUDIENCE` empty — the same on
+> all five backends.
 >
 > **A rejected token is logged.** Every verifier still answers a failed
 > verification with 401 (never 500), and now also logs the catalog event
@@ -1473,8 +1608,10 @@ by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 >
 > **The bundled dev realm mints the audience.** A literal `audience: "x"` gets an
 > audience mapper for `x`; an `env(…)` audience gets one for the realm's own
-> client id (`<realm>-app`), so `OIDC_AUDIENCE=<realm>-app` turns the check on
-> against the bundled Keycloak with no realm edit.
+> client id (`<realm>-app`), and the generated `docker-compose.yml` sets
+> `OIDC_AUDIENCE: "<realm>-app"` on every backend service, so the dev stack
+> enforces the check out of the box. Point a deployment at a real IdP and set
+> `OIDC_AUDIENCE` to the value that IdP puts in `aud`.
 
 ```ddd
 auth {
@@ -1487,21 +1624,43 @@ auth {
 }
 ```
 
+```yaml
+# generated — docker-compose.yml (every backend service)
+OIDC_AUDIENCE: "shop-app"
+```
+
 ```ts
 // generated (node) — auth/oidc.ts
 const ISSUER = process.env.OIDC_ISSUER ?? "";
 const AUDIENCE = process.env.OIDC_AUDIENCE ?? "";
-const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+const VERIFY_OPTIONS = { issuer: ISSUER, audience: AUDIENCE };
 // …
+if (!AUDIENCE) {
+  requestLog().debug({ event: "auth_token_rejected", reason: "oidc audience is declared but resolved empty: set OIDC_AUDIENCE" });
+  return null;
+}
 const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
 ```
 
 ```python
 # generated (FastAPI) — app/auth/oidc.py
-_AUDIENCE = os.environ.get("OIDC_AUDIENCE")
-jwt.decode(token, key, algorithms=_ALGS, issuer=_issuer(),
-           audience=_AUDIENCE, options={"verify_aud": _AUDIENCE is not None})
+_AUDIENCE: str | None = (os.environ.get("OIDC_AUDIENCE", "")) or None
+# …
+if _AUDIENCE is None:
+    log("debug", "auth_token_rejected", reason="oidc audience is declared but resolved empty: set OIDC_AUDIENCE")
+    return None
 ```
+
+```elixir
+# generated (Phoenix) — lib/<app>_web/auth.ex
+with :ok <- audience_configured(),
+     {:ok, claims} <- MyAppWeb.Auth.Token.verify_and_validate(token),
+     :ok <- require_claims(claims) do
+```
+
+.NET (`if (string.IsNullOrEmpty(Audience)) return Rejected(…)`) and Java
+(`if (AUDIENCE == null || AUDIENCE.isEmpty()) { …; return null; }`) put the same
+guard ahead of token validation.
 
 ## Auth routes
 

@@ -19,8 +19,8 @@
       "body": {
         "code": "A1",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 1
+        "rowVersion": 1,
+        "status": "open"
       }
     },
     {
@@ -31,8 +31,8 @@
       "body": {
         "code": "A1",
         "id": "<volatile:key>",
-        "status": "open",
-        "version": 1
+        "rowVersion": 1,
+        "status": "open"
       }
     },
     {
@@ -58,8 +58,8 @@
           {
             "code": "A1",
             "id": "<volatile:key>",
-            "status": "open",
-            "version": 1
+            "rowVersion": 1,
+            "status": "open"
           }
         ],
         "page": 1,
@@ -119,13 +119,13 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "text": "open",
-            "version": 1
+            "rowVersion": 1,
+            "text": "open"
           },
           {
             "id": "<volatile:key>",
-            "text": "missing",
-            "version": 1
+            "rowVersion": 1,
+            "text": "missing"
           }
         ],
         "page": 1,
@@ -150,8 +150,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "text": "direct",
-        "version": 1
+        "rowVersion": 1,
+        "text": "direct"
       }
     },
     {

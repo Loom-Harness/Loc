@@ -46,8 +46,7 @@
 // claim for a wrong count is not an improvement.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../../src/generator/dotnet/index.js";
-import { parseString } from "../../_helpers/parse.js";
+import { generateBackendFromSource } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -64,9 +63,7 @@ const SRC = `
 `;
 
 async function emitted(suffix: string): Promise<string> {
-  const { model, errors } = await parseString(SRC);
-  expect(errors).toEqual([]);
-  const files = generateDotnet(model);
+  const files = await generateBackendFromSource(SRC, "dotnet");
   const key = [...files.keys()].find((k) => k.endsWith(suffix));
   expect(key, `${suffix} not emitted`).toBeDefined();
   return files.get(key as string) as string;
@@ -86,7 +83,7 @@ describe("dotnet — a response string publishes no length bound it cannot keep"
     // int would be noise at best and is not what the fix is about.
     const responses = await emitted("Customers/Responses/CustomerResponses.cs");
     expect(responses).toContain("[property: Required] Guid Id");
-    expect(responses).toContain("[property: Required] int Version");
+    expect(responses).toContain("[property: Required] int RowVersion");
   });
 
   it("the field stays REQUIRED — this is still a RequiredAttribute", async () => {

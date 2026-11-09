@@ -21,8 +21,8 @@ const CreateProductRequest = z.object({
 const CreateProductResponse = z.object({ id: z.string() }).openapi("CreateProductResponse");
 
 const UpdateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
-  price: MoneySchema,
+  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")).optional(),
+  price: MoneySchema.optional(),
 }).openapi("UpdateProductRequest");
 
 const AllQuery = z.object({
@@ -35,7 +35,7 @@ export const ProductResponse = z.object({
   id: z.string(),
   sku: z.string(),
   price: MoneySchema,
-  version: z.number().int().openapi({ format: "int32" }),
+  rowVersion: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("ProductResponse");
 export const ProductListResponse = z.array(ProductResponse).openapi("ProductListResponse");
@@ -91,7 +91,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       const { id } = c.req.valid("param");
       const found = await repo.findById(Ids.ProductId(id));
       if (!found) throw new AggregateNotFoundError(`Product ${id} not found`);
-      c.header("etag", versionETag(found.version));
+      c.header("etag", versionETag(found.rowVersion));
       return c.json(repo.toWire(found) as z.infer<typeof ProductResponse>, 200);
     },
   );
@@ -112,7 +112,10 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      await repo.getById(Ids.ProductId(id));
+      const __loaded = await repo.getById(Ids.ProductId(id));
+      const ifMatch = c.req.header("if-match");
+      const expectedVersion = parseIfMatch(ifMatch, __loaded.rowVersion);
+      if (expectedVersion !== __loaded.rowVersion) throw new ConcurrencyError("Product", id);
       try {
         await repo.delete(Ids.ProductId(id));
       } catch (err) {
@@ -152,8 +155,8 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       recordDomainOperation("Product", "update");
       const aggregate = await repo.getById(Ids.ProductId(id));
       const ifMatch = c.req.header("if-match");
-      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);
-      aggregate.update(body.sku, new Money(body.price.amount, body.price.currency));
+      const expectedVersion = parseIfMatch(ifMatch, aggregate.rowVersion);
+      aggregate.update((body.sku === undefined ? aggregate.sku : body.sku), (body.price === undefined ? aggregate.price : new Money(body.price.amount, body.price.currency)));
       await repo.save(aggregate, expectedVersion);
       return c.body(null, 204);
     },

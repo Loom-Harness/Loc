@@ -10,9 +10,11 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { writeScopePredicate } from "./find-predicate.js";
+import { pyGuardedSaveTail } from "./guarded-save-py.js";
 import { isRefCollectionField, isValueCollectionField, rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import {
@@ -25,7 +27,6 @@ import {
   declaredAllFilterPredicate,
   emittableFinds,
   hydrateField,
-  inlineRunBypassesByRetrieval,
   partWireMethod,
   persistField,
   R,
@@ -69,7 +70,6 @@ export function buildPyEmbeddedRepositoryFile(
   // An embedded aggregate's root scalars are real columns, so its read
   // restrictions ride the read-scope hook exactly like the relational path's.
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
-  const runBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
 
   const body = lines(
     `class ${agg.name}Repository:`,
@@ -113,10 +113,7 @@ export function buildPyEmbeddedRepositoryFile(
     // Criterion reads call `run_<retrieval>` whatever the saving shape.  The
     // root's scalars are real columns, so the relational runner pushes the
     // criterion into SQL; only the hydrate is per row.
-    ...aggregateRetrievals(agg, ctx).flatMap((r) => [
-      "",
-      runMethod(agg, r, ctx, runBypasses.get(r.name), false),
-    ]),
+    ...aggregateRetrievals(agg, ctx).flatMap((r) => ["", runMethod(agg, r, ctx, false)]),
     "",
     saveMethod(agg, ctx),
     "",
@@ -240,27 +237,28 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     // Guarded upsert (optimistic concurrency, default-on `versioned`): an
     // INSERT-conflict only overwrites when the stored `version` still equals
     // the caller's expected value, bumping it by one; a stale write matches no
-    // row, so `RETURNING id` comes back empty → ConcurrencyError → 409.  A fresh
+    // row, so `RETURNING version` comes back empty → ConcurrencyError → 409.  A fresh
     // INSERT never conflicts, so create/seed writes are unaffected.
     const setEntries = pairs
       .map(([k]) => k)
-      .filter((k) => k !== "id" && k !== "version")
+      .filter((k) => k !== "id" && k !== ROW_VERSION_COLUMN)
       .map((k) => `"${k}": root[${JSON.stringify(k)}]`);
-    setEntries.push(`"version": ${row}.version + 1`);
+    setEntries.push(`"${ROW_VERSION_COLUMN}": ${row}.${ROW_VERSION_COLUMN} + 1`);
     out.push(
-      "        _expected = aggregate.version if expected_version is None else expected_version",
+      `        _expected = aggregate.${ROW_VERSION_COLUMN} if expected_version is None else expected_version`,
       "        _guarded = await self._session.execute(",
       `            ${R.insert}(${row})`,
       "            .values(**root)",
       "            .on_conflict_do_update(",
       '                index_elements=["id"],',
       `                set_={${setEntries.join(", ")}},`,
-      `                where=${row}.version == _expected,`,
+      `                where=${row}.${ROW_VERSION_COLUMN} == _expected,`,
       "            )",
-      `            .returning(${row}.id)`,
-      "        )",
-      "        if _guarded.first() is None:",
-      `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
+      ...pyGuardedSaveTail(
+        row,
+        "aggregate",
+        pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id"),
+      ),
     );
   } else {
     out.push(

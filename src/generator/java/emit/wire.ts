@@ -1,8 +1,8 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { javaCalendarDateWire, javaInstantWire } from "../codec-spelling.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
-import { javaValueTypeForId } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
 
 // ---------------------------------------------------------------------------
@@ -72,11 +72,10 @@ export function bearsNestedRecord(t: TypeIR): boolean {
   }
 }
 
-/** `javaValueTypeForId`, with the `UUID` spelling written as its import
- *  marker (M-T9.86) so a unit naming it derives `import java.util.UUID;`. */
-export function javaIdValueType(idValueType: string): string {
-  const v = javaValueTypeForId(idValueType);
-  return v === "UUID" ? J.UUID : v;
+/** `javaValueTypeForId` (a guid's `UUID`) written as its import marker, so a
+ *  unit naming it derives `import java.util.UUID;`. */
+export function javaIdValueType(): string {
+  return J.UUID;
 }
 
 /** The Java type a domain type takes inside a request/response record. */
@@ -126,7 +125,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       }
       return "Object";
     case "id":
-      return javaIdValueType(t.valueType);
+      return javaIdValueType();
     case "enum":
       return t.name;
     case "valueobject":
@@ -153,19 +152,8 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
 }
 
 /** Expression converting a DOMAIN value (`expr`, already a typed Java
- *  expression) to its wire form for a response record. */
-/** An `Instant` expression → its canonical wire string (RS-4 + RS-38):
- *  ISO-8601 UTC in MILLISECONDS.  `Instant.toString()` prints the fraction in
- *  groups of three and omits a zero one, so after `truncatedTo(MILLIS)` it is
- *  exactly the canonical form — `.120Z` with a fraction, `…30Z` on a whole
- *  second.  Without the truncation a value read back from a microsecond
- *  `TIMESTAMPTZ` column (or an `Instant.now()`) would ship six or nine digits.
- *  `truncatedTo` never rounds, so `.9996` cannot carry into
- *  the next second. */
-export function javaInstantWire(expr: string): string {
-  return `${expr}.truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString()`;
-}
-
+ *  expression) to its wire form for a response record.  The datetime and
+ *  date forms are the `Codec` fact's, spelled in `../codec-spelling.ts`. */
 export function domainToWire(t: TypeIR, expr: string): string {
   switch (t.kind) {
     case "primitive":
@@ -175,8 +163,7 @@ export function domainToWire(t: TypeIR, expr: string): string {
       // byte-consistent with the other backends.
       if (t.name === "money") return numericEncode(JAVA_NUMERIC, "money", "dto-map", expr);
       if (t.name === "datetime") return javaInstantWire(expr);
-      // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
-      if (t.name === "date") return `${expr}.toString()`;
+      if (t.name === "date") return javaCalendarDateWire(expr);
       // decimal → the response's `double` component (RS-24).  The
       // narrowing is the wire boundary's job, exactly as on .NET: the
       // DOMAIN value keeps every digit `MathContext.DECIMAL128` produced.
@@ -209,7 +196,7 @@ function elementMapper(element: TypeIR): string | null {
       if (element.name === "money")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "money", "dto-map", "__x")}`;
       if (element.name === "datetime") return `__x -> ${javaInstantWire("__x")}`;
-      if (element.name === "date") return "__x -> __x.toString()";
+      if (element.name === "date") return `__x -> ${javaCalendarDateWire("__x")}`;
       // `decimal[]` → `List<Double>` (RS-24): the element narrows on
       // the response exactly as a scalar decimal component does.
       if (element.name === "decimal")

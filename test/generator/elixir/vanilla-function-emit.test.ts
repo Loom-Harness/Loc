@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 // ---------------------------------------------------------------------------
 // Vanilla-Phoenix aggregate `function` member emit (gap §11b,
@@ -125,7 +126,7 @@ describe("vanilla aggregate `function` emit (gap §11b)", () => {
     const ctx = await contextModule();
     expect(ctx).toMatch(/def shipping_for\(%Api\.Ordering\.Order\{\} = record, extra\) do/);
     // `let base = …` → an Elixir binding.
-    expect(ctx).toContain("base = record.total + extra");
+    expect(uncheckedInt(ctx)).toContain("base = record.total + extra");
     // `precondition` → a bug-regime raise guard, typed so the controller rescue
     // routes on `:kind` rather than on the message prefix (M-T6.20).
     expect(ctx).toMatch(
@@ -193,7 +194,7 @@ system Unused {
     context Inv {
       aggregate Gadget {
         name: string
-        function label(q: int): string = name
+        function caption(q: int): string = name
       }
     }
   }
@@ -208,7 +209,7 @@ system Unused {
 `;
     const files = await generateSystemFiles(unused);
     const ctx = [...files].find(([p]) => p.endsWith("/inv.ex"))?.[1] ?? "";
-    expect(ctx).toMatch(/def label\(%Api\.Inv\.Gadget\{\} = record, _q\) do/);
+    expect(ctx).toMatch(/def caption\(%Api\.Inv\.Gadget\{\} = record, _q\) do/);
   });
 
   it("does not emit any function defs for an aggregate without `function` members", async () => {

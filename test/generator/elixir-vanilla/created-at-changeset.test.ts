@@ -47,7 +47,7 @@ system Shop {
 `;
     const files = await generateSystemFiles(source);
     const cs = csFor(files, "order");
-    expect(cs).toContain("@all_fields [:label, :created_at, :version]");
+    expect(cs).toContain("@all_fields [:label, :created_at, :row_version]");
     // `version` is `int token = 1` — an explicit `= default` makes it OMITTABLE
     // create input on every backend, so it is cast but not required.  `label`
     // and `created_at` carry no default and stay required.
@@ -87,7 +87,7 @@ system Shop {
     const cs = csFor(files, "order");
     // Excluded from the cast allow-list… (only the auto `:version` token joins
     // the plain `:label`, since versioning is default-on — M-T3.4).
-    expect(cs).toContain("@all_fields [:label, :version]");
+    expect(cs).toContain("@all_fields [:label, :row_version]");
     expect(cs).not.toMatch(/@all_fields \[[^\]]*:created_at/);
     expect(cs).not.toMatch(/@required_fields \[[^\]]*:created_at/);
     // …and from every per-action cast: a stamp target is server-owned, so

@@ -123,7 +123,7 @@ describe("python generator — event-sourced concurrency rider", () => {
     expect(repo).toContain(
       'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );
-    expect(repo).toContain("where=CustomerRow.version == _expected");
+    expect(repo).toContain("where=CustomerRow.row_version == _expected");
     expect(problem).toContain("@app.exception_handler(ConcurrencyError)");
     expect(errors).toContain("class ConcurrencyError(Exception):");
     // But NOT the event-log-append rider (IntegrityError / 23505 catch).

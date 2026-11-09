@@ -289,7 +289,7 @@ export default function Counter() {
 | `loom.ui-find-call-arity` | a find read called with a different number of arguments than the find declares |
 | `loom.unresolved-action-ref` | a bare call in a page, component **or store** action that names no sibling action, ui function or view effect |
 
-A few shapes render on some frontends only; `loom.ui-body-feature-unsupported` refuses them where they don't, from one table (`UI_BODY_FEATURE_RENDERERS` in `src/ir/validate/checks/ui-body-vocabulary-checks.ts`). Feliz does not render a block lambda or an action named as a value inside an action, a `match await` nested in an arm / in a store action / beside other statements, or a find read whose parameter is not a scalar, whose return is not the aggregate, or whose argument is not a `state` cell, store field, literal or the route `id`. Flutter does not render a nested or store-action `match await`. The string regex `.matches(…)` renders on Phoenix LiveView only.
+A few shapes render on some frontends only; `loom.ui-body-feature-unsupported` refuses them where they don't, from one table (`UI_BODY_FEATURE_RENDERERS` in `src/ir/validate/checks/ui-body-vocabulary-checks.ts`). Feliz does not render a block lambda or an action named as a value inside an action, a `match await` nested in an arm / in a store action / beside other statements. Flutter does not render a nested or store-action `match await`. The string regex `.matches(…)` renders on Phoenix LiveView only.
 
 ### Effect markers and `match await`
 
@@ -400,6 +400,7 @@ The store gates:
 | Code | Rejects |
 |---|---|
 | `loom.store-lifetime-invalid` | a `persist:` value outside `memory \| local \| session \| url` |
+| `loom.store-init-not-constant` | a store field default that is not a constant (React/Vue/Svelte/Angular): it may use literals, lists, operators, `? :`, enum values and `string(…)` — it is evaluated when the store is created |
 | `loom.store-url-field-invalid` | a non-scalar field in a `persist: url` store (only string/number/bool/enum/id round-trip through the query string) |
 | `loom.store-state-inline-write` | a page/component action writing store state directly (`Cart.count := …`) — mutate through a store action |
 | `loom.store-action-view-effect` | a view-scoped effect (`navigate`, …) inside a store action — a store has no router |

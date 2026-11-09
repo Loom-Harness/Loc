@@ -23,17 +23,12 @@ import { describe, expect, it } from "vitest";
 import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-// This fixture used to ride the legacy `generateHono` helper on a BARE loose
-// context.  Once that path asserts phase ⑦ (M-T9.48) the shape is refused, and
-// correctly: TPH is a HOSTED capability — `validateInheritanceStorage` reports
-// `loom.tph-backend-unsupported` ("no TPH-capable backend deployable hosts this
-// context") — and the legacy path cannot host anything, because declaring a
-// `system` re-parents every loose context into it and empties the
-// `loom.contexts` list `generateTypeScript` emits from.  So the fixture grows
-// the deployable it always implied and emits through the orchestrator instead;
-// the map is re-keyed to drop the deployable directory, so every assertion
-// below reads the same path it did before.  Same disposition as the sibling
-// `hono-tph-capability-filter.test.ts`.
+// TPH is a HOSTED capability — `validateInheritanceStorage` reports
+// `loom.tph-backend-unsupported` when no TPH-capable backend deployable hosts
+// the context — so the fixture declares the deployable and emits through the
+// system orchestrator.  The map is re-keyed to drop the deployable directory,
+// so every assertion below reads a project-relative path.  Same
+// disposition as the sibling `hono-tph-capability-filter.test.ts`.
 async function gen(contextSrc: string): Promise<Map<string, string>> {
   const files = await generateSystemFiles(`
     system Fleets {
@@ -104,7 +99,7 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
     const car = files.get("db/repositories/car-repository.ts") ?? "";
     const update = car.split("\n").find((l) => l.includes("tx.update(schema.vehicles)")) ?? "";
     expect(update, "guarded update emitted").not.toEqual("");
-    expect(update).toContain("eq(schema.vehicles.version, expected)");
+    expect(update).toContain("eq(schema.vehicles.rowVersion, expected)");
     expect(update).toContain("carScope({ write: true })");
     // Zero rows matched -> the same ConcurrencyError a lost race raises, rather
     // than a silent overwrite.
@@ -130,7 +125,7 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
     expect(del).toContain("where(eq(schema.bikes.id, id))");
     expect(del).not.toContain("and(");
     const update = bike.split("\n").find((l) => l.includes("tx.update(schema.bikes)")) ?? "";
-    expect(update).toContain("eq(schema.bikes.version, expected)");
+    expect(update).toContain("eq(schema.bikes.rowVersion, expected)");
     expect(update).not.toContain("kind");
   });
 });

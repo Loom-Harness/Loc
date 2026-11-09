@@ -107,7 +107,7 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
       "slug",
       "at",
       "ver",
-      "version",
+      "rowVersion",
       "lines",
       "label",
     ]);
@@ -235,7 +235,7 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
           // Default-on versioning (M-T3.4) puts version on the read wire, so the
           // hand-written record mirrors what scaffoldHandlers auto-splices (and
           // what the .NET read projection supplies as d.Version).
-          response OrderResponse { status: string  version: int }
+          response OrderResponse { status: string  rowVersion: int }
           query GetOrderQuery { orderId: Order id }
           command CancelOrderCommand { }
           queryHandler GetOrder(query: GetOrderQuery): OrderResponse {

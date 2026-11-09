@@ -4,7 +4,7 @@
 // constructor parameters carry the values; `this` is not yet available
 // there, hence `bareProps`).
 
-import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import type { EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
@@ -95,7 +95,34 @@ function enumWireCodec(e: EnumIR): string[] {
   ];
 }
 
-export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): string {
+/** The persistence annotation on an enum record component.  When the record is
+ *  `@Embedded` its columns are `TEXT CHECK (… IN (names))`, and Hibernate
+ *  defaults an enum to ORDINAL — a 23514 on write — so the component names the
+ *  mapping exactly as a root aggregate's enum field does (`jpaFieldAnnotations`).
+ *  A record component's annotation propagates to the field Hibernate reads;
+ *  Jackson ignores it, so the jsonb-embedded and element-collection uses are
+ *  unaffected. */
+function enumColumnAnnotation(type: TypeIR, mangledEnums: ReadonlySet<string>): string {
+  const t = type.kind === "optional" ? type.inner : type;
+  // An enum ARRAY component is one native `text[]` column; it maps exactly as
+  // the root aggregate's array arm does (`jpaFieldAnnotations`): the element is
+  // stored by name, and a reserved-word enum's codec is a scalar converter that
+  // cannot convert a list, so that crossing keeps the plain array mapping.
+  if (t.kind === "array" && t.element.kind === "enum") {
+    const byName = mangledEnums.has(t.element.name) ? "" : "@Enumerated(EnumType.STRING) ";
+    return `${byName}@JdbcTypeCode(SqlTypes.ARRAY) `;
+  }
+  if (t.kind !== "enum") return "";
+  return mangledEnums.has(t.name)
+    ? `@Convert(converter = ${t.name}.Codec.class) `
+    : "@Enumerated(EnumType.STRING) ";
+}
+
+export function renderJavaValueObject(
+  vo: ValueObjectIR,
+  basePkg: string,
+  mangledEnums: ReadonlySet<string> = new Set(),
+): string {
   // Hoist `string.matches("…")` regex literals (invariants / derived / pure
   // expr-functions) into `private static final Pattern` fields so the compact
   // constructor — which runs on every construction AND Hibernate hydration —
@@ -122,7 +149,10 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
   // response.  `jid` mangles only a Java reserved word, and `jsonProp` pins
   // the original spelling back onto the JSON property when it does.
   const params = vo.fields
-    .map((f) => `${jsonPropRef(f.name)}${renderJavaType(f.type)} ${jid(f.name)}`)
+    .map(
+      (f) =>
+        `${enumColumnAnnotation(f.type, mangledEnums)}${jsonPropRef(f.name)}${renderJavaType(f.type)} ${jid(f.name)}`,
+    )
     .join(", ");
   const invariantLines = vo.invariants.map((inv) => {
     const check = inv.guard
@@ -156,7 +186,12 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
   return lines(
     `package ${basePkg}.domain.valueobjects;`,
     ``,
+    `import jakarta.persistence.Convert;`,
     `import jakarta.persistence.Embeddable;`,
+    `import jakarta.persistence.EnumType;`,
+    `import jakarta.persistence.Enumerated;`,
+    `import org.hibernate.annotations.JdbcTypeCode;`,
+    `import org.hibernate.type.SqlTypes;`,
     `import org.jmolecules.ddd.annotation.ValueObject;`,
     ``,
     `import ${basePkg}.domain.common.DomainException;`,

@@ -22,18 +22,10 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 async function emit(src: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper(services.Ddd)(src, { validation: true });
-  const parseErrors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
-  const loom = enrichLoomModel(lowerModel(doc.parseResult.value as Model));
-  const irErrors = validateLoomModel(loom)
-    .filter((d) => d.severity === "error")
-    .map((d) => d.message);
-  expect([...parseErrors, ...irErrors], "validation errors").toEqual([]);
-  return generateSystems(doc.parseResult.value as Model).files;
+  return generateSystemFiles(src);
 }
 
 /** A durable (`delivery: queue` / `retention: log`) channel WITH a local reactor
@@ -135,6 +127,11 @@ describe("MikroORM transactional outbox", () => {
       "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
+    // A poll failure is logged and retried next tick, never an unhandled
+    // rejection from the interval callback.
+    expect(wf).toMatch(
+      /\n {4}\} catch \(err\) \{\n {6}baseLogger\.warn\(\{ event: "outbox_relay_error"[^\n]*\n {4}\} finally \{\n {6}draining = false;/,
+    );
   });
 
   it("wraps createApp's dispatcher and starts the relay at boot", async () => {
@@ -147,14 +144,13 @@ describe("MikroORM transactional outbox", () => {
       "createOutboxDispatcher(db, createInProcessDispatcher(db, { isolateReactorFailures: true }))",
     );
     const index = files.get("api/index.ts")!;
-    expect(index).toContain(
+    const boot = files.get("api/boot.ts")!;
+    expect(boot).toContain(
       'import { createInProcessDispatcher, createOutboxDispatcher, startOutboxRelay } from "./http/workflows";',
     );
-    expect(index).toContain(
-      "const app = createApp(db, createOutboxDispatcher(db, requestEvents));",
-    );
-    expect(index).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
-    expect(index).toContain("stopOutboxRelay();");
+    expect(boot).toContain("const app = createApp(db, createOutboxDispatcher(db, requestEvents));");
+    expect(boot).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
+    expect(boot).toContain("stopOutboxRelay();");
     // …still on the mikro connection, not a pg pool.
     expect(index).toContain("const db = orm.em;");
     expect(index).not.toContain('import * as schema from "./db/schema";');
