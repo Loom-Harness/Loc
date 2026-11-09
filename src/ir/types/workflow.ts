@@ -135,7 +135,7 @@ export interface CommandHandlerIR {
    *  the signature (`params` + optional `returnType`) is load-bearing.  Same
    *  kind of stamped fact as `OperationIR.extern`; do NOT derive an
    *  `isBodyless` from it. */
-  extern?: boolean;
+  extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
   /** The lowered `return <expr>` value, when the body ends in a return.  Held
@@ -168,7 +168,7 @@ export interface QueryHandlerIR {
    *  {@link CommandHandlerIR.extern}.  For a queryHandler the `returnType` is
    *  required and load-bearing as the user impl file's return contract (the
    *  external read-projection it produces). */
-  extern?: boolean;
+  extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
   /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A

@@ -102,7 +102,7 @@ export interface ContainmentIR {
    *  runtime; backends serialise it as a nullable wire field.  Validators
    *  reject the combination `collection && optional` (an empty list already
    *  encodes absence). */
-  optional?: boolean;
+  optional: boolean;
 }
 
 /** A many-to-many association derived from an aggregate field whose
@@ -261,7 +261,7 @@ export interface OperationIR extends Sourced {
    * synthesised `name` is then the keyword itself (`"create"` /
    * `"destroy"`).  Drives the bare-collection-URL route slug derived in
    * the `urlStyle` enrichment.  Only meaningful on create/destroy. */
-  canonical?: boolean;
+  canonical: boolean;
   /** HTTP path segment for this action, derived in enrichment from the
    * surfacing api's `urlStyle` (D-URLSTYLE).  `undefined` ⇒ a canonical
    * action ⇒ the bare collection / canonical-id URL.  Otherwise the

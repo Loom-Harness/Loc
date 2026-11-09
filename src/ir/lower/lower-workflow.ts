@@ -365,6 +365,7 @@ export function lowerCommandHandler(
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
     returnTags: returnTags ?? [],
+    extern: false,
   };
 }
 
@@ -413,6 +414,7 @@ export function lowerQueryHandler(
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(returnValue ? { returnValue } : {}),
     returnTags: returnTags ?? [],
+    extern: false,
   };
 }
 

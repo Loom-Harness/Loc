@@ -514,7 +514,16 @@ export function lowerComponent(c: Component, user?: UserIR, stores?: Env["stores
   // Non-extern components always carry a body (validator-enforced);
   // guard defensively so lowering an invalid model can't crash.
   const body = c.body ? lowerExpr(c.body, env) : undefined;
-  return { name: c.name, params, state, derived, actions, body, origin: originFor(c) };
+  return {
+    name: c.name,
+    params,
+    state,
+    derived,
+    actions,
+    body,
+    extern: false,
+    origin: originFor(c),
+  };
 }
 
 function lowerStateField(f: StateField, env: Env): StateFieldIR {

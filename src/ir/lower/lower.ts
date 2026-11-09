@@ -494,7 +494,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             migration: m.name,
             index,
             sql: step.sql,
-            ...(step.placement === "before" ? { before: true } : {}),
+            before: step.placement === "before",
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
@@ -851,7 +851,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
               isolationLevel: d.isolationLevel as DataSourceIR["isolationLevel"],
             }
           : {}),
-        ...(d.readonly ? { readonly: true } : {}),
+        readonly: !!d.readonly,
         ...(d.shape == null ? {} : { shape: d.shape as DataSourceIR["shape"] }),
         ...(d.indexes.length
           ? {
@@ -895,7 +895,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           ? { kind: "cron", cron: ts.cron }
           : { kind: "every", everyMs: parseDurationMs(ts.every ?? "") },
         ...(ts.timezone ? { timezone: ts.timezone } : {}),
-        ...(ts.overlap ? { overlap: true } : {}),
+        overlap: !!ts.overlap,
       }),
     );
   const layouts = members
@@ -1706,6 +1706,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
       kind: p.kind as PayloadIR["kind"],
       fields: [],
       variants: p.variants.map((v) => lowerAtom(v, env)),
+      synthesized: false,
     };
   }
   // Pass `env` so a field's NamedType reference resolves against the context
@@ -1718,6 +1719,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
     name: p.name,
     kind: p.kind as PayloadIR["kind"],
     fields: p.fields.map((f) => lowerField(f, env)),
+    synthesized: false,
   };
 }
 
@@ -1726,7 +1728,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
  *  payload subtype").  Shares the underlying `FieldIR[]`; no copy needed
  *  since both views are read-only downstream. */
 function eventToPayload(e: EventIR): PayloadIR {
-  return { name: e.name, kind: "event", fields: e.fields };
+  return { name: e.name, kind: "event", fields: e.fields, synthesized: false };
 }
 
 function lowerAggregate(

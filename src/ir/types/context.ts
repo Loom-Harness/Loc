@@ -77,9 +77,9 @@ export interface PayloadIR {
    *  inline instead of a named `PayloadIR`. */
   variants?: TypeIR[];
   /** True for compiler-synthesized payloads (P2's per-aggregate
-   *  `<Agg>Wire`), false/absent for author-declared ones.  Lets later
+   *  `<Agg>Wire`), false for author-declared ones.  Lets later
    *  phases and the validator distinguish derived shapes from source. */
-  synthesized?: boolean;
+  synthesized: boolean;
   /** Set on a payload monomorphized from a generic carrier instantiation
    *  (P3b) — carries the originating `ctor` + carrier `arg` so backends can
    *  emit it as a DTO and resolve a `genericInstance` reference to this

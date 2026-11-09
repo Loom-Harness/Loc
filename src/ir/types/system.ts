@@ -104,7 +104,7 @@ export interface TimerSourceIR {
   /** `in: "<tz>"` — inert; carried for future timezone support. */
   timezone?: string;
   /** `overlap: allow` — inert; the emitted scheduler always skips on overlap. */
-  overlap?: boolean;
+  overlap: boolean;
 }
 
 /** Timer cadence, discriminated by the grammar field that set it.  `cron` is a

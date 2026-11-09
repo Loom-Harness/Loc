@@ -285,7 +285,7 @@ export interface ComponentIR extends Sourced {
   /** True when the component is `extern` — the generator emits a
    *  typed `<Name>.props.ts` interface and imports the user's module
    *  at call sites instead of generating a body. */
-  extern?: boolean;
+  extern: boolean;
   /** Module specifier for the hand-written component, relative to the
    *  generated project's `src/` root (the `from "<path>"` clause).
    *  Always present when `extern` is true. */
