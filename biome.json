@@ -40,6 +40,7 @@
       "semicolons": "always"
     }
   },
+  "plugins": ["./biome-plugins/no-target-name-literal.grit"],
   "linter": {
     "enabled": true,
     "rules": {

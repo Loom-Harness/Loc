@@ -69,6 +69,7 @@ import type {
   TestOutcome,
   VerificationIR,
 } from "../../../../src/ir/types/loom-ir.js";
+import { trackedCtx } from "../../layout/ctx-store";
 
 // ---------------------------------------------------------------------------
 // Parse + collect
@@ -246,7 +247,7 @@ type Selection =
   | { kind: "testCase"; id: string }
   | { kind: "solution"; id: string };
 
-export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function RequirementsPaneView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   // The shared safety rails (parse memo + `rev` + write gate + refusal line) —
   // see `pane-harness.ts`.  `rev` bumps on save so we re-parse the (mutated)
   // source and re-render forms with the canonical text.
@@ -1586,3 +1587,5 @@ function NewSolutionWizard({
     </WizardShell>
   );
 }
+
+export default trackedCtx("RequirementsPane", RequirementsPaneView);

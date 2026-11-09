@@ -58,6 +58,7 @@ import {
 import { availableTypes } from "./system/fields";
 import PageBuilder from "./page/PageBuilder";
 import StatePanel from "./page/StatePanel";
+import { trackedCtx } from "../layout/ctx-store";
 
 // Bridges the craft.js page builder to the `.ddd` source: parses the current
 // source, seeds the canvas from a chosen page's `body:`, and on "Apply"
@@ -152,7 +153,7 @@ function diagSignature(nodes: SerializedNodes | null): string {
   return parts.sort().join("|");
 }
 
-export default function BuilderPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function BuilderPaneView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   // The shared safety rails (parse memo + `rev` + write gate + refusal line) —
   // see `pane-harness.ts`.  `rev` re-reads on Apply; `liveTick` re-reads on the
   // debounced editor change (in-place re-seed inside PageBuilder).
@@ -869,3 +870,5 @@ function Message({ children }: { children: React.ReactNode }): JSX.Element {
     </Box>
   );
 }
+
+export default trackedCtx("BuilderPane", BuilderPaneView);

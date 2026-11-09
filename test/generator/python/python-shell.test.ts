@@ -130,7 +130,7 @@ describe("python project shell", () => {
   it("compose wires the service with the asyncpg DSN + /ready healthcheck", async () => {
     const files = await build();
     const compose = files.get("docker-compose.yml")!;
-    expect(compose).toContain('DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/api"');
+    expect(compose).toContain('DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/pg"');
     expect(compose).toContain("wget -qO- http://localhost:8000/ready");
   });
 

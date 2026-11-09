@@ -1,5 +1,5 @@
 import type { RepoOp } from "../../util/repository-contract.js";
-import type { BypassReadIR, KeyLookupIR, LoadPlanIR, SortTermIR } from "./context.js";
+import type { Bypassing, BypassReadIR, KeyLookupIR, LoadPlanIR, SortTermIR } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { MessageIR } from "./members.js";
 import type { PathIR } from "./stmt.js";
@@ -87,11 +87,12 @@ export type WorkflowStmtIR = (
       type: TypeIR;
       expr: ExprIR;
     }
-  | {
+  | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from
       // `repo-let` (which forbids array returns): a `repo-run` is always
-      // an aggregate array, consumable only by a `for-each` loop.
+      // an aggregate array, consumable only by a `for-each` loop.  Its
+      // `ignoring` stance is the inline read's (`Bypassing`).
       kind: "repo-run";
       name: string;
       repoName: string;
@@ -117,18 +118,9 @@ export type WorkflowStmtIR = (
        *  distinct shapes over one criterion get distinct retrievals. */
       synthSort?: SortTermIR[];
       synthLoadPlan?: LoadPlanIR;
-      /** `ignoring *` on the inline `Repo.all(...)` read —
-       *  bypass EVERY capability query-filter on the aggregate (named-filter-
-       *  bypass.md §11).  Mutually exclusive with `bypassCaps`.  See
-       *  `FindIR.bypassAll`. */
-      bypassAll?: boolean;
-      /** `ignoring A, B` on the inline read — resolved capability names whose
-       *  filters this read bypasses (named-filter-bypass.md §11).  See
-       *  `FindIR.bypassCaps`. */
-      bypassCaps?: string[];
       /** Element aggregate array type `{ kind: "array", element: entity }`. */
       returnType: TypeIR;
-    }
+    } & Bypassing)
   | {
       // `a.withdraw(x)` as a statement, or `let r = a.withdraw(x)` — a call to
       // an operation of the aggregate the local `target` holds.  Either form

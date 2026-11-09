@@ -19,7 +19,7 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
-import { exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
+import { exFieldCode, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
 import { exIntegerRange } from "./codec-spelling-ex.js";
 
 /** One query/path param an action reads: its wire name and declared type. */
@@ -250,8 +250,8 @@ function renderFindParamCheck(kinds: ReadonlySet<FindParamCheck["kind"]>): strin
       Enum.flat_map(specs, fn {name, check, required} ->
         case __find_param_error(Map.get(params, name), check, required) do
           nil -> []
-          :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: nil}]
-          message -> [%{pointer: "/" <> name, message: message, code: nil}]
+          :missing -> [%{pointer: "/" <> name, message: name <> ${exLit(` ${exMissingSuffix()}`)}, code: ${exFieldCode("missing")}}]
+          message -> [%{pointer: "/" <> name, message: message, code: ${exFieldCode("type-mismatch")}}]
         end
       end)
 

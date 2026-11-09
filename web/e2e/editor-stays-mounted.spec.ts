@@ -11,7 +11,7 @@
 // Identity is tracked by tagging the live `.monaco-editor` element: a remount
 // replaces it with an untagged one.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { openExampleWorkspace, prependMarker, waitForPlaygroundReady } from "./_helpers";
 
 // Long enough that the editor scrolls well past its first screen.

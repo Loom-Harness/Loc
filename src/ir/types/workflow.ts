@@ -41,19 +41,19 @@ export interface WorkflowIR extends Sourced {
    *  `params`/`statements`/`savesAtExit` are a facade over the primary one. */
   creates: CreateIR[];
   /** Event-subscription reactors declared via `on(e: Event) [by <expr>] { … }`
-   *  members (workflow-and-applier.md, surface slice).  Omitted when
+   *  members (workflow-and-applier.md, surface slice).  Empty when
    *  the workflow declares none.  Consumed by the in-process dispatcher
    *  emission on node / dotnet / python (channels.md); the `by`
    *  correlation-field type-check runs in the IR validator (workflow-checks.ts).
    *  Java and elixir dispatch emission are the remaining gaps. */
-  subscriptions?: OnIR[];
+  subscriptions: OnIR[];
   /** Workflow state fields declared as `Property` members — the correlation
    *  field plus saga state (workflow-and-applier.md A2-S2).  Lowered with the
-   *  same `lowerField` as aggregate fields.  Omitted when the workflow
+   *  same `lowerField` as aggregate fields.  Empty when the workflow
    *  declares none.  Emitted as a persisted correlation-state row by the saga
    *  dispatcher (node / dotnet / elixir / python) and read back through the
    *  instance endpoints derived from `instanceWireShape`. */
-  stateFields?: FieldIR[];
+  stateFields: FieldIR[];
   /** The single id-shaped state field the runtime routes inbound events to
    *  (workflow-and-applier.md §"Identity and correlation").  Set only when
    *  exactly one id-shaped state field exists; absence / ambiguity are
@@ -66,9 +66,9 @@ export interface WorkflowIR extends Sourced {
   eventSourced: boolean;
   /** Event-fold appliers declared via `apply(e: Event) { … }` members on an
    *  `eventSourced` workflow.  Lowered with the workflow's `this`-bound env
-   *  (A2-S5a), so bodies fold events into workflow state.  Omitted when the
+   *  (A2-S5a), so bodies fold events into workflow state.  Empty when the
    *  workflow declares none. */
-  appliers?: ApplyIR[];
+  appliers: ApplyIR[];
   /** Private pure helpers declared via `function f(...): T = expr` or the block
    *  form `function f(...): T { let … return … }` — the aggregate-parity helper
    *  (a workflow is a state-bearing entity, so it factors shared expressions the
@@ -76,8 +76,8 @@ export interface WorkflowIR extends Sourced {
    *  per-workflow-scoped module helpers (`<wf><fn>`), and a call to one lowers to
    *  `callKind: "workflow-fn"`.  BOTH body forms are accepted — this comment used
    *  to say the block form is rejected by `loom.workflow-function-block-body`, a
-   *  code that has never existed.  Omitted when the workflow declares none. */
-  functions?: FunctionIR[];
+   *  code that has never existed.  Empty when the workflow declares none. */
+  functions: FunctionIR[];
   /** Tail-position success type of the primary `run` body, derived once in
    *  enrichment (`enrichWorkflowReturnType`).  The value the workflow returns
    *  on the happy path is the last value-binding statement's result (the same
@@ -135,7 +135,7 @@ export interface CommandHandlerIR {
    *  the signature (`params` + optional `returnType`) is load-bearing.  Same
    *  kind of stamped fact as `OperationIR.extern`; do NOT derive an
    *  `isBodyless` from it. */
-  extern?: boolean;
+  extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
   /** The lowered `return <expr>` value, when the body ends in a return.  Held
@@ -143,15 +143,17 @@ export interface CommandHandlerIR {
    *  workflow statement renderer has no `return` arm — workflow handles never
    *  return a value).  A backend renders the body statements, then
    *  `return <returnValue>`.  Absent for a `: void`-equivalent handler. */
-  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+  returnValue?: ExprIR;
+  /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
    *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
    *  body ending in a terminal statement `match` whose arms `return` lowers
    *  to that statement `match` (arms keep their statements) plus this value
    *  `match` over the same subject — the value is answered after the body.
-   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
-  returnTags?: string[];
+   *  Read through `entryResult` (src/ir/util/entry-result.ts).  Empty when
+   *  the result declares no expected failure. */
+  returnTags: string[];
 }
 
 /** A top-level `queryHandler name(params): T { … }` application-layer member
@@ -166,21 +168,23 @@ export interface QueryHandlerIR {
    *  {@link CommandHandlerIR.extern}.  For a queryHandler the `returnType` is
    *  required and load-bearing as the user impl file's return contract (the
    *  external read-projection it produces). */
-  extern?: boolean;
+  extern: boolean;
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
   /** The lowered `return <expr>` value (see `CommandHandlerIR.returnValue`).  A
    *  query always produces a response, so this is effectively always present —
    *  optional only so a malformed (return-less) body lowers without a cast. */
-  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+  returnValue?: ExprIR;
+  /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
    *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
    *  body ending in a terminal statement `match` whose arms `return` lowers
    *  to that statement `match` (arms keep their statements) plus this value
    *  `match` over the same subject — the value is answered after the body.
-   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
-  returnTags?: string[];
+   *  Read through `entryResult` (src/ir/util/entry-result.ts).  Empty when
+   *  the result declares no expected failure. */
+  returnTags: string[];
 }
 
 /** A workflow starter declared via `create [name](params) [by <expr>] { … }`
@@ -211,15 +215,17 @@ export interface CreateIR {
    *  shared workflow statement vocabulary has no `return` arm — see
    *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
    *  return, annotated or not, so the validator can refuse the unannotated one. */
-  returnValue?: ExprIR /** For a result that declares an expected failure (`T or E`): the declared
+  returnValue?: ExprIR;
+  /** For a result that declares an expected failure (`T or E`): the declared
    *  variant each answered value produces, by tag — one entry when
    *  `returnValue` is a tail `return`, else one per arm of the value `match`
    *  `returnValue` holds (its `variantArms` in order, then `otherwise`).  A
    *  body ending in a terminal statement `match` whose arms `return` lowers
    *  to that statement `match` (arms keep their statements) plus this value
    *  `match` over the same subject — the value is answered after the body.
-   *  Read through `entryResult` (src/ir/util/entry-result.ts). */;
-  returnTags?: string[];
+   *  Read through `entryResult` (src/ir/util/entry-result.ts).  Empty when
+   *  the result declares no expected failure. */
+  returnTags: string[];
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic

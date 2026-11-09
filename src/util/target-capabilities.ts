@@ -106,7 +106,9 @@ export type OwnedUiConstruct =
   /** `on <channel>.<Event>` live-event handlers on a ui. */
   | "handler:live-event@ui"
   /** `auth: ui` — the generated session guard around the ui. */
-  | "auth:ui-guard@deployable";
+  | "auth:ui-guard@deployable"
+  /** `match await <op>()` in a component (not page) action body. */
+  | "stmt:match-await@component-action";
 
 /** Every UI construct. */
 export type UiConstruct = RefusableUiConstruct | OwnedUiConstruct;
@@ -184,7 +186,31 @@ export type BackendConstruct =
   /** An event carrying a value read from a `mask unless` field, on a channel. */
   | "emit:masked-value@channel-event"
   /** A unique key over a `mask unless` field. */
-  | "unique:masked-field@aggregate";
+  | "unique:masked-field@aggregate"
+  /** `let r = <agg>.<op>(…)` / `let r = <Service>.<op>(…)` — a mutating call
+   *  whose result is bound — in a workflow or handler body. */
+  | "call:bound-mutating@entry-body"
+  /** A routed workflow `create` or handler answering an expected failure
+   *  (`T or E`), or a workflow `create` answering the workflow itself. */
+  | "return:expected-failure@entry-point"
+  /** A statement `match` whose arm shape the body cannot carry: a guard or a
+   *  non-tail `return` in an arm, an arm statement outside the arm
+   *  vocabulary, a union of several success variants, or any match in an
+   *  event-sourced body. */
+  | "stmt:match-arm-shape@body"
+  /** An invariant the persistence layer's write validation cannot evaluate
+   *  against the record it validates (a reference collection, a call out). */
+  | "invariant:unvalidated-shape@aggregate"
+  /** An operation self-call anywhere but the whole value of a `return`. */
+  | "call:op-self-non-tail@operation"
+  /** A bare call to a private operation whose body reads `currentUser`. */
+  | "call:private-op-reads-principal@operation"
+  /** A named operation or custom find over a `shape: document` aggregate that
+   *  reads a shape the document path does not render. */
+  | "op:document-residue@aggregate"
+  /** A lifecycle `stamp` value reading the aggregate, on a `shape: document`
+   *  aggregate. */
+  | "stamp:reads-aggregate@document";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -205,6 +231,7 @@ export const OWNED_UI_CONSTRUCTS: readonly OwnedUiConstruct[] = [
   "stmt:backend-body@ui-body",
   "handler:live-event@ui",
   "auth:ui-guard@deployable",
+  "stmt:match-await@component-action",
 ];
 
 /** Every UI construct, refusable then owned. */
@@ -243,6 +270,14 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "invariant:nested-valueobject@valueobject",
   "emit:masked-value@channel-event",
   "unique:masked-field@aggregate",
+  "call:bound-mutating@entry-body",
+  "return:expected-failure@entry-point",
+  "stmt:match-arm-shape@body",
+  "invariant:unvalidated-shape@aggregate",
+  "call:op-self-non-tail@operation",
+  "call:private-op-reads-principal@operation",
+  "op:document-residue@aggregate",
+  "stamp:reads-aggregate@document",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -272,6 +307,7 @@ const OWNED_FALLBACK: Readonly<Record<OwnedUiConstruct, CapabilityVerdict>> = {
   "stmt:backend-body@ui-body": { verdict: "owned", code: "loom.ui-body-statement-kind" },
   "handler:live-event@ui": { verdict: "owned", code: "loom.ui-realtime-unsupported" },
   "auth:ui-guard@deployable": { verdict: "owned", code: "loom.auth-ui-unsupported-framework" },
+  "stmt:match-await@component-action": { verdict: "supported" },
 };
 
 /** Applicability facts about a framework's generator that are not a
@@ -288,7 +324,42 @@ export type UiScope =
   | "forms:shared-local-scope"
   /** The component emitter FILTERS its emitted set (feliz/angular/flutter), so
    *  a component shape it defers must be reported. */
-  | "components:deferral-filtered";
+  | "components:deferral-filtered"
+  /** Component props are F# anonymous records: exact, so an optional param has
+   *  no spelling, and neither has a `slot` or an `action` param. */
+  | "props:fsharp-records"
+  /** A component's `state` and named actions are hoisted into the host view
+   *  (LiveView assigns and `handle_event` clauses). */
+  | "components:hoisted-into-host"
+  /** An extern component's children are dropped at the call site (the
+   *  component is invoked through an outlet that cannot project content). */
+  | "components:extern-children-dropped"
+  /** Duplicate page-form local declarations are deduped rather than failing
+   *  the build, so a colliding form silently reuses the first one. */
+  | "forms:duplicate-locals-deduped"
+  /** A ui body binds `this` (the server-side view process owns the record). */
+  | "ui-body:binds-this"
+  /** A store is a server-side, per-process struct rather than browser state. */
+  | "stores:server-process"
+  /** Persisted store state round-trips through the F# codec. */
+  | "stores:persist-fsharp-codec"
+  /** Persisted store state round-trips through the Dart codec. */
+  | "stores:persist-dart-codec"
+  /** A page read is an in-process call: no api route is needed. */
+  | "reads:in-process"
+  /** A page read builds its URL from the derived find path rather than a
+   *  synthesized find route. */
+  | "reads:derived-find-path";
+
+/** Applicability facts about a backend's generated code that are not a
+ *  support/refuse choice: a rule scoped to the backends it describes. */
+export type BackendScope =
+  /** Generated members and types are C#, so two names that differ only in a
+   *  way C# folds (or that clash with a namespace) collide. */
+  | "names:csharp-members"
+  /** A relational entity part's schema carries implicit `inserted_at` /
+   *  `updated_at` timestamp columns. */
+  | "fields:part-implicit-timestamps";
 
 // --- the feature-tuple axis ---------------------------------------------------
 //
@@ -378,6 +449,8 @@ export interface TargetCapabilityTable {
   };
   /** Its verdict per backend construct.  Absent on a frontend. */
   readonly backend?: Readonly<Record<BackendConstruct, CapabilityVerdict>>;
+  /** Applicability facts (see {@link BackendScope}). */
+  readonly backendScopes?: readonly BackendScope[];
   /** Its verdict per feature tuple.  Present exactly when `backend` is. */
   readonly compositions?: Readonly<Record<FeatureTuple, CompositionVerdict>>;
 }
@@ -402,6 +475,7 @@ const COMMON_OWNED: Readonly<Record<OwnedUiConstruct, CapabilityVerdict>> = {
   "stmt:backend-body@ui-body": owned("loom.ui-body-statement-kind"),
   "handler:live-event@ui": SUPPORTED,
   "auth:ui-guard@deployable": SUPPORTED,
+  "stmt:match-await@component-action": SUPPORTED,
 };
 
 /** The UI row every JS frontend shares: TanStack runs, so `DataGrid` ships. */
@@ -584,6 +658,29 @@ const COMMON_PAIRS: Pick<
   "unique:masked-field@aggregate": owned("loom.field-mask-unique-oracle"),
 };
 
+/** The body and entry-point shapes a backend that models an operation as a
+ *  value-returning method, and an entry point as one transaction, renders. */
+const METHOD_BODY_ROWS: Pick<
+  Record<BackendConstruct, CapabilityVerdict>,
+  | "call:bound-mutating@entry-body"
+  | "return:expected-failure@entry-point"
+  | "stmt:match-arm-shape@body"
+  | "invariant:unvalidated-shape@aggregate"
+  | "call:op-self-non-tail@operation"
+  | "call:private-op-reads-principal@operation"
+  | "op:document-residue@aggregate"
+  | "stamp:reads-aggregate@document"
+> = {
+  "call:bound-mutating@entry-body": SUPPORTED,
+  "return:expected-failure@entry-point": SUPPORTED,
+  "stmt:match-arm-shape@body": SUPPORTED,
+  "invariant:unvalidated-shape@aggregate": SUPPORTED,
+  "call:op-self-non-tail@operation": SUPPORTED,
+  "call:private-op-reads-principal@operation": SUPPORTED,
+  "op:document-residue@aggregate": SUPPORTED,
+  "stamp:reads-aggregate@document": SUPPORTED,
+};
+
 /** The table for a static-bundle backend: it renders no ui framework. */
 const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerdict>> = {
   "stmt:requires@event-sourced-create": ES_CREATE_REQUIRES_REFUSED,
@@ -593,6 +690,7 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
   "capability:tenantOwned@event-sourced": SUPPORTED,
   ...UNREALIZED_RESOURCES,
   ...COMMON_PAIRS,
+  ...METHOD_BODY_ROWS,
 };
 
 const NODE_BACKEND: TargetCapabilityTable = {
@@ -605,6 +703,7 @@ const NODE_BACKEND: TargetCapabilityTable = {
 };
 
 const DOTNET_BACKEND: TargetCapabilityTable = {
+  backendScopes: ["names:csharp-members"],
   backend: {
     ...STATIC_HOST_BACKEND_ROWS,
     // The event save and the dispatcher's outbox write are two `SaveChangesAsync`.
@@ -685,6 +784,12 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // not a generated `auth: ui` wrapper.
         "auth:ui-guard@deployable": owned("loom.auth-ui-unsupported-framework"),
       },
+      scopes: [
+        "components:hoisted-into-host",
+        "ui-body:binds-this",
+        "stores:server-process",
+        "reads:in-process",
+      ],
       // Page-body primitives whose HEEx rendering needs the host LiveView to
       // supply an assign, an upload or a `handle_event` clause.  A name scan
       // (`src/ir/` cannot import the generator); pinned by
@@ -709,7 +814,30 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       // The changeset casts the nested value object inline and never runs its
       // invariant.
       "invariant:nested-valueobject@valueobject": refused("feature-composition-broken"),
+      // A context operation persists inside its own function, and every
+      // with-chain site matches its `{:ok, _}` away, so a bound result has no
+      // tentative save to drop on the error arm.
+      "call:bound-mutating@entry-body": owned("loom.elixir-bound-mutating-call-unsupported"),
+      // The workflow and handler emitters have no tagged result and no
+      // rollback seam for an error answer.
+      "return:expected-failure@entry-point": owned("loom.elixir-entry-result-unsupported"),
+      // An Elixir body has no early exit, guards hoist into a leading
+      // `with` chain, and the success value travels bare in `{:ok, value}`.
+      "stmt:match-arm-shape@body": owned("loom.elixir-match-stmt-unsupported"),
+      // The Ecto changeset validates the applied struct, which holds a
+      // reference collection as `[]` and cannot call out.
+      "invariant:unvalidated-shape@aggregate": owned("loom.elixir-invariant-unenforced"),
+      // An operation is a context function answering a tagged tuple, which
+      // has no implicit unwrap.
+      "call:op-self-non-tail@operation": owned("loom.vanilla-op-call-position"),
+      // A private operation is a `defp` struct transform that takes no actor.
+      "call:private-op-reads-principal@operation": owned("loom.vanilla-op-call-actor"),
+      "op:document-residue@aggregate": owned("loom.vanilla-document-unsupported"),
+      // The document write seam merges stamps into the request attrs before
+      // any struct exists.
+      "stamp:reads-aggregate@document": owned("loom.stamp-reads-aggregate-unsupported"),
     },
+    backendScopes: ["fields:part-implicit-timestamps"],
     compositions: {
       ...COMMON_COMPOSITIONS,
       // A declared create on a document aggregate demands the defaulted
@@ -723,7 +851,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
     ui: {
       frameworks: ["vue"],
       constructs: JS_FRONTEND_UI,
-      scopes: ["props:typescript", "forms:shared-local-scope"],
+      scopes: ["props:typescript", "forms:shared-local-scope", "forms:duplicate-locals-deduped"],
     },
   },
   svelte: {
@@ -741,7 +869,11 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         ...JS_FRONTEND_UI,
         "primitive:Modal-open-op-form@body": SUPPORTED,
       },
-      scopes: ["props:typescript", "components:deferral-filtered"],
+      scopes: [
+        "props:typescript",
+        "components:deferral-filtered",
+        "components:extern-children-dropped",
+      ],
     },
   },
   // Fable compiles F# to JavaScript, so Feliz binds `@tanstack/table-core`.
@@ -757,8 +889,15 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // arm, which throws.
         "stmt:match-await-standard-op@action": refused("match-await-standard-op"),
         "return:payload-or-error@api-client": SUPPORTED,
+        // The Feliz generator projects async effects on pages only.
+        "stmt:match-await@component-action": owned("loom.feliz-async-effect-unsupported"),
       },
-      scopes: ["components:deferral-filtered"],
+      scopes: [
+        "components:deferral-filtered",
+        "props:fsharp-records",
+        "stores:persist-fsharp-codec",
+        "reads:derived-find-path",
+      ],
     },
   },
   flutter: {
@@ -779,8 +918,15 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         // A Riverpod `Notifier` resolves an awaited op through declared
         // operations only.
         "stmt:match-await-standard-op@action": owned("loom.flutter-action-body-unsupported"),
+        // An async effect needs the page shell's notifier and route id, so the
+        // component emitter filters out a component that carries one.
+        "stmt:match-await@component-action": owned("loom.flutter-async-effect-unsupported"),
       },
-      scopes: ["components:deferral-filtered"],
+      scopes: [
+        "components:deferral-filtered",
+        "stores:persist-dart-codec",
+        "reads:derived-find-path",
+      ],
       // Every page primitive renders; the gate stays armed for the day one is
       // added back.
       unrenderedPrimitives: [],
@@ -839,6 +985,46 @@ export function frameworksWithScope(scope: UiScope): ReadonlySet<string> {
     for (const fw of ui.frameworks) out.add(fw);
   }
   return out;
+}
+
+/** The ui section of a PLATFORM's own table — what a deployable on that
+ *  platform renders itself — or `undefined` for a platform that renders no ui
+ *  framework of its own (or an unknown name). */
+export function platformUi(platform: string): TargetCapabilityTable["ui"] {
+  if (!Object.hasOwn(TARGET_CAPABILITIES, platform)) return undefined;
+  return TARGET_CAPABILITIES[platform as Platform].ui;
+}
+
+/** True when a platform's own ui table carries applicability fact `scope`. */
+export function platformHasUiScope(platform: string, scope: UiScope): boolean {
+  return platformUi(platform)?.scopes?.includes(scope) ?? false;
+}
+
+/** True when a platform's own ui table hands `construct` to the check that
+ *  raises `code` — the check uses it to decide which deployables it gates. */
+export function platformUiOwnedBy(platform: string, construct: UiConstruct, code: string): boolean {
+  const v = platformUi(platform)?.constructs[construct];
+  return v?.verdict === "owned" && v.code === code;
+}
+
+/** True when a platform's own table carries backend applicability fact
+ *  `scope`. */
+export function platformHasBackendScope(platform: string, scope: BackendScope): boolean {
+  if (!Object.hasOwn(TARGET_CAPABILITIES, platform)) return false;
+  return TARGET_CAPABILITIES[platform as Platform].backendScopes?.includes(scope) ?? false;
+}
+
+/** True when a platform's own table hands backend `construct` to the check
+ *  that raises `code` — the check uses it to decide which deployables it
+ *  gates. */
+export function platformBackendOwnedBy(
+  platform: string,
+  construct: BackendConstruct,
+  code: string,
+): boolean {
+  if (!Object.hasOwn(TARGET_CAPABILITIES, platform)) return false;
+  const v = TARGET_CAPABILITIES[platform as Platform].backend?.[construct];
+  return v?.verdict === "owned" && v.code === code;
 }
 
 /** The verdict for a backend construct on a backend platform, or `undefined`

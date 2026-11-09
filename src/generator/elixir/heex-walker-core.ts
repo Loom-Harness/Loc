@@ -84,7 +84,9 @@ import {
   RICH_TEXT_ROLE,
 } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
+import { walkBody } from "../_walker/walker-core.js";
 import { modelTextExpr } from "./heex-model-text.js";
+import { heexPack } from "./heex-pack.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";
 import {
@@ -675,9 +677,57 @@ export function walkBodyToHeex(
 
   seedHoistedHandlers(ctx, page, body);
 
-  const heex = body ? renderExpr(body, ctx) : `<!-- empty body -->`;
+  // The body runs through the shared walker core.  Every node it reaches is
+  // handed back to this engine through `heexTarget.renderNodeOverride`, which
+  // renders it with the HEEx walk context carried in the sink.
+  const sink: HeexWalkSink = { heex: ctx };
+  const heex = body
+    ? walkBody(
+        body,
+        heexTarget,
+        heexPack(),
+        // The shared core's own lookups stay empty: no node reaches its
+        // dispatch while every node is overridden.
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sink,
+      ).tsx
+    : `<!-- empty body -->`;
   const titleExpr = pageTitleExpr(page, ctx);
 
+  return walkResultFromSink(heex, sink, titleExpr);
+}
+
+/** The HEEx walk state the shared core carries in `ctx.sink` for this target. */
+export interface HeexWalkSink {
+  heex: WalkContext;
+}
+
+/** The HEEx walk context a shared-core seam is rendering under. */
+export function heexContextOf(sink: unknown): WalkContext | undefined {
+  return (sink as Partial<HeexWalkSink> | undefined)?.heex;
+}
+
+/** Rebuild the `WalkResult` the LiveView emitters consume from the sink's
+ *  accumulators. */
+function walkResultFromSink(
+  heex: string,
+  sink: HeexWalkSink,
+  titleExpr: string | undefined,
+): WalkResult {
+  const ctx = sink.heex;
   return {
     heex,
     ...(titleExpr === undefined ? {} : { titleExpr }),

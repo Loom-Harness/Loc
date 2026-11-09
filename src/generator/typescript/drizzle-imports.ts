@@ -101,12 +101,18 @@ export const DRIZZLE_ORM_SYMBOLS: readonly string[] = [
  * a dead import (which Biome's generated-code gate then fails).  Backticks are
  * blanked too, but the blanking preserves the backtick delimiters so a
  * `` sql`…` `` tag is still visible as a call site.
+ *
+ * One left-to-right pass over strings AND comments, so whichever opens first
+ * wins: an apostrophe in a doc comment (`the stream's tenant`) must not open a
+ * '…' literal that swallows the code up to the next quote — that hid `or(` and
+ * `` sql` `` from the scan and dropped their imports.  Comments are removed
+ * outright; quoted literals never span a line.
  */
 export function stripStringLiterals(src: string): string {
-  return src
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  return src.replace(
+    /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+    (m) => (m[0] === "/" ? "" : `${m[0]}${m[0]}`),
+  );
 }
 
 /**

@@ -3,8 +3,8 @@
 // Pins the durable-driver shape at the lowest catching altitude: pure in-memory
 // `generateSystems` (no docker, no LOOM_* env). Asserts that `cron:` timers run
 // on pg-boss (durable, retried, single-fire + the coalesce-once catch-up over the
-// `loom_timer_runs` watermark), `every:` timers stay in-process (setInterval +
-// tx-scoped advisory lock), the async boot wiring, the pg-boss/cron-parser deps
+// `loom_timer_runs` watermark), `every:` timers stay in-process (a setInterval
+// poll + the `__loom_timer` period claim), the async boot wiring, the pg-boss/cron-parser deps
 // (node-cron is gone) — and that a timer-free deployable is byte-identical.
 
 import { describe, expect, it } from "vitest";
@@ -71,10 +71,13 @@ describe("timerSource → Hono durable scheduler", () => {
     // node-postgres returns timestamptz as a string — coercion guard.
     expect(scheduler).toContain("new Date(raw)");
 
-    // every: → in-process setInterval + tx-scoped advisory lock (single-fire).
-    expect(scheduler).toContain("setInterval(() => void tick(), 15000)");
-    expect(scheduler).toContain("pg_try_advisory_xact_lock");
-    expect(scheduler).toContain("function timerLockKey");
+    // every: → in-process poll at half the period + the period claim.  Wiring
+    // only; one fire per period is proved by the booted two-replica leg
+    // (`test/e2e/timer-single-fire-e2e.test.ts`).
+    expect(scheduler).toContain("setInterval(() => void tick(), 7500)");
+    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    // Absence: the advisory lock it replaced only stopped CONCURRENT fires.
+    expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
 
     // The tick struct: mint an id per tick, stamp the fire time.
     expect(scheduler).toContain("Ids.newSweepId()");
@@ -100,16 +103,14 @@ describe("timerSource → Hono durable scheduler", () => {
     expect(get("d/index.ts")).not.toContain("scheduler");
 
     // `infra: "in-process"` (the browser playground, whose PGlite pg-boss
-    // cannot connect to) swaps pg-boss for the in-memory cron stand-in and
-    // fires every: ticks without the advisory-lock transaction.
+    // cannot connect to) swaps pg-boss for the in-memory cron stand-in; every:
+    // ticks claim their period there too (absence of a bypass branch).
     const scheduler = get("d/scheduler.ts");
     expect(scheduler).toContain(
       'opts.infra === "in-process"\n      ? createInProcessCronBoss()\n      : new PgBoss(',
     );
     expect(scheduler).toContain('baseLogger.warn({ event: "timer_cron_in_process" });');
-    expect(scheduler).toMatch(
-      /if \(opts\.infra === "in-process"\) \{\n\s+await events\.dispatch\(build\(\)\);/,
-    );
+    expect(scheduler).not.toMatch(/if \(opts\.infra === "in-process"\) \{/);
 
     const pkg = get("d/package.json");
     expect(pkg).toContain("pg-boss");

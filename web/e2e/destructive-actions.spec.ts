@@ -12,7 +12,7 @@
 // Pure client-side: the git workspace over IndexedDB, Monaco, the Langium
 // worker and the builders — nothing bundles or boots.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts on a fresh default

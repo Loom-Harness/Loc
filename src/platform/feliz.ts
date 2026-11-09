@@ -2,6 +2,7 @@ import { generateFelizForContexts } from "../generator/feliz/index.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Feliz frontend platform — a Fable/F#/Elmish (MVU) SPA
@@ -27,6 +28,7 @@ const felizPlatform: PlatformSurface = {
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["feliz"]),
   capabilities: TARGET_CAPABILITIES.feliz,
+  facts: TARGET_FACTS.feliz,
   emitProject({ contexts, sys, deployable, sourcemap, translations }): Map<string, string> {
     return generateFelizForContexts(contexts, sys, deployable, { sourcemap, translations });
   },

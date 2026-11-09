@@ -3,6 +3,7 @@ import type { LayoutCtx } from "./ctx";
 import { describePendingMigration } from "./pending-migration";
 import { deriveStages, nextStage, type StageState, type StageView } from "./pipeline-stages";
 import { AUTO_RUN, AUTO_RUN_HINT, PENDING_MIGRATION, type StageId } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The pipeline strip (M-T8.16 slice 1, audit H1).
 //
@@ -132,7 +133,7 @@ function Segment({
 }
 
 /** Desktop: four segments + the auto-run toggle. */
-export function PipelineStrip({ ctx }: Props): JSX.Element {
+function PipelineStripView({ ctx }: Props): JSX.Element {
   const stages = deriveStages(ctx);
   const next = nextStage(stages);
   return (
@@ -175,7 +176,7 @@ export function PipelineStrip({ ctx }: Props): JSX.Element {
  *  database lacks (`migration recorded` — N not applied), and the one action
  *  that moves it on.  Renders nothing while the chain and the database are
  *  at the model. */
-export function PendingMigrationBadge({ ctx }: Props): JSX.Element | null {
+function PendingMigrationBadgeView({ ctx }: Props): JSX.Element | null {
   const view = describePendingMigration(ctx.pendingMigration);
   if (!view) return null;
   const busy = ctx.pipeline.generating || ctx.pipeline.bundling || ctx.pipeline.booting;
@@ -233,7 +234,7 @@ export function PendingMigrationBadge({ ctx }: Props): JSX.Element | null {
 
 /** Mobile: the same four states as labelled dots — read-only; **Run** in
  *  the header is the one control. */
-export function PipelineDots({ ctx }: Props): JSX.Element {
+function PipelineDotsView({ ctx }: Props): JSX.Element {
   const stages = deriveStages(ctx);
   return (
     <Group
@@ -279,3 +280,7 @@ export function PipelineDots({ ctx }: Props): JSX.Element {
     </Group>
   );
 }
+
+export const PipelineStrip = trackedCtx("PipelineStrip", PipelineStripView);
+export const PendingMigrationBadge = trackedCtx("PendingMigrationBadge", PendingMigrationBadgeView);
+export const PipelineDots = trackedCtx("PipelineDots", PipelineDotsView);

@@ -31,6 +31,7 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { migratesAtBoot } from "../../ir/util/databases.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
 import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -1152,6 +1153,9 @@ function emitProjectFromContexts(
     // the other four frameworks use).  Every non-feliz framework stays `vite`.
     spaBuildKind: system.deployable.uiFramework === "feliz" ? "feliz" : "vite",
     hasMigrations,
+    // A deployable that shares its storage's database with an earlier one
+    // leaves the schema to that database's migrator.
+    migratesAtBoot: migratesAtBoot(system.sys, system.deployable),
     hasSeeds,
     emitTrace,
     usingDapper,
@@ -1778,6 +1782,7 @@ function emitProject(
      *  .NET-SDK+Node stage, since Feliz builds via `dotnet fable` + `vite`). */
     spaBuildKind?: "vite" | "feliz";
     hasMigrations?: boolean;
+    migratesAtBoot?: boolean;
     hasSeeds?: boolean;
     emitTrace?: boolean;
     usingDapper?: boolean;
@@ -1863,6 +1868,7 @@ function emitProject(
   const usesStamping = !!options?.usesStamping;
   const hasEmbeddedSpa = !!options?.hasEmbeddedSpa;
   const hasMigrations = !!options?.hasMigrations;
+  const migratesAtBoot = options?.migratesAtBoot;
   const hasSeeds = !!options?.hasSeeds;
   const emitTrace = !!options?.emitTrace;
   const usingDapper = !!options?.usingDapper;
@@ -1897,6 +1903,7 @@ function emitProject(
       usesStamping,
       hasEmbeddedSpa,
       hasMigrations,
+      migratesAtBoot,
       hasSeeds,
       emitTrace,
       usingDapper,

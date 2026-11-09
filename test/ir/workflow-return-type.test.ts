@@ -21,6 +21,10 @@ function wf(statements: WorkflowStmtIR[]): WorkflowIR {
     savesAtExit: [],
     creates: [],
     eventSourced: false,
+    appliers: [],
+    functions: [],
+    stateFields: [],
+    subscriptions: [],
   };
 }
 

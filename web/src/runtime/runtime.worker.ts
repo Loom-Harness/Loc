@@ -6,7 +6,7 @@
 import "../buffer-polyfill";
 import { synthDDL } from "./ddl";
 import type { LogLine } from "../util/log-line.js";
-import { installConsoleTee, setLogSink } from "./console-tee.js";
+import { installConsoleTee, setBackgroundFlush, setLogSink } from "./console-tee.js";
 import { errText } from "./migrate.js";
 import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
 import { InfraPort } from "./infra-port.js";
@@ -18,6 +18,7 @@ import type {
   HttpCall,
   HttpReply,
   LoadResult,
+  RuntimeBackgroundLogs,
   RuntimeProgress,
   RuntimeRpcRequest,
   RuntimeRpcResponse,
@@ -49,6 +50,15 @@ function progress(phase: RuntimeProgress["phase"], note?: string): void {
 // boot) routes through it for the lifetime of the worker.  See
 // console-tee.ts for why a per-RPC patch lost every structured line.
 installConsoleTee();
+// Lines logged between RPCs (a channel consumer, the outbox relay, a timer)
+// reach the Backend log stream as unasked batches.
+setBackgroundFlush((lines) => {
+  try {
+    self.postMessage({ backgroundLogs: lines } satisfies RuntimeBackgroundLogs);
+  } catch {
+    // never let log delivery break the deployable
+  }
+});
 prepareResourceFakes();
 
 interface BundleModule {

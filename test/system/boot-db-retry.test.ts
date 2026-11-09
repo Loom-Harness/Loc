@@ -33,12 +33,17 @@ system Acme {
     context D { aggregate Dd with crudish { name: string } repository Dds for Dd { } }
     context E { aggregate Ee with crudish { name: string } repository Ees for Ee { } }
   }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  resource bState { for: B, kind: state, use: primary }
-  resource cState { for: C, kind: state, use: primary }
-  resource dState { for: D, kind: state, use: primary }
-  resource eState { for: E, kind: state, use: primary }
+  // A storage per backend, so each one migrates its own database at boot.
+  storage aDb { type: postgres }
+  storage bDb { type: postgres }
+  storage cDb { type: postgres }
+  storage dDb { type: postgres }
+  storage eDb { type: postgres }
+  resource aState { for: A, kind: state, use: aDb }
+  resource bState { for: B, kind: state, use: bDb }
+  resource cState { for: C, kind: state, use: cDb }
+  resource dState { for: D, kind: state, use: dDb }
+  resource eState { for: E, kind: state, use: eDb }
   deployable nodeSvc   { platform: node   contexts: [A] dataSources: [aState] port: 3000 }
   deployable pySvc     { platform: python contexts: [B] dataSources: [bState] port: 3001 }
   deployable netSvc    { platform: dotnet contexts: [C] dataSources: [cState] port: 3002 }

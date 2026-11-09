@@ -4,7 +4,7 @@
 // (tree full-width by default; the detail takes over when a row is
 // picked, with a Back button to clear the selection).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 
 test.use({ viewport: { width: 375, height: 812 } });
 

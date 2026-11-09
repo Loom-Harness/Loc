@@ -265,6 +265,18 @@ export function markPhase(phase: DiagPhase, note?: string): void {
   } catch {
     // storage disabled / quota — diagnostics never break the app
   }
+  timingMark(phase, note);
+}
+
+/** A `loom:<phase>` User Timing mark — visible in DevTools' Performance panel,
+ *  and what the e2e timing fixture (`web/e2e/_test.ts`) turns into a per-spec
+ *  phase breakdown.  `loom:idle` closes the window `clearPhase` closes. */
+function timingMark(phase: string, note?: string): void {
+  try {
+    performance.mark(`loom:${phase}`, note ? { detail: note } : undefined);
+  } catch {
+    // no User Timing (old engine) — diagnostics never break the app
+  }
 }
 
 /** Record that the risky window closed cleanly.  Anything left behind after
@@ -275,6 +287,7 @@ export function clearPhase(): void {
   } catch {
     // storage disabled — nothing to clear
   }
+  timingMark("idle");
 }
 
 function readPhase(): PhaseMark | null {

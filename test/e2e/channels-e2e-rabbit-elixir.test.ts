@@ -66,9 +66,11 @@ system Acme {
     }
   }
   storage primary { type: postgres }
+  // Two services, two databases: each deployable binds a storage of its own.
+  storage shipping { type: postgres }
   storage bus { type: rabbitmq }
   resource ordersState { for: Orders, kind: state, use: primary }
-  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   deployable salesApi { platform: elixir contexts: [Orders] dataSources: [ordersState] channels: [lifecycleBus] port: 3000 }
   deployable shipApi  { platform: elixir contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }

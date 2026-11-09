@@ -22,10 +22,11 @@
 // consults it at each of the seams above; the rest (pack dispatch,
 // attribute formatting, lambda traversal) stays in the shared walker.
 //
-// The contract has SIX implementations — five of them ride the shared
-// `walkBody` core (`walker-core.ts`), and `heexTarget` is a conformance
-// shim over LiveView's PARALLEL engine (`heex-walker-core.ts`), whose
-// output topology diverges too far to share the core:
+// Every implementation is driven by the shared `walkBody` core
+// (`walker-core.ts`).  `heexTarget` enters it too, but overrides every node
+// (`renderNodeOverride`) and hands it to LiveView's own engine
+// (`heex-walker-core.ts`), which renders the whole subtree; its primitives
+// move onto the shared core one at a time by narrowing that override:
 //
 //   - `src/generator/react/walker/tsx-target.ts`         → `tsxTarget`
 //   - `src/generator/vue/walker/vue-target.ts`           → `vueTarget`
@@ -1357,6 +1358,25 @@ export interface WalkerTarget {
    *  shared `emitUserComponent`. Implementations must `ctx.usedUserComponents
    *  .add(call.name)` so the shell wires the class import + directive. */
   renderUserComponent?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-node override, consulted by `walk` before anything else
+   *  (before api-read detection and before the per-kind dispatch).  A string
+   *  return is used verbatim as that node's markup; `undefined` sends the node
+   *  through the shared path.
+   *
+   *  It is the escape hatch for a target moving onto the shared core one node
+   *  kind at a time: a node kind or primitive the target has not ported yet
+   *  keeps rendering through the target's previous renderer, with the subtree
+   *  beneath it, so output stays byte-identical while each piece moves.  The
+   *  previous renderer's own walk state travels in `ctx.sink`, seeded through
+   *  `walkBody`'s `sink` argument.  Targets fully on the shared core leave it
+   *  undefined. */
+  renderNodeOverride?(
+    expr: ExprIR,
+    ctx: WalkContext,
+    depth: number,
+    slot: ChildSlot,
+  ): string | undefined;
 
   /** OPTIONAL — whole-primitive override for `FileLink(<file-ref>)`.  The
    *  shared `emitFileLink` delegates here first; a non-null return is used
