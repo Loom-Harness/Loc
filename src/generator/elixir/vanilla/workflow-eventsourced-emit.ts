@@ -30,7 +30,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
-import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { workflowBodyReadsOwnState } from "../../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
