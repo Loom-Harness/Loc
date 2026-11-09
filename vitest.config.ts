@@ -92,6 +92,11 @@ export default defineConfig({
   test: {
     exclude: EXCLUDE,
     testTimeout: 30_000,
+    // A generated backend with no `auth { oidc }` block authenticates through
+    // the dev stub, which answers only when LOOM_DEV_AUTH=1 (every request is
+    // 401 otherwise).  The runtime legs boot such backends as child processes
+    // that inherit this environment, so the suite switches the dev login on.
+    env: { LOOM_DEV_AUTH: "1" },
     projects: [
       {
         extends: true,

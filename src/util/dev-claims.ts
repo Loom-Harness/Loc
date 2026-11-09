@@ -69,3 +69,25 @@ export function devClaimFields(
     return kind ? [{ field, kind }] : [];
   });
 }
+
+// ---------------------------------------------------------------------------
+// The dev-stub ON switch.
+//
+// A system with `auth: required` + a `user { … }` block but no `auth { oidc }`
+// gets the dev-stub verifier: it accepts every request as a built-in identity
+// and lets the caller rewrite that identity through `x-loom-dev-claims`.  That
+// is a development login, never a production one, so every backend's stub
+// answers only when this variable is exactly `"1"`; otherwise the stub refuses
+// every request (401) and the app logs `DEV_AUTH_DISABLED_LOG` once at startup.
+// The generated dev `docker-compose.yml` sets it, so a local stack works out of
+// the box while a deployed build that forgot it fails closed.
+// ---------------------------------------------------------------------------
+
+/** The env var that switches the dev-stub verifier on (value `"1"`). */
+export const DEV_AUTH_ENV = "LOOM_DEV_AUTH";
+
+/** The one startup line a backend logs when the dev stub is installed but off. */
+export const DEV_AUTH_DISABLED_LOG = `${DEV_AUTH_ENV} is not 1: the dev-stub verifier is off and every authenticated request answers 401 (this system declares no auth { oidc } block; set ${DEV_AUTH_ENV}=1 for a development login)`;
+
+/** The one startup line a backend logs when the dev stub is on. */
+export const DEV_AUTH_ENABLED_LOG = `${DEV_AUTH_ENV}=1: the dev-stub verifier accepts every request as a built-in identity and honours x-loom-dev-claims; development only`;

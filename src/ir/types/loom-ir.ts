@@ -2837,12 +2837,10 @@ export type ConnectionSourceIR =
   | { kind: "secret"; secret: string }
   | { kind: "literal"; literal: string };
 
-/** A single generic `config` entry value (RFC §3.1/§8) — a typed scalar
- *  so the registry's per-sourceType config schema can validate it. */
-export type ConfigValueIR =
-  | { kind: "string"; value: string }
-  | { kind: "int"; value: number }
-  | { kind: "bool"; value: boolean };
+/** A single generic `config` entry value (RFC §3.1/§8).  Every value is a
+ *  string: the config-key vocabulary (`ConfigKeyType`) has no numeric or
+ *  boolean key, so the grammar admits no other value kind. */
+export type ConfigValueIR = { kind: "string"; value: string };
 
 /** One `key: value` pair from a `config { … }` map, in declaration order. */
 export interface ConfigEntryIR {

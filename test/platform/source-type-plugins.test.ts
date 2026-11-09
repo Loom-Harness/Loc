@@ -86,6 +86,24 @@ describe("sourceType plugin discovery", () => {
     expect(sourceTypeFor("bad")).toBeUndefined();
   });
 
+  // A `config: { … }` value is always a string, so a numeric or boolean key
+  // could never be satisfied: such a manifest is malformed, not registered.
+  it.each(["number", "boolean"])("skips a manifest declaring a %s config key", (type) => {
+    writePkg("typed-key", {
+      name: "t",
+      loom: {
+        kind: "sourceType",
+        sourceType: {
+          name: "typedKey",
+          supports: { database: { capabilities: ["query"], interfaces: ["sql"] } },
+          configKeys: [{ name: "poolSize", type }],
+        },
+      },
+    });
+    expect(discoverSourceTypePlugins(dir)).toEqual([]);
+    expect(sourceTypeFor("typedKey")).toBeUndefined();
+  });
+
   it("returns [] when the packages dir does not exist", () => {
     expect(discoverSourceTypePlugins(path.join(dir, "missing"))).toEqual([]);
   });

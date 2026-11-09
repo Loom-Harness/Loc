@@ -91,7 +91,7 @@ const CEILINGS: Record<string, number> = {
   // records carry inherited / provenanced fields.
   // main: cross-backend pins for unsorted-read id order, hoisted handler
   // reads, widened domain-service reads and document nested VO collections.
-  "(cross-target)": 3700,
+  "(cross-target)": 3900, // cross-backend pins for the dev-login gate, mask read gates, handler event sinks and part value-object collections
   _expr: 200,
   _frontend: 400,
   _i18n: 200,

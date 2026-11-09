@@ -91,17 +91,24 @@ describe("storage instance/connection extensions", () => {
     expect(s.connection?.$type).toBe("EnvConnectionSource");
   });
 
-  // No registered sourceType declares an int or bool config key, so these
-  // value kinds parse but every use of them is `loom.config-key-unknown`;
-  // this is their parse coverage (showcase.ddd stays warning-free).
-  it("parses the string / int / bool config value kinds", async () => {
-    const { model } = await parse(`
-      system S { storage pg { type: postgres, config: { region: "eu", poolSize: 10, ssl: true } } }
+  it("parses a string config value", async () => {
+    const { model, errors } = await parse(`
+      system S { storage files { type: s3, config: { region: "eu", bucket: "b" } } }
     `);
-    expect(firstStorage(model).config.map((e) => e.value.$type)).toEqual([
-      "StringConfigValue",
-      "IntConfigValue",
-      "BoolConfigValue",
-    ]);
+    expect(errors).toEqual([]);
+    expect(firstStorage(model).config.map((e) => e.value.value)).toEqual(["eu", "b"]);
+  });
+
+  // No sourceType config key is numeric or boolean, so the grammar admits only
+  // string values: an int / bool one is a parse error, not a value that
+  // parses and is then always refused as an unknown key.
+  it.each([
+    ["an int", "poolSize: 10"],
+    ["a bool", "ssl: true"],
+  ])("refuses %s config value at parse time", async (_label, entry) => {
+    const { errors } = await parse(`
+      system S { storage pg { type: postgres, config: { ${entry} } } }
+    `);
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

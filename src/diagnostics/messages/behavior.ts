@@ -11,6 +11,7 @@ import type { MessageEntry } from "./_shared.js";
 /** The code first-segments this family owns. */
 export const segments = [
   "match",
+  "unused",
   "function",
   "callable",
   "handler",
@@ -423,4 +424,11 @@ export const messages = {
     `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>
     `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)', 'Repo.find(id)' or 'Repo.findBy(…)' (a read that answers 'T?').`,
+  "loom.unused-let": (p: { name: unknown; owner: unknown }) =>
+    `'let ${p.name}' in ${p.owner} is never read.  Read it, or drop the binding: keep the ` +
+    `right-hand side as a bare statement if it has an effect (an operation or resource call), ` +
+    `and delete it if it does not (a 'find' / 'findBy' / 'all' read answers absence as a value, ` +
+    `so an unread one does nothing).  A 'get' / 'getBy' read is not flagged — it raises ` +
+    `not-found on a miss, so its binding is an existence check — and neither is a binding the ` +
+    `body saves.`,
 } satisfies Record<string, MessageEntry>;

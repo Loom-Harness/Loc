@@ -1238,8 +1238,8 @@ function ownedVoLines(
   return [`${indent}${builder}.OwnsOne<${voName}>(x => x.${nav}, o => {`, ...body, `${indent}});`];
 }
 
-/** Does this aggregate persist any value-object array (`Money[]`) to a child
- *  table — i.e. the owned-collection path that needs the `ordinal` value
+/** Does this aggregate (root or entity part) persist any value-object array
+ *  (`Money[]`) to a child table — i.e. the owned-collection path that needs the `ordinal` value
  *  generator?  True only off the JSONB shapes (embedded/document) and event
  *  sourcing, which fold or replace the collection instead of mapping a table. */
 export function aggregateHasTableValueArray(
@@ -1247,7 +1247,7 @@ export function aggregateHasTableValueArray(
   opts: { isDoc?: boolean; isEmbedded?: boolean; isEs?: boolean } = {},
 ): boolean {
   if (opts.isDoc || opts.isEmbedded || opts.isEs) return false;
-  return agg.fields.some((f) => isValueCollectionType(f.type));
+  return [agg, ...agg.parts].some((o) => o.fields.some((f) => isValueCollectionType(f.type)));
 }
 
 /** The shared `OwnedCollectionOrdinalGenerator` — one per project, emitted only
@@ -1318,13 +1318,16 @@ function ownedVoArrayLines(
   const vc = valueCollectionsFor({ name: ownerName, fields: [f] })[0];
   if (!vc) return [];
   const inner = indent + "    ";
+  // The owned-collection lambda parameter: `o` under the root builder, else
+  // named for the enclosing part builder so it never shadows it (CS0136).
+  const ov = builder === "builder" ? "o" : `${builder}v`;
   const props = (voLookup.get(vc.voName) ?? []).flatMap((vf) => {
     const col = snake(vf.name);
     const base = vf.type.kind === "optional" ? vf.type.inner : vf.type;
     if (base.kind === "valueobject") {
-      return ownedVoLines(base.name, upperFirst(vf.name), col, voLookup, inner, "o");
+      return ownedVoLines(base.name, upperFirst(vf.name), col, voLookup, inner, ov);
     }
-    const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
+    const sel = `${ov}.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
       const conv = idConversion(base.targetName, vf.type.kind === "optional");
       return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
@@ -1336,9 +1339,9 @@ function ownedVoArrayLines(
   });
   const childTableArgs = schema ? `"${vc.childTable}", "${schema}"` : `"${vc.childTable}"`;
   return [
-    `${indent}${builder}.OwnsMany<${vc.voName}>(x => x.${upperFirst(f.name)}, o => {`,
-    `${inner}o.ToTable(${childTableArgs});`,
-    `${inner}o.WithOwner().HasForeignKey("${vc.parentFk}");`,
+    `${indent}${builder}.OwnsMany<${vc.voName}>(x => x.${upperFirst(f.name)}, ${ov} => {`,
+    `${inner}${ov}.ToTable(${childTableArgs});`,
+    `${inner}${ov}.WithOwner().HasForeignKey("${vc.parentFk}");`,
     // The `ordinal` shadow key positions the array items in the id-less child
     // table.  EF Core has no positional key for a table-mapped owned collection
     // (its convention key is a store-generated identity), so a plain
@@ -1347,8 +1350,8 @@ function ownedVoArrayLines(
     // owner's items 1,2,3… from the owning navigation at track time (1-based so
     // no value equals the int default, which `ValueGeneratedOnAdd` would treat
     // as store-generated and omit from the INSERT → a NOT NULL violation).
-    `${inner}o.Property<int>("ordinal").HasValueGenerator<OwnedCollectionOrdinalGenerator>().ValueGeneratedOnAdd();`,
-    `${inner}o.HasKey("${vc.parentFk}", "ordinal");`,
+    `${inner}${ov}.Property<int>("ordinal").HasValueGenerator<OwnedCollectionOrdinalGenerator>().ValueGeneratedOnAdd();`,
+    `${inner}${ov}.HasKey("${vc.parentFk}", "ordinal");`,
     ...props,
     `${indent}});`,
   ];
@@ -1437,12 +1440,10 @@ function containmentConfigLines(
       `${indent}});`,
     ];
   }
-  // `ownerName` is deliberately NOT passed: it selects the VO-ARRAY arm, whose
-  // child-table name is derived from the AGGREGATE, which would be wrong for a
-  // part.  A `Money[]` on a part therefore keeps its existing (unnamed)
-  // handling rather than acquiring a confidently-wrong table name here.
+  // The part's name owns its value-object arrays: their child table and FK are
+  // named for the part (`rule_conditions` / `rule_id`), as the migration has them.
   const partFieldLines = partFields.flatMap((f) =>
-    fieldConfigLines(f, inner, childVar, voLookup, false, undefined, false, options.schema),
+    fieldConfigLines(f, inner, childVar, voLookup, false, part?.name, false, options.schema),
   );
   // A nested part FKs to (and its shadow `ParentId` column is named for) its
   // DIRECT parent — a sibling part for a part-in-part, else the aggregate root

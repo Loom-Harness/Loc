@@ -313,7 +313,7 @@ system DevPlatform {
                   for p in matched {
                       p.addPipeline("scan")
                   }
-                  let adhoc = Projects.all(ActiveNamed(needle), sort: [sequence desc], page: { offset: 0, limit: 100 })
+                  let adhoc = Projects.all(ActiveNamed(needle), sort: [sequence desc], page: { offset: 0, limit: 100 })  for q in adhoc { q.addPipeline("adhoc") }
               }
             }
 

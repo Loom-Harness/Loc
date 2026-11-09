@@ -34,6 +34,51 @@ import {
   savedVersionOnUpdate,
 } from "./saved-version.js";
 
+/** Replace each value-object collection of `owner` (the aggregate root or an
+ *  entity part) wholesale: the elements are identity-less, so there is nothing
+ *  to diff on.  Delete every child row for this owner, then re-insert the
+ *  current list with its ordinals.  A part's lists are named for their child
+ *  table, so a part's `tags` never shadows the root's. */
+function valueCollectionSyncLines(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ownerExpr: string,
+  ownerIdExpr: string,
+  indent: string,
+  ctx: BoundedContextIR,
+  isPart = false,
+): string[] {
+  return valueCollectionsFor(owner).flatMap((vc) => {
+    const vo = findValueObjectInScope(ctx, vc.voName);
+    const voEntries = (vo?.fields ?? []).flatMap((vf) =>
+      projectValueEntries(
+        vf.name,
+        vf.type,
+        `e.${escapeTargetFieldMember("ts", vf.name)}`,
+        ctx,
+        vf.optional,
+      ),
+    );
+    const rowFields = [
+      `parentId: ${ownerIdExpr} as string`,
+      `ordinal: i`,
+      ...voEntries.map((en) => `${en.fieldName}: ${en.expr}`),
+    ].join(", ");
+    const list = isPart ? `${vc.tableConst}List` : `${vc.fieldName}List`;
+    const items = isPart
+      ? `${ownerExpr}.${escapeTargetFieldMember("ts", vc.fieldName)}`
+      : `${ownerExpr}.${vc.fieldName}`;
+    return [
+      "",
+      `${indent}await tx.delete(schema.${vc.tableConst}).where(eq(schema.${vc.tableConst}.parentId, ${ownerIdExpr}));`,
+      `${indent}const ${list} = ${items} ?? [];`,
+      `${indent}for (let i = 0; i < ${list}.length; i++) {`,
+      `${indent}  const e = ${list}[i]!;`,
+      `${indent}  await tx.insert(schema.${vc.tableConst}).values({ ${rowFields} });`,
+      `${indent}}`,
+    ];
+  });
+}
+
 /** Inner body of the save db.transaction callback at 6-space indent.
  *  Extracted so the trace-on variant can re-indent and wrap it with the
  *  outer try/catch + tx_* logs.  Also the seam where `child_synced`
@@ -92,6 +137,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
             `${body}${renderHonoStoreLogCall("childSynced", `parent: "${agg.name}", part: "${part.name}", id: ${loopVar}.id as string, action: childAction`)}`,
           ]
         : []),
+      // This part's own value-object collections, keyed by this child's id.
+      ...valueCollectionSyncLines(part, loopVar, `${loopVar}.id`, body, ctx, true),
       // Recurse: this part's OWN nested containments, keyed by this child's id.
       ...part.contains.flatMap((nested) =>
         syncContain(nested, loopVar, `${loopVar}.id`, body, depth + 1),
@@ -129,35 +176,13 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
       `      }`,
     ];
   });
-  // Replace each value-object collection wholesale: the elements are
-  // identity-less, so there is nothing to diff on.  Delete every child row
-  // for this owner, then re-insert the current list with its ordinals.
-  const valueCollectionBlocks = valueCollectionsFor(agg).flatMap((vc) => {
-    const vo = findValueObjectInScope(ctx, vc.voName);
-    const voEntries = (vo?.fields ?? []).flatMap((vf) =>
-      projectValueEntries(
-        vf.name,
-        vf.type,
-        `e.${escapeTargetFieldMember("ts", vf.name)}`,
-        ctx,
-        vf.optional,
-      ),
-    );
-    const rowFields = [
-      `parentId: aggregate.id as string`,
-      `ordinal: i`,
-      ...voEntries.map((en) => `${en.fieldName}: ${en.expr}`),
-    ].join(", ");
-    return [
-      "",
-      `      await tx.delete(schema.${vc.tableConst}).where(eq(schema.${vc.tableConst}.parentId, aggregate.id));`,
-      `      const ${vc.fieldName}List = aggregate.${vc.fieldName} ?? [];`,
-      `      for (let i = 0; i < ${vc.fieldName}List.length; i++) {`,
-      `        const e = ${vc.fieldName}List[i]!;`,
-      `        await tx.insert(schema.${vc.tableConst}).values({ ${rowFields} });`,
-      `      }`,
-    ];
-  });
+  const valueCollectionBlocks = valueCollectionSyncLines(
+    agg,
+    "aggregate",
+    "aggregate.id",
+    "      ",
+    ctx,
+  );
   // Persist-time audit stamping (node-persist-time-auditing): an audited
   // aggregate's root upsert stamps createdAt/createdBy/updatedAt/updatedBy from
   // the ambient request principal at the save choke point — `stampInsert` on
@@ -370,7 +395,11 @@ function entityProjection(
   return projectionObject(varExpr, [
     { fieldName: "id", expr: `${varExpr}.id as string` },
     { fieldName: "parentId", expr: parentIdExpr ?? `${varExpr}.parentId as string` },
-    ...part.fields.flatMap((f) => projectFieldEntries(f, varExpr, ctx)),
+    // A value-object collection lives in its own child table, written after
+    // the part row (see `valueCollectionSyncLines`).
+    ...part.fields
+      .filter((f) => !isValueCollectionType(f.type))
+      .flatMap((f) => projectFieldEntries(f, varExpr, ctx)),
     ...provColumnEntries(part.fields, varExpr),
   ]);
 }

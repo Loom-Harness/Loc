@@ -41,6 +41,7 @@ import {
   hydrateEntityExpr,
   hydrateRootExpr,
   hydrateRootForFindAllExpr,
+  partValueCollectionMap,
   valueCollectionElementExpr,
 } from "./repository-find-hydrate.js";
 import {
@@ -208,11 +209,12 @@ function bulkLoadContainmentLines(
   });
 }
 
-/** Recursively load a part's OWN nested containments into per-direct-parent
- *  `<name>ByParent` maps (keyed by the child row's id), emitted BEFORE the
- *  hydrate that references them.  `rowsVar` is the parent level's already-loaded
- *  rows local; `dbExpr` the db handle (`tx` for findById, `this.db` for the
- *  array paths).  Empty for a leaf part, so single-level output is unchanged. */
+/** Load what a part's hydrate references, emitted BEFORE it: the part's own
+ *  value-object collections (per-part-row maps), then — recursively — its
+ *  nested containments into per-direct-parent `<name>ByParent` maps (keyed by
+ *  the child row's id).  `rowsVar` is the part's already-loaded rows local;
+ *  `dbExpr` the db handle (`tx` for findById, `this.db` for the array paths).
+ *  Empty for a leaf part with no value-object collection. */
 function nestedContainLoads(
   part: EntityPartIR,
   rowsVar: string,
@@ -221,35 +223,66 @@ function nestedContainLoads(
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
 ): string[] {
-  return part.contains.flatMap((nc) => {
-    const ncPart = agg.parts.find((p) => p.name === nc.partName);
-    if (!ncPart) return [];
-    const ncTable = lowerFirst(plural(ncPart.name));
-    const rowsLocal = `${nc.name}Rows`;
-    const out = [
-      `${indent}const ${rowsLocal} = await ${dbExpr}.select().from(schema.${ncTable}).where(inArray(schema.${ncTable}.parentId, ${rowsVar}.map((r) => r.id)));`,
-      // Recurse deeper before grouping THIS level.
-      ...nestedContainLoads(ncPart, rowsLocal, dbExpr, indent, agg, ctx),
+  const ownValues = partValueCollectionLoads(part, rowsVar, dbExpr, indent, ctx);
+  return [
+    ...ownValues,
+    ...part.contains.flatMap((nc) => {
+      const ncPart = agg.parts.find((p) => p.name === nc.partName);
+      if (!ncPart) return [];
+      const ncTable = lowerFirst(plural(ncPart.name));
+      const rowsLocal = `${nc.name}Rows`;
+      const out = [
+        `${indent}const ${rowsLocal} = await ${dbExpr}.select().from(schema.${ncTable}).where(inArray(schema.${ncTable}.parentId, ${rowsVar}.map((r) => r.id)));`,
+        // Recurse deeper before grouping THIS level.
+        ...nestedContainLoads(ncPart, rowsLocal, dbExpr, indent, agg, ctx),
+      ];
+      if (nc.collection) {
+        out.push(
+          `${indent}const ${nc.name}ByParent = new Map<string, ${ncPart.name}[]>();`,
+          `${indent}for (const r of ${rowsLocal}) {`,
+          `${indent}  const list = ${nc.name}ByParent.get(r.parentId) ?? [];`,
+          `${indent}  list.push(${hydrateEntityExpr(ncPart, "r", agg, ctx)});`,
+          `${indent}  ${nc.name}ByParent.set(r.parentId, list);`,
+          `${indent}}`,
+        );
+      } else {
+        out.push(
+          `${indent}const ${nc.name}ByParent = new Map<string, ${ncPart.name}>();`,
+          `${indent}for (const r of ${rowsLocal}) {`,
+          `${indent}  if (${nc.name}ByParent.has(r.parentId)) continue;`,
+          `${indent}  ${nc.name}ByParent.set(r.parentId, ${hydrateEntityExpr(ncPart, "r", agg, ctx)});`,
+          `${indent}}`,
+        );
+      }
+      return out;
+    }),
+  ];
+}
+
+/** Load a part's OWN value-object collections from their id-less child tables
+ *  into per-part-row maps (`partValueCollectionMap`), ordered, keyed by the
+ *  part rows in `rowsVar` — emitted before the part hydrate that reads them. */
+function partValueCollectionLoads(
+  part: EntityPartIR,
+  rowsVar: string,
+  dbExpr: string,
+  indent: string,
+  ctx: BoundedContextIR,
+): string[] {
+  return valueCollectionsFor(part).flatMap((vc) => {
+    const field = part.fields.find((f) => f.name === vc.fieldName);
+    if (!field) return [];
+    const map = partValueCollectionMap(part, field);
+    const rows = `${vc.tableConst}Rows`;
+    return [
+      `${indent}const ${rows} = await ${dbExpr}.select().from(schema.${vc.tableConst}).where(inArray(schema.${vc.tableConst}.parentId, ${rowsVar}.map((r) => r.id))).orderBy(schema.${vc.tableConst}.ordinal);`,
+      `${indent}const ${map} = new Map<string, ${vc.voName}[]>();`,
+      `${indent}for (const r of ${rows}) {`,
+      `${indent}  const list = ${map}.get(r.parentId) ?? [];`,
+      `${indent}  list.push(${valueCollectionElementExpr(vc, "r", ctx)});`,
+      `${indent}  ${map}.set(r.parentId, list);`,
+      `${indent}}`,
     ];
-    if (nc.collection) {
-      out.push(
-        `${indent}const ${nc.name}ByParent = new Map<string, ${ncPart.name}[]>();`,
-        `${indent}for (const r of ${rowsLocal}) {`,
-        `${indent}  const list = ${nc.name}ByParent.get(r.parentId) ?? [];`,
-        `${indent}  list.push(${hydrateEntityExpr(ncPart, "r", agg, ctx)});`,
-        `${indent}  ${nc.name}ByParent.set(r.parentId, list);`,
-        `${indent}}`,
-      );
-    } else {
-      out.push(
-        `${indent}const ${nc.name}ByParent = new Map<string, ${ncPart.name}>();`,
-        `${indent}for (const r of ${rowsLocal}) {`,
-        `${indent}  if (${nc.name}ByParent.has(r.parentId)) continue;`,
-        `${indent}  ${nc.name}ByParent.set(r.parentId, ${hydrateEntityExpr(ncPart, "r", agg, ctx)});`,
-        `${indent}}`,
-      );
-    }
-    return out;
   });
 }
 

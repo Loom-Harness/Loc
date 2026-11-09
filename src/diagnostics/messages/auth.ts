@@ -535,4 +535,11 @@ export const messages = {
     `policy in context '${p.name}': \`${p.source}\` shadows an \`allow\` ${p.access} ` +
     `rule for '${p.aggregate}' — deny wins, so the allow is dead.  Remove the allow, or ` +
     `the deny if you meant to keep the grant.`,
+  "loom.auth-dev-login-only": (p: { name: unknown }) =>
+    `deployable '${p.name}': auth: required without auth { oidc }: development login only.  ` +
+    `The generated verifier is the dev stub: it answers only when LOOM_DEV_AUTH=1 (the generated ` +
+    `docker-compose.yml sets it; every request is 401 otherwise), accepts any caller as a built-in ` +
+    `identity, and lets the caller forge any role, permission or tenant through the ` +
+    `x-loom-dev-claims header; default-deny enforcement is not checked.  Declare an ` +
+    `\`auth { oidc { … } }\` block, or replace the stub with your own verifier, before deploying.`,
 } satisfies Record<string, MessageEntry>;

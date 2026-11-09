@@ -129,6 +129,7 @@ import {
   zodForResponseInner,
 } from "./routes-builder.js";
 import {
+  auditAfterSaveLines,
   collectReposForWorkflow,
   entryErrorAnswer,
   entryResultLines,
@@ -178,6 +179,9 @@ const externImplModule = (name: string): string =>
  *  uuid string, the same `UuidString` the workflow-instance `{id}` param uses;
  *  scalars split numeric/textual. */
 function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+  // An optional (query) param is the inner type's parse, absent allowed — the
+  // binding's `== null ? null : …` then hands the handler `T | null`.
+  if (t.kind === "optional") return `${pathParamZod(t.inner, ctx)}.optional()`;
   if (t.kind === "id") return "UuidString";
   if (t.kind === "primitive") {
     switch (t.name) {
@@ -588,6 +592,13 @@ function emitRouteHandler(
   const head = out;
   out = [];
   const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];
+  // An `emit` collects onto `workflowEvents`, dispatched once the body (and,
+  // in a transaction, its commit) has succeeded — the workflow route's sink.
+  const hasEmit = workflowEmits(h.statements).length > 0;
+  if (hasEmit) head.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
+  const dispatchEmits = hasEmit
+    ? [`    for (const ev of workflowEvents) await events.dispatch(ev);`]
+    : [];
   for (const r of repos) {
     out.push(
       `    const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(${handle}, ${dispatcher});`,
@@ -649,8 +660,10 @@ function emitRouteHandler(
           ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
           : `${wireRespH(retMasked, retRepoVar!, projected)}`
       : `${retExpr} as unknown`;
+    if (!inTx) out.push(...dispatchEmits);
     out.push(`    return httpCtx.json(${payload}, 200);`);
   } else {
+    if (!inTx) out.push(...dispatchEmits);
     out.push(`    return httpCtx.body(null, 204);`);
   }
   if (inTx) {
@@ -659,6 +672,7 @@ function emitRouteHandler(
     for (const l of out) head.push(l === "" ? l : `  ${l}`);
     head.push(`    });`);
     head.push(`    await __deferred.flush();`);
+    head.push(...dispatchEmits);
     head.push(`    return __response;`);
   } else {
     head.push(...out);
@@ -703,16 +717,17 @@ function entryHandlerBody(
     );
   }
   const readPortArgs = readPortResolver(ctx);
-  out.push(
-    ...renderWorkflowStmtChunks(
-      h.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
-      "        ",
-    ).flat(),
-  );
+  const body = renderWorkflowStmtChunks(
+    h.statements,
+    honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
+    "        ",
+  ).flat();
+  const audits = auditAfterSaveLines(body, "        ");
+  out.push(...audits.head, ...body);
   for (const save of h.savesAtExit) {
     out.push(`        await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   }
+  out.push(...audits.tail);
   const errorTest = entryErrorTags(er)
     .map((t) => `handlerResult.type === ${JSON.stringify(t)}`)
     .join(" || ");

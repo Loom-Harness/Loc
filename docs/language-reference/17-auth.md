@@ -155,7 +155,7 @@ export const authMiddleware = createMiddleware<{ Variables: { currentUser: User 
   // … verifyUserOrThrow(c.req.raw) → 401 on failure, then c.set("currentUser", user)
 });
 ```
-The verifier is a registry you fill at startup (`auth/verifier.ts`: `registerUserVerifier(fn)` / `verifyUserOrThrow(req)`). `requireCurrentUser()` reads the ambient principal from any layer — that is what lets an always-on tenant filter scope a repository read without threading a parameter.
+The verifier is a registry (`auth/verifier.ts`: `registerUserVerifier(fn)` / `verifyUserOrThrow(req)`); `boot.ts` fills it with the generated OIDC verifier under an `auth { oidc }` block, otherwise with the [dev stub](#dev-stub-verifier-x-loom-dev-claims). `requireCurrentUser()` reads the ambient principal from any layer — that is what lets an always-on tenant filter scope a repository read without threading a parameter.
 == dotnet
 ```csharp
 // Auth/UserMiddleware.cs — UseMiddleware<UserMiddleware>() between UseSwagger() and MapControllers()
@@ -165,7 +165,7 @@ catch { ctx.Response.StatusCode = 401; return; }
 if (user is null) { ctx.Response.StatusCode = 401; return; }
 if (RequestContext.Current is { } rc) rc.CurrentUser = user;
 ```
-`Program.cs` registers `ICurrentUserAccessor` + `IHttpContextAccessor` and fails fast at startup if no `IUserVerifier` is registered.
+`Program.cs` registers exactly one `IUserVerifier` — `OidcUserVerifier` under an `auth { oidc }` block, otherwise `DevStubUserVerifier` — plus `ICurrentUserAccessor` + `IHttpContextAccessor`.
 == java
 ```java
 // auth/UserFilter.java — a servlet filter; auth/UserVerifier.java is the seam,
@@ -188,7 +188,7 @@ if bypass_path?(conn.request_path), do: conn, else:
 ```
 ::: end
 
-> A missing verifier registration surfaces at **runtime startup**, not generation.
+> Every backend registers a verifier on its own: the generated OIDC verifier under an `auth { oidc }` block, otherwise the [dev stub](#dev-stub-verifier-x-loom-dev-claims), which is **off unless `LOOM_DEV_AUTH=1`**. Nothing fails fast — a deployed build without an `oidc` block and without the flag answers 401 to every authenticated request. `loom.auth-dev-login-only` (**warning**) flags the no-`oidc` posture at build time.
 
 ## `auth { … }` — OIDC config
 
@@ -252,7 +252,35 @@ Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `
 
 ### Dev-stub verifier (`x-loom-dev-claims`)
 
-Until a real verifier is registered, every backend ships an accept-all **dev stub** so the stack boots. It reads an optional `x-loom-dev-claims` header — **base64-encoded JSON** — and overlays it on a built-in identity derived from the declared shape (`"admin"` for a `string`, `0` for a number, the **empty list** for an array, so permission-gated surfaces deny by default):
+A system with `auth: required` and a `user` block but **no `auth { oidc }` block** gets a **dev stub** verifier — a development login, never a production one. It answers **only when the backend runs with `LOOM_DEV_AUTH=1`**; without the flag it refuses every request (401, a forged header included) and the app logs one `auth_dev_stub_disabled` line at startup saying why. The generated dev `docker-compose.yml` sets the flag, so a local stack works out of the box; a deployment that does not set it fails closed. `loom.auth-dev-login-only` (**warning**) says so at build time. Under an `auth { oidc }` block no backend emits a dev stub at all (node keeps `auth/dev-stub.ts` only for the playground preview, which boots with `verifier: "dev-stub"`).
+
+```ddd
+system Desk {
+  user { id: string  role: string  permissions: string[] }
+  // … no auth { oidc } block
+  deployable api { platform: node  contexts: [Tickets]  dataSources: [ticketState]  port: 3000  auth: required }
+}
+```
+
+```ts
+// boot.ts (node) — the other four backends gate their stub the same way
+const devAuth = opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1";
+registerDevStubVerifier(devAuth);
+if (devAuth) {
+  baseLogger.warn({ event: "auth_dev_stub_registered" });
+} else {
+  baseLogger.error({ event: "auth_dev_stub_disabled", reason: "LOOM_DEV_AUTH is not 1: …" });
+}
+```
+
+```yaml
+# docker-compose.yml (generated)
+  api:
+    environment:
+      LOOM_DEV_AUTH: "1"
+```
+
+With the flag on, the stub reads an optional `x-loom-dev-claims` header — **base64-encoded JSON** — and overlays it on a built-in identity derived from the declared shape (`"admin"` for a `string`, `0` for a number, the **empty list** for an array, so permission-gated surfaces deny by default):
 
 ```bash
 curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","permissions":["support.ticketsClose"]}' | base64)" \
@@ -264,7 +292,7 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","permissions":["support.ticke
 return { ...base, ...JSON.parse(Buffer.from(injected, "base64").toString("utf8")) };
 ```
 
-Array-typed claims ride the header on **all five** backends (each typed backend emits a `devClaimStringList`-style array mapper), so a permission gate is drivable in dev everywhere. It is a dev convenience, not a production path.
+Array-typed claims ride the header on **all five** backends (each typed backend emits a `devClaimStringList`-style array mapper), so a permission gate is drivable in dev everywhere. It is a dev convenience, not a production path: with `LOOM_DEV_AUTH=1` any caller can claim any role, permission or tenant.
 
 ## `permissions` — a typed catalogue with `implies`
 
@@ -769,6 +797,7 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | --- | --- |
 | `auth { … }` block without a `user` block | `loom.auth-without-user` |
 | `auth: required` deployable but no `user` block | `loom.auth-no-user-block` |
+| `auth: required` + a `user` block but no `auth { oidc }` — the dev-stub login (warning) | `loom.auth-dev-login-only` |
 | Two `auth` blocks / two `user` blocks / two fields same name | `loom.duplicate-auth-block` / `loom.duplicate-user-block` / `loom.user-duplicate-field` |
 | Unknown `provider:` / self-hosted provider without `oidc { issuer }` / no `clientId` / unknown `claims:` target | `loom.auth-unknown-provider` / `loom.auth-missing-issuer` / `loom.auth-missing-client-id` / `loom.auth-unknown-claim-field` |
 | `oidc { … }` with no `audience:` — the `aud` check is skipped unless OIDC_AUDIENCE is set at deploy time (warning) | `loom.auth-oidc-no-audience` |

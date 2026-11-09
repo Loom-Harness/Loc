@@ -14,6 +14,8 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
 import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
 import {
+  DEV_AUTH_DISABLED_LOG,
+  DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
   devClaimFields,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -52,6 +54,165 @@ export interface OrgPathRegistry {
 //                       (health/ready/openapi bypass, like UserMiddleware)
 //   CurrentUserAccessor — ThreadLocal holder services read from
 // ---------------------------------------------------------------------------
+
+/** The dev-stub verifier + its malformed-header exception — emitted only for
+ *  a system with no `auth { oidc }` block. */
+function renderDevStubFiles(
+  out: Map<string, string>,
+  pkg: string,
+  basePkg: string,
+  fields: readonly FieldIR[],
+): void {
+  const stubImports = new Set<string>();
+  // An `X id` claim's stub value now CONSTRUCTS the strong id
+  // (`new CustomerId(new java.util.UUID(0L, 0L))`) instead of handing the
+  // principal a null one, so this verifier names the id class and needs the
+  // same `<basePkg>.domain.ids.*` import `User` already carries.
+  if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
+  const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
+  // Dev-claims override carries the shapes the shared classifier admits —
+  // `String` and `List<String>`; every other component keeps its built-in
+  // value.  FQNs avoid import churn.  A list claim is element-checked, so a
+  // mixed array falls back rather than putting a non-text node in a
+  // `List<String>`.
+  const stubClaimKinds = new Map(
+    devClaimFields(fields).map(({ field, kind }) => [field.name, kind]),
+  );
+  const stubStringFields = fields.filter((f) => stubClaimKinds.has(f.name));
+  const overrideArgs = fields
+    .map((f) => {
+      const kind = stubClaimKinds.get(f.name);
+      if (kind === "string") {
+        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
+      }
+      if (kind === "stringList") {
+        return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
+      }
+      return stubValue(f.type);
+    })
+    .join(", ");
+  const needsListHelper = [...stubClaimKinds.values()].includes("stringList");
+  out.set(
+    "DevStubUserVerifier.java",
+    lines(
+      `package ${pkg};`,
+      ``,
+      ...[...stubImports].sort().map((i) => `import ${i};`),
+      stubImports.size > 0 ? `` : null,
+      `import org.springframework.stereotype.Component;`,
+      ``,
+      `import jakarta.servlet.http.HttpServletRequest;`,
+      ``,
+      `import ${basePkg}.config.CatalogLog;`,
+      ``,
+      `/** Dev-stub verifier — with ${DEV_AUTH_ENV}=1, accepts every request as a built-in`,
+      ` *  user; without it, refuses every request (401).`,
+      stubStringFields.length > 0
+        ? ` *  Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded`
+        : null,
+      stubStringFields.length > 0
+        ? ` *  JSON object in the \`x-loom-dev-claims\` header — the same injection the Hono`
+        : null,
+      stubStringFields.length > 0 ? ` *  dev stub honours.` : null,
+      ` *  REPLACE for production by providing your own @Primary UserVerifier. */`,
+      `@Component`,
+      `public class DevStubUserVerifier implements UserVerifier {`,
+      `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
+      `        tools.jackson.databind.json.JsonMapper.builder().build();`,
+      ``,
+      `    /** True only when ${DEV_AUTH_ENV}=1: the stub is a development login. */`,
+      `    static final boolean ENABLED = "1".equals(System.getenv("${DEV_AUTH_ENV}"));`,
+      ``,
+      `    /** One startup line says whether the dev-stub login is on. */`,
+      `    public DevStubUserVerifier() {`,
+      `        if (ENABLED) {`,
+      `            CatalogLog.event(${javaLogEvent("authDevStubRegistered")});`,
+      `        } else {`,
+      `            CatalogLog.event(${javaLogEvent("authDevStubDisabled")}, "reason", ${JSON.stringify(DEV_AUTH_DISABLED_LOG)});`,
+      `        }`,
+      `    }`,
+      ``,
+      // Ruling D6 (#23): a present-but-undecodable header is refused — the
+      // stub throws, UserFilter answers 400 — instead of silently running the
+      // request as the built-in identity.  Both stub shapes decode through it,
+      // so a stub with no carryable claim refuses a malformed header too.
+      `    /** Decode the header as a base64 JSON OBJECT, or throw`,
+      `     *  {@link MalformedDevClaimsException} (UserFilter answers it 400). */`,
+      `    private static tools.jackson.databind.JsonNode decodeDevClaims(String injected) {`,
+      `        tools.jackson.databind.JsonNode claims;`,
+      `        try {`,
+      `            claims = MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
+      `        } catch (RuntimeException e) {`,
+      `            throw new MalformedDevClaimsException();`,
+      `        }`,
+      `        if (claims == null || !claims.isObject()) throw new MalformedDevClaimsException();`,
+      `        return claims;`,
+      `    }`,
+      ``,
+      ...(stubStringFields.length > 0
+        ? [
+            `    @Override`,
+            `    public User verify(HttpServletRequest request) {`,
+            `        if (!ENABLED) return null;`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
+            `        if (injected != null && !injected.isEmpty()) {`,
+            `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
+            `            return new User(${overrideArgs});`,
+            `        }`,
+            `        return new User(${stubArgs});`,
+            `    }`,
+            // Element-checked list decode: a non-array node, or one holding a
+            // non-text element, falls back to the built-in value rather than
+            // half-filling a List<String>.
+            ...(needsListHelper
+              ? [
+                  ``,
+                  `    private static java.util.List<String> devClaimStringList(`,
+                  `            tools.jackson.databind.JsonNode claims, String key, java.util.List<String> fallback) {`,
+                  `        tools.jackson.databind.JsonNode node = claims.get(key);`,
+                  `        if (node == null || !node.isArray()) return fallback;`,
+                  `        java.util.List<String> out = new java.util.ArrayList<>();`,
+                  `        for (tools.jackson.databind.JsonNode e : node) {`,
+                  `            if (!e.isString()) return fallback;`,
+                  `            out.add(e.asString());`,
+                  `        }`,
+                  `        return java.util.List.copyOf(out);`,
+                  `    }`,
+                ]
+              : []),
+          ]
+        : [
+            `    @Override`,
+            `    public User verify(HttpServletRequest request) {`,
+            `        if (!ENABLED) return null;`,
+            `        // No declared claim is carryable, but a malformed header still refuses.`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
+            `        if (injected != null && !injected.isEmpty()) decodeDevClaims(injected);`,
+            `        return new User(${stubArgs});`,
+            `    }`,
+          ]),
+      `}`,
+      ``,
+    ),
+  );
+  out.set(
+    "MalformedDevClaimsException.java",
+    lines(
+      `package ${pkg};`,
+      ``,
+      `/** A present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header (dev stub only).`,
+      ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
+      ` *  it ran the request as the built-in identity (ruling D6). */`,
+      `public class MalformedDevClaimsException extends RuntimeException {`,
+      `    private static final long serialVersionUID = 1L;`,
+      `    public MalformedDevClaimsException() {`,
+      `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
+      `    }`,
+      `}`,
+      ``,
+    ),
+  );
+}
 
 export function renderAuthFiles(
   sys: SystemIR,
@@ -222,139 +383,11 @@ export function renderAuthFiles(
     ),
   );
 
-  const stubImports = new Set<string>();
-  // An `X id` claim's stub value now CONSTRUCTS the strong id
-  // (`new CustomerId(new java.util.UUID(0L, 0L))`) instead of handing the
-  // principal a null one, so this verifier names the id class and needs the
-  // same `<basePkg>.domain.ids.*` import `User` already carries.
-  if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
-  const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
-  // Dev-claims override carries the shapes the shared classifier admits —
-  // `String` and `List<String>`; every other component keeps its built-in
-  // value.  FQNs avoid import churn.  A list claim is element-checked, so a
-  // mixed array falls back rather than putting a non-text node in a
-  // `List<String>`.
-  const stubClaimKinds = new Map(
-    devClaimFields(fields).map(({ field, kind }) => [field.name, kind]),
-  );
-  const stubStringFields = fields.filter((f) => stubClaimKinds.has(f.name));
-  const overrideArgs = fields
-    .map((f) => {
-      const kind = stubClaimKinds.get(f.name);
-      if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
-      }
-      if (kind === "stringList") {
-        return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
-      }
-      return stubValue(f.type);
-    })
-    .join(", ");
-  const needsListHelper = [...stubClaimKinds.values()].includes("stringList");
-  out.set(
-    "DevStubUserVerifier.java",
-    lines(
-      `package ${pkg};`,
-      ``,
-      ...[...stubImports].sort().map((i) => `import ${i};`),
-      stubImports.size > 0 ? `` : null,
-      `import org.springframework.stereotype.Component;`,
-      ``,
-      `import jakarta.servlet.http.HttpServletRequest;`,
-      ``,
-      `/** Dev-stub verifier — accepts every request as a built-in user.`,
-      stubStringFields.length > 0
-        ? ` *  Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded`
-        : null,
-      stubStringFields.length > 0
-        ? ` *  JSON object in the \`x-loom-dev-claims\` header — the same injection the Hono`
-        : null,
-      stubStringFields.length > 0 ? ` *  dev stub honours.` : null,
-      ` *  REPLACE for production by providing your own @Primary UserVerifier. */`,
-      `@Component`,
-      `public class DevStubUserVerifier implements UserVerifier {`,
-      `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
-      `        tools.jackson.databind.json.JsonMapper.builder().build();`,
-      ``,
-      // Ruling D6 (#23): a present-but-undecodable header is refused — the
-      // stub throws, UserFilter answers 400 — instead of silently running the
-      // request as the built-in identity.  Both stub shapes decode through it,
-      // so a stub with no carryable claim refuses a malformed header too.
-      `    /** Decode the header as a base64 JSON OBJECT, or throw`,
-      `     *  {@link MalformedDevClaimsException} (UserFilter answers it 400). */`,
-      `    private static tools.jackson.databind.JsonNode decodeDevClaims(String injected) {`,
-      `        tools.jackson.databind.JsonNode claims;`,
-      `        try {`,
-      `            claims = MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
-      `        } catch (RuntimeException e) {`,
-      `            throw new MalformedDevClaimsException();`,
-      `        }`,
-      `        if (claims == null || !claims.isObject()) throw new MalformedDevClaimsException();`,
-      `        return claims;`,
-      `    }`,
-      ``,
-      ...(stubStringFields.length > 0
-        ? [
-            `    @Override`,
-            `    public User verify(HttpServletRequest request) {`,
-            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
-            `        if (injected != null && !injected.isEmpty()) {`,
-            `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
-            `            return new User(${overrideArgs});`,
-            `        }`,
-            `        return new User(${stubArgs});`,
-            `    }`,
-            // Element-checked list decode: a non-array node, or one holding a
-            // non-text element, falls back to the built-in value rather than
-            // half-filling a List<String>.
-            ...(needsListHelper
-              ? [
-                  ``,
-                  `    private static java.util.List<String> devClaimStringList(`,
-                  `            tools.jackson.databind.JsonNode claims, String key, java.util.List<String> fallback) {`,
-                  `        tools.jackson.databind.JsonNode node = claims.get(key);`,
-                  `        if (node == null || !node.isArray()) return fallback;`,
-                  `        java.util.List<String> out = new java.util.ArrayList<>();`,
-                  `        for (tools.jackson.databind.JsonNode e : node) {`,
-                  `            if (!e.isString()) return fallback;`,
-                  `            out.add(e.asString());`,
-                  `        }`,
-                  `        return java.util.List.copyOf(out);`,
-                  `    }`,
-                ]
-              : []),
-          ]
-        : [
-            `    @Override`,
-            `    public User verify(HttpServletRequest request) {`,
-            `        // No declared claim is carryable, but a malformed header still refuses.`,
-            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
-            `        if (injected != null && !injected.isEmpty()) decodeDevClaims(injected);`,
-            `        return new User(${stubArgs});`,
-            `    }`,
-          ]),
-      `}`,
-      ``,
-    ),
-  );
-  out.set(
-    "MalformedDevClaimsException.java",
-    lines(
-      `package ${pkg};`,
-      ``,
-      `/** A present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header (dev stub only).`,
-      ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
-      ` *  it ran the request as the built-in identity (ruling D6). */`,
-      `public class MalformedDevClaimsException extends RuntimeException {`,
-      `    private static final long serialVersionUID = 1L;`,
-      `    public MalformedDevClaimsException() {`,
-      `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
-      `    }`,
-      `}`,
-      ``,
-    ),
-  );
-
+  // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
+  // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
+  // verifier, and the header-trusting stub is not emitted at all — so no bean
+  // ordering or dropped `@Primary` can put it in front of a production build.
+  if (!oidc) renderDevStubFiles(out, pkg, basePkg, fields);
   out.set(
     "CurrentUserAccessor.java",
     lines(
@@ -512,9 +545,13 @@ export function renderAuthFiles(
       `            user = verifier.verify(request);`,
       // Dev stub only (ruling D6): a present-but-undecodable dev-claims header
       // is a malformed REQUEST, not missing credentials.
-      `        } catch (MalformedDevClaimsException e) {`,
-      `            malformedDevClaims(request, response, e.getMessage());`,
-      `            return;`,
+      ...(oidc
+        ? []
+        : [
+            `        } catch (MalformedDevClaimsException e) {`,
+            `            malformedDevClaims(request, response, e.getMessage());`,
+            `            return;`,
+          ]),
       `        } catch (Exception e) {`,
       `            user = null;`,
       `        }`,
@@ -582,18 +619,22 @@ export function renderAuthFiles(
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
       `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("unauthenticated")}\\"}");`,
       `    }`,
-      ``,
-      `    /** RFC 7807 400 for a present-but-undecodable dev-claims header. */`,
-      `    private static void malformedDevClaims(HttpServletRequest request, HttpServletResponse response, String detail)`,
-      `            throws java.io.IOException {`,
-      `        response.setStatus(400);`,
-      `        response.setCharacterEncoding("UTF-8");`,
-      `        response.setContentType("application/problem+json");`,
-      `        response.getWriter().write(`,
-      `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Bad Request\\",\\"status\\":400,\\"detail\\":\\""`,
-      `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
-      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("malformed-body")}\\"}");`,
-      `    }`,
+      ...(oidc
+        ? []
+        : [
+            ``,
+            `    /** RFC 7807 400 for a present-but-undecodable dev-claims header. */`,
+            `    private static void malformedDevClaims(HttpServletRequest request, HttpServletResponse response, String detail)`,
+            `            throws java.io.IOException {`,
+            `        response.setStatus(400);`,
+            `        response.setCharacterEncoding("UTF-8");`,
+            `        response.setContentType("application/problem+json");`,
+            `        response.getWriter().write(`,
+            `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Bad Request\\",\\"status\\":400,\\"detail\\":\\""`,
+            `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
+            `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\",\\"code\\":\\"${wireCode("malformed-body")}\\"}");`,
+            `    }`,
+          ]),
       ...(orgContext
         ? [
             ``,

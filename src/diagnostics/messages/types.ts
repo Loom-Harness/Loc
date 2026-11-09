@@ -96,9 +96,10 @@ export const messages = {
     hosts: unknown;
   }) =>
     `entity part '${p.ownerName}' field '${p.field}' is a value-object collection ('<VO>[]'), but ` +
-    `this context's persistence adapters are ${p.hosts}, and only a context hosted solely on JPA ` +
-    `(java, a child table), Dapper or MikroORM (a jsonb column) stores a part's value-object ` +
-    `collection; the others would lose it.  Move '${p.field}' onto the aggregate root, or model each element as a ` +
+    `this context's persistence adapters are ${p.hosts}: Dapper and MikroORM keep a part's ` +
+    `value-object collection in a jsonb column of their own, while every other adapter keeps it in ` +
+    `the part's child table, so the hosts would not read each other's writes.  Host the context ` +
+    `on one kind of adapter, move '${p.field}' onto the aggregate root, or model each element as a ` +
     `contained entity part.`,
   "loom.collection-field-unpersisted#state-value-collection": (p: {
     owner: unknown;
@@ -536,4 +537,17 @@ export const messages = {
     `'${p.name}' here resolves to the ${p.kind} '${p.name}', not the '${p.enumName}' case ` +
     `of the same name — the ${p.kind} shadows the enum case. Write '${p.enumName}.${p.name}' ` +
     `for the case, or rename the ${p.kind}.`,
+  "loom.collection-field-unpersisted#nested-in-value-object-document": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+    voName: unknown;
+    path: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' persists value object '${p.voName}', which holds ` +
+    `a collection of references ('${p.path}').  A 'shape: document' aggregate stores the value ` +
+    `object inside its jsonb document, but a reference collection persists only as a join table, ` +
+    `and no join table is derived for a collection nested inside a value object, so no backend ` +
+    `would store it.  Declare the 'X id[]' directly on the aggregate instead of inside ` +
+    `'${p.voName}'.`,
 } satisfies Record<string, MessageEntry>;

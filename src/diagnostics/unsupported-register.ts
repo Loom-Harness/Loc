@@ -799,7 +799,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1786",
+    site: "src/ir/validate/checks/workflow-checks.ts:1826",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

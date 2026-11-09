@@ -439,14 +439,7 @@ function printConfigItem(
 }
 
 function printConfigValue(v: import("../generated/ast.js").ConfigValue): string {
-  switch (v.$type) {
-    case "StringConfigValue":
-      return JSON.stringify(v.value);
-    case "IntConfigValue":
-      return String(v.value);
-    case "BoolConfigValue":
-      return v.value;
-  }
+  return JSON.stringify(v.value);
 }
 
 function printDataSource(node: import("../generated/ast.js").Resource): string {

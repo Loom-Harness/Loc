@@ -8,6 +8,7 @@
 // zod-refine) in core.
 
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
+import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
 import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
@@ -2268,13 +2269,29 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   // OIDC verifier — unless the host asks for the dev stub (the playground,
   // which reaches no IdP); otherwise we register a permissive dev stub so the
   // stack boots out of the box (replace in production with a real verifier).
-  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
-  const devStubRegistration = `${T.registerDevStubVerifier}();\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
+  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — when on, accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
+  const devStubRegistration = `${T.registerDevStubVerifier}(true);\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
+  // Without an `auth { oidc }` block the dev stub answers only when the host
+  // asks for it (the playground) or ${DEV_AUTH_ENV}=1 is set (the generated dev
+  // compose sets it); otherwise it refuses every request and says so once.
+  const devStubGated = [
+    `// The dev stub is a development login: it answers only under`,
+    `// \`verifier: "dev-stub"\` (the playground) or ${DEV_AUTH_ENV}=1, and refuses`,
+    `// every request (401) otherwise.`,
+    `const devAuth = opts.verifier === "dev-stub" || process.env.${DEV_AUTH_ENV} === "1";`,
+    `${T.registerDevStubVerifier}(devAuth);`,
+    `if (devAuth) {`,
+    `  ${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });`,
+    `} else {`,
+    `  ${T.baseLogger}.error({ event: "auth_dev_stub_disabled", reason: ${JSON.stringify(DEV_AUTH_DISABLED_LOG)} });`,
+    `}`,
+    ``,
+  ].join("\n");
   const authStubCall = !userShape
     ? ""
     : oidc
       ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
-      : `\n${devStubDoc}${devStubRegistration}`;
+      : `\n${devStubDoc}${devStubGated}`;
   // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
   // persistence paths.  The auth middleware calls it per request; here we bind
   // it to the db with a `SELECT data_key … WHERE id = <claim>`.
@@ -2441,8 +2458,8 @@ import { createApp } from "./http/index";
  *  broker and no second Postgres connection. */
 export interface BootOptions {
   /** \`"configured"\` (default): the verifier the model declares — OIDC for an
-   *  \`auth { oidc }\` block, otherwise the dev stub.  \`"dev-stub"\`: always the
-   *  dev stub. */
+   *  \`auth { oidc }\` block, otherwise the dev stub, which answers only when
+   *  ${DEV_AUTH_ENV}=1.  \`"dev-stub"\`: always the dev stub, switched on. */
   verifier?: "configured" | "dev-stub";
   /** \`"external"\` (default): broker drivers from LOOM_CHANNEL_*_URL and
    *  pg-boss for \`cron:\` timers.  \`"in-process"\`: one in-memory transport for

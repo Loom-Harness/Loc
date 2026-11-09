@@ -15,7 +15,11 @@ import type {
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
-import { isValueCollectionType, type ValueCollectionIR } from "../../ir/util/value-collections.js";
+import {
+  isValueCollectionType,
+  type ValueCollectionIR,
+  valueCollectionsFor,
+} from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { isRefCollection } from "./repository-associations-builder.js";
@@ -128,6 +132,12 @@ export function hydrateEntityExpr(
       fields.push(`${f.name}: ${opts.collectionField(f, rowVar)}`);
       continue;
     }
+    if (isValueCollectionType(f.type)) {
+      // Loaded from the part's id-less child table into a per-part-row map
+      // just before this hydrate (see `partValueCollectionLoads`).
+      fields.push(`${f.name}: ${partValueCollectionMap(part, f)}.get(${rowVar}.id) ?? []`);
+      continue;
+    }
     fields.push(`${f.name}: ${hydrateFieldExpr(f, rowVar, ctx)}`);
   }
   fields.push(...provHydrateEntries(part.fields, rowVar));
@@ -139,6 +149,13 @@ export function hydrateEntityExpr(
     );
   }
   return `${part.name}._rehydrate({ ${fields.join(", ")} })`;
+}
+
+/** The local `Map<partRowId, Vo[]>` a part's value-object collection field is
+ *  loaded into — named for its child table, so two parts' `tags` never clash. */
+export function partValueCollectionMap(part: EntityPartIR, f: FieldIR): string {
+  const vc = valueCollectionsFor({ name: part.name, fields: [f] })[0];
+  return `${vc ? vc.tableConst : f.name}ByPart`;
 }
 
 function hydrateFieldExpr(

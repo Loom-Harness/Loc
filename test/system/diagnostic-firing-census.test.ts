@@ -1515,6 +1515,9 @@ system S {
     criterion ByCode(c: string) of Order = this.code == c
     retrieval Coded(c: string) of Order { where: ByCode(c) }
     workflow w { create(c: string) { let xs = Orders.all(Coded(c), sort: [code desc], page: { limit: 5 }) } }`),
+  // A repository verb on a name no repository declares.
+  "loom.repository-unknown": repoOnly(`    aggregate Order with crudish { code: string }
+    workflow w { create(id: Order id) { let o = Orders.get(id) } }`),
   // A repository read by a name no contract verb spells.
   "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
@@ -1883,6 +1886,21 @@ system S {
   } }
 }`,
 
+  // `auth: required` + a `user { … }` block with no `auth { oidc }`: the
+  // generated verifier is the dev stub (on only under LOOM_DEV_AUTH=1, header-
+  // forgeable) — a development login, which the warning says.
+  "loom.auth-dev-login-only": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 auth: required }
+}`,
+
   // A repository read used as a MEMBER RECEIVER never lowers to a `repo-read`
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.
@@ -2103,6 +2121,11 @@ system S {
   // not, so the emitted request schema publishes `notes` as required and the
   // body throws it away.  A wholly empty body is deliberately NOT this shape;
   // see the check's header.
+  // An unread `find` read: it answers absence as a value, so the binding does
+  // nothing (a `get` would be an existence check and is not flagged).
+  "loom.unused-let": repoOnly(`    aggregate Claim with crudish { reference: string }
+    repository Claims for Claim
+    commandHandler Touch(c: Claim id) { let x = Claims.find(c) }`),
   "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
     repository Claims for Claim
     workflow file {

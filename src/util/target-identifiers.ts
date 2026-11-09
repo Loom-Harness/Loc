@@ -502,6 +502,101 @@ export function reservedWords(target: IdentTarget): readonly string[] {
   return [...RESERVED[target]].sort();
 }
 
+/** Python's public builtin names (`dir(builtins)`, lower-case, minus the
+ *  dunders).  A MODULE-LEVEL `def` of one of these names rebinds it for the
+ *  whole module, so a handler `All` emitted as `async def all(...)` makes its
+ *  own body's `all(...)` call the handler instead of the builtin.  Kept
+ *  separate from {@link RESERVED}: a local / parameter / field of these names
+ *  is legal and only shadows inside its own scope. */
+const PYTHON_BUILTINS: ReadonlySet<string> = new Set([
+  "abs",
+  "aiter",
+  "all",
+  "anext",
+  "any",
+  "ascii",
+  "bin",
+  "bool",
+  "breakpoint",
+  "bytearray",
+  "bytes",
+  "callable",
+  "chr",
+  "classmethod",
+  "compile",
+  "complex",
+  "copyright",
+  "credits",
+  "delattr",
+  "dict",
+  "dir",
+  "divmod",
+  "enumerate",
+  "eval",
+  "exec",
+  "exit",
+  "filter",
+  "float",
+  "format",
+  "frozenset",
+  "getattr",
+  "globals",
+  "hasattr",
+  "hash",
+  "help",
+  "hex",
+  "id",
+  "input",
+  "int",
+  "isinstance",
+  "issubclass",
+  "iter",
+  "len",
+  "license",
+  "list",
+  "locals",
+  "map",
+  "max",
+  "memoryview",
+  "min",
+  "next",
+  "object",
+  "oct",
+  "open",
+  "ord",
+  "pow",
+  "print",
+  "property",
+  "quit",
+  "range",
+  "repr",
+  "reversed",
+  "round",
+  "set",
+  "setattr",
+  "slice",
+  "sorted",
+  "staticmethod",
+  "str",
+  "sum",
+  "super",
+  "tuple",
+  "type",
+  "vars",
+  "zip",
+]);
+
+/** `name` (already snake_cased) as a python module-level function name: a
+ *  builtin it would shadow takes a trailing underscore (`all` → `all_`). */
+export function escapePythonBuiltin(name: string): string {
+  return PYTHON_BUILTINS.has(name) ? `${name}_` : name;
+}
+
+/** The python builtin names, sorted — for the census against `dir(builtins)`. */
+export function pythonBuiltins(): readonly string[] {
+  return [...PYTHON_BUILTINS].sort();
+}
+
 /** Names a target reserves as a CLASS MEMBER although they are legal
  *  bindings.  TS: a method named `constructor` IS the constructor, and a
  *  method named `then` makes every instance a thenable, so `await

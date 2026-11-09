@@ -1235,7 +1235,8 @@ function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContext
  *  becomes a coroutine.  A leaf part (no `contains`) stays a plain sync `def`,
  *  so single-level output is byte-identical. */
 function partHydrateIsAsync(agg: EnrichedAggregateIR, partName: string): boolean {
-  return (agg.parts.find((p) => p.name === partName)?.contains.length ?? 0) > 0;
+  const part = agg.parts.find((p) => p.name === partName);
+  return !!part && (part.contains.length > 0 || valueCollectionsFor(part).length > 0);
 }
 
 /** The `_hydrate_<part>(<arg>)` call, `await`ed iff that part's hydrate is a
@@ -1255,7 +1256,7 @@ function partHydrateMethod(
   // A nested part FKs to (and brands its `parent_id` from) its DIRECT parent —
   // a sibling part for a part-in-part, else the aggregate root.
   const parentName = directParentName(agg, p.name, agg.name);
-  const isAsync = p.contains.length > 0;
+  const isAsync = partHydrateIsAsync(agg, p.name);
   const out: string[] = [
     `    ${isAsync ? "async def" : "def"} _hydrate_${snake(p.name)}(self, row: ${partRow}) -> ${partRef(agg, p.name)}:`,
   ];
@@ -1271,12 +1272,32 @@ function partHydrateMethod(
       "        ).scalars().all()",
     );
   }
+  // …and each of its own value-object collections (ordinal-ordered → VO list).
+  const partValues = valueCollectionsFor(p);
+  for (const vc of partValues) {
+    const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
+    out.push(
+      `        ${snake(vc.fieldName)}_rows = (`,
+      "            await self._session.execute(",
+      `                ${R.select}(${vcRow})`,
+      `                .where(${vcRow}.${vc.parentFk} == row.id)`,
+      `                .order_by(${vcRow}.ordinal)`,
+      "            )",
+      "        ).scalars().all()",
+    );
+  }
   const kwargs = [
     `id=${pyIdType(p.name)}(row.id)`,
     `parent_id=${pyIdType(parentName)}(row.parent_id)`,
     ...p.fields
-      .filter((f) => !isRefCollectionField(f) && !isValueCollectionField(f))
-      .map((f) => `${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`),
+      .filter((f) => !isRefCollectionField(f))
+      .flatMap((f) => {
+        if (!isValueCollectionField(f)) {
+          return [`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`];
+        }
+        const vc = partValues.find((c) => c.fieldName === f.name);
+        return vc ? [`${pythonIdent(f.name)}=${hydrateValueCollection(vc, "__r", ctx)}`] : [];
+      }),
     ...p.contains.map((c) => {
       const v = snake(c.name);
       return c.collection
@@ -1627,6 +1648,10 @@ function syncContainment(
     `${indent}        ${R.insert}(${partRow}).values(**${rowVar}).on_conflict_do_update(index_elements=["id"], set_=${rowVar})`,
     `${indent}    )`,
   );
+  // Each part's OWN value-object collections, replaced under this child's id.
+  for (const vc of part ? valueCollectionsFor(part) : []) {
+    out.push(...syncValueCollection(vc, ctx, loopVar, `${indent}    `, true));
+  }
   // Recurse: each part's OWN nested containments, keyed by this child's id.
   for (const nested of part?.contains ?? []) {
     out.push(
@@ -1701,12 +1726,17 @@ function syncValueCollection(
   vc: ValueCollectionIR,
   ctx: EnrichedBoundedContextIR,
   aggVar: string,
+  /** Leading indent; a part's list syncs inside its containment loop. */
+  ind = "        ",
+  /** A part's list names its loop variables for its child table, so a part's
+   *  `tags` never rebinds the root's `tags` loop variable to another type. */
+  isPart = false,
 ): string[] {
   const vcRow = schemaRow(valueCollectionRowClassName(vc.childTable));
   const vo = findValueObjectInScope(ctx, vc.voName);
   // Loop variables are named per collection: one save method holds several
   // loops, and `mypy --strict` rejects a name rebound to a different element type.
-  const field = snake(vc.fieldName);
+  const field = isPart ? vc.childTable : snake(vc.fieldName);
   const idx = `__i_${field}`;
   const elem = `__e_${field}`;
   // Flattened VO column kwargs: `amount=Decimal(str(__e_<field>.amount)), …`.
@@ -1715,17 +1745,17 @@ function syncValueCollection(
       `${pythonIdent(vf.name)}=${persistScalar(`${elem}.${pythonIdent(vf.name)}`, vf.type, false)}`,
   );
   return [
-    "        await self._session.execute(",
-    `            ${R.delete}(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
-    "        )",
-    `        for ${idx}, ${elem} in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
-    "            await self._session.execute(",
-    `                ${R.insert}(${vcRow}).values(`,
-    `                    ${vc.parentFk}=${aggVar}.id,`,
-    `                    ordinal=${idx},`,
-    ...voKwargs.map((p) => `                    ${p},`),
-    "                )",
-    "            )",
+    `${ind}await self._session.execute(`,
+    `${ind}    ${R.delete}(${vcRow}).where(${vcRow}.${vc.parentFk} == ${aggVar}.id)`,
+    `${ind})`,
+    `${ind}for ${idx}, ${elem} in enumerate(${aggVar}.${pythonIdent(vc.fieldName)} or []):`,
+    `${ind}    await self._session.execute(`,
+    `${ind}        ${R.insert}(${vcRow}).values(`,
+    `${ind}            ${vc.parentFk}=${aggVar}.id,`,
+    `${ind}            ordinal=${idx},`,
+    ...voKwargs.map((p) => `${ind}            ${p},`),
+    `${ind}        )`,
+    `${ind}    )`,
   ];
 }
 

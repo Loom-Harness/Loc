@@ -5,6 +5,7 @@ import { readPortsForOperation } from "../../../ir/util/domain-service-read-port
 import { answersEntryResults } from "../../../ir/util/entry-result.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
@@ -712,21 +713,19 @@ ${externHandlers
   const authUsing = authRequired ? `\nusing ${ns}.Auth;` : "";
   const authDi = authRequired
     ? `
-// Auth — JWT decode middleware + scoped accessor.  Register your
-// IUserVerifier implementation here (or anywhere in DI); the verifier
-// translates inbound tokens into the strongly-typed User claim record.
-// Dev-stub DevStubUserVerifier is registered first so a generated stack
-// boots out of the box; replace by registering your own IUserVerifier
-// (the last DI registration wins for new scope resolutions).
-builder.Services.AddScoped<IUserVerifier, DevStubUserVerifier>();${
+// Auth — JWT decode middleware + scoped accessor.  Exactly one
+// IUserVerifier translates inbound credentials into the User claim record.${
         oidc
           ? `
-// OIDC verifier — validates the IdP's tokens against its
-// JWKS and maps claims onto User.  Registered last so it wins over the
-// dev stub; configure the issuer / client via the env vars the
-// \`auth { oidc }\` block referenced.
+// OIDC verifier — validates the IdP's tokens against its JWKS and maps
+// claims onto User; configure the issuer / client via the env vars the
+// \`auth { oidc }\` block referenced.  No dev stub exists in this build.
 builder.Services.AddScoped<IUserVerifier, OidcUserVerifier>();`
-          : ""
+          : `
+// Dev stub — a development login, answering only when ${DEV_AUTH_ENV}=1
+// (every request is 401 otherwise).  REPLACE it for production with your own
+// IUserVerifier, or declare an \`auth { oidc }\` block.
+builder.Services.AddScoped<IUserVerifier, DevStubUserVerifier>();`
       }
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();${
@@ -743,9 +742,19 @@ builder.Services.AddScoped<IOrgPathResolver, ${usingDapper ? "DapperOrgPathResol
     : "";
   const authVerify = authRequired
     ? `
-// Verify the user supplied an IUserVerifier.  Without it every request
-// would fail at the middleware, surfacing as a confusing 500; failing
-// fast at startup makes the missing registration obvious.
+// A hand-edited Program.cs that drops the verifier registration would fail
+// every request at the middleware with a confusing 500; refuse to boot instead.${
+        oidc
+          ? ""
+          : `
+// One startup line says whether the dev-stub login is on.
+if (DevStubUserVerifier.Enabled)
+    ${renderDotnetLogCall("authDevStubRegistered").replace("_log.", "app.Logger.")}
+else
+    ${renderDotnetLogCall("authDevStubDisabled", [
+      { name: "reason", valueExpr: JSON.stringify(DEV_AUTH_DISABLED_LOG) },
+    ]).replace("_log.", "app.Logger.")}`
+      }
 using (var scope = app.Services.CreateScope())
 {
     if (scope.ServiceProvider.GetService<IUserVerifier>() is null)

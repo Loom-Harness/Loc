@@ -453,9 +453,25 @@ function docContainmentValueUnsupported(
   agg: AggregateIR,
 ): boolean {
   if (e.kind === "new" || e.kind === "object") {
-    return e.fields.some((f) => docExprUnsupported(f.value, allowFnCall, agg));
+    return e.fields.some((f) => docPartFieldValueUnsupported(f.value, allowFnCall, agg));
   }
   // A `-=` may pass a bare element/predicate — fall back to the scalar check.
+  return docExprUnsupported(e, allowFnCall, agg);
+}
+
+/** Is one field value of a doc-safe part constructor itself unsupported?  A
+ *  list literal of value-object constructors (`conditions: [Cond { … }]`) is
+ *  the part's value-object array — a list of maps inside the part's entry in
+ *  the embed, rendered as the relational path renders it — and is safe when
+ *  every constructor argument is. */
+function docPartFieldValueUnsupported(e: ExprIR, allowFnCall: boolean, agg: AggregateIR): boolean {
+  if (e.kind === "list") {
+    return e.elements.some(
+      (el) =>
+        !(el.kind === "call" && el.callKind === "value-object-ctor") ||
+        el.args.some((a) => docExprUnsupported(a, allowFnCall, agg)),
+    );
+  }
   return docExprUnsupported(e, allowFnCall, agg);
 }
 

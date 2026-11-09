@@ -14,9 +14,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHOWCASE = fs.readFileSync(path.resolve(here, "../../../examples/showcase.ddd"), "utf8");
 
-async function build(): Promise<Map<string, string>> {
-  return generateSystemFiles(SHOWCASE);
+async function build(source: string = SHOWCASE): Promise<Map<string, string>> {
+  return generateSystemFiles(source);
 }
+
+/** The showcase reads `adhoc` in a loop; dropping that loop leaves the one
+ *  unread retrieval `let` the F841 case needs (it also raises
+ *  `loom.unused-let`, a warning — generation still runs). */
+const UNREAD_ADHOC = SHOWCASE.replace('  for q in adhoc { q.addPipeline("adhoc") }', "");
 
 function fileEndingWith(files: Map<string, string>, suffix: string): string {
   for (const [k, v] of files) if (k.endsWith(suffix)) return v;
@@ -31,7 +36,8 @@ describe("python generator — ruff-clean output", () => {
   });
 
   it("F841: an unused `run` retrieval let drops the assignment, keeping the await", async () => {
-    const routes = fileEndingWith(await build(), "app/http/workflows_routes.py");
+    expect(UNREAD_ADHOC).not.toBe(SHOWCASE);
+    const routes = fileEndingWith(await build(UNREAD_ADHOC), "app/http/workflows_routes.py");
     expect(routes).toContain(
       "await projects.run_find_all_by_active_named_by_sequence_desc(needle, offset=0, limit=100)",
     );

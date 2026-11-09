@@ -21,6 +21,7 @@ import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { claimPathFor } from "../_auth/claim-types.js";
 import {
+  DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
   devClaimFields,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -469,8 +470,15 @@ ${indentElixir(authedTail, 4)}
       ? ""
       : `
   # DEV STUB: the built-in admin principal, exposed so LiveAuth grants
-  # LiveViews the same identity the :api pipeline grants every request.
-  def dev_user, do: build_user(elem(verify_token(nil), 1))${orgPathPipe}
+  # LiveViews the same identity the :api pipeline grants every request —
+  # nil unless ${DEV_AUTH_ENV}=1, like every request the plug sees.
+  def dev_user do
+    if dev_auth?(), do: build_user(dev_claims())${orgPathPipe}
+  end
+
+  # The dev stub answers only when ${DEV_AUTH_ENV}=1 — a development login,
+  # never a production one.  Off, every request is refused (401).
+  def dev_auth?, do: System.get_env("${DEV_AUTH_ENV}") == "1"
 `
   }
   # The request principal for a user-shape claims map (atom keys), derived as
@@ -534,7 +542,7 @@ ${indentElixir(authedTail, 4)}
   def call(conn, _opts) do`
     : `  @impl Plug
   def call(conn, opts) do
-    if dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do
+    if dev_auth?() and dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do
       send_malformed_dev_claims(conn)
     else
       authenticate(conn, opts)
@@ -958,26 +966,29 @@ function renderDevStubVerifier(user: UserIR | undefined): string {
   // `build_user/1` reads flat `claims[snake(field)]` (the OIDC arm walks the
   // configured claim path instead).
   const claimEntries = (user?.fields ?? []).map(
-    (f) => `       ${JSON.stringify(snake(f.name))} => ${elixirStubValueFor(f)}`,
+    (f) => `      ${JSON.stringify(snake(f.name))} => ${elixirStubValueFor(f)}`,
   );
   // `%{}` for a shapeless user block, so the emitted term stays formatter-clean
   // either way (an empty map never reaches the multi-line layout).
-  const claims =
-    claimEntries.length > 0 ? `\n     %{\n${claimEntries.join(",\n")}\n     }}` : " %{}}";
+  const claims = claimEntries.length > 0 ? `    %{\n${claimEntries.join(",\n")}\n    }` : "    %{}";
   return `  # ---------------------------------------------------------------------------
-  # User-supplied JWT verifier hook.  Default DEV STUB accepts every request
-  # (nil included) as a built-in admin user so a generated stack boots
-  # end-to-end — the same out-of-the-box behaviour as the Hono and .NET
-  # dev-stub verifiers.  The identity fills every field the system's
-  # \`user { … }\` block declares, so \`/auth/me\` answers the full declared shape.
+  # User-supplied JWT verifier hook.  Default DEV STUB: with ${DEV_AUTH_ENV}=1 it
+  # accepts every request (nil included) as a built-in admin user so a
+  # generated dev stack boots end-to-end — the same behaviour as every other
+  # backend's dev-stub verifier; without it, it refuses every request (401).
+  # The identity fills every field the system's \`user { … }\` block declares,
+  # so \`/auth/me\` answers the full declared shape.
   # REPLACE for production with a real JWT decoder, or declare an
   # \`auth { oidc { … } }\` block to get the generated OIDC verifier.
   # ---------------------------------------------------------------------------
 
   defp verify_token(token) do
     _ = token
+    if dev_auth?(), do: {:ok, dev_claims()}, else: {:error, :dev_auth_off}
+  end
 
-    {:ok,${claims}
+  defp dev_claims do
+${claims}
   end
 `;
 }
@@ -1586,7 +1597,7 @@ function renderLiveAuth(
   // redirects to /login, where the real handshake populates it.
   const missingSessionArm = auth
     ? `_ -> {:error, :unauthenticated}`
-    : `_ -> {:ok, ${webModule}.Auth.dev_user()}`;
+    : `_ -> if user = ${webModule}.Auth.dev_user(), do: {:ok, user}, else: {:error, :unauthenticated}`;
   // Where an unauthenticated LiveView bounces.  OIDC → the real login handshake
   // (which 302s to the IdP); dev-stub never reaches this arm (dev_user always
   // grants), so "/" is a harmless placeholder.

@@ -177,7 +177,7 @@ const REFUSAL: Record<string, string[]> = {
     "status_code=400,",
   ],
   elixir: [
-    "if dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do",
+    "if dev_auth?() and dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do",
     "|> send_resp(400, body)",
   ],
 };
@@ -223,7 +223,7 @@ describe("dev-auth-stub refuses a malformed x-loom-dev-claims header with 400 (D
       const req = createRequire(join(dir, "index.js"));
       const stub = req("./dev-stub.js");
       const verifier = req("./verifier.js");
-      stub.registerDevStubVerifier();
+      stub.registerDevStubVerifier(true);
       const call = (header?: string) =>
         verifier.verifyUserOrThrow(
           new Request(

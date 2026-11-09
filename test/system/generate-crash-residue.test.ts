@@ -117,6 +117,27 @@ system S {
     expect(codes).toContain("loom.collection-field-unpersisted");
   });
 
+  it("gives the document reason (no join table), not the column-flattening one, on a `shape: document` aggregate", async () => {
+    const src = sys(`valueobject Pin { tags: Tag id[] }
+      aggregate Order shape: document with crudish { code: string  pin: Pin }`);
+    const { model } = await parseString(src);
+    const diag = validateLoomModel(enrichLoomModel(lowerModel(model))).find(
+      (d) => d.code === "loom.collection-field-unpersisted",
+    );
+    expect(diag?.message).toContain("join table");
+    expect(diag?.message).not.toContain("flattens into scalar");
+  });
+
+  it("keeps the column-flattening reason on a relational aggregate", async () => {
+    const src = sys(`valueobject Pin { tags: Tag id[] }
+      aggregate Order with crudish { code: string  pin: Pin }`);
+    const { model } = await parseString(src);
+    const diag = validateLoomModel(enrichLoomModel(lowerModel(model))).find(
+      (d) => d.code === "loom.collection-field-unpersisted",
+    );
+    expect(diag?.message).toContain("flattens into scalar");
+  });
+
   it("still refuses the nested collection on a `shape: embedded` aggregate's own columns", async () => {
     const codes = await errorCodes(
       sys(`valueobject Bag { labels: Label[] }
@@ -138,16 +159,17 @@ system S {
     expect(codes).not.toContain("loom.collection-field-unpersisted");
   });
 
-  // A part's `<VO>[]`: the migration creates its child table, but only JPA
-  // reads and writes it; Dapper and MikroORM store it as a jsonb column their
-  // own schema declares.  Every other host would lose it, so the position is refused
-  // unless every database-backed host of the context stores it.
+  // A part's `<VO>[]`: every adapter but Dapper and MikroORM reads and writes
+  // the part's child table the migration creates; those two keep the list in a
+  // jsonb column of their own.  So the position is refused only where one of
+  // them shares the context with another adapter — and never on a document
+  // aggregate, whose blob holds the list on every adapter.
   describe("a value-object collection on an entity part", () => {
-    const partSys = (platforms: string[]): string => `
+    const partSys = (platforms: string[], shape = ""): string => `
 system S {
   subdomain Sd { context C {
     valueobject Label { text: string }
-    aggregate Order with crudish {
+    aggregate Order ${shape}with crudish {
       code: string
       contains lines: Line[]
       entity Line { qty: int  notes: Label[] }
@@ -163,16 +185,12 @@ system S {
     .join("\n  ")}
 }`;
 
-    for (const platform of ["node", "dotnet", "python", "elixir"]) {
-      it(`is refused on ${platform}`, async () => {
-        expect(await errorCodes(partSys([platform]))).toContain(
-          "loom.collection-field-unpersisted",
-        );
-      });
-    }
-
     for (const platform of [
       "java",
+      "node",
+      "python",
+      "dotnet",
+      "elixir",
       "dotnet { persistence: dapper }",
       "node { persistence: mikroorm }",
     ]) {
@@ -183,10 +201,24 @@ system S {
       });
     }
 
-    it("is refused when java shares the context with a host that would lose it", async () => {
-      expect(await errorCodes(partSys(["java", "node"]))).toContain(
-        "loom.collection-field-unpersisted",
-      );
+    it("is accepted when child-table adapters share the context", async () => {
+      expect(
+        await errorCodes(partSys(["java", "node", "python", "dotnet", "elixir"])),
+      ).not.toContain("loom.collection-field-unpersisted");
+    });
+
+    for (const jsonb of ["node { persistence: mikroorm }", "dotnet { persistence: dapper }"]) {
+      it(`is refused when ${jsonb} shares the context with a child-table adapter`, async () => {
+        expect(await errorCodes(partSys(["java", jsonb]))).toContain(
+          "loom.collection-field-unpersisted",
+        );
+      });
+    }
+
+    it("is accepted on a document aggregate whatever the adapters", async () => {
+      expect(
+        await errorCodes(partSys(["java", "node { persistence: mikroorm }"], "shape: document, ")),
+      ).not.toContain("loom.collection-field-unpersisted");
     });
   });
 });

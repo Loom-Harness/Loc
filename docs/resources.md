@@ -39,7 +39,7 @@ storage mailer     { type: smtp,     config: { from: "no-reply@app.example.com" 
 ```
 
 `type:` names the built-in **sourceType**. The `config { k: v }` map carries
-vendor parameters (strings / ints / bools), validated per sourceType against
+vendor parameters (string values), validated per sourceType against
 the registry's config schema:
 
 - **unknown key** → warning (forward-compatible),

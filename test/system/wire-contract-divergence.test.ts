@@ -65,6 +65,8 @@ const BASELINE: Record<string, Divergence> = {
   "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
   "document-collection-read.ddd Shop.Order": "containment-response-suffix",
   "document.ddd Cms.Article": "containment-response-suffix",
+  "part-value-collection.ddd Matching.RuleSet": "containment-response-suffix",
+  "part-value-collection-document.ddd Matching.RuleSet": "containment-response-suffix",
   "embedded.ddd Shop.Order": "containment-response-suffix",
   "field-mask.ddd Staff.Employee": "containment-response-suffix",
   "single-containment.ddd Shop.Order": "containment-response-suffix",

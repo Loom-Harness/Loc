@@ -1,0 +1,216 @@
+{
+  "case": "part-value-collection",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/add_rule",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "s",
+        "rowVersion": 2,
+        "rules": [
+          {
+            "conditions": [
+              {
+                "attr": "age",
+                "min": 18
+              },
+              {
+                "attr": "tail",
+                "min": 19
+              }
+            ],
+            "id": "<volatile:key>",
+            "key": "k"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/retune",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "s",
+        "rowVersion": 3,
+        "rules": [
+          {
+            "conditions": [
+              {
+                "attr": "income",
+                "min": 0
+              }
+            ],
+            "id": "<volatile:key>",
+            "key": "k"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/rule_sets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "s",
+            "rowVersion": 3,
+            "rules": [
+              {
+                "conditions": [
+                  {
+                    "attr": "income",
+                    "min": 0
+                  }
+                ],
+                "id": "<volatile:key>",
+                "key": "k"
+              }
+            ]
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/rule_sets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "s2",
+        "rowVersion": 4,
+        "rules": [
+          {
+            "conditions": [
+              {
+                "attr": "income",
+                "min": 0
+              }
+            ],
+            "id": "<volatile:key>",
+            "key": "k"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 8,
+      "method": "DELETE",
+      "path": "/api/rule_sets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/rule_sets",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 10,
+      "method": "PATCH",
+      "path": "/api/rule_sets",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/rule_sets",
+        "instance": "/api/rule_sets",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/rule_sets",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/rule_sets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/rule_sets/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "RuleSet {id} not found",
+        "instance": "/api/rule_sets/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

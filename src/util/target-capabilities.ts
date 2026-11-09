@@ -572,7 +572,10 @@ const COMMON_PAIRS: Pick<
   // fixture runs both on every backend.
   "derived:reads-masked-field@aggregate": SUPPORTED,
   "criterion:reads-masked-field@context": SUPPORTED,
-  "field:valueobject-collection@entity-part": owned("loom.collection-field-unpersisted"),
+  // The `part-value-collection` corpus fixtures run it, relational and document,
+  // on every backend.  A Dapper or MikroORM host beside another adapter in one
+  // context is refused by `loom.collection-field-unpersisted`.
+  "field:valueobject-collection@entity-part": SUPPORTED,
   "invariant:nested-valueobject@valueobject": SUPPORTED,
   // A channel subscriber holds no principal to evaluate the mask against.
   "emit:masked-value@channel-event": owned("loom.field-mask-event-channel"),
@@ -618,11 +621,7 @@ const PYTHON_BACKEND: TargetCapabilityTable = {
 };
 
 const JAVA_BACKEND: TargetCapabilityTable = {
-  backend: {
-    ...STATIC_HOST_BACKEND_ROWS,
-    // JPA maps it to an `@CollectionTable`, but no fixture runs it.
-    "field:valueobject-collection@entity-part": refused("feature-composition-unwitnessed"),
-  },
+  backend: STATIC_HOST_BACKEND_ROWS,
   compositions: COMMON_COMPOSITIONS,
 };
 

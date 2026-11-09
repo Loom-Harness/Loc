@@ -154,6 +154,11 @@ function dockerRun(
     "/src",
     ...PROXY_ENV,
     ...extra,
+    // The system declares no `auth { oidc }`, so its authenticated routes run
+    // on the generated dev stub, which answers only when LOOM_DEV_AUTH=1 (401
+    // otherwise).  A container sees only the env passed with `-e`.
+    "-e",
+    "LOOM_DEV_AUTH=1",
     ...Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
     image,
     "sh",

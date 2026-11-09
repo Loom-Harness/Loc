@@ -301,7 +301,7 @@ describe("hono OIDC turnkey auth — codegen", () => {
     // The dev stub is the `verifier: "dev-stub"` branch only — and the
     // deployed server boots with no options, so it takes the OIDC branch.
     expect(boot).toMatch(
-      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(\);\n\s+baseLogger\.warn\(\{ event: "auth_dev_stub_registered" \}\);\n\s+\} else \{\n\s+registerOidcVerifier\(\);/,
+      /if \(opts\.verifier === "dev-stub"\) \{\n\s+registerDevStubVerifier\(true\);\n\s+baseLogger\.warn\(\{ event: "auth_dev_stub_registered" \}\);\n\s+\} else \{\n\s+registerOidcVerifier\(\);/,
     );
     expect(entryIndex(files)).toContain("await bootApp(db);");
   });
@@ -313,7 +313,7 @@ describe("hono OIDC turnkey auth — codegen", () => {
   it("emits the dev stub for the preview, imported by boot.ts alone", async () => {
     const files = await generateSystemFiles(OIDC);
     const devStub = findFile(files, /auth\/dev-stub\.ts$/);
-    expect(devStub).toContain("export function registerDevStubVerifier()");
+    expect(devStub).toContain("export function registerDevStubVerifier(enabled: boolean)");
     expect(devStub).toContain("PREVIEW-ONLY");
     const importers = [...files]
       .filter(([p]) => p.endsWith(".ts") && !p.endsWith("auth/dev-stub.ts"))
@@ -346,7 +346,14 @@ describe("hono OIDC turnkey auth — codegen", () => {
     // The stub itself lives in `auth/dev-stub.ts` — its own module, so a
     // harness that boots `createApp` instead of `bootApp` registers THE
     // generated identity rather than hand-writing a copy of it.
-    expect(boot).toContain("registerDevStubVerifier()");
+    // A development login: on only under the playground's `verifier:
+    // "dev-stub"` or LOOM_DEV_AUTH=1, and refusing every request otherwise.
+    expect(boot).toContain(
+      'const devAuth = opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1";',
+    );
+    expect(boot).toContain("registerDevStubVerifier(devAuth);");
+    expect(boot).toContain('baseLogger.error({ event: "auth_dev_stub_disabled"');
+    expect(findFile(files, /auth\/dev-stub\.ts$/)).toContain("if (!enabled) return null;");
     const devStub = findFile(files, /auth\/dev-stub\.ts$/);
     // The dev stub honours an injected x-loom-dev-claims header (the
     // playground identity-injection seam) — dev-only, merged over the

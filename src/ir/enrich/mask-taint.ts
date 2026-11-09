@@ -17,9 +17,13 @@
 //     into a masked field gets the predicate as a hoisted `requires` (a caller
 //     who cannot read the field cannot change it; a merge-patch update that
 //     omits the key keeps the stored value and passes);
-//   - `applyMaskFindGates` / `applyMaskHandlerGates` — a read whose predicate
-//     reads a masked field would answer an existence oracle on the hidden
-//     value, so it inherits the mask predicate as its `requires`.
+//   - `applyMaskFindGates` / `applyMaskHandlerGates` / `applyMaskWorkflowGates`
+//     — a read whose predicate (its criterion / retrieval `where`, or a
+//     capability query-filter it runs under) reads a masked field would answer
+//     an existence oracle on the hidden value, so it inherits the mask
+//     predicate as its `requires`.  A handler or workflow inherits the gates of
+//     every read its body makes, including the reads of the `reading` domain
+//     services it calls.
 //
 // Every inherited gate is the mask predicate alone, which reads only
 // `currentUser` (`loom.field-mask-not-current-user`) — never the row or the
@@ -33,6 +37,7 @@ import type {
   CommandHandlerIR,
   CriterionIR,
   DerivedIR,
+  DomainServiceIR,
   ExprIR,
   FieldIR,
   FindIR,
@@ -42,9 +47,16 @@ import type {
   RetrievalIR,
   StmtIR,
   TypeIR,
+  WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkStmtsDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../util/walk.js";
 
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
 
@@ -99,7 +111,16 @@ function maskedReadsOf(
   return out;
 }
 
-type MaskSource = Pick<AggregateIR, "fields" | "derived">;
+type MaskSource = Pick<
+  AggregateIR,
+  "fields" | "derived" | "contextFilters" | "contextFilterOrigins"
+>;
+
+/** A read's `ignoring` stance — which capability query-filters it skips. */
+interface BypassStance {
+  bypassAll?: boolean;
+  bypassCaps?: readonly string[];
+}
 
 /** The fact: every masked wire member of an aggregate → its effective read
  *  predicate.  A declared `mask unless` field maps to its own predicate; a
@@ -129,12 +150,33 @@ export function maskedReadPredicates(agg: MaskSource): Map<string, ExprIR> {
   return out;
 }
 
-/** The predicate a read through `expr` (a find / criterion / retrieval
- *  predicate over the aggregate's rows) must inherit, or undefined. */
-function predicateMaskOf(agg: MaskSource, expr: ExprIR | undefined): ExprIR | undefined {
-  if (!expr || !agg.fields.some((f) => f.maskUnless)) return undefined;
+/** The capability query-filters a read of `agg` runs under: every
+ *  `contextFilters` entry, minus the ones its `ignoring` stance bypasses. */
+function carriedFilters(agg: MaskSource, stance: BypassStance | undefined): ExprIR[] {
+  if (stance?.bypassAll) return [];
+  const bypassed = new Set(stance?.bypassCaps ?? []);
+  return (agg.contextFilters ?? []).filter((_, i) => {
+    const cap = agg.contextFilterOrigins?.[i];
+    return cap === undefined || !bypassed.has(cap);
+  });
+}
+
+/** The predicate a read of `agg` must inherit, or undefined: the conjunction
+ *  of the mask predicates of every masked member its `where` (a find /
+ *  criterion / retrieval predicate) or a capability filter it runs under
+ *  reads. */
+function readMaskOf(
+  agg: MaskSource,
+  where: ExprIR | undefined,
+  stance: BypassStance | undefined,
+): ExprIR | undefined {
+  if (!agg.fields.some((f) => f.maskUnless)) return undefined;
   const masks = maskedReadPredicates(agg);
-  const reads = maskedReadsOf(expr, new Set(masks.keys()));
+  const keys = new Set(masks.keys());
+  const reads: string[] = [];
+  for (const pred of [where, ...carriedFilters(agg, stance)]) {
+    for (const r of maskedReadsOf(pred, keys)) if (!reads.includes(r)) reads.push(r);
+  }
   return conjoinPredicates(reads.map((r) => masks.get(r)!));
 }
 
@@ -251,7 +293,7 @@ export function applyMaskFindGates(
     if (!agg?.fields.some((f) => f.maskUnless)) return r;
     let changed = false;
     const finds = r.finds.map((f: FindIR) => {
-      const mask = predicateMaskOf(agg, f.filter);
+      const mask = readMaskOf(agg, f.filter, f);
       if (!mask || (f.requires && conjoins(f.requires, mask))) return f;
       changed = true;
       return { ...f, requires: withMask(f.requires, mask) };
@@ -274,82 +316,182 @@ export function conjoins(gate: ExprIR, mask: ExprIR): boolean {
   return terms.some((t) => exprKey(t) === k);
 }
 
-/** The masked predicate a handler-body repository read runs, per aggregate. */
-function handlerReadMasks(
+/** Everything a body's reads resolve against. */
+interface ReadScope {
+  aggregates: ReadonlyMap<string, AggregateIR>;
+  repos: ReadonlyMap<string, RepositoryIR>;
+  criteria: ReadonlyMap<string, CriterionIR>;
+  retrievals: ReadonlyMap<string, RetrievalIR>;
+  services: ReadonlyMap<string, DomainServiceIR>;
+}
+
+function readScope(ctx: MaskScopeInput): ReadScope {
+  return {
+    aggregates: new Map(ctx.aggregates.map((a) => [a.name, a] as const)),
+    repos: new Map(ctx.repositories.map((r) => [r.name, r] as const)),
+    criteria: new Map((ctx.criteria ?? []).map((c) => [c.name, c] as const)),
+    retrievals: new Map((ctx.retrievals ?? []).map((r) => [r.name, r] as const)),
+    services: new Map((ctx.domainServices ?? []).map((d) => [d.name, d] as const)),
+  };
+}
+
+/** The masked predicate every repository read of a handler / workflow body
+ *  runs, per aggregate, in first-read order — the statement forms
+ *  (`repo-let` / `repo-run` / `if let`), the expression form (a `repo-read`
+ *  call), and, through each `reading` domain-service operation the body calls
+ *  (transitively), that operation's own reads. */
+function bodyReadMasks(
   statements: WorkflowStmtIR[],
-  aggregates: ReadonlyMap<string, AggregateIR>,
-  repos: ReadonlyMap<string, RepositoryIR>,
-  criteria: ReadonlyMap<string, CriterionIR>,
-  retrievals: ReadonlyMap<string, RetrievalIR>,
+  scope: ReadScope,
 ): { agg: string; mask: ExprIR }[] {
   const out: { agg: string; mask: ExprIR }[] = [];
-  const consider = (aggName: string, pred: ExprIR | undefined): void => {
-    const agg = aggregates.get(aggName);
+  const consider = (
+    aggName: string,
+    where: ExprIR | undefined,
+    stance: BypassStance | undefined,
+  ): void => {
+    const agg = scope.aggregates.get(aggName);
     if (!agg) return;
-    const mask = predicateMaskOf(agg, pred);
+    const mask = readMaskOf(agg, where, stance);
     if (mask) out.push({ agg: aggName, mask });
   };
-  const findFilter = (repoName: string, method: string | undefined): ExprIR | undefined =>
-    method ? repos.get(repoName)?.finds.find((f) => f.name === method)?.filter : undefined;
+  const find = (repoName: string, method: string | undefined): FindIR | undefined =>
+    method ? scope.repos.get(repoName)?.finds.find((f) => f.name === method) : undefined;
+  const criterionBody = (c: { name: string } | undefined): ExprIR | undefined =>
+    c?.name ? scope.criteria.get(c.name)?.body : undefined;
+  const visitedOps = new Set<string>();
+  // An expression-level read: a `reading` domain service's repository query,
+  // or a call into a domain service whose operation body reads.
+  const visitCall = (e: ExprIR): void => {
+    if (e.kind !== "call") return;
+    if (e.callKind === "repo-read" && e.repoRead) {
+      const r = e.repoRead;
+      const stance = r.bypassRead ?? r;
+      if (r.synthCriterion) consider(r.aggregate, criterionBody(r.synthCriterion), stance);
+      else if (r.retrievalName) {
+        const rt = scope.retrievals.get(r.retrievalName);
+        consider(r.aggregate, rt?.where, rt ?? stance);
+      } else {
+        const f = find(r.repo, r.method);
+        consider(r.aggregate, f?.filter, f ?? stance);
+      }
+    } else if (e.callKind === "domain-service" && e.serviceRef) {
+      const key = `${e.serviceRef.service}.${e.serviceRef.op}`;
+      if (visitedOps.has(key)) return;
+      visitedOps.add(key);
+      const op = scope.services
+        .get(e.serviceRef.service)
+        ?.operations.find((o) => o.name === e.serviceRef!.op);
+      for (const st of op?.body ?? []) walkStmtExprsDeep(st, visitCall);
+    }
+  };
   for (const st of statements) {
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "repo-let") {
-        if (n.synthCriterion) consider(n.aggName, criteria.get(n.synthCriterion.name)?.body);
-        else consider(n.aggName, findFilter(n.repoName, n.method));
+        const stance = n.bypassRead;
+        if (n.synthCriterion) consider(n.aggName, criterionBody(n.synthCriterion), stance);
+        else {
+          const f = find(n.repoName, n.method);
+          consider(n.aggName, f?.filter, stance ?? f);
+        }
       } else if (n.kind === "repo-run") {
-        if (n.synthCriterion) consider(n.aggName, criteria.get(n.synthCriterion.name)?.body);
-        else consider(n.aggName, retrievals.get(n.retrievalName)?.where);
+        if (n.synthCriterion) consider(n.aggName, criterionBody(n.synthCriterion), n);
+        else {
+          const rt = scope.retrievals.get(n.retrievalName);
+          consider(n.aggName, rt?.where, n.bypassAll || n.bypassCaps ? n : rt);
+        }
       } else if (n.kind === "if-let" && n.op !== "bound") {
-        consider(n.aggName, criteria.get(n.synthCriterion.name)?.body);
-        consider(n.aggName, findFilter(n.repoName, n.findMethod));
+        const f = find(n.repoName, n.findMethod);
+        const stance = n.bypassRead ?? f;
+        consider(n.aggName, criterionBody(n.synthCriterion), stance);
+        consider(n.aggName, f?.filter, stance);
       }
     });
+    walkWorkflowStmtExprsDeep(st, visitCall);
   }
   return out;
 }
 
+/** `statements` with a leading mask read gate per distinct masked predicate
+ *  its reads run — each marked `readGateOf` (it authorizes that read only,
+ *  like a `policy { read … }` handler gate).  A gate the body already leads
+ *  with (an authored copy) is not repeated, so the pass is idempotent. */
+function withMaskReadGates(statements: WorkflowStmtIR[], scope: ReadScope): WorkflowStmtIR[] {
+  const masks = bodyReadMasks(statements, scope);
+  if (masks.length === 0) return statements;
+  const keys = new Set<string>();
+  for (const st of statements) {
+    if (st.kind !== "requires") break;
+    keys.add(exprKey(st.expr));
+  }
+  const gates: WorkflowStmtIR[] = [];
+  for (const { agg, mask } of masks) {
+    const k = exprKey(mask);
+    if (keys.has(k)) continue;
+    keys.add(k);
+    gates.push({
+      kind: "requires",
+      expr: structuredClone(mask),
+      source: `mask unless — the read filters ${agg} on a masked field`,
+      readGateOf: agg,
+    });
+  }
+  return gates.length === 0 ? statements : [...gates, ...statements];
+}
+
+/** What the handler / workflow mask passes read against. */
+export interface MaskScopeInput {
+  aggregates: readonly AggregateIR[];
+  repositories: readonly RepositoryIR[];
+  criteria?: readonly CriterionIR[];
+  retrievals?: readonly RetrievalIR[];
+  domainServices?: readonly DomainServiceIR[];
+}
+
+const anyMasked = (ctx: MaskScopeInput): boolean =>
+  ctx.aggregates.some((a) => a.fields.some((f) => f.maskUnless));
+
 /** Put the mask predicate ahead of every hand-written handler whose body
  *  reads an aggregate through a predicate on a masked field — the handler
- *  twin of `applyMaskFindGates`.  The gate authorizes that read only
- *  (`readGateOf`), exactly like a `policy { read … }` handler gate. */
+ *  twin of `applyMaskFindGates`. */
 export function applyMaskHandlerGates<H extends QueryHandlerIR | CommandHandlerIR>(
   handlers: H[] | undefined,
-  ctx: {
-    aggregates: readonly AggregateIR[];
-    repositories: readonly RepositoryIR[];
-    criteria?: readonly CriterionIR[];
-    retrievals?: readonly RetrievalIR[];
-  },
+  ctx: MaskScopeInput,
 ): H[] | undefined {
-  if (!handlers || !ctx.aggregates.some((a) => a.fields.some((f) => f.maskUnless))) {
-    return handlers;
-  }
-  const aggregates = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
-  const repos = new Map(ctx.repositories.map((r) => [r.name, r] as const));
-  const criteria = new Map((ctx.criteria ?? []).map((c) => [c.name, c] as const));
-  const retrievals = new Map((ctx.retrievals ?? []).map((r) => [r.name, r] as const));
+  if (!handlers || !anyMasked(ctx)) return handlers;
+  const scope = readScope(ctx);
   return handlers.map((h) => {
     if (h.extern) return h;
-    const masks = handlerReadMasks(h.statements, aggregates, repos, criteria, retrievals);
-    const leading: WorkflowStmtIR[] = [];
-    for (const st of h.statements) {
-      if (st.kind !== "requires") break;
-      leading.push(st);
-    }
-    const gates: WorkflowStmtIR[] = [];
-    const keys = new Set(leading.filter((s) => s.kind === "requires").map((s) => exprKey(s.expr)));
-    for (const { agg, mask } of masks) {
-      const k = exprKey(mask);
-      if (keys.has(k)) continue;
-      keys.add(k);
-      gates.push({
-        kind: "requires",
-        expr: structuredClone(mask),
-        source: `mask unless — the read filters ${agg} on a masked field`,
-        readGateOf: agg,
-      });
-    }
-    return gates.length === 0 ? h : { ...h, statements: [...gates, ...h.statements] };
+    const statements = withMaskReadGates(h.statements, scope);
+    return statements === h.statements ? h : { ...h, statements };
+  });
+}
+
+/** The workflow twin: every command-triggered `create` — a caller's own
+ *  route — inherits the mask gates of the reads its body makes.  An
+ *  event-triggered `create` or an `on(…)` reactor runs as the system
+ *  principal on an event, with no caller to probe anything, so it is left
+ *  alone.  The deprecated `statements` facade (the primary create's body)
+ *  follows its create. */
+export function applyMaskWorkflowGates(workflows: WorkflowIR[], ctx: MaskScopeInput): WorkflowIR[] {
+  if (!anyMasked(ctx)) return workflows;
+  const scope = readScope(ctx);
+  return workflows.map((wf) => {
+    let changed = false;
+    const creates = wf.creates.map((c) => {
+      if (c.triggerKind !== "command") return c;
+      const statements = withMaskReadGates(c.statements, scope);
+      if (statements === c.statements) return c;
+      changed = true;
+      return { ...c, statements };
+    });
+    if (!changed) return wf;
+    const primary = wf.creates.find((c) => c.name === null) ?? wf.creates[0];
+    const facade =
+      primary && primary.triggerKind === "command"
+        ? withMaskReadGates(wf.statements, scope)
+        : wf.statements;
+    return { ...wf, creates, statements: facade };
   });
 }
 

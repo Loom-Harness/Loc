@@ -18,6 +18,7 @@
 // `expect(...)`, so the `await` stays a statement-level concern and the assertion
 // expressions render synchronously.
 
+import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -68,7 +69,9 @@ function createCallOf(
 function findCallOf(
   e: ExprIR,
   ctx: BoundedContextIR,
-): { aggName: string; method: string; args: ExprIR[]; nullable: boolean } | undefined {
+):
+  | { aggName: string; method: string; args: ExprIR[]; nullable: boolean; paged: boolean }
+  | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   const hasRepo = ctx.repositories.some((r) => r.aggregateName === aggName);
@@ -84,7 +87,18 @@ function findCallOf(
     custom?.returnType.kind === "union";
   // A built-in read calls the repository method its verb is emitted as
   // (`get` → `getById`); a declared find keeps its own name.
-  return { aggName, method: custom ? e.member : repoVerbMethod(e.member), args: e.args, nullable };
+  // The whole-collection read (`all()`) is the repository's list method, which
+  // pages when the list read is paged: ask for one page large enough to hold
+  // every row a test writes, and read its items.
+  const paged =
+    op === "select-many" && custom !== undefined && pagedReturn(custom.returnType) !== null;
+  return {
+    aggName,
+    method: custom ? e.member : repoVerbMethod(e.member),
+    args: e.args,
+    nullable,
+    paged,
+  };
 }
 
 const repoHandle = (aggName: string): string => `repos.${lowerFirst(aggName)}`;
@@ -133,8 +147,11 @@ function renderStmt(
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
-        const args = find.args.map((a) => renderTsExpr(a)).join(", ");
-        const call = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
+        const args = find.paged
+          ? `1, 1000, "id", "asc"`
+          : find.args.map((a) => renderTsExpr(a)).join(", ");
+        const read = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
+        const call = find.paged ? `(${read}).items` : read;
         return [`const ${escapeTsIdent(s.name)} = ${find.nullable ? `(${call})!` : call};`];
       }
       return [`const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr)};`];

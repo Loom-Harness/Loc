@@ -97,7 +97,7 @@ describe("A — .NET emits a handler that touches no aggregate", () => {
     const echo = fileEndingWith(m, "app/application/echo.py");
     expect(echo).toContain("async def echo(session: AsyncSession, text: str) -> str:");
     expect(echo).not.toContain("NoopDomainEventDispatcher");
-    expect(fileEndingWith(m, "app/application/sum.py")).not.toContain("NoopDomainEventDispatcher");
+    expect(fileEndingWith(m, "app/application/sum_.py")).not.toContain("NoopDomainEventDispatcher");
     // CONTROL — the handler that DOES build a repository still imports it.
     const counted = fileEndingWith(m, "app/application/count_replacing.py");
     expect(counted).toContain("from app.domain.events import NoopDomainEventDispatcher");

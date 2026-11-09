@@ -413,6 +413,19 @@ count = n
 
 On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double duty** — it records the event *and* folds it immediately via `_apply`, so the in-memory aggregate reflects the transition before the command returns. There, command bodies may *only* `emit`; the state change lives in the `apply` block (below). The event-sourced `emit` becomes `{ const __ev: Events.DomainEvent = { type: "Deposited", … }; this._events.push(__ev); this._apply(__ev); }` (node), `{ var __ev = new Deposited(…); _domainEvents.Add(__ev); _Apply(__ev); }` (.NET), the same three-step block on Java, and `__ev = Deposited(…)` / `self._events.append(__ev)` / `self._apply(__ev)` on Python.
 
+A `let` in a workflow, handler or domain-service body that nothing reads is `loom.unused-let` (a warning). Two bindings are used without being read and are not flagged: a `get` / `getBy` read, which raises not-found on a miss, so the binding is an existence check; and a binding the body saves (`let o = Order.create(…)` is written at exit). An unread `find` / `findBy` / `all` read answers absence as a value, so it does nothing and is flagged:
+
+```ddd
+commandHandler Touch(c: Claim id) {
+  let exists = Claims.get(c)   // fine: 404 when the claim is missing
+  let maybe = Claims.find(c)   // warning: never read
+}
+```
+
+```text
+loom.unused-let: 'let maybe' in commandHandler Touch is never read.  Read it, or drop the binding: …
+```
+
 ## Assignment — `:=`, `+=`, `-=`
 
 `target := Expr` is scalar assignment; `target += Expr` / `target -= Expr` are collection append / remove (`add` / `remove` in the IR). The target is an `LValue` — a bare field name or a dotted path (`draft.zip`), optionally rooted with an explicit `this.` (`this.name`, `this.draft.zip`). Assigning to a `derived` member is an error (`Cannot assign to derived property …`). A numeric/decimal literal flowing into a `money` target is elaborated to the precise money constructor at lowering (`subtotal := 0.50` → `money("0.50")`).

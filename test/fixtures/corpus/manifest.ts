@@ -288,6 +288,20 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {
+    id: "part-value-collection",
+    title:
+      "a value-object array on an ENTITY PART (`Rule.conditions: Cond[]`) — the part's own id-less child table, read in order, replaced on rebuild",
+    doc: "language",
+    backends: ALL,
+  },
+  {
+    id: "part-value-collection-document",
+    title:
+      "a value-object array on an ENTITY PART of a `shape: document` aggregate — a JSON array inside the part's entry in the jsonb document",
+    doc: "language",
+    backends: ALL,
+  },
+  {
     id: "enum-collection",
     title: "an enum COLLECTION field (`skills: Skill[]`) — the enum × array crossing",
     doc: "language",

@@ -154,9 +154,11 @@ import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js"
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
+import { validateUnusedLets } from "./checks/unused-let-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import {
   validateEventChannelAmbiguous,
+  validateHandlerCollectionLets,
   validateHandlerInlineRepoCalls,
   validateWorkflows,
 } from "./checks/workflow-checks.js";
@@ -390,6 +392,7 @@ export function validateLoomModel(
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);
     validateWorkflowUnusedParams(c, diags);
+    validateUnusedLets(c, diags);
     validateWorkflows(
       c,
       diags,
@@ -406,6 +409,7 @@ export function validateLoomModel(
     // cannot hoist into a `let` (the workflow bodies get it inside
     // `validateWorkflows`).
     validateHandlerInlineRepoCalls(c, diags);
+    validateHandlerCollectionLets(c, diags);
     validateOptionalBindings(c, diags);
     // Ruling D1: a reactor's gates are evaluated against the system principal;
     // warn on one it can never satisfy.

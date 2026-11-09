@@ -45,7 +45,7 @@ const INFRA_KINDS = new Set<string>([
   "api",
 ]);
 const INTERFACES = new Set<string>(["sql", "rest", "graphql", "webSocket", "amqp", "sdk"]);
-const CONFIG_TYPES = new Set<string>(["string", "number", "boolean", "enum", "secret"]);
+const CONFIG_TYPES = new Set<string>(["string", "enum", "secret"]);
 
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");

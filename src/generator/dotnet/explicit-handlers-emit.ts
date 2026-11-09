@@ -65,7 +65,7 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
-import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -329,6 +329,10 @@ function renderHandlerClass(
   // resolves the actor through the injected accessor, as the workflow and
   // paged-run handlers do.
   const usesUser = handlerUsesCurrentUser(h);
+  // An `emit` collects onto `_workflowEvents`, dispatched through the injected
+  // dispatcher once the body (and any transaction) has succeeded — the
+  // workflow handler's event sink.
+  const hasEmit = workflowEmits(h.statements).length > 0;
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
@@ -336,18 +340,21 @@ function renderHandlerClass(
     ),
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
     ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
+    ...(hasEmit ? ["    private readonly IDomainEventDispatcher _events;"] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
     ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
+    ...(hasEmit ? ["IDomainEventDispatcher events"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
     ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
     ...(usesUser ? ["_currentUser = currentUser"] : []),
     ...(needsUow ? ["_uow = uow"] : []),
+    ...(hasEmit ? ["_events = events"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -393,7 +400,16 @@ function renderHandlerClass(
   const returnLine = h.returnValue
     ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
     : "        return Unit.Value;";
-  const userLines = usesUser ? ["        var currentUser = _currentUser.User;"] : [];
+  const userLines = [
+    ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
+    ...(hasEmit ? ["        var _workflowEvents = new List<IDomainEvent>();"] : []),
+  ];
+  const dispatchLines = hasEmit
+    ? [
+        "        foreach (var ev in _workflowEvents)",
+        "            await _events.DispatchAsync(ev, cancellationToken);",
+      ]
+    : [];
   const body =
     er && retType?.kind === "union"
       ? [
@@ -433,6 +449,7 @@ function renderHandlerClass(
           // unflushed.
           `        if (${entryErrorTestCs(er, retType, ns, "handlerResult")}) return handlerResult;`,
           "        await __deferral.FlushAsync(cancellationToken);",
+          ...dispatchLines,
           "        return handlerResult;",
         ].join("\n")
       : rechecks
@@ -451,9 +468,10 @@ function renderHandlerClass(
             "            throw;",
             "        }",
             "        await __deferral.FlushAsync(cancellationToken);",
+            ...dispatchLines,
             returnLine,
           ].join("\n")
-        : [...userLines, ...stmtLines, ...saveLines, returnLine].join("\n");
+        : [...userLines, ...stmtLines, ...saveLines, ...dispatchLines, returnLine].join("\n");
 
   // The `Handle` signature (`ValueTask<Order>`) needs the return aggregate's
   // domain namespace too — usually the same as the loaded one, but not always.
@@ -483,6 +501,9 @@ function renderHandlerClass(
       ? `\nusing ${ns}.Domain.Services;`
       : "";
   const authUsing = usesUser ? `\nusing ${ns}.Auth;` : "";
+  const emitUsings = hasEmit
+    ? `\nusing System.Collections.Generic;\nusing ${ns}.Domain.Events;`
+    : "";
 
   return `// Auto-generated.
 using System.Threading;
@@ -491,7 +512,7 @@ using Mediator;
 using ${ns}.Domain.Common;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
-using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}${authUsing}
+using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}${authUsing}${emitUsings}
 
 namespace ${handlerHome(ns, agg, kind).ns};
 

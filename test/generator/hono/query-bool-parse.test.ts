@@ -34,7 +34,7 @@ system Shop {
       repository Orders for Order
       criterion OrdersByFlag(f: bool) of Order = this.flagged == f
       queryHandler CountFlagged(wanted: bool): int {
-        let all = Orders.all()
+        let all = Orders.all(OrdersByFlag(wanted))
         return all.count()
       }
     }

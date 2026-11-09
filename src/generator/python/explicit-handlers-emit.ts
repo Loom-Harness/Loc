@@ -66,13 +66,18 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
-import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import {
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtsDeep,
+  workflowEmits,
+} from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
 import {
   plural,
   pythonIdent,
+  pythonModuleFn,
   pythonWireIdent,
   pythonWireNeedsAlias,
   snake,
@@ -115,8 +120,16 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
 
 // Symbols beyond the shared HTTP set, as `ref()` markers (M-T9.84).
 const ANY = pyRef("typing", "Any");
-/** A handler's application function (`from app.application.<snake> import <snake>`). */
-const handlerFnRef = (name: string): string => pyRef(`app.application.${snake(name)}`, snake(name));
+const DOMAIN_EVENT = pyRef("app.domain.events", "DomainEvent");
+/** A handler's application module and function name: one module per handler,
+ *  named for the function it defines.  `pythonModuleFn` escapes a keyword
+ *  (`Def` → `def_`, which `import` could not spell) and a builtin (`All` →
+ *  `all_`), so the module-level `def` never rebinds the builtin its own body or
+ *  the importing router calls. */
+const handlerFn = (name: string): string => pythonModuleFn(name);
+/** A handler's application function (`from app.application.<fn> import <fn>`). */
+const handlerFnRef = (name: string): string =>
+  pyRef(`app.application.${handlerFn(name)}`, handlerFn(name));
 /** An extern handler's user impl function. */
 const externImplRef = (name: string): string =>
   pyRef(`app.application.impl.${externImplFn(name)}`, externImplFn(name));
@@ -177,7 +190,7 @@ const externImplFn = (name: string): string => `${snake(name)}_impl`;
  *  void command it awaits without returning; otherwise it returns the impl's
  *  value verbatim (the impl owns the return contract). */
 function renderPyExternDispatch(h: Handler): string {
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [`session: ${H.AsyncSession}`, ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
@@ -304,7 +317,7 @@ function renderPagedRunHandlerModule(
   ctx: EnrichedBoundedContextIR,
   hasDispatch: boolean,
 ): string {
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const run = pagedRunStmt(h, ctx);
   const repoVar = pythonIdent(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
@@ -380,7 +393,7 @@ function renderHandlerModule(
   if (h.returnType && pagedReturn(h.returnType)) {
     return renderPagedRunHandlerModule(h, ctx, hasDispatch);
   }
-  const fnName = snake(h.name);
+  const fnName = handlerFn(h.name);
   const usesUser = handlerUsesUser(h, ctx);
 
   // A `command`/`query` RECORD param (M-T5.10 handler-param rewrite) FLATTENS
@@ -493,6 +506,17 @@ function renderHandlerModule(
     "    ",
   ).flat();
   const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));
+  // An `emit` collects onto `workflow_events`, dispatched once the body and
+  // its saves have run — the workflow route's event sink.
+  const hasEmit = workflowEmits(h.statements).length > 0;
+  const emitSinkLines = hasEmit ? [`    workflow_events: list[${DOMAIN_EVENT}] = []`] : [];
+  const emitDispatchLines = hasEmit
+    ? [
+        `    dispatcher = ${dispatcherExpr}`,
+        "    for ev in workflow_events:",
+        "        await dispatcher.dispatch(ev)",
+      ]
+    : [];
   // A `T?` entity return answers its miss as the find-absence 404: bind the
   // value once, refuse None, project the binding (`to_wire(None)` would raise).
   const absentIs404 = !!projectRepoHandle && routedAbsenceAnswers404(h, ctx);
@@ -534,7 +558,15 @@ function renderHandlerModule(
         ? [`    return ${returnExpr}`]
         : [];
 
-  const bodyLines = [...repoLines, ...stmtLines, ...saveLines, ...absentLines, ...returnLines];
+  const bodyLines = [
+    ...repoLines,
+    ...emitSinkLines,
+    ...stmtLines,
+    ...saveLines,
+    ...emitDispatchLines,
+    ...absentLines,
+    ...returnLines,
+  ];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;
@@ -577,7 +609,10 @@ export function emitPyExplicitHandlers(
   const hasExtern = handlers.some((h) => h.extern);
   if (hasExtern) out.set("app/application/impl/__init__.py", "");
   for (const h of handlers) {
-    out.set(`app/application/${snake(h.name)}.py`, renderHandlerModule(h, ctx, hasDispatch, sys));
+    out.set(
+      `app/application/${handlerFn(h.name)}.py`,
+      renderHandlerModule(h, ctx, hasDispatch, sys),
+    );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern) out.set(externImplPath(h.name), renderPyExternImpl(h, ctx));
   }

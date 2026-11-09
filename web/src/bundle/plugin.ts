@@ -88,8 +88,9 @@ export interface TsconfigAliasEntry {
 // `auth { oidc }` system takes the `x-loom-dev-claims` dev stub there) and
 // `infra: "in-process"` (no broker, no second Postgres connection).
 //
-// `devStubPath` — the emitted `auth/dev-stub.ts`, registered at entry top level
-// ONLY when there is no `boot.ts` to boot through: `createApp` asserts a
+// `devStubPath` — the emitted `auth/dev-stub.ts`, registered (switched on: the
+// preview is a development login) at entry top level ONLY when there is no
+// `boot.ts` to boot through: `createApp` asserts a
 // verifier is registered on an `auth: required` deployable, and without one the
 // preview dies with "createApp failed: No user verifier is registered".
 export function makeEntryStdin(
@@ -102,7 +103,7 @@ export function makeEntryStdin(
     ...(devStubPath && !bootPath
       ? [
           `import { registerDevStubVerifier } from "./${devStubPath}";`,
-          "registerDevStubVerifier();",
+          "registerDevStubVerifier(true);",
         ]
       : []),
     ...(bootPath ? [`export { bootApp } from "./${bootPath}";`] : []),

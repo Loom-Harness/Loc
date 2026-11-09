@@ -80,6 +80,70 @@ describe("visibility taint — read sinks", () => {
     const byName = ctx.queryHandlers!.find((h) => h.name === "GetByName")!;
     expect(byName.statements[0]!.kind).not.toBe("requires");
   });
+
+  it("a workflow's command create reading through a masked predicate inherits the gate", async () => {
+    const { ctx } = await enriched(
+      sys(
+        "",
+        `criterion BySsn(s: string) of P = this.ssn == s
+      workflow CheckSsn {
+        create(s: string) {
+          let p = Ps.find(BySsn(s))
+        }
+      }`,
+      ),
+    );
+    const wf = ctx.workflows.find((w) => w.name === "CheckSsn")!;
+    expect(wf.creates[0]!.statements[0]).toMatchObject({ kind: "requires", readGateOf: "P" });
+    // The deprecated facade follows its create.
+    expect(wf.statements[0]).toMatchObject({ kind: "requires", readGateOf: "P" });
+  });
+
+  it("a handler inherits the gate of a reading domain service it calls", async () => {
+    const { ctx } = await enriched(
+      sys(
+        "",
+        `criterion BySsn(s: string) of P = this.ssn == s
+      domainService Lookup {
+        operation known(s: string): bool { return Ps.find(BySsn(s)) != null }
+      }
+      queryHandler Known(s: string): bool {
+        let k = Lookup.known(s)
+        return k
+      }`,
+      ),
+    );
+    const h = ctx.queryHandlers!.find((x) => x.name === "Known")!;
+    expect(h.statements[0]).toMatchObject({ kind: "requires", readGateOf: "P" });
+  });
+
+  it("a predicate over two masked fields requires both masks (AND)", async () => {
+    const { ctx } = await enriched(
+      sys(
+        "",
+        `criterion Both(s: string, n: decimal) of P = this.ssn == s && this.salary > n
+      queryHandler GetBoth(s: string, n: decimal): P {
+        if let p = Ps.find(Both(s, n)) { return p } else { notFound }
+      }`,
+      ),
+    );
+    const h = ctx.queryHandlers!.find((x) => x.name === "GetBoth")!;
+    const gates = h.statements.filter((s) => s.kind === "requires");
+    expect(gates).toHaveLength(1);
+    expect((gates[0] as { expr: ExprIR }).expr).toMatchObject({ kind: "binary", op: "&&" });
+  });
+
+  it("a capability filter over a masked field gates every read that runs under it", async () => {
+    const { ctx } = await enriched(sys(`filter this.ssn != ""`));
+    const repo = ctx.repositories.find((r) => r.name === "Ps")!;
+    const all = repo.finds.find((f) => f.name === "all")!;
+    expect(all.requires).toBeDefined();
+    let readsRole = false;
+    walkExprDeep(all.requires, (n) => {
+      if (n.kind === "literal" && n.value === "hr") readsRole = true;
+    });
+    expect(readsRole).toBe(true);
+  });
 });
 
 describe("visibility taint — write sinks", () => {

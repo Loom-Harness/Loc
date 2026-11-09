@@ -1,0 +1,83 @@
+// A value-object collection on an ENTITY PART (`Rule.conditions: Cond[]`).
+//
+// The shared migration gives the part's list its own id-less child table,
+// `rule_conditions`, keyed by `(rule_id, ordinal)` — the same shape a root's
+// `<VO>[]` gets, one level down.  Every backend reads and writes that table:
+// the conditions come back in declared order on the single read and on the
+// list read, a rebuilt rule replaces its conditions wholesale, and deleting
+// the aggregate takes the condition rows with the rule rows.
+system PartValueCollection {
+  subdomain Pricing {
+    context Matching {
+      valueobject Cond { attr: string  min: int }
+      aggregate RuleSet with crudish {
+        name: string
+        contains rules: Rule[]
+        entity Rule {
+          key: string
+          conditions: Cond[]
+        }
+
+        operation addRule(key: string, attr: string, min: int) {
+          rules += Rule { key: key, conditions: [Cond { attr: attr, min: min }, Cond { attr: "tail", min: min + 1 }] }
+        }
+        operation retune(key: string, attr: string) {
+          let old = rules.where(r => r.key == key).first()
+          rules -= old
+          rules += Rule { key: key, conditions: [Cond { attr: attr, min: 0 }] }
+        }
+
+        test "a rule carries its conditions" {
+          let s = RuleSet.create(name: "s")
+          s.addRule("k", "age", 18)
+          expect(s.rules.first().conditions.count).toBe(2)
+        }
+      }
+      repository RuleSets for RuleSet { }
+    }
+  }
+
+  api MatchingApi from Pricing
+  storage pg { type: postgres }
+  resource matchingState { for: Matching, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Matching]
+    dataSources: [matchingState]
+    serves: MatchingApi
+    port: 4000
+  }
+
+  test e2e "a part's value-object collection round-trips in order" against d {
+    let s = api.ruleSets.create({ name: "s" })
+    api.ruleSets.addRule(s, { key: "k", attr: "age", min: 18 })
+    let read = api.ruleSets.getById(s)
+    expect(read.rules.length).toBe(1)
+    expect(read.rules.first().conditions.length).toBe(2)
+    expect(read.rules.first().conditions.first().attr).toBe("age")
+    expect(read.rules.first().conditions.first().min).toBe(18)
+
+    // A rebuilt rule replaces its conditions wholesale.
+    api.ruleSets.retune(s, { key: "k", attr: "income" })
+    let retuned = api.ruleSets.getById(s)
+    expect(retuned.rules.length).toBe(1)
+    expect(retuned.rules.first().conditions.length).toBe(1)
+    expect(retuned.rules.first().conditions.first().attr).toBe("income")
+
+    // The list read loads the part's conditions through the bulk path.
+    let listed = api.ruleSets.all()
+    expect(listed.items.length).toBe(1)
+    expect(listed.items.first().rules.first().conditions.length).toBe(1)
+
+    // The canonical update leaves the rule and its conditions in place.
+    api.ruleSets.update(s, { name: "s2" })
+    let updated = api.ruleSets.getById(s)
+    expect(updated.name).toBe("s2")
+    expect(updated.rules.first().conditions.first().attr).toBe("income")
+
+    api.ruleSets.destroy(s)
+    let empty = api.ruleSets.all()
+    expect(empty.items.length).toBe(0)
+  }
+}

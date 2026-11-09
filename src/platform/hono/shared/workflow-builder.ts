@@ -1286,11 +1286,14 @@ function emitWorkflowRoute(
       honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }, writeScope),
       `${bi}  `,
     );
+    const audits = auditAfterSaveLines(stmtChunks.flat(), `${bi}  `);
+    out.push(...audits.head);
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
       out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
+    out.push(...audits.tail);
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
     out.push(...resultAssign(`${bi}  `));
@@ -1319,11 +1322,14 @@ function emitWorkflowRoute(
       honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }, writeScope),
       bi,
     );
+    const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
+    out.push(...audits.head);
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
       out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
+    out.push(...audits.tail);
     out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
     out.push(...resultAssign(bi));
@@ -2413,6 +2419,8 @@ function emitHandlerFn(
     honoWorkflowStmtTarget(ctx, noParams, thisName, { dbHandle: "db", repoVarByAgg }),
     bi,
   );
+  const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
+  out.push(...audits.head);
   out.push(...stmtChunks.flat());
   if (opFragments) {
     const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
@@ -2425,6 +2433,7 @@ function emitHandlerFn(
   }
   for (const save of saves)
     out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+  out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   if (persisted && durable) {
@@ -2537,6 +2546,8 @@ function emitEventSourcedHandlerFn(
     honoWorkflowStmtTarget(ctx, noParams, "state", { dbHandle: "db", repoVarByAgg }),
     bi,
   );
+  const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
+  out.push(...audits.head);
   out.push(...stmtChunks.flat());
   if (opFragments) {
     const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
@@ -2549,6 +2560,7 @@ function emitEventSourcedHandlerFn(
   }
   for (const save of saves)
     out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
+  out.push(...audits.tail);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
@@ -2738,6 +2750,26 @@ function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
 // `paramExprs` / `thisName` in scope (the route handler and the saga handler
 // pass different bindings); the dispatch + `for-each` recursion live in the
 // spine.
+/** The queue an inline audited op-call stages its audit row on: one thunk per
+ *  call, run after the body's saves so each row's `after` snapshot is the saved
+ *  aggregate.  A thunk closes over its own `before` snapshot and target, so a
+ *  call inside a loop body queues one row per iteration. */
+const AUDIT_AFTER_SAVE = "__auditAfterSave";
+
+/** The queue declaration (`head`) and drain (`tail`) for a rendered command
+ *  body, both empty unless `body` queued an audit row.  `tail` goes after the
+ *  body's exit saves, inside the same transaction. */
+export function auditAfterSaveLines(
+  body: readonly string[],
+  indent: string,
+): { head: string[]; tail: string[] } {
+  if (!body.some((l) => l.includes(`${AUDIT_AFTER_SAVE}.push(`))) return { head: [], tail: [] };
+  return {
+    head: [`${indent}const ${AUDIT_AFTER_SAVE}: (() => Promise<void>)[] = [];`],
+    tail: [`${indent}for (const __audit of ${AUDIT_AFTER_SAVE}) await __audit();`],
+  };
+}
+
 export function honoWorkflowStmtTarget(
   ctx: BoundedContextIR,
   paramExprs: Map<string, string>,
@@ -2835,8 +2867,12 @@ export function honoWorkflowStmtTarget(
       const callLine = `${indent}${bind}${st.target}.${lowerFirst(st.op)}(${callArgs});`;
       // Audited op invoked inline → stage an audit_records row bracketing the
       // call with before/after wire snapshots, mirroring the per-operation
-      // route.  Only on the command-route path (audit context present) and when
-      // the aggregate's repo var is known (needed for `toWire`); otherwise the
+      // route.  The `before` snapshot is taken here; the row is queued and
+      // written once the body's saves have run (`auditAfterSaveLines`), so its
+      // `after` snapshot is the SAVED state — the save advances the
+      // aggregate's version, exactly as the per-operation route records it.
+      // Only on the command-route path (audit context present) and when the
+      // aggregate's repo var is known (needed for `toWire`); otherwise the
       // plain call is emitted (no audit), never a reference to a missing repo.
       const repoVar = audit && op?.audited ? audit.repoVarByAgg.get(st.aggName) : undefined;
       if (audit && op?.audited && repoVar) {
@@ -2848,22 +2884,24 @@ export function honoWorkflowStmtTarget(
           ...gateLines,
           `${indent}const ${before} = ${repoVar}.toWire(${st.target});`,
           callLine,
-          `${indent}const ${after} = ${repoVar}.toWire(${st.target});`,
-          `${indent}const ${c} = requestContext();`,
-          `${indent}await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
-          `${indent}  auditId: randomUUID(),`,
-          `${indent}  operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
-          `${indent}  action: "${st.op}",`,
-          `${indent}  targetType: "${st.aggName}",`,
-          `${indent}  targetId: (${after} as { id: string }).id,`,
-          `${indent}  actor: auditActor(),`,
-          `${indent}  before: ${before},`,
-          `${indent}  after: ${after},`,
-          `${indent}  at: new Date(),`,
-          `${indent}  status: "ok",`,
-          `${indent}  correlationId: ${c}?.correlationId ?? null,`,
-          `${indent}  scopeId: ${c}?.scopeId ?? null,`,
-          `${indent}  parentId: ${c}?.parentId ?? null,`,
+          `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
+          `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
+          `${indent}  const ${c} = requestContext();`,
+          `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
+          `${indent}    auditId: randomUUID(),`,
+          `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
+          `${indent}    action: "${st.op}",`,
+          `${indent}    targetType: "${st.aggName}",`,
+          `${indent}    targetId: (${after} as { id: string }).id,`,
+          `${indent}    actor: auditActor(),`,
+          `${indent}    before: ${before},`,
+          `${indent}    after: ${after},`,
+          `${indent}    at: new Date(),`,
+          `${indent}    status: "ok",`,
+          `${indent}    correlationId: ${c}?.correlationId ?? null,`,
+          `${indent}    scopeId: ${c}?.scopeId ?? null,`,
+          `${indent}    parentId: ${c}?.parentId ?? null,`,
+          `${indent}  });`,
           `${indent}});`,
         ];
       }

@@ -33,6 +33,10 @@ export function renderApplication(
   // dataset via the `__loom_seed` marker, so re-boots are no-ops.
   // Empty ⇒ byte-identical.
   seedModules: readonly string[] = [],
+  // Boot-time lines logged right after `server_starting` (the dev-stub
+  // on/off line of an `auth: required` system with no `auth { oidc }`).
+  // Empty ⇒ byte-identical.
+  bootLogLines: readonly string[] = [],
 ): string {
   // Catalog server-lifecycle events.  Same identities Hono + .NET
   // emit so a cross-backend dashboard pivots on one event name.
@@ -66,7 +70,7 @@ defmodule ${appModule}.Application do
   def start(_type, _args) do
     port = Application.get_env(:${appName}, ${appModule}Web.Endpoint, [])[:http][:port] || System.get_env("PORT") || "4000"
     env = System.get_env("MIX_ENV") || "prod"
-    ${startingCall}
+    ${startingCall}${bootLogLines.map((l) => `\n    ${l}`).join("")}
 
     children = [
       ${appModule}.Repo,

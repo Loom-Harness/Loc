@@ -76,7 +76,7 @@ import {
 } from "../../util/test-reset.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
-import { devClaimFields } from "../_auth/dev-claims.js";
+import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV, devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
@@ -1423,8 +1423,13 @@ function renderMain(
         ]
       : authRequired
         ? [
-            "# Dev-stub verifier — accepts every request as a built-in admin user",
-            "# (EMPTY permissions, so permission-guarded surfaces still deny).",
+            `# Dev-stub verifier — with ${DEV_AUTH_ENV}=1, accepts every request as a`,
+            "# built-in admin user (EMPTY permissions, so permission-guarded surfaces",
+            "# still deny); without it, refuses every request (401).  A development",
+            "# login, never a production one.",
+            `_DEV_AUTH = os.environ.get("${DEV_AUTH_ENV}") == "1"`,
+            "",
+            "",
             ...(pyDevClaims
               ? [
                   "# Dev-only: override string claims (e.g. tenantId) by sending a",
@@ -1433,7 +1438,9 @@ function renderMain(
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
                   ...pyDecodeDevClaims,
-                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
+                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User} | None:`,
+                  "    if not _DEV_AUTH:",
+                  "        return None",
                   `    user = ${M.User}(${stubKwargs})`,
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if not injected:",
@@ -1462,7 +1469,9 @@ function renderMain(
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
                   ...pyDecodeDevClaims,
-                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
+                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User} | None:`,
+                  "    if not _DEV_AUTH:",
+                  "        return None",
                   "    # No declared claim is carryable, but a malformed header still refuses.",
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if injected:",
@@ -1472,7 +1481,10 @@ function renderMain(
             "",
             "",
             `${M.register_user_verifier}(_dev_stub_verifier)`,
-            'log("warn", "auth_dev_stub_registered")',
+            "if _DEV_AUTH:",
+            '    log("warn", "auth_dev_stub_registered")',
+            "else:",
+            `    log("error", "auth_dev_stub_disabled", reason=${JSON.stringify(DEV_AUTH_DISABLED_LOG)})`,
             "",
             "",
           ]

@@ -2,6 +2,7 @@ import { audienceDeclared, audienceUnsetReason } from "../../../generator/_auth/
 import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
+  DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../../generator/_auth/dev-claims.js";
@@ -121,13 +122,17 @@ function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
 ${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
-/** Register the DEV-STUB verifier — accepts every request as a built-in
- *  identity carrying one value per field the system's \`user { … }\` block
- *  declares, so \`/auth/me\` answers the full declared shape out of the box.
+/** Register the DEV-STUB verifier.  \`enabled\` (\`bootApp\` passes it from
+ *  ${DEV_AUTH_ENV}=1 or the host's \`verifier: "dev-stub"\`): accept every request
+ *  as a built-in identity carrying one value per field the system's
+ *  \`user { … }\` block declares, so \`/auth/me\` answers the full declared
+ *  shape.  Not enabled: refuse every request.
  *
 ${usage} */
-export function registerDevStubVerifier(): void {
+export function registerDevStubVerifier(enabled: boolean): void {
   registerUserVerifier((req) => {
+    // Off: refuse every request (401), a forged dev-claims header included.
+    if (!enabled) return null;
     const base = devStubClaims();
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
