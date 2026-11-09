@@ -172,6 +172,47 @@ describe("pipeline layering — value imports point one way", () => {
     ).toEqual([]);
   });
 
+  it("ir/plan/ imports only ir/types, ir/util, ir/enrich and util — and lower/enrich never import it", () => {
+    // `ir/plan/` is the library of on-demand derived views the validators
+    // and generators share.  It sits downstream of enrichment and upstream of
+    // every consumer, so its imports (type-only ones included: a plan that
+    // names a generator type is already target-shaped) resolve only into the
+    // allowed IR subdirs or `src/util/`, and the passes it derives from
+    // (`ir/lower/`, `ir/enrich/`) never reach back into it.
+    const planDir = path.join(srcDir, "ir", "plan");
+    const planFiles = tsFiles(planDir);
+    expect(planFiles.length, "Expected src/ir/plan/ to hold at least one module").toBeGreaterThan(
+      0,
+    );
+    const allowedDirs = ["ir/types", "ir/util", "ir/enrich", "ir/plan", "util"].map(
+      (d) => path.join(srcDir, d) + path.sep,
+    );
+    const out: string[] = [];
+    for (const f of planFiles) {
+      for (const imp of importsOf(fs.readFileSync(f, "utf-8"))) {
+        if (!imp.spec.startsWith(".")) continue; // packages are not pipeline layers
+        const resolved = path.resolve(path.dirname(f), imp.spec);
+        if (allowedDirs.some((d) => resolved.startsWith(d))) continue;
+        out.push(`${path.relative(repoRoot, f)} -> ${path.relative(srcDir, resolved)}`);
+      }
+    }
+    for (const sub of ["lower", "enrich"]) {
+      for (const f of tsFiles(path.join(srcDir, "ir", sub))) {
+        for (const imp of importsOf(fs.readFileSync(f, "utf-8"))) {
+          if (!imp.spec.startsWith(".")) continue;
+          const resolved = path.resolve(path.dirname(f), imp.spec);
+          if (resolved.startsWith(planDir + path.sep))
+            out.push(`${path.relative(repoRoot, f)} -> ${path.relative(srcDir, resolved)}`);
+        }
+      }
+    }
+    expect(
+      out,
+      "ir/plan/ may import only ir/types, ir/util, ir/enrich and util (never generator/, " +
+        "platform/, system/ or language/), and ir/lower + ir/enrich must not import ir/plan.",
+    ).toEqual([]);
+  });
+
   it("generator/ does not value-import from system/ (the terminal composition layer)", () => {
     expect(
       offenders(generatorFiles, ["system"]),
