@@ -38,8 +38,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
-
-const IR_TYPES = path.join(REPO_ROOT, "src/ir/types/loom-ir.ts");
+import { irTypesSource } from "../_helpers/ir-types-source.js";
 
 /** Roots that EMIT. A field no file here mentions reaches no target. */
 const EMITTING_ROOTS = ["src/generator", "src/system", "src/platform"];
@@ -103,9 +102,9 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   ...Object.keys(NO_READER_DEBT),
 ];
 
-/** Every field name declared at interface-member indent in `loom-ir.ts`. */
+/** Every field name declared at interface-member indent in the IR types. */
 function declaredFields(): Set<string> {
-  const src = fs.readFileSync(IR_TYPES, "utf8");
+  const src = irTypesSource();
   const out = new Set<string>();
   for (const line of src.split("\n")) {
     const m = /^ {2}(?:readonly )?([a-z][A-Za-z0-9_]*)\??:/.exec(line);
@@ -187,7 +186,7 @@ describe("inert-IR-field census (M-T5.9 (a) denominator)", () => {
     // And the baseline must be a subset of what is actually declared — a name
     // left here after the field was deleted is a stale row, not a finding.
     const stale = NO_DOWNSTREAM_READER.filter((f) => !fields.has(f));
-    expect(stale, "baseline names a field `loom-ir.ts` no longer declares:").toEqual([]);
+    expect(stale, "baseline names a field the IR types no longer declare:").toEqual([]);
   });
 
   it("no IR field silently reaches no target", () => {

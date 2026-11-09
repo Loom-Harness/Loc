@@ -42,7 +42,6 @@
 // (`flutter analyze` + `flutter build web`); a string table cannot prove it.
 // What this table proves is that the spelling does not change unseen.
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -50,6 +49,7 @@ import { emitExpr, type WalkContext } from "../../../src/generator/_walker/walke
 import { DART_LEAVES } from "../../../src/generator/flutter/dart-expr.js";
 import { flutterTarget } from "../../../src/generator/flutter/flutter-target.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import { irTypesSource } from "../../_helpers/ir-types-source.js";
 
 const prim = (name: string): TypeIR => ({ kind: "primitive", name }) as TypeIR;
 const STRING = prim("string");
@@ -435,11 +435,11 @@ const PINS: Record<ExprIR["kind"], Pin[]> = {
 /** Every `kind:` literal in the `ExprIR` union, off the source (comments
  *  stripped) — the same enumeration `gate-expr.test.ts` measures against. */
 function exprKindsFromSource(): string[] {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const src = fs.readFileSync(path.resolve(here, "../../../src/ir/types/loom-ir.ts"), "utf8");
+  const _here = path.dirname(fileURLToPath(import.meta.url));
+  const src = irTypesSource();
   const start = src.indexOf("export type ExprIR =");
   const end = src.indexOf("\nexport ", start + 10);
-  expect(start, "ExprIR union not found in loom-ir.ts").toBeGreaterThan(-1);
+  expect(start, "ExprIR union not found in the IR types").toBeGreaterThan(-1);
   const block = src
     .slice(start, end)
     .replace(/\/\*[\s\S]*?\*\//g, "")

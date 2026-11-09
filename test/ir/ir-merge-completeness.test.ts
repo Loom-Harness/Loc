@@ -41,6 +41,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { irTypesSource } from "../_helpers/ir-types-source.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -74,7 +75,7 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
 
 /** Field names declared on `BoundedContextIR`, read out of the IR source. */
 function declaredFields(): string[] {
-  const src = readFileSync(`${root}src/ir/types/loom-ir.ts`, "utf8");
+  const src = irTypesSource();
   const start = src.indexOf("export interface BoundedContextIR");
   expect(start, "BoundedContextIR was renamed — this gate needs updating").toBeGreaterThan(-1);
   const body = src.slice(start, src.indexOf("\n}", start));
@@ -157,7 +158,7 @@ const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
 };
 
 function modelDeclaredFields(): string[] {
-  const src = readFileSync(`${root}src/ir/types/loom-ir.ts`, "utf8");
+  const src = irTypesSource();
   const start = src.indexOf("export interface LoomModel {");
   expect(start, "LoomModel was renamed — this gate needs updating").toBeGreaterThan(-1);
   const body = src.slice(start, src.indexOf("\n}", start));

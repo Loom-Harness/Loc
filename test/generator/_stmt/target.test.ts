@@ -9,6 +9,7 @@ import {
   type StmtTarget,
 } from "../../../src/generator/_stmt/target.js";
 import type { StmtIR } from "../../../src/ir/types/loom-ir.js";
+import { irTypesSource } from "../../_helpers/ir-types-source.js";
 
 // ---------------------------------------------------------------------------
 // The shared `StmtIR` spine (`renderStmtsWith` / `renderStmtChunksWith`) owns
@@ -32,9 +33,9 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 
 /** Kind literals declared by the `StmtIR` union in the IR types module. */
 function stmtIrKinds(): string[] {
-  const src = fs.readFileSync(path.join(repoRoot, "src", "ir", "types", "loom-ir.ts"), "utf8");
+  const src = irTypesSource();
   const start = src.indexOf("export type StmtIR =");
-  expect(start, "StmtIR union found in loom-ir.ts").toBeGreaterThan(-1);
+  expect(start, "StmtIR union found in the IR types").toBeGreaterThan(-1);
   // Up to the next top-level `export` declaration (the union's own arms never
   // start a line at column 0).
   const rest = src.slice(start + 1);

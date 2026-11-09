@@ -30,12 +30,12 @@
 // for.
 // ---------------------------------------------------------------------------
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderGateExpr, tryRenderGate } from "../../../src/generator/_frontend/gate-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import { irTypesSource } from "../../_helpers/ir-types-source.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 
@@ -65,11 +65,11 @@ const tern = (cond: ExprIR, a: ExprIR, b: ExprIR): ExprIR => ({
  *  at test time (comments stripped — one of them SHOWS a `{ kind: "primitive" }`
  *  TypeIR).  This is the enumeration the probe table is measured against. */
 function exprKindsFromSource(): string[] {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const src = fs.readFileSync(path.resolve(here, "../../../src/ir/types/loom-ir.ts"), "utf8");
+  const _here = path.dirname(fileURLToPath(import.meta.url));
+  const src = irTypesSource();
   const start = src.indexOf("export type ExprIR =");
   const end = src.indexOf("\nexport ", start + 10);
-  expect(start, "ExprIR union not found in loom-ir.ts").toBeGreaterThan(-1);
+  expect(start, "ExprIR union not found in the IR types").toBeGreaterThan(-1);
   const block = src
     .slice(start, end)
     .replace(/\/\*[\s\S]*?\*\//g, "")
