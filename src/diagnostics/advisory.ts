@@ -11,7 +11,7 @@
 //
 // This set is the one place that decides which codes get that treatment.  It
 // was a pair of `d.code !== "loom.index-suggestion"` literals in
-// `src/cli/main.ts` — which meant the second advisory to arrive would silently
+// the CLI — which meant the second advisory to arrive would silently
 // come out labelled `warning` and inflate the count, the exact
 // parse-disagrees-with-generate failure the shared IR printer exists to
 // prevent.
