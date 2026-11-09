@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { secureHeaders } from "hono/secure-headers";
 import { TrieRouter } from "hono/router/trie-router";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";
@@ -37,6 +38,29 @@ export function createApp(
   // inbound X-Request-Id header so callers can thread their
   // own id through.
   app.use("*", requestIdMiddleware);
+  // Baseline security headers on every response (errors included).
+  // Strict-Transport-Security only while LOOM_SECURE_TRANSPORT is on (the
+  // default); the local compose stack serves plain http and turns it off.
+  const secureTransport = !["false", "0", "off", "no"].includes(
+    (process.env.LOOM_SECURE_TRANSPORT ?? "").trim().toLowerCase(),
+  );
+  app.use(
+    "*",
+    secureHeaders({
+      xContentTypeOptions: "nosniff",
+      xFrameOptions: "DENY",
+      referrerPolicy: "strict-origin-when-cross-origin",
+      permissionsPolicy: { "camera": [], "microphone": [], "geolocation": [] },
+      strictTransportSecurity: secureTransport ? "max-age=31536000" : false,
+      crossOriginResourcePolicy: false,
+      crossOriginOpenerPolicy: false,
+      originAgentCluster: false,
+      xDnsPrefetchControl: false,
+      xDownloadOptions: false,
+      xPermittedCrossDomainPolicies: false,
+      xXssProtection: false,
+    }),
+  );
   // CORS: the compose stack sets CORS_ORIGIN to the frontend origin(s) —
   // a comma-separated allowlist.  When set, only those origins are
   // allowed (with credentials, so the session cookie flows cross-origin).
