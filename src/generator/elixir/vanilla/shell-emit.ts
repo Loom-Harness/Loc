@@ -345,11 +345,13 @@ export function emitVanillaShellFiles(
   if (i18nEnabled) {
     out.set(`lib/${appName}_web/gettext.ex`, renderGettextBackend(appName, appModule));
     out.set(`lib/${appName}_web/locale.ex`, renderLocaleModule(appModule, localeModel, icuEnabled));
-    // `mix test` needs the helper whether or not the model also declares `test`
-    // blocks (the domain-test emitter writes the identical file).
-    out.set("test/test_helper.exs", "ExUnit.start()\n");
-    out.set("test/locale_test.exs", renderLocaleTest(appModule, localeModel, hasLiveView));
     if (localeNegotiation) {
+      // The negotiation fallbacks are only worth a generated test where there
+      // is something to negotiate.  `mix test` needs the helper whether or not
+      // the model also declares `test` blocks (the domain-test emitter writes
+      // the identical file).
+      out.set("test/test_helper.exs", "ExUnit.start()\n");
+      out.set("test/locale_test.exs", renderLocaleTest(appModule, localeModel, hasLiveView));
       out.set(`lib/${appName}_web/locale_plug.ex`, renderLocalePlug(appModule));
       out.set(`lib/${appName}_web/locale_hook.ex`, renderLocaleHook(appModule));
     }
