@@ -607,7 +607,7 @@ function unitPrerequisites(
           ", ",
         )} — and the default test command runs them too. Start the host Postgres shown under [Or one deployable at a time](#or-one-deployable-at-a-time) first. Each block below points its project's suite at that project's own database through \`LOOM_PG_URL\`: the suites apply their migrations there, so two projects sharing one database collide on each other's tables${
         integration.some((u) => u.layout.bootsRepo)
-          ? ". The Elixir project uses its own \`<app>_test\` database from \`config/test.exs\` instead"
+          ? ". The Elixir project uses its own `<app>_test` database from `config/test.exs` instead"
           : ""
       }.`,
     );
