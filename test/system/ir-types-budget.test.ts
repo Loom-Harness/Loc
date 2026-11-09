@@ -25,12 +25,12 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  "context.ts": 37,
+  "context.ts": 31,
   "deployment.ts": 23,
-  "expr.ts": 45,
+  "expr.ts": 43,
   "members.ts": 18,
   "model.ts": 9,
-  "projection.ts": 18,
+  "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
   "system.ts": 28,
@@ -38,7 +38,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "types.ts": 14,
   "ui.ts": 26,
   "workflow.ts": 23,
-  "workflow-stmt.ts": 28,
+  "workflow-stmt.ts": 26,
 };
 
 /** `name?:` property signatures anywhere in one module's text. */

@@ -87,7 +87,21 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
-export interface FindIR {
+/** A read's `ignoring` stance (named-filter-bypass.md §11), shared by every
+ *  IR node that carries one.  `bypassAll` is `ignoring *`: bypass EVERY
+ *  capability query-filter on the aggregate for this read.  `bypassCaps` is
+ *  `ignoring A, B`: the resolved capability NAMES whose query-filters this
+ *  read bypasses; a backend maps each name to the predicate(s) it contributed
+ *  via `AggregateIR.contextFilterOrigins`, and derives the per-backend filter
+ *  identity (e.g. the EF `HasQueryFilter` name) in the emitter.  The two are
+ *  mutually exclusive, and both are absent on a read with no `ignoring`
+ *  clause — the common case. */
+export type Bypassing = {
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+};
+
+export interface FindIR extends Bypassing {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
@@ -109,17 +123,6 @@ export interface FindIR {
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
    *  composed/anonymous filters and non-reifying backends are unaffected. */
   criterionRef?: { name: string; args: ExprIR[] };
-  /** `ignoring *` — bypass EVERY capability query-filter on the aggregate for
-   *  this read (named-filter-bypass.md §11).  Resolved from the grammar
-   *  `bypassAll` flag.  Mutually exclusive with `bypassCaps`. */
-  bypassAll?: boolean;
-  /** `ignoring A, B` — the resolved capability NAMES whose query-filters this
-   *  read bypasses (named-filter-bypass.md §11).  Index-aligned with nothing;
-   *  a backend maps each name to the predicate(s) it contributed via
-   *  `AggregateIR.contextFilterOrigins`.  Only the capability *name* is stored
-   *  (fully-resolved IR) — the per-backend filter identity (e.g. the EF
-   *  `HasQueryFilter` name) is derived in the emitter. */
-  bypassCaps?: string[];
   /** A single-row find that answers the FIRST row its filter matches, in id
    *  order, where more than one row may match — the widened
    *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
@@ -167,10 +170,8 @@ export interface FindIR {
  *  repository method named by `keyLookupMethodName`, which enrichment
  *  synthesises (`synthesizeKeyLookupFinds`) as a `synthesized` find — one
  *  `WHERE` equality per column, capability filters applied as on any read. */
-export interface KeyLookupIR {
+export interface KeyLookupIR extends Bypassing {
   columns: string[];
-  bypassAll?: boolean;
-  bypassCaps?: string[];
 }
 
 /** A single-row read that widens its capability filters —
@@ -181,10 +182,8 @@ export interface KeyLookupIR {
  *  synthesises (`synthesizeBypassReadFinds`) as a `synthesized` find: the
  *  criterion's predicate (or `this.id == id`) with the read's stance as
  *  `bypassAll` / `bypassCaps`. */
-export interface BypassReadIR {
+export interface BypassReadIR extends Bypassing {
   source: { kind: "criterion"; name: string } | { kind: "id" };
-  bypassAll?: boolean;
-  bypassCaps?: string[];
 }
 
 export interface RepositoryIR extends Sourced {
@@ -304,8 +303,12 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *  RetrievalIR bundle node (reified-criteria.md).
  *
  *  No `page` field — pagination is a call-site argument on
- *  `Repo.all(R(args), page?)`, never part of the declaration. */
-export interface RetrievalIR extends Sourced {
+ *  `Repo.all(R(args), page?)`, never part of the declaration.
+ *
+ *  Its `ignoring` stance is set only on the retrievals enrichment derives
+ *  for a widened `Repo.all(…) ignoring …` read (`widenedRetrievalName`);
+ *  a declared retrieval never carries one. */
+export interface RetrievalIR extends Sourced, Bypassing {
   name: string;
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
@@ -325,13 +328,6 @@ export interface RetrievalIR extends Sourced {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
-  /** The `ignoring` stance of a widened list read's own retrieval
-   *  (`widenedRetrievalName`): `ignoring *` → `bypassAll`, `ignoring A, B` →
-   *  `bypassCaps`.  Set only on the retrievals enrichment derives for a
-   *  `Repo.all(…) ignoring …` read; the shared retrieval never carries one.
-   *  See `FindIR.bypassAll`. */
-  bypassAll?: boolean;
-  bypassCaps?: string[];
 }
 
 export interface BoundedContextIR extends Sourced {
