@@ -293,7 +293,7 @@ function renderExternPort(h: Handler, basePkg: string, appPkg: string): string {
 }
 
 /** The scaffold-once user impl bean — `<Name>HandlerImpl.java` (marker on line
- *  1 → the CLI writer preserves it).  Throws loudly until filled in. */
+ *  1 → the CLI writer preserves it).  Throws `NotImplementedException` (answered 501) until filled in. */
 function renderExternImpl(
   h: Handler,
   kind: "commandHandler" | "queryHandler",
@@ -316,7 +316,7 @@ function renderExternImpl(
     `public class ${h.name}HandlerImpl implements ${h.name}Port {`,
     `    @Override`,
     `    public ${ret} handle(${params}) {`,
-    `        throw new UnsupportedOperationException(${JSON.stringify(msg)});`,
+    `        throw new NotImplementedException(${JSON.stringify(msg)});`,
     `    }`,
     `}`,
     ``,

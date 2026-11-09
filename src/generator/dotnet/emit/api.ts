@@ -885,8 +885,8 @@ export function renderExceptionFilter(
      *  filter then answers a `DomainException` carrying a `RuleCode` with the
      *  same errors[] entry (M-T1.11 (c)). */
     domainFloorCodes?: boolean;
-    /** True when an `extern` operation exists — the filter then answers its
-     *  unfilled hook with a 501. */
+    /** True when an `extern` operation or handler exists — the filter then
+     *  answers its unfilled stub with a 501. */
     hasExtern?: boolean;
   },
 ): string {
@@ -1128,7 +1128,8 @@ export function renderExceptionFilter(
             return;
         }`
     : "";
-  // An unfilled `extern` operation hook: 501 naming the file to write.
+  // An unfilled `extern` operation hook or handler stub: 501 (the file to write
+  // goes to the log).
   const externNotImplementedArm = options?.hasExtern
     ? `
         if (context.Exception is ExternNotImplementedException xn)
