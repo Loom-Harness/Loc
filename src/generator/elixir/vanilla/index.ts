@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import {
   type ChannelIR,
   sourceLocaleOf,
@@ -713,8 +714,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // dictionary (the REST `serialize/1` reads it to redact fail-closed), and
     // so does an audited one: `Audit.record/2` reads it for the row's `actor`.
     hasFieldMask: contexts.some(
-      (c) =>
-        contextHasAuditedTarget(c) || c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
+      (c) => contextHasAuditedTarget(c) || c.aggregates.some(carriesFieldMask),
     ),
   });
   for (const [path, content] of authFiles) {

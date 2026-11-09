@@ -612,6 +612,39 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
 }`,
+  // A part `derived` reading a nested part's masked member: the part's own
+  // projection knows only its own masks.
+  "loom.field-mask-on-part": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate T with crudish {
+      contains lines: Line[]
+      entity Note { text: string  secret: bool mask unless currentUser.role == "hr" }
+      entity Line {
+        contains notes: Note[]
+        derived anySecret: bool = notes.any(n => n.secret)
+      }
+    }
+    repository Ts for T
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A value object has no read boundary of its own, so its field cannot be masked.
+  "loom.field-mask-on-value-object": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    valueobject Addr { city: string mask unless currentUser.role == "hr" }
+    aggregate P with crudish { home: Addr }
+    repository Ps for P
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
   // A unique key over a masked field with an ungated create: a 409 answers
   // whether a guessed hidden value exists.
   "loom.field-mask-unique-oracle": `

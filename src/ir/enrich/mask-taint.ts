@@ -38,6 +38,7 @@ import type {
   CriterionIR,
   DerivedIR,
   DomainServiceIR,
+  EntityPartIR,
   ExprIR,
   FieldIR,
   FindIR,
@@ -87,8 +88,16 @@ function conjoinPredicates(preds: readonly ExprIR[]): ExprIR | undefined {
     }));
 }
 
-/** The masked self-member names one expression reads — a field / derived
- *  read on the row (`salary`, `this.salary`), plus a `let` that carries one. */
+/** The key a contained part's masked member is tracked under — the part name
+ *  qualifies it, so it never collides with a root member name. */
+export function partMemberKey(part: string, member: string): string {
+  return `${part}.${member}`;
+}
+
+/** The masked member names one expression reads — a field / derived read on
+ *  the row (`salary`, `this.salary`), a `let` that carries one, and a member
+ *  read off a contained part (`reviews.map(r => r.note)`), keyed
+ *  `<Part>.<member>` (`partMemberKey`). */
 function maskedReadsOf(
   e: ExprIR | undefined,
   masked: ReadonlySet<string>,
@@ -106,15 +115,61 @@ function maskedReadsOf(
       else if (n.refKind === "let") for (const via of taintedLets.get(n.name) ?? []) note(via);
       return;
     }
-    if (n.kind === "member" && n.receiver.kind === "this" && masked.has(n.member)) note(n.member);
+    if (n.kind !== "member") return;
+    if (n.receiver.kind === "this" && masked.has(n.member)) {
+      note(n.member);
+      return;
+    }
+    const part = entityNameOf(n.receiverType);
+    if (part !== undefined && masked.has(partMemberKey(part, n.member))) {
+      note(partMemberKey(part, n.member));
+    }
   });
   return out;
 }
 
-type MaskSource = Pick<
-  AggregateIR,
-  "fields" | "derived" | "contextFilters" | "contextFilterOrigins"
->;
+function entityNameOf(t: TypeIR | undefined): string | undefined {
+  let cur = t;
+  while (cur?.kind === "optional") cur = cur.inner;
+  return cur?.kind === "entity" ? cur.name : undefined;
+}
+
+type MaskSource = Pick<AggregateIR, "fields" | "derived"> &
+  Partial<Pick<AggregateIR, "contextFilters" | "contextFilterOrigins" | "parts">>;
+
+/** True when an aggregate carries a `mask unless` field anywhere on its wire —
+ *  on the root, or on any contained part.  The gate every "is this read
+ *  masked" decision takes, on every backend: a masked part makes the root's
+ *  response serializer the redacting one. */
+export function carriesFieldMask(agg: {
+  fields: readonly FieldIR[];
+  parts?: readonly EntityPartIR[];
+}): boolean {
+  return (
+    agg.fields.some((f) => f.maskUnless) ||
+    (agg.parts ?? []).some((p) => p.fields.some((f) => f.maskUnless))
+  );
+}
+
+/** Every masked member of every contained part of `agg`, keyed
+ *  `<Part>.<member>` → its effective read predicate (the part's own fields,
+ *  plus each part `derived` the taint marks). */
+function partMaskPredicates(agg: MaskSource): Map<string, ExprIR> {
+  const out = new Map<string, ExprIR>();
+  for (const part of agg.parts ?? []) {
+    for (const [name, pred] of maskedReadPredicates(part)) {
+      out.set(partMemberKey(part.name, name), pred);
+    }
+  }
+  return out;
+}
+
+/** The full read-mask table of an aggregate: its own masked members plus
+ *  every contained part's (`partMemberKey`) — what a read predicate, an event
+ *  payload or a `derived` is checked against. */
+function allMaskPredicates(agg: MaskSource): Map<string, ExprIR> {
+  return new Map([...partMaskPredicates(agg), ...maskedReadPredicates(agg)]);
+}
 
 /** A read's `ignoring` stance — which capability query-filters it skips. */
 interface BypassStance {
@@ -131,16 +186,20 @@ interface BypassStance {
 export function maskedReadPredicates(agg: MaskSource): Map<string, ExprIR> {
   const out = new Map<string, ExprIR>();
   for (const f of agg.fields) if (f.maskUnless) out.set(f.name, f.maskUnless);
-  if (out.size === 0) return out;
+  // A root `derived` reading a contained part's masked member
+  // (`reviews.count(r => r.flagged)`) inherits that member's predicate.
+  const parts = partMaskPredicates(agg);
+  if (out.size === 0 && parts.size === 0) return out;
+  const lookup = (k: string): ExprIR | undefined => out.get(k) ?? parts.get(k);
   // Fixpoint: a derived reading a derived reading a masked field.
   const pending: DerivedIR[] = [...agg.derived];
   for (let changed = true; changed; ) {
     changed = false;
     for (const d of pending) {
       if (out.has(d.name)) continue;
-      const reads = maskedReadsOf(d.expr, new Set(out.keys()));
+      const reads = maskedReadsOf(d.expr, new Set([...out.keys(), ...parts.keys()]));
       if (reads.length === 0) continue;
-      const pred = conjoinPredicates(reads.map((r) => out.get(r)!));
+      const pred = conjoinPredicates(reads.map((r) => lookup(r)!));
       if (pred) {
         out.set(d.name, pred);
         changed = true;
@@ -148,6 +207,50 @@ export function maskedReadPredicates(agg: MaskSource): Map<string, ExprIR> {
     }
   }
   return out;
+}
+
+/** Every contained part `derived` of `agg` that reads ANOTHER part's masked
+ *  member (`entity Line { derived hasSecret: bool = notes.any(n => n.secret) }`)
+ *  — a read the part's own projection cannot redact, since a part's wire
+ *  taint covers only its own members.  Refused in phase ⑦. */
+export function partDerivedNestedMaskReads(
+  agg: MaskSource,
+): { part: string; derived: string; via: string }[] {
+  const all = partMaskPredicates(agg);
+  if (all.size === 0) return [];
+  const out: { part: string; derived: string; via: string }[] = [];
+  for (const part of agg.parts ?? []) {
+    const own = maskedReadPredicates(part);
+    const foreign = new Set([...all.keys()].filter((k) => !k.startsWith(`${part.name}.`)));
+    for (const d of part.derived) {
+      if (own.has(d.name)) continue;
+      const via = maskedReadsOf(d.expr, foreign)[0];
+      if (via !== undefined) out.push({ part: part.name, derived: d.name, via });
+    }
+  }
+  return out;
+}
+
+/** The predicate a caller must satisfy to see EVERY masked value inside one
+ *  contained part (transitively through its own containments) — the
+ *  conjunction of each masked member's predicate, or undefined for a
+ *  mask-free part.  A sink that carries the whole part (an audit-history
+ *  change entry on the containment) inherits it: the entry is shown only to a
+ *  caller who could read every value in it. */
+export function partContentMask(
+  part: EntityPartIR,
+  parts: readonly EntityPartIR[],
+  seen: ReadonlySet<string> = new Set(),
+): ExprIR | undefined {
+  if (seen.has(part.name)) return undefined;
+  const inner = new Set([...seen, part.name]);
+  const preds: ExprIR[] = [...maskedReadPredicates(part).values()];
+  for (const c of part.contains) {
+    const child = parts.find((p) => p.name === c.partName);
+    const m = child ? partContentMask(child, parts, inner) : undefined;
+    if (m) preds.push(m);
+  }
+  return conjoinPredicates(preds);
 }
 
 /** The capability query-filters a read of `agg` runs under: every
@@ -170,8 +273,8 @@ function readMaskOf(
   where: ExprIR | undefined,
   stance: BypassStance | undefined,
 ): ExprIR | undefined {
-  if (!agg.fields.some((f) => f.maskUnless)) return undefined;
-  const masks = maskedReadPredicates(agg);
+  if (!carriesFieldMask(agg)) return undefined;
+  const masks = allMaskPredicates(agg);
   const keys = new Set(masks.keys());
   const reads: string[] = [];
   for (const pred of [where, ...carriedFilters(agg, stance)]) {
@@ -198,6 +301,11 @@ function readMaskOf(
 export interface MaskWriteSink {
   op: OperationIR;
   field: FieldIR;
+  /** The masked member the write lands in — the field name on the root,
+   *  `<Part>.<field>` (`partMemberKey`) on a contained part. */
+  key: string;
+  /** The declaring entity's name, for the gate's 403 detail. */
+  owner: string;
 }
 
 const CALLER_REF_KINDS = new Set(["param", "let", "lambda", "match-binding"]);
@@ -218,23 +326,61 @@ function readsCallerInput(e: ExprIR): boolean {
  *  creator chose it.  An assignment from constants or the row itself is the
  *  author's own domain logic, not the caller's input. */
 function maskWriteSinks(agg: AggregateIR): MaskWriteSink[] {
-  const masked = new Map(agg.fields.filter((f) => f.maskUnless).map((f) => [f.name, f] as const));
-  if (masked.size === 0) return [];
+  if (!carriesFieldMask(agg)) return [];
+  const partsByName = new Map(agg.parts.map((p) => [p.name, p] as const));
   const out: MaskWriteSink[] = [];
   for (const op of agg.operations) {
     const seen = new Set<string>();
+    // A `let` bound to a contained part (`let c = comments.first()`) is a
+    // write path into that part: `c.internal := v`.
+    const partLets = new Map<string, string>();
+    for (const root of op.statements) {
+      walkStmtsDeep(root, (s: StmtIR) => {
+        if (s.kind !== "let") return;
+        const part = entityNameOf(s.type);
+        if (part !== undefined && partsByName.has(part)) partLets.set(s.name, part);
+      });
+    }
     for (const root of op.statements) {
       walkStmtsDeep(root, (s: StmtIR) => {
         if (s.kind !== "assign") return;
-        const head = s.target.segments[0];
-        const field = head === undefined ? undefined : masked.get(head);
-        if (!field || seen.has(field.name) || !readsCallerInput(s.value)) return;
-        seen.add(field.name);
-        out.push({ op, field });
+        const hit = writtenMaskedField(agg, partsByName, partLets, s.target.segments);
+        if (!hit || seen.has(hit.key) || !readsCallerInput(s.value)) return;
+        seen.add(hit.key);
+        out.push({ op, ...hit });
       });
     }
   }
   return out;
+}
+
+/** The masked field an assignment path lands in, or undefined: a root field
+ *  (`salary`, or any path under it), or a contained part's field reached
+ *  through a containment (`memo.text`) or a part-typed `let`
+ *  (`c.internal`). */
+function writtenMaskedField(
+  agg: AggregateIR,
+  partsByName: ReadonlyMap<string, EntityPartIR>,
+  partLets: ReadonlyMap<string, string>,
+  segments: readonly string[],
+): Omit<MaskWriteSink, "op"> | undefined {
+  const [head, ...rest] = segments;
+  if (head === undefined) return undefined;
+  const rootField = agg.fields.find((f) => f.name === head && f.maskUnless);
+  if (rootField) return { field: rootField, key: rootField.name, owner: agg.name };
+  const letPart = partLets.get(head);
+  const containment = agg.contains.find((x) => x.name === head);
+  let part = partsByName.get(letPart ?? containment?.partName ?? "");
+  let path = rest;
+  while (part && path.length > 1) {
+    const step = path[0];
+    const c = part.contains.find((x) => x.name === step);
+    part = c ? partsByName.get(c.partName) : undefined;
+    path = path.slice(1);
+  }
+  if (!part || path.length !== 1) return undefined;
+  const field = part.fields.find((f) => f.name === path[0] && f.maskUnless);
+  return field ? { field, key: partMemberKey(part.name, field.name), owner: part.name } : undefined;
 }
 
 /** The `source` text a mask write gate carries (the 403 detail). */
@@ -254,7 +400,7 @@ export function applyMaskWriteGates<A extends AggregateIR>(agg: A): A {
     const mine = byOp.get(op);
     if (!mine) return op;
     const fresh = mine.filter(
-      (s) => !op.statements.some((st) => st.kind === "requires" && st.maskWriteOf === s.field.name),
+      (s) => !op.statements.some((st) => st.kind === "requires" && st.maskWriteOf === s.key),
     );
     if (fresh.length === 0) return op;
     let lead = 0;
@@ -262,8 +408,8 @@ export function applyMaskWriteGates<A extends AggregateIR>(agg: A): A {
     const gates: StmtIR[] = fresh.map((s) => ({
       kind: "requires",
       expr: structuredClone(s.field.maskUnless!),
-      source: maskWriteGateSource(agg.name, s.field.name),
-      maskWriteOf: s.field.name,
+      source: maskWriteGateSource(s.owner, s.field.name),
+      maskWriteOf: s.key,
     }));
     return {
       ...op,
@@ -290,7 +436,7 @@ export function applyMaskFindGates(
   const byName = new Map(aggregates.map((a) => [a.name, a] as const));
   return repos.map((r) => {
     const agg = byName.get(r.aggregateName);
-    if (!agg?.fields.some((f) => f.maskUnless)) return r;
+    if (!agg || !carriesFieldMask(agg)) return r;
     let changed = false;
     const finds = r.finds.map((f: FindIR) => {
       const mask = readMaskOf(agg, f.filter, f);
@@ -448,8 +594,7 @@ export interface MaskScopeInput {
   domainServices?: readonly DomainServiceIR[];
 }
 
-const anyMasked = (ctx: MaskScopeInput): boolean =>
-  ctx.aggregates.some((a) => a.fields.some((f) => f.maskUnless));
+const anyMasked = (ctx: MaskScopeInput): boolean => ctx.aggregates.some(carriesFieldMask);
 
 /** Put the mask predicate ahead of every hand-written handler whose body
  *  reads an aggregate through a predicate on a masked field — the handler
@@ -517,13 +662,10 @@ function firstMaskedRead(
 export function maskLaunderingEvents(ctx: BoundedContextIR): Map<string, string> {
   const out = new Map<string, string>();
   for (const agg of ctx.aggregates) {
-    const maskedFields = agg.fields.filter((f) => f.maskUnless).map((f) => f.name);
-    if (maskedFields.length === 0) continue;
-    const masked = new Set(maskedFields);
-    // A `derived` whose expression reads a masked field carries the same value.
-    for (const d of agg.derived) {
-      if (firstMaskedRead(d.expr, masked, new Map())) masked.add(d.name);
-    }
+    if (!carriesFieldMask(agg)) continue;
+    // Every masked member — root fields, the `derived` computed from one, and
+    // each contained part's (`<Part>.<member>`) — carries the masked value.
+    const masked = new Set(allMaskPredicates(agg).keys());
     for (const op of [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])]) {
       const stmts: StmtIR[] = [];
       for (const s of op.statements) walkStmtsDeep(s, (n) => stmts.push(n));
@@ -546,7 +688,7 @@ export function maskLaunderingEvents(ctx: BoundedContextIR): Map<string, string>
         for (const f of s.fields) {
           const via = firstMaskedRead(f.value, masked, taintedLets);
           if (via !== null) {
-            out.set(s.eventName, `${agg.name}.${via}`);
+            out.set(s.eventName, via.includes(".") ? via : `${agg.name}.${via}`);
             break;
           }
         }
