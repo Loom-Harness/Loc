@@ -125,9 +125,15 @@ function readDecls(): Map<string, Decl> {
       // = AggregateIR & { … }` declares its own shape in that literal, and a
       // field added there — on the enriched brand only — is a real site the
       // base type does not carry.
-      const arms = ts.isUnionTypeNode(t) || ts.isIntersectionTypeNode(t) ? t.types : [t];
-      for (const arm of arms) {
-        const lit = ts.isParenthesizedTypeNode(arm) ? arm.type : arm;
+      // A union intersected with a shared base (`ExprIR = ( … | … ) & Sourced`)
+      // keeps its arms top-level: the parenthesized union is flattened too.
+      const topArms = (n: ts.TypeNode): readonly ts.TypeNode[] => {
+        const u = ts.isParenthesizedTypeNode(n) ? n.type : n;
+        return ts.isUnionTypeNode(u) || ts.isIntersectionTypeNode(u)
+          ? u.types.flatMap(topArms)
+          : [u];
+      };
+      for (const lit of topArms(t)) {
         if (!ts.isTypeLiteralNode(lit)) continue;
         for (const m of lit.members) {
           if (ts.isPropertySignature(m) && m.type && m.name && ts.isIdentifier(m.name)) {

@@ -13,7 +13,7 @@
 // the bridge: arming the mode from the parent, the in-frame controller
 // swallowing the click, and the id coming back over the port.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

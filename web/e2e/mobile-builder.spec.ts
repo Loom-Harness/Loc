@@ -7,7 +7,7 @@
 // chrome (the title heading + the footer "0 errors" badge, which is height-0 on
 // mobile), so we drive the example picker directly like mobile-run-cascade.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./_test";
 import { clickWorkspaceCreate } from "./_helpers";
 
 test.use({ viewport: { width: 375, height: 812 } });

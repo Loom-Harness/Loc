@@ -70,6 +70,7 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
+import { lookupOp } from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -1180,17 +1181,6 @@ export function resolveInlinedServiceClauses(
   const guards =
     inlined.length > 0 ? writeScopeGuardClauses(st, renderCtx, contextModule, ctx) : [];
   return [...guards.map((text) => ({ text })), ...inlined];
-}
-
-/** Look up an operation by aggregate + op name in the context's aggregate
- *  index — mirrors the Hono workflow builder's `lookupOp`. */
-export function lookupOp(
-  ctx: BoundedContextIR,
-  aggName: string,
-  opName: string,
-): OperationIR | undefined {
-  const agg = ctx.aggregates.find((a) => a.name === aggName);
-  return agg?.operations.find((o) => o.name === opName);
 }
 
 /** Render the `params`-map fields for an `op-call` keyed by the called

@@ -13,7 +13,7 @@
 // `SandboxBridge` wire protocol and answers `/ping` with a canned
 // body.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { makePreviewHtml } from "../src/preview/iframe-html";
 
 test("stub handshake → document.write → fetch shim round-trips, CSP blocks egress", async ({

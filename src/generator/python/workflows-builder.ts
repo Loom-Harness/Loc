@@ -1,10 +1,10 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { lookupOp } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
   type ExprIR,
   exprUsesCurrentUser,
-  type OperationIR,
   type SystemIR,
   type WireField,
   type WorkflowIR,
@@ -293,14 +293,6 @@ function callsUserGatedOp(sts: WorkflowStmtIR[], ctx: EnrichedBoundedContextIR):
     if (found) return true;
   }
   return false;
-}
-
-function lookupOp(
-  ctx: EnrichedBoundedContextIR,
-  aggName: string,
-  opName: string,
-): OperationIR | undefined {
-  return ctx.aggregates.find((a) => a.name === aggName)?.operations.find((o) => o.name === opName);
 }
 
 /** True when the body writes OR reads one of the workflow's own `stateFields`

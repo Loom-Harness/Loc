@@ -1,7 +1,6 @@
 import type { ExprIR } from "./expr.js";
 import type { ActionIR, DerivedIR, ParamIR, StoreIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Page metamodel
@@ -189,7 +188,7 @@ export interface LayoutIR {
 }
 
 /** A page declaration: route + parameters + reactive state + body. */
-export interface PageIR {
+export interface PageIR extends Sourced {
   name: string;
   params: ParamIR[];
   /** Path-with-`:params` from `route: "..."`.  Always set for pages
@@ -247,10 +246,6 @@ export interface PageIR {
    *  `ExprIR`.  Only the route-`/` page (or the first page when
    *  no `/` exists) contributes metadata to the shell. */
   metadata?: PageMetadataIR;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** Static page metadata — SEO + social-graph tags written into
@@ -272,7 +267,7 @@ export interface PageMetadataIR {
 /** A user-defined component: typed function from params (and optional
  *  local state) to a body expression.  Components compose other
  *  components but never produce pages or routes. */
-export interface ComponentIR {
+export interface ComponentIR extends Sourced {
   name: string;
   params: ParamIR[];
   state: StateFieldIR[];
@@ -295,12 +290,6 @@ export interface ComponentIR {
    *  generated project's `src/` root (the `from "<path>"` clause).
    *  Always present when `extern` is true. */
   externPath?: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes.  Mirrors `PageIR.origin`; feeds the frontend
-   * generators' `SourceMapRecorder.file(...)` calls for per-component
-   * output regions (M8, source-map-debug-kickoff.md). */
-  origin?: OriginRef;
 }
 
 /** One reactive local field, inside a `page` or `component`. */

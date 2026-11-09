@@ -18,7 +18,7 @@
 // The same computation runs in DARK as a control: a threshold that the shipped,
 // long-reviewed dark rendering fails would be measuring the metric, not the UI.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { waitForPlaygroundReady } from "./_helpers";
 
 /** The AA bar for body text. */

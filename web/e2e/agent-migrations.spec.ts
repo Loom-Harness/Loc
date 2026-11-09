@@ -9,7 +9,7 @@
 // The record test is pure client-side.  The apply test bundles and boots, so
 // it needs the npm registry and jsdelivr and self-skips without them.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import { browserCanReachNetwork, waitForPlaygroundReady } from "./_helpers";
 
 const OTHER_MODEL = `context Ops {

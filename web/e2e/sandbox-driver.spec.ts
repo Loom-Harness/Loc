@@ -17,7 +17,7 @@
 // Mirrors sandbox-bridge.spec.ts: real stub + real synthesised document
 // with a parent that mirrors the SandboxBridge wire, so no bundling.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { makePreviewHtml } from "../src/preview/iframe-html";
 
 test("sandbox driver drives the DOM while the app fetches over the same port", async ({

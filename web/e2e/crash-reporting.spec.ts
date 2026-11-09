@@ -11,7 +11,7 @@
 // Network-free: nothing here bundles, boots, or fetches — the whole spec is
 // DOM + localStorage, so it belongs to the per-PR no-network lane.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { waitForPlaygroundReady } from "./_helpers";
 
 test("?crash=app renders the ROOT fallback with working report actions", async ({ page }) => {
