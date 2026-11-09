@@ -34,11 +34,8 @@ export interface GenerateElixirArgs {
   contexts: EnrichedBoundedContextIR[];
   deployable: DeployableIR;
   sys: SystemIR;
-  /** Per-deployable slice of `buildMigrations(sys, snapshots)` — only the
-   *  modules this deployable owns (via `module.migrationsOwner ===
-   *  deployable.name`).  Empty array when this deployable owns no
-   *  migrations or the system orchestrator was invoked without a
-   *  snapshot store; in either case the emitter is a no-op. */
+  /** The migrations this deployable carries — every module of its database
+   *  (`carriedModules`).  Empty or absent → the emitter is a no-op. */
   migrations?: MigrationsIR[];
   /** Compile-time --trace switch.  When true, the controllers emit a
    *  `wire_in` Logger.debug line at each CRUD action entry so the parsed

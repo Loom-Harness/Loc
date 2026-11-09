@@ -35,6 +35,7 @@ import type {
 import { sourceLocaleOf } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
+import { awaitedMigrator, carriedModules, systemDatabases } from "../ir/util/databases.js";
 import {
   bundlesDevKeycloak,
   DEMO_TENANT_DATASET,
@@ -339,12 +340,7 @@ function emitSystem(
 
   for (const d of sys.deployables) {
     const contexts = collectContextsFor(d, modulesByName);
-    const ownedMigrations = migrationsForDeployable(
-      d,
-      migrations,
-      platformFor(d.platform).needsDb,
-      sys,
-    );
+    const ownedMigrations = migrationsForDeployable(d, migrations, sys);
     emitDeployable(sys, d, contexts, out, {
       emitTrace: options.emitTrace,
       migrations: ownedMigrations,
@@ -720,24 +716,17 @@ function systemMigrations(
   return chainMigrations(chain).filter((m) => owned.has(m.module));
 }
 
-/** Filter system-level migrations to just those this deployable runs.
- *
- *  Every needsDb deployable that hosts any context of a subdomain
- *  receives that subdomain's migrations.  Frontend platforms (no DB)
- *  get nothing — gated upstream by the platform's `needsDb` flag. */
+/** Filter system-level migrations to just those this deployable carries: the
+ *  modules of its whole database (`carriedModules`).  Frontend platforms (no
+ *  DB) get nothing.  Whether it also applies them at boot is the backend's
+ *  `migratesAtBoot` read. */
 function migrationsForDeployable(
   d: DeployableIR,
   all: MigrationsIR[],
-  needsDb: boolean,
   sys: EnrichedSystemIR,
 ): MigrationsIR[] {
-  if (!needsDb) return [];
-  const hostedContexts = new Set(d.contextNames);
-  const hostedSubdomains = new Set<string>();
-  for (const sd of sys.subdomains) {
-    if (sd.contexts.some((c) => hostedContexts.has(c.name))) hostedSubdomains.add(sd.name);
-  }
-  return all.filter((m) => hostedSubdomains.has(m.module));
+  const modules = carriedModules(sys, d);
+  return all.filter((m) => modules.has(m.module));
 }
 
 /** A docker-compose-safe slug: lowercase, no characters outside the
@@ -1461,16 +1450,11 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
   return { services, volumes };
 }
 
-/** Postgres `docker-entrypoint-initdb.d` script: one DATABASE per
- * deployable that needs one.  Postgres only runs the init dir on
- * the first boot of an empty data volume; this is exactly what we
- * want for dev compose. */
-/** The per-deployable databases the compose stack provisions — one per
- *  backend whose platform owns a database. */
+/** The databases the compose stack provisions — one per postgres `storage`
+ *  a backend binds, plus one for each backend that binds none
+ *  (`systemDatabases`). */
 function dbInitDatabases(sys: SystemIR): string[] {
-  return sys.deployables
-    .filter((d) => platformFor(d.platform).needsDb)
-    .map((d) => serviceSlug(d.name));
+  return systemDatabases(sys);
 }
 
 /** `db-init/00-create-databases.sql` — IDEMPOTENT by construction (B-26).
@@ -1491,9 +1475,11 @@ function renderDbInit(sys: SystemIR): string {
     "-- every `docker compose up` (the db-bootstrap service), so a deployable",
     "-- added in a later generation still gets its database.",
   ];
+  // The name is quoted: a storage is often named after a word Postgres
+  // reserves (`primary`, `user`, `order`), which it refuses bare.
   for (const slug of dbInitDatabases(sys)) {
     lines.push(
-      `SELECT 'CREATE DATABASE ${slug}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${slug}')\\gexec`,
+      `SELECT 'CREATE DATABASE "${slug}"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${slug}')\\gexec`,
     );
   }
   return lines.join("\n") + "\n";
@@ -1503,7 +1489,7 @@ function renderDbInit(sys: SystemIR): string {
  *  can never collide with a deployable's (underscored) service slug. */
 const DB_BOOTSTRAP_SERVICE = "db-bootstrap";
 
-/** True when the stack has any per-deployable database to provision. */
+/** True when the stack has any database to provision. */
 function hasDbBootstrap(sys: SystemIR): boolean {
   return dbInitDatabases(sys).length > 0;
 }
@@ -1575,6 +1561,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // as their fallback, injected here so the stack never leans on it.
   const sidecarBindings = sidecarResourceBindings(d, sys);
   const sidecarServices = [...new Set(sidecarBindings.map((b) => b.slug))];
+  const migrator = awaitedMigrator(sys, d);
   const lines: string[] = [];
   lines.push(`${slug}:`);
   lines.push(`  build: ./${slug}`);
@@ -1599,6 +1586,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
       if (hasDbBootstrap(sys)) {
         lines.push(`    ${DB_BOOTSTRAP_SERVICE}:`);
         lines.push(`      condition: service_completed_successfully`);
+      }
+      // A deployable sharing its storage's database with an earlier one runs
+      // no migrations of its own: it starts once the database's migrator is
+      // healthy, which every backend reports only after its boot migration.
+      if (migrator) {
+        lines.push(`    ${serviceSlug(migrator.name)}:`);
+        lines.push(`      condition: service_healthy`);
       }
     }
     if (oidc) {

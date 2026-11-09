@@ -4,7 +4,6 @@ import pg from "pg";
 import { serve } from "@hono/node-server";
 import * as schema from "./db/schema";
 import { bootApp } from "./boot";
-import { migrate } from "./db/migrate";
 import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";
 
@@ -33,73 +32,6 @@ const db = drizzle(pool, { schema });
 
 const port = Number(process.env.PORT ?? 3000);
 baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
-
-// Apply pending schema migrations before serving traffic.  The runtime
-// migrator (db/migrate.ts) reads db/migrations/meta/_journal.json + each
-// referenced .sql file, tracking state in `__drizzle_migrations`;
-// idempotent across boots.  Bracketed with the catalog migration
-// lifecycle events (observability.md) — the migrator runs the
-// whole batch in one opaque call, so there's no per-migration
-// `migration_applied` seam (Hono limitation; Python/.NET emit it).
-// A database that is not reachable YET (refused / DNS / starting up) is
-// retried up to 10 attempts with capped exponential backoff, so a
-// late db no longer kills the container on first boot.
-const BOOT_DB_RETRYABLE = new Set([
-  "ECONNREFUSED",
-  "ECONNRESET",
-  "ENOTFOUND",
-  "EAI_AGAIN",
-  "ETIMEDOUT",
-  "EHOSTUNREACH",
-  "57P03", // cannot_connect_now — "the database system is starting up"
-]);
-// The connection-shaped link of the error chain (drizzle wraps the driver
-// error as `cause`), rendered for the retry log — undefined when none is.
-function bootDbUnreachableReason(err: unknown): string | undefined {
-  for (let e: unknown = err; e instanceof Error; e = e.cause) {
-    const code = (e as { code?: unknown }).code;
-    if (typeof code === "string" && BOOT_DB_RETRYABLE.has(code)) {
-      return `${code}: ${e.message}`;
-    }
-    if (/Connection terminated/i.test(e.message)) return e.message;
-  }
-  return undefined;
-}
-// Every link of the error chain, with the Postgres fields the driver
-// carries (`code`, `detail`, `constraint`).  drizzle's own message is just
-// `Failed query: <sql>`; the reason — e.g. `Key (number)=(T-1) is
-// duplicated` on a unique index over existing rows — lives on the wrapped
-// driver error, so the migration_failed line must walk to it.
-function bootMigrationError(err: unknown): string {
-  const parts: string[] = [];
-  for (let e: unknown = err; e instanceof Error; e = e.cause) {
-    const pg = e as { code?: unknown; detail?: unknown; constraint?: unknown };
-    let part = e.message;
-    if (typeof pg.code === "string") part += ` [${pg.code}]`;
-    if (typeof pg.detail === "string") part += ` detail: ${pg.detail}`;
-    if (typeof pg.constraint === "string") part += ` constraint: ${pg.constraint}`;
-    parts.push(part);
-  }
-  return parts.length > 0 ? parts.join(" | caused by: ") : String(err);
-}
-baseLogger.info({ event: "migrations_starting" });
-for (let attempt = 1, maxAttempts = 10; ; attempt++) {
-  try {
-    await migrate(db, { migrationsFolder: "./db/migrations" });
-    baseLogger.info({ event: "migrations_complete" });
-    break;
-  } catch (err) {
-    const reason = bootDbUnreachableReason(err);
-    if (attempt < maxAttempts && reason !== undefined) {
-      const delay_ms = Math.min(500 * 2 ** (attempt - 1), 10000);
-      baseLogger.warn({ event: "db_connect_retry", attempt, max_attempts: maxAttempts, delay_ms, error: reason });
-      await new Promise((resolve) => setTimeout(resolve, delay_ms));
-      continue;
-    }
-    baseLogger.error({ event: "migration_failed", error: bootMigrationError(err) });
-    throw err;
-  }
-}
 
 // Start-up sequence (boot.ts): seeds, verifier, dispatchers, channel
 // consumers, outbox relay, timers — resolved before the port opens.

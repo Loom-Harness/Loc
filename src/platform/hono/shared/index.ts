@@ -1,3 +1,4 @@
+import { databaseOf } from "../../../ir/util/databases.js";
 // ---------------------------------------------------------------------------
 // The shared Hono backend surface.  `makeHonoPlatform(pins)` builds the
 // `PlatformSurface` over the TypeScript/Hono emitter in this directory;
@@ -59,10 +60,11 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         { emitTrace, sourcemap },
       );
     },
-    composeService({ slug }): ComposeServiceShape {
+    composeService({ slug, deployable, sys }): ComposeServiceShape {
+      const database = databaseOf(sys, deployable)?.name ?? slug;
       return {
         env: [
-          ["DATABASE_URL", `postgres://postgres:postgres@db:5432/${slug}`],
+          ["DATABASE_URL", `postgres://postgres:postgres@db:5432/${database}`],
           // Runtime log-level knob (default info; overridable here / in k8s).
           ["LOG_LEVEL", "info"],
         ],

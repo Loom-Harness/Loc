@@ -48,10 +48,11 @@ system Acme {
       }
     }
   }
-  storage primary { type: postgres }
+  storage sales { type: postgres }
+  storage shipping { type: postgres }
   storage bus { type: redis }
-  resource ordersState   { for: Orders,   kind: state, use: primary }
-  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource ordersState   { for: Orders,   kind: state, use: sales }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   deployable salesApi { platform: node contexts: [Orders]   dataSources: [ordersState]   channels: [lifecycleBus] port: 3000 }
   deployable shipApi  { platform: node contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }

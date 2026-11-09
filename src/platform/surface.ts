@@ -203,8 +203,9 @@ export interface PlatformSurface extends PlatformDescriptor {
     contexts: EnrichedBoundedContextIR[];
     deployable: DeployableIR;
     sys: SystemIR;
-    /** Per-deployable slice of `buildMigrations(sys, snapshots)` — only
-     *  the modules where `module.migrationsOwner === deployable.name`.
+    /** The migrations this deployable carries: every module of its
+     *  database (`carriedModules` in `src/ir/util/databases.ts`).  Only the
+     *  database's migrator applies them at boot (`migratesAtBoot`).
      *  When absent / empty, the platform emits no migration files.
      *  Frontend platforms (react / static) ignore this arg. */
     migrations?: MigrationsIR[];

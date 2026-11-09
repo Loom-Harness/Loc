@@ -103,6 +103,14 @@ jobs:
           LOOM_E2E_STRICT_PARITY: '1'
         run: npx vitest run test/e2e/e2e.test.ts
 
+      # Deployables bound to one `storage` share its database: boots the
+      # generated compose stack of a node + python pair on one storage (and a
+      # third deployable on another) and asserts a write through one is a read
+      # through the other, and that the database's one migrator lands every
+      # module on it.
+      - name: Run shared-storage e2e (one database per storage)
+        run: npm run test:shared-storage -- --reporter=verbose
+
       # On any failure above, surface the compose diagnostics the e2e test
       # writes to /tmp/loom-e2e-diagnostics.log just before its `afterAll`
       # tears the stack down.  We can't reach the compose project directly
