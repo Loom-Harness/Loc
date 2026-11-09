@@ -84,7 +84,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
     // tenantOwned's own capability filter only — no self-scope entry.
     expect(invoice.contextFilterOrigins).toEqual(["tenantOwned"]);
     const plan = findAgg(ir, "Plan");
-    expect(plan.contextFilters).toBeUndefined();
+    expect(plan.contextFilters).toEqual([]);
   });
 
   it("derives nothing without a `tenancy by` declaration (same-named aggregate)", async () => {
@@ -99,7 +99,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
         }
       }
     `);
-    expect(findAgg(ir, "Organization").contextFilters).toBeUndefined();
+    expect(findAgg(ir, "Organization").contextFilters).toEqual([]);
   });
 
   it("keeps a hand-written registry filter and appends the derived one after it", async () => {
@@ -137,7 +137,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
       validate: false,
     });
     const ir = enrichLoomModel(lowerModel(model));
-    expect(findAgg(ir, "Organization").contextFilters).toBeUndefined();
+    expect(findAgg(ir, "Organization").contextFilters).toEqual([]);
     const diags = validateLoomModel(ir);
     expect(diags.some((d) => d.code === "loom.tenancy-claim-type-mismatch")).toBe(true);
   });

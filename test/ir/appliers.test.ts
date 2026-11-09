@@ -115,11 +115,11 @@ describe("appliers — grammar + lowering", () => {
     }
   });
 
-  it("leaves appliers undefined when the aggregate declares none", async () => {
+  it("leaves appliers empty when the aggregate declares none", async () => {
     const agg = await lowerFirstAgg(counter({ persistedAs: "eventLog" }));
     // The default command emits Bumped but declares no applier — the IR
-    // still has no appliers array (the validator flags the gap separately).
-    expect(agg.appliers).toBeUndefined();
+    // has an empty appliers array (the validator flags the gap separately).
+    expect(agg.appliers).toEqual([]);
   });
 });
 

@@ -49,14 +49,14 @@ describe("tenancy by — SystemIR lowering", () => {
 });
 
 describe("crossTenant — AggregateIR lowering", () => {
-  it("lowers the header flag onto the aggregate, mirrors isAbstract's omitted-≡-false shape", async () => {
+  it("lowers the header flag onto the aggregate, false when unmarked, like isAbstract", async () => {
     const ir = await buildLoomModel(TENANCY_SOURCE);
     const aggs = ir.systems[0]!.subdomains[0]!.contexts[0]!.aggregates;
     const byName = new Map(aggs.map((a) => [a.name, a]));
     expect(byName.get("Plan")!.crossTenant).toBe(true);
-    // Unmarked aggregates carry no flag (omitted ≡ false, like isAbstract):
-    expect(byName.get("Invoice")!.crossTenant).toBeUndefined();
-    expect(byName.get("Organization")!.crossTenant).toBeUndefined();
+    // Unmarked aggregates carry `false`, like isAbstract:
+    expect(byName.get("Invoice")!.crossTenant).toBe(false);
+    expect(byName.get("Organization")!.crossTenant).toBe(false);
   });
 });
 

@@ -179,7 +179,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
     }
   });
 
-  it("aggregates without macros have undefined capabilities", async () => {
+  it("aggregates without macros have empty capability filters and stamps", async () => {
     const ir = await buildLoomModel(`
       system Demo {
         subdomain M { context C {
@@ -190,7 +190,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
       }
     `);
     const agg = findAgg(ir, "Plain");
-    expect(agg.contextFilters).toBeUndefined();
-    expect(agg.contextStamps).toBeUndefined();
+    expect(agg.contextFilters).toEqual([]);
+    expect(agg.contextStamps).toEqual([]);
   });
 });
