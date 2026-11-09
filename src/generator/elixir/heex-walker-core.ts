@@ -40,7 +40,7 @@
 // hoisting, LiveView reads inline.
 // ---------------------------------------------------------------------------
 
-import { maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
+import { carriesFieldMask, maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -974,9 +974,16 @@ function maskOfMember(
   let t = expr.receiverType;
   while (t?.kind === "optional") t = t.inner;
   if (t?.kind !== "entity") return undefined;
-  const agg = ctx.aggregatesByName.get(t.name);
-  if (!agg?.fields.some((f) => f.maskUnless)) return undefined;
-  return maskedReadPredicates(agg).get(expr.member);
+  const name = t.name;
+  const agg = ctx.aggregatesByName.get(name);
+  if (agg) return carriesFieldMask(agg) ? maskedReadPredicates(agg).get(expr.member) : undefined;
+  // A member read off a contained part (`row.note` in a table over
+  // `@data.reviews`) redacts under the part member's own predicate.
+  for (const owner of ctx.aggregatesByName.values()) {
+    const part = owner.parts.find((p) => p.name === name);
+    if (part) return maskedReadPredicates(part).get(expr.member);
+  }
+  return undefined;
 }
 
 function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
