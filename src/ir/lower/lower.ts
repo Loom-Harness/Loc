@@ -1785,27 +1785,27 @@ function lowerAggregate(
     contains: containments,
     derived,
     invariants,
-    uniqueKeys: uniqueKeys.length > 0 ? uniqueKeys : undefined,
+    uniqueKeys,
     functions,
     operations,
     creates,
     destroys,
     parts,
     tests,
-    contextFilters: filters.length > 0 ? filters.map((f) => f.predicate) : undefined,
+    contextFilters: filters.map((f) => f.predicate),
     contextFilterRefs: filters.some((f) => f.criterionRef)
       ? filters.map((f) => f.criterionRef)
       : undefined,
     contextFilterOrigins: filters.some((f) => f.capabilityOrigin)
       ? filters.map((f) => f.capabilityOrigin)
       : undefined,
-    contextStamps: stamps.length > 0 ? stamps : undefined,
-    capabilities: capabilities.length > 0 ? capabilities : undefined,
+    contextStamps: stamps,
+    capabilities,
     persistedAs: agg.persistedAs as "state" | "eventLog" | undefined,
     savingShape: (agg.shape as import("../types/loom-ir.js").SavingShape | undefined) ?? undefined,
-    appliers: appliers.length > 0 ? appliers : undefined,
-    isAbstract: agg.isAbstract ? true : undefined,
-    crossTenant: agg.crossTenant ? true : undefined,
+    appliers,
+    isAbstract: agg.isAbstract,
+    crossTenant: agg.crossTenant,
     extendsAggregate: agg.superType?.ref?.name ?? agg.superType?.$refText ?? undefined,
     inheritanceUsing:
       (agg.inheritanceUsing as import("../types/loom-ir.js").InheritanceLayout | undefined) ??

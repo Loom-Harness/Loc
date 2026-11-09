@@ -18,7 +18,8 @@ import { pyRef } from "../_imports/python.js";
 
 export type StampEvent = "create" | "update";
 
-type Stamped = Pick<AggregateIR, "contextStamps">;
+// Entity parts carry no stamps; only a root aggregate declares them.
+type Stamped = Partial<Pick<AggregateIR, "contextStamps">>;
 
 /** The declared stamp events one persist applies.  An INSERT applies the
  *  `onCreate` rules and then the `onUpdate` rules, so a fresh row reads

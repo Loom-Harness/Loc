@@ -23,11 +23,11 @@ export interface AggregateIR {
   derived: DerivedIR[];
   invariants: InvariantIR[];
   /** Uniqueness invariants declared via `unique (...)`
-   * (uniqueness-and-indexes.md).  Populated by lowering; omitted when the
+   * (uniqueness-and-indexes.md).  Populated by lowering; empty when the
    * aggregate declares none.  The migrations builder derives a DB unique
    * index (partial under `softDeletable`) from each entry; backends derive
    * the constraint-name → field map for the 23505 → 409 conflict mapping. */
-  uniqueKeys?: UniqueKeyIR[];
+  uniqueKeys: UniqueKeyIR[];
   functions: FunctionIR[];
   /** Mutate-kind actions only (the legacy `operation` keyword).
    * `create` / `destroy` actions are intentionally NOT here — they live
@@ -38,10 +38,10 @@ export interface AggregateIR {
   /** `kind: "create"` lifecycle factory actions.  Populated by lowering;
    * empty array when the aggregate declares none.  No backend consumes it
    * yet. */
-  creates?: OperationIR[];
+  creates: OperationIR[];
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
-  destroys?: OperationIR[];
+  destroys: OperationIR[];
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with
@@ -63,7 +63,7 @@ export interface AggregateIR {
    *
    * Composes additively — N filters become N conjunctively-applied
    * predicates at the storage layer. */
-  contextFilters?: ExprIR[];
+  contextFilters: ExprIR[];
   /** Per-`contextFilters` entry: set when that filter expression is
    * *exactly* one named `criterion` reference — index-aligned with
    * `contextFilters`, `undefined` for composed/anonymous predicates.
@@ -103,16 +103,16 @@ export interface AggregateIR {
    *
    * Composes additively — N stamping declarations yield N rule sets
    * concatenated per event. */
-  contextStamps?: ContextStampIR[];
+  contextStamps: ContextStampIR[];
   /** Typed capabilities this aggregate implements (via `with <Cap>` /
    * `implements <Cap>`, at aggregate or context scope).  Sorted + deduped at
-   * lowering time; undefined when the aggregate implements none.  Capability
+   * lowering time; empty when the aggregate implements none.  Capability
    * application has already spliced the fields/filter/stamp by this point — this
    * is the surviving identity record, consumed by capability-aware emission
    * (marker interfaces `I<Cap>` and the stamp-interceptor dedup —
    * https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/capability-emission-dedup.md) and by tooling
    * (find-implementors). */
-  capabilities?: readonly string[];
+  capabilities: readonly string[];
   /** Pointer to the `derived display: string` field, if the
    * aggregate declared one.  Populated by `enrichLoomModel`.
    * When set, `string(aggregate)` and implicit `string + aggregate`
@@ -145,22 +145,21 @@ export interface AggregateIR {
    * One per event type the aggregate folds.  Only meaningful on
    * event-sourced aggregates (`persistedAs: eventLog`); the discipline
    * validator (phase ⑦) rejects appliers on state-sourced aggregates and
-   * requires a matching applier for every emitted event.  Omitted /
-   * empty when the aggregate declares none.  Not yet consumed by
-   * backends (deferred). */
-  appliers?: ApplyIR[];
+   * requires a matching applier for every emitted event.  Empty when
+   * the aggregate declares none. */
+  appliers: ApplyIR[];
   /** Aggregate-inheritance (aggregate-inheritance.md, I1).  `true` for an
    * `abstract aggregate` base — never instantiated, no repository, emits no
-   * table of its own.  Omitted (≡ false) for ordinary/concrete aggregates. */
-  isAbstract?: boolean;
+   * table of its own.  `false` for ordinary/concrete aggregates. */
+  isAbstract: boolean;
   /** Tenancy header flag (tenancy.md).  `true` for an
    * `crossTenant aggregate X { … }` — shared reference data that opts out
-   * of the tenant filter under a `tenancy by` system.  Omitted (≡ false)
+   * of the tenant filter under a `tenancy by` system.  `false`
    * when not declared.  The aggregate's tenancy *stance* (owned / cross /
    * unmarked / registry) is classified on demand by the phase-⑦ tenancy
    * checks from this flag + capabilities + `SystemIR.tenancy` — never
    * stamped here (derive-don't-stamp). */
-  crossTenant?: boolean;
+  crossTenant: boolean;
   /** Name of the `abstract` base this aggregate `extends`, if any.  Always
    * resolves to an abstract aggregate (enforced by the validator).  Field
    * inheritance into the concrete's `wireShape` is an I2 concern; in I1 this
