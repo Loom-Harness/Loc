@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { installConsoleTee, setLogSink } from "../../web/src/runtime/console-tee.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  BACKGROUND_BATCH_MAX,
+  BACKGROUND_FLUSH_MS,
+  installConsoleTee,
+  setBackgroundFlush,
+  setLogSink,
+} from "../../web/src/runtime/console-tee.js";
 import { LOG_LEVELS, type LogLine } from "../../web/src/util/log-line.js";
 
 // A throwaway Console-shaped object so the tee install doesn't clobber
@@ -94,5 +100,61 @@ describe("runtime console tee", () => {
     (con.error as (...a: unknown[]) => void)("boom");
     setLogSink(null);
     expect(logs).toEqual([{ level: "error", text: "boom" }]);
+  });
+});
+
+// A channel consumer, the outbox relay and a timer all log from callbacks no
+// RPC awaits, so no RPC sink is active.  Those lines go to the background
+// flush, which the runtime worker posts to the Backend log stream.
+describe("runtime console tee — lines logged between RPCs", () => {
+  afterEach(() => {
+    setBackgroundFlush(null);
+    vi.useRealTimers();
+  });
+
+  it("batches a line logged with no RPC sink and flushes it", () => {
+    vi.useFakeTimers();
+    const con = fakeConsole();
+    installConsoleTee(con);
+    const flushed: LogLine[][] = [];
+    setBackgroundFlush((lines) => flushed.push(lines));
+    (con.info as (...a: unknown[]) => void)({ event: "channel_consumed", address: "loom.A.Ch" });
+    (con.warn as (...a: unknown[]) => void)({ event: "channel_dead_lettered" });
+    expect(flushed).toEqual([]);
+    vi.advanceTimersByTime(BACKGROUND_FLUSH_MS);
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]?.map((l) => l.structured?.event)).toEqual([
+      "channel_consumed",
+      "channel_dead_lettered",
+    ]);
+  });
+
+  it("an active RPC sink still takes the line; nothing goes to the background", () => {
+    vi.useFakeTimers();
+    const con = fakeConsole();
+    installConsoleTee(con);
+    const flushed: LogLine[][] = [];
+    setBackgroundFlush((lines) => flushed.push(lines));
+    const rpc: LogLine[] = [];
+    setLogSink(rpc);
+    (con.info as (...a: unknown[]) => void)({ event: "request_end" });
+    setLogSink(null);
+    vi.advanceTimersByTime(BACKGROUND_FLUSH_MS);
+    expect(rpc).toHaveLength(1);
+    expect(flushed).toEqual([]);
+  });
+
+  it("caps a batch and reports the overflow as one line", () => {
+    vi.useFakeTimers();
+    const con = fakeConsole();
+    installConsoleTee(con);
+    const flushed: LogLine[][] = [];
+    setBackgroundFlush((lines) => flushed.push(lines));
+    for (let i = 0; i < BACKGROUND_BATCH_MAX + 7; i++)
+      (con.info as (...a: unknown[]) => void)(`tick ${i}`);
+    vi.advanceTimersByTime(BACKGROUND_FLUSH_MS);
+    const batch = flushed[0] ?? [];
+    expect(batch).toHaveLength(BACKGROUND_BATCH_MAX + 1);
+    expect(batch.at(-1)?.text).toMatch(/^7 more background log line\(s\) dropped/);
   });
 });
