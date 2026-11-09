@@ -24,21 +24,21 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
-  "aggregate.ts": 18,
-  "context.ts": 44,
-  "deployment.ts": 24,
-  "expr.ts": 67,
-  "members.ts": 20,
-  "model.ts": 13,
-  "projection.ts": 19,
+  "aggregate.ts": 14,
+  "context.ts": 37,
+  "deployment.ts": 23,
+  "expr.ts": 45,
+  "members.ts": 18,
+  "model.ts": 9,
+  "projection.ts": 18,
   "queries.ts": 1,
-  "stmt.ts": 28,
+  "stmt.ts": 16,
   "system.ts": 28,
   "traceability.ts": 5,
-  "types.ts": 13,
-  "ui.ts": 28,
-  "workflow.ts": 24,
-  "workflow-stmt.ts": 44,
+  "types.ts": 14,
+  "ui.ts": 26,
+  "workflow.ts": 23,
+  "workflow-stmt.ts": 28,
 };
 
 /** `name?:` property signatures anywhere in one module's text. */

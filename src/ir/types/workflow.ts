@@ -1,7 +1,6 @@
 import type { ExprIR } from "./expr.js";
 import type { ApplyIR, FieldIR, FunctionIR, ParamIR, WireField } from "./members.js";
-import type { OriginRef } from "./origin.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 import type { WorkflowStmtIR } from "./workflow-stmt.js";
 
 /** SQL-92 isolation levels — optional on `transactional` workflows.
@@ -18,7 +17,7 @@ export type IsolationLevel =
  *  events.  Default save semantics: each aggregate's save commits
  *  independently.  `transactional: true` wraps everything in one DB
  *  transaction. */
-export interface WorkflowIR {
+export interface WorkflowIR extends Sourced {
   name: string;
   /** @deprecated Facade over the primary (unnamed, command-triggered) create —
    *  see `creates`.  Kept so the backend emitters (Hono / .NET / Phoenix /
@@ -117,10 +116,6 @@ export interface WorkflowIR {
    *  runs before the query, so no instance row is bound yet
    *  (`loom.workflow-gate-not-current-user`). */
   instanceReadGate?: ExprIR;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** A top-level `commandHandler name(params): T { … }` application-layer member

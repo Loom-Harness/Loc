@@ -1,0 +1,265 @@
+// The HEEx showcase — one Phoenix LiveView system whose ui reaches every walker
+// primitive with a `heex` renderer and every `WalkResult` accumulator the HEEx
+// walker fills.
+//
+// It is the HEEx walker's coverage floor.  `heex-coverage.test.ts` renders it
+// and fails if any HEEx-rendered primitive or accumulator goes unreached, and
+// `scripts/heex-corpus-diff.mjs` includes it in the byte-identical corpus diff,
+// so a walker change that moves any of these renders shows up there.
+//
+// What it covers beyond the primitives themselves:
+//   - `scaffold` pages: the paged, sortable list (Table sort/page controls),
+//     the create form with an `X id` select (id options), IdLink labels, the
+//     audit Timeline, the provenance disclosure;
+//   - a client-side Table filter (the `LoomTable` helpers);
+//   - a stateful component with a form, a query and an upload in its own
+//     body, and a stateless component rendered twice on one page;
+//   - `match await` in a page action;
+//   - store reads and store actions, from a page and from a component;
+//   - a projection-backed Chart.
+
+system HeexShowcase {
+
+  i18n {
+    source: "en"
+  }
+
+  subdomain Shop {
+    context Shop {
+
+      enum Stage { Draft, Placed, Shipped }
+
+      error OrderMissing { code: string }
+
+      aggregate Customer with crudish {
+        name: string
+        derived display: string = name
+      }
+
+      aggregate Order audited, with crudish {
+        code: string
+        stage: Stage immutable
+        total: money
+        placedAt: datetime
+        note: string?
+        weight: int provenanced
+        customer: Customer id
+
+        operation confirm() {
+          precondition stage == Draft
+          stage := Placed
+        }
+
+        operation ship() {
+          precondition stage == Placed
+          stage := Shipped
+        }
+
+        operation reserve(): Order or OrderMissing {
+          return OrderMissing { code: code }
+        }
+
+        derived display: string = code
+      }
+
+      repository Customers for Customer { }
+      repository Orders for Order { }
+
+      projection OrdersByStage {
+        stage: string
+        n: int
+        from Order as o
+        group by o.stage
+        select stage = o.stage, n = count()
+      }
+
+      workflow PlaceOrder {
+        create(code: string) {
+          let c = Customer.create(name: code)
+        }
+      }
+    }
+  }
+
+  api ShopApi from Shop {
+    httpStatus OrderMissing -> 404
+  }
+
+  storage primary { type: postgres }
+  storage blobs { type: localDisk }
+  resource shopState { for: Shop, kind: state, use: primary }
+  resource shopBlobs { for: Shop, kind: objectStore, use: blobs }
+
+  ui Web with scaffold(subdomains: [Shop]) {
+    api S: ShopApi
+
+    store Basket {
+      state {
+        lines: string[]
+        count: int = 0
+      }
+      action add(sku: string) {
+        lines += sku
+        count += 1
+      }
+      action clear() {
+        lines := [ ]
+        count := 0
+      }
+    }
+
+    // A stateful component whose own body holds a form, a query and an upload.
+    // Its state and bindings are hoisted into every host LiveView.
+    component OrderDesk(label: string) {
+      state { receipt: File }
+      action addOne() { Basket.add("SKU-1") }
+      body: Card {
+        Heading { label, level: 3 },
+        Text { Basket.count },
+        Button { "Add", onClick: addOne },
+        CreateForm { of: Customer },
+        FileUpload { "Receipt", bind: receipt },
+        QueryView {
+          of: S.Customer.all,
+          data: rows => Table { rows: rows, Column { "Name", o => Text { o.name } } }
+        },
+        Slot { }
+      }
+    }
+
+    component OrderPanel(order: Order) {
+      body: Stack {
+        Text { order.code },
+        Action { order.confirm, then: toast("Confirmed") },
+        Modal { OperationForm { order.ship }, trigger: Button { "Ship" }, title: "Ship" }
+      }
+    }
+
+    // A stateless component, so it may render more than once on one page.
+    component Note(text: string) {
+      body: Alert { text }
+    }
+
+    // The stateful component once — `loom.heex-stateful-component-reused`
+    // refuses a second instance, because both would share the one set of
+    // host-LiveView assigns its state is lifted into.
+    page Desk {
+      route: "/desk"
+      title: "Desk"
+      body: Stack {
+        OrderDesk { label: "Only", Text { "inside the desk" } },
+        Note { text: "first" },
+        Note { text: "second" }
+      }
+    }
+
+    page Board(id: Order id) {
+      route: "/board/:id"
+      title: "Board"
+      state {
+        q: string = ""
+        name: string = ""
+        level: int = 1
+        secret: string = ""
+        notes: string = ""
+        vis: string = "Draft"
+        editing: bool = false
+        attachment: File
+        result: string = ""
+      }
+      action reserveNow() {
+        match await S.Order.reserve() {
+          Order o => { result := o.code }
+          else    => { result := "unavailable" }
+        }
+      }
+      action discard() { Basket.clear() }
+      action toggle() { editing := !editing }
+      body: Container {
+        Sticky { top: "0", Heading { "HEEx showcase", level: 3 } },
+        Breadcrumbs { Anchor { "Home", to: "/" }, Text { "Board" } },
+        Toolbar {
+          Heading { "Board", level: 2 },
+          Button { "Reserve", onClick: reserveNow },
+          Button { "Clear basket", onClick: discard },
+          Button { "Clear basket directly", onClick: Basket.clear }
+        },
+        Grid {
+          cols: [2, 1],
+          Group {
+            Avatar { src: "/avatar.png", alt: "Owner" },
+            Image { "/logo.png", alt: "Logo" },
+            Badge { "live" }
+          },
+          Tabs {
+            Card {
+              Stack {
+                Stat { "Basket", Basket.count },
+                Divider {},
+                Money { 1999, currency: "USD" },
+                KeyValueRow { "Result", Text { result } },
+                Loader {},
+                LocaleSwitcher {}
+              }
+            },
+            Card {
+              Stack {
+                Field { "Name", bind: name },
+                NumberField { "Level", bind: level },
+                PasswordField { "Secret", bind: secret },
+                MultilineField { "Notes", bind: notes },
+                SelectField { "Stage", bind: vis, options: ["Draft", "Placed"] },
+                Toggle { "Editing", bind: editing },
+                FileUpload { "Attachment", bind: attachment },
+                FileLink { attachment },
+                Button { "Toggle", onClick: toggle }
+              }
+            }
+          }
+        },
+        Section {
+          id: "inline",
+          Heading { "Inline", level: 3 },
+          Paper {
+            Bold { "bold" },
+            Italic { "italic" },
+            InlineCode { "code" },
+            CodeBlock { "x = 1" },
+            Icon { name: "arrow-right" }
+          }
+        },
+        Chart { kind: "bar", of: S.OrdersByStage, x: r => r.stage, y: r => r.n },
+        QueryView {
+          of: S.Order.all,
+          loading: Skeleton { count: 3 },
+          error: Alert { "Could not load orders" },
+          empty: Empty { "No orders." },
+          data: rows => Stack {
+            Table {
+              rows: rows,
+              serverPaged: false,
+              filter: q,
+              Column { "Code", o => IdLink { o.id, of: Order } },
+              Column { "Stage", o => EnumBadge { o.stage } },
+              Column { "Placed", o => DateDisplay { o.placedAt } }
+            },
+            For { each: rows, o => OrderPanel(order: o) }
+          }
+        },
+        OperationForm { of: Order, op: confirm },
+        WorkflowForm { runs: PlaceOrder },
+        DestroyForm { of: Customer },
+        Modal { Text { "Editing" }, open: editing, title: "Editing" }
+      }
+    }
+  }
+
+  deployable shopApp {
+    platform: elixir
+    contexts: [Shop]
+    dataSources: [shopState, shopBlobs]
+    serves: ShopApi
+    ui: Web { S: shopApp }
+    port: 4000
+  }
+}

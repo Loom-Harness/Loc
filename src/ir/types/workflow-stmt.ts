@@ -2,9 +2,8 @@ import type { RepoOp } from "../../util/repository-contract.js";
 import type { BypassReadIR, KeyLookupIR, LoadPlanIR, SortTermIR } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { MessageIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { PathIR } from "./stmt.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 /** What an `if let` source does: one of the optional repository reads, or
  *  `bound` — narrowing an optional binding already in scope (no read). */
@@ -29,8 +28,8 @@ export interface CallResultBindingIR {
   errorVariants: string[];
 }
 
-export type WorkflowStmtIR =
-  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
+export type WorkflowStmtIR = (
+  | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR }
   | {
       kind: "requires";
       expr: ExprIR;
@@ -40,20 +39,17 @@ export type WorkflowStmtIR =
        *  It authorizes the READ only, so `validateDefaultDeny` does not count
        *  it as the handler's own exposure gate. */
       readGateOf?: string;
-      origin?: OriginRef;
     }
   | {
       kind: "emit";
       eventName: string;
       fields: { name: string; value: ExprIR }[];
-      origin?: OriginRef;
     }
   | {
       kind: "factory-let";
       name: string;
       aggName: string;
       fields: { name: string; value: ExprIR }[];
-      origin?: OriginRef;
     }
   | {
       kind: "repo-let";
@@ -84,14 +80,12 @@ export type WorkflowStmtIR =
        *  read runs its own method, not the shared retrieval — and a backend
        *  calls `method` the way it calls an `if let`'s `findMethod`. */
       bypassRead?: BypassReadIR;
-      origin?: OriginRef;
     }
   | {
       kind: "expr-let";
       name: string;
       type: TypeIR;
       expr: ExprIR;
-      origin?: OriginRef;
     }
   | {
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
@@ -134,7 +128,6 @@ export type WorkflowStmtIR =
       bypassCaps?: string[];
       /** Element aggregate array type `{ kind: "array", element: entity }`. */
       returnType: TypeIR;
-      origin?: OriginRef;
     }
   | {
       // `a.withdraw(x)` as a statement, or `let r = a.withdraw(x)` — a call to
@@ -146,7 +139,6 @@ export type WorkflowStmtIR =
       op: string;
       args: ExprIR[];
       result?: CallResultBindingIR;
-      origin?: OriginRef;
     }
   | {
       // `<Repo>.remove(o)` — a repository DELETE
@@ -164,7 +156,6 @@ export type WorkflowStmtIR =
       repoName: string;
       aggName: string;
       entity: ExprIR;
-      origin?: OriginRef;
     }
   | {
       // `for <var> in <iterable> { <body> }` (retrieval.md).  Iterates an
@@ -179,7 +170,6 @@ export type WorkflowStmtIR =
       iterable: ExprIR;
       body: WorkflowStmtIR[];
       savesPerIteration: { name: string; aggName: string; repoName: string }[];
-      origin?: OriginRef;
     }
   | {
       // A bare (unbound) resource-op call statement — `files.put(k, v)`.
@@ -187,7 +177,6 @@ export type WorkflowStmtIR =
       // `expr-let` instead.  `call` is the lowered `resource-op` call IR.
       kind: "resource-call";
       call: ExprIR;
-      origin?: OriginRef;
     }
   | {
       // A bare orchestrator call into a `domainService` operation —
@@ -211,7 +200,6 @@ export type WorkflowStmtIR =
        *  service mutates exactly as the bare statement does.  (A let-bound call
        *  to a service that mutates nothing rides `expr-let`.) */
       result?: CallResultBindingIR;
-      origin?: OriginRef;
     }
   | {
       // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
@@ -277,7 +265,6 @@ export type WorkflowStmtIR =
       /** Saves for aggregates created in `elseBody` (e.g. a not-found →
        *  `Agg.create(...)` fallback) — emitted at the end of the else-branch. */
       savesInElse: { name: string; aggName: string; repoName: string }[];
-      origin?: OriginRef;
     }
   | {
       // `notFound` / `notFound "detail"` — end the body with the standard
@@ -290,7 +277,6 @@ export type WorkflowStmtIR =
       kind: "not-found";
       detail?: string;
       subject?: string;
-      origin?: OriginRef;
     }
   | {
       // `match <subject> { V b => { … } … else => { … } }` used for its
@@ -335,7 +321,6 @@ export type WorkflowStmtIR =
       savesInElse: { name: string; aggName: string; repoName: string }[];
       /** `discardsInArm` for the `else` arm. */
       discardsInElse?: { name: string; aggName: string; repoName: string }[];
-      origin?: OriginRef;
     }
   | {
       // `field := value` — assignment to one of the workflow's OWN state
@@ -350,5 +335,6 @@ export type WorkflowStmtIR =
       target: PathIR;
       value: ExprIR;
       targetType: TypeIR;
-      origin?: OriginRef;
-    };
+    }
+) &
+  Sourced;

@@ -151,6 +151,35 @@ on the next run. Exit 0 means identical, 1 means a difference (listed in
 result in the PR body; if the change is meant to move some output, list the
 intended differences there.
 
+### Proving a HEEx walker change byte-identical — `scripts/heex-corpus-diff.mjs`
+
+A change to the Phoenix/HEEx page walker (`src/generator/elixir/heex-*.ts`, or
+the shared walker HEEx renders through) proves itself against the HEEx corpus
+in a few minutes instead of an hour:
+
+```bash
+npx tsc -b                                              # the script reads out/
+node scripts/heex-corpus-diff.mjs capture /tmp/heex-base   # on the base commit
+node scripts/heex-corpus-diff.mjs diff /tmp/heex-base      # on the change; exit 1 on a diff
+node scripts/heex-corpus-diff.mjs coverage                 # which heex primitives and
+                                                           # WalkResult accumulators the corpus reaches
+```
+
+The corpus is every system that can host a LiveView ui: each `.ddd` under
+`examples/`, `web/src/examples/`, `journey/` and `test/e2e/fixtures/` with a
+`platform: elixir` deployable, `test/behavioral/heex-ui.ddd`, every corpus and
+templated fixture instantiated on `elixir`, the showcase's three uis
+self-hosted on Phoenix, and `test/fixtures/heex-showcase.ddd`. Only the files
+the HEEx walker and the HEEx design pack render are kept (`*_web/live/**`,
+`*_web/components/**`), so unrelated emitter churn neither hides a HEEx change
+nor shows up as one. An input that fails to generate records its error text,
+so breaking generation is a diff too.
+
+The diff only proves the renders the corpus reaches. `test/fixtures/heex-showcase.ddd`
+is the coverage floor: `test/generator/elixir/heex-coverage.test.ts` fails when
+any primitive with a `heex` renderer, or any `WalkResult` accumulator, is not
+reached by it. A new HEEx renderer or accumulator extends that fixture.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a

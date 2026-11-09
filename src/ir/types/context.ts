@@ -1,13 +1,12 @@
 import type { AggregateIR, TestIR } from "./aggregate.js";
 import type { ExprIR } from "./expr.js";
 import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
-import type { GenericCtorName, TypeIR } from "./types.js";
+import type { GenericCtorName, Sourced, TypeIR } from "./types.js";
 import type { CommandHandlerIR, QueryHandlerIR, WorkflowIR } from "./workflow.js";
 
-export interface EnumIR {
+export interface EnumIR extends Sourced {
   name: string;
   values: string[];
   /** Declared at the root of a file, outside every bounded context (the shared
@@ -16,13 +15,9 @@ export interface EnumIR {
    *  keys file under `_system` (`src/util/model-text-key.ts`), not under
    *  whichever context happens to render it. */
   systemLevel?: true;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
-   * diagnostic about this node print `path:line:col`. */
-  origin?: OriginRef;
 }
 
-export interface ValueObjectIR {
+export interface ValueObjectIR extends Sourced {
   name: string;
   fields: FieldIR[];
   /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
@@ -34,19 +29,11 @@ export interface ValueObjectIR {
    *  hoisted `test … for <VO>`).  Same `TestIR` shape as `AggregateIR.tests`;
    *  emitted as a colocated unit file (test-placement.md). */
   tests: TestIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
-export interface EventIR {
+export interface EventIR extends Sourced {
   name: string;
   fields: FieldIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** A channel — the publisher-side contract for how a context's events are
@@ -200,7 +187,7 @@ export interface BypassReadIR {
   bypassCaps?: string[];
 }
 
-export interface RepositoryIR {
+export interface RepositoryIR extends Sourced {
   name: string;
   aggregateName: string;
   finds: FindIR[];
@@ -227,10 +214,6 @@ export interface RepositoryIR {
    *  per-context backends cannot re-derive (they never see the deployables),
    *  hence stored.  Consumed through `read-gates.ts`. */
   readsDefaultDenied?: boolean;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** A named, parameterised, pure boolean predicate over a candidate
@@ -322,7 +305,7 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *
  *  No `page` field — pagination is a call-site argument on
  *  `Repo.all(R(args), page?)`, never part of the declaration. */
-export interface RetrievalIR {
+export interface RetrievalIR extends Sourced {
   name: string;
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
@@ -349,12 +332,9 @@ export interface RetrievalIR {
    *  See `FindIR.bypassAll`. */
   bypassAll?: boolean;
   bypassCaps?: string[];
-  /** Provenance back to the `retrieval` declaration — the span its
-   *  diagnostics point at. */
-  origin?: OriginRef;
 }
 
-export interface BoundedContextIR {
+export interface BoundedContextIR extends Sourced {
   name: string;
   enums: EnumIR[];
   valueObjects: ValueObjectIR[];
@@ -447,10 +427,6 @@ export interface BoundedContextIR {
    *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
    *  names shadow.  Undefined when the model has a single context. */
   siblingEnums?: EnumIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
   /** Per-aggregate read reachability levels declared by `policy {}` blocks in
    *  this context (authorization.md §3; tenancy.md).  Each
    *  entry names a tenant-owned aggregate and its directional read level
@@ -495,7 +471,7 @@ export interface BoundedContextIR {
  *  exactly like a projection gate, so it can reference `currentUser` and
  *  constants only — anything else is `loom.policy-read-gate-not-current-user`
  *  in phase ⑦. */
-export interface PolicyReadGateIR {
+export interface PolicyReadGateIR extends Sourced {
   /** The aggregate the gate applies to (by name, in this context).  Resolution
    *  is validated in phase ⑦ (`loom.policy-unknown-aggregate`). */
   aggregate: string;
@@ -503,8 +479,6 @@ export interface PolicyReadGateIR {
   gate: ExprIR;
   /** Source span text for diagnostics (`read Order requires …`). */
   source: string;
-  /** Provenance of the rule, for diagnostic locations. */
-  origin?: OriginRef;
 }
 
 /** One `allow <level> on <Aggregate>` rule lowered from a `policy {}` block —

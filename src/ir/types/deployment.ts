@@ -1,7 +1,7 @@
 import type { SavingShape } from "./aggregate.js";
 import type { BoundedContextIR } from "./context.js";
-import type { OriginRef } from "./origin.js";
 import type { ConfigEntryIR } from "./system.js";
+import type { Sourced } from "./types.js";
 
 // ---------------------------------------------------------------------------
 
@@ -180,12 +180,8 @@ export type Platform =
 // without a backward `language → ir` value edge.  It type-depends on
 // `Platform` / `SavingShape` here.
 
-export interface DeployableIR {
+export interface DeployableIR extends Sourced {
   name: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
-   * diagnostic about this node print `path:line:col`. */
-  origin?: OriginRef;
   /** The platform **family** (`"node"`, `"dotnet"`, `"react"`, …) —
    *  the closed union every downstream consumer branches on.  A
    *  `family@version` pin in the source is normalised here to its
