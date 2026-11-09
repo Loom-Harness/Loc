@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Typed in-system api client (M-T4.8) — the .NET caller half.
 //
-// Third sibling of `src/platform/hono/v4/adapters/api-client.ts` and
+// Third sibling of `src/platform/hono/shared/adapters/api-client.ts` and
 // `src/generator/python/api-client.ts`; same contract, C# idiom.  One
 // `public static async Task<T> <Resource>_<OperationId>(...)` per operation the
 // CALLEE exposes, replacing the untyped `Get(path)` / `Post(path, body)` verbs

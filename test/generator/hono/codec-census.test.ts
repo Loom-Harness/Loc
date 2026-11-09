@@ -74,18 +74,18 @@ const FORBIDDEN: { what: string; re: RegExp }[] = [
  *  names a file and a substring of the one line it covers. */
 const WAIVERS: { file: string; line: string; reason: string }[] = [
   {
-    file: "src/platform/hono/v4/observability-builder.ts",
+    file: "src/platform/hono/shared/observability-builder.ts",
     line: "new Date().toISOString()",
     reason: "a structured-log line's own `ts` stamp — operability output, not a domain value",
   },
   {
-    file: "src/platform/hono/v4/scheduler-builder.ts",
+    file: "src/platform/hono/shared/scheduler-builder.ts",
     line: "singletonKey: prev.toISOString()",
     reason:
       "a pg-boss dedupe key for a timer boundary, never stored as a field or sent on the wire",
   },
   {
-    file: "src/platform/hono/v4/scheduler-builder.ts",
+    file: "src/platform/hono/shared/scheduler-builder.ts",
     line: "boundary: prev.toISOString()",
     reason: "a timer catch-up log line — operability output, not a domain value",
   },
@@ -127,7 +127,7 @@ describe("node codec census", () => {
     const files = nodeSources();
     expect(files).toContain("src/generator/typescript/emit/schema.ts");
     expect(files).toContain("src/generator/typescript/render-stmt.ts");
-    expect(files).toContain("src/platform/hono/v4/emit.ts");
+    expect(files).toContain("src/platform/hono/shared/emit.ts");
     expect(files.length).toBeGreaterThan(40);
   });
 

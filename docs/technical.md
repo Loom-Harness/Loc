@@ -736,20 +736,20 @@ pinning it is a `loom.platform-version-unknown` error naming `node@v5`.
 
 `v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  It feeds its
 pin set through `makeHonoPlatform(...)` imported from `v4/index.ts` and
-reuses the whole shell + emitter table below.  `platform/hono/v4/`
+reuses the whole shell + emitter table below.  `platform/hono/shared/`
 registers no version of its own: it holds the shared Hono shell and
 emitters that the registered package calls.
 
 | File | Owns |
 | --- | --- |
-| `platform/hono/v4/index.ts` | `makeHonoPlatform(pins)` — the shared `PlatformSurface` factory (`emitProject`, `composeService`, `needsDb`, `defaultPort`) each registered version calls with its own pins. |
-| `platform/hono/v4/emit.ts` | Project shell + per-context orchestration: package.json, tsconfig, Dockerfile, certs/ dir, route mount, calls into the shared emitters below. |
+| `platform/hono/shared/index.ts` | `makeHonoPlatform(pins)` — the shared `PlatformSurface` factory (`emitProject`, `composeService`, `needsDb`, `defaultPort`) each registered version calls with its own pins. |
+| `platform/hono/shared/emit.ts` | Project shell + per-context orchestration: package.json, tsconfig, Dockerfile, certs/ dir, route mount, calls into the shared emitters below. |
 | `platform/hono/v5/pins.ts` | Dependency version pins owned by the registered Hono package (hono / zod / drizzle / pg / pino + dev deps). |
-| `platform/hono/v4/routes-builder.ts` | OpenAPIHono router per aggregate — full Zod schemas via wire-shape, routes for create / get-by-id / find-all / per-op / per-find, domain-error handler. |
-| `platform/hono/v4/workflow-builder.ts` | OpenAPIHono router + handler per declared workflow. |
-| `platform/hono/v4/auth-emit.ts` | JWT verifier hook + middleware when any deployable declares `auth: required`. |
-| `platform/hono/v4/observability-builder.ts` | Wires the `_obs/render-hono` instrumentation into the per-aggregate routes. |
-| `generator/typescript/emit.ts` | Top-level barrel called from `platform/hono/v4/emit.ts`. |
+| `platform/hono/shared/routes-builder.ts` | OpenAPIHono router per aggregate — full Zod schemas via wire-shape, routes for create / get-by-id / find-all / per-op / per-find, domain-error handler. |
+| `platform/hono/shared/workflow-builder.ts` | OpenAPIHono router + handler per declared workflow. |
+| `platform/hono/shared/auth-emit.ts` | JWT verifier hook + middleware when any deployable declares `auth: required`. |
+| `platform/hono/shared/observability-builder.ts` | Wires the `_obs/render-hono` instrumentation into the per-aggregate routes. |
+| `generator/typescript/emit.ts` | Top-level barrel called from `platform/hono/shared/emit.ts`. |
 | `generator/typescript/emit/ids.ts` | Branded id types + smart constructors. |
 | `generator/typescript/emit/value-objects.ts` | Enums + value-object classes. |
 | `generator/typescript/emit/events.ts` | Domain-event union + dispatcher. |

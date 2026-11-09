@@ -852,7 +852,7 @@ export function generateTypeScriptForContexts(
 ): Map<string, string> {
   const emitTrace = !!options.emitTrace;
   const sourcemap = options.sourcemap;
-  const out = new TsOutputMap("platform/hono/v4/emit");
+  const out = new TsOutputMap("platform/hono/shared/emit");
   const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   // OIDC turnkey auth (D-AUTH-OIDC): present when the system declares an
   // `auth { oidc { … } }` block AND this deployable opts in.  Drives the

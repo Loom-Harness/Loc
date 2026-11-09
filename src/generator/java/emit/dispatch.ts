@@ -264,7 +264,7 @@ const JAVA_PRIMITIVES = new Set(["int", "long", "double", "float", "short", "byt
  *  The four pure fold kinds `checkProjections`
  *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered here,
  *  mirroring hono's `renderFoldStatement`
- *  (`src/platform/hono/v4/projection-builder.ts`); everything else is an
+ *  (`src/platform/hono/shared/projection-builder.ts`); everything else is an
  *  internal invariant violation and THROWS, because a dropped statement is worse
  *  than a crash — it ships. */
 function renderProjectionFoldStmt(

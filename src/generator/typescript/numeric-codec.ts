@@ -7,7 +7,7 @@ const MONEY_WIRE_SCALE = moneyWire().scale;
 // TypeScript's `NumericTarget` (M-T9.36) — the ONE place `.toFixed(4)` /
 // `new Decimal(...)` / `Number(...)` numeric-codec literals live for the
 // node/Hono backend.  Shared verbatim by the Hono route layer
-// (`src/platform/hono/v4/**`), which is the same generated-JS runtime.
+// (`src/platform/hono/shared/**`), which is the same generated-JS runtime.
 //
 // Each leaf is the BARE encode fragment — no null-guard, no `?? 0` default.
 // Callers keep their own optional-handling exactly as before; only the inner
@@ -23,7 +23,7 @@ export const TS_NUMERIC: NumericTarget = {
     // hydrate lossy through JS `number` the way `decimal` does).
     "repo-read": (e) => `new Decimal(${e})`,
     // The inbound wire boundary (`moneySchema`, emitted to every generated
-    // project's `lib/schemas.ts` — `hono/v4/emit.ts`): a validated
+    // project's `lib/schemas.ts` — `hono/shared/emit.ts`): a validated
     // decimal-formatted STRING parses the same way a stored column does.
     "find-param": (e) => `new Decimal(${e})`,
     // Domain value is already a `Decimal` instance — format to the FIXED

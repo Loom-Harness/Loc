@@ -6,7 +6,7 @@
 // parameter per repository it reads, and the orchestrating workflow has to
 // CONSTRUCT that repository and pass the handle at the call site.  The Hono
 // collector that finds those calls (`serviceReadPorts`, in
-// `src/platform/hono/v4/workflow-builder.ts`) used to ride two HAND-ROLLED
+// `src/platform/hono/shared/workflow-builder.ts`) used to ride two HAND-ROLLED
 // child enumerations over `WorkflowStmtIR` / `ExprIR` instead of
 // `src/ir/util/walk.ts`, and both had holes:
 //

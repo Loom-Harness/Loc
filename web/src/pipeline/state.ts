@@ -30,6 +30,8 @@ import type {
 import type { BackendBundle } from "../engine/runtime-engine.js";
 import type {
   BlockingMigrationState,
+  BootFailAt,
+  DeployableBootInfo,
   DispatchResult,
   SerializedResponse,
   UnrecordedChanges,
@@ -56,11 +58,21 @@ export type BootSlot =
   | { kind: "none" }
   /** `applied`: the migration units this boot applied, in order.
    *  `backends`: the deployables serving, the default request target first. */
-  | { kind: "ok"; ddl: string; persistent: boolean; applied: string[]; backends: string[] }
+  | {
+      kind: "ok";
+      ddl: string;
+      persistent: boolean;
+      applied: string[];
+      backends: string[];
+      /** Each serving deployable and the storage it binds. */
+      deployables: DeployableBootInfo[];
+      /** The storages the boot opened, in plan order. */
+      storages: string[];
+    }
   /** The database is not at the model's schema and the recorded chain cannot
    *  bring it there; it was left as it is and the app did not start. */
   | { kind: "pending"; migration: BlockingMigrationState; message: string }
-  | { kind: "fail"; message: string };
+  | { kind: "fail"; message: string; at?: BootFailAt };
 
 /** The recorded migration chain measured against the live source — the
  *  build worker's `migrate.plan` (`ddd migrate status`), re-run on every
@@ -148,10 +160,12 @@ export type PipelineAction =
       persistent: boolean;
       applied: string[];
       backends: string[];
+      deployables: DeployableBootInfo[];
+      storages: string[];
       head: string | null;
     }
   | { type: "BOOT_PENDING"; migration: BlockingMigrationState; message: string }
-  | { type: "BOOT_FAIL"; message: string }
+  | { type: "BOOT_FAIL"; message: string; at?: BootFailAt }
   // The recorded chain measured against the live source.
   | { type: "MIGRATION_CHECKED"; check: Exclude<MigrationCheckSlot, { kind: "none" }> }
   // Dispatch (a single HTTP call from the request composer)
@@ -247,6 +261,21 @@ export function bootPersistent(s: PipelineState): boolean {
 /** The deployables the last boot started, the default request target first. */
 export function bootBackends(s: PipelineState): string[] {
   return s.boot.kind === "ok" ? s.boot.backends : [];
+}
+
+/** Each deployable the last boot started and the storage it binds. */
+export function bootDeployables(s: PipelineState): DeployableBootInfo[] {
+  return s.boot.kind === "ok" ? s.boot.deployables : [];
+}
+
+/** The storages the last boot opened, in plan order. */
+export function bootStorages(s: PipelineState): string[] {
+  return s.boot.kind === "ok" ? s.boot.storages : [];
+}
+
+/** Where the last boot stopped, when it failed at one deployable or storage. */
+export function bootFailAt(s: PipelineState): BootFailAt | null {
+  return s.boot.kind === "fail" ? (s.boot.at ?? null) : null;
 }
 
 /** The migration units the last boot applied; empty when it applied none. */

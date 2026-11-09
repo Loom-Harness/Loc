@@ -31,11 +31,11 @@ const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 
 /** Every node source file that emits a write path or the save it calls. */
 const WRITE_PATH_EMITTERS = [
-  "src/platform/hono/v4/routes-builder.ts",
-  "src/platform/hono/v4/emit.ts",
-  "src/platform/hono/v4/workflow-builder.ts",
-  "src/platform/hono/v4/workflow-eventsourced-builder.ts",
-  "src/platform/hono/v4/explicit-handlers-builder.ts",
+  "src/platform/hono/shared/routes-builder.ts",
+  "src/platform/hono/shared/emit.ts",
+  "src/platform/hono/shared/workflow-builder.ts",
+  "src/platform/hono/shared/workflow-eventsourced-builder.ts",
+  "src/platform/hono/shared/explicit-handlers-builder.ts",
   "src/generator/typescript/repository-builder.ts",
   "src/generator/typescript/repository-save-builder.ts",
   "src/generator/typescript/repository-document-builder.ts",
@@ -66,8 +66,8 @@ describe("node checksVersion census — source", () => {
         .map((line, i) => ({ rel, line: i + 1, text: line }))
         .filter((l) => l.text.includes('c.req.header("if-match")')),
     );
-    expect(sites.map((s) => s.rel)).toEqual(["src/platform/hono/v4/routes-builder.ts"]);
-    const routes = read("src/platform/hono/v4/routes-builder.ts");
+    expect(sites.map((s) => s.rel)).toEqual(["src/platform/hono/shared/routes-builder.ts"]);
+    const routes = read("src/platform/hono/shared/routes-builder.ts");
     const helper = routes.slice(routes.indexOf("function expectedVersionLines("));
     expect(helper.indexOf('c.req.header("if-match")')).toBeLessThan(helper.indexOf("\n}\n"));
   });

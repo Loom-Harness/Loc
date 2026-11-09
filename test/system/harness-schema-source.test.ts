@@ -113,7 +113,7 @@ describe("harness schema source — the emitted migrations, not the ORM schema",
     const helper = readFileSync(join(REPO, "test/behavioral/emitted-schema.mjs"), "utf8");
     expect(helper).toContain('join(deplDir, "db", "migrations")');
     expect(helper).toContain('from "drizzle-orm/migrator"');
-    const emitter = readFileSync(join(REPO, "src/platform/hono/v4/emit.ts"), "utf8");
+    const emitter = readFileSync(join(REPO, "src/platform/hono/shared/emit.ts"), "utf8");
     expect(emitter).toContain('migrationsFolder: "./db/migrations"');
   });
 });

@@ -7,8 +7,8 @@
 // generated hono project under test/fixtures/baseline-output/).
 
 import { describe, expect, it, vi } from "vitest";
-import * as byLayerModule from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
-import * as layeredStyleModule from "../../src/platform/hono/v4/adapters/layered-style.js";
+import * as byLayerModule from "../../src/platform/hono/shared/adapters/by-layer-layout.js";
+import * as layeredStyleModule from "../../src/platform/hono/shared/adapters/layered-style.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYSTEM_SRC = `

@@ -116,7 +116,7 @@ export interface SystemEmission {
    *  drop+add → RENAME inference the builder makes on purpose and used to make
    *  in silence (F-3).  Same lifting story as `giveUps` above: the fact is
    *  known deep inside a pure pass with no console, so it rides out on the
-   *  emission and `src/cli/main.ts` prints it. */
+   *  emission and `src/cli/commands/generate.ts` prints it. */
   migrationWarnings: MigrationWarning[];
 }
 

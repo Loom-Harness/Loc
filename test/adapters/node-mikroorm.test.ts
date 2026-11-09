@@ -12,7 +12,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { mikroOrmPersistenceAdapter } from "../../src/platform/hono/v4/adapters/mikroorm-persistence.js";
+import { mikroOrmPersistenceAdapter } from "../../src/platform/hono/shared/adapters/mikroorm-persistence.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
 import { diagText } from "../_helpers/diagnostics.js";
 import { generateSystemFiles } from "../_helpers/generate.js";

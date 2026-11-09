@@ -17,7 +17,7 @@
 // every relative import specifier that resolves to an emitted file — a
 // content change, so it only runs when `--sourcemap` requests the debug
 // affordance (see the `sourcemap` gate at the call site in
-// `src/platform/hono/v4/emit.ts`); the flag-off project keeps today's
+// `src/platform/hono/shared/emit.ts`); the flag-off project keeps today's
 // extensionless imports byte-identical.  `tsconfig.json`'s
 // `allowImportingTsExtensions` (set alongside this — same file) is required
 // for `tsc --noEmit` to accept the now-explicit `.ts` specifiers (TS5097

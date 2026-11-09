@@ -17,7 +17,7 @@ import {
 } from "../../surface.js";
 import { byFeatureLayoutAdapter } from "./adapters/by-feature-layout.js";
 import { byLayerLayoutAdapter } from "./adapters/by-layer-layout.js";
-import { drizzlePersistenceAdapter } from "./adapters/drizzle-persistence.js";
+import { drizzlePersistenceAdapterFor } from "./adapters/drizzle-persistence.js";
 import { layeredStyleAdapter } from "./adapters/layered-style.js";
 import { mikroOrmPersistenceAdapter } from "./adapters/mikroorm-persistence.js";
 import { type BackendPins, generateTypeScriptForContexts } from "./emit.js";
@@ -27,6 +27,7 @@ import { type BackendPins, generateTypeScriptForContexts } from "./emit.js";
  *  `BACKEND_PINS` fed to the shared emitter differ — so each registered
  *  version passes its own `pins.ts` rather than copying the surface. */
 export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
+  const drizzlePersistenceAdapter = drizzlePersistenceAdapterFor(pins);
   return {
     name: "node",
     defaultPort: 3000,
@@ -112,7 +113,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // older than 22.6 doesn't support stripping at all. Requires the
     // sibling `addTsExtensionsForNodeDebug` import rewrite
     // (src/generator/typescript/debug-imports.ts, applied in
-    // src/platform/hono/v4/emit.ts) — both are gated on the same flag, so
+    // src/platform/hono/shared/emit.ts) — both are gated on the same flag, so
     // they always ship together.
     debugLaunch({ deployable, slug }): Record<string, unknown> {
       return {

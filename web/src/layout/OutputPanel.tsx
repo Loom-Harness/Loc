@@ -355,6 +355,8 @@ function DiagRow({ snap }: { snap: DiagSnapshot }): JSX.Element {
 // console.debug.  App lines are plain `console.*` calls tinted by their
 // method's level.  Defaults to "all visible" so every captured line
 // shows unless the user explicitly narrows.
+const ALL_SOURCES = "\u0000all";
+
 function FilterableLogView({
   lines,
   empty,
@@ -381,7 +383,20 @@ function FilterableLogView({
     for (const l of lines) acc[l.level]++;
     return acc;
   }, [lines]);
-  const filtered = useMemo(() => lines.filter((l) => selected.has(l.level)), [lines, selected]);
+  // The deployables that produced lines.  With more than one, a filter and a
+  // per-line tag appear; a one-deployable system keeps the plain view.
+  const sources = useMemo(() => {
+    const seen = new Set<string>();
+    for (const l of lines) if (l.source) seen.add(l.source);
+    return [...seen];
+  }, [lines]);
+  const [source, setSource] = useState<string | null>(null);
+  const activeSource = source !== null && sources.includes(source) ? source : null;
+  const filtered = useMemo(
+    () =>
+      lines.filter((l) => selected.has(l.level) && (activeSource === null || l.source === activeSource)),
+    [lines, selected, activeSource],
+  );
   const toggle = (level: LogLine["level"]): void => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -417,8 +432,22 @@ function FilterableLogView({
             {level} {counts[level] > 0 ? `(${counts[level]})` : ""}
           </Chip>
         ))}
+        {sources.length > 1 && (
+          <Select
+            size="xs"
+            w={150}
+            ml="auto"
+            allowDeselect={false}
+            value={activeSource ?? ALL_SOURCES}
+            onChange={(v) => setSource(v === null || v === ALL_SOURCES ? null : v)}
+            data={[{ value: ALL_SOURCES, label: "All deployables" }, ...sources]}
+            aria-label="Deployable"
+            comboboxProps={{ withinPortal: true }}
+            data-testid={`${testid}-source`}
+          />
+        )}
       </Group>
-      <LogView lines={filtered} empty={empty} testid={testid} />
+      <LogView lines={filtered} empty={empty} testid={testid} showSource={sources.length > 1} />
     </Box>
   );
 }
@@ -492,10 +521,12 @@ function LogView({
   lines,
   empty,
   testid,
+  showSource = false,
 }: {
   lines: LogLine[];
   empty: string;
   testid: string;
+  showSource?: boolean;
 }): JSX.Element {
   if (lines.length === 0) {
     return (
@@ -523,7 +554,9 @@ function LogView({
             }
             style={{ whiteSpace: "pre-wrap" }}
             data-testid={l.structured ? `${testid}-structured` : undefined}
+            data-source={l.source}
           >
+            {showSource && l.source ? `${l.source} | ` : ""}
             {l.structured ? renderStructuredLine(l.structured) : renderUnstructuredLine(l)}
           </Text>
         ))}

@@ -39,7 +39,7 @@
 // (`Too big: expected int to be <=9007199254740991`), while zod 3's accepts
 // `1e19` — so the v5 package enforced the declared `long` ceiling by accident
 // of its zod major and the v4 package wrote a corrupted value into a bigint
-// column.  `LONG_SAFE` (`hono/v4/routes-builder.ts`) states it on both, as a
+// column.  `LONG_SAFE` (`hono/shared/routes-builder.ts`) states it on both, as a
 // `.refine` so it is enforced WITHOUT being published (node-only bounds in the
 // OpenAPI would make one `.ddd` publish two contracts).
 //

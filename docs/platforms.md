@@ -16,7 +16,7 @@ versioning works.
 
 | `platform:` keyword | Surface file | Default port | Needs DB | Mounts UI |
 |---|---|---|---|---|
-| `node` (default and only version `node@v5`; Hono web framework) | `src/platform/hono/v5/index.ts` (shared surface factory: `src/platform/hono/v4/index.ts`) | 3000 | ✓ | ✗ |
+| `node` (default and only version `node@v5`; Hono web framework) | `src/platform/hono/v5/index.ts` (shared surface factory: `src/platform/hono/shared/index.ts`) | 3000 | ✓ | ✗ |
 | `dotnet` (default `dotnet@v10`) | `src/platform/dotnet.ts` | 8080 | ✓ | ✓ (when `ui:` is declared) |
 | `elixir` (default `elixir@v1`; legacy aliases `phoenix` / `phoenixLiveView` desugar to it) | `src/platform/elixir.ts` | 4000 | ✓ | ✓ (fullstack) |
 | `python` (default `python@v1`) | `src/platform/python.ts` | 8000 | ✓ | ✓ (when `ui:` is declared — dotnet-style dual mode) |
@@ -241,8 +241,12 @@ interface LoomBackendManifest {
 }
 ```
 
-Today every backend family registers exactly one version.  Adding a
-second version for a family means:
+Today every backend family registers exactly one version.  The Hono
+backend's emitter and surface factory live in `src/platform/hono/shared/`;
+`src/platform/hono/v5/` is the registered version's pin set fed through that
+factory.  A directory carries a version name only while that version is
+registered (D-HONO-SHARED in `decisions.md`).  Adding a second version for a
+family means:
 
 1. Build the new surface (e.g. `src/platform/hono/v6/index.ts`),
    typically by feeding a new pin set through the existing surface

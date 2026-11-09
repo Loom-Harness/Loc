@@ -43,6 +43,8 @@ import type {
 import type { PendingMigration, PipelineState } from "../pipeline/state";
 import type {
   BlockingMigrationState,
+  BootFailAt,
+  DeployableBootInfo,
   DispatchResult,
   QueryResult,
 } from "../runtime/protocol";
@@ -478,6 +480,17 @@ export interface LayoutCtx {
   /** The booted Node deployables, the default request target first; the
    *  console offers a choice only when there are several. */
   bootedBackends: string[];
+  /** Each booted deployable and the storage it binds. */
+  bootedDeployables: DeployableBootInfo[];
+  /** The storages the boot opened; the SQL console and Reset choose among them. */
+  bootedStorages: string[];
+  /** The deployable or storage the last boot failed at, if it named one. */
+  bootFailAt: BootFailAt | null;
+  /** Every deployable the last bundle built, booted or not. */
+  bundledDeployables: string[];
+  /** The storage the SQL console and Reset act on; null = the first. */
+  dbTarget: string | null;
+  setDbTarget: (v: string | null) => void;
   /** The deployable `Send` dispatches to; null = the default (first). */
   reqTarget: string | null;
   setReqTarget: (v: string | null) => void;
