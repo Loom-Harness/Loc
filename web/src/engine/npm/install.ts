@@ -22,19 +22,30 @@ export interface InstallResult {
   /** name → resolved version actually written. */
   versions: Map<string, string>;
   fileCount: number;
+  /** Where the time went, summed across the concurrent workers (so
+   *  fetch/extract can exceed wall clock). */
+  timings: { planMs: number; fetchMs: number; extractMs: number; writeMs: number; cacheHits: number };
 }
 
 async function extract(
   pkg: PlannedPackage,
   mirror?: Map<string, string>,
+  timings?: InstallResult["timings"],
 ): Promise<TarEntry[]> {
   const key = `${pkg.name}@${pkg.version}`;
   // Prefer the local mirror (same-origin asset) over the registry —
   // this is what makes a cold install fast and keeps the e2e from
   // saturating the network with concurrent registry fetches (C1).
   const url = mirror?.get(key) ?? pkg.meta.dist.tarball;
+  const t0 = performance.now();
   const tgz = await fetchTarball(url);
-  return untar(await gunzip(tgz));
+  const t1 = performance.now();
+  const entries = untar(await gunzip(tgz));
+  if (timings) {
+    timings.fetchMs += t1 - t0;
+    timings.extractMs += performance.now() - t1;
+  }
+  return entries;
 }
 
 export async function install(
@@ -51,7 +62,10 @@ export async function install(
 ): Promise<InstallResult> {
   const nmRoot = opts.nmRoot ?? "/node_modules";
   const concurrency = opts.concurrency ?? 8;
+  const timings = { planMs: 0, fetchMs: 0, extractMs: 0, writeMs: 0, cacheHits: 0 };
+  const tPlan = performance.now();
   const plan = [...(await planInstall(rootDeps)).values()];
+  timings.planMs = performance.now() - tPlan;
   const versions = new Map<string, string>();
   let fileCount = 0;
 
@@ -62,18 +76,20 @@ export async function install(
       const key = `${pkg.name}@${pkg.version}`;
       let entries = opts.cache?.get(key);
       if (!entries) {
-        entries = await extract(pkg, opts.mirror);
+        entries = await extract(pkg, opts.mirror, timings);
         opts.cache?.set(key, entries);
-      }
+      } else timings.cacheHits++;
+      const tw = performance.now();
       for (const e of entries) {
         write(`${nmRoot}/${pkg.name}/${e.name}`, e.data);
         fileCount++;
       }
+      timings.writeMs += performance.now() - tw;
       versions.set(pkg.name, pkg.version);
     }
   }
   await Promise.all(
     Array.from({ length: Math.min(concurrency, plan.length) }, worker),
   );
-  return { versions, fileCount };
+  return { versions, fileCount, timings };
 }
