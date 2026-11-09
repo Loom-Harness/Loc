@@ -9,7 +9,7 @@
 // browser-context cross-origin fetches.  GitHub Pages deploys and
 // any normal dev box pass this probe trivially.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   fatalConsoleErrors,

@@ -4,7 +4,7 @@
 // now is that Overview's toolbar — the chrome that inherited those controls —
 // stays usable and clear of the canvas on a 390px viewport.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 
 test.use({ viewport: { width: 390, height: 844 } });
 

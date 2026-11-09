@@ -8,7 +8,7 @@
 // layout — are gated here; every EDITING assertion from the old spec moved to
 // `system-builder-v2.spec.ts`, against the surviving mutation surface.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { selectExample, waitForPlaygroundReady } from "./_helpers";
 
 /** Open Sales System in the Model pane's Overview mode. */

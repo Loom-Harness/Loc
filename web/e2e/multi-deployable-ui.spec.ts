@@ -5,7 +5,7 @@
 // second storage), so a write through one backend must not show in the other.
 // Needs real internet, like multi-backend-runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   readEditorSource,

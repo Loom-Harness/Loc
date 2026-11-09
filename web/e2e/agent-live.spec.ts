@@ -6,7 +6,7 @@
 // the run exercises the whole live path (composer → transport → loop → editor
 // reflection → generate) deterministically.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 // A model the STARTER source does not already contain, so "did the write
