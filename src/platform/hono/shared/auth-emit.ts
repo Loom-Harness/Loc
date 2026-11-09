@@ -540,6 +540,7 @@ function malformedDevClaims(c: Context, detail: string) {
 import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
+import { matchedRoutes } from "hono/route";
 import { ${orgContext ? "requestContext, requestContextStore, requestLog" : "requestContext, requestContextStore"} } from "../obs/als";
 import { baseLogger } from "../obs/log";
 ${oidc ? "" : 'import { MalformedDevClaimsError } from "./dev-stub";\n'}import type { User, UserClaims } from "./user-types";
@@ -547,9 +548,12 @@ import { verifyUserOrThrow } from "./verifier";
 
 const BYPASS_PREFIXES = ${bypass} as const;
 
-/** Whether ANY route serves this path.  Installed by http/index.ts once every
- *  router is mounted (it owns the router that can answer), so it is null until
- *  then and the middleware simply authenticates as before.
+${resolverSeam}${rootOrgSeam}${orgContextSeam}
+/** Whether a ROUTE (not just middleware) answers this request, read off the
+ *  router's own match for it — the exact match the dispatcher runs, so the
+ *  gate and the handler can never disagree about which route a spelling of
+ *  the path reaches.  Middleware registers under \`ALL\`, which matches every
+ *  path; a handler route carries its verb.
  *
  *  The RFC puts ROUTING before authentication.  §15.5.4 names 404 as the code
  *  for an origin server that wishes to hide a resource's existence — 404 is the
@@ -558,20 +562,16 @@ const BYPASS_PREFIXES = ${bypass} as const;
  *  succeed when there is no such resource.  So a path nothing serves falls
  *  through to the 404 handler rather than being challenged.
  *
- *  Keyed on (METHOD, path), because that is what a router resolves.  Keying on
- *  the path alone answers 401 for a wrong VERB on a path that exists, which
- *  contradicts the same ladder: a method mismatch is a ROUTING outcome, so it
- *  belongs to the 405 handler, ahead of authentication.  Phoenix was already
- *  right here and node was not — the cross-backend recording is what said so.
- *  Disclosing the served methods to an anonymous caller is consistent with
- *  answering 404 honestly for an unknown path: concealment has its own
- *  sanctioned tool (§15.5.4) and this API does not use it. */
-export type RouteProbe = (method: string, path: string) => boolean;
-let routeProbe: RouteProbe | null = null;
-export function registerRouteProbe(fn: RouteProbe): void {
-  routeProbe = fn;
+ *  Keyed on (METHOD, path), because that is what a router resolves: a wrong
+ *  VERB on a path that exists is a ROUTING outcome, answered by the 405
+ *  handler ahead of authentication.  Disclosing the served methods to an
+ *  anonymous caller is consistent with answering 404 honestly for an unknown
+ *  path: concealment has its own sanctioned tool (§15.5.4) and this API does
+ *  not use it. */
+function routeMatched(c: Context): boolean {
+  return matchedRoutes(c).some((r) => r.method !== "ALL");
 }
-${resolverSeam}${rootOrgSeam}${orgContextSeam}
+
 /** Hono middleware that decodes the request's JWT into a User, attaches it
  *  to the ambient RequestContext (the one source of truth, readable by
  *  non-HTTP code via \`requireCurrentUser()\`), and also stashes it on the
@@ -608,15 +608,20 @@ ${oidc ? "" : malformedDevClaimsFn}
 export const authMiddleware = createMiddleware<{
   Variables: { currentUser: User };
 }>(async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  for (const prefix of BYPASS_PREFIXES) {
-    if (path.startsWith(prefix)) {
-      await next();
-      return;
+  // \`c.req.path\` is the path the router dispatched on (percent-decoded);
+  // the raw pathname is how the client spelled it.  A bypass prefix matches
+  // only its canonical spelling — an encoded spelling of one is gated like
+  // any other route.
+  const path = c.req.path;
+  if (path === new URL(c.req.url).pathname) {
+    for (const prefix of BYPASS_PREFIXES) {
+      if (path.startsWith(prefix)) {
+        await next();
+        return;
+      }
     }
   }
-  // Route before authenticate — see registerRouteProbe above.
-  if (routeProbe && !routeProbe(c.req.method, path)) {
+  if (!routeMatched(c)) {
     await next();
     return;
   }

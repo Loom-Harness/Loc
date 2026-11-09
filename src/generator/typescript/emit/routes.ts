@@ -693,12 +693,6 @@ export function renderHttpIndex(
       "    const probe = methodProbe;",
       "    return PROBE_METHODS.filter((m) => probe.match(m, path)[0].length > 0);",
       "  };",
-      // Route before authenticate (RFC 9110 §15.5.2/§15.5.4) — the auth
-      // middleware mounted above defers to this probe, so a path nothing serves
-      // answers 404 instead of challenging for credentials that could never
-      // make it resolve.  Installed here because this is where the router that
-      // can answer the question lives.
-      authRequired ? `  ${T.registerRouteProbe}((m, p) => allowedFor(p).includes(m));` : null,
       "  app.notFound((c) => {",
       "    const allow = allowedFor(c.req.path).filter((m) => m !== c.req.method);",
       "    if (allow.length > 0) {",
