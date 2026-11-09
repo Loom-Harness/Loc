@@ -11,6 +11,7 @@ import {
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
+import { hasStateRow } from "../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -316,7 +317,7 @@ export function schemaFromModule(
       // log emitted above (folded on load, filtered by `stream_type`) — no
       // per-workflow table.  A plain correlation-bearing workflow keeps its
       // mutable state table.
-      if (!wf.eventSourced && wf.correlationField) {
+      if (hasStateRow(wf)) {
         const t = workflowStateTableShape(wf, module.name, voLookup, durable);
         if (ctxSchema !== undefined) t.schema = ctxSchema;
         tables.push(t);
@@ -2944,7 +2945,7 @@ function namingFixTableRenames(
   const liveNames = new Set(next.tables.map((t) => t.name));
   for (const ctx of module.contexts) {
     for (const wf of ctx.workflows) {
-      if (wf.eventSourced || !wf.correlationField) continue; // no state table
+      if (!hasStateRow(wf)) continue; // no state table
       const from = legacyWorkflowStateTableName(wf.name);
       const to = workflowStateTableName(wf.name);
       if (from === to || liveNames.has(from)) continue;

@@ -7,6 +7,11 @@ import {
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import {
+  eventSourcedWorkflows,
+  observableWorkflows,
+  stateRowWorkflows,
+} from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -247,17 +252,9 @@ import {
 import { renderJavaCommandValidators, renderJavaVoValidators } from "./emit/validator.js";
 import { referencedValueObjects } from "./emit/wire.js";
 import { renderJavaWorkflows } from "./emit/workflow.js";
+import { esWorkflowStateClass, renderEsWorkflowFoldClass } from "./emit/workflow-eventsourced.js";
+import { renderJavaWorkflowInstanceReads } from "./emit/workflow-instances.js";
 import {
-  esWorkflowStateClass,
-  eventSourcedWorkflows,
-  renderEsWorkflowFoldClass,
-} from "./emit/workflow-eventsourced.js";
-import {
-  observableWorkflowsOf,
-  renderJavaWorkflowInstanceReads,
-} from "./emit/workflow-instances.js";
-import {
-  correlationWorkflows,
   renderWorkflowStateEntity,
   renderWorkflowStateRepository,
   workflowStateClass,
@@ -976,13 +973,12 @@ function emitProjectFromContexts(
         );
       }
     };
-    for (const wf of correlationWorkflows(ctx.workflows)) {
-      // An `eventSourced` workflow persists as an append-only `<wf>_events`
-      // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
-      // mutable JPA state row — emit the in-memory fold class instead, into the
-      // dispatcher's package so the handler body reaches its package-private
-      // state fields (workflow-and-applier.md A2-S5b).
-      if (wf.eventSourced) continue;
+    // An `eventSourced` workflow persists as an append-only `<wf>_events`
+    // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
+    // mutable JPA state row — it gets the in-memory fold class below instead,
+    // in the dispatcher's package so the handler body reaches its
+    // package-private state fields (workflow-and-applier.md A2-S5b).
+    for (const wf of stateRowWorkflows(ctx.workflows)) {
       const wfConstruct = `${ctx.name}.${wf.name}`;
       place(
         `${workflowStateClass(wf)}.java`,
@@ -1123,7 +1119,10 @@ function emitProjectFromContexts(
       // the combined `<Ctx>WorkflowInstancesController` merges every
       // observable saga's routes, so it stays unmapped.
       const instanceResponseOrigin = new Map<string, WorkflowIR>(
-        observableWorkflowsOf(ctx).map((wf) => [`${upperFirst(wf.name)}InstanceResponse.java`, wf]),
+        observableWorkflows(ctx.workflows).map((wf) => [
+          `${upperFirst(wf.name)}InstanceResponse.java`,
+          wf,
+        ]),
       );
       for (const [name, f] of instanceReads) {
         const wf = instanceResponseOrigin.get(name);

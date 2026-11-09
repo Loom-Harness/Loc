@@ -1,3 +1,4 @@
+import { observableWorkflows } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
@@ -52,12 +53,6 @@ export interface WorkflowInstancesCtx {
   contextSchema?: string;
 }
 
-/** Observable workflows — correlation-bearing sagas the enricher gave an
- *  `instanceWireShape`.  Each gets the read-only instance endpoints. */
-export function observableWorkflowsOf(ctx: EnrichedBoundedContextIR): WorkflowIR[] {
-  return ctx.workflows.filter((wf) => !!wf.instanceWireShape);
-}
-
 /** The saga-state repository field name (`orderFulfillmentStateRepository`). */
 function stateRepoField(wf: WorkflowIR): string {
   return `${lowerFirst(wf.name)}StateRepository`;
@@ -72,7 +67,7 @@ export function renderJavaWorkflowInstanceReads(
   ctx: EnrichedBoundedContextIR,
   wctx: WorkflowInstancesCtx,
 ): Map<string, { category: "workflow-service" | "api-common"; content: string }> | null {
-  const observable = observableWorkflowsOf(ctx);
+  const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return null;
   const out = new Map<string, { category: "workflow-service" | "api-common"; content: string }>();
 

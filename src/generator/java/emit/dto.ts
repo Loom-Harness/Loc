@@ -7,6 +7,7 @@ import {
   wireFieldsForAggregate,
   wireFieldsForPart,
 } from "../../../ir/enrich/wire-projection.js";
+import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -38,7 +39,6 @@ import {
   type WireDir,
   wireJavaType,
 } from "./wire.js";
-import { observableWorkflowsOf } from "./workflow-instances.js";
 
 // ---------------------------------------------------------------------------
 // Request / response DTO records.  One record per file (Java's rule);
@@ -782,7 +782,7 @@ export function renderReadModelVoResponseDtos(
 ): DtoFile[] {
   const voLookup = valueObjectFieldLookup(ctx);
   const voNames = new Set<string>();
-  for (const wf of observableWorkflowsOf(ctx)) {
+  for (const wf of observableWorkflows(ctx.workflows)) {
     referencedValueObjects(
       (wf.instanceWireShape ?? []).map((w) => w.type),
       voNames,

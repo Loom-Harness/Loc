@@ -20,6 +20,7 @@
 // fans events to them unchanged (they are named like any other handler).
 // ---------------------------------------------------------------------------
 
+import { eventSourcedWorkflows } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -38,11 +39,6 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import { workflowDenialTerm } from "./denial.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
-
-/** Event-sourced workflows in a context. */
-export function eventSourcedWorkflowsOf(ctx: EnrichedBoundedContextIR): WorkflowIR[] {
-  return ctx.workflows.filter((wf) => wf.eventSourced);
-}
 
 const wfModule = (contextModule: string, wf: WorkflowIR): string =>
   `${contextModule}.Workflows.${upperFirst(wf.name)}`;
@@ -314,7 +310,7 @@ export function emitVanillaEsWorkflowFiles(
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   const eventsByName = new Map(ctx.events.map((e) => [e.name, e]));
-  for (const wf of eventSourcedWorkflowsOf(ctx)) {
+  for (const wf of eventSourcedWorkflows(ctx.workflows)) {
     const base = `lib/${appName}/${ctxSnake}/workflows`;
     const wfSnake = snake(wf.name);
     const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];

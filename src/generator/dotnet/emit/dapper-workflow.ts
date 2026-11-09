@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -41,7 +42,6 @@ import {
   renderProjectionRowEntity,
 } from "../projection-state-emit.js";
 import {
-  correlationWorkflows,
   renderWorkflowStateEntity,
   workflowStateClass,
   workflowStateTable,
@@ -312,7 +312,7 @@ function renderDapperPersistencePorts(
       "}",
     ].join("\n"),
   );
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     const cls = sagaStoreClass(wf);
     const poco = workflowStateClass(wf);
     blocks.push(
@@ -392,7 +392,7 @@ export function emitDapperWorkflowInfra(
       renderEventRecordPoco(ns, ctxName),
     );
   }
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     out.set(
       `Infrastructure/Persistence/Workflows/${workflowStateClass(wf)}.cs`,
       renderWorkflowStateEntity(wf, ns, durable),
@@ -425,7 +425,7 @@ export function dapperPortRegistrations(
   const regs: string[] = [
     `builder.Services.AddScoped<${ns}.Domain.Common.IUnitOfWork, ${ns}.Infrastructure.Persistence.DapperUnitOfWork>();`,
   ];
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     const poco = `${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
     regs.push(
       `builder.Services.AddScoped<${ns}.Domain.Common.ISagaStateStore<${poco}>, ${ns}.Infrastructure.Persistence.${sagaStoreClass(wf)}>();`,

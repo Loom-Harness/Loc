@@ -1,3 +1,4 @@
+import { eventSourcedWorkflows } from "../../ir/plan/index.js";
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
@@ -42,9 +43,6 @@ export type OwnerOf = (streamName: string) => string;
 // ---------------------------------------------------------------------------
 
 /** Event-sourced workflows in a context. */
-export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): WorkflowIR[] {
-  return workflows.filter((wf) => wf.eventSourced);
-}
 
 /** The workflow's per-context event-log `DbSet` (`<Ctx>Events`) — every
  *  event-sourced workflow stream shares its OWNING context's log with that
