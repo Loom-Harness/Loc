@@ -60,7 +60,11 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import { renderPolymorphicSerialize, routesPolymorphicRead } from "./base-reader.js";
+import {
+  hasPolymorphicConcretes,
+  renderPolymorphicSerialize,
+  routesPolymorphicRead,
+} from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -218,6 +222,9 @@ export function emitVanillaApiControllers(
   const routes: ApiRoute[] = [];
 
   for (const agg of ctx.aggregates) {
+    // An abstract base with no concrete in its reader serves nothing: no route,
+    // and no controller (it could not compile without a `serialize/1` clause).
+    if (isAbstractBase(agg) && !hasPolymorphicConcretes(agg, ctx)) continue;
     const aggPascal = upperFirst(agg.name);
     const aggSnake = snake(agg.name);
     const aggsPath = routeSegmentFor(agg.name); // "tasks" for Task

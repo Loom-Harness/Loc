@@ -838,6 +838,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // either, so there is no route a block could call.  A reasoned permanent
   // entry: the defect's oracle IS the compile tier.
   "projection-split-deployables",
+  // The defect is a COMPILE failure on the deployable that does NOT host the
+  // tenant registry (node TS2339 `schema.orgs`, .NET CS0246/CS1061, elixir an
+  // undefined schema module), so the corpus compile legs are its oracle.  Two
+  // deployables, so the behavioural runner cannot pick one.  Signed with its
+  // reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "tenancy-registry-split",
   // The defect is a COMPILE failure (`aggregate Task` made the emitted .NET
   // project unbuildable), so `corpus-dotnet-build` is its oracle; a `test e2e`
   // block would boot a CRUD round-trip other fixtures already record and mint a
@@ -954,6 +960,10 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // throws on a second backend).  A reasoned permanent entry for THIS tier;
   // promoting `api-call-e2e` into the queue is packet 3e's row.
   "api-call",
+  // TWO DEPLOYABLES, as `api-call` above, with auth required on both: the
+  // runtime half (the callee stamping the forwarded principal) is
+  // `api-call-e2e`, whose fixture requires auth on both sides.
+  "api-call-auth",
   // BROKER SIDECAR — true of the FIXTURE's declared transport (redis/rabbitmq/
   // kafka) and NOT true of the three routes, which is the distinction this
   // reason was missing (wave-3 row 3.3 fleet re-derived it).  The behavioural

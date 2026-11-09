@@ -8,6 +8,7 @@ import {
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
+import { hostedHierarchyRegistry } from "../../../ir/enrich/hosting-facts.js";
 import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
@@ -18,7 +19,6 @@ import type {
   UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
-import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
@@ -46,7 +46,11 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 // /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
-export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
+export function emitAuthFiles(
+  sys: SystemIR,
+  hostedContextNames: readonly string[],
+  out: Map<string, string>,
+): void {
   if (!sys.user) return;
   const oidc = sys.auth;
   // The tenancy claim field, when the system declares `tenancy by …` — drives
@@ -55,8 +59,10 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
   // Hierarchy: when the registry opts into `tenantRegistry` (a `dataKey`
   // column exists), `orgPath` becomes a per-request memoized registry read via
   // a registered resolver (falling back to the claim when the row/dataKey is
-  // absent).  Without it (flat tenancy), the claim-copy stands.
-  const orgPathReadsRegistry = hierarchyRegistry(sys) !== undefined;
+  // absent).  Only a deployable that hosts the registry has its table; one
+  // that does not keeps the claim-copy, and phase ⑦ refuses it if anything it
+  // hosts reads the path (`loom.tenancy-registry-remote-unsupported`).
+  const orgPathReadsRegistry = hostedHierarchyRegistry(sys, hostedContextNames) !== undefined;
   // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5):
   // emitted only when something in the system reads the operating scope — the
   // phase-⑦ `loom.org-context-gate-unmet` guarantees that also means a

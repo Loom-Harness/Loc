@@ -11,10 +11,10 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { reactedEventNames, timerOwner, timerTickEndpoints } from "../../enrich/hosting-facts.js";
 import type {
   BoundedContextIR,
   StmtIR,
-  SubdomainIR,
   SystemIR,
   TimerSourceIR,
   WorkflowStmtIR,
@@ -51,26 +51,10 @@ function collectEmittedEvents(ctx: BoundedContextIR): Set<string> {
   return out;
 }
 
-/** Every event name any workflow in the context reacts to — via an `on(e)`
- *  subscription or an event-triggered `create(e) by …`. */
-function collectReactedEvents(ctx: BoundedContextIR): Set<string> {
-  const out = new Set<string>();
-  for (const wf of ctx.workflows ?? []) {
-    for (const on of wf.subscriptions ?? []) out.add(on.event);
-    for (const c of wf.creates) if (c.triggerKind === "event" && c.eventRef) out.add(c.eventRef);
-  }
-  return out;
-}
-
 /** Resolve the deployable that owns a timer's emission — the DB owner of the
  *  for-event's context.  Derived from the subdomain's enrichment-computed
  *  `migrationsOwner` (the single-fire lock owner and the DB owner coincide). */
-function timerOwnerDeployable(sys: SystemIR, ts: TimerSourceIR): string | undefined {
-  const sub = sys.subdomains.find((s: SubdomainIR) =>
-    s.contexts.some((c) => c.name === ts.context),
-  );
-  return sub?.migrationsOwner;
-}
+const timerOwnerDeployable = timerOwner;
 
 export function validateTimerSources(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const timers = sys.timerSources ?? [];
@@ -150,16 +134,43 @@ export function validateTimerSources(sys: SystemIR, diags: LoomDiagnostic[]): vo
     }
 
     // ── loom.timer-source-unbound (warning) ─────────────────────────────────
+    // A reactor on ANY deployable counts, so long as the tick can reach it:
+    // in-process on the timer's own deployable, or over a channel carrying the
+    // tick (whose binding `loom.channel-consumer-unwired` enforces).  Without
+    // deployables (legacy single-project mode) the system's contexts decide.
     if (ctx) {
-      const reacted = collectReactedEvents(ctx);
-      if (!reacted.has(ts.event)) {
-        diags.push({
-          severity: "warning",
-          code: "loom.timer-source-unbound",
-          message: diagMessage("loom.timer-source-unbound", { name: ts.name, event: ts.event }),
-          source: sys.name,
-        });
+      if (sys.deployables.length === 0) {
+        const reactedAnywhere = sys.subdomains.some((sub) =>
+          sub.contexts.some((c) => reactedEventNames(c).has(ts.event)),
+        );
+        if (!reactedAnywhere) pushUnbound(ts, sys, diags);
+      } else {
+        const { consumers, reachable } = timerTickEndpoints(sys, ts);
+        if (consumers.length === 0) {
+          pushUnbound(ts, sys, diags);
+        } else if (reachable.length === 0) {
+          diags.push({
+            severity: "warning",
+            code: "loom.timer-source-unbound",
+            message: diagMessage("loom.timer-source-unbound#unreachable", {
+              name: ts.name,
+              event: ts.event,
+              owner: owner ?? "?",
+              consumers: consumers.map((d) => d.name).join(", "),
+            }),
+            source: sys.name,
+          });
+        }
       }
     }
   }
+}
+
+function pushUnbound(ts: TimerSourceIR, sys: SystemIR, diags: LoomDiagnostic[]): void {
+  diags.push({
+    severity: "warning",
+    code: "loom.timer-source-unbound",
+    message: diagMessage("loom.timer-source-unbound", { name: ts.name, event: ts.event }),
+    source: sys.name,
+  });
 }

@@ -1,4 +1,8 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import {
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
@@ -57,7 +61,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 
 /** True when some aggregate declares an `extern` operation. */
@@ -700,7 +703,13 @@ function emitProjectFromContexts(
     // The persistence adapter picks the `IOrgPathResolver` implementation the
     // hierarchy seam emits — the EF one references AppDbContext, which a
     // `persistence: dapper` project does not have.
-    emitAuthFiles(system.sys, ns, out, system.deployable.persistence === "dapper");
+    emitAuthFiles(
+      system.sys,
+      ns,
+      out,
+      system.deployable.persistence === "dapper",
+      system.deployable.contextNames,
+    );
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor
@@ -1164,7 +1173,11 @@ function emitProjectFromContexts(
     // `tenantRegistry` (a `dataKey` column), so Program.cs registers the scoped
     // `IOrgPathResolver` → `EfOrgPathResolver` the auth middleware calls to
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
-    orgPathResolver: !!(authRequired && system.sys && hierarchyRegistry(system.sys)),
+    orgPathResolver: !!(
+      authRequired && hostedHierarchyRegistry(system.sys, system.deployable.contextNames)
+    ),
+    forwardCallerCredential:
+      authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
   emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
@@ -1810,6 +1823,8 @@ function emitProject(
      *  `IOrgPathResolver` → `EfOrgPathResolver` for the per-request
      *  `currentUser.orgPath` registry `data_key` read. */
     orgPathResolver?: boolean;
+    /** Typed calls to an `auth: required` callee forward the caller's credential. */
+    forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
      *  deployable emits `<Pascal>TimerService` BackgroundServices for.  Drives
      *  the `AddHostedService<…>()` registrations (Program.cs) and — when any
@@ -1885,6 +1900,7 @@ function emitProject(
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
       orgPathResolver: !!options?.orgPathResolver,
+      forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),
       hangfireCronTimers: anyTimerUsesCron(timers),

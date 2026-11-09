@@ -13,6 +13,7 @@
 import { LoomRuntimeClient } from "../runtime/client.js";
 import { InfraClient } from "../runtime/infra-client.js";
 import type { StorageSchemaPlan } from "../runtime/infra-protocol.js";
+import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
 import type {
   BootFail,
   BootPlan,
@@ -20,6 +21,7 @@ import type {
   DispatchResult,
   QueryResult,
   SerializedRequest,
+  StartResult,
   StorageBootInfo,
   WipeResult,
 } from "../runtime/protocol.js";
@@ -135,6 +137,8 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private readonly injectedRun?: EsbuildRun;
   private vfsBundler: VfsBundlerClient | null = null;
   private lastBoot: { plan: BootPlan; persistent: boolean } | null = null;
+  /** Each booted storage's `PGliteWorker` channel, for a deployable restart. */
+  private storageChannels = new Map<string, string>();
 
   constructor(
     opts: RuntimeEngineOptions & { esbuildRun?: EsbuildRun } = {},
@@ -333,11 +337,15 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
 
     for (const b of plan.backends) {
       const channel = opened.get(b.storage)?.channel ?? "";
-      const res = await this.rt(b.slug).start(channel);
+      // The deployable's line to the infra services (its channel bindings
+      // ride the emulated broker over it).
+      const port = await infra.connect(b.slug);
+      const res = await this.rt(b.slug).start(channel, port);
       if (!res.ok) return this.failed(res, b.slug);
     }
 
     this.booted = plan;
+    this.storageChannels = new Map([...opened].map(([key, o]) => [key, o.channel]));
     const persistent = storages.every((s) => s.persistent);
     this.lastBoot = { plan, persistent };
     return {
@@ -352,6 +360,34 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       storages,
       backends: plan.backends.map((b) => b.slug),
     };
+  }
+
+  /** Stop one booted deployable, as `docker compose stop <svc>` does: its
+   *  timers, relay and consumers stop and it leaves the broker, while the
+   *  storages, the broker state and the other deployables run on. */
+  async stopDeployable(slug: string): Promise<StartResult> {
+    const rt = this.runtimes.get(slug);
+    if (!this.booted || !this.infra || !rt) return { ok: false, message: `No booted deployable "${slug}".` };
+    await rt.reset();
+    await this.infra.disconnect(slug);
+    return { ok: true };
+  }
+
+  /** Start a deployable `stopDeployable` stopped, on the same storage and
+   *  broker — it resumes its consumer groups where they stopped. */
+  async startDeployable(slug: string): Promise<StartResult> {
+    const b = this.booted?.backends.find((x) => x.slug === slug);
+    const channel = b ? this.storageChannels.get(b.storage) : undefined;
+    if (!b || !this.infra || channel === undefined) return { ok: false, message: `No booted deployable "${slug}".` };
+    const rt = this.rt(slug);
+    const loaded = await rt.load({
+      bundleCode: b.bundleCode,
+      synthDdl: false,
+      env: b.env,
+      serviceHosts: (this.booted?.backends ?? []).map((o) => o.slug).filter((h) => h !== slug),
+    });
+    if (!loaded.ok) return loaded;
+    return rt.start(channel, await this.infra.connect(slug));
   }
 
   /** A boot that stopped: name the deployable or storage it stopped at when
@@ -376,6 +412,10 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       });
     }
     return rt.dispatch(req);
+  }
+  /** The emulated message broker's state and journal. */
+  inspectBroker(): Promise<BrokerInspectResult | null> {
+    return this.infra ? this.infra.inspectBroker() : Promise.resolve(null);
   }
   query(sql: string, storage?: string): Promise<QueryResult> {
     const key = storage ?? this.booted?.storages[0]?.key;

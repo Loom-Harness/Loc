@@ -208,6 +208,10 @@ export function renderProgram(
      *  `currentUser.orgPath` from the registry's `data_key`.  Implies
      *  `authRequired`. */
     orgPathResolver?: boolean;
+    /** A typed in-system call to an `auth: required` callee forwards the
+     *  caller's credential: hand `ApiClients` the request accessor at startup.
+     *  Implies `authRequired`. */
+    forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): fully-qualified
      *  `<Pascal>TimerService` type names to register as hosted services (one
      *  `AddHostedService<…>()` per owned timer).  Empty ⇒ no registration, so
@@ -1174,7 +1178,15 @@ ${schemaIdLookup}        return t.Name;
 });
 
 var app = builder.Build();
-${hangfireRecurringBlock}${
+${
+  options?.forwardCallerCredential
+    ? `
+// Typed in-system calls to an auth-required service forward the caller's own
+// credential (docs/auth.md § Calls between deployables).
+${ns}.Resources.ApiClients.CallerContext = app.Services.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
+`
+    : ""
+}${hangfireRecurringBlock}${
   usingDapper
     ? `
 ${renderDotnetBootDbWait()}

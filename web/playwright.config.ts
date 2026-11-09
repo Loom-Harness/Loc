@@ -23,6 +23,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/preview-shadcn.spec.ts",
   "**/runtime.spec.ts",
   "**/multi-backend-runtime.spec.ts",
+  "**/channels-broker.spec.ts",
   "**/cross-deployable-runtime.spec.ts",
 ];
 

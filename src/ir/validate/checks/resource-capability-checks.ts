@@ -12,6 +12,7 @@ import {
   configSchemaFor,
   supportsSurfaceKind,
 } from "../../../util/source-types.js";
+import { principalLessApiCalls } from "../../enrich/hosting-facts.js";
 import type {
   ConfigEntryIR,
   ConfigValueIR,
@@ -85,6 +86,7 @@ export function validateNeedCapabilities(sys: EnrichedSystemIR, diags: LoomDiagn
 export function validateApiResourceBindings(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const apiBound = sys.dataSources.filter((r) => r.apiName);
   if (apiBound.length === 0) return;
+  validateApiCallPrincipal(sys, diags);
   for (const r of apiBound) {
     const apiName = r.apiName as string;
     // Frontends `consumes:` an api; they never serve its routes, so a
@@ -294,5 +296,34 @@ function configValueMatchesType(
       return value.kind === "string" && (spec.values?.includes(value.value) ?? false);
     default: // string | secret
       return value.kind === "string";
+  }
+}
+
+/** `loom.api-call-principal-unsupported` — a typed call to an `auth: required` callee
+ *  forwards the caller's own credential, so a call made where there is none
+ *  (an event reactor, or a deployable that authenticates no one) would answer
+ *  401 every time.  A service credential for those callers is #4804. */
+function validateApiCallPrincipal(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const c of principalLessApiCalls(sys)) {
+    const name = c.deployable.name;
+    diags.push({
+      severity: "error",
+      code: "loom.api-call-principal-unsupported",
+      message:
+        c.why === "reactor"
+          ? diagMessage("loom.api-call-principal-unsupported#reactor", {
+              name,
+              resource: c.resource,
+              server: c.server,
+              site: c.site,
+            })
+          : diagMessage("loom.api-call-principal-unsupported#anonymous-caller", {
+              name,
+              resource: c.resource,
+              server: c.server,
+            }),
+      source: `${sys.name}/${c.deployable.name}`,
+      origin: c.deployable.origin,
+    });
   }
 }

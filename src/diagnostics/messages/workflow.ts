@@ -310,6 +310,13 @@ export const messages = {
     `timerSource '${p.name}' fires an event in context '${p.context}', which no database-backed deployable owns. Single-fire delivery needs a Postgres advisory lock — host the context on a backend that binds a relational 'state' resource.`,
   "loom.timer-source-unbound": (p: { name: unknown; event: unknown }) =>
     `timerSource '${p.name}' fires '${p.event}', but no workflow reacts to it ('on(_: ${p.event})' / 'create(_: ${p.event}) by …'). The timer will run and emit into the void.`,
+  "loom.timer-source-unbound#unreachable": (p: {
+    name: unknown;
+    event: unknown;
+    owner: unknown;
+    consumers: unknown;
+  }) =>
+    `timerSource '${p.name}' runs on deployable '${p.owner}', but every workflow that reacts to '${p.event}' is hosted on another deployable (${p.consumers}) and no channel carries '${p.event}'. The tick is dispatched in-process only and never reaches them — declare a channel carrying '${p.event}' and bind it with a channelSource on both deployables.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts

@@ -10,6 +10,7 @@ import type {
   StorageOpenResult,
   StorageSchemaPlan,
 } from "./infra-protocol.js";
+import type { BrokerInspectResult } from "./infra/broker-protocol.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 
 type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
@@ -44,13 +45,32 @@ export class InfraClient {
     };
   }
 
-  private send<T>(req: DistributiveOmit<InfraRequest, "id">): Promise<T> {
+  private send<T>(req: DistributiveOmit<InfraRequest, "id">, transfer: Transferable[] = []): Promise<T> {
     if (this.disposed) return Promise.reject(new Error("InfraClient: disposed"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (v) => resolve(v as T), reject });
-      this.worker.postMessage({ id, ...req } as InfraRequest);
+      this.worker.postMessage({ id, ...req } as InfraRequest, transfer);
     });
+  }
+
+  /** Attach a deployable to the infra services: returns the deployable's end
+   *  of its `InfraPort`, to transfer into its runtime worker. */
+  async connect(client: string): Promise<MessagePort> {
+    const { port1, port2 } = new MessageChannel();
+    await this.send({ service: "infra", op: "connect", params: { client } }, [port1]);
+    return port2;
+  }
+
+  /** Detach a stopped deployable: its subscriptions end and its unacked
+   *  deliveries return to their queues. */
+  disconnect(client: string): Promise<{ ok: true }> {
+    return this.send({ service: "infra", op: "disconnect", params: { client } });
+  }
+
+  /** The broker's state and journal (the Events view; tests). */
+  inspectBroker(): Promise<BrokerInspectResult> {
+    return this.send({ service: "broker", op: "inspect", params: {} });
   }
 
   openStorage(params: StorageOpenParams): Promise<StorageOpenResult> {
