@@ -52,7 +52,10 @@
 //                            one jsonb blob, flattens nothing, and every
 //                            backend's document serializer writes the nested
 //                            array as a JSON array.  A nested `X id[]` stays
-//                            refused there too.
+//                            refused there (#nested-in-value-object-document):
+//                            a reference collection persists only as a join
+//                            table, and none is derived for a collection
+//                            inside a value object.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -139,17 +142,13 @@ function checkField(
   };
   const nested = (voName: string): void => {
     const path = nestedCollectionPath(ctx, voName, new Set(), inDocument);
-    if (path) {
-      push(
-        diagMessage("loom.collection-field-unpersisted#nested-in-value-object", {
-          owner,
-          ownerName,
-          field,
-          voName,
-          path,
-        }),
-      );
-    }
+    if (!path) return;
+    const params = { owner, ownerName, field, voName, path };
+    push(
+      inDocument
+        ? diagMessage("loom.collection-field-unpersisted#nested-in-value-object-document", params)
+        : diagMessage("loom.collection-field-unpersisted#nested-in-value-object", params),
+    );
   };
   const kind = collectionKind(f.type);
   if (kind === "reference") {

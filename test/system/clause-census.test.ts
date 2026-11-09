@@ -125,10 +125,6 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   LiteralConnectionSource: "storage `connection: literal(…)` is reserved and not emitted",
   SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",
   ServiceConnectionSource: "storage `connection: service(…)` is reserved and not emitted",
-  // No registered sourceType declares an int or bool config key, so either
-  // value is `loom.config-key-unknown` wherever it is authored (#4709).
-  IntConfigValue: "no sourceType declares an int config key (#4709)",
-  BoolConfigValue: "no sourceType declares a bool config key (#4709)",
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {

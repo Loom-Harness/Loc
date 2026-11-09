@@ -54,4 +54,5 @@ export const anchors: Readonly<Record<string, string>> = {
     "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
   "loom.domain-service-single-aggregate":
     "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
+  "loom.unused-let": "06-behavior-and-statements.md#let--emit",
 };

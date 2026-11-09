@@ -150,3 +150,43 @@ system X {
     expect(await errors("this.ref.code == c")).toEqual([]);
   });
 });
+
+describe("a whole value object nested in a value object as a criterion operand is refused", () => {
+  const model = (body: string) => `
+system X {
+  subdomain S { context C {
+    valueobject Inner { code: string }
+    valueobject Meta { inner: Inner  alt: Inner?  label: string }
+    aggregate Req with crudish { meta: Meta }
+    repository Reqs for Req
+    criterion Q(i: Inner, c: string) of Req = ${body}
+    queryHandler H(i: Inner, c: string): Req[] { let x = Reqs.all(Q(i, c)) return x }
+  } }
+  storage p { type: postgres }
+  resource s { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [s], port: 3000 }
+}`;
+  async function errors(body: string) {
+    const { model: m } = await parseString(model(body), { validate: false });
+    return validateLoomModel(enrichLoomModel(lowerModel(m))).filter((d) => d.severity === "error");
+  }
+
+  it("`this.meta.inner == i` names the nested value object", async () => {
+    const errs = await errors("this.meta.inner == i");
+    expect(errs.map((d) => d.code)).toContain("loom.retrieval-where-not-queryable");
+    expect(errs.map((d) => d.message).join("\n")).toContain(
+      "whole value object 'this.meta.inner' (Inner) nested in a value object",
+    );
+  });
+
+  it("an optional nested value object compared with null is refused too", async () => {
+    const errs = await errors("this.meta.alt == null");
+    expect(errs.map((d) => d.message).join("\n")).toContain(
+      "whole value object 'this.meta.alt' (Inner) nested in a value object",
+    );
+  });
+
+  it("a scalar leaf of the outer value object stays queryable", async () => {
+    expect(await errors("this.meta.label == c")).toEqual([]);
+  });
+});

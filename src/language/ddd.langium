@@ -627,16 +627,13 @@ Storage:
 
 // Generic vendor-parameter map.  Keys are validated per sourceType against
 // the registry's config schema in IR validation; no per-vendor clause
-// keywords are introduced.
+// keywords are introduced.  Every value is a string: no sourceType declares
+// a numeric or boolean key, so an int / bool value would have nowhere to go.
 ConfigEntry:
     key=LooseName ':' value=ConfigValue;
 
 ConfigValue:
-      {infer StringConfigValue} value=STRING
-    | {infer IntConfigValue}    value=INT
-    | {infer BoolConfigValue}   value=BoolLiteral;
-
-BoolLiteral returns string: 'true' | 'false';
+    {infer StringConfigValue} value=STRING;
 
 StorageType returns string:
       'postgres' | 'mysql' | 'sqlite' | 'inMemory'

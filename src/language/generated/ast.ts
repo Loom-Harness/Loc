@@ -668,21 +668,6 @@ export function isBodyProp(item: unknown): item is BodyProp {
     return reflection.isInstance(item, BodyProp.$type);
 }
 
-export interface BoolConfigValue extends langium.AstNode {
-    readonly $container: ConfigEntry;
-    readonly $type: 'BoolConfigValue';
-    value: BoolLiteral;
-}
-
-export const BoolConfigValue = {
-    $type: 'BoolConfigValue',
-    value: 'value'
-} as const;
-
-export function isBoolConfigValue(item: unknown): item is BoolConfigValue {
-    return reflection.isInstance(item, BoolConfigValue.$type);
-}
-
 export interface BoolLit extends langium.AstNode {
     readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PolicyReadRule | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | ReturnStmt | StateField | TemplateHole | TernaryExpr | TestPrincipalClaim | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'BoolLit';
@@ -696,12 +681,6 @@ export const BoolLit = {
 
 export function isBoolLit(item: unknown): item is BoolLit {
     return reflection.isInstance(item, BoolLit.$type);
-}
-
-export type BoolLiteral = 'false' | 'true';
-
-export function isBoolLiteral(item: unknown): item is BoolLiteral {
-    return item === 'true' || item === 'false';
 }
 
 export interface BoundedContext extends langium.AstNode {
@@ -1033,7 +1012,7 @@ export function isConfigEntry(item: unknown): item is ConfigEntry {
     return reflection.isInstance(item, ConfigEntry.$type);
 }
 
-export type ConfigValue = BoolConfigValue | IntConfigValue | StringConfigValue;
+export type ConfigValue = StringConfigValue;
 
 export const ConfigValue = {
     $type: 'ConfigValue'
@@ -1736,21 +1715,6 @@ export type InheritanceLayout = 'ownTable' | 'sharedTable';
 
 export function isInheritanceLayout(item: unknown): item is InheritanceLayout {
     return item === 'sharedTable' || item === 'ownTable';
-}
-
-export interface IntConfigValue extends langium.AstNode {
-    readonly $container: ConfigEntry;
-    readonly $type: 'IntConfigValue';
-    value: number;
-}
-
-export const IntConfigValue = {
-    $type: 'IntConfigValue',
-    value: 'value'
-} as const;
-
-export function isIntConfigValue(item: unknown): item is IntConfigValue {
-    return reflection.isInstance(item, IntConfigValue.$type);
 }
 
 export interface IntLit extends langium.AstNode {
@@ -4492,7 +4456,6 @@ export type DddAstType = {
     BaseType: BaseType
     BinaryChain: BinaryChain
     BodyProp: BodyProp
-    BoolConfigValue: BoolConfigValue
     BoolLit: BoolLit
     BoundedContext: BoundedContext
     BuilderCall: BuilderCall
@@ -4547,7 +4510,6 @@ export type DddAstType = {
     ImplementsDecl: ImplementsDecl
     ImportStmt: ImportStmt
     IndexSpec: IndexSpec
-    IntConfigValue: IntConfigValue
     IntLit: IntLit
     Invariant: Invariant
     LValue: LValue
@@ -5004,15 +4966,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 }
             },
             superTypes: [PageProp.$type]
-        },
-        BoolConfigValue: {
-            name: BoolConfigValue.$type,
-            properties: {
-                value: {
-                    name: BoolConfigValue.value
-                }
-            },
-            superTypes: [ConfigValue.$type]
         },
         BoolLit: {
             name: BoolLit.$type,
@@ -5937,15 +5890,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 }
             },
             superTypes: []
-        },
-        IntConfigValue: {
-            name: IntConfigValue.$type,
-            properties: {
-                value: {
-                    name: IntConfigValue.value
-                }
-            },
-            superTypes: [ConfigValue.$type]
         },
         IntLit: {
             name: IntLit.$type,

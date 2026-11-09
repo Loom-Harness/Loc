@@ -27,4 +27,5 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- docs-root-relative (no language-reference chapter covers migrations) ---
   "loom.unique-tpc-not-hierarchy-wide":
     "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
+  "loom.repository-unknown": "10-repositories-and-queries.md#the-repository-verbs",
 };

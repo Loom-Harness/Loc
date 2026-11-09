@@ -18,9 +18,19 @@
 //   - loom.repo-find-retrieval — `find(<Retrieval>)`: a retrieval is a list
 //                                read, so it goes to `all`;
 //   - loom.repo-all-arg        — `all(x)` whose argument is no criterion or
-//                                retrieval reference;
+//                                retrieval reference, and, in a context
+//                                `test`, an aggregate-rooted `all` with any
+//                                argument (the test reads the whole
+//                                collection; every backend's test renderer
+//                                calls the unfiltered list read);
 //   - loom.repo-sort-placement — a `sort:` slot anywhere but `all(<Criterion>)`
-//                                (a retrieval carries its own `sort:`).
+//                                (a retrieval carries its own `sort:`);
+//   - loom.repository-unknown  — a repository verb on a name that is no
+//                                repository: an undeclared name, or (outside a
+//                                context `test`) an aggregate.  Unreported, the
+//                                call typed as whatever the receiver fell back
+//                                to — `X.all(C)` as the collection quantifier
+//                                `all(pred)`, a `bool`.
 //
 // A receiver is a repository when it names one in the enclosing context.  A
 // context `test` body reads by AGGREGATE name (`Order.get(id)`), so there an
@@ -29,7 +39,8 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { retiredRepoVerb } from "../../util/repository-contract.js";
+import { plural } from "../../util/naming.js";
+import { repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import {
   type BoundedContext,
   type CallArg,
@@ -41,10 +52,14 @@ import {
   isPostfixChain,
   isRepository,
   isTestBlock,
+  isTestE2E,
+  isUi,
   type MemberSuffix,
   type Model,
+  type PostfixChain,
 } from "../generated/ast.js";
 import { classifyRepoArg, queryNamesOf, queryRefOf } from "../repo-query-arg.js";
+import { typingFor } from "../typing/shared.js";
 
 /** The bounded context whose repositories (and, in a context `test`, whose
  *  aggregates) a receiver name resolves against. */
@@ -86,6 +101,60 @@ function reportRenamed(
           : "",
     }),
     { node, code: "loom.repo-verb-renamed" },
+  );
+}
+
+/** A repository verb called on `receiver`, which names no repository.  The
+ *  typing pass leaves such a read unknown — `unresolved-name` for a name
+ *  declared nowhere, `not-a-value` for an aggregate read outside a context
+ *  `test` — and this names the cause. */
+function reportNotARepository(
+  chain: PostfixChain,
+  receiver: string,
+  s: MemberSuffix,
+  accept: ValidationAcceptor,
+): void {
+  const verb = s.member;
+  if (!repositoryVerb(verb) && !retiredRepoVerb(verb)) return;
+  for (let c: AstNode | undefined = chain.$container; c; c = c.$container) {
+    if (isUi(c) || isTestE2E(c) || isTestBlock(c)) return;
+  }
+  const where = contextOf(chain);
+  if (!where) return;
+  const t = typingFor(chain).typeAt(s);
+  if (t?.kind !== "unknown") return;
+  const repos = where.ctx.members.filter(isRepository);
+  const declared = repos.length
+    ? ` Its repositories are: ${repos.map((r) => `'${r.name}'`).join(", ")}.`
+    : "";
+  if (t.cause === "unresolved-name") {
+    const agg = where.ctx.members.find((m) => isAggregate(m) && plural(m.name) === receiver);
+    accept(
+      "error",
+      diagMessage("loom.repository-unknown", {
+        receiver,
+        verb,
+        ctx: where.ctx.name,
+        agg: agg && isAggregate(agg) ? agg.name : "<Aggregate>",
+        declared,
+      }),
+      { node: chain, code: "loom.repository-unknown" },
+    );
+    return;
+  }
+  const agg = where.ctx.members.find((m) => isAggregate(m) && m.name === receiver);
+  if (t.cause !== "not-a-value" || !agg) return;
+  const own = repos.find((r) => r.aggregate?.ref === agg || r.aggregate?.$refText === receiver);
+  accept(
+    "error",
+    own
+      ? diagMessage("loom.repository-unknown#aggregate", { receiver, verb, repo: own.name })
+      : diagMessage("loom.repository-unknown#aggregate-no-repository", {
+          receiver,
+          verb,
+          repo: plural(receiver),
+        }),
+    { node: chain, code: "loom.repository-unknown" },
   );
 }
 
@@ -158,6 +227,7 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
       const receiver = node.head.name;
       const ctx = isRepoReceiver(receiver, node);
       if (!ctx) {
+        reportNotARepository(node, receiver, s, accept);
         if (s.sorted)
           accept("error", diagMessage("loom.repo-sort-placement", { receiver, verb: s.member }), {
             node: s,
@@ -167,7 +237,18 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
         continue;
       }
       if (retiredRepoVerb(s.member)) reportRenamed(receiver, s.member, s, accept);
-      else checkCall(ctx, receiver, s, accept);
+      else if (
+        s.member === "all" &&
+        ((s.args ?? []).length > 0 || s.sorted) &&
+        contextOf(node)?.inTest &&
+        !ctx.members.some((m) => isRepository(m) && m.name === receiver) &&
+        ctx.members.some((m) => isAggregate(m) && m.name === receiver)
+      ) {
+        accept("error", diagMessage("loom.repo-all-arg#integration-test", { receiver }), {
+          node: s,
+          code: "loom.repo-all-arg",
+        });
+      } else checkCall(ctx, receiver, s, accept);
     } else if (isAssignOrCallStmt(node)) {
       // A call statement `Orders.remove(o)` — an `LValue`, not a chain.
       const lv = node.target;

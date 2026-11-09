@@ -438,6 +438,23 @@ function wholeValueObjectColumn(field: string, type: TypeIR): string | null {
   );
 }
 
+/** A WHOLE value object nested inside a value-object field
+ *  (`this.meta.inner == i`) — refused, or null for any other leaf type.  The
+ *  query surface reaches exactly one level below a value-object field
+ *  (`this.meta.<field>`, one flattened column), and a nested value object is
+ *  itself several columns (node and python named a `meta_inner` column that
+ *  does not exist, JPA compared an embeddable, Dapper refused at generate). */
+function nestedWholeValueObject(vo: string, field: string, type: TypeIR): string | null {
+  const inner = type.kind === "optional" ? type.inner : type;
+  if (inner.kind !== "valueobject") return null;
+  return (
+    `whole value object 'this.${vo}.${field}' (${inner.name}) nested in a value object — a ` +
+    `query reaches one level below a value-object field ('this.${vo}.<field>'), and a nested ` +
+    `value object is stored as several columns, not one; compare a scalar field of '${vo}' ` +
+    `instead, or move ${inner.name}'s fields onto the outer value object`
+  );
+}
+
 /** Returns null if the expression is fully queryable; otherwise a
  * short label describing the first non-queryable node encountered.
  * The label is human-readable (`"collection op .where"`,
@@ -565,7 +582,7 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
         e.receiver.receiver.kind === "this" &&
         e.receiver.memberType.kind === "valueobject"
       )
-        return null;
+        return nestedWholeValueObject(e.receiver.member, e.member, e.memberType);
       if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user") return null;
       return "member access not rooted at 'this' or beyond a flattened value object";
     case "method-call":

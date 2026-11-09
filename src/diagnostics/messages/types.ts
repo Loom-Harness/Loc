@@ -524,4 +524,17 @@ export const messages = {
     `'${p.name}' here resolves to the ${p.kind} '${p.name}', not the '${p.enumName}' case ` +
     `of the same name — the ${p.kind} shadows the enum case. Write '${p.enumName}.${p.name}' ` +
     `for the case, or rename the ${p.kind}.`,
+  "loom.collection-field-unpersisted#nested-in-value-object-document": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+    voName: unknown;
+    path: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' persists value object '${p.voName}', which holds ` +
+    `a collection of references ('${p.path}').  A 'shape: document' aggregate stores the value ` +
+    `object inside its jsonb document, but a reference collection persists only as a join table, ` +
+    `and no join table is derived for a collection nested inside a value object, so no backend ` +
+    `would store it.  Declare the 'X id[]' directly on the aggregate instead of inside ` +
+    `'${p.voName}'.`,
 } satisfies Record<string, MessageEntry>;

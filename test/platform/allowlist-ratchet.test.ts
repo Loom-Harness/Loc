@@ -89,7 +89,10 @@ const REGISTERED: Ratchet[] = [
     // model that writes it (an inert `connection:`, a config key no sourceType
     // declares, a channelSource no deployable binds).  Parse coverage moved to
     // storage-instance-connection.test.ts and the channels corpus fixtures.
-    max: 19,
+    //
+    // 19 -> 17: -IntConfigValue, -BoolConfigValue — both left the grammar (no
+    // sourceType config key is numeric or boolean).
+    max: 17,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx

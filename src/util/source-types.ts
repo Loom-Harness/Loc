@@ -52,8 +52,10 @@ export interface KindSupport {
   readonly interfaces: ReadonlySet<LoomInterface>;
 }
 
-/** Type vocabulary for a sourceType's `config` keys (RFC §8). */
-export type ConfigKeyType = "string" | "number" | "boolean" | "enum" | "secret";
+/** Type vocabulary for a sourceType's `config` keys (RFC §8).  Every kind is
+ *  written as a string literal: the `config: { … }` grammar admits no other
+ *  value, so a numeric or boolean key could never be satisfied. */
+export type ConfigKeyType = "string" | "enum" | "secret";
 
 /** Schema for one generic `config` key a sourceType understands. */
 export interface ConfigKeySchema {
