@@ -5,6 +5,7 @@ import { jpaPersistenceAdapter } from "../generator/java/adapters/jpa-persistenc
 import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js";
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
+import { databaseOf, migratesAtBoot } from "../ir/util/databases.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
@@ -58,12 +59,18 @@ const javaPlatform: PlatformSurface = {
       { emitTrace, sourcemap },
     );
   },
-  composeService({ slug }): ComposeServiceShape {
+  composeService({ slug, deployable, sys }): ComposeServiceShape {
+    const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
       env: [
-        ["SPRING_DATASOURCE_URL", `jdbc:postgresql://db:5432/${slug}`],
+        ["SPRING_DATASOURCE_URL", `jdbc:postgresql://db:5432/${database}`],
         ["SPRING_DATASOURCE_USERNAME", "postgres"],
         ["SPRING_DATASOURCE_PASSWORD", "postgres"],
+        // On a database another deployable migrates, Flyway stays off at boot;
+        // the project's own test suites still run it.
+        ...(migratesAtBoot(sys, deployable)
+          ? []
+          : ([["SPRING_FLYWAY_ENABLED", "false"]] as Array<[string, string]>)),
       ],
       // The DB password is sensitive — keep it out of any plaintext k8s
       // ConfigMap (the emitter routes it to a Secret).  The URL is handled

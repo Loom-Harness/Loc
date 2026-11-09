@@ -21,4 +21,8 @@ export const anchors: Readonly<Record<string, string>> = {
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
+
+  // --- src/ir/validate/checks/orm-adapter-checks.ts -----------------------
+  "loom.mikroorm-shared-database": "02-systems-and-topology.md#the-composed-stack",
+  "loom.dapper-shared-database": "02-systems-and-topology.md#the-composed-stack",
 };

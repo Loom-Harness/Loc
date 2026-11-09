@@ -1,4 +1,5 @@
 import { generatePythonForContexts } from "../generator/python/index.js";
+import { databaseOf } from "../ir/util/databases.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
@@ -55,10 +56,11 @@ const pythonPlatform: PlatformSurface = {
       sourcemap,
     });
   },
-  composeService({ slug }): ComposeServiceShape {
+  composeService({ slug, deployable, sys }): ComposeServiceShape {
+    const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
       env: [
-        ["DATABASE_URL", `postgresql+asyncpg://postgres:postgres@db:5432/${slug}`],
+        ["DATABASE_URL", `postgresql+asyncpg://postgres:postgres@db:5432/${database}`],
         // Runtime log-level knob (default info; overridable here / in k8s).
         ["LOG_LEVEL", "info"],
       ],

@@ -71,9 +71,10 @@ const TWO_BACKENDS = `
       context Orders { aggregate Order with crudish { ref: string } }
       context Billing { aggregate Invoice with crudish { ref: string } }
     }
-    storage pg { type: postgres }
-    resource ordersState { for: Orders, kind: state, use: pg }
-    resource billingState { for: Billing, kind: state, use: pg }
+    storage ordersDb { type: postgres }
+    storage billingDb { type: postgres }
+    resource ordersState { for: Orders, kind: state, use: ordersDb }
+    resource billingState { for: Billing, kind: state, use: billingDb }
     deployable ordersApi {
       platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000
     }
@@ -171,7 +172,7 @@ describe("README.md — run recipes", () => {
 
   it("gives a backend the DATABASE_URL it cannot boot without, pointed at localhost", async () => {
     const md = await readme(BACKEND_ONLY);
-    expect(md).toContain("DATABASE_URL=postgres://postgres:postgres@localhost:5432/api");
+    expect(md).toContain("DATABASE_URL=postgres://postgres:postgres@localhost:5432/pg");
     expect(md).toContain("npm run dev");
     // The compose hostname must not survive into a recipe meant for the host.
     expect(md).not.toContain("@db:5432");
@@ -179,8 +180,8 @@ describe("README.md — run recipes", () => {
 
   it("binds each of two backends to its OWN port and database", async () => {
     const md = await readme(TWO_BACKENDS);
-    expect(md).toContain("localhost:5432/orders_api");
-    expect(md).toContain("localhost:5432/billing_api");
+    expect(md).toContain("localhost:5432/orders_db");
+    expect(md).toContain("localhost:5432/billing_db");
     expect(md).toContain("PORT=3000");
     expect(md).toContain("PORT=3100");
   });
@@ -193,7 +194,7 @@ describe("README.md — run recipes", () => {
   it("rewrites the .NET connection string's host, not just URL-shaped ones", async () => {
     const md = await readme(DOTNET_BACKEND);
     expect(md).toContain("ConnectionStrings__Default=");
-    expect(md).toContain("Host=localhost;Port=5432;Database=api");
+    expect(md).toContain("Host=localhost;Port=5432;Database=pg");
     expect(md).not.toContain("Host=db;");
   });
 

@@ -654,21 +654,16 @@ The compose file is a generated artefact — pin it via `.loomignore`
 if you customise it, since regenerating would otherwise overwrite
 your changes.
 
-#### Per-deployable databases
+#### Databases per storage
 
-Each deployable owns its own postgres database, isolated from peers
-sharing the same `db` service.  This is necessary because EF Core's
-`EnsureCreated` is all-or-nothing per database: with two .NET
-deployables on a shared DB, whichever boots first creates only its
-own subset of tables, and the second deployable sees existing tables
-and creates nothing — silently leaving its own tables missing.
-
-`ddd generate system` emits `db-init/00-create-databases.sql` with
-one `CREATE DATABASE <slug>;` per deployable.  Postgres mounts the
-directory as `/docker-entrypoint-initdb.d/`, which runs once on the
-first boot of an empty `pgdata` volume.  Each deployable's
-connection string is then scoped to its own database
-(`Database=api`, `Database=catalog_api`, etc.).
+Each postgres `storage` is one database on the shared `db` service, and every
+deployable bound to it connects there — so two deployables on one storage
+share their rows.  `ddd generate system` emits
+`db-init/00-create-databases.sql` with one idempotent `CREATE DATABASE` per
+storage (and one per backend that binds no storage).  Postgres mounts the
+directory as `/docker-entrypoint-initdb.d/`, and the `db-bootstrap` one-shot
+re-applies it on every `up`.  The first deployable on a database applies its
+migrations at boot; the others wait for it to be healthy and apply none.
 
 To start fresh after schema changes that EF Core's `EnsureCreated`
 won't pick up (it only creates; it never alters), drop the volume:

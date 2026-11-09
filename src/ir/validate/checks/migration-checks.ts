@@ -1,7 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { descriptorFor } from "../../../platform/metadata.js";
 import type { AggregateIR, EnrichedLoomModel, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { databaseModules, databaseOf } from "../../util/databases.js";
 import { sqlRenderableExpr, sqlTemporalArith } from "../../util/sql-renderable-expr.js";
 import { resolveTableStepTarget } from "../../util/table-step-target.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -645,8 +645,8 @@ function backfillTypeFits(
 //     the unqualified name; qualify the step.
 //   - `loom.migration-move-across-databases` — a move between two modules
 //     where some database that receives the target module's migrations never
-//     held the source module's tables (every `needsDb` deployable has its own
-//     database, and hosts the modules whose contexts it serves).
+//     held the source module's tables (a database holds the modules every
+//     deployable on it hosts — `src/ir/util/databases.ts`).
 // ---------------------------------------------------------------------------
 
 export function validateTableSteps(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
@@ -707,14 +707,15 @@ export function validateTableSteps(loom: EnrichedLoomModel, diags: LoomDiagnosti
       // compare: the builder finds its tables in whichever module's chain
       // still records them.
       if (!toModule || !fromModule || toModule === fromModule) continue;
-      const hosts = (m: typeof toModule) =>
-        sys.deployables.filter(
-          (d) =>
-            descriptorFor(d.platform).needsDb &&
-            m.contexts.some((c) => d.contextNames.includes(c.name)),
-        );
-      const fromHosts = new Set(hosts(fromModule).map((d) => d.name));
-      const stranded = hosts(toModule).filter((d) => !fromHosts.has(d.name));
+      // A database holds the tables of every module its deployables host; a
+      // move needs the source tables in every database that receives the
+      // target module.
+      const stranded = sys.deployables.filter((d) => {
+        const db = databaseOf(sys, d);
+        if (!db) return false;
+        const modules = databaseModules(sys, db.name);
+        return modules.has(toModule.name) && !modules.has(fromModule.name);
+      });
       if (stranded.length === 0) continue;
       diags.push({
         severity: "error",

@@ -445,13 +445,28 @@ describe("table step — target resolution (phase ⑦)", () => {
   });
 
   it("a move between modules on different databases", async () => {
+    const src = SPLIT("Archive")
+      .replace(
+        `deployable api { platform: node, contexts: [A, B], dataSources: [sa, sb], port: 3000 }`,
+        `deployable api { platform: node, contexts: [A], dataSources: [sa], port: 3000 }
+  deployable archive { platform: node, contexts: [B], dataSources: [sb], port: 3001 }`,
+      )
+      .replace(
+        "resource sb { for: B, kind: state, use: pg }",
+        "storage pg2 { type: postgres }\n  resource sb { for: B, kind: state, use: pg2 }",
+      );
+    expect(await irCodes(`${src}\nmigration "m" { A.Note -> B.Note }`)).toEqual([
+      "loom.migration-move-across-databases",
+    ]);
+  });
+
+  it("a move between modules whose deployables share one storage's database", async () => {
+    // Two deployables, one storage: one database holds both modules' tables.
     const src = SPLIT("Archive").replace(
       `deployable api { platform: node, contexts: [A, B], dataSources: [sa, sb], port: 3000 }`,
       `deployable api { platform: node, contexts: [A], dataSources: [sa], port: 3000 }
   deployable archive { platform: node, contexts: [B], dataSources: [sb], port: 3001 }`,
     );
-    expect(await irCodes(`${src}\nmigration "m" { A.Note -> B.Note }`)).toEqual([
-      "loom.migration-move-across-databases",
-    ]);
+    expect(await irCodes(`${src}\nmigration "m" { A.Note -> B.Note }`)).toEqual([]);
   });
 });

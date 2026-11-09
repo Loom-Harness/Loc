@@ -1,3 +1,4 @@
+import { migratesAtBoot } from "../../../ir/util/databases.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -938,7 +939,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   out.set(".dockerignore", renderDockerignore());
   out.set("certs/.gitkeep", "");
   out.set("rel/env.sh.eex", renderRelEnv(appName));
-  out.set("rel/overlays/bin/server", renderRelServer(appName));
+  out.set("rel/overlays/bin/server", renderRelServer(appName, migratesAtBoot(sys, deployable)));
   out.set(`lib/${appName}/release.ex`, renderRelease(appName, appModule));
 
   // The strict-ingress responders are emitted iff a controller calls them —

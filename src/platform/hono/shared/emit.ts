@@ -1,3 +1,4 @@
+import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
 // Hono platform surface and drives the shared neutral emitter library
@@ -1710,7 +1711,10 @@ export function generateTypeScriptForContexts(
   // The single job of this file is to stop the upward search.
   out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
   const entryConfig: ProjectEntryConfig = {
-    runMigrationsAtBoot: hasMigrations,
+    // A deployable on a database another deployable migrates carries the
+    // migrations (its integration tests build the schema from them) but leaves
+    // the boot run to that migrator.
+    runMigrationsAtBoot: hasMigrations && migratesAtBoot(system.sys, system.deployable),
     userShape: authRequired ? system.sys.user : undefined,
     resourceImports,
     runSeedsAtBoot: hasSeeds,

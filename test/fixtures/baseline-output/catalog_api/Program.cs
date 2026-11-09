@@ -293,77 +293,8 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// Boot-time DB-connect retry: a database that is not reachable YET is
-// retried up to 10 attempts with capped exponential backoff before the
-// schema step, so a late db no longer kills the container on first boot.
-static async Task LoomWaitForDbAsync(Func<Task> probe, Microsoft.Extensions.Logging.ILogger _log)
-{
-    const int maxAttempts = 10;
-    for (var attempt = 1; ; attempt++)
-    {
-        try
-        {
-            await probe();
-            return;
-        }
-        catch (Exception dbError) when (attempt < maxAttempts && IsTransientDbError(dbError))
-        {
-            var delayMs = Math.Min(500 * (1 << (attempt - 1)), 10000);
-            _log.LogWarning("{Event} attempt={Attempt} max_attempts={MaxAttempts} delay_ms={DelayMs} error={Error}", "db_connect_retry", attempt, maxAttempts, delayMs, dbError.Message);
-            await Task.Delay(delayMs);
-        }
-    }
-
-    static bool IsTransientDbError(Exception error)
-    {
-        for (var e = error; e is not null; e = e.InnerException)
-        {
-            if (e is Npgsql.NpgsqlException { IsTransient: true } || e is System.Net.Sockets.SocketException)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-}
-// Apply pending EF Core migrations before serving traffic.  Idempotent —
-// EF tracks applied versions in the __EFMigrationsHistory table.  Runs
-// synchronously at startup so the schema is current on first request.
-// Bracketed with the catalog migration-lifecycle events (observability.md)
-// — same event names + level Hono/Python emit.  EF exposes the pending
-// migration ids before applying them, so we can emit migration_applied
-// per id (no cheap per-migration duration, so duration_ms is omitted).
-using (var migrationScope = app.Services.CreateScope())
-{
-    var db = migrationScope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var migrationLog = migrationScope.ServiceProvider
-        .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
-        .CreateLogger("Migrations");
-    await LoomWaitForDbAsync(
-        async () =>
-        {
-            var probe = db.Database.GetDbConnection();
-            await probe.OpenAsync();
-            await probe.CloseAsync();
-        },
-        migrationLog);
-    var pendingMigrations = db.Database.GetPendingMigrations().ToList();
-    migrationLog.LogInformation("{Event} count={Count}", "migrations_starting", pendingMigrations.Count);
-    try
-    {
-        db.Database.Migrate();
-        foreach (var migrationId in pendingMigrations)
-        {
-            migrationLog.LogInformation("{Event} id={Id} name={Name}", "migration_applied", migrationId, migrationId);
-        }
-        migrationLog.LogInformation("{Event} applied={Applied}", "migrations_complete", pendingMigrations.Count);
-    }
-    catch (Exception migrationError)
-    {
-        migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", (migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message);
-        throw;
-    }
-}
+// This database belongs to a storage another deployable migrates: the
+// schema is that deployable's, applied before this one starts.
 
 // Catalog server-lifecycle events.  Same event names + level Hono and
 // Phoenix emit so a cross-backend dashboard pivots on one identity.
