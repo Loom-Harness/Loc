@@ -73,15 +73,32 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
 };
 
-/** Field names declared on `BoundedContextIR`, read out of the IR source. */
-function declaredFields(): string[] {
-  const src = irTypesSource();
-  const start = src.indexOf("export interface BoundedContextIR");
-  expect(start, "BoundedContextIR was renamed — this gate needs updating").toBeGreaterThan(-1);
+/** Field names a top-level IR interface / object type declares, including
+ *  the ones it inherits through `extends` (e.g. `origin` from `Sourced`). */
+function membersOf(src: string, name: string): string[] {
+  const head = new RegExp(
+    `^export (?:interface ${name}\\b([^{]*)\\{|type ${name} = \\{)`,
+    "m",
+  ).exec(src);
+  expect(head, `${name} was renamed — this gate needs updating`).not.toBeNull();
+  const start = head!.index;
   const body = src.slice(start, src.indexOf("\n}", start));
   // Top-level members only (exactly two leading spaces), so nested object-type
-  // members don't masquerade as context fields.
-  return [...body.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\??:/gm)].map((m) => m[1]!);
+  // members don't masquerade as fields.
+  const own = [...body.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\??:/gm)].map((m) => m[1]!);
+  const bases = (head![1] ?? "").replace(/^\s*extends\s*/, "").split(",");
+  return [
+    ...own,
+    ...bases
+      .map((b) => b.trim())
+      .filter(Boolean)
+      .flatMap((b) => membersOf(src, b)),
+  ];
+}
+
+/** Field names declared on `BoundedContextIR`, read out of the IR source. */
+function declaredFields(): string[] {
+  return membersOf(irTypesSource(), "BoundedContextIR");
 }
 
 /** Field names `mergeContexts` assigns in its returned object literal. */
@@ -158,11 +175,7 @@ const MODEL_DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
 };
 
 function modelDeclaredFields(): string[] {
-  const src = irTypesSource();
-  const start = src.indexOf("export interface LoomModel {");
-  expect(start, "LoomModel was renamed — this gate needs updating").toBeGreaterThan(-1);
-  const body = src.slice(start, src.indexOf("\n}", start));
-  return [...body.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\??:/gm)].map((m) => m[1]!);
+  return membersOf(irTypesSource(), "LoomModel");
 }
 
 function modelCarriedFields(): string[] {
