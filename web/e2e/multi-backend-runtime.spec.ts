@@ -101,4 +101,28 @@ test("shared storage: both backends boot, a write via admin is read via storefro
     const parsed = JSON.parse((await page.getByTestId("resp-body").textContent()) ?? "{}");
     expect(parsed.total).toBe(0);
   });
+
+  // Guard: a request costs what the runtime worker spends on it, plus a
+  // message each way.  A main-thread task that runs per response (a React
+  // commit of the whole shell for each response's log lines was ~40 ms)
+  // shows up here as page-observed time far above the worker's own.
+  await test.step("dispatch overhead outside the worker stays small", async () => {
+    const overheads = await page.evaluate(async () => {
+      const w = window as unknown as {
+        __loomDispatch: (t: string, m: string, p: string, b?: unknown) => Promise<{ durationMs?: number }>;
+      };
+      const out: number[] = [];
+      for (let i = 0; i < 30; i++) {
+        const t0 = performance.now();
+        const res = await w.__loomDispatch("admin", "GET", "/products");
+        out.push(performance.now() - t0 - (res.durationMs ?? 0));
+      }
+      return out;
+    });
+    const median = [...overheads].sort((a, b) => a - b)[Math.floor(overheads.length / 2)];
+    console.log(`[multi-backend] dispatch overhead outside the worker: median ${median.toFixed(1)} ms`);
+    // Measured ~1 ms after the fix, ~42 ms before; the ceiling leaves room for
+    // a loaded CI runner.
+    expect(median).toBeLessThan(15);
+  });
 });

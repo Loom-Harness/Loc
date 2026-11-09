@@ -181,6 +181,7 @@ import type { OutputStream } from "./layout/OutputPanel";
 import { useGeneratedConflicts } from "./layout/use-generated-conflicts";
 import type { TestResult } from "./testing/harness";
 import type { LogLine } from "./util/log-line";
+import { createLogBatcher, type LogBatcher } from "./util/log-batch";
 import { clearPhase, markPhase } from "./util/diagnostics";
 
 // Cap on the live console buffers (Backend / App streams) so a chatty
@@ -552,7 +553,19 @@ export default function App(): JSX.Element {
   const appendAppLog = useCallback((line: LogLine): void => {
     setAppLog((prev) => capLog([...prev, line]));
   }, []);
-  const clearBackendLog = useCallback(() => setBackendLog([]), []);
+  // Backend lines arrive once per runtime RPC; they reach state once per
+  // flush window so a burst of requests doesn't re-render the shell per
+  // request (see util/log-batch.ts).
+  const backendLogBatcherRef = useRef<LogBatcher | null>(null);
+  backendLogBatcherRef.current ??= createLogBatcher((lines) =>
+    setBackendLog((prev) => capLog([...prev, ...lines])),
+  );
+  const backendLogBatcher = backendLogBatcherRef.current;
+  useEffect(() => () => backendLogBatcher.clear(), [backendLogBatcher]);
+  const clearBackendLog = useCallback(() => {
+    backendLogBatcher.clear();
+    setBackendLog([]);
+  }, [backendLogBatcher]);
   const clearAppLog = useCallback(() => setAppLog([]), []);
   // Live mirror of appLog so the async UI-test runner can read the
   // current buffer (React state is stale inside that closure) and slice
@@ -763,7 +776,7 @@ export default function App(): JSX.Element {
       onLost: () => dispatch({ type: "RUNTIME_LOST" }),
       // Backend (Hono runtime) console + stack traces, captured per RPC
       // in the worker — feeds the Output panel's "Backend" stream.
-      onLog: (lines) => setBackendLog((prev) => capLog([...prev, ...lines])),
+      onLog: (lines) => backendLogBatcher.push(lines),
     });
     buildClientRef.current = build;
     engineRef.current = engine;
@@ -892,7 +905,7 @@ export default function App(): JSX.Element {
     setSelectedPath(null);
     setPreviewBundle(null);
     setPreviewBooted(false);
-    setBackendLog([]);
+    clearBackendLog();
     setAppLog([]);
     void engineRef.current?.reset();
   }
