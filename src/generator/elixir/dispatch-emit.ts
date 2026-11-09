@@ -29,6 +29,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
+import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -496,35 +497,6 @@ end
 // Handler module
 // ---------------------------------------------------------------------------
 
-/** Does any expression in the body reference `this` (a saga-state field)?
- *
- *  Rides the SHARED `walkWorkflowStmtsDeep` / `walkWorkflowStmtExprsDeep`
- *  rather than a local `WorkflowStmtIR.kind` / `ExprIR.kind` switch.  The hand-rolled version
- *  it replaces had no `for-each` / `if-let` / `repo-run` / `repo-delete` /
- *  `resource-call` / `domain-service-call` arm at all, so a `state.<field>` read
- *  nested inside a loop body read as UNUSED — the handler then bound `_state`
- *  and the loop named an undefined variable (`--warnings-as-errors`).  An
- *  `assign` still forces `state`: its write target IS the row. */
-function bodyUsesThis(statements: WorkflowStmtIR[]): boolean {
-  let used = false;
-  for (const st of statements) {
-    // The write target IS `state` (`Repo.update!(… state …)`), so an own-state
-    // assignment always references it — bind `state`, not `_state`.  Checked at
-    // every depth: an assign inside a `for-each` body counts too.
-    walkWorkflowStmtsDeep(st, (n) => {
-      if (n.kind === "assign") used = true;
-    });
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (
-        e.kind === "ref" &&
-        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
-      )
-        used = true;
-    });
-  }
-  return used;
-}
-
 function renderHandler(
   appModule: string,
   contextModule: string,
@@ -535,7 +507,7 @@ function renderHandler(
 ): HandlerResult {
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
-  const usesThis = persisted && bodyUsesThis(sub.statements);
+  const usesThis = persisted && workflowBodyUsesOwnState(sub.statements);
   // A reactor has no request principal: it runs as the SYSTEM principal
   // (ruling D1) — `<Web>.Auth.system_principal/0`, carrying the originating
   // request's tenant and recording its user as `caused_by`.  Bound only when

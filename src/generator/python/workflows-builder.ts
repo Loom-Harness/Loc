@@ -38,6 +38,7 @@ import {
   commandCreateResult,
   commandWorkflowsOf,
 } from "../../ir/util/workflow-command-route.js";
+import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
@@ -290,35 +291,6 @@ function callsUserGatedOp(sts: WorkflowStmtIR[], ctx: EnrichedBoundedContextIR):
     if (found) return true;
   }
   return false;
-}
-
-/** True when the body writes OR reads one of the workflow's own `stateFields`
- *  (M-T6.50) — an `assign` (`field := value`, the only own-state-write
- *  `WorkflowStmtIR` kind: `+=`/`-=` desugar to it too) anywhere in the tree,
- *  or a bare reference to an own-state field (`this-prop` / `this-vo-prop` /
- *  `this-derived` — the refKinds `lower-expr.ts` gives an own-state name)
- *  reached through any statement's expressions.  `walkWorkflowStmtExprsDeep`
- *  visits an `assign`'s VALUE but not its PathIR target, so the write half is
- *  checked directly, over every nested body. */
-function usesOwnState(statements: WorkflowStmtIR[]): boolean {
-  let assigns = false;
-  for (const root of statements)
-    walkWorkflowStmtsDeep(root, (s) => {
-      if (s.kind === "assign") assigns = true;
-    });
-  if (assigns) return true;
-  let found = false;
-  for (const s of statements) {
-    walkWorkflowStmtExprsDeep(s, (e) => {
-      if (
-        e.kind === "ref" &&
-        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
-      ) {
-        found = true;
-      }
-    });
-  }
-  return found;
 }
 
 interface RepoNeed {
@@ -720,7 +692,7 @@ function workflowRoute(
     out.push("        if state is None:");
     out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf, ctx)})`);
     out.push("            session.add(state)");
-  } else if (usesOwnState(wf.statements)) {
+  } else if (workflowBodyUsesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow
     // (M-T6.50): there is no persisted saga row to write through, and this
     // route is a module-level `async def`, not a method — so the render

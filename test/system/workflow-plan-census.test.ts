@@ -25,6 +25,11 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   set-filter  a `.filter(...)` whose callback just reads `.eventSourced` or
 //               `.instanceWireShape` (bare, `!!`-wrapped or `!= null`).
 //               → use `eventSourcedWorkflows` / `observableWorkflows`.
+//   own-state   a callback handed to a `walk…Deep` walker that compares a
+//               `refKind` with both `"this-prop"` and `"this-derived"` — the
+//               hand-rolled "does this body read its own state" scan.
+//               → use `workflowBodyUsesOwnState` / `workflowBodyReadsOwnState`
+//               (`src/ir/util/workflow-own-state.ts`).
 //
 // SCOPE.  `src/generator/`, `src/platform/`, `src/system/`.  The plan itself
 // (`src/ir/plan/`) is the one place allowed to spell the predicates.
@@ -90,7 +95,7 @@ function isTruthinessRead(body: ts.Node, prop: string): boolean {
 }
 
 interface Violation {
-  rule: "state-row" | "set-filter";
+  rule: "state-row" | "set-filter" | "own-state";
   where: string;
   text: string;
 }
@@ -137,6 +142,32 @@ function scan(file: string): Violation[] {
         }
       }
     }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      /^walk\w*Deep$/.test(n.expression.text)
+    ) {
+      for (const arg of n.arguments) {
+        if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) continue;
+        const kinds = new Set<string>();
+        const collect = (m: ts.Node): void => {
+          if (
+            ts.isBinaryExpression(m) &&
+            (m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+              m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken) &&
+            propName(m.left) === "refKind" &&
+            ts.isStringLiteral(m.right)
+          ) {
+            kinds.add(m.right.text);
+          }
+          ts.forEachChild(m, collect);
+        };
+        collect(arg.body);
+        if (kinds.has("this-prop") && kinds.has("this-derived")) {
+          out.push({ rule: "own-state", where: at(n), text: n.expression.text });
+        }
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -158,6 +189,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-filters the event-sourced / observable workflow sets (use eventSourcedWorkflows / observableWorkflows)", () => {
     const hits = violations.filter((v) => v.rule === "set-filter");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a workflow body for own-state reads (use workflowBodyUsesOwnState / workflowBodyReadsOwnState)", () => {
+    const hits = violations.filter((v) => v.rule === "own-state");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 });
