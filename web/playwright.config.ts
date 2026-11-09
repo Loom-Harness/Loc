@@ -31,6 +31,8 @@ const HEAVY_PREVIEW_SPECS = [
 
 export default defineConfig({
   testDir: "./e2e",
+  // Makes the PGlite snapshot the specs seed, so a Boot skips initdb.
+  globalSetup: "./e2e/_global-setup.ts",
   // Whole-test timeout: bundle + WASM + first dispatch take time.
   // The `*-preview-runtime` specs (chakra-v3, mantine-v9, mui-v7, shadcn)
   // can spend 5+ minutes on the in-browser npm-install bundle on CI —

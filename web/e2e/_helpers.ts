@@ -427,3 +427,14 @@ export async function recordInitialMigration(page: Page): Promise<void> {
     await expect(generate).toHaveAttribute("data-state", "ok", { timeout: 120_000 });
   }
 }
+
+/** How each storage's PGlite came up in this page so far — the notes on the
+ *  `loom:boot:pglite-construct` marks, e.g. `"primary: snapshot"` or
+ *  `"primary: initdb"` (see `src/runtime/storage-host.worker.ts`). */
+export async function pgliteStarts(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    performance
+      .getEntriesByName("loom:boot:pglite-construct")
+      .map((m) => String((m as PerformanceMark).detail ?? "")),
+  );
+}
