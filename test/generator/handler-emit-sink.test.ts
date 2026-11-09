@@ -60,7 +60,9 @@ function inOrder(src: string, needles: string[]): void {
 
 describe("an `emit` in a commandHandler goes to a declared, dispatched sink", () => {
   it("node: declares `workflowEvents`, pushes, then dispatches", () => {
-    inOrder(file("api/http/a-routes.ts"), [
+    const routes = file("api/http/a-routes.ts");
+    expect(routes).toContain('import type * as Events from "../domain/events";');
+    inOrder(routes, [
       "const workflowEvents: Events.DomainEvent[] = [];",
       'workflowEvents.push({ type: "Touched", qty: i.qty });',
       "for (const ev of workflowEvents) await events.dispatch(ev);",
