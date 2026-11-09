@@ -2,11 +2,14 @@
 // same path see the same files.  Deployable workers carry only the `node:fs`
 // facade (the plugin's `fs` stub), which calls these ops.
 
+import type { BlobStore } from "./persist.js";
 import type { InfraService } from "./service.js";
 import type { ResourceOp } from "./resource-types.js";
 
 const files = new Map<string, Uint8Array>();
 const dirs = new Set<string>(["/"]);
+
+let store: BlobStore | null = null;
 
 const norm = (p: string): string => {
   const segs: string[] = [];
@@ -22,6 +25,7 @@ function mkdirp(path: string): void {
   let cur = "";
   for (const s of path.split("/").filter(Boolean)) {
     cur += `/${s}`;
+    if (!dirs.has(cur)) store?.put("dir", cur, new Uint8Array());
     dirs.add(cur);
   }
 }
@@ -37,7 +41,9 @@ export const diskService: InfraService<ResourceOp> = {
         return { ok: true };
       case "write": {
         mkdirp(p.slice(0, p.lastIndexOf("/")) || "/");
-        files.set(p, (raw as { data: Uint8Array }).data);
+        const data = (raw as { data: Uint8Array }).data;
+        files.set(p, data);
+        store?.put("disk", p, data);
         return { ok: true };
       }
       case "read":
@@ -53,11 +59,21 @@ export const diskService: InfraService<ResourceOp> = {
       }
       case "rm": {
         files.delete(p);
+        store?.remove("disk", p);
         return { ok: true };
       }
       default:
         throw new Error(`disk: unknown op "${op}"`);
     }
+  },
+  async persist(next) {
+    store = next;
+    files.clear();
+    dirs.clear();
+    dirs.add("/");
+    if (!next) return;
+    for (const [path, data] of await next.load("disk")) files.set(path, data);
+    for (const path of (await next.load("dir")).keys()) dirs.add(path);
   },
   reset() {
     files.clear();
