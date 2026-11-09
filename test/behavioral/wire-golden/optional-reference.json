@@ -31,7 +31,7 @@
         "id": "<volatile:key>",
         "lastKnownLocation": null,
         "origin": "<uuid>",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -52,7 +52,7 @@
         "id": "<volatile:key>",
         "lastKnownLocation": "<uuid>",
         "origin": "<uuid>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -68,7 +68,7 @@
             "id": "<volatile:key>",
             "lastKnownLocation": "<uuid>",
             "origin": "<uuid>",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -86,7 +86,7 @@
         "display": "Hamburg",
         "id": "<volatile:key>",
         "name": "Hamburg",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -105,7 +105,7 @@
         "display": "Hamburg Hafen",
         "id": "<volatile:key>",
         "name": "Hamburg Hafen",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -119,7 +119,7 @@
             "display": "Hamburg Hafen",
             "id": "<volatile:key>",
             "name": "Hamburg Hafen",
-            "version": 2
+            "rowVersion": 2
           }
         ],
         "page": 1,
@@ -211,18 +211,12 @@
       "seq": 17,
       "method": "POST",
       "path": "/api/locations/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "name is required",
-            "pointer": "/name"
-          }
-        ],
+        "detail": "Location {id} not found",
         "instance": "/api/locations/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

@@ -17,6 +17,7 @@ import {
   type Message,
   runAgent,
   type TokenUsage,
+  type ToolDef,
 } from "../../../src/tools/index.js";
 import type { AgentMessage, AgentToolCall, ToolStatus } from "./demo.js";
 
@@ -54,6 +55,25 @@ export function summarizeToolResult(name: string, content: string, isError?: boo
     case "loom_read_model":
     case "loom_list_primitives":
       return "ok";
+    case "loom_migration_status": {
+      if (obj.ok !== true) return "chain unreadable";
+      if (obj.unrecorded !== true) return "up to date";
+      const modules = (obj.modules as { unrecordedSteps?: number }[] | undefined) ?? [];
+      const steps = modules.reduce((n, m) => n + (m.unrecordedSteps ?? 0), 0);
+      return `${steps} unrecorded step(s)${obj.destructive === true ? ", destructive" : ""}`;
+    }
+    case "loom_migration_record": {
+      if (obj.ok !== true) return obj.needsAcknowledgement === true ? "destructive — not recorded" : "not recorded";
+      const files = (obj.files as unknown[] | undefined) ?? [];
+      return files.length === 0 ? "nothing to record" : `recorded ${files.length}`;
+    }
+    case "loom_migration_apply":
+      if (obj.kind === "booted") {
+        const applied = (obj.applied as unknown[] | undefined) ?? [];
+        return `booted, ${applied.length} applied`;
+      }
+      if (obj.kind === "pending") return "boot pending";
+      return obj.kind === "failed" ? `failed at ${String(obj.stage)}` : "applied";
     default:
       return truncate(JSON.stringify(obj), 60);
   }
@@ -173,6 +193,9 @@ export interface LiveAgentDeps {
   history: Message[];
   /** Optional system prompt (the context-pack seed). */
   system?: string;
+  /** The tools the agent is offered and the loop dispatches — the catalog
+   *  with the playground's host tools layered on.  Default: the catalog. */
+  tools?: readonly ToolDef[];
   /** Re-render the display bubbles (called on every transcript change). */
   setMessages: (msgs: AgentMessage[]) => void;
   /** Reflect the agent's newest `.ddd` source into the editor + LSP. */
@@ -257,6 +280,7 @@ export async function runLiveAgent(deps: LiveAgentDeps): Promise<Message[]> {
     complete,
     messages,
     system,
+    tools: deps.tools,
     maxSteps: deps.maxSteps ?? 12,
     onTextDelta: (t) => {
       streaming += t;

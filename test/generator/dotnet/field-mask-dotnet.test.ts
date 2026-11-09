@@ -4,14 +4,8 @@
 // unless the caller satisfies the predicate).  Compile-verified separately in
 // the dotnet SDK container; this pins the emit shape.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { generateDotnetForContexts } from "../../../src/generator/dotnet/index.js";
-import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
-import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
+import { generateBackendFromSource } from "../../_helpers/generate.js";
 
 const SRC = `system S {
   user { id: string  role: string  permissions: string[] }
@@ -23,6 +17,14 @@ const SRC = `system S {
         salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
       }
     }
+  }
+  storage db { type: postgres }
+  resource cState { for: C, kind: state, use: db }
+  deployable s {
+    platform: dotnet
+    contexts: [C]
+    dataSources: [cState]
+    auth: required
   }
 }`;
 
@@ -55,16 +57,19 @@ const AUDITED_SRC = `system S {
       }
     }
   }
+  storage db { type: postgres }
+  resource cState { for: C, kind: state, use: db }
+  deployable s {
+    platform: dotnet
+    contexts: [C]
+    dataSources: [cState]
+    auth: required
+  }
 }`;
 
-async function filesFrom(src: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const helper = parseHelper<Model>(services.Ddd);
-  const doc = await helper(src, { validation: true });
-  const loom = enrichLoomModel(lowerModel(doc.parseResult.value));
-  const contexts = loom.systems.flatMap((s) => s.subdomains.flatMap((sd) => sd.contexts));
-  return generateDotnetForContexts(contexts, "S");
-}
+// The deployable `s` is the project's root namespace `S`.
+const filesFrom = (src: string): Promise<Map<string, string>> =>
+  generateBackendFromSource(src, "dotnet");
 
 const files = (): Promise<Map<string, string>> => filesFrom(SRC);
 

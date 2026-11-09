@@ -3,6 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -18,13 +19,14 @@ import {
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
+  unionMoneyArms,
 } from "../../../generator/_payload/union-wire.js";
 import {
   PG_FOREIGN_KEY_VIOLATION,
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -39,6 +41,7 @@ import {
   aggHasFieldMask,
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
+import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
@@ -51,6 +54,7 @@ import {
 } from "../../../generator/zod-refine.js";
 import {
   aggregateCanConflict,
+  destroyVersionCheck,
   operationVersionCheck,
   readsIfMatch,
   type VersionCheck,
@@ -111,8 +115,8 @@ import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
+  explicitStaticSubpaths,
   findValidatesRequest,
-  isAllFind,
   relativeOpPath,
   servedOperations,
   staticSubpathMethods,
@@ -120,12 +124,15 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
+  maskWritePresenceParam,
   operationBodyUsesCurrentUser,
   operationGates,
   operationGatesUseCurrentUser,
@@ -153,8 +160,9 @@ import type {
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { escapeTargetMember } from "../../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -305,7 +313,7 @@ function emitHistoryRoute(
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
-  out.push(`    const __target = await repo.findById(Ids.${agg.name}Id(id));`);
+  out.push(`    const __target = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
   // RS-27, same site class as the getById route above: history is a by-id read,
   // so its 404 carries the same sentence.  python's history route reaches the
   // message by CALLING `repo.get_by_id` for exactly this reachability probe
@@ -409,7 +417,13 @@ function honoStaticSubpathMethods(
     emitCreate && serverSourcedDefaultFields(createInputFields(agg)).length > 0
       ? [["prepare", "GET"]]
       : [];
-  return staticSubpathMethods(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)), prepare);
+  const explicit = explicitStaticSubpaths(ctx)
+    .filter((r) => r.aggregate === agg.name)
+    .map((r): [string, string] => [r.segment, r.method]);
+  return staticSubpathMethods(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)), [
+    ...prepare,
+    ...explicit,
+  ]);
 }
 
 /** The router-level guard that turns a wrong verb on a static sub-path into the
@@ -557,7 +571,7 @@ export function buildRoutesFile(
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
-  lines.push(`import * as Ids from "../domain/ids";`);
+  lines.push(tsImportSlot("~/domain/ids"));
   // `ConcurrencyError` only when this aggregate is `versioned` OR event-sourced — a
   // non-versioned aggregate's route file stays byte-identical.  `NotImplementedError`
   // rides the same rule on `extern` operations: only their scaffold-once stub
@@ -823,11 +837,19 @@ export function buildRoutesFile(
     // shared minter owner-qualifies both halves when — and only when — they
     // genuinely collide (F-026).
     const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
+    const mergePatch = isMergePatchUpdate(op);
     lines.push(
       ...emitWireSchema(
         `const ${reqName}`,
         reqName,
-        op.params.map((p) => ({ name: p.name, base: zodFor(p.type) })),
+        // A merge-patch update (RS-47) takes every key as optional; `null`
+        // stays legal only where the type is `T?`, whose `zodFor` is already
+        // `.nullish()`.
+        op.params.map((p) => ({
+          name: p.name,
+          base: zodFor(p.type),
+          optional: mergePatch && p.type.kind !== "optional",
+        })),
         // Field-level invariants (SYS-1): the update/mutating-op request DTO
         // gets the SAME wire constraints as create, not just the op's own
         // preconditions.  The `available = op.params` set below drops any
@@ -837,6 +859,7 @@ export function buildRoutesFile(
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
         "exact",
+        mergePatch,
       ),
     );
   }
@@ -1198,19 +1221,6 @@ export function buildRoutesFile(
     }
   }
 
-  // Named find queries with STATIC paths (`find byHolder(...)` → GET
-  // /by_holder) must register BEFORE the `GET /{id}` param route: Hono
-  // matches in registration order, and `@hono/zod-openapi` validates the
-  // `/{id}` param as `UuidString`, so a static segment registered
-  // after `/{id}` is shadowed — `GET /by_holder` would match `/{id}` first
-  // and 422 on the non-UUID segment.  The auto-`all` find stays at the root
-  // (`GET /`, no conflict) and is emitted with the rest below.
-  for (const [findIR, entry] of derivedFindByIR) {
-    if (isAllFind(entry)) continue;
-    lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
-    lines.push("");
-  }
-
   // Entity history — `GET /{id}/history` (docs/audit.md).  Two segments, so it
   // cannot be shadowed by the `/{id}` param route below the way a static
   // one-segment find can; registered here anyway to keep the reads together.
@@ -1256,7 +1266,7 @@ export function buildRoutesFile(
         `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
-    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    lines.push(`      const found = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
     // token instead.  The cause is structural, not cosmetic: the route reads
@@ -1283,7 +1293,7 @@ export function buildRoutesFile(
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
     if (readsIfMatch(operationVersionCheck(agg))) {
-      lines.push(`      c.header("etag", versionETag(found.version));`);
+      lines.push(`      c.header("etag", versionETag(found.${ROW_VERSION_FIELD}));`);
     }
     if (emitTrace) {
       // toWire isn't trivial — bind once so it's not run twice between
@@ -1329,6 +1339,9 @@ export function buildRoutesFile(
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
     const destroyGates = lifecycleGates(canonicalDestroy(agg));
+    // A `versioned` row's DELETE reads `If-Match` like a named operation
+    // (`destroyVersionCheck`): a stale tag is refused before the delete.
+    const destroyIfMatch = readsIfMatch(destroyVersionCheck(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1343,9 +1356,9 @@ export function buildRoutesFile(
       // receiver to name.
       const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
-        readsRow
-          ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
-          : `      await repo.getById(Ids.${agg.name}Id(id));`,
+        readsRow || destroyIfMatch
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
       );
       if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
@@ -1353,11 +1366,17 @@ export function buildRoutesFile(
       lines.push(
         ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
       // try, byte-identical to the pre-audit baseline.  getById throws
       // AggregateNotFoundError (→ 404) when absent.
-      lines.push(`      await repo.getById(Ids.${agg.name}Id(id));`);
+      lines.push(
+        destroyIfMatch
+          ? `      const __loaded = await repo.getById(${T.Ids}.${agg.name}Id(id));`
+          : `      await repo.getById(${T.Ids}.${agg.name}Id(id));`,
+      );
+      if (destroyIfMatch) lines.push(...destroyIfMatchLines(agg, "__loaded", "      "));
     }
     lines.push(`      try {`);
     if (auditDestroy) {
@@ -1373,7 +1392,9 @@ export function buildRoutesFile(
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
       lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
-      lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
+      lines.push(`          const loaded = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
+      if (destroyIfMatch && destroyGates.length === 0)
+        lines.push(...destroyIfMatchLines(agg, "loaded", "          "));
       lines.push(`          const before = repoTx.toWire(loaded);`);
       lines.push(`          await ${historyInsertCall(usingMikro, "auditRecords")}`);
       lines.push(`            auditId: randomUUID(),`);
@@ -1393,11 +1414,11 @@ export function buildRoutesFile(
       lines.push(
         `          ${renderHonoLogCall("auditRecorded", `action: "destroy", target: "${agg.name}", actor`)}`,
       );
-      lines.push(`          await repoTx.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`          await repoTx.delete(${T.Ids}.${agg.name}Id(id));`);
       lines.push(`        });`);
       lines.push(`        await __deferred.flush();`);
     } else {
-      lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
+      lines.push(`        await repo.delete(${T.Ids}.${agg.name}Id(id));`);
     }
     lines.push(`      } catch (err) {`);
     // The row is still referenced.  Map to a 409 problem locally so the shared
@@ -1458,10 +1479,8 @@ export function buildRoutesFile(
   }
 
   // The auto-included `all` find (`GET /`, root path — no conflict with
-  // `/{id}`).  Named static-path finds were emitted ABOVE, before the
-  // `GET /{id}` param route, so they win Hono's registration-order match.
+  // `/{id}`).
   for (const [findIR, entry] of derivedFindByIR) {
-    if (!isAllFind(entry)) continue;
     lines.push(...emitFindRoute(agg, findIR!, ctx, entry, emitTrace).map((l) => `  ${l}`));
     lines.push("");
   }
@@ -1793,7 +1812,11 @@ function requiresGateLines(
           return p ? wireToDomainExpr(`body.${p.name}`, p.type, ctx) : undefined;
         }),
     });
-    return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+    // A merge-patch update's mask write gate runs only when the body carries
+    // the masked key (an absent key keeps the stored value).
+    const present = maskWritePresenceParam(op, g);
+    const cond = present ? `body.${present} !== undefined && !(${pred})` : `!(${pred})`;
+    return `${pad}if (${cond}) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
   });
@@ -1876,7 +1899,7 @@ function emitCanOpRoute(
   out.push(`  }),`);
   out.push(`  async (c) => {`);
   out.push(`    const { id } = c.req.valid("param");`);
-  out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+  out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(`    return c.json({ allowed: ${pred} }, 200);`);
   out.push(`  },`);
   out.push(`);`);
@@ -1892,11 +1915,22 @@ function emitCanOpRoute(
  *  guarded UPDATE on NaN matches no row and answers a spurious 409.  A `handle`
  *  or `none` path binds nothing: the repository's save checks the handle's own
  *  version, or nothing. */
-function expectedVersionLines(check: VersionCheck, pad: string): string[] {
+function expectedVersionLines(check: VersionCheck, pad: string, loadedVar = "aggregate"): string[] {
   if (!readsIfMatch(check)) return [];
   return [
     `${pad}const ifMatch = c.req.header("if-match");`,
-    `${pad}const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, ${loadedVar}.${ROW_VERSION_FIELD});`,
+  ];
+}
+
+/** The precondition of a `versioned` row's canonical DELETE: the client's
+ *  `If-Match` tag (the loaded version when absent) must equal the version of the
+ *  row just loaded as `loadedVar`, else the same `ConcurrencyError` a stale save
+ *  raises (409). */
+function destroyIfMatchLines(agg: AggregateIR, loadedVar: string, pad: string): string[] {
+  return [
+    ...expectedVersionLines(destroyVersionCheck(agg), pad, loadedVar),
+    `${pad}if (expectedVersion !== ${loadedVar}.${ROW_VERSION_FIELD}) throw new ConcurrencyError("${agg.name}", id);`,
   ];
 }
 
@@ -1940,6 +1974,7 @@ function auditProvTxLines(args: {
   errorTags?: readonly string[];
 }): string[] {
   const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
+  const answer = hostReturnProjection(agg, op, "__result", "repoTx", "aggregate");
   const out: string[] = [];
   if (audit) {
     // Actor = the principal's declared shape (`auditActor`, null when no
@@ -1954,7 +1989,7 @@ function auditProvTxLines(args: {
   out.push(`    const __deferred = deferredDispatcher(events);`);
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
   out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
-  out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
+  out.push(`      const aggregate = await repoTx.getById(${T.Ids}.${agg.name}Id(id));`);
   out.push(...expectedVersionLines(check, "      "));
   out.push(...requiresGateLines(op, "      ", ctx));
   out.push(...whenGateLine(agg, op, "      "));
@@ -2011,10 +2046,35 @@ function auditProvTxLines(args: {
     );
     out.push(`      }`);
   }
-  if (args.capture) out.push(`      return __result;`);
+  if (args.capture) out.push(`      return ${answer};`);
   out.push(`    });`);
   out.push(`    await __deferred.flush();`);
   return out;
+}
+
+/** The 200 body of an operation whose result is (or has an arm that is) its
+ *  own aggregate.  The domain method hands back `this` (tagged for a union
+ *  arm), whose private fields are not the wire; the route answers the
+ *  aggregate's projection through the repository's `toWire`, as every CRUD
+ *  read does.  Any other result is answered as returned. */
+function hostReturnProjection(
+  agg: AggregateIR,
+  op: OperationIR,
+  result: string,
+  repo: string,
+  aggregate: string,
+): string {
+  const rt = op.returnType;
+  const isHost = (t: TypeIR) => t.kind === "entity" && t.name === agg.name;
+  // Read back after the save: the saved row carries the version the save
+  // advanced to, which the in-memory aggregate does not.
+  const saved = `${repo}.toWire(await ${repo}.getById(${aggregate}.id))`;
+  if (rt && isHost(rt)) return saved;
+  if (rt?.kind === "union" && rt.variants.some(isHost)) {
+    const tag = JSON.stringify(agg.name);
+    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${saved} as Record<string, unknown>) } : ${result})`;
+  }
+  return result;
 }
 
 function emitOperationRoute(
@@ -2124,7 +2184,17 @@ function emitOperationRoute(
       `    const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
   }
-  const baseCallArgs = op.params.map((p) => wireToDomainExpr(`body.${p.name}`, p.type, ctx));
+  // A merge-patch update (RS-47) passes the stored value for every key the
+  // body leaves out, so the operation runs on the merged state.
+  const mergePatch = isMergePatchUpdate(op);
+  const baseCallArgs = op.params.map((p) => {
+    const value = wireToDomainExpr(`body.${p.name}`, p.type, ctx);
+    // The stored value is read through the field's getter, whose spelling
+    // escapes a name the class reserves (`constructor` → `constructor_`).
+    return mergePatch
+      ? `(body.${p.name} === undefined ? aggregate.${escapeTargetFieldMember("ts", p.name)} : ${value})`
+      : value;
+  });
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
 
   // The mutation block — extern dispatch or the direct method call —
@@ -2138,7 +2208,7 @@ function emitOperationRoute(
   ];
 
   if (!audit && !prov) {
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -2278,7 +2348,7 @@ function emitReturningOperationRoute(
     );
   } else {
     const check = operationVersionCheck(agg, op);
-    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(`    const aggregate = await repo.getById(${T.Ids}.${agg.name}Id(id));`);
     out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
@@ -2311,10 +2381,34 @@ function emitReturningOperationRoute(
     op.returnType?.kind === "primitive" &&
     (op.returnType as { name?: string }).name === "money";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
+  // An operation answering its own aggregate (`return this`) answers the
+  // aggregate's wire projection; the audited path projected it inside the
+  // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : "result";
-  out.push(`    return c.json(${successResult}, 200);`);
+    : audit || prov
+      ? "result"
+      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
+  // A `money` field of a payload success variant rides as the fixed-scale
+  // string (RS-12) — the tagged dict holds the decimal.js value.
+  for (const arm of u ? unionMoneyArms(u.variants, ctx) : []) {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result.${key}`;
+      const wire = numericEncode(TS_NUMERIC, "money", "dto-map", access);
+      return `${key}: ${optional ? `${access} == null ? null : ${wire}` : wire}`;
+    });
+    out.push(`    if (result.type === ${JSON.stringify(arm.tag)}) {`);
+    out.push(`      return c.json({ ...result, ${enc.join(", ")} }, 200);`);
+    out.push(`    }`);
+  }
+  // The projected aggregate is typed `unknown` by `toWire`; it IS the declared
+  // 200 body.
+  const answersHost = hostReturnProjection(agg, op, "result", "repo", "aggregate") !== "result";
+  out.push(
+    answersHost
+      ? `    return c.json(${successResult} as unknown as z.infer<typeof ${successSchema}>, 200);`
+      : `    return c.json(${successResult}, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -2534,7 +2628,7 @@ function emitResponseDtoSchema(
   // leading `id: z.string()` is re-prepended, mirroring the synthetic wire-shape
   // id row `responseRecordParams` / this walk would emit.
   const declaredResponse = isAgg
-    ? ctx.payloads.find((p) => p.kind === "response" && p.name === name)
+    ? declaredResponseFor(ctx.payloads, ent as EnrichedAggregateIR)
     : undefined;
   if (declaredResponse) {
     lines.push(`  id: z.string(),`);
@@ -2556,9 +2650,13 @@ function emitResponseDtoSchema(
         lines.push(`  ${wf.name}: z.string(),`);
       } else {
         // A `mask unless` field is redacted to `null` for callers who fail the
-        // predicate (see `toWireMasked`), so its response schema must admit null.
-        const masked = wf.maskUnless !== undefined ? ".nullable()" : "";
-        lines.push(`  ${wf.name}: ${zodForResponse(wf.type, wf.optional)}${masked},`);
+        // predicate (see `toWireMasked`), so its response schema admits null —
+        // as `.nullish()`, the spelling every other nullable response field
+        // takes, so the OpenAPI required set agrees with the other backends
+        // (a nullable property is not required on any of them).
+        const z = zodForResponse(wf.type, wf.optional);
+        const masked = wf.maskUnless !== undefined && !z.endsWith(".nullish()") ? ".nullish()" : "";
+        lines.push(`  ${wf.name}: ${z}${masked},`);
       }
     }
   }
@@ -2701,7 +2799,9 @@ const PLAIN_STRING_BASE = "z.string()";
  *  equal to …" on 3). */
 const INT32_BOUND = tsIntegerRange("int");
 const LONG_BOUND = tsIntegerRange("long");
-const INT32_RANGE = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MIN_CALL = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_MAX_CALL = `.max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_RANGE = `${INT32_MIN_CALL}${INT32_MAX_CALL}`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -2726,7 +2826,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2740,7 +2840,7 @@ export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2754,7 +2854,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  File: FILE_REF_ZOD,
 };
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {
@@ -2778,9 +2878,11 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
     // `isRequiredCreateInput` and have already dropped it, which shows up as
     // `required-only-honoApi=[<field>]` in the 5-way parity diff.
     //
-    // Scoped to `create-body` for the same reason the bool arm below is: an
-    // operation body (`update` included) is full-replacement, so an absent
+    // Scoped to `create-body` for the same reason the bool arm below is: a
+    // command body requires every non-nullable parameter, so an absent
     // collection there is a missing required field, not an empty one (RS-26).
+    // The merge-patch `update` makes the key optional instead, and an absent
+    // one keeps the stored value (RS-47).
     return context === "create-body" ? `${arr}.default([])` : arr;
   }
   switch (info.refKind) {
@@ -2845,11 +2947,7 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // `context` is deliberately ignored: the same rule holds for a body
       // field and for a `?owner=` query parameter (F3 is F2 through the query
       // string), and both funnel through this one arm.
-      //
-      // Gated on the declared id VALUE type — an `int`/`long`/`string`-keyed
-      // aggregate is not a uuid, and the pre-existing wire treatment (every id
-      // as a string) stays untouched for those.
-      return info.idValueType === "guid" ? "UuidString" : "z.string()";
+      return "UuidString";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;
@@ -2899,7 +2997,7 @@ function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
   return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
-function zodForResponseInner(t: TypeIR): string {
+export function zodForResponseInner(t: TypeIR): string {
   const info = wireTypeInfo(t, "response");
   if (info.isNullable) return `${zodForResponseInner(peelNullable(t))}.nullish()`;
   if (info.isCollection) return `z.array(${zodForResponseInner(peelCollection(t))})`;
@@ -3034,6 +3132,10 @@ export function emitWireSchema(
   // body scan); a caller without that stays "server-only" and leaves the rule
   // to the domain's exact check.
   decimal: RefineDecimalMode = "server-only",
+  // A merge-patch body (RS-47): each rule is judged only when the body carries
+  // every member it reads — `ruleMembers` — and the domain floor judges the
+  // merged state otherwise.
+  mergePatch = false,
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
@@ -3049,7 +3151,9 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx, decimal))
+    .map((inv) =>
+      refineClauseFor(inv, ctx, decimal, mergePatch ? ruleMembers(inv, available) : undefined),
+    )
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];
@@ -3060,14 +3164,17 @@ export function emitWireSchema(
     const patterns = chainByField.get(f.name);
     if (patterns) {
       // A DECLARED numeric bound is authoritative and lies inside int32, so the
-      // structural int4 range would only stack a wider, redundant pair in front
-      // of it — `.min(-2147483648).max(2147483647).min(1).max(5)` — and leave
-      // the published `minimum`/`maximum` depending on which of two `.min`
-      // calls the OpenAPI emitter reads last. Drop the range and keep the
-      // format: the invariant states the bound, the format states the column.
-      if (patterns.some((p) => p.kind === "min" || p.kind === "max" || p.kind === "between")) {
-        schema = schema.replace(INT32_RANGE, "");
-      }
+      // structural int4 bound on THAT side would only stack a wider, redundant
+      // one in front of it — `.min(-2147483648).min(1)` — and leave the
+      // published `minimum` depending on which of two `.min` calls the OpenAPI
+      // emitter reads last. Drop the side the invariant states and keep the
+      // other: `precondition n > 0` bounds only the low side, so the int32
+      // ceiling must stay or `2147483648` reaches the driver as a 500.
+      const declaresMin = patterns.some((p) => p.kind === "min" || p.kind === "between");
+      const declaresMax = patterns.some((p) => p.kind === "max" || p.kind === "between");
+      if (declaresMin && declaresMax) schema = schema.replace(INT32_RANGE, "");
+      else if (declaresMin) schema = schema.replace(INT32_MIN_CALL, "");
+      else if (declaresMax) schema = schema.replace(INT32_MAX_CALL, "");
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
@@ -3142,7 +3249,7 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
     case "primitive":
       return expr;
     case "id":
-      return `Ids.${info.idTarget}Id(${expr})`;
+      return `${T.Ids}.${info.idTarget}Id(${expr})`;
     case "enum":
       return expr;
     case "valueObject": {

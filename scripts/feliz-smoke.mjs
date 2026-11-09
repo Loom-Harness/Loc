@@ -104,12 +104,13 @@ async function main() {
     .waitFor({ timeout: 10000 });
 
   // 3b. Typed + validated form state — open the create form and prove the
-  // validity guard runs: the "Create Product" submit is DISABLED while the
+  // validity guard runs: the "Create" submit (the `Product.op.create` model
+  // text) is DISABLED while the
   // required text/number fields are empty, and ENABLES once they're filled.
   // (The bool `inStock` field is a checkbox, excluded from the guard.)
   await page.getByRole("button", { name: "Add a product" }).click();
   await page.getByText("New product").waitFor();
-  const create = page.getByRole("button", { name: "Create Product" });
+  const create = page.getByRole("button", { name: "Create", exact: true });
   if (!(await create.isDisabled())) {
     throw new Error("create submit should be DISABLED with empty required fields");
   }

@@ -11,6 +11,6 @@ public sealed class UpdateCommandValidator : AbstractValidator<UpdateCommand>
     public UpdateCommandValidator()
     {
         RuleFor(x => x.Sku).Must(v => v == null || v.EnumerateRunes().Count() >= 1)
-            .WithMessage("Sku must be at least 1 character");
+            .WithMessage("Sku must be at least 1 character").When(x => x.PatchedKeys.Contains("sku"));
     }
 }

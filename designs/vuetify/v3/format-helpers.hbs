@@ -1,5 +1,6 @@
 // Auto-generated.  Do not edit by hand.
-{{{chromeImport "../i18n"}}}// Formatting helpers — the Vue analogue of the React packs'
+{{{chromeImport "./locale"}}}{{#if i18nEnabled}}import { getLocale } from "./locale";
+{{/if}}// Formatting helpers — the Vue analogue of the React packs'
 // format-helpers components.  Vue SFC templates interpolate plain
 // strings, so these are functions (not components); cell templates
 // call them inside \{{ … }} interpolations.
@@ -27,7 +28,7 @@ export function formatDateTime(iso: string | null | undefined): string {
   const s = String(iso);
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -50,7 +51,7 @@ export function formatNumber(
   if (isEmpty(value)) return EMPTY;
   const n = typeof value === "number" ? value : Number(value);
   if (Number.isNaN(n)) return String(value);
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat({{#if i18nEnabled}}getLocale(){{else}}undefined{{/if}}, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: Math.max(decimals, 2),
   }).format(n);

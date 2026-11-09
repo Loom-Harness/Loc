@@ -30,9 +30,14 @@ import {
   isBoundedContext,
   isDeployable,
   isDomainService,
+  isListLit,
+  isStringLit,
   isTestBlock,
+  isTestE2E,
+  isTestPrincipal,
   isValueObject,
   type Model,
+  type TestPrincipal,
 } from "../generated/ast.js";
 import { platformOwnsBackend } from "./data/platform-rules.js";
 
@@ -47,8 +52,39 @@ function integrationBackendHostsContext(model: Model, ctx: BoundedContext): bool
   return false;
 }
 
+/** The AST half of the `as { … }` principal clause: each value is a string
+ *  literal or a list of string literals, and no claim is set twice.  Whether a
+ *  claim names a declared `user` field of a matching type is checked in IR
+ *  validation, where the system's user block is resolved across files. */
+function checkPrincipalClaims(principal: TestPrincipal, accept: ValidationAcceptor): void {
+  const seen = new Set<string>();
+  for (const claim of principal.claims) {
+    if (seen.has(claim.name)) {
+      accept("error", diagMessage("loom.test-principal-duplicate-claim", { name: claim.name }), {
+        node: claim,
+        property: "name",
+        code: "loom.test-principal-duplicate-claim",
+      });
+    }
+    seen.add(claim.name);
+    const v = claim.value;
+    const literal = isStringLit(v) || (isListLit(v) && v.elements.every((e) => isStringLit(e)));
+    if (!literal) {
+      accept("error", diagMessage("loom.test-principal-value", { name: claim.name }), {
+        node: claim,
+        property: "value",
+        code: "loom.test-principal-value",
+      });
+    }
+  }
+}
+
 export function checkTestPlacement(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
+    if (isTestE2E(node)) {
+      if (node.principal) checkPrincipalClaims(node.principal, accept);
+      for (const line of node.body.filter(isTestPrincipal)) checkPrincipalClaims(line, accept);
+    }
     if (!isTestBlock(node)) continue;
     const c = node.$container;
     const inSubjectDecl = isAggregate(c) || isValueObject(c) || isDomainService(c);
@@ -91,6 +127,22 @@ export function checkTestPlacement(model: Model, accept: ValidationAcceptor): vo
         : inContext && !target
           ? (c as BoundedContext) // nested in a context with no `for`
           : undefined;
+    // The principal clause runs only where a principal reaches the code under
+    // test: the context integration rung (and `test e2e`, handled above).
+    const principals = [
+      ...(node.principal ? [node.principal] : []),
+      ...node.body.filter(isTestPrincipal),
+    ];
+    for (const principal of principals) {
+      if (ctxNode) checkPrincipalClaims(principal, accept);
+      else {
+        accept(
+          "error",
+          diagMessage("loom.test-principal-placement", { name: JSON.stringify(node.name) }),
+          { node: principal, code: "loom.test-principal-placement" },
+        );
+      }
+    }
     if (ctxNode && !integrationBackendHostsContext(model, ctxNode)) {
       accept("warning", diagMessage("loom.context-test-unsupported", { name: ctxNode.name }), {
         node,

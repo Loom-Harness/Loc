@@ -3,7 +3,7 @@
           name="{{path}}"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-              <FormLabel>{{label}}</FormLabel>
+              <FormLabel>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</FormLabel>
               <FormControl>
                 <Switch data-testid="{{testId}}" checked={!!field.value} onCheckedChange={field.onChange} />
               </FormControl>

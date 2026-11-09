@@ -33,6 +33,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -40,17 +41,20 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import { localizedPageTitle } from "../_walker/i18n-emit.js";
+import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import {
-  FLUTTER_API_CLIENT_DART,
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
   FLUTTER_BEARER_STORE_DART,
+  flutterApiClientDart,
   flutterHttpImport,
 } from "./api-client.js";
 import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
@@ -72,7 +76,12 @@ import {
   renderFormsFile,
   renderGatesFile,
 } from "./forms-emit.js";
-import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
+import {
+  callsI18nRuntime,
+  flutterI18nEnabled,
+  flutterLocaleSwitchable,
+  renderFlutterI18nModule,
+} from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
 import { FLUTTER_NAV_MENU_WIDGET, renderFlutterNavMenu } from "./menu-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
@@ -122,6 +131,11 @@ export interface GenerateFlutterOptions {
    *  than getting a misleading single-origin region — the recorder's own
    *  documented rule. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into `lib/i18n.dart` beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
 }
 
 /** Emit the file map for one `platform: flutter` deployable, paths relative to
@@ -192,9 +206,18 @@ export function generateFlutterForContexts(
   // Form widgets — one self-contained `StatefulWidget` per CreateForm /
   // OperationForm / DestroyForm a page hosts (POST/DELETE over package:http),
   // plus one per WorkflowForm(runs:) (POST the workflow params to /workflows/<wf>).
+  const uiI18n = ui ? flutterI18nEnabled(ui) : false;
+  // Two or more locales ship: `main()` negotiates + restores the locale,
+  // `MaterialApp` carries the localization wiring, every app bar the picker.
+  const localeSwitchable = ui
+    ? flutterLocaleSwitchable(ui, options.translations, sourceLocaleOf(sys))
+    : false;
+  // Every api call goes through the `api_client.dart` drop-in when it carries a
+  // credential (`credentialed`) OR the active locale (`Accept-Language`).
+  const apiClient = credentialed || uiI18n;
   const forms = [
-    ...collectFlutterForms(ui, aggregatesByName, bcByAggregate),
-    ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName),
+    ...collectFlutterForms(ui, aggregatesByName, bcByAggregate, uiI18n),
+    ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName, uiI18n),
   ];
 
   // Wire-model classes for every aggregate/VO/event reachable through this
@@ -223,7 +246,7 @@ export function generateFlutterForContexts(
   // above, ahead of the models emit).  Emitted only when the ui issues reads,
   // alongside the `AppConfig` api-base helper.
   if (reads.length > 0) {
-    out.set("lib/reads.dart", renderReadProviders(reads, credentialed));
+    out.set("lib/reads.dart", renderReadProviders(reads, apiClient));
   }
 
   // Realtime SSE handlers (channels.md Part I) — gated on BOTH halves: this ui
@@ -248,16 +271,19 @@ export function generateFlutterForContexts(
   // walker seam) and the app ships `lib/i18n.dart` — the Dart-language sibling
   // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no file, the walks
   // pass no prefix, and every literal renders raw.
-  const i18nEnabled = ui ? flutterI18nEnabled(ui) : false;
+  const i18nEnabled = uiI18n;
   if (ui && i18nEnabled) {
-    out.set("lib/i18n.dart", renderFlutterI18nModule(ui));
+    out.set(
+      "lib/i18n.dart",
+      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations),
+    );
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
+    out.set("lib/forms.dart", renderFormsFile(forms, apiClient));
   }
   const gates = renderGatesFile(
     contexts.flatMap((c) => c.aggregates),
-    credentialed,
+    apiClient,
   );
   if (gates) out.set("lib/gates.dart", gates);
 
@@ -272,6 +298,7 @@ export function generateFlutterForContexts(
     aggregatesByName,
     bcByAggregate,
     i18nEnabled,
+    uiName: ui?.name ?? "",
   };
   const componentParams: ReadonlyMap<string, readonly ParamIR[]> = ui
     ? emittableComponentParams(ui.components, componentCtx)
@@ -321,8 +348,9 @@ export function generateFlutterForContexts(
       authUi,
       nameCtx,
       pageRoutes,
-      credentialed,
+      credentialed: apiClient,
       navMenu: navMenuSource !== "",
+      localeSwitcher: localeSwitchable,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -342,7 +370,7 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, credentialed));
+  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -384,10 +412,14 @@ export function generateFlutterForContexts(
   // native bearer), and the platform-neutral bearer store the app populates
   // from its own OIDC client.
   if (credentialed) {
-    out.set("lib/api_client.dart", FLUTTER_API_CLIENT_DART);
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: true, i18n: uiI18n }));
     out.set("lib/api_client_web.dart", FLUTTER_API_CLIENT_WEB_DART);
     out.set("lib/api_client_io.dart", FLUTTER_API_CLIENT_IO_DART);
     out.set("lib/loom_bearer.dart", FLUTTER_BEARER_STORE_DART);
+  } else if (uiI18n) {
+    // No credential to carry, but the active locale still rides every request
+    // (`Accept-Language`), so the same drop-in exists without its bearer halves.
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: false, i18n: true }));
   }
 
   // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
@@ -399,7 +431,7 @@ export function generateFlutterForContexts(
   const usesRefLabel =
     rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
     (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
-  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(credentialed));
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(apiClient));
   // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
   // sign-out redirects are both built with `apiUri`.
   if (
@@ -441,6 +473,7 @@ export function generateFlutterForContexts(
       rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
     i18n: i18nEnabled,
+    localeSwitch: localeSwitchable,
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -468,6 +501,7 @@ export function generateFlutterForContexts(
       usesSharedPreferences(persistedStores),
       persistBoot.authGate,
       hasRealtime,
+      localeSwitchable,
     ),
   );
   out.set("analysis_options.yaml", ANALYSIS_OPTIONS);
@@ -706,6 +740,24 @@ function keepUsedDerived(binds: readonly DerivedBind[], bodyWidget: string): Der
   return kept;
 }
 
+/** Wrap a page's `return Scaffold(…);` lines in a `Title` widget (which sets the
+ *  browser tab / task title) when the page declares a `title:`. */
+function wrapPageTitle(scaffold: readonly string[], titleDart: string | undefined): string {
+  if (titleDart === undefined) return scaffold.join("\n");
+  const inner = scaffold
+    .join("\n")
+    .replace(/^ {4}return /, "")
+    .replace(/;$/, "")
+    .replace(/\n/g, "\n    ");
+  return [
+    "    return Title(",
+    `      title: ${titleDart},`,
+    "      color: Theme.of(context).colorScheme.primary,",
+    `      child: ${inner.trimStart()},`,
+    "    );",
+  ].join("\n");
+}
+
 /** Render one `ui` page into a Flutter `StatelessWidget` whose `build` returns
  *  the widget tree the shared walker produced from the page body. */
 function renderPage(
@@ -745,6 +797,9 @@ function renderPage(
     /** True when the ui declares an explicit `menu { }` — every page's app bar
      *  then mounts it (`lib/nav_menu.dart`). */
     navMenu: boolean;
+    /** Two or more locales ship: every page's app bar carries the language
+     *  picker. */
+    localeSwitcher: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -758,6 +813,7 @@ function renderPage(
     pageRoutes,
     credentialed,
     navMenu,
+    localeSwitcher,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -800,6 +856,30 @@ function renderPage(
   const derivedCandidates = pageDerivedBinds(page, aggregatesByName, componentParams, ui.apiParams);
   let derivedBinds: DerivedBind[] = [];
   let usesCurrentUser = false;
+  // The page `title:` — rendered through the shared `localizedPageTitle` so a
+  // literal title reads the `<Ui>.page.<Name>.title.<hash>` catalog
+  // key.  It reads state / stores / derived like any body slot, so those join
+  // the page's below.
+  let titleDart: string | undefined;
+  let titleCtx: ReturnType<typeof stateCtx> | undefined;
+  if (page.title) {
+    titleCtx = stateCtx({
+      stateNames,
+      derivedNames: new Set(page.body ? derivedCandidates.map((d) => d.name) : []),
+      aggregatesByName,
+      locals: new Map(),
+      paramNames,
+      apiParamNames: new Map(ui.apiParams.map((p) => [p.name, p.apiName])),
+      userComponents: componentParams,
+    });
+    titleCtx.i18nPrefix = i18nEnabled ? pageKeyPrefix(ui, page) : undefined;
+    try {
+      titleDart = localizedPageTitle(page.title, titleCtx);
+    } catch {
+      // A title shape with no Dart arm keeps the pre-existing drop.
+      titleDart = undefined;
+    }
+  }
   if (page.body) {
     const result = walkBody(
       page.body,
@@ -823,7 +903,7 @@ function renderPage(
       // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
       // role-scoped `page.name`, e.g. `List`, not the router emit name);
       // undefined when the ui has no extractable strings (byte-identical).
-      i18nEnabled ? `page.${page.name}` : undefined,
+      i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     );
     bodyWidget = result.tsx.trim() || bodyWidget;
     usesState = result.usesState;
@@ -837,7 +917,7 @@ function renderPage(
     // unused `final` is a `flutter analyze` warning → CI red), and a kept one
     // that dereferences `state` forces the shell's `state` binding — the body
     // alone may never have touched a state cell.
-    derivedBinds = keepUsedDerived(derivedCandidates, bodyWidget);
+    derivedBinds = keepUsedDerived(derivedCandidates, `${bodyWidget}\n${titleDart ?? ""}`);
     if (derivedBinds.some((d) => d.usesState)) usesState = true;
     // A KEPT derived's store reads join the page's — the shell binds one
     // `ref.watch(<store>Provider.select(...))` local per member, above the
@@ -853,6 +933,18 @@ function renderPage(
         }
         for (const m of members) known.add(m);
       }
+    }
+  }
+  if (titleCtx && titleDart !== undefined) {
+    if (titleCtx.usesState) usesState = true;
+    if (titleCtx.usesRouteId) usesRouteId = true;
+    for (const [store, members] of titleCtx.usedStores ?? []) {
+      let known = usedStores.get(store);
+      if (!known) {
+        known = new Set();
+        usedStores.set(store, known);
+      }
+      for (const m of members) known.add(m);
     }
   }
   const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
@@ -888,9 +980,11 @@ function renderPage(
           usedStores,
           storeMembers,
           derivedLines,
+          titleDart,
           pageGate,
           credentialed,
           navMenu,
+          localeSwitcher,
         },
         bodyWidget,
         contexts,
@@ -904,8 +998,10 @@ function renderPage(
         hostsForm,
         usesComponent,
         derivedLines,
+        titleDart,
         credentialed,
         navMenu,
+        localeSwitcher,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -958,6 +1054,9 @@ interface ConsumerBindings {
   /** `final <name> = <expr>;` per page `derived` the body reads, in declaration
    *  order (`pageDerivedBinds`). */
   derivedLines: readonly string[];
+  /** The page `title:` as a Dart `String` expression (translated under i18n),
+   *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+  titleDart?: string;
   /** True when this page reads the verified session (a `requires` gate, or a
    *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
    *  wraps the body in the gate. */
@@ -969,6 +1068,13 @@ interface ConsumerBindings {
   credentialed: boolean;
   /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
   navMenu: boolean;
+  /** Two or more locales ship: the app bar carries the language picker. */
+  localeSwitcher: boolean;
+}
+
+/** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
+function appBarLocale(localeSwitcher: boolean): string {
+  return localeSwitcher ? ", actions: const <Widget>[LocaleSwitcher()]" : "";
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -1015,7 +1121,7 @@ function storeBindings(
  *  `DefaultTextStyle.merge(` and any other identifier ending in `t` from
  *  matching; only a standalone `t(` counts. */
 function usesI18n(dart: string): boolean {
-  return /(?<![A-Za-z0-9_$.])t\(/.test(dart);
+  return callsI18nRuntime(dart);
 }
 
 function renderStatelessPage(
@@ -1031,6 +1137,9 @@ function renderStatelessPage(
      *  page's derived reach only params / literals — one that read `state` made
      *  the page a `ConsumerWidget` instead. */
     derivedLines: readonly string[];
+    /** The page `title:` as a Dart `String` expression (translated under i18n),
+     *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+    titleDart?: string;
     /** True when the deployable authenticates its api calls — the page shell
      *  then imports the credentialed `api_client.dart` drop-in instead of
      *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
@@ -1039,6 +1148,8 @@ function renderStatelessPage(
     credentialed: boolean;
     /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
     navMenu: boolean;
+    /** Two or more locales ship: the app bar carries the language picker. */
+    localeSwitcher: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
@@ -1067,11 +1178,11 @@ function renderStatelessPage(
   // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
   // derived is an expression like any body slot, so `round(x)` in one pulls
   // `dart:math` exactly as it would inline.
-  const scan = [...opts.derivedLines, bodyWidget].join("\n");
+  const scan = [...opts.derivedLines, bodyWidget, opts.titleDart ?? ""].join("\n");
   if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
   // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
-  if (usesI18n(scan)) imports.push("import '../i18n.dart';");
+  if (usesI18n(scan) || opts.localeSwitcher) imports.push("import '../i18n.dart';");
   // `min`/`max`/`round` scalar intrinsics route through `math.*` (`dart-expr.ts`).
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
   const idBinding = routeArgBindings(opts.routeParams, opts.usesRouteId);
@@ -1087,12 +1198,17 @@ function renderStatelessPage(
     // `derived` locals after the route args (a derived may read a route param)
     // and before the tree that reads them — Dart locals are not hoisted.
     ...opts.derivedLines,
-    "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
-    "      body: SingleChildScrollView(",
-    `        child: ${indentContinuation(bodyWidget, 8)},`,
-    "      ),",
-    "    );",
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        "      body: SingleChildScrollView(",
+        `        child: ${indentContinuation(bodyWidget, 8)},`,
+        "      ),",
+        "    );",
+      ],
+      opts.titleDart,
+    ),
     "  }",
     "}",
   )}\n`;
@@ -1137,10 +1253,16 @@ function renderConsumerPage(
   const bindings: string[] = [];
   // The verified session FIRST (D-AUTH-OIDC): the page `requires` guard, a
   // `currentUser.<claim>` body read and a gated `Action` button all reference
-  // this local.  Non-null by construction — `AuthGate` wraps the whole
-  // `MaterialApp`, so no page builds without a session.
+  // this local.  `AuthGate` wraps the whole `MaterialApp`, so a page normally
+  // builds with a resolved session; one built outside it (a widget test's bare
+  // `ProviderScope`) sees `null`, which renders `ForbiddenView` instead of
+  // throwing on a null assertion.  The early return promotes the local to
+  // non-null for the rest of the body.
   if (b.pageGate) {
-    bindings.push("    final currentUser = ref.watch(sessionProvider).value!;");
+    bindings.push(
+      "    final currentUser = ref.watch(sessionProvider).value;",
+      "    if (currentUser == null) return const Scaffold(body: ForbiddenView());",
+    );
   }
   // Route args next — a byId read's `ref.watch(<var>Provider(id))`, an
   // async-effect closure and any declared route param all read them.
@@ -1253,7 +1375,7 @@ function renderConsumerPage(
   // config / file_picker.
   // …and over the hoisted `derived` locals, which are expressions like any body
   // slot (a `round(…)` there pulls `dart:math` just the same).
-  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}`;
+  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}\n${b.titleDart ?? ""}`;
   // The money runtime rides the SAME scan: an `action` body doing
   // money arithmetic lands in the Notifier (projSource), not in the markup.
   if (usesMoney(scan)) imports.push("import '../money.dart';");
@@ -1274,7 +1396,7 @@ function renderConsumerPage(
   if (usesIntl(scan)) {
     imports.push("import 'package:intl/intl.dart';");
   }
-  if (usesI18n(scan)) {
+  if (usesI18n(scan) || b.localeSwitcher) {
     imports.push("import '../i18n.dart';");
   }
   // `min`/`max`/`round` scalar intrinsics route through `math.*` — over the
@@ -1304,12 +1426,17 @@ function renderConsumerPage(
     "  @override",
     "  Widget build(BuildContext context, WidgetRef ref) {",
     bindings,
-    "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
-    "      body: SingleChildScrollView(",
-    `        child: ${guarded},`,
-    "      ),",
-    "    );",
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        "      body: SingleChildScrollView(",
+        `        child: ${guarded},`,
+        "      ),",
+        "    );",
+      ],
+      b.titleDart,
+    ),
     "  }",
     "}",
   )}\n`;
@@ -1340,6 +1467,10 @@ interface AppBoot {
   /** The app ships `lib/i18n.dart`, so the root error view reads its title
    *  through `t()` like every other piece of chrome. */
   i18n: boolean;
+  /** Two or more locales ship: `main()` awaits `initLocale()` (negotiation + the
+   *  stored choice + date symbols), and `MaterialApp` is rebuilt per locale with
+   *  the localization wiring and a `Directionality` for the locale's direction. */
+  localeSwitch: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1350,6 +1481,7 @@ const NO_BOOT: AppBoot = {
   navigatorKey: false,
   scaffoldMessengerKey: false,
   i18n: false,
+  localeSwitch: false,
 };
 
 /** Global error boundary + failure sink, the flutter arm.  Built on
@@ -1415,7 +1547,7 @@ function errorBoundarySetup(i18n: boolean): string[] {
 /** `main()` for a `persist:`-bearing app — the web-storage tier has to finish
  *  loading before the first widget builds. */
 function mainFn(boot: AppBoot): string[] {
-  if (!boot.initPrefs) {
+  if (!boot.initPrefs && !boot.localeSwitch) {
     return [
       "void main() {",
       ...errorBoundarySetup(boot.i18n),
@@ -1431,10 +1563,21 @@ function mainFn(boot: AppBoot): string[] {
     "void main() {",
     ...errorBoundarySetup(boot.i18n),
     "  runZonedGuarded(() async {",
-    "    // The stored blobs must be in memory before the first Notifier `build()`,",
-    "    // which seeds its cells synchronously (`store_persist.dart`).",
+    ...(boot.initPrefs
+      ? [
+          "    // The stored blobs must be in memory before the first Notifier `build()`,",
+          "    // which seeds its cells synchronously (`store_persist.dart`).",
+        ]
+      : []),
     "    WidgetsFlutterBinding.ensureInitialized();",
-    "    await LoomStorePersist.init();",
+    ...(boot.initPrefs ? ["    await LoomStorePersist.init();"] : []),
+    ...(boot.localeSwitch
+      ? [
+          "    // The locale (`?lang=`, the stored choice, the platform's) and its date",
+          "    // symbols must be settled before the first frame renders any `t()`.",
+          "    await initLocale();",
+        ]
+      : []),
     "    runApp(const App());",
     "  }, (Object error, StackTrace stack) {",
     "    debugPrint('Unhandled error: $error');",
@@ -1477,13 +1620,42 @@ function authGateBuilder(boot: AppBoot): string[] {
   // Innermost, so a toast resolves the `ScaffoldMessenger` the route provides
   // and an unauthenticated visitor never opens a subscription.
   if (boot.realtime) wraps.push("LoomRealtime");
-  if (wraps.length === 0) return [];
+  if (wraps.length === 0 && !boot.localeSwitch) return [];
   const open = wraps.map((w) => `${w}(child: `).join("");
   const close = ")".repeat(wraps.length);
+  const inner = `${open}child ?? const SizedBox.shrink()${close}`;
   return [
     "      builder: (context, child) =>",
-    `          ${open}child ?? const SizedBox.shrink()${close},`,
+    // The locale's reading direction wraps everything the app draws, the guard
+    // views included (they need a `Directionality` ancestor anyway).
+    boot.localeSwitch
+      ? `          Directionality(textDirection: localeDirection(localeTag), child: ${inner}),`
+      : `          ${inner},`,
   ];
+}
+
+/** The `MaterialApp` arguments that put the app in the active locale, or none
+ *  for a single-language app.  `localeTag` is the `ValueListenableBuilder`
+ *  parameter from {@link localeWrapOpen}. */
+function localeAppArgs(boot: AppBoot): string[] {
+  if (!boot.localeSwitch) return [];
+  return [
+    "      locale: localeFor(localeTag),",
+    "      supportedLocales: supportedLocales,",
+    "      localizationsDelegates: localizationsDelegates,",
+  ];
+}
+
+/** `MaterialApp` is rebuilt whenever the locale changes, so its `locale`,
+ *  localized framework strings and `Directionality` follow the switch. */
+function localeWrapOpen(boot: AppBoot): string {
+  return boot.localeSwitch
+    ? "ValueListenableBuilder<String>(valueListenable: localeNotifier, builder: (context, localeTag, child) => "
+    : "";
+}
+
+function localeWrapClose(boot: AppBoot): string {
+  return boot.localeSwitch ? ")" : "";
 }
 
 /** `main.dart` for a multi-page ui: a `MaterialApp` with named routes, the first
@@ -1518,9 +1690,10 @@ function renderMainWithRoutes(
     // ProviderScope roots the Riverpod container for every stateful page's
     // Notifier; nested in App.build (not around runApp) so `runApp(const App())`
     // stays const-clean.
-    `    return ProviderScope(child: ${appWrapOpen(boot)}MaterialApp(`,
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
     `      title: '${escapeDart(title)}',`,
     "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
     authGateBuilder(boot),
     // The out-of-tree navigator (`lib/nav.dart`) — only for an app whose Dart
     // actually calls `navigateTo(`, so a non-navigating app is byte-identical.
@@ -1536,7 +1709,7 @@ function renderMainWithRoutes(
       (p) => `        '${p.routePath}': (context) => const ${p.className}(),`,
     ),
     "      },",
-    `    )${appWrapClose(boot)});`,
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
     "  }",
     "}",
     generateRouteFn(pages),
@@ -1618,13 +1791,23 @@ function renderPubspec(
   usesPrefs: boolean,
   usesAuth: boolean,
   usesRealtime: boolean,
+  /** Two or more locales ship: `flutter_localizations` localizes the framework's
+   *  own strings and `shared_preferences` stores the chosen locale. */
+  usesLocales: boolean,
 ): string {
   // `file_picker` is only pulled when a FileUpload primitive is present, so a
   // File-free app's pubspec stays byte-identical.
   const filePicker = usesFileUpload ? "\n  file_picker: 8.3.7" : "";
   // `shared_preferences` backs `persist: local|session`; the `url` tier needs no
   // package (`Uri.base` + `SystemNavigator` are core).
-  const prefs = usesPrefs ? "\n  shared_preferences: 2.5.6" : "";
+  const prefs = usesPrefs || usesLocales ? "\n  shared_preferences: 2.5.6" : "";
+  // `flutter_localizations` carries the Material / Widgets / Cupertino strings
+  // for the shipped locales (`MaterialApp.localizationsDelegates`).
+  const localizations = usesLocales ? "\n  flutter_localizations:\n    sdk: flutter" : "";
+  // `flutter_localizations` pins `intl` to the exact version the SDK ships, so a
+  // caret range here makes `pub get` unsolvable on any SDK newer than it; `any`
+  // follows the SDK (the constraint the Flutter localization guide prescribes).
+  const intlVersion = usesLocales ? "any" : "^0.19.0";
   // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
   // core SDK cannot navigate to an external URL.  Same use-driven rule as
   // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
@@ -1649,7 +1832,7 @@ dependencies:
     sdk: flutter
   http: 1.6.0
   flutter_riverpod: 2.6.1
-  intl: ^0.19.0${filePicker}${prefs}${launcher}${webPkg}
+  intl: ${intlVersion}${localizations}${filePicker}${prefs}${launcher}${webPkg}
 
 dev_dependencies:
   flutter_test:
@@ -1949,12 +2132,13 @@ function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
     "",
     "  @override",
     "  Widget build(BuildContext context) {",
-    `    return ProviderScope(child: ${appWrapOpen(boot)}MaterialApp(`,
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
     `      title: '${escapeDart(title)}',`,
     "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
     authGateBuilder(boot),
     "      home: const HomePage(),",
-    `    )${appWrapClose(boot)});`,
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
     "  }",
     "}",
   )}\n`;

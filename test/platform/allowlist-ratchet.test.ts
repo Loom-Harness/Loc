@@ -82,7 +82,14 @@ const REGISTERED: Ratchet[] = [
     // -Route, -HandlerRef (`scaffoldGetApi` synthesises the route binding),
     // +VariantArm (its witness matched a union find's result; union finds are
     // gone, see D-FINDDECL-REMOVED).
-    max: 12,
+    //
+    // 12 -> 19: +4 ConnectionSource kinds, +IntConfigValue, +BoolConfigValue,
+    // +ChannelSource — showcase.ddd is pinned warning-free
+    // (examples-zero-warnings.test.ts), and each of these is a warning on any
+    // model that writes it (an inert `connection:`, a config key no sourceType
+    // declares, a channelSource no deployable binds).  Parse coverage moved to
+    // storage-instance-connection.test.ts and the channels corpus fixtures.
+    max: 19,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx
@@ -394,7 +401,9 @@ const REGISTERED: Ratchet[] = [
     // form of a `let`-bound optional read); its booted block is #4335.
     // 18 → 17: `envelope` — the carrier's BY-DESIGN row named the single-row
     // `T envelope` find, which no longer exists, so its corpus case went too.
-    max: 17,
+    // 17 → 18: `factory-param-local-collision`, a compile-tier row (a .NET
+    // factory local re-declaring a create param, CS0136).
+    max: 18,
   },
 ];
 

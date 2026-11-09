@@ -140,7 +140,9 @@ describe(".NET TPH × capability filter", () => {
         }
       }
     `);
-    expect(errors(diags)).toEqual([]);
+    // The capability table refuses the pair (no behavioural fixture runs it);
+    // the emitter output is pinned for the day one does.
+    expect(errors(diags).map((d) => d.code)).toEqual(["loom.target-unsupported"]);
     expect(fileNamed(files, "VehicleConfiguration.cs")).toContain(
       'builder.HasQueryFilter("IsDeletedFilter", x => !x.IsDeleted);',
     );

@@ -27,7 +27,7 @@
         "id": "<volatile:key>",
         "name": "ada",
         "office": null,
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -48,7 +48,7 @@
             "id": "<volatile:key>",
             "name": "ada",
             "office": null,
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -85,7 +85,7 @@
           "line2": "Floor 3",
           "rent": "3400.5000"
         },
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -111,7 +111,7 @@
         "id": "<volatile:key>",
         "name": "ada",
         "office": null,
-        "version": 3
+        "rowVersion": 3
       }
     },
     {

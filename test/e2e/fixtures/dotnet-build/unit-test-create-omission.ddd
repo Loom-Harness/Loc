@@ -1,8 +1,6 @@
 // The emitted xUnit project (`Tests/Api.Tests/`) must COMPILE and PASS. This
 // fixture gates the .NET unit-test emitter (`src/generator/dotnet/emit/tests.ts`)
-// and the test csproj (`renderTestCsproj` in emit/program.ts).  It is generated
-// in SYSTEM mode because the legacy `generate dotnet` path emits no value-object
-// test class.
+// and the test csproj (`renderTestCsproj` in emit/program.ts).
 //
 // 1. `Agg.create({…})` omitting create inputs.  The domain factory gives a
 //    defaultable input a trailing `T? x = null` parameter: a declared

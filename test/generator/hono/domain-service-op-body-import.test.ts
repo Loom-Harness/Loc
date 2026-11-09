@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const SOURCE = `
 system D {
@@ -45,7 +46,7 @@ describe("node aggregate class — domain-service import at the op-body site", (
     const files = await generateSystemFiles(SOURCE);
     const order = files.get("d/domain/order.ts")!;
     // The call is there…
-    expect(order).toContain("Rules.clamp(this._quantity + by)");
+    expect(uncheckedInt(order)).toContain("Rules.clamp(this._quantity + by)");
     // …and so is the import that makes it resolve.
     expect(order).toContain('import { Rules } from "./services";');
     // Narrowed to what the body actually calls — a declared-but-uncalled

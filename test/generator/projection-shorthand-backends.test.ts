@@ -10,8 +10,7 @@
 // `{ }`, `%{}`).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseValid } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (platform: string) => `
   system S {
@@ -27,7 +26,7 @@ const src = (platform: string) => `
 `;
 
 async function allFiles(platform: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(src(platform)))).files;
+  const files = await generateSystemFiles(src(platform));
   return [...files.values()].join("\n \n");
 }
 
@@ -38,11 +37,11 @@ const CASES: { platform: string; read: RegExp }[] = [
   { platform: "python", read: /return \[repo\.to_wire\(r\) for r in rows\]/ },
   {
     platform: "java",
-    read: /\.map\(a -> new ActiveOrdersRow\(a\.id\(\)\.value\(\), a\.total\(\), a\.status\(\), a\.version\(\)\)\)/,
+    read: /\.map\(a -> new ActiveOrdersRow\(a\.id\(\)\.value\(\), a\.total\(\), a\.status\(\), a\.rowVersion\(\)\)\)/,
   },
   {
     platform: "dotnet",
-    read: /domain\.Select\(d => new ActiveOrdersRow\(d\.Id\.Value, d\.Total, d\.Status, d\.Version\)\)\.ToList\(\)/,
+    read: /domain\.Select\(d => new ActiveOrdersRow\(d\.Id\.Value, d\.Total, d\.Status, d.RowVersion\)\)\.ToList\(\)/,
   },
   { platform: "elixir", read: /Enum\.map\(rows, &serialize\/1\)/ },
 ];

@@ -23,8 +23,8 @@
         "labels": [],
         "note": "",
         "openedAt": "<timestamp>",
+        "rowVersion": 1,
         "title": "Seeded",
-        "version": 1,
         "weight": 0
       }
     },
@@ -42,8 +42,8 @@
             "labels": [],
             "note": "",
             "openedAt": "<timestamp>",
+            "rowVersion": 1,
             "title": "Seeded",
-            "version": 1,
             "weight": 0
           }
         ],

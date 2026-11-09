@@ -3,10 +3,11 @@
 import type { LogLine } from "../util/log-line.js";
 
 //
-// The runtime worker is long-lived: once booted it holds a PGlite
-// instance, the bootstrapped Hono `app`, and the DDL that built the
-// schema.  Each `dispatch` request transports a serialised
-// Request → the worker reconstructs it, calls `app.fetch`, and
+// One runtime worker per Node deployable.  Once booted it holds the
+// deployable's imported bundle, the bootstrapped Hono `app`, and a
+// `PGliteWorker` connection to its storage (the database itself runs in the
+// infra worker — see infra-protocol.ts).  Each `dispatch` request transports a
+// serialised Request → the worker reconstructs it, calls `app.fetch`, and
 // returns a serialised Response.
 
 export interface SerializedRequest {
@@ -28,25 +29,147 @@ export interface SerializedResponse {
   body: string;
 }
 
-export interface BootRequest {
+// -- migrations --------------------------------------------------------------
+// The runtime's database evolves only by applying the workspace's recorded
+// migration chain (`migrations/*.json` beside the entry), the way a deployed
+// backend does.  The build worker renders the chain to SQL; the runtime
+// applies the units the database has not seen yet.  A model change that is
+// not recorded leaves the database as it is.
+
+/** One migration file of the recorded chain, as the runtime applies it — the
+ *  same file the generated Hono backend carries in `db/migrations/`. */
+export interface MigrationUnitPlan {
+  /** The file's tag: `<version>_<module>_<name>`, with `_concurrent` for a
+   *  generation's non-transactional unit.  `__loom.schema_meta` records the
+   *  last one applied. */
+  id: string;
+  /** The statements, in order. */
+  statements: string[];
+  /** False when every statement must run on its own, outside a transaction
+   *  (`CREATE INDEX CONCURRENTLY`). */
+  transactional: boolean;
+}
+
+/** Schema changes the model has that the chain does not record — what
+ *  `ddd migrate status` lists and "Record migration" would record. */
+export interface UnrecordedChanges {
+  /** The workspace has no chain yet, so the whole schema is unrecorded. */
+  initial: boolean;
+  modules: string[];
+  /** Number of migration steps recording would write. */
+  steps: number;
+  /** A step the destructive gate refuses (a drop or a narrowing); recording
+   *  it needs the destructive acknowledgement. */
+  destructive: boolean;
+}
+
+/** What a boot may do to the database. */
+export type MigrationPlan =
+  | {
+      kind: "chain";
+      /** Every unit of the recorded chain, root first; empty without a chain. */
+      units: MigrationUnitPlan[];
+      /** `null` when the chain records the model. */
+      unrecorded: UnrecordedChanges | null;
+    }
+  /** A source with no `system` block: no chain can be recorded for it, so the
+   *  schema comes from the bundle's Drizzle tables. */
+  | { kind: "unversioned" };
+
+/** The database measured against a plan. */
+export type MigrationState =
+  | { kind: "up-to-date"; head: string | null }
+  /** Recorded units the database has not applied; a boot applies them. */
+  | { kind: "recorded-not-applied"; head: string | null; units: string[] }
+  /** The model has unrecorded changes; a boot leaves the database as it is. */
+  | ({ kind: "unrecorded"; head: string | null } & UnrecordedChanges)
+  /** Which migrations the database holds cannot be told from the chain: it
+   *  predates migration tracking (`legacy`), it is at a unit the chain no
+   *  longer has (`diverged`), or a source without a system changed its
+   *  schema (`schema-changed`).  Only an explicit reset rebuilds it. */
+  | {
+      kind: "unknown-database";
+      reason: "legacy" | "diverged" | "schema-changed";
+      head: string | null;
+    };
+
+/** A state a boot cannot migrate past. */
+export type BlockingMigrationState = Extract<
+  MigrationState,
+  { kind: "unrecorded" | "unknown-database" }
+>;
+
+/** A deployable worker's first boot step: import the bundle. */
+export interface LoadRequest {
+  /** The deployable's process env, installed before the bundle is imported
+   *  (its top-level `process.env.X_URL ?? …` reads run at import). */
+  env?: Record<string, string>;
+  /** Hostnames of the booted deployables (compose service names).  The
+   *  worker's `fetch` sends a request to one of them to the main thread, which
+   *  hands it to that deployable's app; every other URL reaches the network. */
+  serviceHosts?: string[];
   /** ESM bundle source produced by the bundler worker. */
   bundleCode: string;
+  /** Also derive the schema from the bundle's Drizzle tables — the schema of
+   *  a source without a system, which its storage then applies. */
+  synthDdl: boolean;
+}
+
+export type LoadResult = { ok: true; ddl?: string } | { ok: false; message: string };
+
+/** A deployable worker's second boot step: connect to the storage the infra
+ *  worker opened (its `channel`) and start the app on it. */
+export interface StartRequest {
+  channel: string;
+}
+
+export type StartResult = { ok: true } | { ok: false; message: string };
+
+/** One storage of a boot: where its database lives and what the boot may do
+ *  to it. */
+export interface StorageBootPlan {
+  /** `StoragePlan.key` — the storage's name, or `deployable:<slug>`. */
+  key: string;
   /** PGlite data-dir.  Default `:memory:` (wiped on close).  Pass
-   *  `opfs-ahp://<some-name>` for OPFS-backed persistence — data
-   *  survives page reloads.  Source-keyed paths (e.g.
-   *  `opfs-ahp://loom-<source-hash>`) give each `.ddd` its own
-   *  data island. */
+   *  `opfs-ahp://<some-name>` for OPFS-backed persistence — data survives
+   *  page reloads.  The playground keys the island by workspace (and storage),
+   *  so a schema edit reopens the same database and migrates it. */
   dataDir?: string;
-  /** Recovery escape hatch: drop the persistent DB's `public` +
-   *  `__loom` schemas right after opening PGlite, before applying
-   *  DDL.  Lets the user recover from a boot that fails on stale /
-   *  incompatible persisted data — the normal Reset needs a booted
-   *  instance, which a failing boot never produces. */
-  fresh?: boolean;
+  /** The migrations the boot may apply.  `unversioned`: the schema is the
+   *  Drizzle DDL of the storage's (single) deployable. */
+  migrations: MigrationPlan;
+}
+
+/** Everything a boot brings up: every storage, then every Node deployable on
+ *  the storage it binds. */
+export interface BootPlan {
+  storages: StorageBootPlan[];
+  /** In order of preference: the first one is the default dispatch target
+   *  (the backend the frontend talks to). */
+  backends: Array<{
+    slug: string;
+    bundleCode: string;
+    storage: string;
+    /** The process env this deployable boots with — its compose service's
+     *  `environment:`.  Per worker, so two deployables never see each
+     *  other's values. */
+    env?: Record<string, string>;
+  }>;
+}
+
+/** What one storage's boot did. */
+export interface StorageBootInfo {
+  key: string;
+  persistent: boolean;
+  applied: string[];
+  ddl: string;
 }
 
 export interface BootOk {
   ok: true;
+  /** The SQL the database schema was built from: every migration unit of the
+   *  chain, in order (the Drizzle-derived DDL for a source without a
+   *  system). */
   ddl: string;
   durationMs: number;
   /** Whether PGlite actually attached to a persistent backing
@@ -56,18 +179,22 @@ export interface BootOk {
    *  so the UI can show "in-memory" instead of misleadingly
    *  saying "persisted". */
   persistent: boolean;
-  /** True iff this boot detected schema drift in a pre-existing
-   *  persistent DB and dropped+recreated the public schema with
-   *  fresh DDL.  False on first boot (no prior schema to drift
-   *  from) and on no-change reboots.  UI surfaces it as a
-   *  transient "schema migrated — rows reset" notification so the
-   *  user understands why their data isn't there anymore. */
-  migrated: boolean;
+  /** Ids of the migration units this boot applied, in order; empty when the
+   *  database was already at the chain's head. */
+  applied: string[];
+  /** Per storage, in plan order. */
+  storages: StorageBootInfo[];
+  /** Slugs of the deployables now serving, in plan order. */
+  backends: string[];
 }
 
 export interface BootFail {
   ok: false;
   message: string;
+  /** Set when the boot stopped because the database is not at the model's
+   *  schema and the recorded chain cannot bring it there.  The database is
+   *  left as it was and the app is not started. */
+  pending?: BlockingMigrationState;
 }
 
 export type BootResult = BootOk | BootFail;
@@ -106,19 +233,33 @@ export type QueryResult = QueryOk | QueryFail;
 
 export interface WipeResult {
   ok: boolean;
-  /** Best-effort error message when `ok === false`.  The runtime
-   *  swallows OPFS-removal failures because the next Boot
-   *  re-applies idempotent DDL anyway — the DB just won't be
-   *  emptied of pre-existing rows. */
+  /** Error message when `ok === false` — the drop or a migration unit
+   *  failed while rebuilding the schema. */
   message?: string;
 }
 
 export type RuntimeRpcRequest =
-  | { id: number; method: "boot"; params: BootRequest }
+  | { id: number; method: "load"; params: LoadRequest }
+  | { id: number; method: "start"; params: StartRequest }
   | { id: number; method: "dispatch"; params: SerializedRequest }
-  | { id: number; method: "query"; params: { sql: string } }
   | { id: number; method: "reset"; params: Record<string, never> }
-  | { id: number; method: "wipe"; params: Record<string, never> };
+  /** The main thread's answer to a worker's `HttpCall`. */
+  | { id: number; method: "httpReply"; params: HttpReply };
+
+/** A backend→backend request, pushed by the calling worker.  Like
+ *  `RuntimeProgress` it carries no RPC `id`: the client tells it apart by
+ *  `httpCall`, routes it by `host`, and answers with an `httpReply`. */
+export interface HttpCall {
+  httpCall: number;
+  /** The compose service (hostname) the request addresses. */
+  host: string;
+  request: SerializedRequest;
+}
+
+export interface HttpReply {
+  httpCall: number;
+  result: DispatchResult;
+}
 
 /** Fire-and-forget progress note pushed by the worker DURING an RPC (it
  *  carries no `id` and expects no reply, so the client tells it apart from a
@@ -143,6 +284,7 @@ export interface RuntimeProgress {
     | "ddl-meta"
     | "ddl-drop"
     | "ddl-apply"
+    | "storage-connect"
     | "create-app";
   /** Optional scale note (e.g. `"182 stmts, 61KB"`).  The phase says where it
    *  died; this says how much work it was carrying, which is the difference
@@ -152,7 +294,7 @@ export interface RuntimeProgress {
 
 export interface RuntimeRpcResponse {
   id: number;
-  result?: BootResult | DispatchResult | QueryResult | WipeResult | { ok: true };
+  result?: LoadResult | StartResult | DispatchResult | { ok: true };
   error?: { message: string };
   /** `console.*` (and any thrown stack) captured in the worker while
    *  this RPC ran — surfaced as the playground's "Backend" log stream.

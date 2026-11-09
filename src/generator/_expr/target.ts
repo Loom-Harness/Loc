@@ -2,6 +2,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
+import { coalesceParts } from "./coalesce.js";
 
 // ---------------------------------------------------------------------------
 // Shared ExprIR dispatch — the `ExprTarget` contract.
@@ -182,7 +183,7 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   lambdaBodyCtx?(param: string, ctx: Ctx): Ctx;
   newPart(fields: RenderedField[], e: NewExpr, ctx: Ctx): string;
   object(fields: RenderedField[]): string;
-  unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
+  unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference it writes (.NET: the
    *  `Guid.Parse` of a `this.id == <string>` lift, `global::`-qualified when a
    *  member named `Guid` shadows it — see `CsRenderContext.memberScope`). */
@@ -191,6 +192,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  narrowing of a branch (.NET unwraps a narrowed `Nullable<T>`); absent for
    *  the synthesized presence ternaries, which have no source node. */
   ternary(cond: string, then: string, otherwise: string, e?: TernaryExpr, ctx?: Ctx): string;
+  /** `left ?? fallback` — a ternary of the shape `coalesceParts` recognises.
+   *  Both operands arrive rendered once; the leaf must evaluate `left` exactly
+   *  once and `fallback` only when `left` is null (never eagerly: the fallback
+   *  may be a call).  The condition is not rendered. */
+  coalesce(left: string, fallback: string, e: TernaryExpr, ctx: Ctx): string;
   /** `ctx` lets a leaf qualify a framework reference against its emission
    *  scope (.NET: `global::System` when a member named `System` shadows the
    *  namespace — see `CsRenderContext.memberScope`). */
@@ -209,6 +215,11 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  emits byte-identical to a format-less one (the format is dropped). The
    *  suffix only comes alive on the JS/TS frontends' translation runtime. */
   i18nFormat(inner: string): string;
+  /** `label(…)` / `plural(…)` model text — UI-only (`loom.model-text-outside-ui`
+   *  keeps it out of every domain position), so a domain-logic backend leaves
+   *  this unset and the dispatcher throws.  A frontend that rides this
+   *  dispatcher (HEEx) supplies it. */
+  modelText?(e: Extract<ExprIR, { kind: "modelText" }>, ctx: Ctx): string;
   /** Boolean predicate-arms `match { cond => value }` — the original form,
    *  unchanged.  Lowered to the backend's chained-conditional idiom. */
   match(arms: RenderedArm[], otherwise: string | undefined): string;
@@ -305,11 +316,14 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "paren":
       return `(${r(e.inner)})`;
     case "unary":
-      return t.unary(e.op, r(e.operand), e);
+      return t.unary(e.op, r(e.operand), e, ctx);
     case "binary":
       return t.binary(r(e.left), r(e.right), e, ctx);
-    case "ternary":
+    case "ternary": {
+      const co = coalesceParts(e);
+      if (co) return t.coalesce(r(co.left), r(co.fallback), e, ctx);
       return t.ternary(r(e.cond), r(e.then), r(e.otherwise), e, ctx);
+    }
     case "convert":
       return t.convert(r(e.value), e, ctx);
     case "duration":
@@ -318,6 +332,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       // Transparent i18n wrapper — render the wrapped operand and drop the
       // format (inert on every backend; only the frontends' i18n runtime uses it).
       return t.i18nFormat(r(e.inner));
+    case "modelText":
+      if (t.modelText) return t.modelText(e, ctx);
+      throw new Error("renderExprWith: 'modelText' is not a domain expression");
     case "match": {
       // Variant form (variant-match.md) when a subject is present.
       if (e.subject) {
@@ -791,7 +808,7 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     }
     case "unary": {
       const operand = rm(e.operand);
-      return compose(t.unary(e.op, operand.text, e), [operand]);
+      return compose(t.unary(e.op, operand.text, e, ctx), [operand]);
     }
     case "binary": {
       const left = rm(e.left);
@@ -799,6 +816,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
     case "ternary": {
+      const co = coalesceParts(e);
+      if (co) {
+        const left = rm(co.left);
+        const fallback = rm(co.fallback);
+        return compose(t.coalesce(left.text, fallback.text, e, ctx), [left, fallback]);
+      }
       const cond = rm(e.cond);
       const then = rm(e.then);
       const otherwise = rm(e.otherwise);
@@ -821,6 +844,9 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       const inner = rm(e.inner);
       return compose(t.i18nFormat(inner.text), [inner]);
     }
+    case "modelText":
+      if (t.modelText) return compose(t.modelText(e, ctx), []);
+      throw new Error("renderExprWithMarks: 'modelText' is not a domain expression");
     case "match": {
       if (e.subject) {
         const subject = rm(e.subject);

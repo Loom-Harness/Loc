@@ -3,6 +3,7 @@ import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { renderOperationReturnType } from "./emit/aggregate.js";
 import { renderTsType } from "./render-expr.js";
 
@@ -83,7 +84,7 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
   if (agg.parts.length > 0) {
     imports.push(`export { ${agg.parts.map((p) => p.name).join(", ")} } from "./${slug}.base";`);
   }
-  if (/\bIds\.\w/.test(scan)) imports.push(`import * as Ids from "./ids";`);
+  imports.push(tsImportSlot("~/domain/ids"));
   if (/\bUser\b/.test(scan)) imports.push(`import type { User } from "../auth/user-types";`);
   const voEnum = [
     ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]),

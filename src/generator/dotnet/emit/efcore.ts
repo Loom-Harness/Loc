@@ -1,4 +1,5 @@
 import { readFilterRestrictions, readScopeFor } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -31,9 +32,11 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
-import { tableNameFor } from "../../../util/storage-names.js";
+import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { csUsing } from "../../_imports/dotnet.js";
 import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
 import { csJsonSqlType } from "../codec-spelling.js";
+import { CS } from "../cs-symbols.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -555,7 +558,7 @@ export function renderConfiguration(
         voLookup,
         false,
         agg.name,
-        versioned && f.name === "version",
+        versioned && f.name === ROW_VERSION_FIELD,
         options.schema,
       ),
     );
@@ -567,7 +570,7 @@ export function renderConfiguration(
         // dataSource-driven table mapping.  `tablePrefix` lands first (it
         // shifts the local table name); `schema` is the second arg when set.
         // Both default to undefined → byte-identical single-arg `ToTable`.
-        `        builder.ToTable(${renderTableArgs(tableNameFor(agg.name), options)});`,
+        `        builder.ToTable(${renderTableArgs(aggregateTableName(agg, ctx.aggregates), options)});`,
         "        builder.HasKey(x => x.Id);",
         // ValueGeneratedNever: the id is always minted app-side (Guid.CreateVersion7
         // in the aggregate factory), so tell EF not to treat the Guid key as
@@ -715,7 +718,7 @@ export function renderConfiguration(
       "// Auto-generated.",
       // The embedded ref-collection value-converter uses LINQ (`Select`/
       // `SequenceEqual`/`Aggregate`) over the `List<TargetId>` ⇄ JSON mapping.
-      options.embedded && agg.associations.length > 0 ? "using System.Linq;" : null,
+      csUsing("System.Linq"),
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.EntityFrameworkCore.Metadata.Builders;",
       `using ${ns}.Domain.${plural(agg.name)};`,
@@ -765,19 +768,10 @@ function derivedHoldsEntity(t: TypeIR): boolean {
   return t.kind === "entity";
 }
 
-/** The underlying CLR type a strongly-typed id wraps, by its value kind —
- *  the type the JSON array of id values (de)serialises as. */
-function idValueClrType(vt: AssociationIR["valueType"]): string {
-  switch (vt) {
-    case "int":
-      return "int";
-    case "long":
-      return "long";
-    case "string":
-      return "string";
-    default:
-      return "Guid";
-  }
+/** The underlying CLR type a strongly-typed id wraps (a guid) — the type the
+ *  JSON array of id values (de)serialises as. */
+function idValueClrType(): string {
+  return "Guid";
 }
 
 /** EF mapping for an EMBEDDED aggregate's reference-collection (`X id[]`):
@@ -789,7 +783,7 @@ function idValueClrType(vt: AssociationIR["valueType"]): string {
 function embeddedRefCollectionLines(a: AssociationIR): string[] {
   const prop = upperFirst(a.fieldName);
   const idClass = `${a.targetAgg}Id`;
-  const inner = idValueClrType(a.valueType);
+  const inner = idValueClrType();
   const listOfId = `System.Collections.Generic.List<${idClass}>`;
   const listOfInner = `System.Collections.Generic.List<${inner}>`;
   return [
@@ -797,7 +791,7 @@ function embeddedRefCollectionLines(a: AssociationIR): string[] {
     `            .HasColumnName("${snake(a.fieldName)}")`,
     `            .HasColumnType("${csJsonSqlType()}")`,
     `            .HasConversion(`,
-    `                v => System.Text.Json.JsonSerializer.Serialize(v.Select(__e => __e.Value).ToList(), (System.Text.Json.JsonSerializerOptions?)null),`,
+    `                v => System.Text.Json.JsonSerializer.Serialize(v${CS.Linq}.Select(__e => __e.Value).ToList(), (System.Text.Json.JsonSerializerOptions?)null),`,
     `                v => System.Text.Json.JsonSerializer.Deserialize<${listOfInner}>(v, (System.Text.Json.JsonSerializerOptions?)null)!.Select(__v => new ${idClass}(__v)).ToList(),`,
     `                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<${listOfId}>(`,
     `                    (__a, __b) => __a!.SequenceEqual(__b!),`,
@@ -1065,6 +1059,7 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "id":
     case "lambda":
     case "list":
@@ -1131,16 +1126,7 @@ function fieldConfigLines(
   const isOptional = f.type.kind === "optional";
   const leaf = f.type.kind === "optional" ? f.type.inner : f.type;
   if (leaf.kind === "id") {
-    const idType = `${leaf.targetName}Id`;
-    // The id is a `readonly record struct`, so `Id?` is `Nullable<Id>` and the
-    // plain inline lambdas bind `v` as the nullable type — `v.Value`/`new Id(v)`
-    // then don't type-check.  The optional form maps `Id?` ⇆ `Provider?`
-    // explicitly, guarding on `HasValue` (an expression-tree lambda can't use
-    // the `?.` null-propagating operator — CS8072).
-    const provider = idValueClrType(leaf.valueType);
-    const conv = isOptional
-      ? `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`
-      : `.HasConversion(v => v.Value, v => new ${idType}(v))`;
+    const conv = idConversion(leaf.targetName, isOptional);
     return [`${indent}${builder}.Property(x => x.${upperFirst(f.name)})${conv}${colName};`];
   }
   if (leaf.kind === "enum") {
@@ -1205,6 +1191,21 @@ function fieldConfigLines(
   ];
 }
 
+/** The `.HasConversion(...)` clause for a strongly-typed id property.  The id
+ *  is a `readonly record struct`, so `Id?` is `Nullable<Id>` and the plain
+ *  inline lambdas bind `v` as the nullable type — `v.Value`/`new Id(v)` then
+ *  don't type-check.  The optional form maps `Id?` ⇆ `Provider?` explicitly,
+ *  guarding on `HasValue` (an expression-tree lambda can't use the `?.`
+ *  null-propagating operator — CS8072).  Shared by the root, owned-VO and
+ *  owned-VO-collection property paths. */
+function idConversion(targetName: string, optional: boolean): string {
+  const idType = `${targetName}Id`;
+  const provider = idValueClrType();
+  return optional
+    ? `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`
+    : `.HasConversion(v => v.Value, v => new ${idType}(v))`;
+}
+
 /** Configure an owned value object so its (recursively-flattened) columns
  *  are named to the migration's snake convention (`<prefix>_<field>`),
  *  keeping EF's runtime schema in step with the canonical migration. */
@@ -1226,9 +1227,8 @@ function ownedVoLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      return [
-        `${inner}${sel}.HasConversion(v => v.Value, v => new ${base.targetName}Id(v)).HasColumnName("${col}");`,
-      ];
+      const conv = idConversion(base.targetName, vf.type.kind === "optional");
+      return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {
       return [`${inner}${sel}.HasConversion<string>().HasColumnName("${col}");`];
@@ -1326,9 +1326,8 @@ function ownedVoArrayLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      return [
-        `${inner}${sel}.HasConversion(v => v.Value, v => new ${base.targetName}Id(v)).HasColumnName("${col}");`,
-      ];
+      const conv = idConversion(base.targetName, vf.type.kind === "optional");
+      return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {
       return [`${inner}${sel}.HasConversion<string>().HasColumnName("${col}");`];
@@ -1382,6 +1381,7 @@ function containmentConfigLines(
   voLookup?: VoLookup,
 ): string[] {
   const part = agg.parts.find((p) => p.name === c.partName);
+  const partTable = partTableName(part ?? { name: c.partName });
   const partFields = part?.fields ?? [];
   // Embedded (`shape: embedded`) fold: the containment serialises into a
   // single JSONB column on the root via EF owned-types `.ToJson(...)` —
@@ -1462,7 +1462,7 @@ function containmentConfigLines(
     // `Ignore` + `"_<name>"` backing-field indirection.
     return [
       `${indent}${builderVar}.OwnsOne<${c.partName}>(x => x.${upperFirst(c.name)}, ${childVar} => {`,
-      `${inner}${childVar}.ToTable(${renderTableArgs(tableNameFor(c.partName), options)});`,
+      `${inner}${childVar}.ToTable(${renderTableArgs(partTable, options)});`,
       `${inner}${childVar}.WithOwner().HasForeignKey("ParentId");`,
       `${inner}${childVar}.Property("ParentId").HasColumnName("${fkColumn}");`,
       `${inner}${childVar}.HasKey(x => x.Id);`,
@@ -1492,7 +1492,7 @@ function containmentConfigLines(
     // Containment part tables inherit the aggregate's dataSource
     // schema + prefix — both halves of the parent / part live in
     // the same physical store.
-    `${inner}${childVar}.ToTable(${renderTableArgs(tableNameFor(c.partName), options)});`,
+    `${inner}${childVar}.ToTable(${renderTableArgs(partTable, options)});`,
     `${inner}${childVar}.WithOwner().HasForeignKey("ParentId");`,
     // The owner FK column is the migration's `<direct-parent>_id` (tableForPart
     // in migrations-builder), not EF's default `ParentId` — map the shadow

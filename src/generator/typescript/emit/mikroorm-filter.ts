@@ -422,6 +422,7 @@ function filterValue(e: ExprIR, acc: string): string {
     case "convert":
     case "duration":
     case "i18nFormat":
+    case "modelText":
     case "match":
       throw new Error(`mikroorm: unsupported value '${e.kind}' in find`);
     default: {

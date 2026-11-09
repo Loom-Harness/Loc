@@ -56,3 +56,20 @@ export function csReadOwnParams(paramNames: Iterable<string>): {
   const own = csLocalNamer(paramNames);
   return { page: own("page"), bypass: own("bypass"), ct: own("cancellationToken") };
 }
+
+/** The named `bypass:` argument a widened list read (`Repo.all(<Ref>) ignoring
+ *  …`) passes to its retrieval's `Run<Name>Async`: `ignoring *` →
+ *  `FilterBypass.BypassAll()`, `ignoring <Cap>` → `FilterBypass.Bypass(<cap
+ *  names>)` — the DSL capability names, which the repository adapter
+ *  translates to its EF / Dapper filters.  The retrieval applies only the
+ *  stance its caller passes, so every call site of a widened read passes it;
+ *  `undefined` for a plain read. */
+export function csFilterBypassArg(
+  paramName: string,
+  stance: { bypassAll?: boolean; bypassCaps?: readonly string[] },
+): string | undefined {
+  if (stance.bypassAll) return `${paramName}: FilterBypass.BypassAll()`;
+  const caps = stance.bypassCaps ?? [];
+  if (caps.length === 0) return undefined;
+  return `${paramName}: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`;
+}

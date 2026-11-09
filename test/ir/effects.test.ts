@@ -351,7 +351,9 @@ describe("the body-position effect vocabulary", () => {
       ).toStrictEqual(["loom.query-handler-saves"]);
     }
     expect(
-      await codes(`queryHandler look(itemId: Item id): Item { return Items.get(itemId) }`),
+      await codes(
+        `queryHandler look(itemId: Item id): Item { let i = Items.get(itemId)  return i }`,
+      ),
     ).toStrictEqual([]);
   });
 });
@@ -406,7 +408,7 @@ describe("own-state reads (#4062)", () => {
 });
 
 describe("a mutation needs a save (#3618)", () => {
-  it("sees the callee's mutation through a `let`", async () => {
+  it("saves a `let`-bound call exactly as the bare statement", async () => {
     await expectResolvedEffects(
       `${PEEK}
        workflow W { create(a: Box id, b: Box id) {
@@ -422,6 +424,8 @@ describe("a mutation needs a save (#3618)", () => {
         "call Moves.shift",
         "mutate x via Moves.shift",
         "mutate y via Moves.shift",
+        "persist x",
+        "persist y",
       ],
     );
   });
@@ -450,14 +454,14 @@ describe("a mutation needs a save (#3618)", () => {
     ).toStrictEqual([]);
   });
 
-  it("refuses a let-bound mutating operation call", async () => {
+  it("admits a let-bound mutating operation call", async () => {
     expect(
       await codes(`${PEEK}
         workflow W { create(a: Box id) { let x = Boxes.get(a)  let r = x.peek() } }`),
-    ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
+    ).toStrictEqual([]);
   });
 
-  it("refuses a let-bound mutating service call, once per mutated local", async () => {
+  it("admits a let-bound mutating service call", async () => {
     expect(
       await codes(`${PEEK}
         workflow W { create(a: Box id, b: Box id) {
@@ -465,10 +469,10 @@ describe("a mutation needs a save (#3618)", () => {
           let y = Boxes.get(b)
           let s = Moves.shift(x, y)
         } }`),
-    ).toStrictEqual(["loom.workflow-mutation-unsaved", "loom.workflow-mutation-unsaved"]);
+    ).toStrictEqual([]);
   });
 
-  it("refuses it in a command handler and inside a loop body", async () => {
+  it("admits it in a command handler and inside a loop body", async () => {
     expect(
       await codes(`${PEEK}
         commandHandler poke(a: Box id): int {
@@ -476,7 +480,7 @@ describe("a mutation needs a save (#3618)", () => {
           let r = x.peek()
           return r
         }`),
-    ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
+    ).toStrictEqual([]);
     expect(
       await codes(`${PEEK}
         criterion Full of Box = count > 1
@@ -484,6 +488,13 @@ describe("a mutation needs a save (#3618)", () => {
           let xs = Boxes.all(Full)
           for x in xs { let r = x.peek() }
         } }`),
+    ).toStrictEqual([]);
+  });
+
+  it("still refuses a mutating call nested inside a larger expression", async () => {
+    expect(
+      await codes(`${PEEK}
+        workflow W { create(a: Box id) { let x = Boxes.get(a)  let r = x.peek() + 1 } }`),
     ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
   });
 });

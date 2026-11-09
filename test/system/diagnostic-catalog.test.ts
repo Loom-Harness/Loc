@@ -3,10 +3,12 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { CODE_DOCS_FAMILIES } from "../../src/diagnostics/code-docs.js";
 import {
   codeOfMessageKey,
   DIAGNOSTIC_MESSAGES,
   type DiagnosticMessageKey,
+  MESSAGE_FAMILIES,
 } from "../../src/diagnostics/messages.js";
 
 // ---------------------------------------------------------------------------
@@ -70,11 +72,15 @@ function catalogedSources(): string[] {
     }
   }
   out.push(path.join("src", "language", "ddd-validator.ts"));
+  // The macro-synthesised attribution (`loom.macro-synthesised`) wraps another
+  // check's message when the diagnostic is built, not at a coded site.
+  out.push(path.join("src", "language", "ddd-document-validator.ts"));
   out.push(path.join("src", "macros", "expander.ts"));
   // A stdlib macro's `warn(...)` text (`loom.scaffold-aggregate-unserved`) renders
   // from the catalog at the macro, not from the expander.
   out.push(path.join("src", "macros", "stdlib", "scaffold", "_handlers-shared.ts"));
   out.push(path.join("src", "api", "evolve.ts"));
+  out.push(path.join("src", "api", "migrate.ts"));
   out.push(path.join("src", "api", "index.ts"));
   // QueryEmissionRefusal (§F2, Wave 2 packet 2.4) is a generation-time
   // (phase ⑧) diagnostic raised inside a query-language renderer, not a
@@ -709,12 +715,127 @@ describe("uncoded diagnostic sites — none, and none may return (M-T9.56)", () 
         "it `loom.unknown` — a string with no catalog entry, no docs anchor, no firing-" +
         "census bucket and no fix hint.  There are ZERO such sites on this tree (M-T9.56 " +
         "drained the last of 129 in wave C4); this gate keeps it that way.  Give the site " +
-        "a code: add the wording to src/diagnostics/messages.ts keyed by that code, pass " +
+        "a code: add the wording to the src/diagnostics/messages/<family>.ts file that owns " +
+        "the code's first segment, keyed by that code, pass " +
         "diagMessage(...) as the message, attach `code:` in the accept() options, add a " +
-        "docs anchor in src/diagnostics/code-docs.ts (or a row in " +
+        "docs anchor in the matching src/diagnostics/code-docs/<family>.ts (or a row in " +
         "diagnostic-docs-undocumented.ts, which raises its own pinned length), and give " +
         "the code a FIRING_FIXTURES entry in diagnostic-firing-census.test.ts.\n\n" +
         offenders.join("\n"),
     ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The catalog is split into one file per code-prefix family
+// (`src/diagnostics/messages/<family>.ts`, merged by `messages.ts`), and the
+// docs-anchor map follows the same families (`src/diagnostics/code-docs/`).
+// A family owns the first segments of its codes (`loom.<segment>-…`) and lists
+// them in its `segments` export.  The split only keeps parallel changes apart
+// while every code has exactly one home its prefix names — so these checks
+// fail on a key filed in a family that does not own its segment, on a segment
+// two families claim, on a family file the merge does not import, and on a
+// family file that has grown back into a hotspot.
+// ---------------------------------------------------------------------------
+
+const segmentOfCode = (code: string): string => code.replace(/^loom\./, "").split("-")[0];
+
+/** `segment → family`, built from every family's `segments`, failing on a
+ *  segment two families claim. */
+function segmentOwners(): { owners: Map<string, string>; dupes: string[] } {
+  const owners = new Map<string, string>();
+  const dupes: string[] = [];
+  for (const [family, mod] of Object.entries(MESSAGE_FAMILIES)) {
+    for (const seg of mod.segments) {
+      const prior = owners.get(seg);
+      if (prior !== undefined) dupes.push(`'${seg}' is claimed by both ${prior} and ${family}`);
+      owners.set(seg, family);
+    }
+  }
+  return { owners, dupes };
+}
+
+/** The keys filed in a family whose owner (by first segment) is another family. */
+function misfiledKeys(
+  families: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+  owners: ReadonlyMap<string, string>,
+  dir: string,
+): string[] {
+  const out: string[] = [];
+  for (const [family, entries] of Object.entries(families)) {
+    for (const key of Object.keys(entries)) {
+      const seg = segmentOfCode(key.split("#")[0]);
+      const owner = owners.get(seg);
+      if (owner !== family) {
+        out.push(
+          `${key} is in ${dir}/${family}.ts, but its segment '${seg}' is ` +
+            (owner === undefined
+              ? "owned by no family — add it to the `segments` of the family it belongs with"
+              : `owned by ${dir}/${owner}.ts — move it there`),
+        );
+      }
+    }
+  }
+  return out.sort();
+}
+
+/** The `.ts` family files on disk under `src/diagnostics/<dir>/` (helpers
+ *  start with `_`). */
+function familyFilesOnDisk(dir: string): string[] {
+  return fs
+    .readdirSync(path.join(repoRoot, "src", "diagnostics", dir))
+    .filter((f) => f.endsWith(".ts") && !f.startsWith("_"))
+    .map((f) => f.slice(0, -".ts".length))
+    .sort();
+}
+
+/** A family file past this many lines is a merge hotspot again: split the
+ *  family (move some of its segments to a new family file). */
+const FAMILY_FILE_MAX_LINES = 600;
+
+describe("diagnostic catalog families", () => {
+  const { owners, dupes } = segmentOwners();
+  const messageFamilies = Object.fromEntries(
+    Object.entries(MESSAGE_FAMILIES).map(([f, mod]) => [f, mod.messages]),
+  );
+
+  it("splits into more than one family, and merges all of them", () => {
+    expect(Object.keys(MESSAGE_FAMILIES).length).toBeGreaterThan(10);
+    expect(familyFilesOnDisk("messages"), "a family file messages.ts does not merge").toEqual(
+      Object.keys(MESSAGE_FAMILIES).sort(),
+    );
+    expect(familyFilesOnDisk("code-docs"), "a family file code-docs.ts does not merge").toEqual(
+      Object.keys(CODE_DOCS_FAMILIES).sort(),
+    );
+    const merged = Object.values(messageFamilies).reduce((n, m) => n + Object.keys(m).length, 0);
+    expect(merged, "two families define the same key").toBe(
+      Object.keys(DIAGNOSTIC_MESSAGES).length,
+    );
+  });
+
+  it("no segment is claimed by two families", () => {
+    expect(dupes).toEqual([]);
+  });
+
+  it("every message key lives in the family that owns its first segment", () => {
+    expect(misfiledKeys(messageFamilies, owners, "src/diagnostics/messages")).toEqual([]);
+  });
+
+  it("every docs anchor lives in the same family as the code's message", () => {
+    const missing = Object.keys(CODE_DOCS_FAMILIES).filter((f) => !(f in MESSAGE_FAMILIES));
+    expect(missing, "a code-docs family with no message family of the same name").toEqual([]);
+    expect(misfiledKeys(CODE_DOCS_FAMILIES, owners, "src/diagnostics/code-docs")).toEqual([]);
+  });
+
+  it(`no family file exceeds ${FAMILY_FILE_MAX_LINES} lines`, () => {
+    const long: string[] = [];
+    for (const dir of ["messages", "code-docs"]) {
+      for (const f of fs.readdirSync(path.join(repoRoot, "src", "diagnostics", dir))) {
+        const rel = path.join("src", "diagnostics", dir, f);
+        const n = fs.readFileSync(path.join(repoRoot, rel), "utf8").split("\n").length;
+        if (n > FAMILY_FILE_MAX_LINES) long.push(`${rel}: ${n} lines`);
+      }
+    }
+    expect(long).toEqual([]);
   });
 });

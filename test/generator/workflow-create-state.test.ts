@@ -155,6 +155,17 @@ describe("an uncorrelated command workflow that writes state", () => {
     const codes = validateLoomModel(loom).map((d) => d.code);
     expect(codes).toContain("loom.workflow-uncorrelated-state-write");
   });
+
+  it("is refused when the write sits only inside a match arm", async () => {
+    const inArm = UNCORRELATED.replace(
+      'status := "Pending"',
+      'let found = Orders.find(OrderById(sku))\n          match found {\n            Order o => { status := "Pending" }\n            else => { }\n          }',
+    );
+    expect(inArm).not.toBe(UNCORRELATED);
+    const loom = await buildLoomModelUnchecked(inArm, "the subject is the refusal itself");
+    const codes = validateLoomModel(loom).map((d) => d.code);
+    expect(codes).toContain("loom.workflow-uncorrelated-state-write");
+  });
 });
 
 // ---------------------------------------------------------------------------

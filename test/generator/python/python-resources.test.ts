@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — resource verb clients (F1, resources.md).  A
@@ -22,9 +21,7 @@ const FIXTURE = fs.readFileSync(
 );
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python resource verb clients", () => {
@@ -67,13 +64,11 @@ describe("python resource verb clients", () => {
   });
 
   it("resource-less deployables emit no resources/ dir", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       FIXTURE.replace(/\s+salesFiles\.put[\s\S]*?salesApi\.post\("\/log", name\)\n/, "\n")
         .replace(/\n {2}resource sales(Files|Jobs|Api)[^\n]*\n/g, "\n")
         .replace(/, salesFiles, salesJobs, salesApi/, ""),
     );
-    if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-    const files = generateSystems(model).files;
     expect([...files.keys()].some((k) => k.includes("app/resources/"))).toBe(false);
     const pyproject = files.get("api/pyproject.toml")!;
     expect(pyproject).not.toContain("boto3");

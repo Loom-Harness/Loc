@@ -93,30 +93,19 @@ describe("flutter Table controls — server-driven (M-T1.1)", () => {
     expect(dart).not.toContain("i18n.dart");
   });
 
-  it("the sortable header's accessible NAME translates — and keeps its own with i18n off", async () => {
-    // Flutter is the only target whose sortable header carries an explicit
-    // name: a Dart widget has no implicit accessible name, so it wraps the
-    // header in `Semantics(label: …)` where the JSX targets and Feliz render a
-    // real `<button>` whose CONTENT names it.  That made it the last emitter-
-    // built string on this target that no locale could reach.
-    //
-    // The hole is the header TEXT and it is STATIC — known at emit time — so it
-    // rides in as a Dart string literal, unlike the grid's, which is read off
-    // the TanStack column at runtime.
+  it('the sortable header is named by its own caption, never by a "Sort by <header>" frame', async () => {
+    // A Dart widget has no implicit accessible name, but the header `Text` inside
+    // the `Semantics(button: true)` node supplies it.  Inserting the translated
+    // caption into a "Sort by …" frame would need the caption declined into the
+    // sentence, which cannot be right in every language.
     const on = await page();
-    expect(on).toContain(
-      "label: t('chrome.sortBy', 'Sort by {column}', <String, Object>{'column': 'Name'})",
-    );
-    expect(on).not.toContain("label: 'Sort by Name'");
+    expect(on).toContain("Semantics(button: true, child: Row(");
+    expect(on).not.toContain("Sort by");
+    expect(on).not.toContain("chrome.sortBy");
 
-    // With nothing to translate the target keeps its own sentence — the
-    // `undefined`-means-keep-yours contract, byte-identical by construction.
     const off = await page(OFF_TABLE, OFF_STATE);
-    // The caption itself is dynamic here (that is what keeps the page
-    // string-less), so the sentence names the emitter's fallback — what this
-    // pins is that the target keeps ITS OWN sentence rather than binding.
-    expect(off).toMatch(/label: 'Sort by [^']+'/);
-    expect(off).not.toContain("chrome.sortBy");
+    expect(off).toContain("Semantics(button: true, child: Row(");
+    expect(off).not.toContain("Sort by");
   });
 
   it("emits Dart for the client page window — never JavaScript", async () => {

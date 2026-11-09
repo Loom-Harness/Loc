@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -20,6 +21,7 @@ import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import {
   API_CLIENT_CLASS,
@@ -32,6 +34,7 @@ import { projectionRowClass } from "./projection-state.js";
 import {
   boundLocal,
   domainServiceUnionPkgOf,
+  javaPublishDrained,
   javaWorkflowStmtTarget,
   reactorReposUsed,
   repoField,
@@ -189,6 +192,7 @@ function renderProjectionFold(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   sub: EventSubscriptionIR,
+  basePkg: string,
 ): string[] {
   const corr = proj.correlationField as string;
   const cls = projectionRowClass(proj);
@@ -214,10 +218,23 @@ function renderProjectionFold(
     ? renderJavaExpr(on.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
 
-  const body: string[] = [
-    `        var __key = ${keyExpr};`,
-    `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
-  ];
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching frame's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const body: string[] = tenancy
+    ? [
+        `        var __origin = ${basePkg}.auth.User.currentEventOrigin();`,
+        `        if (__origin == null || __origin.tenant() == null) return;`,
+        `        var __tenant = __origin.tenant();`,
+        `        var __dataKey = __origin.orgPath() != null ? __origin.orgPath() : __tenant;`,
+        `        var __key = ${keyExpr};`,
+        `        var state = ${repo}.findByTenantAndKey(__tenant, __key).orElseGet(() -> ${cls}._allocate(__tenant, __dataKey, __key));`,
+      ]
+    : [
+        `        var __key = ${keyExpr};`,
+        `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
+      ];
   for (const stmt of on.statements) {
     body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx));
   }
@@ -393,9 +410,14 @@ export function renderJavaDispatcher(
    *  bookkeeping cost. */
   opFragments?: OpFragment[],
 ): { name: string; content: string; handlers: { method: string; event: string }[] } | null {
-  // A reactor body that matches over a domain-service result names the
-  // union's carrier records, which live beside the services.
-  const unionPkgOf = domainServiceUnionPkgOf(ctx, `${dctx.basePkg}.domain.services`);
+  // A reactor body that matches over a domain-service or operation result
+  // names the union's carrier records, which live beside the services or the
+  // aggregate.
+  const unionPkgOf = domainServiceUnionPkgOf(
+    ctx,
+    `${dctx.basePkg}.domain.services`,
+    dctx.entityPkgOf,
+  );
   // Re-derive over the (possibly merged) context WITH projections — the
   // enricher-stored `ctx.eventSubscriptions` omits projection folds (it derives
   // without them), so a projection-only context would otherwise get no
@@ -466,7 +488,7 @@ export function renderJavaDispatcher(
       pushHandler(
         `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
         sub.event,
-        renderProjectionFold(proj, on, sub),
+        renderProjectionFold(proj, on, sub, dctx.basePkg),
       );
       if (!touchedProjections.some((p) => p.name === proj.name)) touchedProjections.push(proj);
       continue;
@@ -499,6 +521,7 @@ export function renderJavaDispatcher(
           opFragments,
           dctx.resources?.classes,
           unionPkgOf,
+          `${dctx.basePkg}.auth`,
         ),
         true,
       );
@@ -521,6 +544,7 @@ export function renderJavaDispatcher(
             opFragments,
             dctx.resources?.classes,
             unionPkgOf,
+            `${dctx.basePkg}.auth`,
           )
         : renderHandler(
             ctx,
@@ -531,6 +555,7 @@ export function renderJavaDispatcher(
             opFragments,
             dctx.resources?.classes,
             unionPkgOf,
+            `${dctx.basePkg}.auth`,
           ),
       true,
     );
@@ -693,7 +718,16 @@ export function renderJavaDispatcher(
       `    }`,
       ``,
       ...methods,
-      ...renderReactorListener(className, afterCommit),
+      ...renderReactorListener(
+        className,
+        afterCommit,
+        // A reactor that reads the principal runs as the system principal of
+        // the event's origin — which must be the origin the event was raised
+        // in, not whichever frame is ambient once the commit lands.
+        methods.some((m) => m.includes("User.systemPrincipal("))
+          ? `${dctx.basePkg}.auth`
+          : undefined,
+      ),
       `}`,
       ``,
     ),
@@ -710,6 +744,11 @@ export function renderJavaDispatcher(
 function renderReactorListener(
   dispatcherClass: string,
   afterCommit: readonly { method: string; event: string }[],
+  /** The generated `auth` package when the reactors read the principal: the
+   *  listener then captures the event origin at publish time and replays the
+   *  reactor in it after the commit (see below).  Undefined ⇒ the plain
+   *  `@TransactionalEventListener`, byte-identical. */
+  authPkg?: string,
 ): string[] {
   if (afterCommit.length === 0) return [];
   const out: string[] = [
@@ -733,13 +772,50 @@ function renderReactorListener(
     `            }`,
     `        }`,
   ];
+  if (authPkg) {
+    // The event's origin is the frame it was RAISED in — for a tenant-scoped
+    // event stream, the stream tenant's event-origin frame the publish opened,
+    // which has closed by the time the commit lands.  So the listener captures
+    // the origin synchronously at publish time and replays the reactor in it
+    // after the commit (the semantics of `@TransactionalEventListener(
+    // AFTER_COMMIT, fallbackExecution = true)`, which sees only the event).
+    out.push(
+      ``,
+      `        private static void afterCommit(${authPkg}.EventOrigin origin, Runnable run) {`,
+      `            Runnable inOrigin = () -> {`,
+      `                if (java.util.Objects.equals(origin, ${authPkg}.User.currentEventOrigin())) run.run();`,
+      `                else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(origin, run);`,
+      `            };`,
+      `            if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {`,
+      `                inOrigin.run();`,
+      `                return;`,
+      `            }`,
+      `            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(`,
+      `                new org.springframework.transaction.support.TransactionSynchronization() {`,
+      `                    @Override`,
+      `                    public void afterCommit() {`,
+      `                        inOrigin.run();`,
+      `                    }`,
+      `                });`,
+      `        }`,
+    );
+  }
   for (const h of afterCommit) {
     out.push(
       ``,
-      `        @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT, fallbackExecution = true)`,
-      `        public void ${h.method}(${upperFirst(h.event)} e) {`,
-      `            react("${h.method}", e, () -> dispatcher.${h.method}(e));`,
-      `        }`,
+      ...(authPkg
+        ? [
+            `        @org.springframework.context.event.EventListener`,
+            `        public void ${h.method}(${upperFirst(h.event)} e) {`,
+            `            afterCommit(${authPkg}.User.currentEventOrigin(), () -> react("${h.method}", e, () -> dispatcher.${h.method}(e)));`,
+            `        }`,
+          ]
+        : [
+            `        @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT, fallbackExecution = true)`,
+            `        public void ${h.method}(${upperFirst(h.event)} e) {`,
+            `            react("${h.method}", e, () -> dispatcher.${h.method}(e));`,
+            `        }`,
+          ]),
     );
   }
   out.push(`    }`);
@@ -756,6 +832,8 @@ function renderHandler(
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
   unionPkgOf?: (unionName: string) => string | undefined,
+  /** The generated `auth` package — see `javaPublishDrained`. */
+  authPkg?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   // The event param is the method's own parameter, alongside `__key`, `state`,
@@ -862,7 +940,14 @@ function renderHandler(
   for (const s of resolved.saves) {
     const local = boundLocal(renderCtx, s.name);
     body.push(`        ${repoField(s.aggName)}.save(${local});`);
-    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
+    body.push(
+      `        ${javaPublishDrained(
+        local,
+        "events",
+        ctx.aggregates.find((a) => a.name === s.aggName),
+        authPkg,
+      )}`,
+    );
   }
   // Stamp the processed marker before the state save (same tx window as the
   // saga mutation) so a redelivery of this id short-circuits above.
@@ -902,6 +987,8 @@ function renderEsHandler(
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
   unionPkgOf?: (unionName: string) => string | undefined,
+  /** The generated `auth` package — see `javaPublishDrained`. */
+  authPkg?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   const reserved = reactorReserved(wf, [resolved], ctx);
@@ -1015,7 +1102,14 @@ function renderEsHandler(
   for (const s of resolved.saves) {
     const local = boundLocal(renderCtx, s.name);
     body.push(`        ${repoField(s.aggName)}.save(${local});`);
-    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
+    body.push(
+      `        ${javaPublishDrained(
+        local,
+        "events",
+        ctx.aggregates.find((a) => a.name === s.aggName),
+        authPkg,
+      )}`,
+    );
   }
   // Every emit in an ES workflow has an applier (A1 discipline), so the emitted
   // events ARE the workflow's own stream — append them gap-free, then publish.
@@ -1027,7 +1121,7 @@ function renderEsHandler(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,
@@ -1079,6 +1173,8 @@ function esMergedBranchLines(
    *  frame). */
   opFragments?: OpFragment[],
   unionPkgOf?: (unionName: string) => string | undefined,
+  /** The generated `auth` package — see `javaPublishDrained`. */
+  authPkg?: string,
 ): { lines: string[]; usesState: boolean } {
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
@@ -1125,7 +1221,14 @@ function esMergedBranchLines(
   for (const s of resolved.saves) {
     const local = boundLocal(branchCtx, s.name);
     out.push(`        ${repoField(s.aggName)}.save(${local});`);
-    out.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
+    out.push(
+      `        ${javaPublishDrained(
+        local,
+        "events",
+        ctx.aggregates.find((a) => a.name === s.aggName),
+        authPkg,
+      )}`,
+    );
   }
   if (hasEmit) {
     out.push(
@@ -1135,7 +1238,7 @@ function esMergedBranchLines(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,
@@ -1163,6 +1266,8 @@ function renderEsMergedHandler(
   opFragments?: OpFragment[],
   resourceClasses?: Map<string, string>,
   unionPkgOf?: (unionName: string) => string | undefined,
+  /** The generated `auth` package — see `javaPublishDrained`. */
+  authPkg?: string,
 ): string[] {
   const corr = wf.correlationField as string;
   // Both event bindings are locals of the ONE merged method (the create
@@ -1199,6 +1304,7 @@ function renderEsMergedHandler(
     resourceClasses,
     opFragments,
     unionPkgOf,
+    authPkg,
   );
   const onBranch = esMergedBranchLines(
     ctx,
@@ -1213,6 +1319,7 @@ function renderEsMergedHandler(
     resourceClasses,
     opFragments,
     unionPkgOf,
+    authPkg,
   );
   const usesState = createBranch.usesState || onBranch.usesState;
 

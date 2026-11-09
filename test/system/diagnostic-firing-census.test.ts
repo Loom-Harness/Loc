@@ -12,6 +12,7 @@ import {
   styleSupportedLayouts,
 } from "../../src/platform/adapter-metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
 
 // ---------------------------------------------------------------------------
@@ -528,7 +529,84 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
   },
 };
 
+/** A deployed, auth-required system with a `user` block, for the `as { … }`
+ *  test-principal gates: `ctxTest` lands in the context, `e2e` / `extra` at
+ *  system scope. */
+const principalSys = (opts: {
+  user?: string;
+  ctxTest?: string;
+  e2e?: string;
+  extra?: string;
+}): string => `
+system P {
+${opts.user ?? "  user { id: guid  role: string  level: int  nick: string? }"}
+${opts.extra ?? ""}
+  subdomain D { context C {
+    aggregate Note with crudish { text: string }
+    repository Notes for Note
+${opts.ctxTest ?? ""}
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 auth: required }
+${opts.e2e ?? ""}
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // A masked value emitted on an event a channel publishes: every subscriber
+  // would receive it in the clear.
+  "loom.field-mask-event-channel": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      ssn: string mask unless currentUser.role == "hr"
+      operation ping() { emit Pinged { p: id, ssn: ssn } }
+    }
+    repository Ps for P
+    event Pinged { p: P id  ssn: string }
+    channel Out { carries: Pinged }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A unique key over a masked field with an ungated create: a 409 answers
+  // whether a guessed hidden value exists.
+  "loom.field-mask-unique-oracle": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate P with crudish {
+      ssn: string mask unless currentUser.role == "hr"
+      unique (ssn)
+    }
+    repository Ps for P
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A store field's default is evaluated when the store is created, so on the
+  // JS-family store renderer it must be a constant: a call is refused.
+  "loom.store-init-not-constant": `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string }
+    repository Items for Item
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    store Prefs { state { stamp: string = now().toString() } }
+    page Browse { route: "/browse" body: Stack { Text { "x" } } }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`,
   // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
   // merged IR: a context the model lacks, a target it lacks, a name two
   // contexts declare, and a move between modules on different databases.
@@ -552,6 +630,17 @@ system S {
   deployable two { platform: node, contexts: [B], port: 3001 }
 }
 migration "m" { A.Note -> B.Note }`,
+  // `label(…)` / `plural(…)` model text (i18n identity keys): a path naming no
+  // model element, a plural of a member, a call outside every page/component
+  // body, and a call spliced into a template.
+  "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
+  "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
+      sku: string
+      derived caption: string = label(Item)
+    }
+    repository Items for Item`),
+  "loom.model-text-in-template": uiPage("Text { `All {plural(Item)}` }"),
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `
@@ -848,6 +937,41 @@ system TestVocab {
     test "t" { emit Pinged { n: 1 } }
   } }
 }`,
+  // The `as { … }` test principal (test-placement.md).
+  "loom.test-principal-placement": principalSys({
+    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+  }),
+  "loom.test-principal-value": principalSys({
+    ctxTest: `    test "t" as { role: 1 + 2 } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-duplicate-claim": principalSys({
+    ctxTest: `    test "t" as { role: "a", role: "b" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-no-user": principalSys({
+    user: "",
+    ctxTest: `    test "t" as { role: "a" } { let n = Note.create(text: "a") }`,
+  }).replace(" auth: required", ""),
+  "loom.test-principal-unknown-claim": principalSys({
+    ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.test-principal-claim-type": principalSys({
+    ctxTest: `    test "t" as { level: "3" } { let n = Note.create(text: "a") }`,
+  }),
+  "loom.e2e-principal-claim-not-carried": principalSys({
+    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-oidc": principalSys({
+    extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
+    e2e: `  test e2e "e" against d as { role: "agent" } { let n = api.notes.create({ text: "a" }) }`,
+  }),
+  "loom.e2e-principal-ui": principalSys({
+    extra: `  ui WebApp {
+    api Core: A
+    page Home { route: "/"  body: Stack { } }
+  }`,
+    e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
+  test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
+  }),
   // A paged find's own `page` parameter: the paged read adds a `page` query
   // control of its own, so the key would arrive twice and every generated
   // repository signature would declare `page` twice.
@@ -1055,6 +1179,20 @@ system UpdateGate {
 }`,
   // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
   // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.loop-gate-not-implied": repoOnly(`    enum Status { Open, Resolved, Closed }
+    aggregate Ticket with crudish {
+      status: Status immutable
+      age: int
+      operation close() when status == Resolved { status := Closed }
+    }
+    repository Tickets for Ticket
+    criterion Stale() of Ticket = this.age > 30
+    workflow Sweep {
+      create(n: int) {
+        let ts = Tickets.all(Stale(), page: { offset: n, limit: 100 })
+        for t in ts { t.close() }
+      }
+    }`),
   "loom.crudish-hard-delete": `
 system HardDelete {
   subdomain Core { context Ledger {
@@ -1221,7 +1359,7 @@ system S {
   "loom.variant-match-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       note: string?
-      function label(): string {
+      function noteLabel(): string {
         match note {
           string s => { let shown = s }
           else => { let shown = code }
@@ -1866,6 +2004,34 @@ system P {
   // `workflow-name-collision` on a clash with an aggregate / value object /
   // enum / event / repository, and a workflow named after an aggregate trips
   // only the second.  The other three are confirmed preempted and pinned below.
+  "loom.duplicate-repository": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    repository Stuff for Thing`),
+  // An operation reusing a field's name: one member namespace per aggregate.
+  "loom.member-name-collision": repoOnly(`    aggregate Thing with crudish {
+      qty: int
+      operation qty(n: int) { qty := n }
+    }
+    repository Things for Thing`),
+  // Two contexts one deployable hosts, each declaring an `Order` aggregate.
+  "loom.hosted-type-name-collision": `
+system S {
+  subdomain D {
+    context Sales {
+      aggregate Order with crudish { qty: int }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Order with crudish { amt: int }
+      repository BillingOrders for Order
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource s { for: Sales, kind: state, use: pg }
+  resource b { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Sales, Billing], dataSources: [s, b], serves: A, port: 4000 }
+}`,
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
@@ -1946,7 +2112,34 @@ system P {
     workflow W {
       create(oid: Order id) {
         let o = Orders.get(oid)
-        let r = o.rename("x")
+        let r = o.rename("x") + "!"
+      }
+    }`),
+  // `let r = o.hold()` whose result can be an error, never matched: nothing may
+  // save the tentative change.
+  // `X id` naming a value object: only aggregates and entity parts carry an id.
+  "loom.id-target-not-identity": repoOnly(`    valueobject Pt { x: int }
+    aggregate R with crudish { p: Pt id }`),
+  // `create(…): W` answers the workflow's instance state, but W has no
+  // correlation field, so no instance is persisted.
+  "loom.workflow-return-this-uncorrelated": repoOnly(`    error Declined { reason: string }
+    workflow W {
+      create(n: int): W or Declined {
+        if n > 0 { notFound }
+        return this
+      }
+    }`),
+  "loom.workflow-mutation-result-unmatched": repoOnly(`    error Held { reason: string }
+    aggregate Order with crudish {
+      name: string
+      operation hold(): string or Held { name := "held"  return Held { reason: name } }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let r = o.hold()
+        let s = r
       }
     }`),
   // An aggregate factory call in the retired record form.
@@ -1993,9 +2186,23 @@ system P {
     workflow W {
       create(tid: Thing id) {
         let t = Things.get(tid)
-        precondition t.name == Others.get(t.otherId).label
+        precondition t.name == "" || t.name == Others.get(t.otherId).label
       }
     }`),
+  // A name that binds to nothing inside a `commandHandler` body — the handler
+  // twin of `loom.workflow-unknown-name`.
+  "loom.handler-unknown-name":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let t = Things.get(tid)
+      t.rename(Nowhere.label)
+    }`),
+  // A member off an explicitly-paged `QueryView` binding that the paged
+  // envelope does not carry.
+  "loom.paged-envelope-unknown-member": uiPage(
+    `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
+  ),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
@@ -2070,6 +2277,12 @@ system S {
   } }
 }`,
   // `T option` is the deprecated spelling of `T?`.
+  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    queryHandler One(id: Order id): Order envelope {
+      let o = Orders.get(id)
+      return o
+    }`),
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
     criterion OrderByCode(code: string) of Order = this.code == code
@@ -2587,6 +2800,8 @@ system S {
   "loom.duplicate-theme-block": systemScope(
     '  theme { primary: "#3b82f6" }\n  theme { neutral: "#64748b" }',
   ),
+  "loom.i18n-source-invalid": systemScope('  i18n { source: "not a tag" }'),
+  "loom.i18n-duplicate": systemScope('  i18n { source: "en" }\n  i18n { source: "de" }'),
   "loom.audited-no-command": aggShape("audited", "      name: string"),
   "loom.duplicate-entity-part": aggShape(
     "",
@@ -2989,6 +3204,39 @@ system S {
   }
 }`,
 
+  "loom.e2e-unknown-query-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let ws = api.widgets.all({ pgae: 2 })
+  }
+}`,
+
+  "loom.e2e-projection-read-arity": `
+system S {
+  subdomain D { context C {
+    event Placed { orderId: Widget id  qty: int }
+    aggregate Widget with crudish { code: string }
+    projection Board keyed by orderId {
+      orderId: Widget id
+      total: int
+      on(e: Placed) { total := total + e.qty }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let bs = api.board.list(w)
+  }
+}`,
+
   "loom.e2e-unknown-response-field": `
 system S {
   subdomain D { context C {
@@ -3019,33 +3267,6 @@ system S {
   }
 }`,
 
-  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
-  // (a value-producing `record = if … do … record else record end`), so the
-  // firing shape is one of the three sub-shapes that still cannot render.  This
-  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
-  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
-  // (500) where the other four backends answer a typed 403/422.
-  "loom.elixir-if-stmt-unsupported": `
-system P {
-  subdomain D { context C {
-    aggregate Order with crudish {
-      customerId: string
-      count: int
-      operation bump(n: int) {
-        if n > 0 {
-          precondition count > 0
-          count := 1
-        } else {
-          count := 2
-        }
-      }
-    }
-  } }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
-}`,
-
   // A guard inside a statement-`match` arm of an operation an elixir
   // deployable hosts: the statement renders on Phoenix, but a nested guard
   // could not be hoisted into the op's `with :ok <- ensure(…)` chain.
@@ -3059,6 +3280,44 @@ system P {
           string s => { precondition s.length > 0  code := s }
           else => { code := "none" }
         }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // A workflow `create` answering `T or E` in a context an elixir deployable
+  // hosts.
+  "loom.elixir-entry-result-unsupported": `
+system P {
+  subdomain D { context C {
+    error Declined { reason: string }
+    workflow W {
+      create(n: int): int or Declined {
+        return Declined { reason: "no" }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // A `let`-bound mutating call in a workflow an elixir deployable emits.
+  "loom.elixir-bound-mutating-call-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      code: string
+      operation touch(): int { code := "t"  return 1 }
+    }
+    repository Orders for Order
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.get(oid)
+        let n = o.touch()
       }
     }
   } }
@@ -3464,8 +3723,7 @@ system P {
 
   // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
   // Each validated clean and then crashed `generate system`: the shared JS
-  // walker (`this`, a write to a non-state name), the Feliz find-read builder
-  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  // walker (`this`, a write to a non-state name), the Feliz MVU renderer (a block lambda in an action).
   "loom.ui-assign-not-state": uiPages(
     "",
     `    page Home {
@@ -3788,6 +4046,93 @@ system S {
   storage pg { type: postgres }
   resource st { for: Work, kind: state, use: pg }
   deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // A per-row query-time projection reading another context's aggregate on a
+  // backend that synthesises the source find only in the aggregate's context.
+  "loom.projection-cross-context-source-unsupported": `
+system S {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { code: string  total: int }
+      repository Orders for Order { }
+    }
+    context Reports {
+      projection Codes {
+        code: string
+        from Order as o
+        select code = o.code
+      }
+    }
+  }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable api { platform: node contexts: [Orders, Reports] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A folded projection over events of a `crossTenant` aggregate AND a
+  // `tenantOwned` one: the fold row cannot be both shared and tenant-keyed.
+  "loom.tenancy-folded-projection-mixed": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    event Paid { acct: Acct id, amount: int }
+    aggregate Org with crudish { name: string }
+    aggregate Acct with tenantOwned, crudish {
+      owner: string
+      operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+    }
+    aggregate Ledger crossTenant with crudish {
+      acct: Acct id
+      operation book(amount: int) { emit Paid { acct: acct, amount: amount } }
+    }
+    repository Accts for Acct { }
+    repository Ledgers for Ledger { }
+    repository Orgs for Org { }
+    projection Totals keyed by acct {
+      acct: Acct id
+      paid: int
+      on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // A query-time projection over a tenant-scoped fold: the raw-table query
+  // path carries no fold read scope.
+  "loom.tenancy-projection-over-scoped-fold": `
+system S {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain D { context C {
+    event Paid { acct: Acct id, amount: int }
+    aggregate Org with crudish { name: string }
+    aggregate Acct with tenantOwned, crudish {
+      owner: string
+      operation pay(amount: int) { emit Paid { acct: id, amount: amount } }
+    }
+    repository Accts for Acct { }
+    repository Orgs for Org { }
+    projection Totals keyed by acct {
+      acct: Acct id
+      paid: int
+      on(e: Paid) { acct := e.acct  paid := e.amount }
+    }
+    projection Big {
+      n: int
+      from Totals as t
+      select n = count()
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
 }`,
 
   // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
@@ -4144,9 +4489,16 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // through the tool catalog and asserts each code.
   "loom.diff-baseline-invalid": "test/tools/catalog.test.ts",
   "loom.migration-chain-invalid": "test/tools/catalog.test.ts",
+  // `loom_migration_record`'s name refusal judges the record call's `name`
+  // against the chain — an input `validate()` never sees.
+  "loom.migration-name-invalid": "test/tools/catalog.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The attribution wrapped around any AST diagnostic raised on macro-
+  // synthesised code.  No stdlib macro synthesises an ill-typed body, so the
+  // pointed-at file registers one that does and asserts the wrapped message.
+  "loom.macro-synthesised": "test/macro/macro-synthesised-diagnostic-range.test.ts",
   // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
   // source — `Stack { CreateForm { } }` reaches one — but never out of
   // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into
@@ -4270,7 +4622,7 @@ describe("diagnostic firing census", () => {
     // a rule rename would empty it and make every `covers-every-frontend` pin
     // pass without checking anything.
     it("the frontend roster is scraped from the grammar and complete", () => {
-      expect(FRONTEND_FRAMEWORKS.length).toBeGreaterThanOrEqual(7);
+      expectReach("frontend frameworks", FRONTEND_FRAMEWORKS.length, 7);
       expect(FRONTEND_FRAMEWORKS).toContain("react");
       expect(FRONTEND_FRAMEWORKS).toContain("phoenixLiveView");
     });
@@ -4471,7 +4823,7 @@ describe("diagnostic firing census", () => {
 
 describe("the generic code `loom.unknown` reaches no user", () => {
   it("scans the real fixture population (guard against a vacuous pass)", () => {
-    expect(Object.keys(FIRING_FIXTURES).length).toBeGreaterThan(50);
+    expectReach("firing fixtures", Object.keys(FIRING_FIXTURES).length, 297);
   });
 
   for (const [code, source] of Object.entries(FIRING_FIXTURES)) {

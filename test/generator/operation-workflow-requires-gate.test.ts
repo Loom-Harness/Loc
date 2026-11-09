@@ -9,8 +9,7 @@
 // gap covered structurally by test/ir/operation-workflow-gate-lower.test.ts.)
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (plat: string) => `
   system Sys {
@@ -38,11 +37,9 @@ const src = (plat: string) => `
   }`;
 
 async function generate(plat: string): Promise<string> {
-  const { model, errors } = await parseString(src(plat), { validate: true });
-  expect(errors, `validation errors for ${plat}`).toEqual([]);
   // Concatenate every emitted file; the assertions are backend-specific
   // substrings, so pooling avoids per-backend path bookkeeping.
-  return [...generateSystems(model).files.values()].join("\n\n");
+  return [...(await generateSystemFiles(src(plat))).values()].join("\n\n");
 }
 
 describe("operation + workflow-create requires gate — cross-backend 403 emission", () => {

@@ -1,12 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { URI } from "langium";
-import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFilesFromProject } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix OIDC verifier emission (D-AUTH-OIDC).  An `auth { oidc }` block
@@ -25,14 +21,7 @@ async function build(source: string): Promise<Map<string, string>> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-ph-oidc-"));
   const file = path.join(dir, "auth.ddd");
   fs.writeFileSync(file, source);
-  const services = createDddServices(NodeFileSystem);
-  const doc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.file(file));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  const errors = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  if (errors.length > 0) {
-    throw new Error(`Validation errors:\n${errors.map((e) => `  ${e.message}`).join("\n")}`);
-  }
-  return generateSystems(doc.parseResult.value as Model).files;
+  return generateSystemFilesFromProject(file);
 }
 
 const USER_AUTH = `
@@ -42,8 +31,11 @@ const USER_AUTH = `
     email: string
   }`;
 
+// `enforcement: opt` — the fixtures pin auth wiring, not per-member gates, and
+// `crudish` members carry no `requires` (denyByDefault would refuse them).
 const OIDC_BLOCK = `
   auth {
+    enforcement: opt
     provider: keycloak
     oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }
     claims: { roles: "realm_access.roles", email: "email" }

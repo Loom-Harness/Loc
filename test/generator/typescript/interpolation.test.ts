@@ -5,8 +5,8 @@
 // covered by the string-concat suites.)
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
+import { parseString } from "../../_helpers/parse.js";
 
 const SRC = `
   context Sales {
@@ -28,8 +28,7 @@ describe("typescript generator — A6 string interpolation", () => {
   });
 
   it("renders as native string concatenation (int hole via String(...))", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateHono(model).get("domain/order.ts")!;
+    const domain = (await generateBackendFiles(SRC, "node")).get("domain/order.ts")!;
     expect(domain).toContain(
       'get label(): string { return "Order #" + String(this._quantity) + " for " + this._customerName; }',
     );
@@ -52,8 +51,7 @@ describe("typescript generator — A6 string interpolation", () => {
           repository Orders for Order { }
         }
       `;
-      const model = await parseValid(src);
-      const domain = generateHono(model).get("domain/order.ts")!;
+      const domain = (await generateBackendFiles(src, "node")).get("domain/order.ts")!;
       return domain.split("\n").find((l) => l.includes("get display")) ?? "";
     };
     const formatted = await domainOf(

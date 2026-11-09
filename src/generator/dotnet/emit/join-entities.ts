@@ -86,6 +86,7 @@ export function renderJoinEntityConfiguration(
       "using Microsoft.EntityFrameworkCore;",
       "using Microsoft.EntityFrameworkCore.Metadata.Builders;",
       `using ${ns}.Domain.Ids;`,
+      `using ${ns}.Domain.${plural(assoc.ownerAgg)};`,
       `using ${ns}.Infrastructure.Persistence.JoinTables;`,
       "",
       `namespace ${ns}.Infrastructure.Persistence.Configurations;`,
@@ -101,6 +102,11 @@ export function renderJoinEntityConfiguration(
       `        builder.ToTable("${assoc.joinTable}"${schema ? `, "${schema}"` : ""});`,
       `        builder.HasKey(x => new { x.${ownerProp}, x.${targetProp} });`,
       `        builder.HasIndex(x => x.${targetProp});`,
+      // The owner relationship makes EF insert the owner row before its join
+      // rows (and delete them first); without it the unordered batch can hit
+      // the migration's owner FK (23503).  Cascade mirrors the migration's
+      // `ON DELETE CASCADE` on the owner FK.
+      `        builder.HasOne<${assoc.ownerAgg}>().WithMany().HasForeignKey(x => x.${ownerProp}).OnDelete(DeleteBehavior.Cascade);`,
       // Columns named as the migration creates them (`cart_id`/`tag_id`) — EF's
       // default would be the property name (`CartId`), a column that does not exist.
       `        builder.Property(x => x.${ownerProp}).HasConversion(v => v.Value, v => new ${assoc.ownerAgg}Id(v)).HasColumnName("${assoc.ownerFk}");`,

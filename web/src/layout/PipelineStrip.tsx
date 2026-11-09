@@ -1,7 +1,8 @@
 import { Badge, Box, Button, Group, Switch, Text, Tooltip, VisuallyHidden } from "@mantine/core";
 import type { LayoutCtx } from "./ctx";
+import { describePendingMigration } from "./pending-migration";
 import { deriveStages, nextStage, type StageState, type StageView } from "./pipeline-stages";
-import { AUTO_RUN, AUTO_RUN_HINT, type StageId } from "./vocabulary";
+import { AUTO_RUN, AUTO_RUN_HINT, PENDING_MIGRATION, type StageId } from "./vocabulary";
 
 // The pipeline strip (M-T8.16 slice 1, audit H1).
 //
@@ -14,6 +15,10 @@ import { AUTO_RUN, AUTO_RUN_HINT, type StageId } from "./vocabulary";
 //
 // The `btn-generate` / `btn-bundle` / `btn-boot` test ids are a public
 // contract (~35 Playwright specs); they live on the desktop segments.
+//
+// Beside Boot sits the migration badge: the live source against the
+// recorded migration chain, re-checked on every source change, with the
+// action that clears it — Record migration… or Apply.
 
 interface Props {
   ctx: LayoutCtx;
@@ -149,6 +154,7 @@ export function PipelineStrip({ ctx }: Props): JSX.Element {
           <Segment stage={s} primary={s.id === next} onClick={() => runStage(ctx, s.id)} />
         </Group>
       ))}
+      <PendingMigrationBadge ctx={ctx} />
       <Tooltip label={AUTO_RUN_HINT} withArrow multiline maw={280}>
         <Box component="span" ml={6}>
           <Switch
@@ -160,6 +166,67 @@ export function PipelineStrip({ ctx }: Props): JSX.Element {
           />
         </Box>
       </Tooltip>
+    </Group>
+  );
+}
+
+/** The migration badge: what the recorded chain lacks (`migration required`
+ *  — the initial schema, or N unrecorded changes) or what the running
+ *  database lacks (`migration recorded` — N not applied), and the one action
+ *  that moves it on.  Renders nothing while the chain and the database are
+ *  at the model. */
+export function PendingMigrationBadge({ ctx }: Props): JSX.Element | null {
+  const view = describePendingMigration(ctx.pendingMigration);
+  if (!view) return null;
+  const busy = ctx.pipeline.generating || ctx.pipeline.bundling || ctx.pipeline.booting;
+  return (
+    <Group
+      gap={4}
+      wrap="nowrap"
+      ml={6}
+      data-testid="migration-pending"
+      data-kind={view.kind}
+      data-initial={ctx.pendingMigration?.kind === "unrecorded" && ctx.pendingMigration.initial ? "true" : undefined}
+    >
+      <Tooltip label={view.hint} withArrow multiline maw={340}>
+        <Badge
+          size="sm"
+          variant="light"
+          color={view.kind === "unrecorded" ? "yellow" : "blue"}
+          tt="none"
+          data-testid="migration-pending-badge"
+        >
+          {view.title} · {view.detail}
+        </Badge>
+      </Tooltip>
+      {view.destructive && (
+        <Badge size="sm" variant="filled" color="red" tt="none" data-testid="migration-pending-destructive">
+          {PENDING_MIGRATION.destructive}
+        </Badge>
+      )}
+      {view.action === "record" ? (
+        <Button
+          size="compact-xs"
+          variant="filled"
+          color="yellow"
+          disabled={ctx.buildClient == null || !ctx.sourcesWritable}
+          onClick={() => ctx.setRecordMigrationOpen(true)}
+          data-testid="btn-record-migration"
+        >
+          {PENDING_MIGRATION.record}
+        </Button>
+      ) : (
+        <Button
+          size="compact-xs"
+          variant="filled"
+          loading={busy}
+          disabled={busy}
+          onClick={() => ctx.runApplyMigrations()}
+          data-testid="btn-apply-migrations"
+        >
+          {PENDING_MIGRATION.apply}
+        </Button>
+      )}
     </Group>
   );
 }

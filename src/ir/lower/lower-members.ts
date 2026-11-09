@@ -44,7 +44,6 @@ import type {
   FieldIR,
   FunctionBodyIR,
   FunctionIR,
-  IdValueType,
   InvariantIR,
   OperationIR,
   OperationKind,
@@ -54,6 +53,8 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
+import { isGuardedCall } from "../util/effects.js";
+import { normalizeEarlyReturns } from "../util/if-normal-form.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -91,7 +92,6 @@ export function lowerEntityPart(part: EntityPart, agg: Aggregate, outer: Env): E
   return {
     name: part.name,
     parentName: agg.name,
-    parentIdValueType: "guid" as IdValueType,
     fields: props.map((p) => lowerField(p, inner)),
     contains: lowerContainments(part.members),
     derived: part.members.filter(isDerivedProp).map((d) => lowerDerived(d, inner)),
@@ -290,7 +290,8 @@ export function lowerFunction(f: FunctionDecl, outer: Env): FunctionIR {
       stmts.push(result.stmt);
       bodyEnv = result.envAfter;
     }
-    body = { stmts };
+    // An early `return` reaches every backend in branch-total form.
+    body = { stmts: normalizeEarlyReturns(stmts) };
   }
   return {
     name: f.name,
@@ -438,7 +439,9 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
     canonical: spec.canonical,
     visibility: spec.visibility,
     params,
-    statements: stmts,
+    // An early `return` reaches every backend in branch-total form: the
+    // statements after an `if` that returns move into its other branch.
+    statements: normalizeEarlyReturns(stmts),
     extern: spec.extern,
     audited: spec.audited,
     returnType: spec.returnType,
@@ -482,6 +485,12 @@ function collectMutationTargets(
   serviceMutated: Set<string>,
 ): void {
   for (const st of statements) {
+    // A call whose error-carrying result is bound (`let r = a.withdraw(x)`
+    // with an `error` variant) commits only in the non-error arms of the
+    // `match` over `r`, which save its targets themselves — never at an exit.
+    if ((st.kind === "op-call" || st.kind === "domain-service-call") && isGuardedCall(st)) {
+      continue;
+    }
     if (st.kind === "op-call") {
       opCallTargets.add(st.target);
     } else if (st.kind === "domain-service-call" && saveResolver) {

@@ -55,6 +55,7 @@ import {
   renderCriterionArg,
   repoTableName,
 } from "./repository-find-predicate.js";
+import { T, TT } from "./ts-symbols.js";
 
 /** The capability-filter predicate to AND into one read.  When the read
  *  carries an `ignoring` clause (`bypassAll` / `bypassCaps`), recompute the
@@ -171,10 +172,11 @@ function bulkLoadContainmentLines(
   eagerContains: { c: ContainmentIR; part: EntityPartIR }[],
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
+  ids = "rootIds",
 ): string[] {
   return eagerContains.flatMap(({ c, part }) => {
     const childTable = lowerFirst(plural(part.name));
-    const head = `    const ${c.name}Rows = await this.db.select().from(schema.${childTable}).where(inArray(schema.${childTable}.parentId, rootIds));`;
+    const head = `    const ${c.name}Rows = await this.db.select().from(schema.${childTable}).where(inArray(schema.${childTable}.parentId, ${ids}));`;
     // Load this part's OWN nested containments first (keyed by its row ids) so
     // the hydrate below can reference their `<name>ByParent` maps.  Empty for a
     // leaf part → byte-identical single-level output.
@@ -263,9 +265,13 @@ function valueCollectionLoadLinesById(agg: EnrichedAggregateIR, ctx: BoundedCont
 
 /** Array read path (findManyByIds / find*): bulk-load each value-object
  *  collection across `rootIds` into a per-parent `Map`, ordered. */
-function bulkLoadValueCollectionLines(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
+function bulkLoadValueCollectionLines(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  ids = "rootIds",
+): string[] {
   return valueCollectionsFor(agg).flatMap((vc) => [
-    `    const ${vc.fieldName}Rows = await this.db.select().from(schema.${vc.tableConst}).where(inArray(schema.${vc.tableConst}.parentId, rootIds)).orderBy(schema.${vc.tableConst}.ordinal);`,
+    `    const ${vc.fieldName}Rows = await this.db.select().from(schema.${vc.tableConst}).where(inArray(schema.${vc.tableConst}.parentId, ${ids})).orderBy(schema.${vc.tableConst}.ordinal);`,
     `    const ${vc.fieldName}ByParent = new Map<string, ${vc.voName}[]>();`,
     `    for (const r of ${vc.fieldName}Rows) {`,
     `      const list = ${vc.fieldName}ByParent.get(r.parentId) ?? [];`,
@@ -291,7 +297,7 @@ export function findManyByIdsMethod(
     associationsOf(agg).length > 0 ||
     valueCollectionsFor(agg).length > 0;
   return lines(
-    `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
+    `  async findManyByIds(ids: ${TT.Ids}.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     `    const rootRows = await this.db.select().from(schema.${tableName}).where(${rootWhere}).orderBy(${drizzleOrderBy(tableName)});`,
     `    if (rootRows.length === 0) return [];`,
@@ -316,7 +322,7 @@ export function findByIdMethod(
   // without duplicating the body across both variants.
   const body = txCallbackBody(agg, ctx, filterPred);
   return lines(
-    `  async findById(id: Ids.${agg.name}Id): Promise<${agg.name} | null> {`,
+    `  async findById(id: ${TT.Ids}.${agg.name}Id): Promise<${agg.name} | null> {`,
     emitTrace
       ? [
           // Trace-on: wrap the existing call in try/catch + the three
@@ -378,7 +384,7 @@ function txCallbackBody(
     const targetCol = joinColumnName(assoc.targetFk);
     return [
       `      const ${assoc.fieldName}Rows = await tx.select({ t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(eq(schema.${joinConst}.${ownerCol}, id)).orderBy(schema.${joinConst}.${targetCol});`,
-      `      const ${assoc.fieldName} = ${assoc.fieldName}Rows.map((r) => Ids.${assoc.targetAgg}Id(r.t));`,
+      `      const ${assoc.fieldName} = ${assoc.fieldName}Rows.map((r) => ${T.Ids}.${assoc.targetAgg}Id(r.t));`,
     ];
   });
   return [
@@ -462,6 +468,7 @@ export function findQueryMethod(
         "total",
         "totalPages",
         "rootRows",
+        "rootIds",
         "items",
       ] as const,
       findParamBindings(find.params),
@@ -496,10 +503,10 @@ export function findQueryMethod(
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
       `      return ${pagedEnvelopeLiteral({ ...L, items: "[]" })};`,
       `    }`,
-      needsIdsLocal && `    const rootIds = ${L.rootRows}.map((r) => r.id);`,
-      ...bulkLoadContainmentLines(eagerContains, agg, ctx),
-      associationMapLines(agg, "this.db", "    "),
-      ...bulkLoadValueCollectionLines(agg, ctx),
+      needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
+      ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
+      associationMapLines(agg, "this.db", "    ", L.rootIds),
+      ...bulkLoadValueCollectionLines(agg, ctx, L.rootIds),
       `    const ${L.items} = ${L.rootRows}.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
       `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${L.items}.length`)}`,
       `    return ${pagedEnvelopeLiteral(L)};`,
@@ -521,20 +528,24 @@ export function findQueryMethod(
       eagerContains.length > 0 ||
       associationsOf(agg).length > 0 ||
       valueCollectionsFor(agg).length > 0;
+    const L = pagedLocalNames(
+      ["rootRows", "rootIds", "result"] as const,
+      findParamBindings(find.params),
+    );
     return lines(
       `  async ${find.name}(${params}): Promise<${agg.name}[]> {`,
-      `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)});`,
-      `    if (rootRows.length === 0) {`,
+      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)});`,
+      `    if (${L.rootRows}.length === 0) {`,
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
       `      return [];`,
       `    }`,
-      needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
-      ...bulkLoadContainmentLines(eagerContains, agg, ctx),
-      associationMapLines(agg, "this.db", "    "),
-      ...bulkLoadValueCollectionLines(agg, ctx),
-      `    const result = rootRows.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
-      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: result.length`)}`,
-      `    return result;`,
+      needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
+      ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
+      associationMapLines(agg, "this.db", "    ", L.rootIds),
+      ...bulkLoadValueCollectionLines(agg, ctx, L.rootIds),
+      `    const ${L.result} = ${L.rootRows}.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
+      `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${L.result}.length`)}`,
+      `    return ${L.result};`,
       `  }`,
     );
   }
@@ -555,14 +566,18 @@ export function findQueryMethod(
     eagerContains.length > 0 ||
     associationsOf(agg).length > 0 ||
     valueCollectionsFor(agg).length > 0;
+  const L = pagedLocalNames(
+    ["rootRows", "rootIds", "result"] as const,
+    findParamBindings(find.params),
+  );
   return lines(
     optional
       ? `  async ${find.name}(${params}): Promise<${agg.name} | null> {`
       : `  async ${find.name}(${params}): Promise<${agg.name}> {`,
-    `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)}).limit(1);`,
+    `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)}).limit(1);`,
     optional
       ? [
-          `    if (rootRows.length === 0) {`,
+          `    if (${L.rootRows}.length === 0) {`,
           `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
           `      return null;`,
           `    }`,
@@ -584,14 +599,14 @@ export function findQueryMethod(
         // split is the exact defect shape `not-found-by-id-detail-parity`
         // and `absent-read-envelope-parity` exist to catch; the sibling
         // gate for THIS class is `find-miss-detail-parity.test.ts`.
-        `    if (rootRows.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
-    needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
-    ...bulkLoadContainmentLines(eagerContains, agg, ctx),
-    associationMapLines(agg, "this.db", "    "),
-    ...bulkLoadValueCollectionLines(agg, ctx),
-    `    const result = ${hydrateRootForFindAllExpr(agg, "rootRows[0]!", ctx)};`,
+        `    if (${L.rootRows}.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+    needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
+    ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
+    associationMapLines(agg, "this.db", "    ", L.rootIds),
+    ...bulkLoadValueCollectionLines(agg, ctx, L.rootIds),
+    `    const ${L.result} = ${hydrateRootForFindAllExpr(agg, `${L.rootRows}[0]!`, ctx)};`,
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 1`)}`,
-    `    return result;`,
+    `    return ${L.result};`,
     `  }`,
   );
 }
@@ -616,12 +631,17 @@ export function findQueryMethod(
  *  in-process access, not the payload.)  Cross-aggregate eager-fetch
  *  (`self.lines[].product`) is the separate v2 hydration concern.  The
  *  regression guard in retrieval-emit.test.ts pins that whole and an
- *  explicit-`loads` retrieval emit the identical body. */
+ *  explicit-`loads` retrieval emit the identical body.
+ *
+ *  `mapRow` replaces the relational bulk-load + hydrate with a per-row
+ *  `(row) => …` mapper: the `shape: embedded` root keeps real columns (so the
+ *  query is this one) but folds its containments into the row's jsonb. */
 export function runMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   ctx: EnrichedBoundedContextIR,
   filterPred: string | null = null,
+  mapRow?: string,
 ): string {
   const tableName = repoTableName(agg, ctx);
   const methodName = `run${upperFirst(retrieval.name)}`;
@@ -630,7 +650,13 @@ export function runMethod(
   const baseParams = retrieval.params.map(
     (p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`,
   );
-  const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
+  // The method's own names — its call-site `page` and every local the body
+  // declares — step aside for a same-named retrieval param.
+  const L = pagedLocalNames(
+    ["page", "query", "rootRows", "rootIds", "result", "currentUser"] as const,
+    findParamBindings(retrieval.params),
+  );
+  const params = [...baseParams, `${L.page}?: { offset?: number; limit?: number }`].join(", ");
 
   // `where` → Drizzle predicate, AND-ed with the aggregate's read scope (the
   // TPH `kind` scope and every filter).
@@ -651,10 +677,12 @@ export function runMethod(
     : lowered.expr;
   // A capability `filter` is always-on for every root read — including
   // criterion retrievals.  AND it into the retrieval's own `where` exactly as
-  // the find path does (buildFindWhereClause); retrievals carry no `ignoring`
-  // bypass, so the full predicate applies.  Omitting it leaked soft-deleted /
-  // other-tenant rows through `run<Name>` (silent gap).
-  const whereClause = `.where(${combinePredicate(whereInner, filterPred)})`;
+  // the find path does (buildFindWhereClause).  Omitting it leaked
+  // soft-deleted / other-tenant rows through `run<Name>` (silent gap).  A
+  // widened read's own retrieval (`… ignoring …`) drops the restrictions its
+  // stance names; the shared retrieval carries no stance.
+  const readPred = readFilterPred(agg, ctx, filterPred, retrieval);
+  const whereClause = `.where(${combinePredicate(whereInner, readPred)})`;
 
   // `sort` → `.orderBy(asc(col), desc(col), …, asc(id))`: the declared terms
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
@@ -689,23 +717,27 @@ export function runMethod(
   const bindsPrincipal = exprUsesCurrentUser(retrieval.where);
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
-    bindsPrincipal && `    const currentUser = requireCurrentUser();`,
+    bindsPrincipal && `    const ${L.currentUser} = requireCurrentUser();`,
     // `page` is optional — apply limit / offset only when supplied.
-    `    let query = this.db.select().from(schema.${tableName})${whereClause}${orderByClause}.$dynamic();`,
-    `    if (page?.limit !== undefined) query = query.limit(page.limit);`,
-    `    if (page?.offset !== undefined) query = query.offset(page.offset);`,
-    `    const rootRows = await query;`,
-    `    if (rootRows.length === 0) {`,
+    `    let ${L.query} = this.db.select().from(schema.${tableName})${whereClause}${orderByClause}.$dynamic();`,
+    `    if (${L.page}?.limit !== undefined) ${L.query} = ${L.query}.limit(${L.page}.limit);`,
+    `    if (${L.page}?.offset !== undefined) ${L.query} = ${L.query}.offset(${L.page}.offset);`,
+    `    const ${L.rootRows} = await ${L.query};`,
+    `    if (${L.rootRows}.length === 0) {`,
     `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: 0`)}`,
     `      return [];`,
     `    }`,
-    needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
-    ...bulkLoadContainmentLines(eagerContains, agg, ctx),
-    associationMapLines(agg, "this.db", "    "),
-    ...bulkLoadValueCollectionLines(agg, ctx),
-    `    const result = rootRows.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
-    `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: result.length`)}`,
-    `    return result;`,
+    ...(mapRow
+      ? [`    const ${L.result} = ${L.rootRows}.map(${mapRow});`]
+      : [
+          needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
+          ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
+          associationMapLines(agg, "this.db", "    ", L.rootIds),
+          ...bulkLoadValueCollectionLines(agg, ctx, L.rootIds),
+          `    const ${L.result} = ${L.rootRows}.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
+        ]),
+    `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: ${L.result}.length`)}`,
+    `    return ${L.result};`,
     `  }`,
   );
 }
@@ -747,7 +779,7 @@ export function buildFindWhereClause(
 }
 
 function tsTypeForReturn(t: TypeIR): string {
-  if (t.kind === "id") return `Ids.${t.targetName}Id`;
+  if (t.kind === "id") return `${TT.Ids}.${t.targetName}Id`;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":

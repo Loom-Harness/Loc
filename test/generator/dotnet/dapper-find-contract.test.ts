@@ -41,7 +41,7 @@ system Shop {
 describe("dapper repository — single-row contract", () => {
   it("A19: a relational find(C) reads the FIRST row, with the limit pushed to the database", async () => {
     const files = await generateSystemFiles(REL_SRC);
-    const handler = files.get("api/Application/Products/Queries/bySkuHandler.cs")!;
+    const handler = files.get("api/Application/Products/Queries/BySkuHandler.cs")!;
     const impl = files.get("api/Infrastructure/Repositories/ProductRepository.cs")!;
     // The call site asks the criterion's retrieval for at most one row and
     // takes the first — never a strict single-row read.
@@ -51,7 +51,7 @@ describe("dapper repository — single-row contract", () => {
     expect(handler).toContain("var p = __pHits.Count > 0 ? __pHits[0] : null;");
     // …and the retrieval pushes that limit into the SQL.
     expect(impl).toContain(
-      'var sql = "SELECT id, sku, name, version FROM products WHERE (sku = @sku)";',
+      'var sql = "SELECT id, sku, name, row_version FROM products WHERE (sku = @sku) ORDER BY id ASC";',
     );
     expect(impl).toContain(
       'if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }',
@@ -62,7 +62,7 @@ describe("dapper repository — single-row contract", () => {
       ...impl.matchAll(/QuerySingleOrDefaultAsync<Row>\(new CommandDefinition\("([^"]*)"/g),
     ];
     expect(strict.map((m) => m[1])).toEqual([
-      "SELECT id, sku, name, version FROM products WHERE id = @id",
+      "SELECT id, sku, name, row_version FROM products WHERE id = @id",
     ]);
   });
 });

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectReach } from "../_helpers/census-reach.js";
 
 // ---------------------------------------------------------------------------
 // Repository-verb census (D-REPOSITORY-CONTRACT).
@@ -153,6 +154,10 @@ describe("repository-verb census", () => {
   const files: string[] = [];
   walk(SRC, files);
   const hits = censusSites(files);
+
+  it("reaches src/", () => {
+    expectReach("src/ files", files.length, 1050);
+  });
 
   it("no module outside the contract and the lowerers dispatches on a verb spelling", () => {
     const unwaived = [...hits.entries()]

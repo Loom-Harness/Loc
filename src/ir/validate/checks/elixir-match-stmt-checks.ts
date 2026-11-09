@@ -8,8 +8,8 @@
 // render it in each:
 //
 //   * an operation body threads its rebound `record` through a value-producing
-//     `case` (`vanilla/match-stmt-emit.ts`, the `if` statement's pattern): every
-//     clause ends in `record`, and the whole expression rebinds it;
+//     `case` (`vanilla/match-stmt-emit.ts`): every clause ends in `record`, and
+//     the whole expression rebinds it;
 //   * a domain-service body is a tail value, so a tail `match` whose every arm
 //     `return`s IS the function's value;
 //   * a workflow / handler body is a `with`-chain, so the `match` is one
@@ -21,8 +21,7 @@
 // for an `error` one — so each arm is a tuple pattern; a `T?` subject is a
 // presence `if`.
 //
-// FIVE sub-shapes stay refused, each with its own `#slug` (the
-// `loom.elixir-if-stmt-unsupported` pattern, and for the same reasons):
+// FIVE sub-shapes stay refused, each with its own `#slug`:
 //
 //   * `#return-in-arm` — a `return` in an arm of an operation body, or a
 //     non-tail one in a domain-service body: an Elixir body has no early exit.
@@ -30,9 +29,9 @@
 //     operation or domain-service body: the op path hoists guards into a
 //     leading `with :ok <- ensure(…)` chain (403 / 422); a nested one would
 //     fall through to the inline `raise` and answer 500.
-//   * `#arm-statement` — a statement kind outside the arm vocabulary the
-//     `if` statement's branch already has (an `emit`, a provenanced write): the
-//     supporting machinery is decided by one-level scans of the body.
+//   * `#arm-statement` — a statement kind outside the closed arm vocabulary
+//     (an `emit`, a provenanced write): the supporting machinery is decided
+//     by one-level scans of the body.
 //   * `#event-sourced` — any statement `match` in an event-sourced command
 //     body or `eventSourced` workflow handler, which is sorted into
 //     `with`-clauses / `let`s / an `events = […]` list rather than rendered as
@@ -43,7 +42,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { variantTag } from "../../stdlib/unions.js";
+import { typeKey, variantTag } from "../../stdlib/unions.js";
 import type {
   BoundedContextIR,
   EnrichedLoomModel,
@@ -54,7 +53,87 @@ import type {
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import { walkStmtDeep, walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { anyStmtDeep, type ElixirIfBodyKind, returnsAreTailOnly } from "./if-stmt-checks.js";
+
+/** True when any statement reachable from `s` (itself included, and inside a
+ *  block-body lambda it carries) matches `pred`.  Rides `walkStmtDeep` rather
+ *  than hand-enumerating children — the `ir-walk-census` rule. */
+function anyStmtDeep(s: StmtIR, pred: (n: StmtIR) => boolean): boolean {
+  let found = false;
+  walkStmtDeep(s, (n) => {
+    if (pred(n)) found = true;
+  });
+  return found;
+}
+
+/** How the vanilla Phoenix emitters render the body a statement `match` sits
+ *  in — which is what decides whether a given arm shape is expressible there.
+ *
+ *  - `"operation"` — an aggregate operation body (`operation-returns-emit.ts`,
+ *    reused by `context-emit.ts` + `document-emit.ts`).  The body threads a
+ *    REBOUND `record` and the caller APPENDS a persist / success tail after it,
+ *    so an arm may assign (rebinding through the value-producing `case`) but
+ *    cannot `return` early.
+ *  - `"value"` — a pure `function` body (`function-emit.ts`) or a
+ *    `domainService` operation body (`domain-service-emit.ts`).  Nothing is
+ *    appended: the body's value IS its tail expression, so a TAIL `match`
+ *    whose every arm ends in `return` renders exactly (the `case` becomes the
+ *    function's value).
+ *  - `"event-sourced"` — an ES command body (`eventsourced-emit.ts`), which is
+ *    not rendered as a statement sequence at all. */
+export type ElixirIfBodyKind = "operation" | "value" | "event-sourced";
+
+/** True when a statement `match` runs a block on every value its subject can
+ *  hold: it has an `else`, or its arms name every variant (both sides of a
+ *  `T?`).  A match that does not cover its subject runs nothing on the
+ *  uncovered values — in a tail-value body that path answers `nil`. */
+function matchCoversSubject(s: Extract<StmtIR, { kind: "variant-match" }>): boolean {
+  if (s.elseBody) return true;
+  const named = new Set(s.arms.map((a) => typeKey(a.varType)));
+  const t = s.subjectType;
+  if (t?.kind === "optional")
+    return named.has(typeKey(t.inner)) && named.has(typeKey({ kind: "none" }));
+  if (t?.kind === "union") return t.variants.every((v) => named.has(typeKey(v)));
+  return false;
+}
+
+/** Every `return` reachable in `stmts` is in TAIL position of its own block —
+ *  the shape a `"value"` body can render, because the block's last expression
+ *  IS its value.  A non-tail `return` (or a tail `if` missing its `else`, or a
+ *  tail `match` that does not cover its subject, whose uncovered path would
+ *  answer `nil` instead of a branch's value) is not. */
+export function returnsAreTailOnly(stmts: readonly StmtIR[]): boolean {
+  for (let i = 0; i < stmts.length; i++) {
+    const s = stmts[i]!;
+    const isLast = i === stmts.length - 1;
+    if (s.kind === "return") {
+      if (!isLast) return false;
+      continue;
+    }
+    if (s.kind === "if") {
+      if (!isLast) {
+        if (anyStmtDeep(s, (n) => n.kind === "return")) return false;
+        continue;
+      }
+      if (!s.elseBody || s.elseBody.length === 0) {
+        return !anyStmtDeep(s, (n) => n.kind === "return");
+      }
+      if (!returnsAreTailOnly(s.thenBody)) return false;
+      if (!returnsAreTailOnly(s.elseBody)) return false;
+      continue;
+    }
+    if (s.kind === "variant-match") {
+      if (!isLast || !matchCoversSubject(s)) {
+        if (anyStmtDeep(s, (n) => n.kind === "return")) return false;
+        continue;
+      }
+      if (!s.arms.every((a) => returnsAreTailOnly(a.body))) return false;
+      if (s.elseBody && !returnsAreTailOnly(s.elseBody)) return false;
+      continue;
+    }
+    if (anyStmtDeep(s, (n) => n.kind === "return")) return false;
+  }
+  return true;
+}
 
 export type ElixirMatchRefusal =
   | "return-in-arm"
@@ -63,10 +142,9 @@ export type ElixirMatchRefusal =
   | "event-sourced"
   | "multi-success";
 
-/** The statement kinds an arm may contain, per body kind — the `if` branch
- *  vocabulary, closed for the same reason (see `BRANCH_VOCABULARY` in
- *  `if-stmt-checks.ts`): a new `StmtIR` kind is refused in an arm until
- *  someone decides what it means there. */
+/** The statement kinds an arm may contain, per body kind — a CLOSED
+ *  vocabulary: a new `StmtIR` kind is refused in an arm until someone decides
+ *  what it means there. */
 const ARM_VOCABULARY: Readonly<Record<ElixirIfBodyKind, ReadonlySet<StmtIR["kind"]>>> = {
   operation: new Set([
     "assign",

@@ -35,6 +35,7 @@ import {
   unreadableCollections,
   unrenderableInvariants,
 } from "../../../ir/util/changeset-invariant-carrier.js";
+import { ruleMembers } from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { pickErrorPath, singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
@@ -297,4 +298,120 @@ ${normBlock}${checks.join("\n\n")}
  *  operation-persist pipe runs it instead of `validate_invariants/1`. */
 export function aggregateHasDomainFloorCodes(agg: Pick<AggregateIR, "invariants">): boolean {
   return residualInvariants(agg).some((inv) => inv.message);
+}
+
+/** The merge-patch update's invariant pass (RS-47) — `validate_invariants/1`
+ *  over the merged struct, with each MESSAGED error re-staged by what the patch
+ *  carried: a rule whose every member the patch carried stays on the wire rung
+ *  (the other four backends judge it in their request validator), and one over
+ *  a member the patch left out moves to the DOMAIN FLOOR, which is where they
+ *  judge the merged state.  `attrs` is the snake-keyed patch.  Empty string when
+ *  no residual rule carries a message. */
+export function renderPatchInvariantFn(
+  agg: Pick<AggregateIR, "invariants" | "fields" | "operations">,
+): string {
+  const messaged = residualInvariants(agg).filter((inv) => inv.message);
+  if (messaged.length === 0) return "";
+  const update = (agg.operations ?? []).find((op) => op.name === "update");
+  const available = new Set((update?.params ?? []).map((p) => p.name));
+  const fallbackField = agg.fields?.[0]?.name ?? "id";
+  const seen = new Set<string>();
+  const clauses: string[] = [];
+  for (const inv of messaged) {
+    const field = snake(pickErrorPath(inv) ?? fallbackField);
+    const msg = elixirString(inv.message!.text);
+    const key = `${field}\u0000${msg}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const members = ruleMembers(inv, available).map((m) => JSON.stringify(snake(m)));
+    clauses.push(`  defp __patch_members(:${field}, ${msg}), do: [${members.join(", ")}]`);
+  }
+  return `  @doc "The merge-patch update's invariants — a rule over a key the patch did not carry is judged on the merged state at the domain floor."
+  def validate_patch_invariants(changeset, attrs) do
+    before = length(changeset.errors)
+    checked = validate_invariants(changeset)
+    {added, kept} = Enum.split(checked.errors, length(checked.errors) - before)
+    staged = Enum.map(added, &__patch_stage(&1, attrs))
+    {floor, wire} = Enum.split_with(staged, fn {_, {_, opts}} -> Keyword.get(opts, :loom_domain_floor, false) end)
+
+    # The wire rung refuses first: the domain floor never runs on a refused patch.
+    if wire == [] and kept == [],
+      do: %{checked | errors: floor},
+      else: %{checked | errors: wire ++ kept}
+  end
+
+  defp __patch_stage({field, {msg, opts}} = error, attrs) do
+    carried = Enum.all?(__patch_members(field, msg), &Map.has_key?(attrs, &1))
+
+    if carried or not Keyword.has_key?(opts, :loom_code),
+      do: error,
+      else: {field, {msg, Keyword.put(opts, :loom_domain_floor, true)}}
+  end
+
+${clauses.join("\n")}
+  defp __patch_members(_field, _msg), do: []`;
+}
+
+/** The collection-valued names a rule can read — a collection CONTAINMENT and a
+ *  value-collection (array) field. */
+function collectionFieldNames(
+  agg: Pick<AggregateIR, "fields"> & Partial<Pick<AggregateIR, "contains">>,
+): Set<string> {
+  return new Set<string>([
+    ...(agg.contains ?? []).filter((c) => c.collection).map((c) => c.name),
+    ...(agg.fields ?? []).filter((f) => f.type.kind === "array").map((f) => f.name),
+  ]);
+}
+
+/** The message-less invariants an operation persist re-asserts as the
+ *  operation's DOMAIN THROW (`assert_op_invariants/1`): every renderable
+ *  message-less rule, single-field and cross-field alike, except one that reads
+ *  a collection (it stays on `validate_invariants/1`, whose `NotLoaded`
+ *  normalisation it needs).  A messaged rule keeps its coded domain-floor path. */
+export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
+  const opaque = unreadableCollections(agg);
+  const collections = collectionFieldNames(agg);
+  return (agg.invariants ?? []).filter(
+    (inv) =>
+      inv.message == null &&
+      renderableHere(inv, opaque) &&
+      referencedContainments(inv, collections).length === 0,
+  );
+}
+
+/** `assert_op_invariants/1` — the operation persist's invariant floor.  Node,
+ *  .NET, Java and Python assert every invariant after an operation body and
+ *  throw the FIRST violated one in declaration order as a domain error, answered
+ *  as 422 "Unprocessable Entity" with `Invariant violated: <rule>` as `detail`
+ *  and no `errors[]`.  The elixir persist is a changeset, so the first violation
+ *  is added as one error tagged `loom_invariant`; `ProblemDetails` answers that
+ *  tag with the same body.  Empty when the aggregate has no such rule. */
+export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: string): string {
+  const rules = opAssertedInvariants(agg);
+  if (rules.length === 0) return "";
+  const rc: RenderCtx = {
+    thisName: "data",
+    contextModule,
+    agg: { derived: agg.derived ?? [] } as RenderCtx["agg"],
+  };
+  const fallbackField = agg.fields?.[0]?.name ?? "id";
+  const arms = rules.map((inv) => {
+    const violated = inv.guard
+      ? `(${renderExpr(inv.guard, rc)}) && !(${renderExpr(inv.expr, rc)})`
+      : `!(${renderExpr(inv.expr, rc)})`;
+    const field = snake(pickErrorPath(inv) ?? fallbackField);
+    const msg = elixirString(`Invariant violated: ${inv.source}`);
+    return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
+  });
+  return `  @doc "Re-assert the aggregate's message-less invariants after an operation body — the first violated one is the operation's domain error (422, \`Invariant violated: <rule>\`), as on the other four backends."
+  def assert_op_invariants(changeset) do
+    data = apply_changes(changeset)
+
+    cond do
+${arms.join("\n\n")}
+
+      true ->
+        changeset
+    end
+  end`;
 }

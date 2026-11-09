@@ -65,12 +65,10 @@ describe("read-argument live-refetch — Vue", () => {
     );
   });
 
-  // KNOWN DEFECT: when the state cell has the SAME name as the read's
-  // parameter, the Vue page renders the query key through the state-ref
-  // rewrite too — `() => ({ status.value: status.value, … })`, a syntax error.
-  // `it.fails` keeps the expectation on record; drop the `.fails` once the key
-  // stays the bare parameter name.
-  it.fails("a state cell named like the parameter keeps the bare key", async () => {
+  // A state cell with the SAME name as the read's parameter: the state-ref
+  // rewrite must leave the object KEY bare (`{ status: status.value }`), never
+  // `{ status.value: status.value }`.
+  it("a state cell named like the parameter keeps the bare key", async () => {
     const page = (await files("vue", "web/", "status")).get("src/pages/by_status.vue")!;
     expect(page).toContain("useFindAllByInStatusOrder(() => ({ status: status.value,");
   });

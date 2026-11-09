@@ -1,5 +1,6 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import { foldProducersOf, foldTenancyVerdict } from "../../enrich/fold-tenancy.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
@@ -486,6 +487,61 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
+/** A folded (`on(e: …)`) projection under `tenancy by` whose folded events
+ *  come from BOTH `crossTenant` aggregates and tenant-scoped producers is
+ *  refused: a scoped fold row is keyed and read by the event's tenant, and a
+ *  `crossTenant` event carries none, so its fold would land under whichever
+ *  tenant raised it (or none) — neither the shared row the `crossTenant`
+ *  producer means nor a row the tenant owns.  A fold over only `crossTenant`
+ *  producers is exempt (no tenant to leak); every other fold is tenant-scoped
+ *  (`fold-tenancy.ts`). */
+function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  if (!sys.tenancy) return;
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      for (const p of ctx.projections ?? []) {
+        const source = p.query?.sourceKind === "projection" ? p.query.source : undefined;
+        if (source !== undefined) {
+          // A query-time projection over a tenant-scoped fold would read the
+          // fold's rows through the raw-table query path, which applies no
+          // read scope — every tenant's rows.
+          const home = sd.contexts.find((c) => c.name === (p.query?.sourceContext ?? ctx.name));
+          const folded = home?.projections.find((x) => x.name === source);
+          if (folded && foldTenancyVerdict(folded, sys) === "scoped") {
+            diags.push({
+              severity: "error",
+              code: "loom.tenancy-projection-over-scoped-fold",
+              message: diagMessage("loom.tenancy-projection-over-scoped-fold", {
+                name: p.name,
+                ctxName: ctx.name,
+                source,
+              }),
+              source: `${ctx.name}/${p.name}`,
+              origin: p.origin,
+            });
+          }
+          continue;
+        }
+        if (foldTenancyVerdict(p, sys) !== "mixed") continue;
+        const producers = foldProducersOf(p, sys);
+        const quote = (xs: string[]): string => xs.map((x) => `'${x}'`).join(", ");
+        diags.push({
+          severity: "error",
+          code: "loom.tenancy-folded-projection-mixed",
+          message: diagMessage("loom.tenancy-folded-projection-mixed", {
+            name: p.name,
+            ctxName: ctx.name,
+            crossTenant: quote(producers.crossTenant),
+            scoped: quote([...producers.tenantOwned, ...producers.other]),
+          }),
+          source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
+        });
+      }
+    }
+  }
+}
+
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateOrgContextGate(sys, diags);
   validateTenantRegistry(sys, diags);
@@ -493,6 +549,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validatePolicyReadLevels(sys, diags);
   validatePolicyWriteLevels(sys, diags);
   validatePolicyDenies(sys, diags);
+  validateFoldedProjectionTenancy(sys, diags);
   const tenancy = sys.tenancy;
 
   // Registry existence is a LINKING concern since 1b.1 — `of <Registry>` is a
@@ -504,7 +561,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
     // The derived registry self-scope filter compares
     // `<Registry>.id == currentUser.<claim>` — the `tenantId ≡
     // <Registry>.id` identity — so the claim's declared type must bind
-    // against the registry's id value type: same-typed always works, and a
+    // against the registry's guid id: a `guid` claim always works, and a
     // `string` claim binds as a guid at each backend's accessor site
     // (`tenancyClaimBinding`).  Anything else can't compare on any backend —
     // reject with the fix spelled out rather than emitting a filter that
@@ -514,11 +571,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
       .flatMap((ctx) => ctx.aggregates)
       .find((a) => a.name === tenancy.registryName);
     const claimType = sys.user?.fields.find((f) => f.name === tenancy.claimField)?.type;
-    if (
-      registry &&
-      claimType &&
-      tenancyClaimBinding(registry.idValueType, claimType) === "mismatch"
-    ) {
+    if (registry && claimType && tenancyClaimBinding(claimType) === "mismatch") {
       diags.push({
         severity: "error",
         code: "loom.tenancy-claim-type-mismatch",
@@ -527,11 +580,6 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
           claimField: tenancy.claimField,
           claimType: typeName(claimType),
           registryName: registry.name,
-          idValueType: registry.idValueType,
-          idValueType2:
-            registry.idValueType === "guid"
-              ? ` (or '${tenancy.claimField}: string', bound as a guid at the accessor site)`
-              : "",
         }),
         source: `${sys.name}/tenancy`,
       });

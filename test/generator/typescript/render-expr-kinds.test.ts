@@ -8,9 +8,11 @@
 // with no IO or class instantiation.
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderTsExpr, renderTsType } from "../../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import type { ExprOf } from "../../_helpers/ir-builders.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
 const INT: TypeIR = { kind: "primitive", name: "int" };
@@ -481,9 +483,11 @@ describe("ts renderTsExpr — unary `-` on money (A11)", () => {
     ).toBe("this._total.neg()");
   });
 
-  it("keeps `-int` on the native operator (int/decimal are plain `number` here)", () => {
+  it("keeps `-int` on the native operator under the RS-48 range guard", () => {
     expect(
-      renderTsExpr({ kind: "unary", op: "-", operand: { ...thisProp("qty"), type: INT } }),
+      uncheckedInt(
+        renderTsExpr({ kind: "unary", op: "-", operand: { ...thisProp("qty"), type: INT } }),
+      ),
     ).toBe("-this._qty");
   });
 
@@ -830,11 +834,13 @@ describe("ts renderTsExpr — lambda, new, list, object", () => {
 
   it("renders entity-part constructor with id + parentId boilerplate", () => {
     expect(
-      renderTsExpr({
-        kind: "new",
-        partName: "LineItem",
-        fields: [{ name: "sku", value: litStr("ABC") }],
-      }),
+      spellMarkers(
+        renderTsExpr({
+          kind: "new",
+          partName: "LineItem",
+          fields: [{ name: "sku", value: litStr("ABC") }],
+        }),
+      ),
     ).toBe('LineItem._create({ id: Ids.newLineItemId(), parentId: this._id, sku: "ABC" })');
   });
 
@@ -902,11 +908,6 @@ describe("ts renderTsType — generic carriers (P3b)", () => {
     expect(renderTsType(t)).toBe(
       "{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }",
     );
-  });
-
-  it("renders `envelope` as { id; ts; body }", () => {
-    const t: TypeIR = { kind: "genericInstance", ctor: "envelope", arg: STRING };
-    expect(renderTsType(t)).toBe("{ id: string; ts: Date; body: string }");
   });
 });
 

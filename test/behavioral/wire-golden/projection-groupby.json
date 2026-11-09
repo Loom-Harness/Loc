@@ -204,9 +204,9 @@
         "id": "<volatile:key>",
         "lineCount": 2,
         "placedAt": "<timestamp>",
+        "rowVersion": 1,
         "status": "Confirmed",
-        "total": "10.0000",
-        "version": 1
+        "total": "10.0000"
       }
     },
     {
@@ -223,9 +223,9 @@
             "id": "<volatile:key>",
             "lineCount": 2,
             "placedAt": "<timestamp>",
+            "rowVersion": 1,
             "status": "Confirmed",
-            "total": "10.0000",
-            "version": 1
+            "total": "10.0000"
           },
           {
             "code": "O-2",
@@ -234,9 +234,9 @@
             "id": "<volatile:key>",
             "lineCount": 4,
             "placedAt": "<timestamp>",
+            "rowVersion": 1,
             "status": "Confirmed",
-            "total": "30.0000",
-            "version": 1
+            "total": "30.0000"
           },
           {
             "code": "O-3",
@@ -245,9 +245,9 @@
             "id": "<volatile:key>",
             "lineCount": 1,
             "placedAt": "<timestamp>",
+            "rowVersion": 2,
             "status": "Confirmed",
-            "total": "5.0000",
-            "version": 2
+            "total": "5.0000"
           }
         ],
         "page": 1,
@@ -266,12 +266,12 @@
           {
             "id": "<volatile:key>",
             "name": "Acme",
-            "version": 1
+            "rowVersion": 1
           },
           {
             "id": "<volatile:key>",
             "name": "Globex",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -288,7 +288,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Acme",
-        "version": 1
+        "rowVersion": 1
       }
     },
     {
@@ -306,7 +306,7 @@
       "body": {
         "id": "<volatile:key>",
         "name": "Globex Inc",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -446,18 +446,12 @@
       "seq": 33,
       "method": "POST",
       "path": "/api/customers/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "name is required",
-            "pointer": "/name"
-          }
-        ],
+        "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

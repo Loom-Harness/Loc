@@ -191,7 +191,7 @@ system FulfillmentSys {
     expect(persistAt).toBeLessThan(dispatchAt);
     // Wire projected off the SAVED struct, not the in-memory record.
     expect(body).toContain("{:ok, saved} ->");
-    expect(body).toContain("{:ok, %{id: saved.id");
+    expect(body).toContain('{:ok, %{type: "Order", id: saved.id');
   });
 
   it("a NON-emitting op keeps the byte-identical plain persist pipe (no case restructure)", async () => {
@@ -203,7 +203,7 @@ system FulfillmentSys {
     expect(body).toContain(`    record
     |> Ecto.Changeset.change(%{})
     |> Ecto.Changeset.force_change(:status, record.status)
-    |> Ecto.Changeset.optimistic_lock(:version)
+    |> Ecto.Changeset.optimistic_lock(:row_version)
     |> Api.Ordering.OrderRepository.persist_change()`);
     // No persist_change `case`, no broadcast/dispatch.
     expect(body).not.toContain("case Api.Ordering.OrderRepository.persist_change");

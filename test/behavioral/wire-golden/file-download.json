@@ -19,8 +19,8 @@
       "body": {
         "doc": null,
         "id": "<volatile:key>",
-        "title": "spec.pdf",
-        "version": 1
+        "rowVersion": 1,
+        "title": "spec.pdf"
       }
     },
     {
@@ -31,8 +31,8 @@
       "body": {
         "doc": null,
         "id": "<volatile:key>",
-        "title": "spec.pdf",
-        "version": 1
+        "rowVersion": 1,
+        "title": "spec.pdf"
       }
     },
     {
@@ -45,8 +45,8 @@
           {
             "doc": null,
             "id": "<volatile:key>",
-            "title": "spec.pdf",
-            "version": 1
+            "rowVersion": 1,
+            "title": "spec.pdf"
           }
         ],
         "page": 1,
@@ -70,8 +70,8 @@
       "body": {
         "doc": null,
         "id": "<volatile:key>",
-        "title": "spec-v2.pdf",
-        "version": 2
+        "rowVersion": 2,
+        "title": "spec-v2.pdf"
       }
     },
     {
@@ -150,18 +150,12 @@
       "seq": 12,
       "method": "POST",
       "path": "/api/attachments/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "title is required",
-            "pointer": "/title"
-          }
-        ],
+        "detail": "Attachment {id} not found",
         "instance": "/api/attachments/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

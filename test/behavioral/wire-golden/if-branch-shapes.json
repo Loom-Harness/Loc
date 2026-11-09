@@ -1,0 +1,602 @@
+{
+  "case": "if-branch-shapes",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 200,
+      "body": {
+        "code": "O1",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "Shipped",
+        "stock": 1,
+        "type": "Order"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 409,
+      "body": {
+        "code": "O1",
+        "detail": "Already Shipped",
+        "instance": "/api/orders/{id}/ship",
+        "status": 409,
+        "title": "Already Shipped",
+        "type": "/errors/already-shipped"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O1",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "Shipped",
+        "stock": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/orders/{id}/classify",
+      "status": 200,
+      "body": {
+        "q": 3,
+        "type": "Big"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/orders/{id}/classify",
+      "status": 200,
+      "body": {
+        "q": 1,
+        "type": "Small"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/orders/{id}/restock",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O1",
+        "id": "<volatile:key>",
+        "rowVersion": 5,
+        "status": "Shipped",
+        "stock": 6
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/orders/{id}/restock",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O1",
+        "id": "<volatile:key>",
+        "rowVersion": 6,
+        "status": "Shipped",
+        "stock": 206
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/orders/{id}/restock",
+      "status": 422,
+      "body": {
+        "detail": "too much stock for a bulk restock",
+        "errors": [
+          {
+            "code": "msg.esprod",
+            "message": "too much stock for a bulk restock",
+            "pointer": "/stock"
+          }
+        ],
+        "instance": "/api/orders/{id}/restock",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O1",
+        "id": "<volatile:key>",
+        "rowVersion": 6,
+        "status": "Shipped",
+        "stock": 206
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/tallies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/tallies/{id}/add",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 4,
+        "rowVersion": 2,
+        "total": {
+          "lineage": null,
+          "value": 0
+        }
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 4,
+        "rowVersion": 2,
+        "total": {
+          "lineage": null,
+          "value": 0
+        }
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/tallies/{id}/add",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 12,
+        "rowVersion": 3,
+        "total": {
+          "lineage": {
+            "computedValue": 24,
+            "inputs": [
+              {
+                "path": "qty",
+                "value": 12
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Tally"
+            }
+          },
+          "value": 24
+        }
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 12,
+        "rowVersion": 3,
+        "total": {
+          "lineage": {
+            "computedValue": 24,
+            "inputs": [
+              {
+                "path": "qty",
+                "value": 12
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Tally"
+            }
+          },
+          "value": 24
+        }
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 530,
+        "bigDeposits": 1,
+        "id": "<volatile:key>",
+        "owner": "ann"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 422,
+      "body": {
+        "detail": "a large withdrawal needs twice the amount",
+        "errors": [
+          {
+            "code": "msg.xhml6w",
+            "message": "a large withdrawal needs twice the amount",
+            "pointer": ""
+          }
+        ],
+        "instance": "/api/accounts/{id}/withdraw",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 310,
+        "bigDeposits": 1,
+        "id": "<volatile:key>",
+        "owner": "ann"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": [
+        {
+          "balance": 310,
+          "bigDeposits": 1,
+          "id": "<volatile:key>",
+          "owner": "ann"
+        }
+      ]
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "O2",
+        "id": "<volatile:key>",
+        "rowVersion": 7,
+        "status": "Shipped",
+        "stock": 206
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "O2",
+            "id": "<volatile:key>",
+            "rowVersion": 7,
+            "status": "Shipped",
+            "stock": 206
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 31,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 32,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/tallies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "qty": 1,
+        "rowVersion": 4,
+        "total": {
+          "lineage": {
+            "computedValue": 0,
+            "inputs": [
+              {
+                "path": "total",
+                "value": 0
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Tally"
+            }
+          },
+          "value": 0
+        }
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/tallies",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "qty": 1,
+            "rowVersion": 4,
+            "total": {
+              "lineage": {
+                "computedValue": 0,
+                "inputs": [
+                  {
+                    "path": "total",
+                    "value": 0
+                  }
+                ],
+                "snapshotId": "<volatile:key>",
+                "target": {
+                  "field": "total",
+                  "type": "Tally"
+                }
+              },
+              "value": 0
+            }
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 36,
+      "method": "DELETE",
+      "path": "/api/tallies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Tally {id} not found",
+        "instance": "/api/tallies/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 38,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 39,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 40,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/ship",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/ship",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/orders/{id}/ship",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/orders/{id}/classify",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "q is required",
+            "pointer": "/q"
+          }
+        ],
+        "instance": "/api/orders/{id}/classify",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

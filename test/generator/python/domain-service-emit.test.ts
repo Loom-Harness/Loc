@@ -6,8 +6,7 @@
 // scope via `from app.domain.services.pricing import quote`).
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const FIXTURE = `system PyServices {
   subdomain Sales {
@@ -57,9 +56,7 @@ const FIXTURE = `system PyServices {
 `;
 
 async function build() {
-  const { model, errors } = await parseString(FIXTURE);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(FIXTURE);
 }
 
 describe("python generator — domainService", () => {

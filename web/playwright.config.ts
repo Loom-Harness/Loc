@@ -22,6 +22,8 @@ const HEAVY_PREVIEW_SPECS = [
   "**/*-preview-runtime.spec.ts",
   "**/preview-shadcn.spec.ts",
   "**/runtime.spec.ts",
+  "**/multi-backend-runtime.spec.ts",
+  "**/cross-deployable-runtime.spec.ts",
 ];
 
 export default defineConfig({

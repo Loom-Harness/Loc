@@ -4,6 +4,7 @@ import {
   UI_BODY_FEATURE_RENDERERS,
   type UiBodyFeature,
 } from "../../src/ir/validate/checks/ui-body-vocabulary-checks.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -142,7 +143,7 @@ const PROBES: readonly Probe[] = [
     host: { page: "let l = s  s := l.frob()" },
     expect: { refused: "loom.intrinsic-unknown" },
   },
-  { id: "vo-fn", host: { page: "s := a.label()" }, expect: { refused: "loom.unknown-member" } },
+  { id: "vo-fn", host: { page: "s := a.caption()" }, expect: { refused: "loom.unknown-member" } },
   { id: "vo-frob", host: { page: "s := a.frob()" }, expect: { refused: "loom.unknown-member" } },
   {
     id: "lambda-unknown-method",
@@ -221,7 +222,7 @@ const PROBES: readonly Probe[] = [
   {
     id: "find-list-param",
     host: { body: QV('Order.findAllByOrdersByCustomers(["a"])') },
-    expect: { feature: "find-read-composite-param" },
+    expect: { renders: true },
   },
   {
     id: "find-row-arg",
@@ -231,18 +232,9 @@ const PROBES: readonly Probe[] = [
         `rows => For { each: rows, r => ${QV("Order.findAllByOrdersByCustomer(r.customerId)", 'xs2 => Text { "y" }')} }`,
       ),
     },
-    expect: { feature: "find-read-unbound-arg" },
+    expect: { renders: true },
   },
 ];
-
-/** Features the table still lists that no source can reach any more, so no
- *  probe can be written.  Each is dead with its emitter path; the entry goes
- *  when the row does (the test below fails on a stale one). */
-const UNPROBEABLE_FEATURES: Readonly<Partial<Record<UiBodyFeature, string>>> = {
-  "find-read-non-aggregate-return":
-    "every readable find is a synthesized paged `findAllBy<Criterion>` returning the aggregate; " +
-    "a scalar-returning find was only declarable; the row goes with the Feliz find-read route code it guarded",
-};
 
 /** Why a refused feature cell must stay refused even though the emitter does
  *  not crash on it — the silent half of the table.  Keyed `<frontend> × <probe>`. */
@@ -303,7 +295,7 @@ system Census {
   subdomain S {
     context C with scaffoldPaged(of: OrdersByCustomer), scaffoldPaged(of: OrdersByCustomers) {
       error OrderMissing { missingRef: string }
-      valueobject Addr { city: string  function label(): string { return city } }
+      valueobject Addr { city: string  function caption(): string { return city } }
       aggregate Order with crudish {
         customerId: string
         operation reserve(): Order or OrderMissing {
@@ -365,8 +357,8 @@ const TARGET_OVERRIDES: Readonly<Record<string, string>> = {
   "feliz × find-scalar": "loom.ui-read-unresolved",
   "feliz × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
   "feliz × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
-  "feliz × find-list-param": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
-  "feliz × find-row-arg": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
+  "feliz × find-list-param": "loom.ui-read-unresolved",
+  "feliz × find-row-arg": "loom.ui-read-unresolved",
   "flutter × find-scalar": "loom.ui-read-unresolved",
   "flutter × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
   "flutter × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
@@ -431,6 +423,10 @@ async function measure(fw: Frontend): Promise<Map<number, Outcome>> {
 }
 
 describe("ui-body census — every frontend × body shape renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach("frontend × probe cells", FRONTENDS.length * PROBES.length, 252);
+  });
+
   for (const fw of FRONTENDS) {
     it(fw, async () => {
       const cells = await measure(fw);
@@ -476,15 +472,7 @@ describe("ui-body census — every frontend × body shape renders or is refused"
       PROBES.flatMap((p) => ("feature" in p.expect ? [p.expect.feature] : [])),
     );
     expect(
-      Object.keys(UI_BODY_FEATURE_RENDERERS).filter(
-        (f) => !probed.has(f as UiBodyFeature) && !(f in UNPROBEABLE_FEATURES),
-      ),
-    ).toEqual([]);
-  });
-
-  it("every unprobeable feature is still in the table (the waiver ratchets)", () => {
-    expect(
-      Object.keys(UNPROBEABLE_FEATURES).filter((f) => !(f in UI_BODY_FEATURE_RENDERERS)),
+      Object.keys(UI_BODY_FEATURE_RENDERERS).filter((f) => !probed.has(f as UiBodyFeature)),
     ).toEqual([]);
   });
 });

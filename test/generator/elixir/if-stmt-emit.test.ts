@@ -3,8 +3,7 @@
 // Elixir is immutable: an aggregate body threads a REBOUND `record`, and a
 // binding made inside an `if` block does NOT escape the block.  The naive
 // rendering compiles clean under `--warnings-as-errors` and then silently does
-// nothing, which is why `loom.elixir-if-stmt-unsupported` used to refuse the
-// statement outright.  Two halves make it real, and this file pins BOTH,
+// nothing.  Two halves make it real, and this file pins BOTH,
 // because either alone still drops the write:
 //
 //   1. the `if` renders value-producing — every arm ends in `record`, the whole
@@ -14,7 +13,8 @@
 //      the columns a BRANCH assigned.  Without (2) the emitted body reads
 //      perfectly and `Repo.update` writes nothing.
 //
-// Plus the narrow sub-shapes that stay refused, each with its own `#slug`.
+// Plus an `if` whose branches decide what the operation returns, guards, emits
+// or persists: rendered as one complete body per path (`vanilla/op-tree.ts`).
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
@@ -22,6 +22,7 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
+import { uncheckedInt } from "../../_helpers/unchecked-int.js";
 
 async function diagnose(src: string): Promise<{ code?: string; message: string }[]> {
   const { model, errors } = await parseString(src);
@@ -84,7 +85,7 @@ describe("phoenix generator — the `if` statement (M-T6.59)", () => {
   it("renders a value-producing `if` that REBINDS the threaded record", async () => {
     const files = await generateSystemFiles(sys(GRADE));
     const ctx = bySuffix(files, "lib/api/tracker.ex");
-    expect(ctx).toContain("record = if record.score + bonus > 10 do");
+    expect(uncheckedInt(ctx)).toContain("record = if record.score + bonus > 10 do");
     // Each arm ends in the threaded variable, so the untaken branch is a no-op
     // rebind rather than `nil`.
     expect(ctx).toContain(`record = %{record | tier: "gold"}`);
@@ -156,48 +157,57 @@ describe("phoenix generator — the `if` statement (M-T6.59)", () => {
   });
 });
 
-describe("phoenix generator — the `if` sub-shapes that stay refused", () => {
-  it("refuses a `return` inside a branch of an OPERATION body (#return-in-branch)", async () => {
-    const diags = await diagnose(
-      sys(`
+describe("phoenix generator — an `if` that decides per path renders one body per path", () => {
+  const errorsOf = async (src: string): Promise<string[]> =>
+    (await diagnose(src)).map((d) => d.code ?? "").filter((c) => c.startsWith("loom."));
+
+  it("an early `return` in an OPERATION: the rest of the body runs only on the other path", async () => {
+    const src = sys(`
         operation promote(bonus: int): Task {
           if bonus > 0 {
             return this
           }
           score := score + bonus
-        }`),
-    );
-    const hit = diags.find((d) => d.code === "loom.elixir-if-stmt-unsupported");
-    expect(hit).toBeDefined();
-    expect(hit?.message).toContain("EARLY EXIT");
+          return this
+        }`);
+    expect(await errorsOf(src)).toEqual([]);
+    const ctx = bySuffix(await generateSystemFiles(src), "lib/api/tracker.ex");
+    const fn = ctx.slice(ctx.indexOf("def promote_task("));
+    const body = uncheckedInt(fn.slice(0, fn.indexOf("\n  end\n")));
+    // The `if` is the body's tail: the early-return path answers without
+    // touching the score, and only the other path writes and persists it.
+    expect(body).toMatch(/\n\s+if bonus > 0 do\n/);
+    const [thenArm, elseArm] = body.split(/\n\s+else\n/);
+    expect(thenArm).not.toContain("record.score + bonus");
+    expect(elseArm).toContain("record = %{record | score: record.score + bonus}");
+    expect(elseArm).toContain("Ecto.Changeset.force_change(:score, record.score)");
   });
 
-  it("refuses a `precondition` nested in a branch (#guard-in-branch)", async () => {
-    const diags = await diagnose(
-      sys(`
+  it("a guard in a branch leads THAT path's `with` (a typed denial, not a raise)", async () => {
+    const src = sys(`
         operation grade(bonus: int) {
           if bonus > 0 {
             precondition score > 0
             tier := "gold"
           }
-        }`),
-    );
-    const hit = diags.find((d) => d.code === "loom.elixir-if-stmt-unsupported");
-    expect(hit).toBeDefined();
-    expect(hit?.message).toContain("403 / 422");
+        }`);
+    expect(await errorsOf(src)).toEqual([]);
+    const ctx = bySuffix(await generateSystemFiles(src), "lib/api/tracker.ex");
+    const fn = ctx.slice(ctx.indexOf("def grade_task("));
+    const body = fn.slice(0, fn.indexOf("\n  end\n"));
+    const [thenArm, elseArm] = body.split(/\n\s+else\n/);
+    expect(thenArm).toMatch(/\n\s+with :ok <- ensure\(record\.score > 0, \{:precondition_failed/);
+    expect(thenArm).toContain(`record = %{record | tier: "gold"}`);
+    expect(elseArm).not.toContain("ensure(");
+    expect(body).not.toContain("raise(");
   });
 
-  it("refuses an `emit` inside a branch (#branch-statement — the CLOSED vocabulary)", async () => {
-    // The sharp case for the closed vocabulary.  The `emit` would RENDER, but
-    // `contextEmitsEvent` scans `op.statements` one level deep, so the host
-    // module would carry no `require Logger` (a compile error) — and the S5a
-    // persist-then-dispatch restructure cannot hoist a CONDITIONAL emit past
-    // the commit, so a phantom event would fire on a failed write.
-    const diags = await diagnose(`
+  it("an `emit` in a branch is dispatched after the commit of that path only", async () => {
+    const src = `
 system Grading {
   subdomain Learning {
     context Tracker {
-      event Graded { taskId: string }
+      event Graded { taskId: Task id }
       aggregate Task with crudish {
         title: string
         score: int
@@ -222,14 +232,16 @@ system Grading {
     port: 4000
   }
 }
-`);
-    const hit = diags.find((d) => d.code === "loom.elixir-if-stmt-unsupported");
-    expect(hit).toBeDefined();
-    expect(hit?.message).toContain("CLOSED set");
-  });
-
-  it("admits the shapes it renders — no diagnostic for a plain assigning `if`", async () => {
-    const diags = await diagnose(sys(GRADE));
-    expect(diags.filter((d) => d.code === "loom.elixir-if-stmt-unsupported")).toHaveLength(0);
+`;
+    expect(await errorsOf(src)).toEqual([]);
+    const ctx = bySuffix(await generateSystemFiles(src), "lib/api/tracker.ex");
+    // The conditional emit still puts `require Logger` in the host module.
+    expect(ctx).toContain("require Logger");
+    const fn = ctx.slice(ctx.indexOf("def grade_task("));
+    const body = fn.slice(0, fn.indexOf("\n  end\n"));
+    const [thenArm, elseArm] = body.split(/\n\s+else\n/);
+    expect(thenArm.indexOf("Events.Graded{")).toBeGreaterThan(-1);
+    expect(thenArm.indexOf("persist_change")).toBeLessThan(thenArm.indexOf("Events.Graded{"));
+    expect(elseArm).not.toContain("Events.Graded");
   });
 });

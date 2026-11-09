@@ -139,9 +139,9 @@ describe("i18n key agreement — every emitted t() key exists in the app's own c
 
     // Guard against a vacuous pass: the fixture must actually exercise all
     // four keying SITES, or the intersection above proves nothing.
-    expect([...used].some((k) => k.startsWith("page.Home."))).toBe(true);
-    expect([...used].some((k) => k.startsWith("menu.section."))).toBe(true);
-    expect([...used].some((k) => k.startsWith("menu.link."))).toBe(true);
+    expect([...used].some((k) => k.startsWith("Web.page.Home."))).toBe(true);
+    expect([...used].some((k) => k.startsWith("Web.menu.section."))).toBe(true);
+    expect([...used].some((k) => k.startsWith("Web.menu.link."))).toBe(true);
     expect([...used].some((k) => k.startsWith("chrome."))).toBe(true);
   });
 
@@ -156,7 +156,7 @@ describe("i18n key agreement — every emitted t() key exists in the app's own c
     const used = emittedKeys(files);
     const missing = [...used].filter((k) => !(k in catalog)).sort();
     expect(missing, `unresolvable t() keys on ${platform}`).toEqual([]);
-    expect([...used].some((k) => k.startsWith("menu.section."))).toBe(true);
+    expect([...used].some((k) => k.startsWith("Web.menu.section."))).toBe(true);
   });
 
   it("the app-shell chrome the shell RENDERS is in the catalog with the same English", async () => {
@@ -242,7 +242,7 @@ describe("renderI18nModule", () => {
   });
 
   it("falls back to the per-call default, so an unresolvable key still renders", () => {
-    expect(shim).toContain("messages[key] ?? defaultMessage");
+    expect(shim).toContain("catalogs[current]?.[key] ?? defaultMessage");
   });
 
   it("skips the ICU parse entirely for a value-less message", () => {

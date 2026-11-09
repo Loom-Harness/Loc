@@ -247,7 +247,13 @@ describe("loom.store-lifetime-target-unsupported — what it must NOT flag", () 
               },
             ],
             deployables: [
-              { name: "web", platform: "elixir", uiName: "Web", uiFramework: "phoenixLiveView" },
+              {
+                name: "web",
+                platform: "elixir",
+                uiName: "Web",
+                hostedUiNames: [],
+                uiFramework: "phoenixLiveView",
+              },
             ],
           },
         ],

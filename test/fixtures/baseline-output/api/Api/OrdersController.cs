@@ -124,11 +124,12 @@ public sealed class OrdersController : ControllerBase
         HttpMetrics.RecordDomainOperation("Order", "update");
         var cmd = new UpdateCommand(
             new OrderId(id),
-            request.CustomerId,
-            request.Status,
-            DateTime.TryParse(request.PlacedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt)
-                ? __wp_request_PlacedAt.AddTicks(-(__wp_request_PlacedAt.Ticks % TimeSpan.TicksPerMillisecond))
-                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt}\"")
+            (request.CustomerId is null ? default! : request.CustomerId!),
+            (request.Status is null ? default! : request.Status!.Value),
+            (request.PlacedAt is null ? default! : DateTime.TryParse(request.PlacedAt!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var __wp_request_PlacedAt_)
+                ? __wp_request_PlacedAt_.AddTicks(-(__wp_request_PlacedAt_.Ticks % TimeSpan.TicksPerMillisecond))
+                : throw new global::Api.Domain.Common.WireFormatException("/placedAt", $"Invalid datetime: \"{request.PlacedAt!}\"")),
+            request.PatchedKeys()
         );
         await _mediator.Send(cmd);
         return NoContent();

@@ -81,7 +81,12 @@ describe("Feliz i18n runtime", () => {
     const src = SYS(`Heading { "Storefront" }`);
     const fs = await appFs(src);
     expect(fs).toContain('import "IntlMessageFormat" "intl-messageformat"');
-    expect(fs).toContain('[<Fable.Core.Emit("new $0($1, $2).format($3)")>]');
+    // One parsed formatter per (locale, message), built through the same engine.
+    expect(fs).toContain('[<Fable.Core.Emit("new $0($1, $2)")>]');
+    expect(fs).toContain('[<Fable.Core.Emit("$0.format($1)")>]');
+    expect(fs).toContain(
+      "let private formatters = System.Collections.Generic.Dictionary<string, obj>()",
+    );
     // …and the package.json carries the dependency, at the JS frontends' pin.
     expect(await packageJson(src)).toContain('"intl-messageformat": "10.7.18"');
   });
@@ -144,9 +149,9 @@ system Shop {
     const fs = await appFs(
       SYS(`Stack { Heading { "Orders" }, Text { status } }`, "state { status: string }"),
     );
-    expect(fs).toMatch(/I18n\.t "page\.Home\.heading\.\w+" "Orders"/);
+    expect(fs).toMatch(/I18n\.t "Web\.page\.Home\.heading\.\w+" "Orders"/);
     // `status` is page state — interpolated from the Model, never a t() call.
-    expect(fs).not.toContain('I18n.t "page.Home.text');
+    expect(fs).not.toContain('I18n.t "Web.page.Home.text');
     expect(fs).toContain("model.Status");
   });
 
@@ -174,7 +179,7 @@ system Shop {
     expect(fs).not.toContain('Html.text "(I18n.t');
     expect(fs).not.toContain('Html.text "Html.text');
     for (const role of ["badge", "button", "anchor", "alert", "alertTitle"]) {
-      expect(fs).toContain(`I18n.t "page.Home.${role}.`);
+      expect(fs).toContain(`I18n.t "Web.page.Home.${role}.`);
     }
   });
 

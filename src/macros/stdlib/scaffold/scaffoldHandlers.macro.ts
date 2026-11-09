@@ -1,12 +1,17 @@
+import { AstUtils } from "langium";
+import { isPayloadDecl, type TypeAtom, type TypeRef } from "../../../language/generated/ast.js";
 import { repoOpVerb } from "../../../util/repository-contract.js";
 import type { BoundedContext } from "../../api/index.js";
 import {
   callStmt,
+  cloneTypeHead,
+  cloneTypeRef,
   commandHandler,
   createInputProperties,
   defineMacro,
   idRef,
   letStmt,
+  matchStmt,
   memberAccess,
   namedType,
   nameRef,
@@ -82,7 +87,8 @@ export default defineMacro({
     // the handlers that realise it), then the handlers.  The records are
     // additive + inert in PR1 — no handler references them yet, so generation is
     // byte-identical with vs without them.
-    const handlers = handlerTargets(ctx).map(buildHandler);
+    const errors = errorNames(ctx);
+    const handlers = handlerTargets(ctx).map((t) => buildHandler(t, errors));
     return [...contractRecords(ctx), ...handlers];
   },
 });
@@ -93,7 +99,7 @@ export default defineMacro({
  * `cmd.<field>` / `query.<field>`; a path-param id rides as a separate handler
  * param, and an empty record is omitted.  The body shape otherwise mirrors the
  * hand-written handler — the same IR the equivalent explicit source lowers to. */
-function buildHandler(t: HandlerTarget) {
+function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
   switch (t.kind) {
     case "operation": {
       const idParam = idParamName(t.agg.name);
@@ -105,22 +111,44 @@ function buildHandler(t: HandlerTarget) {
         param(idParam, idRef(t.agg.name)),
         ...(opParams.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : []),
       ];
-      const body = [
-        // `let o = <Repo>.get(<idParam>)`
-        letStmt(
-          "o",
-          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
-            call: true,
-            args: [nameRef(idParam)],
-          }),
-        ),
-        // `o.<op>(cmd.<p>, …)` — the op's args read off the command record.
-        callStmt(
-          ["o", t.op.name],
-          opParams.map((p) => memberAccess(nameRef("cmd"), p.name)),
-        ),
-      ];
-      return commandHandler(targetHandlerName(t), params, body);
+      // `let o = <Repo>.get(<idParam>)`
+      const load = letStmt(
+        "o",
+        memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
+          call: true,
+          args: [nameRef(idParam)],
+        }),
+      );
+      const args = () => opParams.map((p) => memberAccess(nameRef("cmd"), p.name));
+      const result = t.op.returnType;
+      if (result && carriesError(result, errors)) {
+        // An expected failure (`T or E`) is the handler's answer: the result is
+        // bound and every variant returned from its own arm, so an error answers
+        // its mapped status and rolls the command back, as a hand-written
+        // handler of the same shape does.
+        //   let r = o.<op>(cmd.<p>, …)
+        //   match r { <Variant> v => { return v } … }
+        const call = letStmt(
+          "r",
+          memberAccess(nameRef("o"), t.op.name, { call: true, args: args() }),
+        );
+        const arms = [result, ...result.alternatives].map((variant) => ({
+          variant: cloneTypeHead(variant),
+          binding: "v",
+          body: [returnStmt(nameRef("v"))],
+        }));
+        return commandHandler(
+          targetHandlerName(t),
+          params,
+          [load, call, matchStmt(nameRef("r"), arms)],
+          { returnType: cloneTypeRef(result) },
+        );
+      }
+      // `o.<op>(cmd.<p>, …)` — the op's args read off the command record.
+      return commandHandler(targetHandlerName(t), params, [
+        load,
+        callStmt(["o", t.op.name], args()),
+      ]);
     }
     case "create": {
       // A create handler takes the aggregate's create-INPUT fields (the same
@@ -193,4 +221,24 @@ function buildHandler(t: HandlerTarget) {
       return commandHandler(targetHandlerName(t), params, body);
     }
   }
+}
+
+/** The names of the `error` records the model declares — the variants that
+ * make an operation's union result an expected failure.  Read by name: a macro
+ * expands before linking, so the result's references are still unresolved. */
+function errorNames(ctx: BoundedContext): Set<string> {
+  const out = new Set<string>();
+  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(ctx))) {
+    if (isPayloadDecl(n) && n.kind === "error") out.add(n.name);
+  }
+  return out;
+}
+
+/** Whether a union result names an `error` variant. */
+function carriesError(result: TypeRef, errors: ReadonlySet<string>): boolean {
+  if (result.alternatives.length === 0) return false;
+  return [result, ...result.alternatives].some((v: TypeRef | TypeAtom) => {
+    const b = v.base as { $type: string; target?: { $refText: string } };
+    return b.$type === "NamedType" && !!b.target && errors.has(b.target.$refText);
+  });
 }

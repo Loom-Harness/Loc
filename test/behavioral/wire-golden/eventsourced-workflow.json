@@ -25,8 +25,8 @@
       "status": 200,
       "body": {
         "id": "<volatile:key>",
-        "status": "Placed",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Placed"
       }
     },
     {
@@ -38,8 +38,8 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "status": "Placed",
-            "version": 2
+            "rowVersion": 2,
+            "status": "Placed"
           }
         ],
         "page": 1,

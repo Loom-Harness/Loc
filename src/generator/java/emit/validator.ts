@@ -1,3 +1,4 @@
+import { missingFieldMessage } from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -10,6 +11,11 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import {
+  type MergePatchField,
+  mergePatchFields,
+  ruleMembers,
+} from "../../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import {
   type ClassifyContext,
@@ -85,6 +91,8 @@ interface CommandSpec {
    *  carries its own invariant.  Each nest-invokes a `<VO>Validator` over the
    *  wire request field (before the service constructs the throwing domain VO). */
   voFields: { field: string; voClass: string; each: boolean }[];
+  /** A merge-patch update's members (RS-47) — see `mergePatchChecks`. */
+  mergePatch?: readonly MergePatchField[];
 }
 
 /** Names the generated `validate(Object target, Errors errors)` method spells
@@ -214,6 +222,7 @@ function commandSpecs(
       invariants: [...agg.invariants, ...preconditions],
       available: new Set(op.params.map((p) => p.name)),
       voFields: voRequestFields(op.params, voByName),
+      mergePatch: mergePatchFields(op) ?? undefined,
     });
   }
   return specs;
@@ -349,7 +358,7 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
   );
   const lets = referenced.map((p) => {
     collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
-    return `        var ${localOf(locals, p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`)};`;
+    return `        var ${localOf(locals, p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`, `/${p.name}`)};`;
   });
 
   const patternFields = [...regexFields].map(
@@ -395,10 +404,10 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
  *  their domain value (`wireToDomain`); a value-object-bearing field keeps its
  *  wire record (its `to<VO>` parser is service-private, and nested accessors
  *  read the same shape) so member predicates resolve without it. */
-function validatorLocal(type: TypeIR, expr: string, pointer = ""): string {
-  // The validator evaluates member predicates over an already-parsed local; a
-  // money conversion here would have been refused at the service seam first,
-  // so the pointer is informational and defaults to the document root.
+function validatorLocal(type: TypeIR, expr: string, pointer: string): string {
+  // The validator runs at the `@Valid` seam, before the service, so a parse it
+  // refuses (a malformed money) is the refusal the client sees: it carries the
+  // field's own wire pointer.
   return bearsValueObject(type) ? expr : wireToDomain(type, expr, pointer);
 }
 
@@ -426,6 +435,25 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
   const nullableOf = (field: string): boolean =>
     spec.params.find((p) => p.name === field)?.nullable ?? false;
 
+  // A merge-patch update (RS-47): an explicit `null` on a required member is
+  // refused as missing, and each rule below runs only when the body carried
+  // every member it reads — otherwise the domain floor judges the merged state.
+  const patch = spec.mergePatch;
+  for (const f of patch ?? []) {
+    if (f.nullable) continue;
+    checks.push(
+      `        if (request.has(${JSON.stringify(f.name)}) && ${localOf(validatorLocals(spec), f.name)} == null) errors.rejectValue(${JSON.stringify(jid(f.name))}, "NotNull", ${JSON.stringify(missingFieldMessage(f.name))});`,
+    );
+  }
+  const carriedOnly = (inv: InvariantIR, ruleLines: string[]): string[] => {
+    const members = patch ? ruleMembers(inv, spec.available) : [];
+    if (members.length === 0) return ruleLines;
+    return [
+      `        if (${members.map((m) => `request.has(${JSON.stringify(m)})`).join(" && ")}) {`,
+      ...ruleLines.map((l) => `    ${l}`),
+      `        }`,
+    ];
+  };
   for (const inv of spec.invariants) {
     if (!classifyForWire(inv, ctx)) continue;
     const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
@@ -433,18 +461,21 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
     const single = singleFieldShape(inv);
     if (single && spec.available.has(single.field)) {
       checks.push(
-        ...patternCheck(
-          single.field,
-          single.pattern,
-          typeOf(single.field),
-          nullableOf(single.field),
-          // A message-less single-field rule answers node's synthesized
-          // sentence, not the generic refine default every other shape uses
-          // (D-MESSAGELESS-RULE-WIRE-MESSAGE).
-          inv.message ? message : singleFieldMessage(single.field, single.pattern),
-          code,
-          regexFields,
-          localOf(validatorLocals(spec), single.field),
+        ...carriedOnly(
+          inv,
+          patternCheck(
+            single.field,
+            single.pattern,
+            typeOf(single.field),
+            nullableOf(single.field),
+            // A message-less single-field rule answers node's synthesized
+            // sentence, not the generic refine default every other shape uses
+            // (D-MESSAGELESS-RULE-WIRE-MESSAGE).
+            inv.message ? message : singleFieldMessage(single.field, single.pattern),
+            code,
+            regexFields,
+            localOf(validatorLocals(spec), single.field),
+          ),
         ),
       );
       continue;
@@ -478,7 +509,11 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
     // Both compose — the null-skip wraps the guarded predicate, and its member
     // walk covers the guard as well as the body.
     const predicate = inv.guard ? `!(${renderJavaExpr(inv.guard, renderOpts)}) || (${body})` : body;
-    checks.push(reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields)));
+    checks.push(
+      ...carriedOnly(inv, [
+        reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields)),
+      ]),
+    );
   }
   return checks;
 }

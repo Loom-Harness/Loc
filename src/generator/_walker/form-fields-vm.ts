@@ -11,8 +11,10 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
 import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
@@ -27,6 +29,41 @@ export function prepareFormFieldVM(
    *  the bare array": the conservative answer, per `isPagedAllRead`'s own
    *  contract — a bare-array read of an envelope renders an empty list, while
    *  an `.items` read of a bare array is a type error AND an empty list. */
+  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
+  /** The model type the field is declared on (an aggregate, value object or
+   *  workflow), for its identity-keyed label; absent when the input names no
+   *  model fact.  Nested value-object fields key under the value object. */
+  labelOwner?: string,
+): FormFieldVM {
+  const vm = prepareFormFieldVMInner(path, t, ctx, testId, aggregatesByName, bcByAggregate);
+  if (labelOwner === undefined) return vm;
+  const leaf = path.split(".").pop()!;
+  const labelKey = modelTextKey({
+    ctx: modelTextContextOf(labelOwner, ctx, bcByAggregate?.values()),
+    type: labelOwner,
+    facet: "field",
+    member: leaf,
+  });
+  return { ...vm, labelKey };
+}
+
+/** The identity key of every value of enum `name`, in declaration order. */
+function enumValueKeysOf(
+  name: string,
+  values: readonly string[],
+  ctx: BoundedContextIR,
+  bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
+): string[] {
+  const owner = modelTextContextOf(name, ctx, bcByAggregate?.values());
+  return values.map((v) => modelTextKey({ ctx: owner, type: name, facet: "value", member: v }));
+}
+
+function prepareFormFieldVMInner(
+  path: string,
+  t: TypeIR,
+  ctx: BoundedContextIR,
+  testId: string,
+  aggregatesByName: Map<string, AggregateIR>,
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
 ): FormFieldVM {
   const inner = unwrapOpt(t);
@@ -115,6 +152,7 @@ export function prepareFormFieldVM(
         testId,
         errorExpr,
         enumValuesJson: JSON.stringify(en.values),
+        enumValueKeys: enumValueKeysOf(en.name, en.values, ctx, bcByAggregate),
       };
     }
     return { template: "field-input-string", path, label, testId, errorExpr };
@@ -131,6 +169,7 @@ export function prepareFormFieldVM(
           `${testId}-${vf.name}`,
           aggregatesByName,
           bcByAggregate,
+          vo.name,
         ),
       );
       return {
@@ -176,6 +215,7 @@ export function prepareFormFieldVM(
             `${testId}-${vf.name}`,
             aggregatesByName,
             bcByAggregate,
+            vo.name,
           );
           // The row's own error access: the sub-field VM's `errorExpr` was built
           // from its BARE path (`errors.voyage?.message`) and points at nothing,
@@ -202,7 +242,7 @@ export function prepareFormFieldVM(
           testId,
           errorExpr,
           rowFields,
-          elementLabel: humanize(el.name),
+          elementName: el.name,
           arrayPascal: leaf.charAt(0).toUpperCase() + leaf.slice(1),
           defaultRowJson,
         };

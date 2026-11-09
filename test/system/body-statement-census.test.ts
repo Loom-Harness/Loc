@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -189,9 +190,9 @@ function fulfilHost(q: string, pos: Position | undefined, body: string): string 
           note := "started"${at("workflow-starter")}
         }
         on(s: Noted) by s.order {
-          note := label(s.order)${at("workflow-reactor")}
+          note := describe(s.order)${at("workflow-reactor")}
         }
-        function label(o: Order id): string {${at("workflow-function")}
+        function describe(o: Order id): string {${at("workflow-function")}
           return "x"
         }
       }`;
@@ -305,11 +306,9 @@ async function errorsOf(src: string): Promise<Diag[]> {
   return report.diagnostics.filter((d) => d.severity === "error") as Diag[];
 }
 
-/** A PER-BACKEND refusal — the per-backend narrowings these positions have
- *  are Phoenix's: its `if` shapes (`if-stmt-checks.ts`) and the statement
- *  `match` (`elixir-match-stmt-checks.ts`). */
-const isTargetGap = (d: Diag): boolean =>
-  d.code === "loom.elixir-if-stmt-unsupported" || d.code === "loom.elixir-match-stmt-unsupported";
+/** A PER-BACKEND refusal — the one per-backend narrowing these positions have
+ *  is Phoenix's statement `match` (`elixir-match-stmt-checks.ts`). */
+const isTargetGap = (d: Diag): boolean => d.code === "loom.elixir-match-stmt-unsupported";
 
 interface Cell {
   kind: string;
@@ -384,11 +383,18 @@ const APPLIER_RENDERS: Record<Backend, readonly string[]> = {
   dotnet: ["let", "assign", "add", "remove", "if"],
   java: ["let", "assign", "add", "remove", "if"],
   python: ["let", "assign", "add", "remove", "if"],
-  // Phoenix renders no `if` in a fold (`loom.elixir-if-stmt-unsupported`).
-  elixir: ["let", "assign", "add", "remove"],
+  elixir: ["let", "assign", "add", "remove", "if"],
 };
 
 describe("body-statement census — every position × backend × statement kind renders or is refused", () => {
+  it("measures its full matrix", () => {
+    expectReach(
+      "position × backend × statement cells",
+      POSITIONS.length * BACKENDS.length * STMTS.length,
+      690,
+    );
+  });
+
   it("the probe model validates clean on every backend before any statement is added", async () => {
     for (const b of BACKENDS) {
       for (const host of ["aggregate-applier", "workflow-applier", "workflow-reactor"] as const) {

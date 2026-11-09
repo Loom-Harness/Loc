@@ -1,5 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light" class="[scrollbar-gutter:stable]">
+{{#if localeNegotiation}}
+<html lang={assigns[:loom_locale] || "{{lang}}"} dir={assigns[:loom_dir] || "{{dir}}"} data-theme="light" class="[scrollbar-gutter:stable]">
+{{else}}
+<html lang="{{lang}}" data-theme="light" class="[scrollbar-gutter:stable]">
+{{/if}}
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

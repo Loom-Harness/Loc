@@ -32,7 +32,7 @@
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
-import { CHROME_T_CALL } from "../../_walker/i18n-emit.js";
+import { callsTranslationRuntime, PAGE_I18N_IMPORT } from "../../_walker/i18n-emit.js";
 import { mergedImports } from "../../_walker/shared/imports.js";
 import type { DataGridChild, DataGridColumn, DataGridSpec } from "../../_walker/target.js";
 import type { WalkContext } from "../../_walker/walker-core.js";
@@ -78,7 +78,7 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // and Svelte's — a TanStack `cell` function returns framework-specific render
   // output, and the walker produces markup.
   const body = spec.renderBody({
-    headerBody: headerBody(selection, spec.sortByAria, spec.selectAllRowsAria),
+    headerBody: headerBody(selection, spec.selectAllRowsAria),
     cellBody: cellBody(columns, selection, spec.selectRowAria),
   });
 
@@ -114,7 +114,9 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // on the PAGE, so anything an `EnumBadge` / `Money` cell needed resolved to
   // nothing in this file.  Merged per source — the chrome and the cells often
   // name the same module, and Angular would see a duplicate import.
-  const allImports = mergedImports([...spec.packImports, ...spec.cellImports]);
+  const allImports = mergedImports([...spec.packImports, ...spec.cellImports]).filter(
+    (i) => i.from !== PAGE_I18N_IMPORT,
+  );
   const packModules = allImports.flatMap((i) => i.named).sort();
   const packImportLines = allImports.map(
     (i) => `import { ${i.named.join(", ")} } from "${i.from}";`,
@@ -141,10 +143,11 @@ function renderComponent(spec: DataGridSpec, className: string, selector: string
   // — the same reason `String`/`Math`/the format helpers are re-exposed above,
   // and the same lift `app.component.ts` does for the shell's own chrome.
   // Gated on the RENDERED body so a pack that bakes in no chrome gets neither.
-  const usesI18n = body.includes(CHROME_T_CALL);
-  // The runtime lives at `src/lib/i18n.ts`, two hops up from
+  const usesI18n =
+    callsTranslationRuntime(body) || columns.some((c) => c.headerValue?.startsWith("t("));
+  // `t` lives in `src/lib/locale.ts` (signal-reading), two hops up from
   // `src/app/components/` — the same lift the format import above makes.
-  const i18nImportLine = usesI18n ? [`import { t } from "../../lib/i18n";`] : [];
+  const i18nImportLine = usesI18n ? [`import { t } from "../../lib/locale";`] : [];
 
   return `${lines(
     `// Auto-generated.  Do not edit by hand.`,
@@ -321,7 +324,7 @@ function columnDefs(columns: readonly DataGridColumn[], selection: boolean): str
 }
 
 /** The full header-cell content, as Angular control flow (`@if`/`@else if`). */
-function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: string): string {
+function headerBody(selection: boolean, selectAllRowsAria: string): string {
   const label = `{{ String(h.column.columnDef.header ?? h.id) }}`;
   const indicator = `{{ h.column.getIsSorted() === 'asc' ? ' ↑' : h.column.getIsSorted() === 'desc' ? ' ↓' : '' }}`;
   const style =
@@ -342,7 +345,6 @@ function headerBody(selection: boolean, sortByAria: string, selectAllRowsAria: s
     `  <button`,
     `    type="button"`,
     `    style="${style}"`,
-    `    ${sortByAria}`,
     `    (click)="h.column.toggleSorting()"`,
     `  >`,
     `    ${label}${indicator}`,

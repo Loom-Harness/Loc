@@ -74,7 +74,14 @@ describe("server-sourced create-path defaults — Hono", () => {
     expect(routes).toMatch(
       /status:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\)\.default\("draft"\)/,
     );
-    expect(routes).not.toMatch(/status:[^\n]*\.optional\(\)/);
+    // The create schema only: the merge-patch update takes every key optional
+    // (RS-47), which is not a default.
+    const create = routes.slice(
+      routes.indexOf("const CreateOrderRequest"),
+      routes.indexOf("\n})", routes.indexOf("const CreateOrderRequest")),
+    );
+    expect(create).toContain("status:");
+    expect(create).not.toMatch(/status:[^\n]*\.optional\(\)/);
   });
 });
 

@@ -11,8 +11,9 @@ import type {
   TestIR,
 } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
-import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkTestStmtExprsDeep } from "../../../ir/util/walk.js";
 import {
   elixirLocal,
   elixirString,
@@ -22,10 +23,17 @@ import {
 } from "../../../util/naming.js";
 import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialMessage, denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
+import {
+  appModuleOf,
+  denialMessage,
+  denialTerm,
+  guardErrorModule,
+  guardRaiseLine,
+} from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { esInvariantChecks, isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
+import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import {
   isReturningOperation,
   renderPrivateOpHelpers,
@@ -127,8 +135,7 @@ function aggregatesCreatedInUnitTests(ctx: BoundedContextIR): Set<string> {
   ];
   for (const t of tests) {
     for (const s of t.statements) {
-      if (s.kind === "expect" || s.kind === "expect-throws") walkExprDeep(s.expr, visit);
-      else walkStmtExprsDeep(s, visit);
+      walkTestStmtExprsDeep(s, visit);
     }
   }
   return created;
@@ -436,6 +443,8 @@ function renderPureOp(
     // No lineage capture in the pure core — that's a persist-path effect; a
     // capture without the draining transaction would orphan the trace buffer.
     captureProvenance: false,
+    // An `emit` in a branch is dropped like a top-level one (below).
+    dropEmits: true,
     // Document struct mode reads/writes the `<Agg>.Data` embed the way the
     // persisted document op does (`docOpStructBody`), part constructors included.
     ...(struct.docStruct ? { docStruct: true, agg: agg as EnrichedAggregateIR } : {}),
@@ -548,17 +557,18 @@ type EsStmt<K extends StmtIR["kind"]> = Extract<StmtIR, { kind: K }>;
 
 // The statement vocabulary of an event-sourced command body, read the way the
 // event-log command runner (`eventsourced-emit.ts#renderCommandRunner`) reads
-// it: `let`s bind, guards gate, `emit`s become the event list.  The ES command
-// discipline refuses mutation (`assign`/`add`/`remove`) and impure `call`s, and
-// `loom.elixir-if-stmt-unsupported#event-sourced` refuses `if`; the remaining
-// kinds carry no event and render nothing, exactly as in the runner, so the
-// pure core folds the same events the persisted path appends.
+// it: `let`s bind, guards gate, `emit`s become the event list, an `if` chooses
+// between branches of those.  The ES command discipline refuses mutation
+// (`assign`/`add`/`remove`) and impure `call`s; the remaining kinds carry no
+// event and render nothing, exactly as in the runner, so the pure core folds
+// the same events the persisted path appends.
 function forEachEsCoreStmt(
   stmts: readonly StmtIR[],
   on: {
     let: (s: EsStmt<"let">) => void;
     guard: (s: EsStmt<"precondition" | "requires">) => void;
     emit: (s: EsStmt<"emit">) => void;
+    if: (s: EsStmt<"if">) => void;
   },
 ): void {
   for (const s of stmts) {
@@ -574,10 +584,8 @@ function forEachEsCoreStmt(
         on.emit(s);
         break;
       case "if":
-        throw new Error(
-          "platform: elixir — an 'if' statement reached the event-sourced pure core; " +
-            "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
-        );
+        on.if(s);
+        break;
       case "variant-match":
         throw new Error(
           "platform: elixir — a statement 'match' reached the event-sourced pure core; " +
@@ -596,6 +604,42 @@ function forEachEsCoreStmt(
       }
     }
   }
+}
+
+/** An ES command body holding an `if`, rendered as steps that accumulate the
+ *  event list in `events`: an `emit` appends, an `if` rebinds `events` through
+ *  a value-producing branch, a `let` binds, a guard runs `guard` in place.  A
+ *  linear body keeps the single `events = […]` literal instead. */
+function renderEsPureSteps(
+  stmts: readonly StmtIR[],
+  rc: RenderCtx,
+  eventsModule: string,
+  guard: (s: EsStmt<"precondition" | "requires">) => string | undefined,
+): string[] {
+  const out: string[] = [];
+  forEachEsCoreStmt(stmts, {
+    let: (s) => out.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+    guard: (s) => {
+      const line = guard(s);
+      if (line) out.push(line);
+    },
+    emit: (s) => out.push(`    events = events ++ [${esEventStruct(s, eventsModule, rc)}]`),
+    if: (s) =>
+      out.push(
+        renderElixirIfStmt(s, {
+          indent: "    ",
+          threadVar: "events",
+          cond: renderExpr(s.cond, rc),
+          renderInner: (inner) => renderEsPureSteps(inner, rc, eventsModule, guard),
+        }),
+      ),
+  });
+  return out;
+}
+
+/** True when an ES command body holds an `if` anywhere in its branches. */
+function esBodyBranches(stmts: readonly StmtIR[]): boolean {
+  return stmts.some((s) => branchesContain(s, (n) => n.kind === "if"));
 }
 
 function renderEsPureCreate(
@@ -617,14 +661,30 @@ function renderEsPureCreate(
   const lets: string[] = [];
   const guards: string[] = [];
   const events: string[] = [];
-  forEachEsCoreStmt(create.statements, {
-    let: (s) => lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
-    guard: (s) =>
-      guards.push(
-        `:ok <- if(${renderExpr(s.expr, rc)}, do: :ok, else: {:error, ${denialTerm(s)}})`,
+  const guardClause = (s: EsStmt<"precondition" | "requires">): string =>
+    `:ok <- if(${renderExpr(s.expr, rc)}, do: :ok, else: {:error, ${denialTerm(s)}})`;
+  const branches = esBodyBranches(create.statements);
+  if (branches) {
+    // The top-level guards keep their `with` clauses; a guard in a branch
+    // raises in place, as every guard does in the pure operation core.
+    const top = new Set(create.statements);
+    lets.push(
+      "    events = []",
+      ...renderEsPureSteps(create.statements, rc, eventsModule, (s) =>
+        top.has(s) ? undefined : guardRaiseLine(s, renderExpr(s.expr, rc), appModuleOf(facadeMod)),
       ),
-    emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
-  });
+    );
+    for (const s of create.statements) {
+      if (s.kind === "precondition" || s.kind === "requires") guards.push(guardClause(s));
+    }
+  } else {
+    forEachEsCoreStmt(create.statements, {
+      let: (s) => lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+      guard: (s) => guards.push(guardClause(s)),
+      emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
+      if: () => {},
+    });
+  }
   const attrsArg = reads.length > 0 ? "attrs" : "_attrs";
   const actorArg = opUsesCurrentUser(create) ? ", current_user \\\\ nil" : "";
   // The invariants are asserted on the folded state, as the command runner
@@ -635,14 +695,17 @@ function renderEsPureCreate(
   const fromEvents = `${foldMod}.from_events(id, events)`;
   if (invariants.length > 0) {
     guards.push(
-      eventsLine,
+      ...(branches ? [] : [eventsLine]),
       `folded = ${fromEvents}`,
       ...invariants.map(
         (inv) => `:ok <- if(${inv.predicate}, do: :ok, else: {:error, ${inv.term}})`,
       ),
     );
   }
-  const fold = invariants.length > 0 ? ["{:ok, folded}"] : [eventsLine, `{:ok, ${fromEvents}}`];
+  const fold =
+    invariants.length > 0
+      ? ["{:ok, folded}"]
+      : [...(branches ? [] : [eventsLine]), `{:ok, ${fromEvents}}`];
   const body =
     guards.length > 0
       ? [`    with ${guards.join(",\n         ")} do`, ...fold.map((l) => `      ${l}`), "    end"]
@@ -673,11 +736,22 @@ function renderEsPureOp(
   );
   const body: string[] = [];
   const events: string[] = [];
-  forEachEsCoreStmt(op.statements, {
-    let: (s) => body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
-    guard: (s) => body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule)),
-    emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
-  });
+  const branches = esBodyBranches(op.statements);
+  if (branches) {
+    body.push(
+      "    events = []",
+      ...renderEsPureSteps(op.statements, rc, eventsModule, (s) =>
+        guardRaiseLine(s, renderExpr(s.expr, rc), appModule),
+      ),
+    );
+  } else {
+    forEachEsCoreStmt(op.statements, {
+      let: (s) => body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+      guard: (s) => body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule)),
+      emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
+      if: () => {},
+    });
+  }
   const reduce = `Enum.reduce(events, state, fn ev, acc -> ${foldMod}.apply_event(acc, ev) end)`;
   const invariants = esInvariantChecks(agg, { ...rc, thisName: "folded" });
   const paramsArg = used.length > 0 ? "params" : "_params";
@@ -688,7 +762,7 @@ function renderEsPureOp(
     `  def ${snake(op.name)}(%__MODULE__{} = state, ${paramsArg}${actorArg})${guard} do`,
     ...reads,
     ...body,
-    `    events = [${events.join(", ")}]`,
+    ...(branches ? [] : [`    events = [${events.join(", ")}]`]),
     ...(invariants.length > 0
       ? [
           `    folded = ${reduce}`,

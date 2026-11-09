@@ -145,6 +145,10 @@ system DashboardShop {
                     body: Stack {
                         Heading { "Invoices", level: 1 },
                         Text { "Two areas deep — the router import must follow the file, not the page name." },
+                        // The model's own words, keyed by identity: `Orders.Order.name.other`
+                        // and `Orders.OrderStatus.value.Confirmed` in the catalog.
+                        Heading { plural(Order), level: 2 },
+                        Text { label(OrderStatus.Confirmed) },
                         testid: "invoices"
                     }
                 }

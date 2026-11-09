@@ -38,19 +38,25 @@ describe("shadcn-vue pack — form-label association (a11y)", () => {
     const page = find(await generateSystemFiles(SYS), "/pages/customers/new.vue");
     // The label's `for` and the input's `id` must both resolve to the field's
     // testId, so the visible label names the control for assistive tech.
-    expect(page).toContain('<Label for="customers-new-input-name">Name</Label>');
+    expect(page).toContain(
+      '<Label for="customers-new-input-name">{{ t("Orders.Customer.field.name", "Name") }}</Label>',
+    );
     expect(page).toContain('<Input id="customers-new-input-name"');
   });
 
   it("a numeric field is associated too", async () => {
     const page = find(await generateSystemFiles(SYS), "/pages/customers/new.vue");
-    expect(page).toContain('<Label for="customers-new-input-count">Count</Label>');
+    expect(page).toContain(
+      '<Label for="customers-new-input-count">{{ t("Orders.Customer.field.count", "Count") }}</Label>',
+    );
     expect(page).toContain('<Input id="customers-new-input-count"');
   });
 
   it("a boolean field associates the Switch via id", async () => {
     const page = find(await generateSystemFiles(SYS), "/pages/customers/new.vue");
-    expect(page).toContain('<Label for="customers-new-input-active">Active</Label>');
+    expect(page).toContain(
+      '<Label for="customers-new-input-active">{{ t("Orders.Customer.field.active", "Active") }}</Label>',
+    );
     expect(page).toContain('<Switch id="customers-new-input-active"');
   });
 });

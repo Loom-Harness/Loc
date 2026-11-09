@@ -32,6 +32,7 @@ import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { ImportSpec, LoadedPack } from "../../_packs/loader.js";
 import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
+import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
 import type { ApiHookUse } from "../../_walker/walker-core.js";
@@ -41,6 +42,7 @@ import {
   emitStmt,
   extendLambdaParams,
   type FormOfState,
+  type ImportMap,
   type OperationFormState,
   renderActionMutationArg,
   type WalkContext,
@@ -50,14 +52,50 @@ import {
 import { idTargetHookVar } from "../../react/form-helpers.js";
 import { vueTarget } from "./vue-target.js";
 
-/** A `state {}` field's `ref(...)` initial value: the declared `= <init>` when
- *  it's a simple literal (string / number / bool / null / list of literals),
- *  else the type's zero value.  Init expressions evaluate before any ref
- *  exists, so they can't reference state/params — literals cover the surface
- *  (mirrors the Angular/Svelte page-shells honouring `field.init`). */
-function renderVueStateInit(field: StateFieldIR): string {
-  const lit = field.init !== undefined ? renderInitLiteral(field.init) : undefined;
-  return coerceMoneyStateInit(field.type, lit ?? vueTarget.defaultInitFor(field.type));
+/** A `state {}` field's `ref(...)` initial value: the declared `= <init>`
+ *  through the real expression emitter (as the React and Svelte shells do),
+ *  with an empty context — an initializer evaluates before any ref exists, so
+ *  it cannot reference state or params.  The type's zero value only when there
+ *  is no initializer. */
+function renderVueStateInit(field: StateFieldIR, pack: LoadedPack): string {
+  const init = field.init !== undefined ? emitExpr(field.init, initCtx(pack)) : undefined;
+  return coerceMoneyStateInit(field.type, init ?? vueTarget.defaultInitFor(field.type));
+}
+
+/** An empty `WalkContext` for a state initializer: no params, state, derived
+ *  or components are in scope. */
+function initCtx(pack: LoadedPack): WalkContext {
+  return {
+    target: vueTarget,
+    imports: new Map(),
+    pack,
+    paramNames: new Set(),
+    usedParams: new Set(),
+    usesNavigate: false,
+    stateNames: new Set(),
+    derivedNames: new Set(),
+    authUi: false,
+    usesState: false,
+    usesCurrentUser: false,
+    usesRouterLink: false,
+    usesRouteId: false,
+    userComponents: new Map(),
+    usedUserComponents: new Set(),
+    usesChildren: false,
+    apiParamNames: new Map(),
+    usedApiHooks: new Map(),
+    lambdaParams: new Map(),
+    shellLocals: new Set(),
+    aggregatesByName: new Map(),
+    bcByAggregate: new Map(),
+    workflowsByName: new Map(),
+    bcByWorkflow: new Map(),
+    formOfs: [],
+    actionMutations: [],
+    collectedTestids: new Set(),
+    usesCodeBlock: false,
+    usesFileUpload: false,
+  };
 }
 
 /** A page-state field's TS type, for the cases `ref()` can't infer.  Only the
@@ -80,34 +118,6 @@ function vueStateTypeAsTs(t: TypeIR): string {
     default:
       return "string";
   }
-}
-
-function renderInitLiteral(e: ExprIR): string | undefined {
-  if (e.kind === "literal") {
-    if (e.lit === "string") return JSON.stringify(e.value);
-    if (e.lit === "null") return "null";
-    // `money` is a decimal.js `Decimal`, not a number — a bare `ref(12.50)`
-    // types the ref as `Ref<number>`, so every `.toDecimalPlaces(…)` read off
-    // it fails `vue-tsc`.  Mirrors `jsExprLeaves.exprLiteral`; Vue needs its
-    // own arm because state inits render through this literal reader rather
-    // than through the shared leaf table (same as Angular's).
-    if (e.lit === "money") return `new Decimal(${JSON.stringify(e.value)})`;
-    // int / decimal / bool already carry their JS-literal text.
-    return e.value;
-  }
-  // An ENUM VALUE (`s: Status = Status.draft`) lowers to a `ref` with
-  // `refKind: "enum-value"`, which is exactly the shape `walker-core` renders
-  // as a bare string literal (an enum is a string union on the wire).  Without
-  // this arm it fell through to `undefined` and the field silently mounted at
-  // the type ZERO — a value that is not in the enum at all.  React and Svelte
-  // never had the bug: their page shells render the init through the real
-  // expression emitter, not through a literal-only reader.
-  if (e.kind === "ref" && e.refKind === "enum-value") return JSON.stringify(e.name);
-  if (e.kind === "list") {
-    const els = e.elements.map(renderInitLiteral);
-    return els.every((x): x is string => x !== undefined) ? `[${els.join(", ")}]` : undefined;
-  }
-  return undefined;
 }
 
 // A `this.<param>` op-default seeds `defaultValuesTs` as `record.<field>` (the
@@ -198,6 +208,9 @@ export interface VuePageShellInput {
    *  did not, so a `navigate(<Page>)` in an action body resolved the fallback
    *  `/<snake(page)>` rather than the destination's declared `route:`. */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
+   *  strings; the page `title:` keys against it. */
+  i18nPrefix?: string;
 }
 
 export function renderVuePage(input: VuePageShellInput): string {
@@ -285,9 +298,18 @@ export function renderVuePage(input: VuePageShellInput): string {
     result.usedStores,
     input.stores ?? [],
     new Set([...stateNames, ...page.params.map((p) => p.name), ...page.derived.map((d) => d.name)]),
+    page.title
+      ? { expr: page.title, imports: result.imports, i18nPrefix: input.i18nPrefix }
+      : undefined,
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
+  // The per-page document title: `watchEffect` re-runs when the title's state
+  // / param reads change, mirroring React's `useEffect` and Svelte's `$effect`.
+  const titleEffectLine = page.title
+    ? `watchEffect(() => { document.title = ${TITLE_LOCAL}.value; });`
+    : undefined;
+  if (titleEffectLine) vueImports.add("watchEffect");
 
   // Named-action handlers → `<script setup>` arrow consts (Proposal A
   // Stage 1).  Built before stateLines so a handler that mutates state
@@ -388,10 +410,10 @@ export function renderVuePage(input: VuePageShellInput): string {
         // error — an array field must carry its element type explicitly.  Same
         // gap the React/Svelte shells had before #2294 (`useState<any>`).
         stateLines.push(
-          `const ${f.name} = ref<${vueStateTypeAsTs(base)}>(${renderVueStateInit(f)});`,
+          `const ${f.name} = ref<${vueStateTypeAsTs(base)}>(${renderVueStateInit(f, input.pack)});`,
         );
       } else {
-        stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f)});`);
+        stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f, input.pack)});`);
       }
       // The shared input primitives' VM carries the React-style
       // `set<Pascal>` setter name (`@update:model-value` callbacks in
@@ -414,7 +436,12 @@ export function renderVuePage(input: VuePageShellInput): string {
       .map((a) => {
         let out = a;
         for (const n of stateNames) {
-          out = out.replace(new RegExp(`\\b${n}\\b(?!\\.value)`, "g"), `${n}.value`);
+          // A name in OBJECT-KEY position (`{ status: status }`, the find
+          // hook's query bag) stays the bare key; only its value reads `.value`.
+          out = out.replace(
+            new RegExp(`(?<![{,]\\s*)\\b${n}\\b(?!\\.value)|\\b${n}\\b(?!\\.value)(?!\\s*:)`, "g"),
+            `${n}.value`,
+          );
         }
         return out;
       })
@@ -530,9 +557,10 @@ export function renderVuePage(input: VuePageShellInput): string {
         // this template hardcoded.  `title` is the TEXT spelling (shadcnVue's
         // `<DialogTitle>`), `titleExpr` the bound-attribute expression
         // (vuetify's `:title`) — D-I18N-ATTR's two spellings of one name.
-        title: state.modalTitle || humanize(state.op.name),
-        titleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(state.op.name)),
-        submitLabel: humanize(state.op.name),
+        title: state.modalTitle || state.opLabel?.markup || humanize(state.op.name),
+        titleExpr:
+          state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(state.op.name)),
+        submitLabel: state.opLabel?.markup ?? humanize(state.op.name),
         // The close icon's accessible name (shadcnVue's DialogContent) — never
         // equal to the submit label (`opDialogChrome`).
         closeLabelExpr:
@@ -686,12 +714,12 @@ export function renderVuePage(input: VuePageShellInput): string {
   // The i18n `t` helper (M-T1.11) — the shared walker seam records
   // `import { t } from "../i18n"` into `result.imports`, a relative specifier
   // the pass-through loop below drops.  Fold it into `apiImports` so the
-  // `adjustDepth` pass rewrites `../i18n` → `../../i18n` for a nested page.
+  // `adjustDepth` pass rewrites `../lib/locale` → `../../lib/locale` for a nested page.
   const i18nNames = result.imports.get("../i18n");
   if (i18nNames && i18nNames.size > 0) {
-    const set = apiImports.get("../i18n") ?? new Set<string>();
+    const set = apiImports.get("../lib/locale") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
-    apiImports.set("../i18n", set);
+    apiImports.set("../lib/locale", set);
   }
   // Same fold for the `toast(<msg>)` page effect, recorded above as the
   // one-level `../lib/toast`: the pass-through loop below drops every relative
@@ -747,6 +775,12 @@ export function renderVuePage(input: VuePageShellInput): string {
       `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
     );
   }
+  // The language picker — same marker discipline (`vue/locale-switcher.ts`).
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(
+      `import LocaleSwitcher from "${adjustDepth("../components/LocaleSwitcher.vue", input)}";`,
+    );
+  }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
   if (needsRoute) {
@@ -779,6 +813,7 @@ export function renderVuePage(input: VuePageShellInput): string {
   if (result.hoistedHandlers) script.push(...result.hoistedHandlers);
   script.push(...opFormLines);
   script.push(...derivedLines);
+  if (titleEffectLine) script.push(titleEffectLine);
   script.push(...actionLines);
   // Trim trailing blanks.
   while (script.length > 0 && script[script.length - 1] === "") script.pop();
@@ -1223,7 +1258,7 @@ export function renderVueComponentFile(
   const stateLines: string[] = [];
   if (result.usesState || derivedResult.usesState || actionResult.usesState) {
     for (const f of state) {
-      stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f)});`);
+      stateLines.push(`const ${f.name} = ref(${renderVueStateInit(f, pack)});`);
       const pascal = upperFirst(f.name);
       stateLines.push(
         `const set${pascal} = (v: typeof ${f.name}.value) => { ${f.name}.value = v; };`,
@@ -1377,9 +1412,9 @@ export function renderVueComponentFile(
         // Same two title spellings as the page-level call site above — this is
         // the COMPONENT path (`component X { … }` bodies), and a template var
         // only one caller passes throws on the strict-Handlebars packs.
-        title: st.modalTitle || humanize(st.op.name),
-        titleExpr: st.modalTitleExpr ?? JSON.stringify(humanize(st.op.name)),
-        submitLabel: humanize(st.op.name),
+        title: st.modalTitle || st.opLabel?.markup || humanize(st.op.name),
+        titleExpr: st.modalTitleExpr ?? st.opLabel?.expr ?? JSON.stringify(humanize(st.op.name)),
+        submitLabel: st.opLabel?.markup ?? humanize(st.op.name),
         // The close icon's accessible name (shadcnVue's DialogContent) — never
         // equal to the submit label (`opDialogChrome`).
         closeLabelExpr:
@@ -1471,18 +1506,21 @@ export function renderVueComponentFile(
   if (result.tsx.includes("<LoomRefLabel")) {
     script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
   }
+  if (result.tsx.includes("<LocaleSwitcher")) {
+    script.push(`import LocaleSwitcher from "./LocaleSwitcher.vue";`);
+  }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);
   }
   // The i18n `t` helper (M-T1.11) — folded out of `result.imports` (a relative
   // specifier the pass-through loop drops) into the api-import block.  A
   // component always sits at `src/components/<Name>.vue`, one hop from `src/`,
-  // so `../i18n` needs no depth adjustment.
+  // so `../lib/locale` needs no depth adjustment.
   const i18nNames = result.imports.get("../i18n");
   if (i18nNames && i18nNames.size > 0) {
-    const set = apiImports.get("../i18n") ?? new Set<string>();
+    const set = apiImports.get("../lib/locale") ?? new Set<string>();
     for (const n of i18nNames) set.add(n);
-    apiImports.set("../i18n", set);
+    apiImports.set("../lib/locale", set);
   }
   // Same fold for the `toast(<msg>)` page effect, recorded above as the
   // one-level `../lib/toast`: the pass-through loop below drops every relative
@@ -1563,6 +1601,9 @@ ${indent(result.tsx, "  ")}${dialogs}
  *  state refs are `ref`s — `repointToScript` rewrites them to `.value`
  *  (and a component rewrites param refs to `props.<name>`), matching the
  *  api-hook hoists. */
+/** The `computed` local the page `title:` rides on; `document.title` follows it. */
+const TITLE_LOCAL = "__loomPageTitle";
+
 function buildDerivedLines(
   derived: readonly DerivedIR[],
   pack: LoadedPack,
@@ -1574,15 +1615,26 @@ function buildDerivedLines(
    *  together they name the `computed` local each store FIELD read binds to. */
   stores: readonly StoreIR[] = [],
   reserved: ReadonlySet<string> = new Set(),
+  /** The page `title:` — emitted LAST as a `computed` named {@link TITLE_LOCAL}
+   *  (so it re-points state/derived reads exactly like a derived does), through
+   *  `localizedPageTitle` against the page's import map + i18n prefix. */
+  pageTitle?: { expr: ExprIR; imports: ImportMap; i18nPrefix: string | undefined },
 ): { lines: string[]; usesState: boolean } {
   const lines: string[] = [];
   const seenDerived = new Set<string>();
   const allDerived = new Set(derived.map((d) => d.name));
   let usesState = false;
-  for (const d of derived) {
+  const entries: Array<{ name: string; expr: ExprIR; title: boolean }> = derived.map((d) => ({
+    name: d.name,
+    expr: d.expr,
+    title: false,
+  }));
+  if (pageTitle) entries.push({ name: TITLE_LOCAL, expr: pageTitle.expr, title: true });
+  for (const d of entries) {
     const dctx: WalkContext = {
       target: vueTarget,
-      imports: new Map(),
+      imports: d.title && pageTitle ? pageTitle.imports : new Map(),
+      i18nPrefix: d.title ? pageTitle?.i18nPrefix : undefined,
       pack,
       paramNames,
       usedParams: new Set(),
@@ -1618,7 +1670,9 @@ function buildDerivedLines(
       // expression records into the shell's store wiring (Stage 5).
       usedStores,
     };
-    let exprStr = repointToScript(emitExpr(d.expr, dctx));
+    let exprStr = repointToScript(
+      d.title ? localizedPageTitle(d.expr, dctx) : emitExpr(d.expr, dctx),
+    );
     if (dctx.usesState) usesState = true;
     // Earlier-derived reads land as bare `name` (walker reads a derived
     // like a state field), but each hoisted derived is a `ComputedRef`, so

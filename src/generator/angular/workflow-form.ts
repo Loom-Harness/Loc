@@ -109,7 +109,15 @@ export function renderAngularWorkflowForm(
   addNg(ctx, importFrom, mutationFn, requestType);
   ctx.usesNavigate = true; // hoists inject(Router) for the redirect
 
-  const parts = partitionAngularFields(workflow.params, bc, ns, ctx, formVar);
+  const parts = partitionAngularFields(
+    workflow.params,
+    bc,
+    ns,
+    ctx,
+    formVar,
+    undefined,
+    () => workflow.name,
+  );
   const inner = "  ".repeat(depth + 1);
   const close = "  ".repeat(depth);
   const fieldMarkup = parts.flatMarkup;

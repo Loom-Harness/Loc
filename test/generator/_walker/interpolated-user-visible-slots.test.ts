@@ -132,7 +132,7 @@ describe("an interpolated attribute slot translates", () => {
 
   it("a STATIC label is unchanged — plain t(), no values object", async () => {
     const page = await pageOf('Button { icon: "trash", label: "Delete" }');
-    expect(page).toMatch(/aria-label=\{t\("page\.Home\.buttonAria\.\w+", "Delete"\)\}/);
+    expect(page).toMatch(/aria-label=\{t\("WebApp\.page\.Home\.buttonAria\.\w+", "Delete"\)\}/);
   });
 
   it("i18n OFF stays byte-identical — a string-less app never calls t()", async () => {

@@ -8,8 +8,7 @@
 // one function.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Sales {
@@ -34,8 +33,9 @@ const SRC = `
 
 describe("typescript generator — reified criteria (repository reads)", () => {
   it("a single-criterion read calls the reified predicate fn", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/customer-repository.ts",
+    )!;
 
     // Parameterless + parameterised criterion reads reify.
     expect(repo).toMatch(
@@ -55,8 +55,9 @@ describe("typescript generator — reified criteria (repository reads)", () => {
   });
 
   it("a criterion shared by a read and a retrieval emits exactly one fn", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
+    const repo = (await generateBackendFiles(SRC, "node")).get(
+      "db/repositories/customer-repository.ts",
+    )!;
     // `InRegion` is read by `GetInRegion` and retrieval `ByRegion` — one fn.
     const decls = repo.match(/const inRegionCriterion = /g) ?? [];
     expect(decls.length).toBe(1);

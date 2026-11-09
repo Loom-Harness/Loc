@@ -1,6 +1,7 @@
-import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { aggregateTableName } from "../../ir/enrich/storage-names.js";
+import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
-import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -27,11 +28,12 @@ import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { discardedAggregates } from "../../ir/util/discards.js";
+import { answersEntryResults } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
   foreignValueTypes,
-  NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
@@ -58,15 +60,16 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
-import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink, rewrite } from "../../util/emission-sink.js";
+import { rewrite } from "../../util/emission-sink.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { finalizeCsUnit } from "../_imports/dotnet.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { unionMembers } from "../_payload/union-wire.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
@@ -89,15 +92,15 @@ import {
   emitCommon,
   emitDispatcher,
   emitEnums,
-  emitEvents,
   emitIds,
   emitStampingInterceptor,
   emitValueObjects,
   pruneUnreferencedAmbientKernel,
 } from "./context-scaffolding-emit.js";
 import { domainUnionFiles } from "./cqrs/dtos.js";
-import { emitCqrs } from "./cqrs-emit.js";
 import { canEmitToExpressionFor, emitCriteria } from "./criteria-emit.js";
+import { DotnetOutputMap } from "./cs-output.js";
+import { projectEntityArgs } from "./dto-mapping.js";
 import {
   renderAuditRecord,
   renderAuditRecordConfiguration,
@@ -209,7 +212,9 @@ import {
   renderTestsFile,
   renderValidationProblem,
   renderValueObject,
+  renderValueObjectSchemaMergeFilter,
   renderVoTestsFile,
+  VO_MERGE_FILTER_PATH,
 } from "./emit.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
 import {
@@ -222,7 +227,7 @@ import { rewriteNamespacesForLayout } from "./layout-namespaces.js";
 import { emitProjectionDispatch, emitProjectionReads } from "./projection-emit.js";
 import { emitProjectionRowPersistence } from "./projection-state-emit.js";
 import { emitQueryProjections } from "./query-projection-emit.js";
-import { dotnetSchemaIdOverrides } from "./schema-ids.js";
+import { dotnetSchemaIdOverrides, valueObjectSchemaMerges } from "./schema-ids.js";
 import { emitRetrievalSpecs, renderPagingExtension } from "./spec-emit.js";
 import { hasAnyWireValidator, renderValidationBehavior } from "./validator-emit.js";
 import { emitDispatchHandlers, emitWorkflowInstanceReads, emitWorkflows } from "./workflow-emit.js";
@@ -232,8 +237,8 @@ import { emitWorkflowStatePersistence } from "./workflow-state-emit.js";
 // ---------------------------------------------------------------------------
 // .NET backend entry point.
 //
-// `generateDotnet(model)` returns a Map of relative paths → file
-// contents.  Per bounded context it produces:
+// `generateDotnetForContexts(…)` returns a Map of relative paths → file
+// contents.  Per deployable project it produces:
 //
 //   Domain/Ids/                    — record-struct ID types
 //   Domain/Enums/                  — enums
@@ -255,36 +260,16 @@ import { emitWorkflowStatePersistence } from "./workflow-state-emit.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Legacy entry: lowers the whole model and emits one project from each
- * top-level bounded context (used by `ddd generate dotnet <file>`).
- */
-export function generateDotnet(
-  model: Model,
-  options: { emitTrace?: boolean } = {},
-): Map<string, string> {
-  // See platform/hono/v4/emit.ts:generateTypeScript for the
-  // lowering + enrichment two-step (Hono backend's shell since the
-  // versioned-package split).
-  const loom = enrichLoomModel(lowerModel(model));
-  return generateDotnetForContexts(loom.contexts, undefined, undefined, options);
-}
-
-/**
- * System-mode entry: emits a single .NET project from a pre-filtered
- * list of contexts under the chosen namespace.  When emitting for a
- * deployable, the namespace is the deployable name.  When called with
- * a single context (non-system entry point), the namespace is that
- * context's name.
+ * The .NET backend entry: emits one deployable's project from its hosted
+ * contexts under `namespace` (the pascal-cased deployable name).
  *
- * `system` (when present) carries the system-wide user-claim shape +
- * the deployable's auth setting — the entry threads them into the
- * Auth/* file emitter and the Program.cs middleware mount.  Loose
- * top-level contexts (no enclosing system) skip that path entirely.
+ * `system` carries the deployable and its system — the user-claim shape, the
+ * auth setting, the migrations and the resolved style / layout adapters.
  */
 export function generateDotnetForContexts(
   contexts: EnrichedBoundedContextIR[],
-  namespace?: string,
-  system?: {
+  namespace: string,
+  system: {
     deployable: DeployableIR;
     sys: SystemIR;
     migrations?: MigrationsIR[];
@@ -303,39 +288,30 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = emissionSink("generator/dotnet/index");
+  const out = new DotnetOutputMap();
   const emitTrace = !!options.emitTrace;
-  if (namespace !== undefined) {
-    // Single project containing all the given contexts under one namespace.
-    const root = clashFreeRootNamespace(namespace, contexts);
-    emitProjectFromContexts(
-      contexts,
-      root,
-      out,
-      system,
-      emitTrace,
-      options.sourcemap,
-      options.sourceTexts,
-    );
-    for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
-    // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
-    // only when the finished project uses the `date` scalar.
-    if (system?.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);
-  } else {
-    for (const ctx of contexts) {
-      const root = clashFreeRootNamespace(ctx.name, [ctx]);
-      emitContext(ctx, root, out, emitTrace);
-      for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
-    }
-  }
-  return out;
+  const root = clashFreeRootNamespace(namespace, contexts);
+  emitProjectFromContexts(
+    contexts,
+    root,
+    out,
+    system,
+    emitTrace,
+    options.sourcemap,
+    options.sourceTexts,
+  );
+  for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
+  // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
+  // only when the finished project uses the `date` scalar.
+  if (system.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);
+  return out.assertFinal();
 }
 
 function emitProjectFromContexts(
   contexts: EnrichedBoundedContextIR[],
   ns: string,
   out: Map<string, string>,
-  system?: {
+  system: {
     deployable: DeployableIR;
     sys: SystemIR;
     migrations?: MigrationsIR[];
@@ -354,7 +330,7 @@ function emitProjectFromContexts(
   // multi-stage and copies the SPA bundle into `wwwroot/`.  See
   // `src/platform/dotnet.ts:mountsUi` + `src/ir/lower/lower.ts` for the
   // upstream wiring.
-  const hasEmbeddedSpa = !!system?.deployable.uiName;
+  const hasEmbeddedSpa = !!system.deployable.uiName;
   // Domain controllers always live under `/api/*` (the shared API base
   // path); `hasEmbeddedSpa` separately drives SPA static-file embedding.
   const routePrefix = apiRoutePrefix();
@@ -377,7 +353,7 @@ function emitProjectFromContexts(
   // machinery keys off HOSTED durable channels, matching what the
   // module-level migrations back; a foreign `queue`/`work` consumer relies on
   // broker ack semantics + idempotent reactors (the slice-3 stance).
-  const channelBindings = system ? brokerChannelBindings(system.deployable, system.sys) : [];
+  const channelBindings = brokerChannelBindings(system.deployable, system.sys);
   const hostedChannelNames = new Set(contexts.flatMap((c) => c.channels).map((ch) => ch.name));
   const wiredForeignChannels = channelBindings
     .filter((b) => !hostedChannelNames.has(b.channelName))
@@ -418,7 +394,7 @@ function emitProjectFromContexts(
   // `persistence: dapper` AND some in-scope aggregate needing concurrency so the
   // default EF output stays byte-identical.
   const emitsConcurrencyException =
-    system?.deployable.persistence === "dapper" &&
+    system.deployable.persistence === "dapper" &&
     aggregatesNeedConcurrency(contexts.flatMap((c) => c.aggregates));
   // File upload/download (M-T1.2): does a hosted aggregate declare a File field
   // (⇒ emit the shared FileRef record), and which objectStore does this
@@ -427,7 +403,7 @@ function emitProjectFromContexts(
   // File-free ⇒ nothing below fires and the output stays byte-identical.
   const hasFileField = contexts.some((c) => c.aggregates.some((a) => aggregateHasFileField(a)));
   let fileUpload: { putBytes: string; getBytes: string } | undefined;
-  if (hasFileField && system) {
+  if (hasFileField) {
     const wired = new Set(system.deployable.dataSourceNames);
     const storeType = new Map(system.sys.storages.map((s) => [s.name, s.type] as const));
     const objStore = system.sys.dataSources.find(
@@ -450,28 +426,21 @@ function emitProjectFromContexts(
   // no-ops), or the broker driver would wrongly dead-letter it as unknown
   // (the 8a python fix, applied here for parity).
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
-  const foreignConsumedEvents = system
-    ? resolveForeignEvents(
-        [
-          ...mergedSubscriptions.map((sub) => sub.event),
-          ...channelBindings.flatMap((b) => b.events),
-        ],
-        knownEventNames,
-        system.sys,
-      )
-    : [];
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((sub) => sub.event), ...channelBindings.flatMap((b) => b.events)],
+    knownEventNames,
+    system.sys,
+  );
   // The value objects / enums those foreign events — or the hosted contexts'
   // own declarations (D15: a sibling-context enum / VO) — reach: the event
   // record / aggregate names them, so the deployable must declare them (eval
   // item 11) — derived ahead of `emitCommon` because a foreign VO's invariant
   // needs the `ValueObjectInvariantException` it throws.
-  const foreignValues = system
-    ? foreignValueTypes(
-        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
-        system.sys,
-        mergedBase,
-      )
-    : NO_FOREIGN_VALUE_TYPES;
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+    system.sys,
+    mergedBase,
+  );
   emitCommon(ns, out, {
     concurrencyException: emitsConcurrencyException,
     file: hasFileField,
@@ -479,8 +448,9 @@ function emitProjectFromContexts(
       contexts.some(hasValueObjectInvariants) ||
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
+    deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
   });
-  emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
+  emitDispatcher(ns, out, hasSubscriptions, system.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));
   // Adapter dispatch context — built once per system-mode emit so
   // every per-aggregate call dispatches through the same EmitCtx
@@ -494,22 +464,19 @@ function emitProjectFromContexts(
   // The system orchestrator resolves them through
   // `platform/resolve-adapters.ts`; the generator never imports
   // `src/platform/` itself, so the backend-packages layering invariant
-  // (no `src/generator/* → src/platform/*` edges) holds.  When unresolved
-  // (legacy single-context generate mode), the call sites fall back to
-  // the OWN sibling adapters (`./adapters/cqrs-style.js`,
+  // (no `src/generator/* → src/platform/*` edges) holds.  When unresolved,
+  // the call sites fall back to the OWN sibling adapters (`./adapters/cqrs-style.js`,
   // `./adapters/by-layer-layout.js`) — byte-identical under the size-1
   // real menus, since the resolved adapter IS that sibling.
-  const emitCtx: EmitCtx | undefined = system
-    ? {
-        deployable: system.deployable,
-        contexts,
-        sys: system.sys,
-        migrations: system.migrations,
-        emitTrace,
-        styleAdapter: system.styleAdapter,
-        layoutAdapter: system.layoutAdapter,
-      }
-    : undefined;
+  const emitCtx: EmitCtx = {
+    deployable: system.deployable,
+    contexts,
+    sys: system.sys,
+    migrations: system.migrations,
+    emitTrace,
+    styleAdapter: system.styleAdapter,
+    layoutAdapter: system.layoutAdapter,
+  };
   // Maps each event-sourced stream to its OWNING context so the merged
   // AppDbContext, the workflow handlers, and the instance readers all name the
   // same per-context `<ctx>_events` entity/DbSet.
@@ -523,13 +490,13 @@ function emitProjectFromContexts(
       const evPath = `Domain/Events/${ev.name}.cs`;
       const evContent = renderEvent(ev, ns);
       out.set(evPath, evContent);
-      sourcemap?.file(evPath, evContent, ev.origin, `${ctx.name}.${ev.name}`);
+      sourcemap?.file(evPath, finalizeCsUnit(evContent), ev.origin, `${ctx.name}.${ev.name}`);
     }
     for (const agg of ctx.aggregates) {
-      emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
+      emitAggregate(agg, ctx, ns, out, emitTrace, emitCtx, sourcemap, sourceTexts);
     }
     emitBaseReaders(ctx, ns, out, sourcemap, {
-      dapper: system?.deployable.persistence === "dapper",
+      dapper: system.deployable.persistence === "dapper",
       routePrefix,
       emitCtx,
     });
@@ -546,50 +513,37 @@ function emitProjectFromContexts(
       const svcTests = renderServiceTestsFile(svc, ctx, ns);
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
-    // Context INTEGRATION test (test-placement.md) — an in-process,
-    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
-    // the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(
-      ctx,
-      ns,
-      system?.deployable.persistence === "dapper",
-    );
-    if (integrationTests) {
-      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
-    }
-    emitWorkflows(ctx, ns, out, { routePrefix, sys: system?.sys, sourcemap });
+    emitWorkflows(ctx, ns, out, { routePrefix, sys: system.sys, sourcemap });
     // Explicit application layer (unfoldable-api-derivation.md, A1): emit the
     // `commandHandler` / `queryHandler` Mediator records + handlers.  A no-op
     // for a context that declares none.
-    emitExplicitHandlers(ctx, ns, out, system?.sys);
+    emitExplicitHandlers(ctx, ns, out, system.sys);
     emitWorkflowInstanceReads(ctx, ns, out, ownerOf, {
       routePrefix,
-      usingDapper: system?.deployable.persistence === "dapper",
+      usingDapper: system.deployable.persistence === "dapper",
     });
     // Projection read routes (projection.md) — GET /<prefix>projections/<snake>
     // [/{key}] + the `<Proj>Response` DTOs, over the read-model row DbSet (EF) or
     // raw Npgsql (dapper — decoupled from AppDbContext).
     emitProjectionReads(ctx, ns, out, {
       routePrefix,
-      usingDapper: system?.deployable.persistence === "dapper",
+      usingDapper: system.deployable.persistence === "dapper",
     });
     // Query-time projections (read-path-architecture.md rev.13) — a live read
     // (source find + join bulk-loads + select) with no folded read-model table.
     emitQueryProjections(ctx, ns, out, {
       routePrefix,
       sourcemap,
-      usingDapper: system?.deployable.persistence === "dapper",
+      usingDapper: system.deployable.persistence === "dapper",
+      contexts,
     });
   }
   // Explicit transport layer (unfoldable-api-derivation.md, A1): one
   // ControllerBase per served api whose `route` list is non-empty, dispatching
   // each route through Mediator.  Routes to non-hosted contexts are skipped.
-  if (system) {
-    for (const apiName of system.deployable.serves) {
-      const api = system.sys.apis.find((a) => a.name === apiName);
-      if (api) emitExplicitRouteController(api.name, api.routes, contexts, ns, out);
-    }
+  for (const apiName of system.deployable.serves) {
+    const api = system.sys.apis.find((a) => a.name === apiName);
+    if (api) emitExplicitRouteController(api.name, api.routes, contexts, ns, out);
   }
   // DbContext + project shell are emitted once, with all aggregates
   // collected from the union of contexts (`mergedBase`, derived above).
@@ -610,28 +564,17 @@ function emitProjectFromContexts(
   for (const vo of foreignValues.valueObjects) {
     out.set(`Domain/ValueObjects/${vo.name}.cs`, renderValueObject(vo, ns));
   }
-  if (system) {
-    const hostedIdNames = new Set(
-      contexts.flatMap((c) =>
-        c.aggregates.flatMap((a) => [a.name, ...a.parts.map((pt) => pt.name)]),
-      ),
-    );
-    const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
-      ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValues.valueObjects),
-      ...hostedContextIdTypeSources([merged]),
-      ...userClaimIdTypeSources(system.sys.user),
-    ]);
-    for (const name of foreignIdNames) {
-      let idValueType = "uuid";
-      for (const sub of system.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const agg = c.aggregates.find((a) => a.name === name);
-          if (agg) idValueType = agg.idValueType;
-        }
-      }
-      out.set(`Domain/Ids/${name}Id.cs`, renderId(name, idValueType, ns));
-    }
+  const hostedIdNames = new Set(
+    contexts.flatMap((c) => c.aggregates.flatMap((a) => [a.name, ...a.parts.map((pt) => pt.name)])),
+  );
+  const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
+    ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValues.valueObjects),
+    ...hostedContextIdTypeSources([merged]),
+    ...userClaimIdTypeSources(system.sys.user),
+  ]);
+  for (const name of foreignIdNames) {
+    out.set(`Domain/Ids/${name}Id.cs`, renderId(name, ns));
   }
   // Broker transport module (M-T4.4) — channel-less projects stay
   // byte-identical.
@@ -643,7 +586,7 @@ function emitProjectFromContexts(
   // Rooms + policy-derived routing v1 (channels.md): a tenant-owned context's
   // SSE wire scopes delivery per tenant (never cross-tenant); an untenanted
   // one keeps the broadcast-to-all hub (byte-identical).
-  const realtimeRoomPlan = realtimeRoomPlanOf(merged, system?.sys);
+  const realtimeRoomPlan = realtimeRoomPlanOf(merged, system.sys);
   const realtimeRoomScoped = hasRealtime && realtimeRoomPlan.tenantScoped;
   // The `User` property the SSE endpoint reads the room key off — the bound
   // `tenancy by user.<claim>`, never the row column `TenantId`.
@@ -651,8 +594,8 @@ function emitProjectFromContexts(
   // The deployable carries auth: durable events record their EVENT ORIGIN on
   // the outbox row, every envelope carries it, and the relay / consumer
   // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
-  const deployableCarriesAuth = !!(system?.deployable.auth?.required && system.sys.user);
-  if (hasChannels && system) {
+  const deployableCarriesAuth = !!(system.deployable.auth?.required && system.sys.user);
+  if (hasChannels) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
       renderDotnetChannels(
@@ -660,7 +603,6 @@ function emitProjectFromContexts(
         channelBindings,
         merged.events,
         hasChannelConsumers,
-        system.sys,
         hasRealtime
           ? "RealtimeDomainEventDispatcher"
           : hasOutboxTier
@@ -681,7 +623,7 @@ function emitProjectFromContexts(
   // channel-routed reactor / event-create, derived over the merged context so
   // a reactor in one hosted context can route off another's channel.
   if (hasSubscriptions) {
-    emitDispatchHandlers(merged, ns, out, system?.sys, ownerOf, sourcemap);
+    emitDispatchHandlers(merged, ns, out, system.sys, ownerOf, sourcemap);
     // Projection fold handlers (one INotificationHandler<TEvent> per fold),
     // derived over the merged context so a fold can route off another hosted
     // context's channel — mirrors the reactor derivation above.
@@ -696,7 +638,7 @@ function emitProjectFromContexts(
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
   const durableTypes = [...new Set(contexts.flatMap((c) => [...durableEventTypes(c)]))].sort();
-  const outboxUsesDapper = system?.deployable.persistence === "dapper";
+  const outboxUsesDapper = system.deployable.persistence === "dapper";
   const hasOutbox = hasOutboxTier;
   if (hasOutbox) {
     // The workflow-less durable-broker producer wraps the Noop (no in-process
@@ -749,8 +691,8 @@ function emitProjectFromContexts(
   // validator already rejects the half-state).  Computed first
   // because the capability-interface emitter needs to know whether
   // the auditable interceptor can rely on ICurrentUserAccessor.
-  const authRequired = !!(system?.deployable.auth?.required && system.sys.user);
-  if (authRequired && system?.sys) {
+  const authRequired = !!(system.deployable.auth?.required && system.sys.user);
+  if (authRequired) {
     // The persistence adapter picks the `IOrgPathResolver` implementation the
     // hierarchy seam emits — the EF one references AppDbContext, which a
     // `persistence: dapper` project does not have.
@@ -761,7 +703,7 @@ function emitProjectFromContexts(
   // (audit/provenance "who computed") AND `currentUser` lifecycle stamps, which
   // resolve the principal id from the ambient RequestContext.  Undefined
   // without auth.
-  const userFields = authRequired ? system?.sys.user?.fields : undefined;
+  const userFields = authRequired ? system.sys.user?.fields : undefined;
   const actorIdField = userFields?.find((f) => f.name === "id") ?? userFields?.[0];
   const actorIdProp = actorIdField ? upperFirst(actorIdField.name) : undefined;
   // SaveChangesInterceptor — emitted only when at least one
@@ -773,7 +715,7 @@ function emitProjectFromContexts(
   // Microsoft.EntityFrameworkCore (unavailable on the Dapper deployable) and
   // Program.cs never registers it there; the Dapper repository applies the same
   // stamps inline on save (onUpdate mutate / onCreate INSERT-only local).
-  if (system?.deployable.persistence !== "dapper") {
+  if (system.deployable.persistence !== "dapper") {
     emitStampingInterceptor(merged, ns, out, actorIdProp);
   }
   // Reified `criterion` specifications (evaluate face) — additive, not yet
@@ -785,7 +727,7 @@ function emitProjectFromContexts(
   // connection + versioned migrations applied by `DbSchema.EnsureAsync`.  The
   // validator gates dapper to the supported subset, so the EF-only branches
   // below stay byte-identical for the default `efcore`.
-  const usingDapper = system?.deployable.persistence === "dapper";
+  const usingDapper = system.deployable.persistence === "dapper";
   // Provenance (provenance.md) + per-operation audit (audit-and-logging.md)
   // runtimes.  `hasProvenance` drives the lineage SDK + history table +
   // co-located columns; `hasAudit` drives the audit table + writer +
@@ -832,6 +774,7 @@ function emitProjectFromContexts(
       eventLogContexts(contexts).map((c) => c.name),
       dapperWfDurable,
       out,
+      answersEntryResults(merged),
     );
     // Event-sourced workflow fold classes (Application/Workflows/<Wf>State.cs)
     // are persistence-neutral (JSON codec over the event stream) — reused
@@ -851,13 +794,12 @@ function emitProjectFromContexts(
     // the matching config-class list threaded into the DbContext so it maps the
     // single `Events` DbSet.  The event table lives in the context's dataSource
     // schema (map-back over `contexts`, since `merged` unions several).
-    const resolveEventLogSchema = system
-      ? (c: EnrichedBoundedContextIR): string | undefined => resolveContextSchema(c, system.sys)
-      : undefined;
+    const resolveEventLogSchema = (c: EnrichedBoundedContextIR): string | undefined =>
+      resolveContextSchema(c, system.sys);
     emitEventLogFiles(contexts, ns, out, resolveEventLogSchema);
-    const docSet = documentAggNames(contexts, system?.sys);
+    const docSet = documentAggNames(contexts, system.sys);
     const esSet = eventSourcedAggNames(contexts);
-    const embSet = embeddedAggNames(contexts, system?.sys);
+    const embSet = embeddedAggNames(contexts, system.sys);
     out.set(
       "Infrastructure/Persistence/AppDbContext.cs",
       renderDbContext(
@@ -910,12 +852,10 @@ function emitProjectFromContexts(
     // inside renderDbContext above.  The saga tables live in the workflow's
     // OWNING-context schema (map-back by name over `contexts`, since `merged`
     // unions several), matching the migration DDL.
-    const resolveWorkflowSchema = system
-      ? (wf: WorkflowIR): string | undefined => {
-          const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-          return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-        }
-      : undefined;
+    const resolveWorkflowSchema = (wf: WorkflowIR): string | undefined => {
+      const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+      return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+    };
     emitWorkflowStatePersistence(
       merged.workflows,
       ns,
@@ -927,14 +867,14 @@ function emitProjectFromContexts(
     // DbSet/ApplyConfiguration wiring is inside renderDbContext above.  Rows
     // land in their projection's OWNING-context schema (map-back by name over
     // `contexts`, since `merged` unions several), matching the migration DDL.
-    const resolveProjectionSchema = system
-      ? (proj: (typeof merged.projections)[number]): string | undefined => {
-          const owningCtx = contexts.find((c) =>
-            (c.projections ?? []).some((p) => p.name === proj.name),
-          );
-          return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
-        }
-      : undefined;
+    const resolveProjectionSchema = (
+      proj: (typeof merged.projections)[number],
+    ): string | undefined => {
+      const owningCtx = contexts.find((c) =>
+        (c.projections ?? []).some((p) => p.name === proj.name),
+      );
+      return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
+    };
     emitProjectionRowPersistence(
       merged.projections.filter(isMaterializedProjection),
       ns,
@@ -951,8 +891,37 @@ function emitProjectFromContexts(
     // IReadModelStore the orchestration handlers depend on INSTEAD of the
     // concrete AppDbContext.  Emitted when the deployable hosts a workflow or a
     // projection (the port users); byte-identical (no file) otherwise.
-    if (merged.workflows.length > 0 || merged.projections.length > 0) {
+    if (
+      merged.workflows.length > 0 ||
+      merged.projections.length > 0 ||
+      answersEntryResults(merged)
+    ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
+    }
+  }
+  // Context INTEGRATION tests (test-placement.md) — an in-process,
+  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+  // the repos, and persisting→reading.  Rendered after the persistence branch
+  // (AppDbContext) and the auth layer: the test constructs the context with the accessor its
+  // constructor takes, and adds the save interceptor the app registers.
+  const dbContextSrc = out.get("Infrastructure/Persistence/AppDbContext.cs") ?? "";
+  for (const ctx of contexts) {
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system.deployable.persistence === "dapper",
+      {
+        dbContextTakesUser:
+          /AppDbContext\(DbContextOptions<AppDbContext> options, ICurrentUserAccessor/.test(
+            dbContextSrc,
+          ),
+        interceptor: out.has("Infrastructure/Persistence/AuditableInterceptor.cs"),
+        ...(authRequired && system.sys.user ? { user: system.sys.user } : {}),
+      },
+    );
+    if (integrationTests) {
+      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
   }
   // Per-operation audit shared files — the append-only audit POCO + the
@@ -1033,7 +1002,7 @@ function emitProjectFromContexts(
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
       // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
-      echoForbiddenDetail: echoesDenialDetail(system?.deployable, system?.sys),
+      echoForbiddenDetail: echoesDenialDetail(system.deployable, system.sys),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
@@ -1041,12 +1010,10 @@ function emitProjectFromContexts(
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
+  // in this block: every identity is a guid (the IR has no id value-type
+  // axis), so an emit-time gate on it would be an always-true branch nothing
+  // could exercise.  The narrowing that matters is inside the filter and is a
+  // RUNTIME one — it acts only on an action that actually binds a `Guid id`.
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
@@ -1070,14 +1037,14 @@ function emitProjectFromContexts(
   // `Migrations/<slug>.cs` per MigrationsIR generation, projected onto the
   // Dapper column layout and run by `DbSchema.EnsureAsync` instead of
   // `Database.Migrate()` (Program.cs branches on `usingDapper` first).
-  if (usingDapper && system?.migrations && system.migrations.length > 0) {
+  if (usingDapper && system.migrations && system.migrations.length > 0) {
     emitDapperMigrations(system.migrations, ns, out);
   }
   // The co-located `<field>_provenance` columns are ordinary MigrationsIR
   // columns, so both runners pick them up from the chain's own generations.
-  const hasMigrations = !usingDapper && !!(system?.migrations && system.migrations.length > 0);
+  const hasMigrations = !usingDapper && !!(system.migrations && system.migrations.length > 0);
   if (hasMigrations) {
-    emitDotnetMigrations(system!.migrations!, ns, out);
+    emitDotnetMigrations(system.migrations!, ns, out);
   }
   // First-boot seed data (database-seeding.md) — emits
   // Infrastructure/Persistence/Seed.cs when the served contexts declare any
@@ -1103,55 +1070,47 @@ function emitProjectFromContexts(
       // resolves to nothing and the qualifier would silently go missing again.
       const owning = contexts.find((c) => c.aggregates.some((a) => a.name === aggName));
       const agg = owning?.aggregates.find((a) => a.name === aggName);
-      return agg && owning && system?.sys
-        ? resolveDataSourceConfig(agg, owning, system.sys)?.schema
-        : undefined;
+      return agg && owning ? resolveDataSourceConfig(agg, owning, system.sys)?.schema : undefined;
     });
   }
   const hasSeeds = out.has("Infrastructure/Persistence/Seed.cs");
   // Resource client classes (objectStore / queue / api) + their NuGet
   // deps.  Empty when the deployable wires no consumable
   // resources — the csproj stays byte-identical.
-  const resourceEmission = emitDotnetResourceFiles(system?.sys, ns);
+  const resourceEmission = emitDotnetResourceFiles(system.sys, ns);
   for (const [path, content] of resourceEmission.files) out.set(path, content);
   // Typed in-system api clients (M-T4.8).  Separate from the sourceType-routed
   // resource adapters above on purpose: an api-bound resource has no `storage`,
   // so it never reaches a ResourceAdapter at all.  Undefined — hence no file —
   // when this deployable binds no in-system api.
-  if (system) {
-    const apiClients = emitDotnetApiClients(
-      apiResourceBindings(system.deployable, system.sys),
-      system.sys,
-      ns,
-    );
-    if (apiClients) out.set("Resources/ApiClients.cs", apiClients);
-  }
+  const apiClients = emitDotnetApiClients(
+    apiResourceBindings(system.deployable, system.sys),
+    system.sys,
+    ns,
+  );
+  if (apiClients) out.set("Resources/ApiClients.cs", apiClients);
   // TimerSource scheduling (scheduling.md, M-T4.1).  A timer's emit owner is
   // DERIVED: the deployable whose subdomain `migrationsOwner` owns the
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no TimerScheduler.cs, no registration, no Hangfire dep).
-  // EF-only — the tick's advisory lock rides `AppDbContext.Database`, which the
-  // Dapper path (NpgsqlDataSource, no DbContext) doesn't have; a dapper timer
-  // owner is a follow-up slice.
-  const ownedTimers: TimerSourceIR[] = system
-    ? (system.sys.timerSources ?? []).filter((ts) => {
-        const sub = system.sys.subdomains.find((s) =>
-          s.contexts.some((c) => c.name === ts.context),
-        );
-        return sub?.migrationsOwner === system.deployable.name;
-      })
-    : [];
-  const hasTimers = ownedTimers.length > 0 && !usingDapper;
+  // The `every:` tick's advisory lock rides the persistence adapter's own
+  // connection (`AppDbContext.Database` on EF, `NpgsqlDataSource` on Dapper);
+  // `cron:` jobs need only the dispatcher and Hangfire's own store.
+  const ownedTimers: TimerSourceIR[] = (system.sys.timerSources ?? []).filter((ts) => {
+    const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
+    return sub?.migrationsOwner === system.deployable.name;
+  });
+  const hasTimers = ownedTimers.length > 0;
   if (hasTimers) {
     const eventByName = new Map<string, EventIR>(merged.events.map((e) => [e.name, e]));
     out.set(
       "Infrastructure/Scheduling/TimerScheduler.cs",
-      renderTimerScheduler(ownedTimers, eventByName, ns),
+      renderTimerScheduler(ownedTimers, eventByName, ns, usingDapper),
     );
   }
   emitProject(merged, ns, out, {
-    nativePort: system?.deployable.port,
+    nativePort: system.deployable.port,
     timers: hasTimers ? ownedTimers : [],
     hasChannels,
     hasChannelConsumers,
@@ -1168,15 +1127,15 @@ function emitProjectFromContexts(
     usesStamping,
     hasEmbeddedSpa,
     spaOutDir:
-      system?.deployable.uiFramework === "svelte"
+      system.deployable.uiFramework === "svelte"
         ? "build"
-        : system?.deployable.uiFramework === "angular"
+        : system.deployable.uiFramework === "angular"
           ? "dist/browser"
           : "dist",
     // Feliz builds via `dotnet fable` + `vite build`, so its embedded spa-build
     // Dockerfile stage needs a .NET-SDK+Node image (not the npm-only node base
     // the other four frameworks use).  Every non-feliz framework stays `vite`.
-    spaBuildKind: system?.deployable.uiFramework === "feliz" ? "feliz" : "vite",
+    spaBuildKind: system.deployable.uiFramework === "feliz" ? "feliz" : "vite",
     hasMigrations,
     hasSeeds,
     emitTrace,
@@ -1192,7 +1151,7 @@ function emitProjectFromContexts(
     // Dapper persistence-port DI (M-T6.9): closed bindings keyed off the
     // pre-merge event-log context names — computed here (index has `contexts`)
     // and threaded to Program.cs.  Empty on the EF path (it uses open generics).
-    dapperSearchPath: usingDapper ? dapperSearchPath(system?.migrations ?? []) : undefined,
+    dapperSearchPath: usingDapper ? dapperSearchPath(system.migrations ?? []) : undefined,
     dapperPortRegistrations: usingDapper
       ? dapperPortRegistrations(
           ns,
@@ -1203,12 +1162,12 @@ function emitProjectFromContexts(
       : [],
     resourceNugetDeps: resourceEmission.nugetDeps,
     fileUpload,
-    oidc: !!(authRequired && system?.sys.auth),
+    oidc: !!(authRequired && system.sys.auth),
     // Tenant hierarchy (multi-tenancy): the registry opts into
     // `tenantRegistry` (a `dataKey` column), so Program.cs registers the scoped
     // `IOrgPathResolver` → `EfOrgPathResolver` the auth middleware calls to
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
-    orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
+    orgPathResolver: !!(authRequired && system.sys && hierarchyRegistry(system.sys)),
   });
   emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
@@ -1296,85 +1255,6 @@ function listWrapperPairs(
   return pairs;
 }
 
-function emitContext(
-  ctx: EnrichedBoundedContextIR,
-  ns: string,
-  out: Map<string, string>,
-  emitTrace = false,
-): void {
-  // Single-context path: this context owns every stream it hosts.
-  const ownerOf = makeOwnerOf([ctx]);
-  const hasSubscriptions = ctx.eventSubscriptions.length > 0 || (ctx.projections?.length ?? 0) > 0;
-  // Transactional outbox (dispatch-delivery-semantics.md) — see the
-  // system-mode twin above for the design.
-  const durableTypes = [...durableEventTypes(ctx)].sort();
-  const hasOutbox = hasSubscriptions && durableTypes.length > 0;
-  if (hasOutbox) {
-    out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
-    out.set("Infrastructure/Persistence/OutboxMessage.cs", renderOutboxMessage(ns));
-    out.set(
-      "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-      renderOutboxDispatcher(ns, durableTypes),
-    );
-    out.set("Infrastructure/Events/OutboxRelayService.cs", renderOutboxRelay(ns, durableTypes));
-  }
-  emitIds(ctx, ns, out);
-  emitEnums(ctx, ns, out);
-  emitValueObjects(ctx, ns, out);
-  emitEvents(ctx, ns, out, hasSubscriptions);
-  emitCommon(ns, out, {
-    valueObjectInvariant: hasValueObjectInvariants(ctx),
-    domainFloorCodes: hasDomainFloorMessages(ctx),
-  });
-  emitDispatcher(ns, out, hasSubscriptions);
-  for (const agg of ctx.aggregates) {
-    emitAggregate(agg, ctx, ns, out, undefined, emitTrace);
-  }
-  emitBaseReaders(ctx, ns, out);
-  // Domain services (domain-services.md) — see the system-mode twin above.
-  emitDomainServices(ctx, ns, out);
-  emitWorkflows(ctx, ns, out);
-  emitWorkflowInstanceReads(ctx, ns, out, ownerOf);
-  emitProjectionReads(ctx, ns, out);
-  if (hasSubscriptions) {
-    emitDispatchHandlers(ctx, ns, out, undefined, ownerOf);
-    emitProjectionDispatch(ctx, ns, out);
-  }
-  emitQueryProjections(ctx, ns, out);
-  // Reified `criterion` specifications (evaluate face) — additive, not yet
-  // wired into invariants/preconditions (see criteria-emit.ts).
-  emitCriteria(ctx, ns, out);
-  // Stamping interceptor — same gating as the system path.
-  emitStampingInterceptor(ctx, ns, out);
-  // Same FluentValidation gate as the system path — drives the
-  // pipeline behavior emit + csproj + Program.cs registration +
-  // the DomainExceptionFilter arm.
-  const usesValidators = ctx.aggregates.some((a) => hasAnyWireValidator(a, valueObjectPool(ctx)));
-  emitInfrastructure(ctx, ns, out, usesValidators);
-  if (usesValidators) {
-    out.set("Application/Common/ValidationBehavior.cs", renderValidationBehavior(ns));
-  }
-  const usesStamping = ctx.aggregates.some((a) => (a.contextStamps?.length ?? 0) > 0);
-  // First-boot seed data (database-seeding.md) — the legacy per-context path
-  // emits the seeder too (consistent with `generate ts`), so `generate dotnet`
-  // on a seeded model produces + wires Seed.cs.
-  if (ctx.seeds.length > 0) {
-    emitDotnetSeeds(ctx, ns, out);
-  }
-  const hasSeeds = out.has("Infrastructure/Persistence/Seed.cs");
-  emitProject(ctx, ns, out, {
-    usesValidators,
-    usesStamping,
-    emitTrace,
-    hasSeeds,
-    hasSubscriptions,
-    hasOutbox,
-  });
-  emitTestProject(ctx, ns, out);
-  // Same ambient-kernel prune as the system path — see the call there.
-  pruneUnreferencedAmbientKernel(out);
-}
-
 // ---------------------------------------------------------------------------
 // Per-aggregate emission
 // ---------------------------------------------------------------------------
@@ -1384,19 +1264,14 @@ function emitAggregate(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
-  routePrefix?: string,
-  emitTrace = false,
-  /** Adapter-dispatch context — present only in system-mode emit
-   *  (legacy single-context entry doesn't have a deployable + sys to
-   *  build it from).  When provided, the CQRS step routes through
-   *  the local `cqrsStyleAdapter.emitForAggregate` +
-   *  `byLayerLayoutAdapter.pathFor` instead of the direct `emitCqrs`
-   *  call.  Byte-identical because the adapter wraps the same
-   *  `emitCqrs` underneath. */
-  emitCtx?: EmitCtx,
+  emitTrace: boolean,
+  /** Adapter-dispatch context — the CQRS step routes through the
+   *  deployable's resolved style adapter (`cqrsStyleAdapter` by default) and
+   *  its layout adapter's `pathFor`. */
+  emitCtx: EmitCtx,
   /** Source-map recorder (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md) — present
-   *  only in system-mode emit, same discipline as `emitCtx`.  No-op when
-   *  absent (legacy single-context path), so output stays byte-identical. */
+   *  only under `--sourcemap`.  No-op when absent, so output stays
+   *  byte-identical. */
   sourcemap?: SourceMapRecorder,
   /** `.ddd` source text keyed by `OriginRef` source path —
    *  forwarded into the root `renderEntity` call only (entity parts carry
@@ -1407,16 +1282,14 @@ function emitAggregate(
   const construct = `${ctx.name}.${agg.name}`;
   // Persistence selection (needed as early as the abstract-base branch below —
   // a Dapper TPH base's shared table comes from the migration chain, not an EF config).
-  const usingDapperEarly = emitCtx?.deployable.persistence === "dapper";
+  const usingDapperEarly = emitCtx.deployable.persistence === "dapper";
   // Per-aggregate placement (D-REALIZATION-AXES `directoryLayout:`): route the
   // aggregate's domain + persistence files through the deployable's RESOLVED
-  // layout adapter (threaded via emitCtx), falling back to byLayer in the
-  // legacy single-context path.  byLayer reproduces the historical inline
-  // paths byte-for-byte; byFeature rehomes them under `Features/<Plural>/`
-  // (namespaces follow via `rewriteNamespacesForLayout`, post-emit).  The
-  // adapters ignore the EmitCtx arg for path routing, so an empty stand-in is
-  // fine when there's no system context.
-  const layout = emitCtx?.layoutAdapter ?? byLayerLayoutAdapter;
+  // layout adapter (threaded via emitCtx), byLayer when none was resolved.
+  // byLayer keeps the inline paths; byFeature rehomes them under
+  // `Features/<Plural>/` (namespaces follow via `rewriteNamespacesForLayout`,
+  // post-emit).
+  const layout = emitCtx.layoutAdapter ?? byLayerLayoutAdapter;
   const place = (
     name: string,
     category: DotnetArtifactCategory,
@@ -1429,14 +1302,19 @@ function emitAggregate(
       emitCtx ?? ({} as EmitCtx),
     );
     out.set(path, content);
-    sourcemap?.file(path, content, origin, construct);
+    sourcemap?.file(path, finalizeCsUnit(content), origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content, so they land at the right
     // absolute lines regardless of what the layout adapter did to the path.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          path,
+          finalizeCsUnit(content),
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
       }
     }
   };
@@ -1512,7 +1390,6 @@ function emitAggregate(
         fieldNames: new Set(inheritedBase.fields.map((f) => f.name)),
         derivedNames: new Set(inheritedBase.derived.map((d) => d.name)),
         sharesIdentity: !!tphBase,
-        idValueType: tphBase?.idValueType,
       }
     : undefined;
   // The strongly-typed id class for this aggregate's key.  `tableOwnerName`
@@ -1530,10 +1407,9 @@ function emitAggregate(
   // tablePrefix) and the saving SHAPE.  `isDoc` (shape: document)
   // switches this aggregate onto the document-persistence path: a
   // single JSONB column + STJ round-trip, no normalised entity table,
-  // no join tables.  In the legacy single-context entry there's no
-  // emitCtx/sys, so resolution falls back to the aggregate header's
-  // `normalised(…)` (the default).
-  const ds = emitCtx ? resolveDataSourceConfig(agg, ctx, emitCtx.sys) : undefined;
+  // no join tables.  With no binding config, resolution falls back to the
+  // aggregate header's `normalised(…)` (the default).
+  const ds = resolveDataSourceConfig(agg, ctx, emitCtx.sys);
   const shape = effectiveSavingShape(agg, ds);
   // Event-sourced (`persistedAs: eventLog`) wins over the saving-shape axis:
   // the aggregate persists to a `<agg>_events` stream (an EF event-record
@@ -1546,7 +1422,7 @@ function emitAggregate(
   // for the Dapper embedded path (which serialises each containment's part
   // snapshots into a JSONB column — EF embedded uses owned-type `.ToJson()`
   // instead, so it doesn't need the seam).
-  const usingDapperPersistence = emitCtx?.deployable.persistence === "dapper";
+  const usingDapperPersistence = emitCtx.deployable.persistence === "dapper";
   const snapshotSeam = isDoc || (usingDapperPersistence && isEmbedded);
 
   for (const part of agg.parts) {
@@ -1570,13 +1446,20 @@ function emitAggregate(
   // so the entity emitter can type the method + thread the variant order.
   const operationReturnUnions = new Map<
     string,
-    { name: string; members: ReturnType<typeof unionMembers> }
+    { name: string; members: ReturnType<typeof unionMembers>; selfArgs?: string }
   >();
   for (const op of agg.operations) {
     if (op.returnType?.kind !== "union") continue;
+    const members = unionMembers(op.returnType.variants, ctx);
+    // The aggregate's own arm (`return this`) is built from the aggregate's
+    // wire projection, unmasked: a domain method has no request principal.
+    const selfArm = members.some((m) => m.tag === agg.name && m.shape === "record");
     operationReturnUnions.set(op.name, {
       name: unionInstanceName(op.returnType.variants),
-      members: unionMembers(op.returnType.variants, ctx),
+      members,
+      ...(selfArm
+        ? { selfArgs: projectEntityArgs("this", agg, ctx, { unionVariant: true, unmasked: true }) }
+        : {}),
     });
   }
   // Only collected when a recorder is actually threaded in — a no-sourcemap
@@ -1631,6 +1514,9 @@ function emitAggregate(
   // aggregates skip them (their in-memory impls don't compose LINQ query
   // operators, so the interface must not promise one); a paged criterion read
   // reaches them through the synthesised `FindAllBy<Criterion>` find instead.
+  // Some body drops a tentative change to this aggregate → its repository
+  // carries `Discard`.
+  const discards = discardedAggregates(ctx).has(agg.name);
   const aggRetrievals =
     isDoc || isEs
       ? []
@@ -1640,14 +1526,14 @@ function emitAggregate(
   place(
     `I${agg.name}Repository.cs`,
     "repository-interface",
-    renderRepositoryInterface(agg, repoWithViews, ns, aggRetrievals, idClass),
+    renderRepositoryInterface(agg, repoWithViews, ns, aggRetrievals, idClass, discards),
     repoOrigin,
   );
   // Each retrieval emits an Ardalis `Specification<T>` (where + sort) the
   // EF repository's `Run<Name>Async` consumes via `.WithSpecification(...)`.
   // EF-only: the Dapper repository renders retrievals as parameterised SQL
   // (no Ardalis dependency on that persistence axis).
-  if (emitCtx?.deployable.persistence !== "dapper") {
+  if (emitCtx.deployable.persistence !== "dapper") {
     emitRetrievalSpecs(agg, aggRetrievals, ctx, ns, out);
   }
   // A find with a `where` expression that lowers to `Regex.IsMatch`
@@ -1675,7 +1561,7 @@ function emitAggregate(
   // join-table files — the validator gates those features out for dapper);
   // `efcore` (default) keeps the EF Core repository + configuration path
   // byte-identical.
-  const usingDapper = emitCtx?.deployable.persistence === "dapper";
+  const usingDapper = emitCtx.deployable.persistence === "dapper";
   if (usingDapper) {
     // The request principal's id property (PascalCased) — present only when the
     // deployable carries auth.  Threaded to the Dapper repository so a bare
@@ -1683,8 +1569,8 @@ function emitAggregate(
     // RequestContext, exactly as the EF AuditableInterceptor does (index.ts's
     // `actorIdProp` for the interceptor).  Undefined without auth (a principal
     // stamp is then rejected upstream by loom.stamp-principal-without-auth).
-    const authed = !!(emitCtx?.deployable.auth?.required && emitCtx.sys.user);
-    const userFields = authed ? emitCtx?.sys.user?.fields : undefined;
+    const authed = !!(emitCtx.deployable.auth?.required && emitCtx.sys.user);
+    const userFields = authed ? emitCtx.sys.user?.fields : undefined;
     const actorIdField = userFields?.find((f) => f.name === "id") ?? userFields?.[0];
     const actorIdProp = actorIdField ? upperFirst(actorIdField.name) : undefined;
     // Dapper event store (persistedAs: eventLog) reuses the persistence-agnostic
@@ -1701,6 +1587,7 @@ function emitAggregate(
             findBodies,
             ctx.name,
             [...repoImplUsings].sort(),
+            ctx.aggregates,
           )
         : isDoc
           ? renderDapperDocumentRepository(
@@ -1747,6 +1634,7 @@ function emitAggregate(
       renderEventSourcedRepositoryImpl(agg, repoWithViews, ns, findBodies, ctx.name, {
         extraUsings: [...repoImplUsings].sort(),
         idClass,
+        pool: ctx.aggregates,
       }),
       repoOrigin,
     );
@@ -1762,6 +1650,7 @@ function emitAggregate(
         : renderRepositoryImpl(agg, repoWithViews, ns, ctx.aggregates, findBodies, {
             extraUsings: [...repoImplUsings].sort(),
             emitTrace,
+            discards,
             retrievals: aggRetrievals,
             retrievalBodies,
             idClass,
@@ -1778,7 +1667,11 @@ function emitAggregate(
       place(
         `${agg.name}DocumentConfiguration.cs`,
         "ef-configuration",
-        renderDocumentConfiguration(agg, ns, { schema: ds?.schema, tablePrefix: ds?.tablePrefix }),
+        renderDocumentConfiguration(agg, ns, {
+          table: aggregateTableName(agg, ctx.aggregates),
+          schema: ds?.schema,
+          tablePrefix: ds?.tablePrefix,
+        }),
         agg.origin,
       );
       place(`${agg.name}Snapshots.cs`, "entity", renderSnapshots(agg, ns), agg.origin);
@@ -1820,128 +1713,27 @@ function emitAggregate(
       }
     }
   }
-  // CQRS emission — adapter-dispatched when an EmitCtx is available
-  // (system mode), direct call in the legacy single-context path.
-  // The two paths produce identical Map entries: the adapter wraps
-  // the same `emitCqrs` underneath, and the byLayer layout adapter
-  // recomputes the same `Application/<Plural>/...` + `Api/...` paths
-  // the emitter writes inline.
-  if (emitCtx) {
-    // Resolved selection (D-REALIZATION-AXES) when the orchestrator
-    // threaded one in; the sibling default otherwise.  Size-1 menus →
-    // the same object → byte-identical.
-    const style = emitCtx.styleAdapter ?? cqrsStyleAdapter;
-    const layout = emitCtx.layoutAdapter ?? byLayerLayoutAdapter;
-    const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
-    for (const artifact of artifacts) {
-      const path = layout.pathFor(artifact, emitCtx);
-      out.set(path, artifact.content);
-      sourcemap?.file(path, artifact.content, agg.origin, construct);
-    }
-  } else {
-    emitCqrs(agg, repo, ctx, ns, out, { routePrefix, emitTrace });
+  // CQRS emission — adapter-dispatched: the resolved selection
+  // (D-REALIZATION-AXES) when the orchestrator threaded one in, the sibling
+  // default otherwise.  Size-1 menus → the same object → byte-identical.
+  const style = emitCtx.styleAdapter ?? cqrsStyleAdapter;
+  const artifacts = style.emitForAggregate?.(agg, emitCtx) ?? [];
+  for (const artifact of artifacts) {
+    const path = layout.pathFor(artifact, emitCtx);
+    out.set(path, artifact.content);
+    sourcemap?.file(path, finalizeCsUnit(artifact.content), agg.origin, construct);
   }
   const testsFile = renderTestsFile(agg, ctx, ns);
   if (testsFile) {
     const testsPath = `Tests/${ns}.Tests/${aggFolder}/${agg.name}Tests.cs`;
     out.set(testsPath, testsFile);
-    sourcemap?.file(testsPath, testsFile, agg.origin, construct);
+    sourcemap?.file(testsPath, finalizeCsUnit(testsFile), agg.origin, construct);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Infrastructure & project shell
 // ---------------------------------------------------------------------------
-
-function emitInfrastructure(
-  ctx: EnrichedBoundedContextIR,
-  ns: string,
-  out: Map<string, string>,
-  usesValidators: boolean,
-): void {
-  const hasOutbox = ctx.eventSubscriptions.length > 0 && durableEventTypes(ctx).size > 0;
-  // Per-context event log (event-log-architecture.md): the shared `EventRecord`
-  // POCO + `<Ctx>EventRecordConfiguration`, plus the config-class list threaded
-  // into the DbContext so it maps the single `Events` DbSet.  No schema in the
-  // legacy single-context path.
-  emitEventLogFiles([ctx], ns, out);
-  const docSetLegacy = documentAggNames([ctx]);
-  const esSetLegacy = eventSourcedAggNames([ctx]);
-  const embSetLegacy = embeddedAggNames([ctx]);
-  out.set(
-    "Infrastructure/Persistence/AppDbContext.cs",
-    renderDbContext(
-      ctx,
-      ns,
-      docSetLegacy,
-      esSetLegacy,
-      embSetLegacy,
-      hasOutbox,
-      false,
-      false,
-      eventLogContexts([ctx]).map((c) => c.name),
-    ),
-  );
-  // The shared owned-collection ordinal value generator (see the multi-context
-  // path) — emitted only when an aggregate maps a value-object array to a table.
-  if (
-    ctx.aggregates.some((a) =>
-      aggregateHasTableValueArray(a, {
-        isDoc: docSetLegacy.has(a.name),
-        isEmbedded: embSetLegacy.has(a.name),
-        isEs: esSetLegacy.has(a.name),
-      }),
-    )
-  ) {
-    out.set(
-      "Infrastructure/Persistence/OwnedCollectionOrdinalGenerator.cs",
-      renderOrdinalGenerator(ns),
-    );
-  }
-  emitWorkflowStatePersistence(ctx.workflows, ns, out, durableEventTypes(ctx).size > 0);
-  emitProjectionRowPersistence(ctx.projections.filter(isMaterializedProjection), ns, out);
-  emitEventSourcedWorkflowFiles(ctx.workflows, ns, out, makeOwnerOf([ctx]));
-  // Domain persistence-port adapters — the LEGACY
-  // single-context (`generate dotnet`) sibling of the system path's emission.
-  // Gated on the SAME condition renderProgram registers the ports under
-  // (ctx.workflows / ctx.projections), so a project that uses none of these
-  // ports emits neither the registrations NOR this file — never disagree.
-  if (ctx.workflows.length > 0 || ctx.projections.length > 0) {
-    out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
-  }
-  // Validation-message catalog (M-T1.11) — same gate as the system-mode emitter.
-  const validationMessages = collectWireValidationMessages([ctx]);
-  if (validationMessages.length > 0) {
-    out.set(CS_MESSAGES_PATH, renderCsMessages(ns, validationMessages));
-  }
-  out.set(
-    "Api/DomainExceptionFilter.cs",
-    renderExceptionFilter(ns, {
-      usesValidators,
-      structuralStatuses: ctx.structuralErrorStatuses,
-      localizeMessages: validationMessages.length > 0,
-      valueObjectInvariants: hasValueObjectInvariants(ctx),
-      domainFloorCodes: hasDomainFloorMessages(ctx),
-    }),
-  );
-  // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
-  // invalid-model-state response (see renderValidationProblem).
-  out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
-  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
-  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
-  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
-  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
-  // an emit-time gate on it would be an always-true branch nothing could
-  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
-  // one — it acts only on an action that actually binds a `Guid id` — which
-  // keeps it correct if the identity axis ever opens up.
-  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
-  out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
-  out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
-  const opUnionFilter = renderOpUnionResponsesFilter(ns, [ctx]);
-  if (opUnionFilter) out.set(OP_UNION_FILTER_PATH, opUnionFilter);
-  out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));
-}
 
 function emitProject(
   ctx: BoundedContextIR,
@@ -2056,6 +1848,16 @@ function emitProject(
   // aggregates does not take the whole `/openapi.json` document down with a
   // duplicate schemaId.  Collision-free ⇒ empty ⇒ byte-identical Program.cs.
   const schemaIdOverrides = dotnetSchemaIdOverrides(out);
+  // One component per value object (cross-backend parity): fold the
+  // `<Vo>Request` / `<Vo>Response` records into `<Vo>` on the finished document.
+  const voMerges = valueObjectSchemaMerges(
+    valueObjectPool(ctx).map((v) => v.name),
+    out,
+    schemaIdOverrides,
+  );
+  if (voMerges.length > 0) {
+    out.set(VO_MERGE_FILTER_PATH, renderValueObjectSchemaMergeFilter(ns, voMerges));
+  }
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
@@ -2063,6 +1865,7 @@ function emitProject(
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
+      voMergeFilter: out.has(VO_MERGE_FILTER_PATH),
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],
       usesValidators,
@@ -2208,9 +2011,8 @@ function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefi
 
 /** Names of document-shaped (`shape: document`) aggregates across the
  *  given contexts, resolved the same way `emitAggregate` does (binding
- *  wins, aggregate header is the default).  `sys` is absent in the
- *  legacy single-context entry, so resolution falls back to the
- *  header.  Consumed by `renderDbContext` to route each aggregate's
+ *  wins, aggregate header is the default).  With no `sys`, resolution
+ *  falls back to the header.  Consumed by `renderDbContext` to route each aggregate's
  *  DbSet + configuration. */
 function documentAggNames(contexts: EnrichedBoundedContextIR[], sys?: SystemIR): Set<string> {
   const names = new Set<string>();
@@ -2280,11 +2082,11 @@ function emitEventLogFiles(
   for (const c of esCtxs) {
     out.set(
       `Infrastructure/Persistence/Events/${upperFirst(c.name)}EventRecord.cs`,
-      renderEventRecordPoco(ns, c.name),
+      renderEventRecordPoco(ns, c.name, eventLogCarriesTenant(c)),
     );
     out.set(
       `Infrastructure/Persistence/Configurations/${upperFirst(c.name)}EventRecordConfiguration.cs`,
-      renderEventRecordConfiguration(c.name, ns, resolveSchema(c)),
+      renderEventRecordConfiguration(c.name, ns, resolveSchema(c), eventLogCarriesTenant(c)),
     );
   }
 }

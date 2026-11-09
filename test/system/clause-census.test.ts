@@ -36,6 +36,7 @@ import { EmptyFileSystem } from "langium";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import { reflection } from "../../src/language/generated/ast.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 
 const parser = createDddServices(EmptyFileSystem).Ddd.parser.LangiumParser;
@@ -117,6 +118,17 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // one string (`crudish(updateOnly: true)`, `scaffoldGet(of: X, key: "k")`), so
   // the int arm of `MacroArgValue` has never been parsed from a fixture.
   MacroArgInt: "no fixture passes an INT macro argument (`with m(n: 2)`)",
+  // A storage `connection:` clause parses but no backend reads it
+  // (`loom.reserved-not-emitted`), so every authored form warns and the
+  // zero-warning examples ratchet keeps it out of the showcase.
+  EnvConnectionSource: "storage `connection: env(…)` is reserved and not emitted",
+  LiteralConnectionSource: "storage `connection: literal(…)` is reserved and not emitted",
+  SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",
+  ServiceConnectionSource: "storage `connection: service(…)` is reserved and not emitted",
+  // No registered sourceType declares an int or bool config key, so either
+  // value is `loom.config-key-unknown` wherever it is authored (#4709).
+  IntConfigValue: "no sourceType declares an int config key (#4709)",
+  BoolConfigValue: "no sourceType declares a bool config key (#4709)",
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {
@@ -132,13 +144,13 @@ describe("clause census — what the corpus authors, and what it never does", ()
     // every "unexercised" claim below unfalsifiable. These pin the shape of a
     // healthy census: ~340 files, ~186 instantiable types, the great majority
     // of them actually instantiated.
-    expect(byFile.size).toBeGreaterThan(300);
-    expect(concrete.length).toBeGreaterThan(150);
-    expect(totals.size).toBeGreaterThan(150);
+    expectReach("`.ddd` files with clauses", byFile.size, 577);
+    expectReach("concrete grammar types", concrete.length, 165);
+    expectReach("counted clause types", totals.size, 164);
     // Spot-check three types that must appear in ANY healthy parse of this
     // corpus — if the walk breaks, these go to zero first.
     for (const t of ["Aggregate", "Operation", "Deployable"]) {
-      expect(totals.get(t) ?? 0, `no ${t} counted — the walk is broken`).toBeGreaterThan(50);
+      expectReach(`${t} clauses (the walk is broken if zero)`, totals.get(t) ?? 0, 680);
     }
   });
 
@@ -162,7 +174,7 @@ describe("clause census — what the corpus authors, and what it never does", ()
     const elixirFixtures = [...byFile.entries()].filter(([f]) =>
       f.startsWith("test/e2e/fixtures/elixir-vanilla-build/"),
     );
-    expect(elixirFixtures.length).toBeGreaterThan(10);
+    expectReach("elixir fixtures", elixirFixtures.length, 75);
     const withUi = elixirFixtures.filter(([, counts]) => (counts.get("Ui") ?? 0) > 0);
     expect(
       withUi.length,
@@ -180,7 +192,7 @@ describe("clause census — what the corpus authors, and what it never does", ()
     // fixture (above), not a corpus one. If this ever flips, the comment is
     // wrong rather than the code — read it before deleting the assertion.
     const corpus = [...byFile.entries()].filter(([f]) => f.startsWith("test/fixtures/corpus/"));
-    expect(corpus.length).toBeGreaterThan(30);
+    expectReach("corpus fixtures", corpus.length, 117);
     const withUi = corpus.filter(([, c]) => (c.get("Ui") ?? 0) > 0).map(([f]) => f);
     expect(withUi).toEqual([]);
   });

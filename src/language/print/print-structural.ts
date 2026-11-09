@@ -23,6 +23,7 @@ import type {
   EnumDecl,
   EventDecl,
   FunctionDecl,
+  I18nBlock,
   Invariant,
   Layout,
   LayoutNamedSlot,
@@ -47,6 +48,7 @@ import type {
   TestBlock,
   TestCase,
   TestE2E,
+  TestPrincipal,
   TestStatement,
   ThemeBlock,
   Ui,
@@ -195,6 +197,8 @@ export function printStructural(node: AstNode): string {
       return printDeployable(node as Deployable);
     case "ThemeBlock":
       return printThemeBlock(node as ThemeBlock);
+    case "I18nBlock":
+      return printI18nBlock(node as I18nBlock);
     case "UserBlock":
       return printUserBlock(node as UserBlock);
     case "AuthBlock":
@@ -354,6 +358,10 @@ function printPermissionsBlock(node: PermissionsBlock): string {
 
 function printThemeBlock(node: ThemeBlock): string {
   return block("theme", () => node.props.map((p) => `${p.name}: ${quote(p.value)}`));
+}
+
+function printI18nBlock(node: I18nBlock): string {
+  return block("i18n", () => (node.source === undefined ? [] : [`source: ${quote(node.source)}`]));
 }
 
 function printUserBlock(node: UserBlock): string {
@@ -540,7 +548,7 @@ function printDeployable(node: Deployable): string {
 
 function printTestE2E(node: TestE2E): string {
   const verifies = node.verifies ? ` verifies ${node.verifies.$refText}` : "";
-  const header = `test e2e ${quote(node.name)} against ${node.deployable.$refText}${verifies}`;
+  const header = `test e2e ${quote(node.name)} against ${node.deployable.$refText}${verifies}${printTestPrincipal(node.principal)}`;
   return block(header, () => node.body.map(printTestStatement));
 }
 
@@ -1209,15 +1217,24 @@ function printApply(node: import("../generated/ast.js").Apply): string {
 function printTestBlock(node: TestBlock): string {
   const forHead = node.target ? ` for ${node.target.$refText}` : "";
   const verifies = node.verifies ? ` verifies ${node.verifies.$refText}` : "";
-  return block(`test ${quote(node.name)}${forHead}${verifies}`, () =>
-    node.body.map(printTestStatement),
+  return block(
+    `test ${quote(node.name)}${forHead}${verifies}${printTestPrincipal(node.principal)}`,
+    () => node.body.map(printTestStatement),
   );
+}
+
+/** The ` as { claim: value, … }` principal clause of a test head, or "". */
+function printTestPrincipal(node: TestPrincipal | undefined): string {
+  if (!node) return "";
+  const claims = node.claims.map((c) => `${c.name}: ${printExpr(c.value)}`).join(", ");
+  return claims.length > 0 ? ` as { ${claims} }` : " as {}";
 }
 
 /** TestStatement adds `expect` (with a method matcher) over the ordinary
  *  Statement set. */
 function printTestStatement(node: TestStatement): string {
   if (node.$type === "ExpectStmt") return `expect ${printExpr(node.expr)}`;
+  if (node.$type === "TestPrincipal") return printTestPrincipal(node).trimStart();
   return printStmt(node as Statement);
 }
 

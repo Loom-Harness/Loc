@@ -68,16 +68,16 @@
         {
           "id": "<volatile:key>",
           "reference": "A-1",
+          "rowVersion": 1,
           "status": "Intake",
-          "vehicleVin": "VIN1",
-          "version": 1
+          "vehicleVin": "VIN1"
         },
         {
           "id": "<volatile:key>",
           "reference": "A-2",
+          "rowVersion": 1,
           "status": "Intake",
-          "vehicleVin": "VIN2",
-          "version": 1
+          "vehicleVin": "VIN2"
         }
       ]
     },
@@ -91,8 +91,8 @@
           "addressLine": "1 Main St",
           "id": "<volatile:key>",
           "reference": "P-1",
-          "status": "Intake",
-          "version": 1
+          "rowVersion": 1,
+          "status": "Intake"
         }
       ]
     },
@@ -111,9 +111,9 @@
       "body": {
         "id": "<volatile:key>",
         "reference": "A-1",
+        "rowVersion": 2,
         "status": "Intake",
-        "vehicleVin": "VIN9",
-        "version": 2
+        "vehicleVin": "VIN9"
       }
     },
     {
@@ -132,8 +132,8 @@
         "addressLine": "2 Main St",
         "id": "<volatile:key>",
         "reference": "P-1",
-        "status": "Intake",
-        "version": 2
+        "rowVersion": 2,
+        "status": "Intake"
       }
     },
     {
@@ -224,7 +224,7 @@
           "currency": "EUR"
         },
         "id": "<volatile:key>",
-        "version": 2
+        "rowVersion": 2
       }
     },
     {
@@ -250,7 +250,7 @@
               "currency": "EUR"
             },
             "id": "<volatile:key>",
-            "version": 2
+            "rowVersion": 2
           },
           {
             "amount": {
@@ -258,7 +258,7 @@
               "currency": "EUR"
             },
             "id": "<volatile:key>",
-            "version": 1
+            "rowVersion": 1
           }
         ],
         "page": 1,
@@ -327,18 +327,12 @@
       "seq": 29,
       "method": "POST",
       "path": "/api/auto_claims/{id}/update",
-      "status": 422,
+      "status": 404,
       "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "message": "vehicleVin is required",
-            "pointer": "/vehicleVin"
-          }
-        ],
+        "detail": "AutoClaim {id} not found",
         "instance": "/api/auto_claims/{id}/update",
-        "status": 422,
-        "title": "Validation failed",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

@@ -1,41 +1,26 @@
 // The wire-shape / contract-record divergence census (M-T5.40, wave C4 packet 4e).
 //
-// Two things claim to describe an aggregate's READ wire today:
+// Two things claim to describe an aggregate's READ wire:
 //
 //   DERIVED  — `forApiRead(wireFieldsForAggregate(agg))`, recomputed on demand
 //              by `src/ir/enrich/wire-projection.ts`.  Every repository
 //              `toWire` / serializer / `.loom/wire-spec.json` reads this.
-//   DECLARED — the `<Agg>Response` / `<Part>Response` `response` record that
-//              `with scaffoldHandlers` splices into the context as real source
-//              (M-T5.10 PR1 #1900).  Since PR2–PR7 every backend's response-DTO
-//              and schema emitter reads THIS instead.
-//
-// PR1 landed the records as "inert — byte-identical with vs without", and that
-// was true of the fixture it was measured on.  It is not true in general: this
-// census injects `with scaffoldHandlers` into every corpus fixture (the only
-// way to materialise the records, since NO tracked `.ddd` outside the five
-// `scaffold-handlers` compile fixtures uses the macro) and compares the two
-// descriptions node by node.
+//   DECLARED — the `<Agg>Response` / `<Part>Response` `response` record spliced
+//              into every exposed context (the implicit `api X from <Sub>` /
+//              deployable `contexts:` form, or `with scaffoldHandlers`).  Every
+//              backend's response-DTO and schema emitter reads THIS, through
+//              `declaredResponseFor`.
 //
 // Where they disagree, the two halves of one HTTP response disagree: the
 // repository serialises the derived shape while the OpenAPI/zod/record DTO
-// declares the record.  Measured on `platform: node`:
+// declares the record.  The census reads the corpus as written — the records
+// are the ones the shipping path carries — and compares the two descriptions
+// node by node.  The remaining rows are representational (a containment
+// naming its `<Part>Response` record), which every emitter un-suffixes.
 //
-//   aggregate Order with softDeletable   →  toWire {id,code,status,deletedAt,version}
-//                                           OrderResponse {id,code,status,version}
-//   aggregate Customer extends Party     →  toWire {id,name,email,tier,version}
-//                                           CustomerResponse {id,tier,version}
-//
-// So this file is NOT a "these should match" assertion — they do not, and
-// closing the gap is M-T5.40's job.  It is a SHRINK-ONLY ratchet on the exact
-// set of diverging nodes, so (a) the retirement mission has a measured
-// denominator instead of an estimate, and (b) a new emitter or capability
-// cannot widen the split silently.  Fixing a row means deleting it here.
-//
-// The baseline is exact per node: a row that stops diverging must be removed,
-// and a node that starts diverging fails.  See
-// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4e-wireshape.md` for the class-by-class
-// reading of the rows below.
+// It is a SHRINK-ONLY ratchet on the exact set of diverging nodes, so a new
+// emitter or capability cannot widen the split silently.  Fixing a row means
+// deleting it here.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -46,6 +31,7 @@ import {
 } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { BoundedContextIR, TypeIR } from "../../src/ir/types/loom-ir.js";
+import { declaredResponseFor } from "../../src/ir/util/declared-response.js";
 import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -62,48 +48,6 @@ type Divergence =
 /** The exact divergence set, measured 2026-09-22 on the C4 coordinator head.
  *  SHRINK-ONLY: a fix deletes its row. */
 const BASELINE: Record<string, Divergence> = {
-  // ── class A — the record OMITS a field the wire carries ──────────────────
-  // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
-  //     the extends chain into the concrete; the record's walk does not — the
-  //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain
-  //     walk has two consumers"), now measured rather than predicted.
-  "inheritance.ddd Parties.Customer": "missing-in-record",
-  "inheritance.ddd Parties.Vendor": "missing-in-record",
-  "inheritance.ddd Parties.Machine": "missing-in-record",
-  "inheritance.ddd Parties.Vehicle": "missing-in-record",
-  "tph.ddd Fleet.Car": "missing-in-record",
-  "tph.ddd Fleet.Truck": "missing-in-record",
-  "tph-crossings.ddd Depot.Parcel": "missing-in-record",
-  "tph-crossings.ddd Depot.Crate": "missing-in-record",
-  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
-  // capability on the abstract base (whose fields the record walk also misses).
-  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
-  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
-  // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
-  // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
-  // `label`, so enrichment merges it into the concrete's wire shape and the
-  // record's walk does not — identical to the eight inheritance/TPH rows
-  // above, and the same root cause the `loom.create-params-not-wire` warning
-  // reports on that aggregate.  Drains with the A2 class fix, not separately.
-  "vo-cross-context.ddd Billing.Shipper": "missing-in-record",
-  // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
-  // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
-  // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
-  "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
-  "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
-  // The acronym-names fixture's TPH concretes: the same A2 class, a new-fixture
-  // witness (`title` inherited from `CatalogSKU`), not a regression.
-  "acronym-names.ddd Catalog.PhysicalSKU": "missing-in-record",
-  "acronym-names.ddd Catalog.DigitalSKU": "missing-in-record",
-
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context
   //     scope cannot reference a raw entity part), the derived shape names the
@@ -113,6 +57,9 @@ const BASELINE: Record<string, Divergence> = {
   "core-domain.ddd Orders.Order": "containment-response-suffix",
   // acronym-names' `contains variants: VariantSKU[]` — the same deliberate B1 shape.
   "acronym-names.ddd Catalog.ProductSKU": "containment-response-suffix",
+  // part-rules-private-op's `lines: Line[]` (an inferred containment) — the
+  // same deliberate B1 shape.
+  "part-rules-private-op.ddd Billing.Invoice": "containment-response-suffix",
   // (added with the RS-37 witness — a fixture carrying a containment, so the
   // same deliberate B1 shape; not a new divergence class.)
   "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
@@ -138,13 +85,7 @@ const BASELINE: Record<string, Divergence> = {
   //     scaffolded response DTO understates what the serializer emits.
   "provenance.ddd Ordering.Order": "provenanced-carrier-lost",
   "provenance-money.ddd Leasing.Lease": "provenanced-carrier-lost",
-
-  // ── class C — same field set, different ORDER ───────────────────────────
-  // The derived walk is id → properties → containments → derived, and the
-  // `versioned` capability's `version` is a PROPERTY, so it precedes the
-  // containment; the record's walk appends it after.  Order is the wire
-  // contract for every positional DTO (.NET / Java records, F# records).
-  "part-rules-private-op.ddd Billing.Invoice": "field-order",
+  "if-branch-shapes.ddd Orders.Tally": "provenanced-carrier-lost",
 };
 
 /** The comparable identity of one wire row.  Deliberately narrow: the two
@@ -173,51 +114,31 @@ function classify(derived: string[], declared: string[]): Divergence | undefined
   return "containment-response-suffix";
 }
 
-/** Every `test/fixtures/corpus/*.ddd`, with `with scaffoldHandlers` injected on
- *  each plain `context X {` so the contract-record layer actually materialises. */
+/** Every `test/fixtures/corpus/*.ddd`, as written.  Each exposes its contexts
+ *  through the implicit `api X from <Subdomain>` form, which splices the same
+ *  contract records `with scaffoldHandlers` does — so the census measures the
+ *  records the shipping path actually carries, with nothing injected. */
 function corpusFixtures(): { name: string; source: string }[] {
   return trackedDddFiles()
     .filter((f) => f.startsWith("test/fixtures/corpus/") && f.endsWith(".ddd"))
-    .map((f) => ({
-      name: f.slice("test/fixtures/corpus/".length),
-      // A context that already carries a `with` clause gets the macro appended
-      // to it; one that does not gets a clause.
-      source: dddSourceOf(f).replace(
-        /^(\s*context\s+\w+)(\s+with\s+[^{]*?)?\s*\{/gm,
-        (_m, head: string, clause?: string) =>
-          clause ? `${head}${clause}, scaffoldHandlers {` : `${head} with scaffoldHandlers {`,
-      ),
-    }));
+    .map((f) => ({ name: f.slice("test/fixtures/corpus/".length), source: dddSourceOf(f) }));
 }
-
-/** Injected handlers the validator refuses, per fixture, when a handler
- *  `scaffoldHandlers` declares does not serve its declared shape.  The refusal
- *  is the honest answer, so a listed error is expected; every other error
- *  still fails, and an entry that stops firing must be deleted.  Empty: no
- *  corpus fixture's injection is refused. */
-const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {};
 
 async function census(): Promise<{
   found: Record<string, Divergence>;
   nodes: number;
   uncontracted: string[];
+  derivedFallback: string[];
 }> {
   const found: Record<string, Divergence> = {};
   const uncontracted: string[] = [];
+  const derivedFallback: string[] = [];
   let nodes = 0;
   for (const { name, source } of corpusFixtures()) {
     const { model, errors } = await parseString(source, { validate: true });
-    // Injection must never break a fixture — a fixture that stops parsing would
-    // silently leave the census, which is how a denominator rots.
-    const refused = INJECTED_HANDLER_REFUSALS[name] ?? [];
-    for (const r of refused) {
-      expect(
-        errors.some((e) => e.includes(r)),
-        `${name}: the expected refusal "${r}" no longer fires — delete it from INJECTED_HANDLER_REFUSALS`,
-      ).toBe(true);
-    }
-    const unexpected = errors.filter((e) => !refused.some((r) => e.includes(r)));
-    expect(unexpected, `${name}: scaffoldHandlers injection must parse`).toEqual([]);
+    // A fixture that stops parsing would silently leave the census, which is
+    // how a denominator rots.
+    expect(errors, `${name}: corpus fixture must parse`).toEqual([]);
     const enriched = enrichLoomModel(lowerModel(model));
     const contexts: BoundedContextIR[] = [...enriched.contexts];
     for (const sys of enriched.systems)
@@ -228,6 +149,9 @@ async function census(): Promise<{
         const derived = forApiRead(wireFieldsForAggregate(agg)).map(key);
         const rec = byName.get(`${agg.name}Response`);
         if (!rec) uncontracted.push(`${name} ${ctx.name}.${agg.name}`);
+        if (rec && !declaredResponseFor(ctx.payloads, agg)) {
+          derivedFallback.push(`${name} ${ctx.name}.${agg.name}`);
+        }
         if (rec) {
           nodes++;
           // The record omits the grammar-reserved `id` row; re-prepend it so the
@@ -249,28 +173,35 @@ async function census(): Promise<{
       }
     }
   }
-  return { found, nodes, uncontracted };
+  return { found, nodes, uncontracted, derivedFallback };
 }
 
 /** Nodes the scaffold contracts NOTHING for.  A node with no record is invisible
  *  to the comparison above, so this list is the census's blind spot and is
  *  pinned exactly — a growing blind spot would shrink the divergence count
  *  without anything being fixed. */
-const UNCONTRACTED = [
-  // `contractRecords` walks the aggregate's containment closure for part
-  // records; this part is reachable only through a PRIVATE operation's rules,
-  // so no `<Part>Response` is minted while the derived walk still wires it.
-  "part-rules-private-op.ddd Billing.Invoice.Line",
+const UNCONTRACTED: string[] = [];
+
+/** Aggregates whose record exists but which the response emitters still render
+ *  from the derived shape: a record field cannot carry `mask unless`, so
+ *  `declaredResponseFor` keeps a masked aggregate on the derived path (which
+ *  does carry the predicate).  Pinned exactly so the gap stays visible; it
+ *  closes when records carry `mask unless` (#4816) and this list empties. */
+const DERIVED_FALLBACK = [
+  "audit-history-guarded.ddd Staff.Employee",
+  "audit-history-guarded.ddd Staff.Payslip",
+  "field-mask.ddd Staff.Employee",
 ];
 
 describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {
   it("diverges on exactly the baselined nodes — shrink-only", async () => {
-    const { found, nodes, uncontracted } = await census();
+    const { found, nodes, uncontracted, derivedFallback } = await census();
 
     // The denominator: a census over an empty population proves nothing, and a
     // node the scaffold never contracts is one the comparison cannot see.
     expect(nodes).toBeGreaterThanOrEqual(120);
     expect(uncontracted.sort()).toEqual(UNCONTRACTED);
+    expect(derivedFallback.sort()).toEqual(DERIVED_FALLBACK);
 
     const fixed = Object.keys(BASELINE).filter((k) => !(k in found));
     expect(

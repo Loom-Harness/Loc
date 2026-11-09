@@ -19,6 +19,7 @@ import {
   readOrderFor,
   readScopeFor,
 } from "../../ir/enrich/read-scope.js";
+import { streamTenancyFor } from "../../ir/enrich/stream-tenancy.js";
 import type {
   BoundedContextIR,
   CriterionIR,
@@ -48,6 +49,8 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { ref } from "../_imports/symbol.js";
+import { tsNamed } from "../_imports/ts.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
@@ -372,9 +375,9 @@ export function lowerToDrizzle(
         // capability-filter accessor), so the non-null branch asserts what the
         // ternary just tested.
         const narrowed = valueExpr.includes("(") ? `${valueExpr}!` : valueExpr;
-        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${narrowed}))`;
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${numericBinding(oriented.value, narrowed, colExpr)}))`;
       }
-      return `${orientedFn}(${colExpr}, ${valueExpr})`;
+      return `${orientedFn}(${colExpr}, ${numericBinding(oriented.value, valueExpr, colExpr)})`;
     }
     if (e.kind === "unary" && e.op === "!") {
       // A bare boolean column under `!` — `!this.isDeleted` — has no
@@ -545,6 +548,28 @@ export function lowerToDrizzle(
     if (e.kind === "member") return e.memberType.kind === "optional";
     if (e.kind === "ref") return e.type?.kind === "optional";
     return false;
+  }
+
+  /** A value bound against a column, in the column's JS type.  Drizzle types
+   *  a `numeric()` column — every money and decimal field — as `string`, while
+   *  the runtime value is a `Decimal` (money) or a `number` (decimal), so a
+   *  money / decimal param, `let` or claim binds as its string form (a money
+   *  literal already renders quoted).  Binding it bare fails the generated
+   *  project's `tsc` (TS2769).  Against an `sql` fragment (a column under an
+   *  intrinsic, `round(price, 2)`) drizzle takes any value, so it binds as
+   *  rendered — as does anything else. */
+  function numericBinding(e: ExprIR, rendered: string, column: string): string {
+    if (column.startsWith("sql`")) return rendered;
+    if (e.kind === "paren") return numericBinding(e.inner, rendered, column);
+    if (e.kind === "literal") {
+      return e.lit === "decimal" && rendered === e.value ? JSON.stringify(e.value) : rendered;
+    }
+    const t = e.kind === "ref" ? e.type : e.kind === "member" ? e.memberType : undefined;
+    const scalar = t?.kind === "optional" ? t.inner : t;
+    const numeric =
+      scalar?.kind === "primitive" && (scalar.name === "money" || scalar.name === "decimal");
+    if (!numeric || renderColumnRef(e) !== null) return rendered;
+    return `String(${rendered})`;
   }
 
   function renderValue(e: ExprIR): string | null {
@@ -819,6 +844,71 @@ export function drizzleScopeConjuncts(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The stream scope of a tenant-scoped event stream (`stream-tenancy.ts`).
+//
+// A `tenantOwned` event-sourced aggregate has no table of its own: its stream
+// is the `stream_type = '<Agg>'` subset of the context's event log, and its
+// tenant is metadata on every stored event.  Its tenancy restrictions lower
+// over the log's metadata columns — they carry the aggregate's `tenantOwned`
+// field names, so the predicate is the one a `tenantOwned` table applies — into
+// a second generated helper, `<agg>StreamScope(...)`, beside the read scopes.
+// ---------------------------------------------------------------------------
+
+/** The generated stream-scope helper's name: `<agg>StreamScope`. */
+export function drizzleStreamScopeFnName(agg: { name: string }): string {
+  return `${lowerFirst(agg.name)}StreamScope`;
+}
+
+/** The drizzle table constant of `ctx`'s event log. */
+function drizzleEventLogTable(ctx: { name: string }): string {
+  return `${lowerFirst(ctx.name)}Events`;
+}
+
+/** True when `agg` has a stream-scope helper: a tenant-scoped stream with at
+ *  least one tenancy restriction. */
+export function aggregateHasStreamScope(agg: EnrichedAggregateIR, ctx: BoundedContextIR): boolean {
+  return (streamTenancyFor(agg, ctx.aggregates)?.restrictions.length ?? 0) > 0;
+}
+
+/** The call of `agg`'s stream-scope helper for one read, or `"undefined"` when
+ *  the read's `ignoring` drops every restriction (or there is none). */
+export function drizzleStreamScopeCall(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  ignoring?: FilterBypass,
+): string {
+  if (!aggregateHasStreamScope(agg, ctx)) return "undefined";
+  const kept = streamTenancyFor(agg, ctx.aggregates, { ignoring })?.restrictions ?? [];
+  if (kept.length === 0) return "undefined";
+  const fn = drizzleStreamScopeRef(agg);
+  return ignoring && (ignoring.bypassAll || (ignoring.bypassCaps?.length ?? 0) > 0)
+    ? `${fn}({ ignoring: ${ignoring.bypassAll ? '"*"' : JSON.stringify([...new Set(ignoring.bypassCaps)])} })`
+    : `${fn}()`;
+}
+
+/** A reference to `agg`'s stream-scope helper from its repository: the marker
+ *  derives the import of the generated `db/read-scopes` module. */
+export function drizzleStreamScopeRef(agg: { name: string }): string {
+  return ref(tsNamed("~/db/read-scopes", drizzleStreamScopeFnName(agg)));
+}
+
+/** The lowered conjuncts of `agg`'s stream scope, bypass not applied. */
+export function drizzleStreamScopeConjuncts(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): DrizzleScopeConjunct[] {
+  const table = drizzleEventLogTable(ctx);
+  return (streamTenancyFor(agg, ctx.aggregates)?.restrictions ?? []).map((r) => ({
+    expr: (
+      lowerToDrizzle(r.predicate!, table, ctx, { principalAccessor: "requireCurrentUser()" }) ??
+      // Dropping this would ship an unscoped stream — a hard stop, not a fallback.
+      refuseOutOfVocabulary("drizzle-predicate", `stream tenancy of '${agg.name}'`)
+    ).expr,
+    ...(r.capability !== undefined ? { capability: r.capability } : {}),
+  }));
+}
+
 /** The one drizzle spelling of a TPH discriminator scope: `kind = '<value>'`
  *  over the shared table. */
 export function drizzleDiscriminatorEq(tableName: string, kind: string): string {
@@ -911,7 +1001,8 @@ export function contextFilterPredicate(
 
 /** Lower an aggregate's `writeScopeFilter` (authorization — the
  *  WRITE-ladder guard) to a single Drizzle predicate string, or null when the
- *  aggregate has no write-scope narrowing.  Renders `currentUser.<field>`
+ *  aggregate has no write-scope narrowing.  Throws a `QueryEmissionRefusal`
+ *  when a declared scope is not lowerable.  Renders `currentUser.<field>`
  *  against the ambient `requireCurrentUser()` accessor, exactly like the read
  *  capability filter.  Adds the Drizzle ops it uses to `ops`. */
 export function writeScopePredicate(
@@ -924,7 +1015,9 @@ export function writeScopePredicate(
   const l = lowerToDrizzle(agg.writeScopeFilter, tableName, ctx, {
     principalAccessor: "requireCurrentUser()",
   });
-  if (!l) return null;
+  // A declared write scope that cannot be lowered is a coded refusal: returning
+  // null would drop the guard and leave every mutation unscoped (fail-open).
+  if (!l) refuseOutOfVocabulary("drizzle-predicate", `write restriction on '${agg.name}'`);
   for (const op of l.ops) ops.add(op);
   return l.expr;
 }

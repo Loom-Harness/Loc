@@ -207,8 +207,12 @@ describe("MUI pack — a generated page carries the contract", () => {
     const files = await generateSystemFiles(APP);
     const form = [...files.entries()].find(([p]) => p.endsWith("tasks/new.tsx"))?.[1];
     expect(form, "no tasks/new.tsx was generated").toBeDefined();
-    expect(form).toContain('<TextField label="Title" InputLabelProps={{ shrink: true }}');
-    expect(form).toContain('<TextField label="Estimate" InputLabelProps={{ shrink: true }}');
+    expect(form).toContain(
+      '<TextField label={ t("Tracking.Task.field.title", "Title") } InputLabelProps={{ shrink: true }}',
+    );
+    expect(form).toContain(
+      '<TextField label={ t("Tracking.Task.field.estimate", "Estimate") } InputLabelProps={{ shrink: true }}',
+    );
   });
 });
 

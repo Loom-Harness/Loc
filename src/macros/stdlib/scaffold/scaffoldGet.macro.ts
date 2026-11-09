@@ -3,7 +3,6 @@ import { FIND_ABSENT_DETAIL, repoOpVerb } from "../../../util/repository-contrac
 import type { Aggregate, BoundedContext, Expression, TypeRef } from "../../api/index.js";
 import {
   callExpr,
-  cloneExpr,
   cloneTypeRef,
   defineMacro,
   ifLetStmt,
@@ -19,7 +18,6 @@ import {
   targetFields,
 } from "../../api/index.js";
 import { getHandlerName, getReadSource } from "./_get-shared.js";
-import { policyReadGate } from "./_policy-inline.js";
 
 /** Expose a single-row read on the wire — the twin of `scaffoldPaged` for one
  *  row.  The read is a `criterion` (its first match) or a declared `unique (…)`
@@ -48,8 +46,9 @@ import { policyReadGate } from "./_policy-inline.js";
  *
  *  The handler returns the aggregate's wire shape and a miss answers 404, which
  *  is what a declared repository `find` route answered; the context's read gate
- *  (`policy { read Order requires … }`) is spliced ahead of the read, as the
- *  find's route enforced it.  `scaffoldGetApi` mounts
+ *  (`policy { read Order requires … }`) guards the read as it guards every
+ *  handler that reads the aggregate (enrichment, `applyHandlerReadGates`).
+ *  `scaffoldGetApi` mounts
  *  it on the URL that find had (`GET /orders/by_code?code=…`), so a client of
  *  the find keeps its URL.  The read's params (the key's columns) become the
  *  handler's params, each typed as declared.  `requires:` names a parameterless
@@ -98,14 +97,11 @@ export default defineMacro({
           `${policy.name}(...)\`)`,
       );
     }
-    // The aggregate's read gate (`policy { read <Agg> requires … }`) first —
-    // the gate a declared find's route enforced, which a handler does not
-    // inherit — then the macro's own `requires:`.
-    const readGate = policyReadGate(ctx, src.aggName);
-    const gate = [
-      ...(readGate ? [requiresStmt(cloneExpr(readGate))] : []),
-      ...(policy?.name ? [requiresStmt(callExpr(policy.name, []))] : []),
-    ];
+    // The macro's own `requires:` only.  The aggregate's read gate
+    // (`policy { read <Agg> requires … }`) is not spliced here: enrichment puts
+    // it ahead of every handler body that reads the aggregate
+    // (`applyHandlerReadGates`), hand-written handlers included.
+    const gate = policy?.name ? [requiresStmt(callExpr(policy.name, []))] : [];
 
     let params: ReturnType<typeof param>[];
     let read: Statement[];

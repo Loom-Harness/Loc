@@ -12,6 +12,7 @@ import type {
   Model,
   Operation,
   PayloadDecl,
+  PostfixChain,
   Projection,
   Repository,
   TypeAtom,
@@ -44,14 +45,7 @@ import {
 import { printExpr } from "../../language/print/index.js";
 import { PRINCIPAL_TYPE_NAME } from "../../util/principal.js";
 import { canonicalUnion, OPTION_NONE } from "../stdlib/unions.js";
-import type {
-  DataSourceKind,
-  ExprIR,
-  IdValueType,
-  PermissionDeclIR,
-  TypeIR,
-  UserIR,
-} from "../types/loom-ir.js";
+import type { DataSourceKind, ExprIR, PermissionDeclIR, TypeIR, UserIR } from "../types/loom-ir.js";
 import type { ApiOperationIR } from "../util/api-surface.js";
 
 /** Synthetic entity name used to type the `currentUser` magic
@@ -102,6 +96,13 @@ export interface Env {
        *  tagged wire; payloads.md §Union finds).  Read by the variant-match
        *  lowering to stamp `subjectShape: "absence"` on matches over it. */
       absenceUnion?: boolean;
+      /** Set on the local a workflow / handler body binds an error-carrying
+       *  mutating call's result to (`let r = a.withdraw(x)` whose result has an
+       *  `error` variant).  `saves` are the aggregates the call mutated; a
+       *  statement `match` over the local saves them at the end of each arm
+       *  that is not an error variant.  `errorVariants` are the result's error
+       *  wire tags, so an `else` arm can tell what it covers. */
+      resultGuard?: ResultGuard;
     }
   >;
   /** System-wide user-claim shape — the lowered `user { ... }` block.
@@ -206,6 +207,16 @@ export interface Env {
    *  unresolved `method-call`.  Undefined everywhere else — workflow bodies
    *  recognise repo reads through their own statement lowerer, never this. */
   serviceRepos?: Map<string, Repository>;
+  /** Repository reads of a workflow / handler body hoisted into a synthesized
+   *  `let` ahead of their statement (`hoist-reads.ts`), keyed by the source
+   *  chain the read heads, to the local that holds the read's value.  The
+   *  chain lowers as that local plus the suffixes after the read. */
+  hoistedReads?: ReadonlyMap<PostfixChain, string>;
+  /** Every local name a workflow / handler body declares or has hoisted so
+   *  far — shared (one mutable set) by the whole body, so a hoisted read's
+   *  local never repeats a name another block of the same body declares
+   *  (C# refuses the shadowing). */
+  bodyNames?: Set<string>;
 }
 
 export function newEnv(
@@ -217,15 +228,26 @@ export function newEnv(
   return { ctx, locals: new Map(), user, modulePermissions, resources };
 }
 
+/** See the `resultGuard` field of an `Env` local. */
+export interface ResultGuard {
+  saves: { name: string; aggName: string; repoName: string }[];
+  errorVariants: string[];
+}
+
 export function withLocal(
   env: Env,
   name: string,
   kind: "param" | "let" | "lambda" | "match-binding",
   type: TypeIR,
-  opts?: { absenceUnion?: boolean },
+  opts?: { absenceUnion?: boolean; resultGuard?: ResultGuard },
 ): Env {
   const next = new Map(env.locals);
-  next.set(name, { kind, type, ...(opts?.absenceUnion ? { absenceUnion: true } : {}) });
+  next.set(name, {
+    kind,
+    type,
+    ...(opts?.absenceUnion ? { absenceUnion: true } : {}),
+    ...(opts?.resultGuard ? { resultGuard: opts.resultGuard } : {}),
+  });
   return { ...env, locals: next };
 }
 
@@ -409,14 +431,15 @@ export function lowerType(t: TypeRef | undefined, env?: Env): TypeIR {
 /** Lower one type atom — `base` plus the postfix constructor / array /
  *  optional markers (shared by a `TypeRef` head and each `or`-alternative /
  *  named-union `TypeAtom`).  Folds the postfix generic constructors
- *  left-to-right (P3): `string envelope paged` → ctors `["envelope", "paged"]`
- *  → `paged(envelope(string))`.  The P4 carrier `option` is a *union* carrier,
+ *  left-to-right (P3).  The P4 carrier `option` is a *union* carrier,
  *  so `T option` folds to `union[T, none]` rather than a `genericInstance`.
  *  Array/optional stay outermost so `customer paged[]` is array-of-(paged
  *  customer). */
 export function lowerAtom(t: TypeRef | TypeAtom, env?: Env): TypeIR {
   let inner = lowerBase(t, env);
   for (const ctor of t.ctors ?? []) {
+    // `envelope` is refused (`loom.envelope-removed`): it lowers as its argument.
+    if (ctor === "envelope") continue;
     inner =
       ctor === "option"
         ? canonicalUnion([inner, OPTION_NONE])
@@ -448,24 +471,6 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
       const principalId = env.user.fields.find((f) => f.name === "id")?.type;
       if (principalId) return principalId;
     }
-    let valueType: IdValueType = "guid";
-    if (target && isAggregate(target)) {
-      valueType = "guid" as IdValueType;
-    } else if (target && isEntityPart(target)) {
-      const _owner = ancestorAggregate(target);
-      valueType = "guid" as IdValueType;
-    } else if (!target && env) {
-      // Unresolved ref (a macro- / capability-emitted plain `{ $refText }` ref —
-      // e.g. a `Self id` rewritten to `<Host> id`, whose ref the Linker skips):
-      // recover the target's idKind from the lowering env by name so the FK
-      // value type matches a hand-written `<Host> id`.
-      const refText = base.target?.$refText;
-      const found = refText ? findEntityByName(env, refText) : undefined;
-      if (found && isAggregate(found)) valueType = "guid" as IdValueType;
-      else if (found && isEntityPart(found)) {
-        valueType = "guid" as IdValueType;
-      }
-    }
     // Macro-emitted references can lack a `$refNode`, which causes
     // Langium's default Linker to skip resolution silently — `ref`
     // stays undefined even when the target exists in scope.  Fall
@@ -474,11 +479,7 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
     // Tracked separately from the "genuinely unresolved" case
     // because the text is authoritative for synthesised refs.
     const targetName = target?.name ?? base.target?.$refText ?? "Unknown";
-    return {
-      kind: "id",
-      targetName,
-      valueType,
-    };
+    return { kind: "id", targetName };
   }
   if (isNamedType(base)) {
     const target = base.target?.ref;
@@ -495,6 +496,9 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
       if (isEventDecl(target) || isPayloadDecl(target)) {
         return { kind: "entity", name: target.name };
       }
+      // A workflow `create` naming its own workflow as its result
+      // (`create(…): Fulfillment`) — the workflow's state record.
+      if (isWorkflow(target)) return { kind: "entity", name: target.name };
     }
     // Macro-emitted reference without a `$refNode` — Langium's default
     // Linker skips it silently (same hazard the IdType branch handles
@@ -686,15 +690,6 @@ export function findOperationInEnv(env: Env, name: string): Operation | undefine
 // ---------------------------------------------------------------------------
 // Misc AST helpers
 // ---------------------------------------------------------------------------
-
-export function ancestorAggregate(node: AstNode): Aggregate | undefined {
-  let cur: AstNode | undefined = node;
-  while (cur) {
-    if (isAggregate(cur)) return cur;
-    cur = cur.$container;
-  }
-  return undefined;
-}
 
 /** The `.ddd` source text behind an AST node — the human-readable label a
  *  `requires` / `precondition` failure carries into the generated 403 / 422

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // In-class operation self-calls must render against the SAME def-site each
@@ -42,9 +41,7 @@ deployable d { platform: ${platform}  contexts: [C]  dataSources: [r]  serves: X
 }`;
 
 async function gen(platform: string, ext: string): Promise<string> {
-  const { model, errors } = await parseString(SRC(platform));
-  if (errors.length) throw new Error(`validation errors:\n${errors.join("\n")}`);
-  return [...generateSystems(model).files.entries()]
+  return [...(await generateSystemFiles(SRC(platform))).entries()]
     .filter(([p]) => p.endsWith(ext))
     .map(([, c]) => c)
     .join("\n\n");

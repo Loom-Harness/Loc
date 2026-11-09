@@ -4,8 +4,7 @@
 // repository recursively saves + hydrates the nested level.
 
 import { describe, expect, it } from "vitest";
-import { generateHono } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Logistics {
@@ -28,8 +27,7 @@ const SRC = `
 
 describe("typescript generator — part-in-part containment", () => {
   it("FKs a nested part to its direct parent (schema + domain branding)", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
 
     const schema = files.get("db/schema.ts")!;
     // Shipment (root-level) → order_id → orders; Label (nested) → shipment_id → shipments.
@@ -46,8 +44,7 @@ describe("typescript generator — part-in-part containment", () => {
   });
 
   it("recursively saves + hydrates the nested level keyed by the direct parent", async () => {
-    const model = await parseValid(SRC);
-    const files = generateHono(model);
+    const files = await generateBackendFiles(SRC, "node");
     const repo = files.get("db/repositories/order-repository.ts")!;
 
     // Save: labels diff-synced under each shipment, keyed by child.id (the
@@ -65,7 +62,8 @@ describe("typescript generator — part-in-part containment", () => {
   });
 
   it("supports INLINE nested construction (parentId omitted, stamped on save)", async () => {
-    const model = await parseValid(`
+    const files = await generateBackendFiles(
+      `
       context Logistics {
         aggregate Order {
           code: string
@@ -78,8 +76,9 @@ describe("typescript generator — part-in-part containment", () => {
         }
         repository Orders for Order { }
       }
-    `);
-    const files = generateHono(model);
+    `,
+      "node",
+    );
     const domain = files.get("domain/order.ts")!;
     // The nested Label is constructed WITHOUT parentId (no shipment id yet); the
     // outer Shipment keeps the ambient (order) parent.

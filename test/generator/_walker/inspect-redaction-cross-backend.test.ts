@@ -214,7 +214,7 @@ describe("cross-backend inspect redaction — `sensitive(...)` renders as `<reda
     // token (M-T3.4 — every non-event-sourced aggregate is versioned).
     // Labels are the declared field names (NOT host-cased) on every
     // backend, since the inspect literal is built from the IR field name.
-    const expected = ["id", "fullName", "ssn", "contact", "email", "phone", "version"];
+    const expected = ["id", "fullName", "ssn", "contact", "email", "phone", "rowVersion"];
     expect(tsLabels).toEqual(expected);
     expect(csLabels).toEqual(expected);
     expect(exLabels).toEqual(expected);

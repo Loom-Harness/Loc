@@ -340,6 +340,55 @@ commandHandler RenameProduct(productId: Product id, cmd: RenameProductCommand) {
 ```
 ::: end
 
+An operation whose result is an expected failure (`T or E`, a union with an `error` variant) gets a handler that answers that result: the handler declares it and returns each variant from its own arm, so the error answers its mapped status and rolls the command back (see [Expected failures](13-workflows.md#expected-failures)). An operation without an `error` variant keeps the bare call.
+
+::: tabs macro
+== written
+```ddd
+context Sales with scaffoldHandlers {
+  error Unsettled { code: string }
+  aggregate Order with crudish {
+    code: string
+    paid: int
+    operation close(): Order or Unsettled {
+      if paid == 0 { return Unsettled { code: code } }
+      code := "closed"
+      return this
+    }
+  }
+  repository OrderRepo for Order { }
+}
+```
+== expanded
+```ddd
+commandHandler CloseOrder(orderId: Order id): Order or Unsettled {
+  let o = OrderRepo.get(orderId)
+  let r = o.close()
+  match r {
+    Order v => { return v }
+    Unsettled v => { return v }
+  }
+}
+```
+== generated (node)
+```ts
+// http/shopApi-routes.ts — POST /close/{orderId}
+switch (r.type) {
+  case "Order": {
+    const v = r;
+    handlerResult = { type: "Order", ...(orderRepo.toWire(await orderRepo.getById(Ids.OrderId(String(v.id)))) as Record<string, unknown>) };
+    break;
+  }
+  case "Unsettled": {
+    const v = r;
+    handlerResult = { type: "Unsettled", ...(v as Record<string, unknown>) };
+    break;
+  }
+}
+if (handlerResult.type === "Unsettled") throw __rollback;   // 409 problem+json, nothing written
+```
+::: end
+
 `scaffoldPaged(of: <Criterion | Retrieval>)` (target `context`) is the ergonomic paged read — one `queryHandler` over the read-only port, and the way a named read reaches the wire (a `criterion` / `retrieval` has no route of its own). The macro reads its argument's kind:
 
 ::: tabs macro
@@ -468,9 +517,21 @@ ui W with scaffoldAggregate(of: Nope) { }
 //                                                          [loom.macro-arg-unresolved-ref]
 ```
 
+### Errors inside synthesised code
+
+Code a macro synthesises is checked like code you wrote. A check that fails inside it has no source text of its own to point at, so it is reported on the macro's name in the `with` clause that produced it, keeps its own code, and names the macro (`loom.macro-synthesised` is the attribution's wording, not a separate diagnostic):
+
+```ddd
+aggregate Lease with crudish, withLateFees(ratePct: 7) {   // withLateFees assigns a string to a money field
+  monthlyRent: money
+}
+// 4:37 error: Cannot assign 'string' to 'money' (in code synthesised by 'withLateFees')
+//                                                          [loom.assign-type-mismatch]
+```
+
 ### `ignoring` placement
 
-`ignoring <Capability>` bypasses a capability read filter (the `softDeletable` case above). It rides `PostfixExpr`, which is admissible anywhere an expression is — so it parses cleanly in positions where nothing reads it back and the filter silently stays applied. `loom.ignoring-clause-placement` refuses those: the clause has exactly three homes — a repository `find … ignoring …`, a query-time projection's `where` slot (**before** `join` / `group by` / `select`), and an inline read bound by a `let`.
+`ignoring <Capability>` bypasses a capability read filter (the `softDeletable` case above). It rides `PostfixExpr`, which is admissible anywhere an expression is — so it parses cleanly in positions where nothing reads it back and the filter silently stays applied. `loom.ignoring-clause-placement` refuses those: the clause has exactly three homes — a query-time projection's `where` slot (**before** `join` / `group by` / `select`), and an inline read bound by a `let`.
 
 ```ddd
 projection Counts { status: string  n: int

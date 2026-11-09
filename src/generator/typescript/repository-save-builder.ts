@@ -20,12 +20,19 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
+import {
+  applySavedVersion,
+  savedVersionDecl,
+  savedVersionOnInsert,
+  savedVersionOnUpdate,
+} from "./saved-version.js";
 
 /** Inner body of the save db.transaction callback at 6-space indent.
  *  Extracted so the trace-on variant can re-indent and wrap it with the
@@ -187,25 +194,27 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // means another request won the race in between — `ConcurrencyError`,
   // mapped to 409 by the shared `onError` arm.
   if (rowVersionGuarded(agg)) {
-    const baseEntries = rootEntries(agg, "aggregate", ctx, new Set(["version"]));
+    const baseEntries = rootEntries(agg, "aggregate", ctx, new Set([ROW_VERSION_FIELD]));
     const insertRow = projectionObject("aggregate", [
       ...baseEntries,
-      { fieldName: "version", expr: "1" },
+      { fieldName: ROW_VERSION_FIELD, expr: "1" },
     ]);
     const updateRow = projectionObject("aggregate", [
       ...baseEntries,
-      { fieldName: "version", expr: "expected + 1" },
+      { fieldName: ROW_VERSION_FIELD, expr: "expected + 1" },
     ]);
     const insertValues = audited ? stampInsertCall(agg, insertRow) : insertRow;
     const updateSet = audited ? stampUpdateCall(agg, updateRow) : updateRow;
     return [
-      `      const expected = expectedVersion ?? aggregate.version;`,
+      `      const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
       `      const existingRow = await tx.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
       `      if (existingRow.length === 0) {`,
       `        await tx.insert(schema.${tableName}).values(${insertValues});`,
+      savedVersionOnInsert("        "),
       `      } else {`,
-      `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.version, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
+      `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
       `        if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+      savedVersionOnUpdate("        "),
       `      }`,
       ...containBlocks,
       ...assocBlocks,
@@ -267,9 +276,11 @@ export function saveMethod(
     `    let dispatchAfterCommit = pendingEvents;`,
   ];
   const recordLine = `      dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, tx)) ?? pendingEvents;`;
+  const versioned = rowVersionGuarded(agg);
   return lines(
     saveSig,
     ...drainLines,
+    versioned && savedVersionDecl("    "),
     emitTrace
       ? [
           `    ${renderHonoStoreLogCall("txBegin", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
@@ -285,6 +296,7 @@ export function saveMethod(
           `    }`,
         ]
       : [`    await this.db.transaction(async (tx) => {`, ...body, recordLine, `    });`],
+    versioned && applySavedVersion("    "),
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     "",
     `    for (const event of dispatchAfterCommit) {`,

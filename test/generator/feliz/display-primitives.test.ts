@@ -70,7 +70,7 @@ describe("feliz display / layout primitives", () => {
     // it is not a library component, so `role="status"` + an accessible name
     // let assistive tech announce the busy state.
     expect(app).toContain(
-      'prop.className "loading loading-spinner loading-lg text-primary"; prop.role "status"; prop.ariaLabel "Loading"',
+      'prop.className "loading loading-spinner loading-lg text-primary"; prop.role "status"; prop.ariaLabel (I18n.t "chrome.loading" "Loading")',
     );
     expect(app).toContain('Html.img [ prop.className "rounded"; prop.src "/a.png"; prop.alt "a" ]');
     expect(app).toContain('prop.className "avatar"');

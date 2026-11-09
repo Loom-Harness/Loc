@@ -10,6 +10,7 @@ import {
   REPOSITORY_CONTRACT,
   repoOpVerb,
   retiredRepoVerb,
+  retrievalBaseName,
 } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
@@ -213,6 +214,26 @@ export function validateWorkflows(
         source: `${ctx.name}/${wf.name}`,
       });
     }
+    // `create(…): <Wf>` / `<Wf> or E` answers the workflow's instance state —
+    // the row the instance-read route serves, keyed by the correlation field.
+    // An uncorrelated workflow persists no such row, so there is nothing to
+    // answer.
+    if (!wf.correlationField || wf.eventSourced) {
+      for (const c of wf.creates) {
+        const t = c.returnType;
+        const names = t?.kind === "union" ? t.variants : t ? [t] : [];
+        if (!names.some((v) => v.kind === "entity" && v.name === wf.name)) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-return-this-uncorrelated",
+          message: diagMessage("loom.workflow-return-this-uncorrelated", {
+            workflow: wf.name,
+            create: c.name ?? "create",
+          }),
+          source: `${ctx.name}/${wf.name}`,
+        });
+      }
+    }
     // Runs BEFORE the body check: it reports the boundary violation and returns
     // the let-bindings it poisoned, so the body check can stay quiet about the
     // downstream symptoms instead of adding a second, misleading diagnostic.
@@ -231,6 +252,78 @@ export function validateWorkflows(
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
     validateWorkflowStarter(wf, diags, ctx.name);
+  }
+  validateHandlerUnboundNames(ctx, foreignRepos, projectionNames, declaredNames, diags);
+}
+
+// ---------------------------------------------------------------------------
+// UNBOUND NAMES IN A HANDLER BODY — `loom.handler-unknown-name`.
+//
+// A `commandHandler` / `queryHandler` body lowers through the same workflow
+// statement lowering as a workflow `create` / `on` body, so a name that binds
+// to nothing (`job.assign(Bogus.thing)`) stays a `ref` with `refKind:
+// "unknown"` and every expression renderer prints it verbatim — an unbound
+// identifier in the generated handler.  The handler's answered value
+// (`returnValue`) is an expression root too, and is walked with the statements.
+//
+// A repository of THIS context reached inside an expression is not this
+// check's: lowering hoists it into a `let` ahead of its statement, and the one
+// it cannot hoist (a read that runs only on some paths) is refused by the
+// UNHOISTABLE REPOSITORY READS gate below.  Any other name that is no
+// declaration model-wide — or is a projection, or a repository of ANOTHER
+// context, neither of which a handler can load — gets one unknown-name
+// diagnostic per name per handler.
+// ---------------------------------------------------------------------------
+
+function validateHandlerUnboundNames(
+  ctx: BoundedContextIR,
+  foreignRepos: ReadonlyMap<string, string>,
+  projectionNames: ReadonlySet<string>,
+  declaredNames: ReadonlySet<string>,
+  diags: LoomDiagnostic[],
+): void {
+  const repoAgg = new Map(ctx.repositories.map((r) => [r.name, r.aggregateName] as const));
+  const handlers = [
+    ...(ctx.commandHandlers ?? []).map((h) => ({ h, label: `commandHandler '${h.name}'` })),
+    ...(ctx.queryHandlers ?? []).map((h) => ({ h, label: `queryHandler '${h.name}'` })),
+  ];
+  for (const { h, label } of handlers) {
+    if (h.extern) continue;
+    const unknown = new Map<string, string>();
+    const visitIn =
+      (where: string) =>
+      (e: ExprIR): void => {
+        if (e.kind !== "ref" || e.refKind !== "unknown") return;
+        if (repoAgg.has(e.name)) return;
+        const foreign = foreignRepos.has(e.name);
+        if (!foreign && !projectionNames.has(e.name) && declaredNames.has(e.name)) return;
+        if (!unknown.has(e.name)) unknown.set(e.name, where);
+      };
+    for (const top of h.statements) {
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "expr-let" && st.name === "__bad__") return;
+        const where = st.kind === "expr-let" ? `let '${st.name}'` : st.kind;
+        walkWorkflowStmtChildren(st, { expr: (root) => walkExprDeep(root, visitIn(where)) });
+      });
+    }
+    if (h.returnValue) walkExprDeep(h.returnValue, visitIn("return"));
+    for (const [name, where] of unknown) {
+      diags.push({
+        severity: "error",
+        code: "loom.handler-unknown-name",
+        message: diagMessage("loom.handler-unknown-name", {
+          handler: label,
+          where,
+          name,
+          reason: projectionNames.has(name)
+            ? "a projection, which a handler cannot load — it is read through its own GET endpoint"
+            : foreignRepos.has(name)
+              ? `a repository of context '${foreignRepos.get(name)}', which a handler of '${ctx.name}' cannot reach`
+              : "not declared anywhere in the model",
+        }),
+        source: `${ctx.name}/${h.name}`,
+      });
+    }
   }
 }
 
@@ -275,56 +368,43 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
 }
 
 // ---------------------------------------------------------------------------
-// INLINE REPOSITORY CALLS — `loom.workflow-inline-repository-call`.
+// UNHOISTABLE REPOSITORY READS — `loom.workflow-inline-repository-call`.
 //
-// Repository access from a workflow IS supported — but only in ONE spelling:
-// bound to its own `let` statement.  `lowerWorkflowStatement` recognises a
-// repository read exclusively in the `isLetStmt` arm (`matchRepoCall` /
-// `matchFindCall` / `matchFindAllCall` / `matchRetrievalRunCall` from
-// `lower/repo-read.ts`) and lowers it to a `repo-let` / `repo-run`
-// `WorkflowStmtIR` that carries the repository as a STRING field (`repoName`),
-// never as an expression.
+// A workflow / handler body binds a repository read through a `repo-let` /
+// `repo-run` `WorkflowStmtIR`, which carries the repository as a STRING field
+// (`repoName`) — and every backend derives the repositories to instantiate
+// from those statement kinds.  A read written inside an expression (a `return`
+// value, a `precondition`, an `emit` field, a `for` iterable, another read's
+// argument) is lowered as such a `let` hoisted ahead of its statement
+// (`src/ir/lower/hoist-reads.ts`), so it compiles like the `let` spelling.
 //
-// The identical call written INLINE inside another expression — a
-// `precondition`, a `requires`, an `assign` RHS, an `emit` field, a `for-each`
-// iterable — goes through `lowerExpr`, where a repository name resolves to
-// nothing: it stays a `method-call` on a `ref` with `refKind: "unknown"`.
-// Two silent consequences follow:
-//
-//   1. every backend derives the repositories to instantiate from the
-//      STATEMENT KINDS it walks (`repo-let` / `repo-run` / `repo-delete` /
-//      `factory-let` / the exit saves) — hono `workflow-builder.ts`, dotnet
-//      `workflow-emit.ts`, java `emit/workflow.ts`, python
-//      `workflows-builder.ts` — so an expression-level repository reference
-//      never instantiates anything, and
-//   2. each backend's expression renderer emits the unresolved receiver
-//      verbatim.
-//
-// Verified 2026-09-13 on `precondition tech.skills.contains(
-// Assets.get(job.assetId).requiredSkill)` inside a transactional workflow
-// whose two other repositories ARE let-bound: `ddd parse` and
-// `generate system` both report ZERO diagnostics, and `api/http/workflows.ts`
-// emits
-//
-//   const technicians = new TechnicianRepository(tx, events);   // let-bound ✓
-//   const jobs = new JobRepository(tx, events);                 // let-bound ✓
-//   if (!((tech.skills).includes(Assets.get(job.assetId).requiredSkill)))
-//                                ^^^^^^ never constructed → TS2304
-//
-// One MODEL-level shape that no backend supports, not five per-backend gaps —
-// so this takes the same call as `loom.domain-service-cross-context-read`
-// (domain-service-checks.ts): reject at the source rather than let five
-// emitters fail five different silent ways.
+// Hoisting is only sound where the statement evaluates the read
+// unconditionally.  Inside a lambda (whose parameter the read may name), on the
+// right of `&&` / `||` / `??`, in a `?:` branch or in a `match` arm, running
+// the read ahead of the statement would run it where the source does not — a
+// `get` that throws on a miss.  Such a read is left in the expression, where
+// the repository name resolves to nothing (`ref` with `refKind: "unknown"`):
+// no repository is instantiated and every backend renders the unresolved
+// receiver verbatim (node `(Items).every(this.qty > n)` for a criterion
+// `all(…)`, read as the collection quantifier).  So it is refused here.
 //
 // SCOPE.  The gate keys on a bare `ref` that (a) did not resolve
 // (`refKind: "unknown"`, so a param / let / state field shadowing the name is
-// never flagged) and (b) names a repository declared in THIS context.  A
-// legitimate let-bound read is structurally invisible to the walk — its
-// repository lives in `repoName`, a string, not in any child expression — so
-// the correct spelling can never trip this.  A repository of ANOTHER context is
-// deliberately out of scope: that is the cross-context workflow-access hole,
-// a different root cause with its own slice.
+// never flagged) and (b) names a repository declared in THIS context.  A bound
+// read is structurally invisible to the walk — its repository lives in
+// `repoName`, a string, not in any child expression.  A repository of ANOTHER
+// context is the cross-context workflow-access hole, with its own gate.
 // ---------------------------------------------------------------------------
+
+/** A body that lowers to `WorkflowStmtIR` plus an answered value, with the
+ *  label and source its diagnostics carry. */
+interface LabeledBody {
+  where: string;
+  source: string;
+  origin?: LoomDiagnostic["origin"];
+  statements: readonly WorkflowStmtIR[];
+  returnValue?: ExprIR;
+}
 
 /** Every workflow body that lowers to `WorkflowStmtIR`, with a label for the
  *  diagnostic.  `wf.statements` is a facade over the primary create, so the
@@ -343,15 +423,58 @@ function workflowBodiesLabeled(wf: WorkflowIR): { label: string; statements: Wor
   ];
 }
 
-/** `loom.workflow-inline-repository-call` — see the header note above. */
+/** `loom.workflow-inline-repository-call` over a workflow's bodies — see the
+ *  header note above. */
 function validateWorkflowInlineRepoCalls(
   ctx: BoundedContextIR,
   wf: WorkflowIR,
   diags: LoomDiagnostic[],
 ): void {
+  const answers = new Map(wf.creates.map((c) => [c.statements, c.returnValue] as const));
+  validateInlineRepoReads(
+    ctx,
+    workflowBodiesLabeled(wf).map((b) => ({
+      where: `workflow '${wf.name}' ${b.label}`,
+      source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
+      statements: b.statements,
+      returnValue: answers.get(b.statements),
+    })),
+    diags,
+  );
+}
+
+/** `loom.workflow-inline-repository-call` over a context's command / query
+ *  handler bodies — see the header note above. */
+export function validateHandlerInlineRepoCalls(
+  ctx: BoundedContextIR,
+  diags: LoomDiagnostic[],
+): void {
+  const bodies: LabeledBody[] = [
+    ...(ctx.commandHandlers ?? []).map((h) => ({
+      where: `commandHandler '${h.name}'`,
+      source: `${ctx.name}/${h.name}`,
+      statements: h.statements,
+      returnValue: h.returnValue,
+    })),
+    ...(ctx.queryHandlers ?? []).map((h) => ({
+      where: `queryHandler '${h.name}'`,
+      source: `${ctx.name}/${h.name}`,
+      statements: h.statements,
+      returnValue: h.returnValue,
+    })),
+  ];
+  validateInlineRepoReads(ctx, bodies, diags);
+}
+
+function validateInlineRepoReads(
+  ctx: BoundedContextIR,
+  bodies: readonly LabeledBody[],
+  diags: LoomDiagnostic[],
+): void {
   if (ctx.repositories.length === 0) return;
   const repoAgg = new Map(ctx.repositories.map((r) => [r.name, r.aggregateName] as const));
-  for (const body of workflowBodiesLabeled(wf)) {
+  for (const body of bodies) {
     // One diagnostic per repository per body — a body reaching the same
     // repository inline twice states the same problem once.  The method is
     // remembered from the first mention so the suggested rewrite can echo the
@@ -377,18 +500,19 @@ function validateWorkflowInlineRepoCalls(
       }
     };
     for (const st of body.statements) walkWorkflowStmtExprsDeep(st, visit);
+    walkExprDeep(body.returnValue, visit);
     for (const [repoName, method] of flagged) {
       diags.push({
         severity: "error",
         code: "loom.workflow-inline-repository-call",
         message: diagMessage("loom.workflow-inline-repository-call", {
-          where: `workflow '${wf.name}' ${body.label}`,
+          where: body.where,
           repoName,
           call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
           binding: lowerFirst(repoAgg.get(repoName) as string),
         }),
-        source: `${ctx.name}/${wf.name}`,
-        origin: wf.origin,
+        source: body.source,
+        ...(body.origin ? { origin: body.origin } : {}),
       });
     }
   }
@@ -1357,20 +1481,10 @@ function validateWorkflowStatements(
       return false;
     }
     const crit = ctx.criteria.find((c) => c.name === critName);
-    if (!crit) {
-      diags.push({
-        severity: "error",
-        code: "loom.findall-unknown-criterion",
-        message: diagMessage("loom.findall-unknown-criterion", {
-          name: wf.name,
-          repoName,
-          critName,
-        }),
-        source: `${ctx.name}/${wf.name}`,
-        origin: wf.origin,
-      });
-      return false;
-    }
+    // A criterion read is only classified (`classifyRepoArg`) when the context
+    // declares the criterion, so an undeclared name never reaches here — it
+    // is a retrieval reference (`loom.workflow-run-unknown-retrieval`).
+    if (!crit) return false;
     const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
     if (candidate !== aggName) {
       diags.push({
@@ -1517,9 +1631,19 @@ function validateWorkflowStatements(
           break;
         // No op-call binding to check; effects are counted by the deep walk in
         // `validateWorkflowBody`, and a `let`'s binding is registered below.
+        case "expr-let":
+          if (inner.name === "__bad__") {
+            diags.push({
+              severity: "error",
+              code: "loom.workflow-unrecognised-statement",
+              message: diagMessage("loom.workflow-unrecognised-statement", { name: wf.name }),
+              source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
+            });
+          }
+          break;
         case "precondition":
         case "requires":
-        case "expr-let":
         case "assign":
         case "repo-let":
         case "repo-delete":
@@ -1714,20 +1838,8 @@ function validateWorkflowStatements(
           }
           const critName = st.synthCriterion.name;
           const crit = ctx.criteria.find((c) => c.name === critName);
-          if (!crit) {
-            diags.push({
-              severity: "error",
-              code: "loom.findall-unknown-criterion",
-              message: diagMessage("loom.findall-unknown-criterion", {
-                name: wf.name,
-                repoName: st.repoName,
-                critName,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-            break;
-          }
+          // Classified as a criterion only when declared (see `checkCriterionRead`).
+          if (!crit) break;
           const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
           if (candidate !== st.aggName) {
             diags.push({
@@ -1801,7 +1913,7 @@ function validateWorkflowStatements(
             message: diagMessage("loom.workflow-run-unknown-retrieval", {
               name: wf.name,
               repoName: st.repoName,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
@@ -1815,7 +1927,7 @@ function validateWorkflowStatements(
             code: "loom.workflow-run-retrieval-mismatch",
             message: diagMessage("loom.workflow-run-retrieval-mismatch", {
               name: wf.name,
-              retrievalName: st.retrievalName,
+              retrievalName: retrievalBaseName(st.retrievalName, st),
               target,
               repoName: st.repoName,
               aggName: st.aggName,

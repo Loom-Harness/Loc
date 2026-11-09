@@ -25,18 +25,10 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 async function emit(src: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper(services.Ddd)(src, { validation: true });
-  const parseErrors = (doc.diagnostics ?? []).filter((d) => d.severity === 1).map((d) => d.message);
-  const loom = enrichLoomModel(lowerModel(doc.parseResult.value as Model));
-  const irErrors = validateLoomModel(loom)
-    .filter((d) => d.severity === "error")
-    .map((d) => d.message);
-  expect([...parseErrors, ...irErrors], "validation errors").toEqual([]);
-  return generateSystems(doc.parseResult.value as Model).files;
+  return generateSystemFiles(src);
 }
 
 /** One owned timer, cadence supplied by the caller (`cron:` → pg-boss +
@@ -80,9 +72,7 @@ describe("MikroORM timerSource scheduling", () => {
     expect(src).not.toContain("./db/schema");
     // pg-boss is adapter-independent (it takes DATABASE_URL directly).
     expect(src).toContain('import { PgBoss } from "pg-boss";');
-    expect(src).toContain(
-      "const boss = new PgBoss({ connectionString: process.env.DATABASE_URL });",
-    );
+    expect(src).toContain(": new PgBoss({ connectionString: process.env.DATABASE_URL });");
   });
 
   it("runs the loom_timer_runs watermark through the mikro connection", async () => {
@@ -126,11 +116,15 @@ describe("MikroORM timerSource scheduling", () => {
   });
 
   it("wires the scheduler at boot on the mikro connection", async () => {
-    const index = (await emit(sys("mikroorm", "every: 30s"))).get("d/index.ts") as string;
-    expect(index).toContain('import { startTimerScheduler } from "./scheduler";');
+    const files = await emit(sys("mikroorm", "every: 30s"));
+    const index = files.get("d/index.ts") as string;
+    const boot = files.get("d/boot.ts") as string;
+    expect(boot).toContain('import { startTimerScheduler } from "./scheduler";');
     expect(index).toContain("const db = orm.em;");
-    expect(index).toContain("const stopTimers = await startTimerScheduler(db, inProcessEvents);");
-    expect(index).toContain("await stopTimers();");
+    expect(boot).toContain(
+      "const stopTimers = await startTimerScheduler(db, inProcessEvents, { infra: opts.infra });",
+    );
+    expect(boot).toContain("await stopTimers();");
   });
 
   it("declares the cron dependencies only for a cron timer", async () => {

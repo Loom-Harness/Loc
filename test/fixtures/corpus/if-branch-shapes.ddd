@@ -1,0 +1,229 @@
+// The `if` statement in every position a domain body can hold it, on all five
+// backends.  Each shape is one an `if` branch can only express by deciding,
+// per path, what the rest of the body does:
+//
+//   - an early `return` (`ship`), with a guard, writes and an `emit` after it,
+//     and an `if`/`else` that returns from both branches with nothing after it
+//     (`classify`);
+//   - a guard nested in a branch (`restock`, and `withdraw` on the
+//     event-sourced aggregate);
+//   - an `emit` and a provenanced write in a branch (`Tally.add`);
+//   - an `if` in an event-sourced command (`deposit`) and in an applier;
+//   - a non-tail early `return` in a pure `function` and a `domainService`
+//     operation.
+//
+// Lowering rewrites an early `return` into branch-total form (the statements
+// after the `if` move into the branch that does not return), so every backend
+// renders the same tail-position `return`.
+system IfBranches {
+  subdomain Shop {
+    context Orders {
+      enum Status { Open, Shipped }
+      event OrderShipped { order: Order id }
+      event BigTally { tally: Tally id, qty: int }
+      error AlreadyShipped { code: string }
+      payload Big { q: int }
+      payload Small { q: int }
+
+      aggregate Order with crudish {
+        code: string
+        status: Status
+        stock: int
+
+        operation ship(): Order or AlreadyShipped {
+          if status == Shipped {
+            return AlreadyShipped { code: code }
+          }
+          precondition stock > 0 message "out of stock"
+          stock := stock - 1
+          status := Shipped
+          emit OrderShipped { order: id }
+          return this
+        }
+
+        operation classify(q: int): Big or Small {
+          if q > stock {
+            return Big { q: q }
+          } else {
+            return Small { q: q }
+          }
+        }
+
+        operation restock(n: int) {
+          if n > 100 {
+            precondition stock < 10 message "too much stock for a bulk restock"
+          }
+          stock := stock + n
+        }
+
+        function band(n: int): string {
+          if n > 10 {
+            return "big"
+          }
+          let doubled = n * 2
+          if doubled > 10 {
+            return "medium"
+          }
+          return "small"
+        }
+
+        test "a branch guard checks only its own path" {
+          let o = Order.create(code: "A", status: Open, stock: 20)
+          o.restock(5)
+          expect(o.stock).toBe(25)
+          let p = Order.create(code: "B", status: Open, stock: 1)
+          p.restock(200)
+          expect(p.stock).toBe(201)
+        }
+      }
+      repository Orders for Order { }
+
+      // A provenanced field rides the wire as a `{ value, lineage }` carrier, so
+      // it lives apart from `Order`, whose `ship` answers `this`.
+      aggregate Tally with crudish {
+        qty: int
+        total: int provenanced
+
+        operation add(n: int) {
+          qty := qty + n
+          if qty > 10 {
+            emit BigTally { tally: id, qty: qty }
+            total := qty * 2
+          }
+        }
+      }
+      repository Tallies for Tally { }
+
+      domainService Pricing {
+        operation kindOf(n: int): string {
+          if n < 0 {
+            return "refund"
+          }
+          let cents = n * 100
+          if cents > 1000 {
+            return "large charge"
+          }
+          return "charge"
+        }
+      }
+    }
+
+    context Ledger {
+      event Opened { account: Account id, owner: string }
+      event Deposited { account: Account id, amount: int }
+      event BigDeposit { account: Account id, amount: int }
+      event Withdrawn { account: Account id, amount: int }
+
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+        bigDeposits: int
+        create open(owner: string) { emit Opened { account: id, owner: owner } }
+        operation deposit(amount: int) {
+          precondition amount > 0
+          if amount > 100 {
+            emit BigDeposit { account: id, amount: amount }
+          } else {
+            emit Deposited { account: id, amount: amount }
+          }
+        }
+        operation withdraw(amount: int) {
+          if amount > 50 {
+            precondition balance >= amount * 2 message "a large withdrawal needs twice the amount"
+          }
+          emit Withdrawn { account: id, amount: amount }
+        }
+        apply(e: Opened) { owner := e.owner  balance := 0  bigDeposits := 0 }
+        apply(e: Deposited) {
+          if e.amount > 0 {
+            balance := balance + e.amount
+          }
+        }
+        apply(e: BigDeposit) {
+          balance := balance + e.amount
+          bigDeposits := bigDeposits + 1
+        }
+        apply(e: Withdrawn) { balance := balance - e.amount }
+      }
+      repository Accounts for Account
+    }
+  }
+  api ShopApi from Shop {
+    httpStatus AlreadyShipped -> 409
+  }
+  storage primary { type: postgres }
+  resource orderState { for: Orders, kind: state, use: primary }
+  resource ledgerLog { for: Ledger, kind: eventLog, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders, Ledger]
+    dataSources: [orderState, ledgerLog]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "every if-branch shape behaves the same on each backend" against d {
+    let o = api.orders.create({ code: "O1", status: "Open", stock: 2 })
+
+    // `ship`: the first call takes the else branch — guard, writes, emit,
+    // `return this`; the second returns early with the error arm.
+    let shipped = api.orders.ship(o)
+    expect(shipped.type).toBe("Order")
+    expect(shipped.stock).toBe(1)
+    expect(api.orders.ship(o)).toThrow(409)
+    expect(api.orders.getById(o).stock).toBe(1)
+
+    // `classify` returns from both branches.
+    let big = api.orders.classify(o, { q: 3 })
+    expect(big.type).toBe("Big")
+    expect(big.q).toBe(3)
+    let small = api.orders.classify(o, { q: 1 })
+    expect(small.type).toBe("Small")
+
+    // `restock`: the branch guard refuses only the bulk path.
+    api.orders.restock(o, { n: 5 })
+    expect(api.orders.getById(o).stock).toBe(6)
+    api.orders.restock(o, { n: 200 })
+    expect(api.orders.getById(o).stock).toBe(206)
+    expect(api.orders.restock(o, { n: 200 })).toThrow(422)
+    expect(api.orders.getById(o).stock).toBe(206)
+
+    // `add`: the emit and the provenanced write run only on the branch.
+    let t = api.tallies.create({ qty: 0, total: 0 })
+    api.tallies.add(t, { n: 4 })
+    expect(api.tallies.getById(t).qty).toBe(4)
+    expect(api.tallies.getById(t).total.value).toBe(0)
+    api.tallies.add(t, { n: 8 })
+    expect(api.tallies.getById(t).qty).toBe(12)
+    expect(api.tallies.getById(t).total.value).toBe(24)
+
+    // The event-sourced command chooses which event to emit, the applier
+    // folds conditionally, and the branch guard refuses a large withdrawal.
+    let a = api.accounts.create({ owner: "ann" })
+    api.accounts.deposit(a, { amount: 30 })
+    api.accounts.deposit(a, { amount: 500 })
+    let acct = api.accounts.getById(a)
+    expect(acct.balance).toBe(530)
+    expect(acct.bigDeposits).toBe(1)
+    api.accounts.withdraw(a, { amount: 20 })
+    expect(api.accounts.withdraw(a, { amount: 400 })).toThrow(422)
+    api.accounts.withdraw(a, { amount: 200 })
+    expect(api.accounts.getById(a).balance).toBe(310)
+
+    // The remaining generated routes.
+    let accounts = api.accounts.all()
+    expect(accounts.length).toBe(1)
+    api.orders.update(o, { code: "O2", status: "Shipped", stock: 206 })
+    expect(api.orders.getById(o).code).toBe("O2")
+    let orders = api.orders.all()
+    expect(orders.items.length).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.getById(o)).toThrow(404)
+    api.tallies.update(t, { qty: 1, total: 0 })
+    expect(api.tallies.getById(t).qty).toBe(1)
+    let tallies = api.tallies.all()
+    expect(tallies.items.length).toBe(1)
+    api.tallies.destroy(t)
+    expect(api.tallies.getById(t)).toThrow(404)
+  }
+}

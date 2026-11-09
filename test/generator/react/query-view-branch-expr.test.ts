@@ -70,7 +70,7 @@ describe("QueryView branch in expression position", () => {
   it("react: an ELEMENT data branch is untouched (no gratuitous fragment)", async () => {
     const tsx = await pageFor("react", ELEMENT_BODY);
     // (the literal rides the i18n catalog, hence the `t(…)` hole)
-    expect(tsx).toMatch(/<Text>\{t\("page\.P1\.text\.[a-z0-9]+", "ok"\)}<\/Text>/);
+    expect(tsx).toMatch(/<Text>\{t\("\w+\.page\.P1\.text\.[a-z0-9]+", "ok"\)}<\/Text>/);
     expect(tsx).not.toMatch(/<><Text>/);
   });
 

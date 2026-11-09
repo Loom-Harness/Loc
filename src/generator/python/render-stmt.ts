@@ -235,7 +235,11 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
         .join(", ");
       const ev = `${pyRef("app.domain.events", s.eventName)}(${kwargs})`;
       if (ctx.eventSourced) {
-        return [`${i}__ev = ${ev}`, `${i}self._events.append(__ev)`, `${i}self._apply(__ev)`].join(
+        // One temporary per EVENT TYPE: `if` branches that emit different
+        // events would otherwise rebind one name to two types, which
+        // `mypy --strict` refuses.
+        const v = `__ev_${snake(s.eventName)}`;
+        return [`${i}${v} = ${ev}`, `${i}self._events.append(${v})`, `${i}self._apply(${v})`].join(
           "\n",
         );
       }
@@ -319,6 +323,10 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const v = renderPyExpr(s.value);
       if (!s.variantTag) return `${i}return ${v}`;
       const tag = JSON.stringify(s.variantTag);
+      // `return this` in the aggregate's own arm carries the tag and the id:
+      // the aggregate is not a mapping, so its answer is the wire projection a
+      // route or handler reads back by that id.
+      if (s.value.kind === "this") return `${i}return {"type": ${tag}, "id": self.id}`;
       const tagged =
         s.variantShape === "none"
           ? `{"type": ${tag}}`

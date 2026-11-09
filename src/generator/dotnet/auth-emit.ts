@@ -1,3 +1,4 @@
+import { registryTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   AuthIR,
@@ -14,6 +15,7 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
+import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
@@ -23,7 +25,6 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
-import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ export function emitAuthFiles(
         ? "Infrastructure/Persistence/DapperOrgPathResolver.cs"
         : "Infrastructure/Persistence/EfOrgPathResolver.cs",
       usingDapper
-        ? renderDapperOrgPathResolver(ns, registry)
+        ? renderDapperOrgPathResolver(ns, registryTableName(sys) as string)
         : renderEfOrgPathResolver(ns, registry),
     );
   }
@@ -155,11 +156,11 @@ function csClaimDecoder(t: TypeIR): CsClaimDecoder | undefined {
     return helper ? { csType: renderCsType(t), decode: helper } : undefined;
   }
   if (t.kind === "id") {
-    const helper = CS_SCALAR_DECODERS[t.valueType];
     const cls = renderCsType(t);
-    return helper
-      ? { csType: cls, decode: `e => ${helper}(e) is { } v ? new ${cls}(v) : null` }
-      : undefined;
+    return {
+      csType: cls,
+      decode: `e => ${CS_SCALAR_DECODERS.guid}(e) is { } v ? new ${cls}(v) : null`,
+    };
   }
   return undefined;
 }
@@ -366,7 +367,7 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   // validated against the declared audience (env-overridable), or — with no
   // `audience:` — only when OIDC_AUDIENCE is set at runtime (G8-04).
   const checksDoc = auth.oidc.audience
-    ? "checks iss / aud / exp"
+    ? "checks iss / aud / exp (an audience that resolves\n/// empty rejects every token — the model declares `audience:`)"
     : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const reads = user.fields.map((f) => csClaimRead(f, auth));
   const args = reads.map((r) => r.arg).join(",\n            ");
@@ -434,7 +435,18 @@ public sealed class OidcUserVerifier : IUserVerifier
         {
             return null;
         }
-
+${
+  audienceDeclared(auth)
+    ? `
+        // The model declares an audience: one that resolves EMPTY fails
+        // closed (every token rejected), it never turns the aud check off.
+        if (string.IsNullOrEmpty(Audience))
+        {
+            return Rejected(${JSON.stringify(audienceUnsetReason(auth))});
+        }
+`
+    : ""
+}
         OpenIdConnectConfiguration configuration;
         try
         {
@@ -453,9 +465,9 @@ public sealed class OidcUserVerifier : IUserVerifier
             ValidateIssuer = true,
             IssuerSigningKeys = configuration.SigningKeys,
             ValidateIssuerSigningKey = true,
-            // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud
-            // check — the documented opt-out every backend honours.  Testing
-            // only for null validated every token against "" and rejected all.
+            // An EMPTY audience skips the aud check — reachable only when the
+            // model declares no audience.  Testing only for null validated
+            // every token against "" and rejected all.
             ValidateAudience = !string.IsNullOrEmpty(Audience),
             ValidAudience = Audience,
             ValidateLifetime = true,
@@ -797,10 +809,15 @@ public static class AuthHandshake
  *  boots end-to-end without the caller having to wire a JWT decoder
  *  first.  Replace by registering your own IUserVerifier (the last DI
  *  registration wins for new scope resolutions). */
+/** The dev-stub identity's named constructor arguments, one per declared
+ *  `user { … }` field — shared by the stub verifier and the context
+ *  integration test, which runs as this identity. */
+export function renderCsDevStubUserArgs(user: UserIR, sep = ", "): string {
+  return user.fields.map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`).join(sep);
+}
+
 function renderDevStubVerifier(user: UserIR, ns: string): string {
-  const args = user.fields
-    .map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`)
-    .join(",\n            ");
+  const args = renderCsDevStubUserArgs(user, ",\n            ");
   // An `X id` claim's stub value CONSTRUCTS the strong id (`new CustomerId(…)`)
   // — a raw `Guid.Empty` against `readonly record struct CustomerId(Guid)` is
   // CS0029 — and the id structs live in `<ns>.Domain.Ids` while this verifier
@@ -1571,7 +1588,7 @@ function renderEfOrgPathResolver(ns: string, registry: AggregateIR): string {
   const idClass = `${registry.name}Id`;
   // Wrap the string claim to the registry's id value type (mirrors the derived
   // self-scope's `Guid.Parse` binding), guarded so a bad claim fails safe.
-  const wrap = idWrapForClaim(registry.idValueType, idClass);
+  const wrap = idWrapForClaim(idClass);
   return `// Auto-generated.
 using System;
 using System.Linq;
@@ -1627,13 +1644,12 @@ ${wrap}
  *  every failure path so the middleware falls back to the claim.  Emitting the
  *  EF file regardless of adapter does not compile on a Dapper deployable: no
  *  `Microsoft.EntityFrameworkCore`, no `AppDbContext`. */
-function renderDapperOrgPathResolver(ns: string, registry: AggregateIR): string {
-  const table = dapperAggregateTable(registry.name);
+function renderDapperOrgPathResolver(ns: string, table: string): string {
   const dataKeyColumn = snake("dataKey");
   // The claim is bound as the RAW scalar (Dapper has no id-value-type handler),
   // guarded so a malformed claim fails safe — the raw-parameter mirror of the
   // EF path's `idWrapForClaim` strong-id wrap.
-  const wrap = rawIdWrapForClaim(registry.idValueType);
+  const wrap = rawIdWrapForClaim();
   return `// Auto-generated.  Dapper \`IOrgPathResolver\` (persistence: dapper).
 using System;
 using System.Threading;
@@ -1679,62 +1695,24 @@ ${wrap}
 }
 
 /** The C# guard + `var id = …` binding the string tenancy claim to the RAW
- *  scalar Dapper parameterizes with (the Dapper twin of `idWrapForClaim`, which
- *  wraps into the strongly-typed id class EF's LINQ comparison needs).  Guarded
- *  parses (guid / int / long) short-circuit to `null` on a bad claim; a string
- *  id is the key verbatim. */
-function rawIdWrapForClaim(idValueType: string): string {
-  const parser =
-    idValueType === "guid"
-      ? "Guid.TryParse"
-      : idValueType === "int"
-        ? "int.TryParse"
-        : idValueType === "long"
-          ? "long.TryParse"
-          : null;
-  if (!parser) {
-    return `        if (string.IsNullOrEmpty(claim))
-        {
-            return null;
-        }
-        var id = claim;`;
-  }
-  return `        if (string.IsNullOrEmpty(claim) || !${parser}(claim, out var id))
+ *  guid Dapper parameterizes with (the Dapper twin of `idWrapForClaim`, which
+ *  wraps into the strongly-typed id class EF's LINQ comparison needs).  The
+ *  guarded parse short-circuits to `null` on a bad claim. */
+function rawIdWrapForClaim(): string {
+  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var id))
         {
             return null;
         }`;
 }
 
 /** The C# guard + `var id = …` that wraps the string tenancy claim to the
- *  registry's strongly-typed id (multi-tenancy).  Guarded parses (guid /
- *  int / long) short-circuit to `null` on a bad claim; a string id needs no
- *  parse.  Mirrors the derived self-scope's binding (`Guid.Parse`), fail-safe. */
-function idWrapForClaim(idValueType: string, idClass: string): string {
-  switch (idValueType) {
-    case "guid":
-      return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var raw))
+ *  registry's strongly-typed id (multi-tenancy).  The guarded parse
+ *  short-circuits to `null` on a bad claim.  Mirrors the derived self-scope's
+ *  binding (`Guid.Parse`), fail-safe. */
+function idWrapForClaim(idClass: string): string {
+  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var raw))
         {
             return null;
         }
         var id = new ${idClass}(raw);`;
-    case "int":
-      return `        if (string.IsNullOrEmpty(claim) || !int.TryParse(claim, out var raw))
-        {
-            return null;
-        }
-        var id = new ${idClass}(raw);`;
-    case "long":
-      return `        if (string.IsNullOrEmpty(claim) || !long.TryParse(claim, out var raw))
-        {
-            return null;
-        }
-        var id = new ${idClass}(raw);`;
-    default:
-      // string id — the claim is the key verbatim.
-      return `        if (string.IsNullOrEmpty(claim))
-        {
-            return null;
-        }
-        var id = new ${idClass}(claim);`;
-  }
 }

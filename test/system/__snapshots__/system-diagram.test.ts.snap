@@ -52,7 +52,7 @@ classDiagram
     +Id~Product~ id
     +string sku
     +Money price
-    +int version
+    +int rowVersion
     +string /display
     +string /inspect
     +update(sku, price)
@@ -80,7 +80,7 @@ classDiagram
     +string customerId
     +OrderStatus status
     +datetime placedAt
-    +int version
+    +int rowVersion
     +string /inspect
     +isMutable() bool
     +addLine(productId, qty)
@@ -103,7 +103,7 @@ classDiagram
     +string username
     +string email
     +int age
-    +int version
+    +int rowVersion
     +string /display
     +string /inspect
     +update(username, email, age)
@@ -131,7 +131,7 @@ erDiagram
     guid id PK
     string sku
     Money price
-    int version
+    int rowVersion
   }
   Money {
     decimal amount
@@ -142,7 +142,7 @@ erDiagram
     string customerId
     OrderStatus status
     datetime placedAt
-    int version
+    int rowVersion
   }
   OrderLine {
     Id_Product productId FK
@@ -153,7 +153,7 @@ erDiagram
     string username
     string email
     int age
-    int version
+    int rowVersion
   }
   Product ||--|| Money : "price"
   Order ||--o{ OrderLine : "lines"

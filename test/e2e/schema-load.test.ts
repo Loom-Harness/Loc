@@ -3,8 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
 import {
@@ -59,9 +58,7 @@ async function migrationChains(
   featureId: string,
 ): Promise<Map<string, { name: string; sql: string }[]>> {
   const source = corpusSource(featureId).replaceAll("__PLATFORM__", "node");
-  const { model, errors } = await parseString(source);
-  if (errors.length > 0) throw new Error(`${featureId} failed to validate:\n${errors.join("\n")}`);
-  const files = generateSystems(model).files;
+  const files = await generateSystemFiles(source);
   const byDeployable = new Map<string, { name: string; sql: string }[]>();
   for (const [p, sql] of [...files].sort(([a], [b]) => a.localeCompare(b))) {
     const m = /^([^/]+)\/db\/migrations\/.*\.sql$/.exec(p);

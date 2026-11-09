@@ -96,6 +96,12 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
       "the `string(<datetime>)` conversion intrinsic — expression semantics (ExprTarget), not a wire or storage encoding",
   },
   {
+    file: "src/generator/typescript/emit/schema.ts",
+    line: '${ROW_VERSION_FIELD}: integer("${ROW_VERSION_COLUMN}")',
+    reason:
+      "the document table's optimistic-concurrency counter — a Loom-owned int column, not a declared field the codec types",
+  },
+  {
     file: "src/generator/typescript/repository-document-builder.ts",
     line: 'if (t.name === "datetime") return `${accessor}.toISOString()`;',
     reason:

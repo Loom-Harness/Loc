@@ -104,10 +104,10 @@ describe("java (JPQL) — nullable value operand", () => {
   it("a nullable claim gets an actor-present IS NULL arm", async () => {
     const r = await repo();
     expect(r).toContain(
-      '@Query("select e from WorkOrder e where (e.technicianId = :#{@currentUserAccessor.user()?.technicianId()} or (:#{@currentUserAccessor.user() != null and @currentUserAccessor.user().technicianId() == null} = true and e.technicianId is null))")',
+      '@Query("select e from WorkOrder e where (e.technicianId = :#{@currentUserAccessor.user()?.technicianId()} or (:#{@currentUserAccessor.user() != null and @currentUserAccessor.user().technicianId() == null} = true and e.technicianId is null)) order by e.id asc")',
     );
     expect(r).toContain(
-      '@Query("select e from WorkOrder e where (:#{@currentUserAccessor.user()?.technicianId()} <> e.technicianId or (:#{@currentUserAccessor.user() != null and @currentUserAccessor.user().technicianId() == null} = true and e.technicianId is not null))")',
+      '@Query("select e from WorkOrder e where (:#{@currentUserAccessor.user()?.technicianId()} <> e.technicianId or (:#{@currentUserAccessor.user() != null and @currentUserAccessor.user().technicianId() == null} = true and e.technicianId is not null)) order by e.id asc")',
     );
   });
 
@@ -117,19 +117,21 @@ describe("java (JPQL) — nullable value operand", () => {
     const exact = c.slice(c.indexOf("Specification<WorkOrder> Exact("));
     expect(exact.split("\n")[1]).toContain('cb.equal(root.<TechnicianId>get("technicianId"), t)');
     expect(await repo()).toContain(
-      '@Query("select e from WorkOrder e where e.technicianId = :#{@currentUserAccessor.user()?.boss()}")',
+      '@Query("select e from WorkOrder e where e.technicianId = :#{@currentUserAccessor.user()?.boss()} order by e.id asc")',
     );
   });
 
-  // KNOWN DEFECT: a criterion over an OPTIONAL param renders a JPA
-  // `Specification` whose `cb.equal(<col>, t)` has no null arm, so a null `t`
-  // binds `= NULL` and matches nothing instead of `IS NULL`.  `it.fails` keeps
-  // the expectation on record; it turns red once the emitter is null-aware, at
-  // which point drop the `.fails`.
-  it.fails("an optional param tests null in the Specification", async () => {
+  // An OPTIONAL param: `cb.equal(col, null)` binds `= NULL` and matches no
+  // row, so the Specification branches to `IS NULL` like the other backends.
+  // An ordering against an optional param stays plain (null matches nothing).
+  it("an optional param tests null in the Specification", async () => {
     const c = await criteria();
     const byTech = c.slice(c.indexOf("Specification<WorkOrder> ByTech("));
-    expect(byTech.split("\n").slice(0, 3).join("\n")).toContain("isNull");
+    expect(byTech.split("\n")[1]).toContain(
+      'return (root, query, cb) -> (t == null ? cb.isNull(root.<TechnicianId>get("technicianId")) : cb.equal(root.<TechnicianId>get("technicianId"), t));',
+    );
+    const above = c.slice(c.indexOf("Specification<WorkOrder> Above("));
+    expect(above.split("\n")[1]).toContain('cb.greaterThan(root.<Integer>get("priority"), p)');
   });
 });
 
@@ -150,15 +152,15 @@ describe(".NET dapper — nullable value operand + value-object leaf", () => {
     );
     expect(r).toContain("WHERE (technician_id = @t OR (@t IS NULL AND technician_id IS NULL))");
     expect(r).toContain('p.Add("t", t?.Value);');
-    expect(r).toContain('WHERE (priority > @p)";');
+    expect(r).toContain('WHERE (priority > @p) ORDER BY id ASC";');
     expect(r).toContain('__p.Add("p", p);');
   });
 
   it("non-nullable values stay plain; a non-optional id claim binds .Value", async () => {
     const r = await repo();
-    expect(r).toContain('WHERE (technician_id = @t)";');
+    expect(r).toContain('WHERE (technician_id = @t) ORDER BY id ASC";');
     expect(r).toContain('p.Add("t", t.Value);');
-    expect(r).toContain('WHERE (technician_id = @__cu_boss)";');
+    expect(r).toContain('WHERE (technician_id = @__cu_boss) ORDER BY id ASC";');
     expect(r).toContain('p.Add("__cu_boss", RequestContext.Current!.CurrentUser!.Boss.Value);');
   });
 

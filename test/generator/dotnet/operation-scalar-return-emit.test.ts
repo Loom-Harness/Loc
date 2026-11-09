@@ -8,8 +8,7 @@
 // scalar-success arm and every other backend).
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateBackendFiles } from "../../_helpers/generate.js";
 
 const SRC = `
   context Shop {
@@ -29,8 +28,7 @@ const SRC = `
 `;
 
 async function files(): Promise<Map<string, string>> {
-  const model = await parseValid(SRC);
-  return generateDotnet(model);
+  return generateBackendFiles(SRC, "dotnet");
 }
 
 /** Suffix-match the emitted path (the namespace prefix varies by entry point). */

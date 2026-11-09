@@ -1011,8 +1011,8 @@ const run = useRegisterProductWorkflow();
 
 // react — pages/product_detail.tsx: DestroyForm is one confirm-then-delete button
 const deleteProduct = useDeleteProduct();
-<Button onClick={() => { if (window.confirm(t("chrome.deleteConfirm", "Delete this {entity}?", { entity: "product" }))) void deleteProduct.mutateAsync(id ?? "").then(() => { navigate("/"); }); }}
-  loading={deleteProduct.isPending} data-testid="products-destroy">{t("chrome.deleteEntity", "Delete {entity}", { entity: "Product" })}</Button>
+<Button onClick={() => { if (window.confirm(t("chrome.deleteConfirm.Product", "Delete this product?"))) void deleteProduct.mutateAsync(id ?? "").then(() => { navigate("/"); }); }}
+  loading={deleteProduct.isPending} data-testid="products-destroy">{t("chrome.deleteEntity.Product", "Delete Product")}</Button>
 ```
 
 ```heex

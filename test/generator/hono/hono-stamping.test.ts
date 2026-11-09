@@ -16,8 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 // now()-only stamps (no principal) — no auth needed.
@@ -141,9 +140,7 @@ const MIXED_SRC = `system MixedStamp {
 `;
 
 async function build(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(src);
 }
 
 function find(files: Map<string, string>, re: RegExp): string {
@@ -181,14 +178,14 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     expect(repo).toContain('import { stampInsertOrder, stampUpdateOrder } from "../audit-stamp";');
     // Insert branch: the seeded row (version: 1) is wrapped by stampInsert.
     expect(repo).toMatch(
-      /\.values\(stampInsertOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: 1 \}\)\)/,
+      /\.values\(stampInsertOrder\(\{ id: aggregate\.id as string,[\s\S]*?rowVersion: 1 \}\)\)/,
     );
     // Update branch: the version-bumped row (version: expected + 1) is wrapped
     // by stampUpdate, and the write is guarded on the expected version.
     expect(repo).toMatch(
-      /\.set\(stampUpdateOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: expected \+ 1 \}\)\)/,
+      /\.set\(stampUpdateOrder\(\{ id: aggregate\.id as string,[\s\S]*?rowVersion: expected \+ 1 \}\)\)/,
     );
-    expect(repo).toContain("eq(schema.orders.version, expected)");
+    expect(repo).toContain("eq(schema.orders.rowVersion, expected)");
   });
 
   it("neither the create route nor the update route stamps", async () => {

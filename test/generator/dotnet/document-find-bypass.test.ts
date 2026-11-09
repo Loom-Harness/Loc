@@ -1,25 +1,27 @@
 // ---------------------------------------------------------------------------
-// .NET document store — the in-app capability filter on the root reads.
+// .NET document store — the in-app capability filter, on both persistence
+// adapters (EF and Dapper).
 //
 // A `shape: document` aggregate's capability filters are evaluated in-app
 // over the rehydrated jsonb blob (`_CapabilityVisible`), not as an EF
-// `HasQueryFilter`.  The root reads (by-id / `FindManyByIdsAsync`) carry no
-// `ignoring` clause and must keep BOTH filters whatever a sibling read on the
-// relational aggregate of the same fixture bypasses (the fail-OPEN direction).
-// A document aggregate has no single-row criterion read on every backend, so
-// the fixture carries no bypassing read over `Note`.
+// `HasQueryFilter` / a SQL WHERE.  The root reads (by-id /
+// `FindManyByIdsAsync`) carry no `ignoring` clause and must keep BOTH filters
+// whatever a sibling read bypasses (the fail-OPEN direction).  A widened read
+// (`Notes.find(NoteBody(b)) ignoring …`) keeps exactly the filters its clause
+// does not name: `ignoring tenantOwned` keeps the not-deleted conjunct only,
+// `ignoring *` keeps none.  Every assertion is paired presence + ABSENCE: the
+// failure mode is a RETAINED conjunct, invisible to a presence-only check.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
-const SRC = corpusSourceFor("find-bypass", "dotnet");
 const TENANT = "x.TenantId == ";
 const DELETED = "!x.IsDeleted";
 
-async function noteRepo(): Promise<string> {
-  const files = await generateSystemFiles(SRC);
+async function noteRepo(persistence?: string): Promise<string> {
+  const files = await generateSystemFiles(corpusSourceFor("find-bypass", "dotnet", persistence));
   const path = [...files.keys()].find((p) =>
     p.endsWith("Infrastructure/Repositories/NoteRepository.cs"),
   );
@@ -35,18 +37,45 @@ function bodyOf(impl: string, method: string): string {
   return impl.slice(start, end);
 }
 
-describe(".NET document store — the in-app capability filter", () => {
-  it("the shared `_CapabilityVisible` still ANDs both filters", async () => {
-    const impl = await noteRepo();
-    const m = /private static bool _CapabilityVisible\(Note x\) => (.*);/.exec(impl);
-    expect(m, "no _CapabilityVisible").not.toBeNull();
-    expect(m![1]).toContain(TENANT);
-    expect(m![1]).toContain(DELETED);
-  });
+/** The `.Where(…)` filter on the method's `var __all = …` load ("" for none). */
+function loadFilterOf(impl: string, method: string): string {
+  const line = bodyOf(impl, method)
+    .split("\n")
+    .find((l) => l.includes("var __all = "));
+  if (!line) throw new Error(`no __all load in ${method}`);
+  const at = line.indexOf(".Where(");
+  return at < 0 ? "" : line.slice(at);
+}
 
-  it("the root reads keep both filters", async () => {
-    const impl = await noteRepo();
-    expect(bodyOf(impl, "GetByIdAsync")).toContain("_CapabilityVisible(__rec)");
-    expect(bodyOf(impl, "FindManyByIdsAsync")).toContain(".Where(_CapabilityVisible)");
+for (const persistence of [undefined, "dapper"]) {
+  const adapter = persistence ?? "ef";
+  describe(`.NET document store (${adapter}) — the in-app capability filter`, () => {
+    it("the shared `_CapabilityVisible` still ANDs both filters", async () => {
+      const impl = await noteRepo(persistence);
+      const m = /private static bool _CapabilityVisible\(Note x\) => (.*);/.exec(impl);
+      expect(m, "no _CapabilityVisible").not.toBeNull();
+      expect(m![1]).toContain(TENANT);
+      expect(m![1]).toContain(DELETED);
+    });
+
+    it("the root reads keep both filters", async () => {
+      const impl = await noteRepo(persistence);
+      expect(bodyOf(impl, "GetByIdAsync")).toContain("_CapabilityVisible(");
+      expect(bodyOf(impl, "FindManyByIdsAsync")).toContain(".Where(_CapabilityVisible)");
+    });
+
+    it("`ignoring tenantOwned` keeps the not-deleted conjunct and drops the tenant one", async () => {
+      const impl = await noteRepo(persistence);
+      const filter = loadFilterOf(impl, "FindFirstNoteBodyIgnoringTenantOwned");
+      expect(filter).toContain(DELETED);
+      expect(filter).not.toContain("_CapabilityVisible");
+      expect(filter).not.toContain("TenantId");
+    });
+
+    it("`ignoring *` drops every filter", async () => {
+      const impl = await noteRepo(persistence);
+      const filter = loadFilterOf(impl, "FindFirstNoteBodyIgnoringAll");
+      expect(filter).toBe("");
+    });
   });
-});
+}

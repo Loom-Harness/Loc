@@ -27,6 +27,8 @@
 // value-object embeds) can name it without threading the app module through.
 // ---------------------------------------------------------------------------
 
+import { instantWire } from "../../../ir/enrich/codec.js";
+
 /** The fixed module every declared-`datetime` Ecto field is typed as. */
 export const LOOM_DATETIME_MODULE = "Loom.Datetime";
 
@@ -38,8 +40,14 @@ export function normalizeDatetime(expr: string): string {
   return `${LOOM_DATETIME_MODULE}.normalize(${expr})`;
 }
 
-/** `lib/<app>/loom_datetime.ex`. */
+/** `lib/<app>/loom_datetime.ex`.  The module is the Elixir spelling of the
+ *  `Codec` fact's instant (`instantWire`): three fraction digits, none on a
+ *  whole second, excess input truncated.  A fact asking for anything else
+ *  could not be spelled with `normalize/1`'s `div(us, 1000)`, so it throws. */
 export function renderLoomDatetimeModule(): string {
+  const w = instantWire();
+  if (w.fractionDigits !== 3 || w.wholeSecond !== "no-fraction" || w.ingressExcess !== "truncate")
+    throw new Error("datetime-type-emit: Loom.Datetime spells a truncated millisecond instant");
   return `# Auto-generated.
 defmodule ${LOOM_DATETIME_MODULE} do
   @moduledoc """
@@ -96,6 +104,24 @@ defmodule ${LOOM_DATETIME_MODULE} do
   end
 
   def normalize(other), do: other
+
+  @doc """
+  The wire string of an instant (RS-4, RS-38): ISO-8601 UTC, three fraction
+  digits when the instant has a sub-second part, none on a whole second.  An
+  ISO-8601 string (a value not yet cast) is parsed first; anything else is
+  returned as it is.
+  """
+  def wire(nil), do: nil
+  def wire(%DateTime{} = dt), do: dt |> normalize() |> DateTime.to_iso8601()
+
+  def wire(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> wire(dt)
+      _ -> value
+    end
+  end
+
+  def wire(other), do: other
 end
 `;
 }

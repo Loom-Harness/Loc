@@ -160,6 +160,8 @@ export function printExpr(node: Expression): string {
       return "null";
     case "NowExpr":
       return "now()";
+    case "ModelText":
+      return `${node.kind ?? "label"}(${node.path.join(".")})`;
     case "ThisRef":
       return "this";
     case "IdRef":
@@ -283,16 +285,25 @@ function appendSuffix(base: string, s: PostfixSuffix): string {
   return base;
 }
 
+/** Print each item of a wrapped list.  Every item but the last is followed by
+ *  a `,` once the list wraps, so it is printed with that column reserved —
+ *  otherwise an item that exactly fills the budget overflows it by its comma. */
+function printListItems<T>(items: readonly T[], print: (item: T) => string): string[] {
+  return withIndent(() =>
+    items.map((item, i) => (i < items.length - 1 ? withColumn(1, () => print(item)) : print(item))),
+  );
+}
+
 function printCall(prefix: string, args: CallArg[]): string {
-  const items = withIndent(() =>
-    args.map((a) => (a.name ? `${a.name}: ${printExpr(a.value)}` : printExpr(a.value))),
+  const items = printListItems(args, (a) =>
+    a.name ? `${a.name}: ${printExpr(a.value)}` : printExpr(a.value),
   );
   return wrapArgList(prefix, "(", ")", items);
 }
 
 function printBuilderCall(type: string, entries: { name?: string; value: Expression }[]): string {
-  const items = withIndent(() =>
-    entries.map((e) => (e.name ? `${e.name}: ${printExpr(e.value)}` : printExpr(e.value))),
+  const items = printListItems(entries, (e) =>
+    e.name ? `${e.name}: ${printExpr(e.value)}` : printExpr(e.value),
   );
   return wrapBraced(`${type} `, items);
 }

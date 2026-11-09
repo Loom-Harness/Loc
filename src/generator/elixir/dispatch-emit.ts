@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
 import type {
   ChannelIR,
   CreateIR,
@@ -6,7 +7,6 @@ import type {
   EnumIR,
   ExprIR,
   FunctionIR,
-  IdValueType,
   OnIR,
   ProjectionIR,
   ProjectionOnIR,
@@ -37,6 +37,7 @@ import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
+import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
@@ -343,20 +344,9 @@ export function emitDispatch(
 // ---------------------------------------------------------------------------
 
 /** The Ecto field/primary-key type for an id-valued correlation column —
- *  aligned with the migration's column type (`idColumnType` in the
- *  migrations builder): guid → uuid column → `:binary_id`, string → text
- *  column → `:string`, int/long → `:integer`. */
-export function ectoIdType(vt: IdValueType): string {
-  switch (vt) {
-    case "guid":
-      return ":binary_id";
-    case "string":
-      return ":string";
-    case "int":
-    case "long":
-      return ":integer";
-  }
-}
+ *  aligned with the migration's column type through the `Codec` fact's
+ *  `idColumn` (`codec-spelling-ex.ts`). */
+export const ectoIdType = exEctoIdType;
 
 /** Plain (non-correlation) state-field Ecto type — it must agree with the
  *  column the migrations builder derives for the same field
@@ -365,7 +355,7 @@ export function ectoIdType(vt: IdValueType): string {
  *  - `optional` is unwrapped first — nullability is a column option, not a type
  *    (an optional `datetime` fell through to `:string`, so every reactor write
  *    of a DateTime was an `Ecto.ChangeError` — wave C3 D8).
- *  - an id is typed by its value type (`ectoIdType`), as the PK is.
+ *  - an id is the guid key type (`ectoIdType`), as the PK is.
  *  - an enum holds the member ATOM the body assigns (`claimState := Filed`
  *    renders `:Filed`), which `:string` cannot dump (wave C3 D6); the column
  *    stays text, `Ecto.Enum` stores the member name.
@@ -378,16 +368,14 @@ export function ectoIdType(vt: IdValueType): string {
  *    `Loom.Datetime` every declared datetime column uses (RS-38). */
 function ectoStateFieldType(t: TypeIR, enums: readonly EnumIR[]): string {
   if (t.kind === "optional") return ectoStateFieldType(t.inner, enums);
-  if (t.kind === "id") return ectoIdType(t.valueType);
+  if (t.kind === "id") return ectoIdType();
   if (t.kind === "enum") {
     const values = enums.find((e) => e.name === t.name)?.values ?? [];
     if (values.length > 0) return `Ecto.Enum, values: [${values.map((v) => `:${v}`).join(", ")}]`;
     return ":string";
   }
   if (t.kind === "array" && t.element.kind === "id") {
-    const el =
-      t.element.valueType === "int" || t.element.valueType === "long" ? ":integer" : ":string";
-    return `{:array, ${el}}`;
+    return `{:array, ${exEctoIdJsonType()}}`;
   }
   return mapTypeToEcto(t, new Map()) ?? ":string";
 }
@@ -403,8 +391,7 @@ function renderStateSchema(
 ): string {
   const corr = wf.correlationField as string;
   const corrField = (wf.stateFields ?? []).find((f) => f.name === corr);
-  const pkType =
-    corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
+  const pkType = corrField && corrField.type.kind === "id" ? ectoIdType() : ":string";
   const table = workflowStateTableName(wf.name);
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
@@ -859,12 +846,24 @@ function renderProjectionFoldHandler(
     changeEntries.length > 0
       ? `Ecto.Changeset.change(state, %{${changeEntries.join(", ")}})`
       : `Ecto.Changeset.change(state)`;
+  // A tenant-scoped fold (`fold-tenancy.ts`) reads the event's tenant from its
+  // metadata — the dispatching process's event origin — keys the row by it and
+  // stamps it on allocation.  An event with no tenant has no tenant's row.
+  const tenancy = foldTenancyFor(proj);
+  const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
+  const tenantCol = cols ? snake(cols.tenant.field) : "";
+  const lookup = cols
+    ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
+    : `${appModule}.Repo.get(${rowMod}, key)`;
+  const seed = cols
+    ? `${snake(corr)}: key, ${tenantCol}: tenant, ${snake(cols.dataKey.field)}: Map.get(origin, "orgPath") || tenant`
+    : `${snake(corr)}: key`;
   const body = [
     `    key = ${keyExpr}`,
     "",
     `    state =`,
-    `      case ${appModule}.Repo.get(${rowMod}, key) do`,
-    `        nil -> %${rowMod}{${snake(corr)}: key}`,
+    `      case ${lookup} do`,
+    `        nil -> %${rowMod}{${seed}}`,
     `        existing -> existing`,
     `      end`,
     "",
@@ -872,13 +871,28 @@ function renderProjectionFoldHandler(
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
+  const event = `%${contextModule}.Events.${upperFirst(on.event)}{} = event`;
+  const handle = cols
+    ? `  def handle(${event}) do
+    origin = ${appModule}Web.Auth.current_event_origin() || %{}
+
+    case Map.get(origin, "tenant") do
+      nil -> :ok
+      tenant -> fold(event, tenant, origin)
+    end
+  end
+
+  defp fold(event, tenant, origin) do
+${body.join("\n")}
+  end`
+    : `  def handle(${event}) do
+${body.join("\n")}
+  end`;
   return `# Auto-generated.
 defmodule ${projectionHandlerModule(contextModule, proj, on)} do
   @moduledoc "Projection fold for ${upperFirst(on.event)} → ${upperFirst(proj.name)}."
 
-  def handle(%${contextModule}.Events.${upperFirst(on.event)}{} = event) do
-${body.join("\n")}
-  end
+${handle}
 end
 `;
 }
@@ -1137,6 +1151,7 @@ function renderStmt(
             method: st.method,
             aggregate: st.aggName,
             retrievalName: st.retrievalName,
+            widened: st.bypassRead !== undefined,
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
@@ -1350,6 +1365,7 @@ function renderStmt(
                 method: st.findMethod ?? "",
                 aggregate: st.aggName,
                 retrievalName: st.retrievalName,
+                widened: st.bypassRead !== undefined,
               },
               args,
               contextModule,

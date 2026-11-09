@@ -34,12 +34,14 @@ import { diagMessage } from "../diagnostics/messages.js";
 import {
   type Aggregate,
   type Api,
+  type BoundedContext,
   type Capability,
   isAggregate,
   isApi,
   isBoundedContext,
   isCapability,
   isCriterion,
+  isDeployable,
   isImplementsDecl,
   isMemberSuffix,
   isNameRef,
@@ -59,12 +61,15 @@ import {
   type Ui,
 } from "../language/generated/ast.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../util/capability-tag.js";
+import { snake } from "../util/naming.js";
+import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../util/row-version.js";
 import { readArgBool, readArgInt, readArgRef, readArgRefs, readArgString } from "./api/_read.js";
 import type { MacroDefinition, OriginToken, ParamSpec, ParamType, RefKinds } from "./api/define.js";
 import { _withOrigin } from "./api/factories.js";
 import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
 import { autoPagePagedTables } from "./stdlib/auto-paged-table.js";
+import { contractRecords } from "./stdlib/scaffold/_contracts-shared.js";
 
 // The deep-clone reference rebuilder `copyAstNode` expects — the
 // language Linker's `buildReference`.  A capability's members are cloned
@@ -178,6 +183,12 @@ interface Inventory {
   /** The claim `tenancy by user.<claim> of …` names (its written name: macro
    *  expansion runs before linking), when the workspace declares one. */
   tenancyClaim?: string;
+  /** Names of the subdomains an implicit `api X from <Subdomain>` exposes, and
+   *  of the contexts a deployable's `contexts: [...]` serves directly — each
+   *  such context gets the scaffold's contract records spliced (see
+   *  `spliceImplicitApiContracts`). */
+  apiSources: Set<string>;
+  servedContexts: Set<string>;
 }
 
 function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory {
@@ -192,6 +203,8 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
     Retrieval: new Map(),
     Policy: new Map(),
     Capability: new Map(),
+    apiSources: new Set(),
+    servedContexts: new Set(),
   };
   const scan = (root: Model): void => {
     for (const node of AstUtils.streamAllContents(root)) {
@@ -209,6 +222,10 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
       // `policy X(): bool = …` from the read-ladder `policy X { … }`.
       else if (isPolicyDecl(node) && node.returnType) inv.Policy.set(named.name, node);
       else if (isCapability(node)) inv.Capability.set(named.name, node);
+      else if (isApi(node) && node.source?.$refText) inv.apiSources.add(node.source.$refText);
+      if (isDeployable(node)) {
+        for (const ref of node.contextRefs) inv.servedContexts.add(ref.$refText);
+      }
     }
     for (const node of AstUtils.streamAllContents(root)) {
       const claim = isTenancyDecl(node) ? node.claim?.$refText : undefined;
@@ -269,6 +286,11 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     for (const call of (node as { withClause?: { calls?: MacroCall[] } }).withClause?.calls ?? []) {
       if (isLateCall(call)) expandOneCall(call, node as never, kind, doc, inv, buildRef);
     }
+    // A recovered AST (the document has a syntax error) can lack a member's
+    // type, so no contract is derived from it; the syntax error is reported.
+    if (kind === "context" && !hasSyntaxErrors(doc)) {
+      spliceImplicitApiContracts(node as BoundedContext, inv);
+    }
   }
   void isSystem; // imported for symmetry with future system-level macros
   // ALWAYS-ON, after `with` expansion so scaffold-generated pages are seen too
@@ -277,6 +299,34 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+}
+
+/** The implicit `api X from <Subdomain>` form exposes every aggregate of every
+ *  context in that subdomain (and a deployable's `contexts: [...]` serves its
+ *  contexts the same way), so each such context carries the same contract
+ *  records `with scaffoldHandlers` splices: `<Agg>Response` (+ `<Part>Response`)
+ *  and one `command`/`query` record per handler target.  The records are the
+ *  declared API contract as real AST, printable as `.ddd` like any source
+ *  record.  Nothing else about the implicit form changes (its routes and
+ *  handlers stay derived), so emission is identical with or without them.
+ *
+ *  Driven from the CONTEXT side so the splice stays host-local: the api may
+ *  live in another file, but the context's own document does the splicing.  A
+ *  context already `with scaffoldHandlers` has its records; a hand-declared
+ *  record of the same name wins by name in the splice. */
+function spliceImplicitApiContracts(ctx: BoundedContext, inv: Inventory): void {
+  const sub = ctx.$container;
+  const exposed =
+    (isSubdomain(sub) && inv.apiSources.has(sub.name)) || inv.servedContexts.has(ctx.name);
+  if (!exposed) return;
+  if (ctx.withClause?.calls?.some((c) => c.name === "scaffoldHandlers")) return;
+  const records = contractRecords(ctx);
+  if (records.length === 0) return;
+  spliceIntoTarget(ctx, records);
+}
+
+function hasSyntaxErrors(doc: LangiumDocument): boolean {
+  return doc.parseResult.lexerErrors.length > 0 || doc.parseResult.parserErrors.length > 0;
 }
 
 /** True iff the call names a registered `late` macro (see
@@ -322,32 +372,32 @@ function expandHost(
       }
     }
   }
-  // Versioning is default-on infrastructure (expressible-builtins §1, M-T3.4):
-  // every aggregate is optimistically versioned by default, exactly the way it
+  // Versioning is default-on infrastructure (expressible-builtins §1): every
+  // aggregate is optimistically versioned by default, exactly the way it
   // carries a system `id` — so a lost-update bug cannot be introduced by
   // *forgetting* to opt in.  Applied here, AFTER any explicit `with versioned`
   // / context-level application, so it stays idempotent (the `versioned` tag is
-  // already present → skip).  Runs last so a subtype's auto-`version` and its
-  // base's inherited `version` dedupe by name in `mergedFieldsFor`.  This is a
+  // already present → skip).  Runs last so a subtype's auto-`rowVersion` and its
+  // base's inherited one dedupe by name in `mergedFieldsFor`.  This is a
   // per-aggregate splice reached during the walk — a context-level contract
   // macro (`scaffoldHandlers`) that runs BEFORE the aggregate is visited will
-  // not see `version` in members, so `apiReadFields` re-derives it explicitly
+  // not see `rowVersion` in members, so `apiReadFields` re-derives it explicitly
   // for the read contract (the same default-on rule, keyed on `persistedAs`).
   if (kind === "aggregate") applyDefaultVersioning(host as Aggregate, doc, inv, buildRef);
 }
 
-/** Make an aggregate optimistically versioned by default (M-T3.4).  Splices the
- * built-in `versioned` capability (`version: int token = 1`) unless the
+/** Make an aggregate optimistically versioned by default.  Splices the
+ * built-in `versioned` capability (`rowVersion: int token = 1`) unless the
  * aggregate is already versioned or is event-sourced.
  *
  * Skips:
  *   - **event-sourced** aggregates (`persistedAs: eventLog`) — the append-only
  *     `(stream_id, version)` stream IS their optimistic-concurrency control, so
- *     a redundant state-table `version` column would be wrong (there is no
+ *     a redundant state-table counter column would be wrong (there is no
  *     state table to carry it).
  *   - aggregates that **already** carry `versioned` (explicit `with versioned`
  *     or a context-level application already ran) — the `CAPABILITIES_TAG`
- *     records it, so re-applying would splice a second `version` field. */
+ *     records it, so re-applying would splice a second counter field. */
 function applyDefaultVersioning(
   agg: Aggregate,
   doc: LangiumDocument,
@@ -357,50 +407,59 @@ function applyDefaultVersioning(
   if ((agg as { persistedAs?: string }).persistedAs === "eventLog") return;
   const already = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
   if (already.includes("versioned")) return;
-  // A user-declared `version` member wins by name in `mergeScopedMembers`, so
-  // the injected `version: int = 1` is silently dropped — but the aggregate
-  // still gets TAGGED `versioned`, and every downstream consumer then treats
-  // the user's column as the optimistic-concurrency counter.  For
-  // `version: string` that is a boot-break: the migration builder stamps the
-  // int default onto the text column by name (`"version" TEXT NOT NULL
-  // DEFAULT 1`, which Postgres rejects at CREATE TABLE) and the repository
-  // inserts a number and computes `expected + 1` on a string.
-  //
-  // An `int` member is structurally the field the capability would have
-  // spliced, so that spelling keeps working — the splice is skipped (it would
-  // be dropped anyway) and the tag still applies.  Anything else is rejected:
-  // there is no reading of `version: string` under which the concurrency
-  // column is also correct.
-  const declared = existingVersionMember(agg);
-  if (declared) {
-    if (!isIntProperty(declared)) {
-      recordDiagnostic(doc, {
-        severity: "error",
-        code: "loom.version-field-collision",
-        message: diagMessage("loom.version-field-collision", {
-          name: agg.name,
-          name2: lowerFirstSafe(agg.name),
-        }),
-        node: declared,
-        property: "name",
-      });
-      return;
-    }
-    tagCapability(agg, "versioned");
-    return;
-  }
+  if (settleRowVersionMember(agg, doc) !== "none") return;
   const cap = inv.Capability.get("versioned");
   if (!cap) return; // the prelude always provides it; stay defensive
   expandCapability(cap, agg, "aggregate", agg, doc, buildRef, inv);
 }
 
-/** The aggregate's own `version` PROPERTY, or undefined.  Only a property can
- *  collide with the spliced field — a derived / function / operation of that
- *  name lives in a different member namespace downstream. */
-function existingVersionMember(agg: Aggregate): Property | undefined {
+/** The aggregate's own PROPERTY that lands on the concurrency counter — named
+ *  `rowVersion`, or any spelling that snake-cases to the `row_version` column
+ *  (`row_version`, `RowVersion`) — or undefined.  Only a property can collide
+ *  with the spliced field — a derived / function / operation of that name
+ *  lives in a different member namespace downstream. */
+function existingRowVersionMember(agg: Aggregate): Property | undefined {
   return agg.members.find(
-    (m): m is Property => m.$type === "Property" && (m as Property).name === "version",
+    (m): m is Property =>
+      m.$type === "Property" &&
+      ((m as Property).name === ROW_VERSION_FIELD ||
+        snake((m as Property).name) === ROW_VERSION_COLUMN),
   );
+}
+
+/** How the aggregate's own declarations meet the counter:
+ *   - `none`      — nothing lands on it; splice the capability normally.
+ *   - `counter`   — a plain `rowVersion: int`, structurally the field the
+ *     capability splices.  This is exactly what the structural printer (and
+ *     the LSP "unfold macro" action) ejects for an expanded aggregate, so it
+ *     must re-parse: the splice is skipped (it would be dropped by name in
+ *     `mergeScopedMembers` anyway) and the tag still applies.
+ *   - `collision` — anything else on the counter's member or column (a
+ *     non-`int` `rowVersion`, or `row_version` / `RowVersion`, a second member
+ *     on the same column).  Reported as `loom.version-field-collision`: there
+ *     is no reading of it under which the concurrency column is also right.
+ *     The tag still applies so the default-on pass does not report it twice.
+ *  Either non-`none` outcome tags the aggregate `versioned`; the caller skips
+ *  the splice. */
+function settleRowVersionMember(
+  agg: Aggregate,
+  doc: LangiumDocument,
+): "none" | "counter" | "collision" {
+  const declared = existingRowVersionMember(agg);
+  if (!declared) return "none";
+  tagCapability(agg, "versioned");
+  if (declared.name === ROW_VERSION_FIELD && isIntProperty(declared)) return "counter";
+  recordDiagnostic(doc, {
+    severity: "error",
+    code: "loom.version-field-collision",
+    message: diagMessage("loom.version-field-collision", {
+      field: declared.name,
+      name: agg.name,
+    }),
+    node: declared,
+    property: "name",
+  });
+  return "collision";
 }
 
 /** True iff the property is a plain (non-optional, non-array) `int` — the exact
@@ -412,7 +471,7 @@ function isIntProperty(p: Property): boolean {
 }
 
 /** The aggregate's own `isDeleted` PROPERTY, or undefined — the `softDeletable`
- *  twin of {@link existingVersionMember}, same member-namespace rule. */
+ *  twin of {@link existingRowVersionMember}, same member-namespace rule. */
 function existingIsDeletedMember(agg: Aggregate): Property | undefined {
   return agg.members.find(
     (m): m is Property => m.$type === "Property" && (m as Property).name === "isDeleted",
@@ -677,35 +736,13 @@ function expandCapability(
           isAggregate,
         );
   for (const agg of targets) {
-    // The `version` collision (G2) has to be checked HERE too, not only in
+    // The counter collision has to be checked HERE too, not only in
     // `applyDefaultVersioning`: that function returns early when the aggregate
     // already carries the `versioned` tag, so an EXPLICIT `aggregate X with
-    // versioned { version: string }` — or a context-level `with versioned` over
-    // an aggregate that declares one — never reached its guard and still
-    // produced `"version" TEXT NOT NULL DEFAULT 1`, the DDL Postgres rejects at
-    // CREATE TABLE.  Same rule, same message: an `int` is structurally the
-    // field the capability would have spliced (skip the splice, keep the tag);
-    // anything else is an error naming both ways out.
-    if (cap.name === "versioned") {
-      const declared = existingVersionMember(agg);
-      if (declared) {
-        if (!isIntProperty(declared)) {
-          recordDiagnostic(doc, {
-            severity: "error",
-            code: "loom.version-field-collision",
-            message: diagMessage("loom.version-field-collision", {
-              name: agg.name,
-              name2: lowerFirstSafe(agg.name),
-            }),
-            node: declared,
-            property: "name",
-          });
-          continue;
-        }
-        tagCapability(agg, "versioned");
-        continue;
-      }
-    }
+    // versioned { rowVersion: string }` — or a context-level `with versioned`
+    // over an aggregate that declares one — would otherwise never reach the
+    // guard.  Same rule, same message.
+    if (cap.name === "versioned" && settleRowVersionMember(agg, doc) !== "none") continue;
     // The `isDeleted` collision — the G2 seam on `softDeletable`'s filter
     // member (corpus-mutation cell M1.aggregate.isDeleted).  The spliced
     // `filter !this.isDeleted` reads whatever member wins the name, so a

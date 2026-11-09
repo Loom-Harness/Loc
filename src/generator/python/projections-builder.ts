@@ -1,3 +1,4 @@
+import { foldFloorTerms, foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import type { EnrichedBoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -113,17 +114,23 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   // folded projection is a table of rows a client can GET; that it is written
   // by folds rather than queried live changes nothing about who may read it.
   const gate = proj.query?.requires;
-  const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
+  // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`): the
+  // row's tenant column equals the request principal's claim.
+  const tenancy = foldTenancyFor(proj);
+  const floor = tenancy ? foldFloorTerms(tenancy) : [];
+  const scope = floor.map((t) => `${row}.${snake(t.field)} == str(current_user.${snake(t.claim)})`);
+  const gateUsesUser = (!!gate && exprUsesCurrentUser(gate)) || floor.length > 0;
   const userParam = gateUsesUser ? `request: ${REQUEST}, ` : "";
+  const userLine = gateUsesUser ? `    current_user: ${USER} = request.state.current_user` : null;
   const gateLines: LinesPart = gate
     ? [
-        gateUsesUser ? `    current_user: ${USER} = request.state.current_user` : null,
+        userLine,
         // renderPyNegatedGuard so a `.contains(...)` gate emits `x not in y`
         // rather than `not (x in y)` (ruff E713) — same helper as every other gate.
         `    if ${renderPyNegatedGuard(gate)}:`,
         `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${proj.name}`)})`,
       ]
-    : null;
+    : userLine;
   // Declared statuses come from the SHARED table, keyed exactly as a find's
   // are: the list read is a `findList` (nothing but the gate's 403), the by-key
   // read a `findOptional` (403 + the 404 it already declared).  Both resolve
@@ -135,7 +142,9 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
     `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="list${T}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
     `async def ${slug}_list(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
-    `    rows = (await session.execute(select(${row}))).scalars().all()`,
+    scope.length > 0
+      ? `    rows = (await session.execute(select(${row}).where(${scope.join(", ")}))).scalars().all()`
+      : `    rows = (await session.execute(select(${row}))).scalars().all()`,
     `    return [{${project("row")}} for row in rows]`,
   );
   const key = 'key: Annotated[str, Path(json_schema_extra={"format": "uuid"})]';
@@ -144,7 +153,9 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
     `async def ${slug}_get(${key}, ${userParam}session: SessionDep) -> dict[str, object]:`,
     // Gate first: a caller who fails it must not learn whether the key exists.
     gateLines,
-    `    row = await session.get(${row}, key)`,
+    scope.length > 0
+      ? `    row = (await session.execute(select(${row}).where(${row}.${snake(proj.correlationField as string)} == key, ${scope.join(", ")}))).scalars().first()`
+      : `    row = await session.get(${row}, key)`,
     "    if row is None:",
     // RS-27 extends here — a projection row read by correlation KEY is by-id.
     `        ${pyNotFoundRaise("AggregateNotFoundError", T, "key")}`,

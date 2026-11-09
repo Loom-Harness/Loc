@@ -11,10 +11,12 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 const SRC = corpusSourceFor("find-bypass", "vanilla");
+const REFUSED_ON_ELIXIR =
+  "the capability table refuses `shape: document` with `softDeletable` on elixir; this pins the emitter for the day a fixture lifts the pair";
 const REPO = "d/lib/d/orders/order_repository.ex";
 const SCOPED = "d/lib/d/orders/retrievals/find_all_by_scoped.ex";
 
@@ -27,7 +29,7 @@ function body(src: string, name: string): string {
 describe("elixir vanilla — actor + skip_filters on a bypassing read", () => {
   it("a read that keeps every clause passes the actor and skips nothing", async () => {
     // `Orders.find(Scoped(c))` (no clause) runs the criterion retrieval.
-    const run = (await generateSystemFiles(SRC)).get(SCOPED)!;
+    const run = (await generateSystemFilesUnchecked(SRC, REFUSED_ON_ELIXIR)).get(SCOPED)!;
     expect(run).toContain("def run(c, opts \\\\ []) do");
     expect(run).toContain("from(record in D.Orders.Order.base_query(), where: record.code == ^c)");
     expect(run).toContain(
@@ -37,7 +39,7 @@ describe("elixir vanilla — actor + skip_filters on a bypassing read", () => {
 
   it("`ignoring tenantOwned` skips exactly the tenant clause", async () => {
     const read = body(
-      (await generateSystemFiles(SRC)).get(REPO)!,
+      (await generateSystemFilesUnchecked(SRC, REFUSED_ON_ELIXIR)).get(REPO)!,
       "find_first_by_code_ignoring_tenant_owned",
     );
     expect(read).toContain(
@@ -49,7 +51,7 @@ describe("elixir vanilla — actor + skip_filters on a bypassing read", () => {
 
   it("`ignoring *` skips every clause", async () => {
     const read = body(
-      (await generateSystemFiles(SRC)).get(REPO)!,
+      (await generateSystemFilesUnchecked(SRC, REFUSED_ON_ELIXIR)).get(REPO)!,
       "find_first_by_code_ignoring_all",
     );
     expect(read).toContain("skip_filters: :all");
@@ -58,7 +60,7 @@ describe("elixir vanilla — actor + skip_filters on a bypassing read", () => {
   });
 
   it("the arity is unchanged — every bypassing read still takes the actor positionally", async () => {
-    const repo = (await generateSystemFiles(SRC)).get(REPO)!;
+    const repo = (await generateSystemFilesUnchecked(SRC, REFUSED_ON_ELIXIR)).get(REPO)!;
     for (const name of [
       "find_first_by_code_ignoring_tenant_owned",
       "find_first_by_code_ignoring_all",

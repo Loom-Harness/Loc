@@ -37,6 +37,8 @@
 // `authz-emitted-census.test.ts` / `authz-emitted-census-pins.ts`.  Pure text
 // over `generateSystems` output — no boot, no docker.
 
+import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
+import { forApiRead, wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -49,6 +51,7 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
+import { projectionSourceContext } from "../../src/ir/util/projection-source.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
@@ -159,14 +162,15 @@ function filterFact(e: ExprIR, origin: string | undefined): FilterFact | undefin
 export function aggregateFacts(model: LoomModel): AggFacts[] {
   const out: AggFacts[] = [];
   for (const sys of model.systems) {
+    const contexts = sys.subdomains.flatMap((sd) => sd.contexts);
     for (const sd of sys.subdomains) {
-      for (const ctx of sd.contexts) out.push(...contextFacts(ctx));
+      for (const ctx of sd.contexts) out.push(...contextFacts(ctx, contexts));
     }
   }
   return out;
 }
 
-function contextFacts(ctx: BoundedContextIR): AggFacts[] {
+function contextFacts(ctx: BoundedContextIR, contexts: readonly BoundedContextIR[]): AggFacts[] {
   const out: AggFacts[] = [];
   for (const agg of ctx.aggregates) {
     const filters = (agg.contextFilters ?? [])
@@ -186,8 +190,13 @@ function contextFacts(ctx: BoundedContextIR): AggFacts[] {
         .filter((r) => (r.targetType as { name?: string }).name === agg.name)
         .map((r) => ({ name: r.name, bypass: NO_BYPASS, own: ownPredicate(r.where) })),
     ];
-    const projections: ReadFact[] = (ctx.projections ?? [])
-      .filter((p) => p.query?.source === agg.name)
+    // A projection in any context reads `agg` when its source's HOME is `ctx`.
+    const projections: ReadFact[] = contexts
+      .flatMap((host) =>
+        (host.projections ?? []).filter(
+          (p) => p.query?.source === agg.name && projectionSourceContext(p, host, contexts) === ctx,
+        ),
+      )
       .map((p) => ({
         name: p.name,
         bypass: {
@@ -1592,18 +1601,22 @@ export function maskFacts(model: LoomModel): MaskFact[] {
     for (const sd of sys.subdomains) {
       for (const ctx of sd.contexts) {
         for (const agg of ctx.aggregates) {
-          const masked = (agg.fields ?? []).filter((f) => f.maskUnless);
+          // The visibility taint's fact: each masked field plus every wire
+          // `derived` computed from one — both must redact.
+          const masks = maskedReadPredicates(agg);
+          const wire = new Set(forApiRead(wireFieldsForAggregate(agg)).map((w) => w.name));
+          const masked = [...masks].filter(([name]) => wire.has(name));
           if (masked.length === 0) continue;
           const markers = new Set<string>();
-          for (const f of masked) {
-            walkExprDeep(f.maskUnless, (n) => {
+          for (const [, pred] of masked) {
+            walkExprDeep(pred, (n) => {
               if (n.kind === "literal" && n.lit === "string")
                 markers.add(n.value.replace(/^"|"$/g, ""));
             });
           }
           out.push({
             aggregate: agg.name,
-            fields: masked.map((f) => f.name),
+            fields: masked.map(([name]) => name),
             markers: [...markers],
           });
         }
