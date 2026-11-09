@@ -5,6 +5,7 @@ import type { LayoutCtx } from "./ctx";
 import { MigrationCard, RecordMigrationForm, recordableOf, SchemaDiagram, TintLegend } from "./MigrationsPanel";
 import { tintTables } from "./migration-tint";
 import { MIGRATIONS, PENDING_MIGRATION } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The Record migration dialog — `ddd migrate add` from the pipeline strip.
 //
@@ -17,7 +18,7 @@ import { MIGRATIONS, PENDING_MIGRATION } from "./vocabulary";
 // the diagram and the SQL each scroll on their own and the summary line says
 // how much it creates up front.
 
-export function RecordMigrationDialog({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function RecordMigrationDialogView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   const opened = ctx.recordMigrationOpen;
   const [preview, setPreview] = useState<EvolutionResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -158,3 +159,5 @@ function RecordPreview({
     </Stack>
   );
 }
+
+export const RecordMigrationDialog = trackedCtx("RecordMigrationDialog", RecordMigrationDialogView);

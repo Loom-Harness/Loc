@@ -10,7 +10,7 @@
 // purpose — they are stable identifiers, not the user-facing label (which is
 // just "Model"); renaming them would churn every spec for no signal.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { selectExample, waitForPlaygroundReady } from "./_helpers";
 
 test("Model v2 drills system → context → aggregate via clicks, and the breadcrumb pops back", async ({

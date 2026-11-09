@@ -8,7 +8,7 @@
 // Pure client-side (the agent tools parse in-memory; the closing generate uses
 // the build worker) — no network, no backend boot.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { waitForPlaygroundReady } from "./_helpers";
 
 test("Agent tab plays the prose → .ddd → generate → green demo", async ({ page }) => {

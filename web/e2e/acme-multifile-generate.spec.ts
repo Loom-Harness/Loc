@@ -17,7 +17,7 @@
 // path — `selectExample` creates a fresh workspace from Acme — and asserts
 // generation produces files with no "Generation failed".
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { selectExample, waitForPlaygroundReady } from "./_helpers";
 
 test("new workspace from Acme ERP generates on the first attempt", async ({ page }) => {

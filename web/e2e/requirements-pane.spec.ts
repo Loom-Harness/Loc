@@ -1,6 +1,6 @@
 // Requirements tab — read-only browse + form-driven edit flow.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 test("Requirements tab renders the requirement tree and shows detail on selection", async ({

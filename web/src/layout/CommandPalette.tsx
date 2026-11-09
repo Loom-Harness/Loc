@@ -6,6 +6,7 @@ import { confirmSites, requestConfirm } from "../util/confirm";
 import { MOD_LABEL } from "../util/hotkeys";
 import type { DockTab, LayoutCtx, MobileTab } from "./ctx";
 import { EXPLORER_VIEW, HELP, PALETTE, PANE, RUN, STAGE } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The ⌘K command palette (M-T8.18 slice 2, audit M14): `@mantine/spotlight`
 // over every action the ctx exposes — run stages, centre views, dock tabs,
@@ -19,7 +20,7 @@ interface Props {
   ctx: LayoutCtx;
 }
 
-export function CommandPalette({ ctx }: Props): JSX.Element {
+function CommandPaletteView({ ctx }: Props): JSX.Element {
   const [naming, setNaming] = useState<null | "new" | "rename">(null);
   const [name, setName] = useState("");
   const { isDesktop, workspace } = ctx;
@@ -250,3 +251,5 @@ function Hint({ keys }: { keys: string }): JSX.Element {
 
 /** The ctx's `openPalette` implementation. */
 export const openPalette = (): void => spotlight.open();
+
+export const CommandPalette = trackedCtx("CommandPalette", CommandPaletteView);

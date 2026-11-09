@@ -1423,12 +1423,13 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
       volumes.push(volume);
       services.push([
         `${slug}:`,
-        // quay.io, NOT docker.io: MinIO's Docker Hub repository no longer
-        // exists, and `docker compose pull` fails the whole `up` with
-        // "pull access denied for minio/minio" — taking the OTHER services'
-        // pulls down with it ("postgres … Interrupted"), so a cold machine
-        // gets no image at all rather than three out of four.
-        `  image: quay.io/minio/minio:latest`,
+        // Chainguard's build, NOT minio/minio or quay.io/minio/minio: MinIO
+        // stopped publishing public images, both of those answer an anonymous
+        // pull with 401/denied, and a failed pull aborts the whole
+        // `docker compose up` — taking the OTHER services' pulls down with it
+        // ("postgres … Interrupted"). The entrypoint is `minio`, so the
+        // `server …` command below is unchanged.
+        `  image: cgr.dev/chainguard/minio:latest`,
         `  command: server /data --console-address ":9001"`,
         `  environment:`,
         `    MINIO_ROOT_USER: minioadmin`,

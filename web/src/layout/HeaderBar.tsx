@@ -22,6 +22,7 @@ import { ReadOnlyBadge } from "./ReadOnlyBadge";
 import { ShareDialog } from "./ShareDialog";
 import { LazyTargetsDrawer } from "./lazy-panels";
 import { AUTO_RUN, AUTO_RUN_HINT, RUN, SHARE, TARGETS } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -29,7 +30,7 @@ interface Props {
 
 // Desktop header — workspace controls on the left, the pipeline strip on
 // the right.
-export function DesktopHeader({ ctx }: Props): JSX.Element {
+function DesktopHeaderView({ ctx }: Props): JSX.Element {
   const {
     augmentedExamplesList,
     createWorkspaceFromExample,
@@ -156,7 +157,7 @@ export function DesktopHeader({ ctx }: Props): JSX.Element {
 // plus the pipeline strip as four labelled dots under it.  Everything
 // secondary (Share, Pack import, Workspace tree, the auto-run toggle)
 // collapses into the menu so the top row never wraps.
-export function MobileHeader({ ctx }: Props): JSX.Element {
+function MobileHeaderView({ ctx }: Props): JSX.Element {
   const {
     augmentedExamplesList,
     createWorkspaceFromExample,
@@ -323,3 +324,6 @@ export function MobileHeader({ ctx }: Props): JSX.Element {
     </Stack>
   );
 }
+
+export const DesktopHeader = trackedCtx("DesktopHeader", DesktopHeaderView);
+export const MobileHeader = trackedCtx("MobileHeader", MobileHeaderView);

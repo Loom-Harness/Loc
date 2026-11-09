@@ -4,7 +4,7 @@
 // desktop. Compact node widths keep StmtNode + the deployable multi-select
 // panel from overflowing the small canvas.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./_test";
 import { clickWorkspaceCreate } from "./_helpers";
 
 test.use({ viewport: { width: 390, height: 844 } });

@@ -1,3 +1,18 @@
+import type { OriginRef } from "./origin.js";
+
+/** Base of every IR node that can point back at the `.ddd` source it came
+ *  from (src/ir/types/origin.ts).  Lowering sets `origin` from the node's
+ *  CST span or its macro call site, so an IR-phase diagnostic about the node
+ *  prints `path:line:col` and `--sourcemap` maps generated regions back to
+ *  it.  It is absent on nodes built without a source: enrichment-derived
+ *  nodes, synthesized expressions, and hand-built IR in tests.  Consumers
+ *  treat a missing origin as "no location", never as an error.  A type
+ *  alias, not an interface: the IR unions intersect with it and stay
+ *  assignable to `Record<string, unknown>`. */
+export type Sourced = {
+  origin?: OriginRef;
+};
+
 export type PrimitiveName =
   | "int"
   | "long"

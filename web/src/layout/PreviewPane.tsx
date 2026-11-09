@@ -3,6 +3,7 @@ import { selectNodePath } from "../build/select-target";
 import { Preview } from "../preview/Preview";
 import { formatUnsupportedDeployables, type LayoutCtx } from "./ctx";
 import { nextStepMid, SELECT_MODE, STAGE } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -11,7 +12,7 @@ interface Props {
 // Preview iframe wrapper — when the React bundle is ready and the
 // backend is booted, mount <Preview>.  Otherwise show a hint that
 // describes the next required step.
-export function PreviewPane({ ctx }: Props): JSX.Element {
+function PreviewPaneView({ ctx }: Props): JSX.Element {
   const {
     previewBundle,
     previewBooted,
@@ -170,3 +171,5 @@ function SelectResultBar({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
     </Box>
   );
 }
+
+export const PreviewPane = trackedCtx("PreviewPane", PreviewPaneView);

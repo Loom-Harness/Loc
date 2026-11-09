@@ -4,7 +4,7 @@
 // clause is rewritten) and through the generated tree's file names (the
 // regenerate actually ran against the new stack).
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 const SHARED = `system Shared {

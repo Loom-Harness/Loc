@@ -6,7 +6,7 @@
 // a real download fires and its bytes are a valid ZIP (PK\x03\x04 signature).
 
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { waitForPlaygroundReady } from "./_helpers";
 
 test("Download .zip exports the generated tree as a valid archive", async ({

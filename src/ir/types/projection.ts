@@ -1,8 +1,8 @@
+import type { Bypassing } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { FieldIR, ParamIR, WireField } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 /** A `projection <Name> keyed by <field> { … }` read model (projection.md) —
  *  the passive read-half of an event-sourced workflow.  Declared state fields
@@ -12,7 +12,7 @@ import type { TypeIR } from "./types.js";
  *  only reflects an event stream into a queryable table.  Reuses the
  *  event-triggered saga machinery (load-or-allocate on every handler,
  *  `wireShape` read surface, state-table migration). */
-export interface ProjectionIR {
+export interface ProjectionIR extends Sourced {
   name: string;
   /** Query parameters — a query-time projection may be parameterised
    *  (`projection OrdersInRegion(region: string) …`), exactly like a
@@ -50,15 +50,13 @@ export interface ProjectionIR {
    *  backend emitting one context cannot see; consume it only through
    *  `foldTenancyFor`.  Absent ⇒ the fold is unscoped. */
   foldTenantClaim?: string;
-  /** Provenance chain back to the `.ddd` source. */
-  origin?: OriginRef;
 }
 
 /** The query-time comprehension clauses of a generalised projection
  *  (read-path-architecture.md rev.13).  Every expression inside is Loom's one
  *  candidate-rooted language (the same `criterion` / `find … where` dialect);
  *  the LINQ shape is purely structural. */
-export interface ProjectionQueryIR {
+export interface ProjectionQueryIR extends Bypassing {
   /** `from <Source> [as <alias>]` — the query source aggregate / workflow, by
    *  name.  Undefined for the folded+`join` hybrid (no `from`; `join`s resolve
    *  stored id columns instead). */
@@ -137,15 +135,6 @@ export interface ProjectionQueryIR {
    *  aggregate fields — the projection twin of `FindIR.requires`.  Emitted as a
    *  403-before-query check in each backend's query-projection route. */
   requires?: ExprIR;
-  /** `ignoring *` — bypass EVERY capability query-filter on the source
-   *  aggregate for this query-time read (named-filter-bypass.md §11).  Mutually
-   *  exclusive with `bypassCaps`.  Threaded into the synthesised source
-   *  `FindIR`, so it rides the same bypass path as a repository `find … ignoring`.
-   *  See `FindIR.bypassAll`. */
-  bypassAll?: boolean;
-  /** `ignoring A, B` — resolved capability names whose filters this read
-   *  bypasses (named-filter-bypass.md §11).  See `FindIR.bypassCaps`. */
-  bypassCaps?: string[];
 }
 
 /** One `join <Aggregate> as <alias> on <idRef>` follow. */

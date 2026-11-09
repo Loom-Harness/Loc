@@ -7,7 +7,7 @@
 // npm registry, so it self-skips when the browser sandbox can't reach it
 // (same idiom as `runtime.spec.ts`).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   clickWorkspaceCreate,
