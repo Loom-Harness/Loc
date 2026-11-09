@@ -36,7 +36,6 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
-import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -65,7 +64,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
-import { routedParamSource } from "../../ir/util/routed-handler.js";
+import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
@@ -115,20 +114,16 @@ const RESULT_LOCAL = "__result";
 /** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
 
-/** A routed action's declared responses: its success line, then the RFC 7807
- *  set node's routed handler declares — 400 for a malformed request, the
- *  context's not-found status, and 415 only where a JSON body is read.  The
+/** A routed action's declared responses: its success line, then the shared
+ *  `routedErrorStatuses` set every backend publishes for the route.  The
  *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
 function routedResponseDecls(
   successDecl: string,
-  hasBody: boolean,
+  r: RouteIR,
+  h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const statuses = [
-    wireStatus("malformed-body"),
-    wireStatus("not-found", ctx.structuralErrorStatuses),
-    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
-  ];
+  const statuses = routedErrorStatuses(r, h, ctx);
   return [
     successDecl,
     ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
@@ -1094,7 +1089,7 @@ export function emitExplicitRouteController(
       ].join(", ");
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
-          routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
+          routedResponseDecls("    [ProducesResponseType(200)]", r, h, ctx) +
           `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
           `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${upperFirst(handlerSlice(h, ctx, ns, "Query", out).typed.name)}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
@@ -1171,11 +1166,7 @@ export function emitExplicitRouteController(
       // An expected-failure result: an error record answers problem+json at
       // its mapped status, a success record 200 through the union base.
       successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ctx, ns)}), 200)]`;
-      const declared = new Set([
-        wireStatus("malformed-body"),
-        wireStatus("not-found", ctx.structuralErrorStatuses),
-        ...(bodyParams.length > 0 ? [wireStatus("unsupported-media-type")] : []),
-      ]);
+      const declared = new Set(routedErrorStatuses(r, h, ctx));
       armDecls = entryErrorStatuses(er, ctx)
         .filter((st) => !declared.has(st))
         .map((st) => `    [ProducesResponseType(typeof(ProblemDetails), ${st})]\n`)
@@ -1238,7 +1229,7 @@ export function emitExplicitRouteController(
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
-        routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
+        routedResponseDecls(successDecl, r, h, ctx) +
         armDecls +
         `    public async Task<IActionResult> ${upperFirst(h.name)}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,

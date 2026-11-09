@@ -1,4 +1,4 @@
-import { reasonPhrase, wireStatus } from "../../../ir/enrich/wire-policy.js";
+import { reasonPhrase } from "../../../ir/enrich/wire-policy.js";
 import {
   forApiRead,
   wireFieldsForAggregate,
@@ -33,7 +33,7 @@ import { entryResult } from "../../../ir/util/entry-result.js";
 import { normalizeHandlerReturn } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
-import { routedParamSource } from "../../../ir/util/routed-handler.js";
+import { routedErrorStatuses } from "../../../ir/util/routed-handler.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -566,11 +566,10 @@ export function buildJavaOpenApiContract(
 
   // Explicit routes.  The routes controller returns `ResponseEntity<?>`, so
   // springdoc infers neither the success body nor the error set; both are
-  // pinned to what node's routed handler declares: the `<Agg>Response` of a
-  // single entity return, the `<Agg>ListResponse` array wrapper of an entity
-  // collection (any other return stays untyped), 204 for a void
-  // command, then 400, the context's not-found status, and 415 where a JSON
-  // body is read.
+  // pinned: the `<Agg>Response` of a single entity return, the
+  // `<Agg>ListResponse` array wrapper of an entity collection (any other
+  // return stays untyped), 204 for a void command, then the shared
+  // `routedErrorStatuses` set every backend publishes for the route.
   const byCtx = new Map(contexts.map((c) => [c.name, c]));
   for (const r of explicitRoutes) {
     const ctx = byCtx.get(r.target.context);
@@ -580,12 +579,7 @@ export function buildJavaOpenApiContract(
     const h = cmd ?? qry;
     if (!h) continue;
     const paged = !!h.returnType && pagedReturn(h.returnType);
-    const hasBody = !paged && h.params.some((p) => routedParamSource(p.name, r, false) === "body");
-    const statuses = [
-      wireStatus("malformed-body"),
-      wireStatus("not-found", ctx.structuralErrorStatuses),
-      ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
-    ];
+    const statuses = routedErrorStatuses(r, h, ctx);
     const ret = normalizeHandlerReturn(h.returnType, ctx);
     let successRef: string | undefined;
     let listWrapper: string | undefined;
