@@ -53,10 +53,10 @@
 // injection) installs a `Worker.prototype.postMessage` interceptor before
 // any app code runs.  The runtime worker is a real `Worker` instance
 // (`src/runtime/client.ts`'s `LoomRuntimeClient`), and Boot sends it exactly
-// one `{ method: "boot", params: { bundleCode, ... } }` message
-// (`src/runtime/protocol.ts`'s `BootRequest`) — the interceptor captures
+// one `{ method: "load", params: { bundleCode, ... } }` message
+// (`src/runtime/protocol.ts`'s `LoadRequest`) — the interceptor captures
 // `bundleCode` verbatim.  That string is byte-identical to what
-// `runtime.worker.ts`'s `boot()` wraps in a `Blob` and `import()`s — so
+// `runtime.worker.ts`'s `load()` wraps in a `Blob` and `import()`s — so
 // decoding its trailing inline map is decoding the map of the module that
 // actually becomes the running backend, not a proxy for it.
 //
@@ -119,9 +119,9 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
   // is in place for the runtime worker's construction regardless of exactly
   // when `LoomRuntimeClient`'s lazy `new Worker(...)` fires relative to the
   // React app mounting.  Captures the `bundleCode` argument of the single
-  // "boot" RPC the engine posts to the worker (`src/engine/
-  // npm-install-bundle-engine.ts`'s `boot()` → `LoomRuntimeClient.boot()` →
-  // `worker.postMessage({ id, method: "boot", params: { bundleCode, ... } })`
+  // "load" RPC the engine posts to the worker (`src/engine/
+  // npm-install-bundle-engine.ts`'s `boot()` → `LoomRuntimeClient.load()` →
+  // `worker.postMessage({ id, method: "load", params: { bundleCode, ... } })`
   // in `src/runtime/client.ts`) — i.e. the literal text `runtime.worker.ts`
   // turns into a `Blob` and `import()`s.
   await context.addInitScript(() => {
@@ -138,7 +138,7 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
         if (
           req &&
           typeof req === "object" &&
-          req.method === "boot" &&
+          req.method === "load" &&
           typeof req.params?.bundleCode === "string"
         ) {
           w.__capturedBundleCode = req.params.bundleCode;
@@ -171,9 +171,9 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
     await waitForBundle(page);
   });
 
-  const bundleCode = await test.step("Post the boot RPC and capture its bundle bytes", async () => {
+  const bundleCode = await test.step("Post the load RPC and capture its bundle bytes", async () => {
     // We deliberately do NOT wait for `backend-status` to reach "booted".
-    // Clicking Boot posts exactly one `{ method: "boot", params: {
+    // Clicking Boot posts exactly one `{ method: "load", params: {
     // bundleCode } }` to the runtime worker (captured by the init-script
     // interceptor); that `bundleCode` is the literal text the worker wraps
     // in a Blob and `import()`s.  Whether the backend then finishes booting
@@ -201,7 +201,7 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
       );
       throw new Error(
         "Worker.postMessage interceptor never captured a boot bundleCode within 60s " +
-          "— either clicking Boot didn't post a boot RPC, or the interceptor " +
+          "— either clicking Boot didn't post a load RPC, or the interceptor " +
           "missed the window before the worker was constructed.",
       );
     }

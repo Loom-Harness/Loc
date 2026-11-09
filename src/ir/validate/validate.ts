@@ -29,6 +29,7 @@ import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateLoopGateImplication } from "./checks/loop-gate-implication-checks.js";
+import { validateMaskSinks } from "./checks/mask-sink-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -139,6 +140,7 @@ import {
   validateContextIntegrationTests,
   validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
+import { validateTestPrincipals } from "./checks/test-principal-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import {
   validateUiBackendBindings,
@@ -225,6 +227,8 @@ export function validateLoomModel(
   // channel in its context (ambiguous in-process routing; first-by-declaration
   // wins).  Per-context internally, but gathered here alongside the carried check.
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
+  // The `as { … }` test principals, against each system's `user { … }` block.
+  validateTestPrincipals(loom, diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);
@@ -420,6 +424,7 @@ export function validateLoomModel(
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
+    validateMaskSinks(c, diags);
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);

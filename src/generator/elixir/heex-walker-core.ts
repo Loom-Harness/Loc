@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // HEEx walker core.
 //
-// Sibling of src/generator/react/body-walker.ts but emits HEEx for the
-// Phoenix LiveView platform.  Same input (`PageIR.body` expression IR),
-// different output language.  Follows the repo's existing per-platform
-// renderer pattern (cf. dotnet/render-expr.ts vs typescript/render-expr.ts
-// — neither delegates through a common interface; they coexist as
-// siblings).
+// Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
+// LiveView platform.  It is a separate engine from the shared walker core
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
+// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
+// render as `for` comprehensions, and conditional children are `if` blocks.
+// Its expression leaves still ride the shared dispatcher —
+// `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
+// own.
 //
 // What this walker produces, per page:
 //
@@ -14,17 +16,14 @@
 //   - A list of `handle_event/3` clauses derived from operation actions
 //     and block-body lambdas (`onSubmit`, `Action(op).then`).
 //
-// What this walker DOES NOT cover in v0:
-//
-//   - Full closed-primitive library (Form/Dashboard/Review/
-//     Tabs/Grid/Card/Toolbar/Heading/Text/Badge/Stat/
-//     Empty/Field/Toggle/Select/Fieldset/Action/Button).  v0 supports
-//     the structural set (Stack/Heading/Text/Card/Toolbar/Empty/
-//     Badge/Action/Button); the rest emit a HEEx comment with the
-//     primitive name so the gap is visible in generated output.
-//   - Field input mapping beyond the basics — page-new / page-detail
-//     templates handle the heavy lifting; this walker only renders
-//     custom-page bodies (PageIR.body without archetype).
+// Coverage.  Every page renders through here, scaffolded ones included (the
+// scaffold macros give each page its full body).  Every primitive that has a
+// TSX renderer has a HEEx renderer too, except `DataGrid`, which LiveView
+// refuses (a compile-time diagnostic, not a blank region);
+// `test/generator/elixir/heex-parity.test.ts` pins that set.  A construct the
+// walker still cannot render (a missing or unreadable primitive argument, an
+// unreachable reference) emits a `loom:unrendered [<code>]` HEEx comment via
+// `giveUpText`, naming the catalogued `loom.*` code.
 //
 // State seam:
 //   - Template position: `state.step`  → `@step`
@@ -41,6 +40,7 @@
 // hoisting, LiveView reads inline.
 // ---------------------------------------------------------------------------
 
+import { maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -947,7 +947,37 @@ function renderRef(expr: Extract<ExprIR, { kind: "ref" }>, ctx: WalkContext): st
   }
 }
 
+/** A member read off a loaded aggregate record, redacted under the field's
+ *  `mask unless` predicate (the visibility taint, `src/ir/enrich/mask-taint.ts`).
+ *  LiveView renders straight off the Ecto struct, which holds the clear value,
+ *  so the page applies the same predicate the JSON serializer does — against
+ *  `@current_user`, nil-guarded (fail-closed); without auth there is no
+ *  principal and the value never renders. */
 function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
+  const value = renderMemberValue(expr, ctx);
+  const mask = maskOfMember(expr, ctx);
+  if (!mask) return value;
+  if (!ctx.authEnabled) return "nil";
+  const cu = ctx.position === "template" ? "@current_user" : "socket.assigns.current_user";
+  return `(if ${cu} != nil and (${renderExpr(mask, ctx)}), do: ${value}, else: nil)`;
+}
+
+/** The `mask unless` predicate a member read inherits — the receiver is a
+ *  loaded aggregate record and the member is a masked field, or a derived
+ *  computed from one. */
+function maskOfMember(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): ExprIR | undefined {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return undefined;
+  const agg = ctx.aggregatesByName.get(t.name);
+  if (!agg?.fields.some((f) => f.maskUnless)) return undefined;
+  return maskedReadPredicates(agg).get(expr.member);
+}
+
+function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
   // Map well-known property accesses to their Elixir analogs.
   if (expr.member === "length" || expr.member === "count") {
     return `Enum.count(${renderExpr(expr.receiver, ctx)})`;

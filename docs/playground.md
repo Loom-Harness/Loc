@@ -38,8 +38,29 @@ Heavy work runs in Web Workers, not on the UI thread:
   same one the VS Code extension speaks, over `monaco-languageclient`;
 - a **build worker** — runs the generator over a workspace VFS and returns
   the generated file tree;
-- a **runtime worker** (`src/runtime/`) — bundles the Hono backend and
-  boots PGlite.
+- a **runtime worker per Node deployable** (`src/runtime/runtime.worker.ts`)
+  — imports that deployable's bundle and serves its requests;
+- an **infra worker** (`src/runtime/infra.worker.ts`) — the shared
+  infrastructure `docker-compose.yml` runs beside the services: one PGlite
+  per `storage`, each in a nested storage host worker, and the services
+  registered in `src/runtime/infra/services.ts`. A deployable reaches a
+  storage through `PGliteWorker` and every other service through its
+  `InfraPort`, a `MessagePort` the engine hands it at boot (routing:
+  `src/runtime/infra/router.ts`; a service implements
+  `src/runtime/infra/service.ts` and adds its ops to `InfraServiceOps` in
+  `src/runtime/infra-protocol.ts`).
+
+**Backend → backend HTTP.** A deployable's generated api client reads
+`process.env.<X>_URL`, which compose sets to `http://<slug>:<port>`. Each
+runtime worker boots with its own compose service's `environment:` as
+`process.env` (`composeServiceEnv`; set before the bundle is imported, and per
+worker so two deployables never see each other's values), and its `fetch` is
+wrapped (`runtime/service-fetch.ts`): a request to a booted deployable's
+hostname is posted to the main thread, which dispatches it into that
+deployable's worker and posts the response back; any other URL reaches the
+network. Routing is by hostname (a compose service name is unique; the container
+port means nothing in the browser). The frontend's own calls already go to its
+`targets:` backend.
 
 ## The four capabilities
 
@@ -90,12 +111,13 @@ mobile they render as the plain source editor until explicitly opened
 
 ### Live preview
 
-When the generated tree contains a Hono backend and a React frontend, the
-runtime worker bundles both (an in-browser npm install + esbuild-wasm
-bundle, `src/engine/`), boots the backend, and the React app renders in a
-sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
+When the generated tree contains Hono backends and a React frontend, the
+engine bundles each of them (an in-browser npm install + esbuild-wasm
+bundle, `src/engine/`), boots every backend in its own runtime worker, and
+the React app renders in a sandboxed iframe. Iframe `fetch()` calls to `http://localhost:*` are
 intercepted by an in-iframe shim and routed via `postMessage` to the
-parent, which dispatches them through the runtime worker — so the
+parent, which dispatches them through the runtime worker of the backend the
+frontend `targets:` — so the
 generated React → Hono → Postgres round-trip runs end-to-end under one
 origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
@@ -131,8 +153,16 @@ broker plugs into. **Reset** stops what boot started before it closes PGlite.
 
 ### In-browser test runner
 
-The Postgres is **PGlite** — a WebAssembly Postgres — booted inside the
-runtime worker (`src/runtime/runtime.worker.ts`). Its schema comes only from
+The Postgres is **PGlite** — a WebAssembly Postgres — one database per
+`storage` the system's Node deployables bind, not one per deployable. Each
+runs in a storage host worker under the infra worker
+(`src/runtime/storage-host.worker.ts`), and every deployable bound to the
+storage connects to it through PGlite's `PGliteWorker` client, so two backends
+on one `storage` read and write the same rows (the Shared storage example).
+Each storage holds the union of the schemas of the modules its deployables
+host. A request through the extra hop costs about 6 ms per SQL statement. The
+Runtime tab's request composer picks which backend a request goes to when the
+system has several. Its schema comes only from
 the workspace's **recorded migration chain** (`migrations/*.json`, below), the
 way a deployed backend's does. On every Boot the build worker renders the
 chain to the migration files the generated Hono backend carries in
@@ -141,25 +171,60 @@ chain to the migration files the generated Hono backend carries in
 the units after the last one the database applied, which
 `__loom.schema_meta` records as `chain_head` (`src/runtime/migrate.ts`). A
 transactional unit commits with its head update, so a failed unit leaves the
-database at the one before it. The database is an OPFS island keyed by the
-workspace and its entry (in memory on mobile), so it survives reloads and
+database at the one before it. Each database is an OPFS island keyed by the
+workspace, its entry and — when the system has several — its storage (in
+memory on mobile), so it survives reloads and
 schema edits; a recorded change migrates it in place and keeps the rows.
 
 Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
 modules and steps, and leaves the database as it is. That includes a workspace
 with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded in the
-Migrations tab. A database the chain cannot describe — one at a unit the chain
+the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
-drops every row and rebuilds the schema from every recorded unit) and **Reset
+drops every row of every storage and rebuilds each schema from its recorded
+units) and **Reset
 database & boot** / **Clear stored data & retry** (drop the island's stored
 data, then boot). A source with no `system` block cannot record migrations;
 its schema is synthesised from the bundled Drizzle tables (`src/runtime/ddl.ts`,
 `synthDDL`), applied to an empty database only, and a changed schema is
 reported for an explicit reset.
+
+The pipeline strip shows where the schema stands without a boot or an open
+tab. On every source change the build worker re-runs the check Boot runs
+(`migrate.plan`), and a badge beside Boot reads one of:
+
+- *migration required · initial schema* — nothing is recorded yet (every
+  built-in example on open). Boot is blocked until the initial migration is
+  recorded.
+- *migration required · N unrecorded changes* — what `ddd migrate status`
+  lists, with a *destructive* flag when one of them needs
+  `--allow-destructive`.
+- *migration recorded · N migrations not applied* — the chain records the
+  model, and the database this session booted has not applied its newest
+  entries.
+
+**Record migration…** opens a dialog that previews exactly what recording
+writes — every table's `Initial` for a first recording, the next entry
+otherwise — with the Migrations tab's diagram, SQL and destructive gate, and
+records through the same path as the tab (`ddd migrate add`). **Apply**
+regenerates, bundles and boots, and the boot applies the recorded entries the
+database lacks; the badge then clears. The Problems pane shows unrecorded
+changes as one notice row that opens the same dialog.
+
+The Agent tab's chat drives the same flow explicitly. It layers three host
+tools over the catalog (`web/src/agent/host-tools.ts`): `loom_migration_status`
+(the catalog tool, with the workspace's model and chain filled in),
+`loom_migration_record` (records through the tab's path, so the badge and the
+Migrations tab move with it; a destructive change needs `allowDestructive:
+true`) and `loom_migration_apply` (the badge's **Apply**, returning whether
+the boot started the app, stopped on a pending migration, or failed and
+where). The three act on the model the workspace holds: an edit the plan gate
+has not written yet is refused, and the agent records and applies in the next
+turn. The scripted demo checks the status and records the initial migration
+after it generates.
 
 On top of that live runtime, the playground runs the **DSL-emitted test
 suites** — the same files `ddd generate system` writes:

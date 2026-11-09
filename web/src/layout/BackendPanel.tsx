@@ -23,6 +23,7 @@ import {
   interpretBootError,
   interpretStatus,
   nextStepMid,
+  PENDING_MIGRATION,
   RUNTIME_STATUS,
   RUNTIME_VIEW,
   seeStream,
@@ -95,6 +96,9 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     appliedMigrations,
     bootPending,
     bootErrorMessage,
+    bootedBackends,
+    reqTarget,
+    setReqTarget,
     reqMethod,
     setReqMethod,
     reqPath,
@@ -189,6 +193,18 @@ export function BackendBody({ ctx }: Props): JSX.Element {
           <Text size="xs" c="yellow.8" data-testid="boot-migration-pending-message">
             {bootPending.message}
           </Text>
+          {bootPending.migration.kind === "unrecorded" && (
+            <Button
+              size="xs"
+              variant="light"
+              color="yellow"
+              onClick={() => ctx.setRecordMigrationOpen(true)}
+              data-testid="boot-migration-record"
+              style={{ alignSelf: "flex-start" }}
+            >
+              {PENDING_MIGRATION.record}
+            </Button>
+          )}
           {bootPending.migration.kind === "unknown-database" && honoBundle && (
             <ConfirmAction
               spec={confirmSites.clearStoredData()}
@@ -260,6 +276,19 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             />
           )}
           <Group gap={6} wrap="wrap">
+            {bootedBackends.length > 1 && (
+              <Select
+                size="xs"
+                value={reqTarget ?? bootedBackends[0] ?? null}
+                onChange={(v) => setReqTarget(v)}
+                data={bootedBackends}
+                allowDeselect={false}
+                w={isDesktop ? 130 : "100%"}
+                styles={mobileInputStyles}
+                aria-label="Backend"
+                data-testid="req-target"
+              />
+            )}
             <Select
               size="xs"
               value={reqMethod}

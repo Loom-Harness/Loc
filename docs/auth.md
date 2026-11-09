@@ -1059,6 +1059,9 @@ Phase ⑥ computes that once (`src/ir/enrich/mask-taint.ts`), and each sink eith
 | a read whose predicate reads a masked field — a `criterion` behind `scaffoldGet` / a `queryHandler`'s `Repo.find(C)` / `Repo.all(C)` / a retrieval | inherits the mask as a leading `requires` (403), evaluated before the query: a 200-or-404 on a guessed value would be an existence oracle |
 | an operation that writes a caller-supplied value into a masked field (the generic `update` among them) | inherits the mask as a hoisted `requires` (403); on a merge-patch update it runs only when the body carries the masked key |
 | a `create` | not a sink: a new row has no stored value to overwrite |
+| the synthesized `inspect` — what `toString()` / `Inspect`, and so every log line and exception, print | redacts the field as `<redacted>`, like a `sensitive` one |
+| an event whose payload reads a masked value, carried on a `channel` | refused — `loom.field-mask-event-channel` (a subscriber receives the message with no principal in scope); a folded projection of it is refused by `loom.field-mask-projection-source` |
+| a `unique (…)` key over a masked field | refused unless the create requires the mask predicate — `loom.field-mask-unique-oracle` (a 409 answers whether a guessed value exists) |
 
 Every inherited gate is the mask predicate alone.  It reads only `currentUser`
 (`loom.field-mask-not-current-user`), never the row or the value the caller
@@ -1120,6 +1123,8 @@ on another field has the same shape:
 | `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
+| `loom.field-mask-event-channel` | an event a `channel` carries reads a masked value in its payload |
+| `loom.field-mask-unique-oracle` | a `unique` key includes a masked field and the create does not require the mask predicate |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
 
 ### Read gates
@@ -1507,6 +1512,13 @@ same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
 
+The same identity is what a model's **tests** run as. A context integration
+`test` binds it (in process, through the seam the middleware binds a request's)
+and a `test e2e` block may set claims over it with an `as { … }` clause — the
+clause rides this header — so a `requires` 403 or a `mask unless` redaction
+under a second principal is assertable from the model itself
+([testing reference](language-reference/18-testing.md#running-as-a-principal)).
+
 A non-optional **id-typed** claim (`customerId: Customer id`) gets the same
 all-zero identity, but **constructed through the emitted id type** rather than
 written as a raw scalar — the id is a distinct nominal type on three of the five
@@ -1649,6 +1661,75 @@ with :ok <- audience_configured(),
 .NET (`if (string.IsNullOrEmpty(Audience)) return Rejected(…)`) and Java
 (`if (AUDIENCE == null || AUDIENCE.isEmpty()) { …; return null; }`) put the same
 guard ahead of token validation.
+
+## Calling an api that requires auth
+
+A typed call to an api served by another deployable carries the **caller's own
+credential**. When the callee declares `auth: required`, the request that made
+the call forwards its bearer token, so the callee authenticates the same
+principal. The token comes from the `Authorization` header, or else the HttpOnly
+`session` cookie. Under the dev stub, the `x-loom-dev-claims` override is
+forwarded too. A callee without `auth: required` gets no credential.
+
+```ddd
+resource orgs { for: Sales, kind: api, use: NetApi }
+deployable netSvc  { platform: python contexts: [Orgs]  serves: NetApi  auth: required }
+deployable shopSvc { platform: node   contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required }
+```
+
+```ts
+// generated (node) — resources/api-clients.ts
+export const forwardCallerCredential = createMiddleware(async (c, next) => {
+  const headers: Record<string, string> = {};
+  const authorization = c.req.header("authorization");
+  const session = authorization ? null : sessionCookie(c.req.header("cookie"));
+  if (authorization) headers.authorization = authorization;
+  else if (session) headers.authorization = `Bearer ${session}`;
+  const devClaims = c.req.header("x-loom-dev-claims");
+  if (devClaims) headers["x-loom-dev-claims"] = devClaims;
+  await callerCredential.run(headers, next);
+});
+// …
+const res = await fetch(url, {
+  method: "POST",
+  headers: { ...callerCredentialHeaders(), "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+```
+
+Each backend keeps the credential in its request-scoped carrier and copies it
+onto the call:
+
+| backend | carrier |
+|---|---|
+| node | `AsyncLocalStorage`, set by a Hono middleware |
+| python | a `ContextVar`, set by an ASGI middleware |
+| .NET | `IHttpContextAccessor` |
+| java | Spring `RequestContextHolder` |
+| elixir | the process dictionary, set by the auth plug; a LiveView reads it from the Phoenix session |
+
+**The token must pass the callee's `aud` check.** It does in compose, because
+every backend service gets the same `OIDC_AUDIENCE` (see
+[Token audience](#token-audience-aud)). If a deploy gives each service its own
+audience, a forwarded token is rejected with 401.
+
+**Forwarding is the only principal for now.** A call that has no request
+principal to forward is refused at compile time with
+`loom.api-call-principal-unsupported`:
+
+- a reactor (a workflow `on` an event, a timer tick) calling an auth-required api;
+- a deployable without `auth: required` binding an api whose server requires it.
+
+```text
+loom.api-call-principal-unsupported S/shopSvc: 'onPoke.create(p: Poked)' on deployable 'shopSvc'
+calls 'orgs', which 'netSvc' serves with 'auth: required'.  A typed call forwards the
+caller's own credential, and an event reactor (…) has none, so the call would answer 401.
+Make the call from a command workflow or handler, or drop 'auth: required' on 'netSvc'.
+A service credential for reactor callers is tracked in #4804.
+```
+
+A service credential for these callers, and how it carries tenancy and
+`causedBy`, is tracked in [#4804](https://github.com/Loom-Harness/Loc/issues/4804).
 
 ## Auth routes
 

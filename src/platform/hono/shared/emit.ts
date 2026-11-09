@@ -94,6 +94,11 @@ import {
 import { TsOutputMap } from "../../../generator/typescript/ts-output.js";
 import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
+import {
+  brokerBoundChannelsCarrying,
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../../ir/enrich/hosting-facts.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
@@ -155,7 +160,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -1137,6 +1141,7 @@ export function generateTypeScriptForContexts(
       // deployable with no local reactor (M-T4.4): the relay
       // publishes them on drain.
       forceOutbox: durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0,
+      forwardCallerCredential: !!system && forwardsCallerCredential(system.deployable, system.sys),
     }),
   );
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast`
@@ -1341,6 +1346,8 @@ export function generateTypeScriptForContexts(
       ),
       // The project's own runner whenever it ships one (see `hasMigrations`).
       ...(!usingMikro && (system.migrations?.length ?? 0) > 0 ? { migrator: "../db/migrate" } : {}),
+      // The auth layer is emitted below under the same condition.
+      ...(authRequired && system.sys.user ? { user: system.sys.user.fields } : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
@@ -1422,7 +1429,7 @@ export function generateTypeScriptForContexts(
   }
 
   if (authRequired) {
-    emitAuthFiles(system.sys, out);
+    emitAuthFiles(system.sys, system.deployable.contextNames, out);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
@@ -1533,7 +1540,10 @@ export function generateTypeScriptForContexts(
   const apiBindings = apiResourceBindings(system.deployable, system.sys);
   const apiClient = emitApiClientModule(apiBindings, system.sys);
   if (apiClient.length > 0) {
-    out.set("resources/api-clients.ts", `${apiClient.join("\n")}\n`);
+    out.set(
+      "resources/api-clients.ts",
+      finalizeTsModule(`${apiClient.join("\n")}\n`, { path: "resources/api-clients.ts" }),
+    );
   }
 
   // TimerSource scheduling (scheduling.md, M-T4.1).  A timer's emit owner is
@@ -1577,6 +1587,15 @@ export function generateTypeScriptForContexts(
   // hosted OR wired channel); a pure producer skips the loop and the
   // in-process dispatcher import.
   const hasChannelConsumers = hasChannels && merged.eventSubscriptions.some((s) => !s.projection);
+  // A tick whose channel this deployable binds to a broker is published
+  // through the tee like any other event, so a consumer on another deployable
+  // receives it; otherwise the scheduler keeps dispatching in-process.
+  const timerTicksOverBroker =
+    hasChannels &&
+    !!system &&
+    ownedTimers.some(
+      (ts) => brokerBoundChannelsCarrying(system.sys, system.deployable, ts.event).length > 0,
+    );
 
   const projectUsesMoney = contexts.some(contextUsesMoney);
   // `decimal.js` is also the exact-`decimal` arithmetic runtime (RS-37): a
@@ -1656,7 +1675,11 @@ export function generateTypeScriptForContexts(
     // tenancy.  The aggregate name (not the drizzle table var) is what
     // crosses the seam: each branch needs a different spelling of it (the
     // `orgs` schema var vs the `OrgRow` entity class).
-    orgPathRegistryAgg: authRequired ? hierarchyRegistry(system.sys)?.name : undefined,
+    // Only a deployable hosting the registry's context has its table; phase ⑦
+    // refuses any other that reads the path.
+    orgPathRegistryAgg: authRequired
+      ? hostedHierarchyRegistry(system.sys, system.deployable.contextNames)?.name
+      : undefined,
     // Timer scheduler (scheduling.md): boot wires startTimerScheduler
     // into the same in-process dispatcher the outbox relay uses.
     hasTimers,
@@ -1668,6 +1691,13 @@ export function generateTypeScriptForContexts(
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
     nativePort: system.deployable.port,
+    timerTicksOverBroker,
+    // `http/workflows.ts` exports `createInProcessDispatcher` only when a
+    // hosted context reacts to an event; a timer owner whose only consumer
+    // sits on another deployable has none, and boot takes the Noop instead.
+    inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
+      out.get("http/workflows.ts") ?? "",
+    ),
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));
   out.set("index.ts", renderProjectIndexTs(entryConfig));
@@ -2119,6 +2149,10 @@ interface ProjectEntryConfig {
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
   readonly nativePort: number;
+  /** A timer tick carried by a channel this deployable binds to a broker is
+   *  published through the tee, so a consumer on another deployable sees it. */
+  readonly timerTicksOverBroker: boolean;
+  readonly inProcessDispatcherEmitted: boolean;
 }
 
 /** Indent every non-empty line of `text` by two spaces. */
@@ -2155,6 +2189,8 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     hasTimers,
     hasChannels,
     hasChannelConsumers,
+    timerTicksOverBroker,
+    inProcessDispatcherEmitted,
   } = cfg;
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
@@ -2205,7 +2241,8 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   // deployable has channel-routed workflow subscriptions.  A pure-producer
   // deployable (wires a broker channel, hosts no reactors) falls back to the
   // always-exported Noop as the tee's inner dispatcher.
-  const withInProcess = outboxRelay || hasTimers || hasChannelConsumers;
+  const withInProcess =
+    (outboxRelay || hasTimers || hasChannelConsumers) && inProcessDispatcherEmitted;
   // The dispatcher `createApp` gets on the request path — the isolating twin
   // when there are reactors to isolate, else the shared instance.
   const requestEventsVar = withInProcess ? "requestEvents" : "inProcessEvents";
@@ -2295,7 +2332,11 @@ const stopOutboxRelay = ${T.startOutboxRelay}(db, ${T.channelPublishTee}(channel
 // single-fire across replicas); every: timers run in-process under an
 // advisory lock.  \`infra: "in-process"\` runs both in this process alone:
 // no pg-boss (it opens its own Postgres connection) and no lock.
-const stopTimers = await ${T.startTimerScheduler}(db, inProcessEvents, { infra: opts.infra });
+const stopTimers = await ${T.startTimerScheduler}(db, ${
+        timerTicksOverBroker
+          ? `${T.channelPublishTee}(channelTransports, inProcessEvents)`
+          : "inProcessEvents"
+      }, { infra: opts.infra });
 `
     : ""
 }`;

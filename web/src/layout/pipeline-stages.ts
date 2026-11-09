@@ -8,6 +8,7 @@
 
 import type { LayoutCtx } from "./ctx";
 import { formatBytes } from "./ctx";
+import { bootAwaitsInitialMigration } from "./pending-migration";
 import {
   BLOCKER,
   BOOT_PENDING_COUNT,
@@ -49,6 +50,7 @@ export type StageInputs = Pick<
   | "ddl"
   | "bootErrorMessage"
   | "bootPending"
+  | "pendingMigration"
 >;
 
 function deriveValidate(c: StageInputs): StageView {
@@ -119,6 +121,17 @@ function deriveBoot(c: StageInputs): StageView {
   }
   if (!c.honoBundle) {
     return { ...base, state: "blocked", count: null, blocker: BLOCKER.boot, enabled: false };
+  }
+  // Nothing recorded: a boot would create nothing, so it waits for the
+  // initial migration the strip's badge records.
+  if (bootAwaitsInitialMigration(c.pendingMigration)) {
+    return {
+      ...base,
+      state: "blocked",
+      count: BOOT_PENDING_COUNT,
+      blocker: BLOCKER.bootInitial,
+      enabled: false,
+    };
   }
   if (c.bootErrorMessage) {
     return { ...base, state: "failed", count: null, blocker: null, enabled: true };

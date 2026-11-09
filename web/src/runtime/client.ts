@@ -1,13 +1,13 @@
 import type {
-  BootRequest,
-  BootResult,
   DispatchResult,
-  QueryResult,
+  HttpCall,
+  LoadRequest,
+  LoadResult,
   RuntimeProgress,
   RuntimeRpcRequest,
   RuntimeRpcResponse,
   SerializedRequest,
-  WipeResult,
+  StartResult,
 } from "./protocol.js";
 import type { LogLine } from "../util/log-line.js";
 import { type DiagPhase, markPhase } from "../util/diagnostics.js";
@@ -18,13 +18,16 @@ export interface LoomRuntimeClientOptions {
    *  trigger (App.tsx's visibilitychange handler) decides the
    *  backgrounded worker was likely killed.  Used by the
    *  playground to surface "runtime was reset, click Boot again"
-   *  in the UI: the booted PGlite database belongs to the old
-   *  worker and can't be recovered. */
+   *  in the UI: the booted app belongs to the old worker and can't be
+   *  recovered. */
   onRespawn?: () => void;
   /** Fired with the `console.*` / stack lines the worker captured
    *  while running an RPC (boot / dispatch / …) — drives the
    *  playground's "Backend" log stream. */
   onLog?: (lines: LogLine[]) => void;
+  /** A request this deployable's code sent to another deployable's compose
+   *  address.  The engine owns every worker, so it answers. */
+  onHttpCall?: (host: string, request: SerializedRequest) => Promise<DispatchResult>;
 }
 
 export class LoomRuntimeClient {
@@ -36,11 +39,13 @@ export class LoomRuntimeClient {
   >();
   private readonly onRespawn?: () => void;
   private readonly onLog?: (lines: LogLine[]) => void;
+  private readonly onHttpCall?: LoomRuntimeClientOptions["onHttpCall"];
   private disposed = false;
 
   constructor(opts: LoomRuntimeClientOptions = {}) {
     this.onRespawn = opts.onRespawn;
     this.onLog = opts.onLog;
+    this.onHttpCall = opts.onHttpCall;
     this.spawn();
   }
 
@@ -51,13 +56,17 @@ export class LoomRuntimeClient {
     this.worker = new Worker(new URL("./runtime.worker.ts", import.meta.url), {
       type: "module",
     });
-    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress>) => {
+    this.worker.onmessage = (ev: MessageEvent<RuntimeRpcResponse | RuntimeProgress | HttpCall>) => {
       // Progress note, not a response: no `id`, carries `phase`.  Written
       // through synchronously here because a worker has no localStorage —
       // this is what makes a mid-boot renderer kill attributable to a step
       // rather than to "boot".  See diagnostics.ts → PHASE MARKERS.
       if ("phase" in ev.data) {
         markPhase(`boot:${ev.data.phase}` as DiagPhase, ev.data.note);
+        return;
+      }
+      if ("httpCall" in ev.data) {
+        void this.answerHttp(ev.data);
         return;
       }
       const msg = ev.data;
@@ -70,7 +79,26 @@ export class LoomRuntimeClient {
     };
   }
 
-  private send<T>(req: Omit<RuntimeRpcRequest, "id">): Promise<T> {
+  /** Run a backend→backend request through the main thread's router and send
+   *  the result back to the worker that is awaiting it. */
+  private async answerHttp(call: HttpCall): Promise<void> {
+    const worker = this.worker;
+    let result: DispatchResult;
+    try {
+      result = this.onHttpCall
+        ? await this.onHttpCall(call.host, call.request)
+        : { ok: false, message: "No router for backend-to-backend requests." };
+    } catch (err) {
+      result = { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+    // A respawn while the call was in flight replaced the worker; the old one
+    // is gone and the new one never asked.
+    if (worker === this.worker && !this.disposed) {
+      worker.postMessage({ id: 0, method: "httpReply", params: { httpCall: call.httpCall, result } });
+    }
+  }
+
+  private send<T>(req: Omit<RuntimeRpcRequest, "id">, transfer: Transferable[] = []): Promise<T> {
     if (this.disposed) {
       return Promise.reject(new Error("LoomRuntimeClient: disposed"));
     }
@@ -80,12 +108,20 @@ export class LoomRuntimeClient {
         resolve: (v) => resolve(v as T),
         reject,
       });
-      this.worker.postMessage({ id, ...req } as RuntimeRpcRequest);
+      this.worker.postMessage({ id, ...req } as RuntimeRpcRequest, transfer);
     });
   }
 
-  boot(req: BootRequest): Promise<BootResult> {
-    return this.send<BootResult>({ method: "boot", params: req });
+  /** Import the deployable's bundle (and, for a source without a system,
+   *  derive its schema). */
+  load(req: LoadRequest): Promise<LoadResult> {
+    return this.send<LoadResult>({ method: "load", params: req });
+  }
+
+  /** Connect to the storage on `channel` and start the app.  `infraPort` is
+   *  the deployable's end of its line to the infra services (transferred). */
+  start(channel: string, infraPort?: MessagePort): Promise<StartResult> {
+    return this.send<StartResult>({ method: "start", params: { channel } }, infraPort ? [infraPort] : []);
   }
 
   dispatch(req: SerializedRequest): Promise<DispatchResult> {
@@ -95,27 +131,9 @@ export class LoomRuntimeClient {
     });
   }
 
-  /** Run one SQL statement against the booted PGlite (Database console). */
-  query(sql: string): Promise<QueryResult> {
-    return this.send<QueryResult>({
-      method: "query",
-      params: { sql },
-    });
-  }
-
   reset(): Promise<{ ok: true }> {
     return this.send<{ ok: true }>({
       method: "reset",
-      params: {},
-    });
-  }
-
-  /** Drop every user object inside the booted PGlite and re-apply
-   *  DDL.  For OPFS-backed runs the underlying data island
-   *  survives — schema reattaches clean, but the rows are gone. */
-  wipe(): Promise<WipeResult> {
-    return this.send<WipeResult>({
-      method: "wipe",
       params: {},
     });
   }
@@ -128,8 +146,8 @@ export class LoomRuntimeClient {
    *  indefinitely instead of failing fast.
    *
    *  Unlike the build worker, the runtime worker owns
-   *  unrecoverable state (the booted PGlite database and the
-   *  dynamically-imported bundle module).  The `onRespawn` callback
+   *  unrecoverable state (the dynamically-imported bundle module, the
+   *  app and its storage connection).  The `onRespawn` callback
    *  lets the parent flip its pipeline back into a "needs Boot"
    *  state so the user sees a clear affordance instead of a
    *  silent next-request failure.
@@ -137,7 +155,8 @@ export class LoomRuntimeClient {
    *  Pending RPCs are rejected with a labelled error; callers that
    *  care can retry.
    *
-   *  `silent` skips the `onRespawn` callback — used by the engine's
+   *  `silent` skips the `onRespawn` callback — used by the engine, which
+   *  reports the loss once for all its workers, and by its
    *  `restore()` recovery path, which respawns the worker and
    *  immediately re-boots, so the parent must NOT be told the
    *  runtime was "lost". */

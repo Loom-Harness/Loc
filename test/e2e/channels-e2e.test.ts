@@ -67,7 +67,10 @@ system Acme {
       }
       repository Orders for Order {}
       event OrderPlaced { order: Order id, at: datetime }
-      channel Lifecycle { carries: OrderPlaced }
+      // A timer tick, fired on salesApi and consumed only on shipApi: it must
+      // ride the broker like any carried event, not the in-process dispatcher.
+      event Beat { order: Order id, at: datetime }
+      channel Lifecycle { carries: OrderPlaced, Beat }
     }
   }
   subdomain Fulfilment {
@@ -82,6 +85,13 @@ system Acme {
         create(p: OrderPlaced) by p.order {
           let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
+      }      aggregate Pulse with crudish { at: datetime }
+      repository Pulses for Pulse {}
+      workflow OnBeat {
+        orderId: Order id
+        create(b: Beat) by b.order {
+          let p = Pulse.create(at: b.at)
+        }
       }
     }
   }
@@ -90,6 +100,7 @@ system Acme {
   resource ordersState { for: Orders, kind: state, use: primary }
   resource shippingState { for: Shipping, kind: state, use: primary }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
+  timerSource beat { for: Beat, every: 2s }
   deployable salesApi { platform: ${PLATFORM} contexts: [Orders] dataSources: [ordersState] channels: [lifecycleBus] port: 3000 }
   deployable shipApi  { platform: ${PLATFORM} contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }
 }
@@ -269,4 +280,23 @@ describe.skipIf(!ENABLED)(`cross-deployable broker delivery (channels-e2e, ${LEG
       "correlated Fulfil instance on shipApi",
     );
   }, 120_000);
+
+  it("carries a timer tick to a consumer on another deployable", async () => {
+    // salesApi owns the timer; only shipApi reacts to its tick.  A tick
+    // dispatched in-process never leaves salesApi, so no Pulse would appear.
+    await waitFor(
+      async () => {
+        const res = await fetch(`http://localhost:${SHIP_PORT}/api/pulses`);
+        if (!res.ok) return false;
+        const body = (await res.json()) as { items: unknown[] };
+        return body.items.length > 0;
+      },
+      30_000,
+      "a Pulse created on shipApi by the salesApi timer tick",
+    );
+    const res = await fetch(`http://localhost:${SHIP_PORT}/api/pulses`);
+    const body = (await res.json()) as { items: { at: string }[] };
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(Number.isNaN(Date.parse(body.items[0].at))).toBe(false);
+  }, 60_000);
 });

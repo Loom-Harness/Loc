@@ -25,6 +25,7 @@ import { buildDiagnosticsToLsp } from "./lsp/build-diagnostics";
 // demands a 128 MB contiguous heap, and on iOS the main thread and every worker
 // share one process memory budget.  See M-T8.15.
 import type { AgentMessage } from "./agent/demo";
+import type { ApplyOutcome } from "./agent/host-tools";
 // `agent/plan` and `agent/turn` are safe to import EAGERLY: both are pure and
 // their only imports are `import type` (the diagnostics contract, the bubble
 // shape), so nothing of `src/api` / Langium follows them into the entry chunk.
@@ -58,6 +59,7 @@ import type {
   Complete,
   Message as AgentTranscriptMessage,
   TokenUsage,
+  ToolDef,
 } from "../../src/tools/index.js";
 import type { Outline, ValidateReport } from "../../src/diagnostics/contract.js";
 import { examples, defaultExample, type LoomExample } from "./examples";
@@ -77,7 +79,8 @@ import { utcVersionNow } from "../../src/system/migration-chain.js";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
-import { analyzeDeployables } from "./build/deployables";
+import { analyzeDeployables, composeServiceEnv } from "./build/deployables";
+import { type BootableBackend, bootableBackends, bootPlan } from "./build/boot-plan";
 import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
@@ -88,7 +91,7 @@ import {
 } from "./engine";
 import { emptyDependencySet } from "./engine";
 import { recordAndGcOpfs } from "./engine/opfs-gc";
-import type { QueryResult } from "./runtime/protocol";
+import type { MigrationPlan, QueryResult } from "./runtime/protocol";
 import {
   CUSTOM_ENDPOINT,
   buildConcretePath,
@@ -123,6 +126,8 @@ import { buildExportReadme, EXPORT_README_PATH } from "./util/export-readme";
 import { usePersistedState } from "./util/usePersistedState";
 // M-T8.18 — the palette, the shortcut sheet, app-level hotkeys, F8.
 import { CommandPalette, openPalette } from "./layout/CommandPalette";
+import { RecordMigrationDialog } from "./layout/RecordMigrationDialog";
+import { describePendingMigration } from "./layout/pending-migration";
 import { ShortcutSheet } from "./layout/ShortcutSheet";
 import { hotkeyAction, isTextEntry } from "./util/hotkeys";
 import { inDocumentOrder, stepIndex, toEditorRange } from "./layout/problem-nav";
@@ -144,7 +149,12 @@ import {
   bootPersistent as selBootPersistent,
   bootedDDL as selBootedDDL,
   generateOk as selGenerateOk,
+  bootBackends as selBootBackends,
   honoBundleOk as selHonoBundleOk,
+  honoBundleResult as selHonoBundleResult,
+  backendBundlesOk as selBackendBundlesOk,
+  combinedBackendBundle,
+  pendingMigration as selPendingMigration,
   reactBundleOk as selReactBundleOk,
 } from "./pipeline/state";
 import { DesktopHeader, MobileHeader } from "./layout/HeaderBar";
@@ -312,6 +322,8 @@ export default function App(): JSX.Element {
   const [lspDiagnostics, setLspDiagnostics] = useState<Diagnostic[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [reqMethod, setReqMethod] = useState<string>("GET");
+  /** The deployable the HTTP console sends to; null = the default target. */
+  const [reqTarget, setReqTarget] = useState<string | null>(null);
   // Generated backends mount domain routes under `/api` (`app.route("/api/products", …)`),
   // matching the frontend client's `API_BASE_URL` (= `/api`).  The HTTP-console
   // default must include that prefix or the first dispatch 404s.
@@ -359,6 +371,8 @@ export default function App(): JSX.Element {
   const planRejectionRef = useRef<string | null>(null);
   // The in-flight workspace write of an agent-applied source (slice 4).
   const agentWriteRef = useRef<Promise<void> | null>(null);
+  // How the last boot ended — what the agent's `loom_migration_apply` reports.
+  const bootOutcomeRef = useRef<ApplyOutcome | null>(null);
   // One-line feedback after a Restore from a chat message — which point it
   // landed on, or why it could not.
   const [agentRestoreNote, setAgentRestoreNote] = useState<string | null>(null);
@@ -387,6 +401,9 @@ export default function App(): JSX.Element {
   const [evolutionBaselineRef, setEvolutionBaselineRef] = useState("HEAD");
   const [snapshotResult, setSnapshotResult] = useState<SnapshotResult | null>(null);
   const [snapshotRunning, setSnapshotRunning] = useState(false);
+  // The Record migration dialog — opened from the pipeline strip's badge,
+  // the Problems notice and the Runtime tab's pending notice.
+  const [recordMigrationOpen, setRecordMigrationOpen] = useState(false);
   const [liveMode, setLiveMode] = useState(false);
   const liveModeRef = useRef(liveMode);
   liveModeRef.current = liveMode;
@@ -1044,6 +1061,10 @@ export default function App(): JSX.Element {
   // the current file view ("generate ran on the previous files").
   const generationEpochRef = useRef(0);
   const scheduleAutoGenerate = (delayMs = 5000): void => {
+    // Every path that changes the sources lands here, so the migration check
+    // rides it — on its own short debounce, and on mobile too: opening an
+    // example shows "migration required" before anything is generated.
+    scheduleMigrationCheck(isDesktop ? 400 : 1500);
     if (!isDesktop && !hasUserEditedRef.current) return;
     if (autoGenTimerRef.current) clearTimeout(autoGenTimerRef.current);
     autoGenTimerRef.current = setTimeout(() => {
@@ -1062,8 +1083,48 @@ export default function App(): JSX.Element {
     return () => {
       if (hashTimerRef.current) clearTimeout(hashTimerRef.current);
       if (autoGenTimerRef.current) clearTimeout(autoGenTimerRef.current);
+      if (migrationCheckTimerRef.current) clearTimeout(migrationCheckTimerRef.current);
     };
   }, []);
+
+  // The pending-migration check: the live tree measured against the
+  // workspace's recorded chain by the build worker's `migrate.plan` — the
+  // same check Boot runs, so the strip's badge and Boot never disagree.
+  // Debounced per source change; the newest run wins, and a run for a
+  // project the user has left is dropped.
+  const migrationCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const migrationCheckSeqRef = useRef(0);
+  function scheduleMigrationCheck(delayMs = 400): void {
+    if (migrationCheckTimerRef.current) clearTimeout(migrationCheckTimerRef.current);
+    migrationCheckTimerRef.current = setTimeout(() => void runMigrationCheck(), delayMs);
+  }
+
+  async function runMigrationCheck(): Promise<void> {
+    const client = buildClientRef.current;
+    if (!client) return;
+    if (pendingSeedRef.current) await pendingSeedRef.current;
+    const seq = ++migrationCheckSeqRef.current;
+    const epoch = generationEpochRef.current;
+    try {
+      const planned = await client.migrationPlan({ current: await currentEvolutionTree() });
+      if (seq !== migrationCheckSeqRef.current || epoch !== generationEpochRef.current) return;
+      // A source that does not load (mid-edit) says nothing new about the
+      // chain: the last result stands until one that loads.
+      if (planned.ok) publishMigrationCheck(planned.plan);
+    } catch {
+      // The build worker respawned mid-call; the next change re-checks.
+    }
+  }
+
+  function publishMigrationCheck(plan: MigrationPlan): void {
+    dispatch({
+      type: "MIGRATION_CHECKED",
+      check:
+        plan.kind === "chain"
+          ? { kind: "chain", units: plan.units.map((u) => u.id), unrecorded: plan.unrecorded }
+          : { kind: "unversioned" },
+    });
+  }
 
   // Build the smallest legal URL for the current workspace: single-file
   // (`s=`, byte-compatible with pre-Stage-3 shared links) when only main.ddd
@@ -1103,14 +1164,22 @@ export default function App(): JSX.Element {
   errorCountRef.current = errorCount;
 
   const generateSuccess = selGenerateOk(pipeline);
-  const honoBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.hono : null;
+  const honoBundleResult = selHonoBundleResult(pipeline);
   const reactBundleResult = pipeline.bundle.kind === "result" ? pipeline.bundle.react : null;
   const honoBundle = selHonoBundleOk(pipeline);
   const reactBundle = selReactBundleOk(pipeline);
   const ddl = selBootedDDL(pipeline);
   const persistent = selBootPersistent(pipeline);
   const appliedMigrations = selBootApplied(pipeline);
+  const bootedBackends = selBootBackends(pipeline);
   const bootPending = selBootPending(pipeline);
+  // Memoised on the two slots it reads: a fresh object per render would make
+  // the `ctx` memo miss on every render.
+  const pendingMigration = useMemo(
+    () => selPendingMigration(pipeline),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pipeline.migrationCheck, pipeline.database],
+  );
   const bootErrorMessage = selBootError(pipeline);
   // Requests served, per operation (M-T8.22) — derived, not stored: the
   // runtime log already carries every `request_end` line and the spec is
@@ -1131,7 +1200,7 @@ export default function App(): JSX.Element {
       // result after a failed Hono bundle is a FAILURE, not "no React
       // deployable" — reporting it as absent told the user their system had
       // no frontend when the real problem was a bundle error.
-      const hono = pipeline.bundle.hono;
+      const hono = combinedBackendBundle(pipeline.bundle.backends);
       if (hono && !hono.ok) return { kind: "fail", result: hono };
       return { kind: "absent" };
     }
@@ -1404,7 +1473,8 @@ export default function App(): JSX.Element {
   }
 
   interface BundleStepResult {
-    hono: BundleOk | { ok: false };
+    /** Every backend's bundle, when all of them bundled; null otherwise. */
+    backends: BootableBackend[] | null;
     react: BundleOk | { ok: false } | null;
   }
 
@@ -1413,7 +1483,7 @@ export default function App(): JSX.Element {
     const engine = engineRef.current;
     if (!engine) return null;
     const entries = analyzeDeployables(gen.files);
-    if (!entries.hono) {
+    if (entries.backends.length === 0) {
       // The playground's runtime is Hono + React only.  Spell out
       // why bundling can't proceed: either nothing recognisable was
       // emitted, or the system only declares deployables the
@@ -1427,8 +1497,8 @@ export default function App(): JSX.Element {
         ok: false as const,
         diagnostics: [{ severity: "error" as const, message }],
       };
-      dispatch({ type: "BUNDLE_DONE", hono: failed, react: null });
-      return { hono: failed, react: null };
+      dispatch({ type: "BUNDLE_DONE", backends: [{ slug: "", entry: "", bundle: failed }], react: null });
+      return { backends: null, react: null };
     }
     dispatch({ type: "BUNDLE_START" });
     // `gen.files` carries the `.ts.map` sidecars (either straight from
@@ -1437,15 +1507,15 @@ export default function App(): JSX.Element {
     // engine to inline them into the Hono boot bundle so DevTools can
     // chain a breakpoint back to `.ddd`.  Backend-only; the React run
     // never sets this (see `PrepareInput.sourcemap`).
-    const { hono: honoRes, react: reactRes } = await engine.prepare({
+    const { backends, react: reactRes } = await engine.prepare({
       files: gen.files,
       dependencies: emptyDependencySet(),
-      honoEntry: entries.hono,
+      backendEntries: entries.backends,
       reactEntry: entries.react ?? undefined,
       sourcemap: true,
     });
-    dispatch({ type: "BUNDLE_DONE", hono: honoRes, react: reactRes });
-    return { hono: honoRes, react: reactRes };
+    dispatch({ type: "BUNDLE_DONE", backends, react: reactRes });
+    return { backends: bootableBackends(backends), react: reactRes };
   }
 
   // Best-effort: fetch the booted backend's OpenAPI document and turn it
@@ -1473,12 +1543,19 @@ export default function App(): JSX.Element {
   }
 
   async function runBootStep(
-    hono: BundleOk,
+    backends: BootableBackend[],
     opts?: { fresh?: boolean },
   ): Promise<boolean> {
     const engine = engineRef.current;
     const client = buildClientRef.current;
-    if (!engine || !client) return false;
+    if (!engine || !client) {
+      bootOutcomeRef.current = {
+        kind: "failed",
+        stage: "boot",
+        message: "The runtime is not ready yet.",
+      };
+      return false;
+    }
     markPhase("boot:start");
     dispatch({ type: "BOOT_START" });
     // Reset spec-driven state — a fresh boot may serve a different
@@ -1495,12 +1572,13 @@ export default function App(): JSX.Element {
       // generate is applied without regenerating.
       const current = await currentEvolutionTree();
       const planned = await client.migrationPlan({ current });
+      // The boot's plan is the freshest check there is.
+      if (planned.ok) publishMigrationCheck(planned.plan);
       if (!planned.ok) {
         const errors = planned.diagnostics.filter((d) => d.severity === "error");
-        dispatch({
-          type: "BOOT_FAIL",
-          message: `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`,
-        });
+        const message = `The migration chain could not be read, so the database was left as it is:\n${errors.map((d) => d.message).join("\n")}`;
+        bootOutcomeRef.current = { kind: "failed", stage: "boot", message };
+        dispatch({ type: "BOOT_FAIL", message });
         clearPhase();
         return false;
       }
@@ -1537,24 +1615,49 @@ export default function App(): JSX.Element {
       // A 128 MB contiguous WASM heap is therefore structural at this
       // version, not a setting — which is also why freeing memory elsewhere
       // (#2420) could not buy enough headroom.
-      const dataDir = isDesktop ? `opfs-ahp://loom-${islandKey}` : ":memory:";
-      const res = await engine.boot(hono.code, planned.plan, dataDir, { fresh: opts?.fresh });
+      //
+      // One database per storage.  A system with one storage keeps the
+      // island key it always had, so its stored rows survive this layout.
+      const plan = bootPlan(backends, planned.plan, planned.storages, (storageKey) => {
+        if (!isDesktop) return { dataDir: ":memory:", island: null };
+        const island =
+          planned.storages.length > 1
+            ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)
+            : islandKey;
+        return { dataDir: `opfs-ahp://loom-${island}`, island };
+      }, (slug) => {
+        const compose = lastGeneratedFilesRef.current.find((f) => f.path === "docker-compose.yml");
+        return compose ? composeServiceEnv(compose.content, slug) : {};
+      });
+      const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
+        // A boot that starts the app has brought the database to the
+        // chain's head.
+        const head =
+          planned.plan.kind === "chain" ? (planned.plan.units.at(-1)?.id ?? null) : null;
+        bootOutcomeRef.current = { kind: "booted", applied: res.applied, head };
         dispatch({
           type: "BOOT_OK",
           ddl: res.ddl,
           persistent: res.persistent,
           applied: res.applied,
+          backends: res.backends,
+          head,
         });
         // House-keep OPFS: this boot's island is now most-recently-used;
         // drop stale islands from sources the user has moved on from so
         // they don't accumulate toward the storage quota.  Only when the
         // boot is actually OPFS-backed, and never blocking the boot.
-        if (res.persistent) void recordAndGcOpfs(islandKey);
+        if (res.persistent) {
+          for (const island of plan.islands) void recordAndGcOpfs(island);
+        }
         clearPhase();
         await loadOpenApiSpec(engine);
         return true;
       }
+      bootOutcomeRef.current = res.pending
+        ? { kind: "pending", migration: res.pending, message: res.message }
+        : { kind: "failed", stage: "boot", message: res.message };
       dispatch(
         res.pending
           ? { type: "BOOT_PENDING", migration: res.pending, message: res.message }
@@ -1563,10 +1666,9 @@ export default function App(): JSX.Element {
       clearPhase();
       return false;
     } catch (err) {
-      dispatch({
-        type: "BOOT_FAIL",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      bootOutcomeRef.current = { kind: "failed", stage: "boot", message };
+      dispatch({ type: "BOOT_FAIL", message });
       clearPhase();
       return false;
     }
@@ -1658,8 +1760,8 @@ export default function App(): JSX.Element {
       bundleGen.files.length > 0
     ) {
       const bundleRes = await runBundleStep(bundleGen);
-      if (bundleRes?.hono.ok) {
-        await runBootStep(bundleRes.hono);
+      if (bundleRes?.backends) {
+        await runBootStep(bundleRes.backends);
       }
     }
   }
@@ -1687,14 +1789,15 @@ export default function App(): JSX.Element {
     const gen = lastBundleReadyRef.current;
     if (!gen?.ok || gen.files.length === 0) return;
     const result = await runBundleStep(gen);
-    if (liveModeRef.current && result?.hono.ok) {
-      await runBootStep(result.hono);
+    if (liveModeRef.current && result?.backends) {
+      await runBootStep(result.backends);
     }
   }
 
   async function runBoot(): Promise<void> {
-    if (!honoBundle) return;
-    await runBootStep(honoBundle);
+    const backends = selBackendBundlesOk(pipeline);
+    if (!backends) return;
+    await runBootStep(backends);
   }
 
   // Recovery for a boot that keeps failing on stale persisted data:
@@ -1702,8 +1805,9 @@ export default function App(): JSX.Element {
   // applying DDL.  The normal Reset can't help here — it needs a booted
   // instance, which the failing boot never produces.
   async function runResetData(): Promise<void> {
-    if (!honoBundle) return;
-    await runBootStep(honoBundle, { fresh: true });
+    const backends = selBackendBundlesOk(pipeline);
+    if (!backends) return;
+    await runBootStep(backends, { fresh: true });
   }
 
   // Full cascade — the mobile "Run" primary action.  Generates,
@@ -1711,11 +1815,46 @@ export default function App(): JSX.Element {
   // Preview (or Backend when there's no React deployable to render).
   // On any failure the user is left on their current tab; the
   // Problems tab carries a red-dot indicator for errors.
-  function runFull(): Promise<void> {
-    return trackGenerate(runFullInner());
+  async function runFull(): Promise<void> {
+    await trackGenerate(runFullInner());
   }
 
-  async function runFullInner(): Promise<void> {
+  // Apply the recorded migrations — the migration badge's action.  The same
+  // cascade as Run, so the backend that boots is generated from the current
+  // model, and its boot applies the recorded entries the database lacks.  It
+  // stays on the current tab.
+  function runApplyMigrations(): Promise<RunStop> {
+    return trackGenerate(runFullInner({ navigate: false }));
+  }
+
+  // The agent's `loom_migration_apply`: the badge's Apply, reported back as
+  // how it ended.
+  async function agentApplyMigrations(): Promise<ApplyOutcome> {
+    bootOutcomeRef.current = null;
+    const stop = await runApplyMigrations();
+    if (stop === "generate") {
+      return {
+        kind: "failed",
+        stage: "generate",
+        message: "The generate failed; the Problems tab (and loom_validate) has its diagnostics.",
+      };
+    }
+    if (stop === "bundle") {
+      return {
+        kind: "failed",
+        stage: "bundle",
+        message: "The backend bundle failed; the Problems tab has its errors.",
+      };
+    }
+    return (
+      bootOutcomeRef.current ?? { kind: "failed", stage: "boot", message: "The boot did not run." }
+    );
+  }
+
+  /** Where a Run cascade stopped: the step that failed, or `done`. */
+  type RunStop = "generate" | "bundle" | "boot" | "done";
+
+  async function runFullInner({ navigate = true }: { navigate?: boolean } = {}): Promise<RunStop> {
     // Phase markers bracket the whole cascade.  They are the ONLY record that
     // survives a renderer kill — no error fires, no `pagehide`, so the ring's
     // async capture never runs.  `runBundleStep`/`runBootStep` narrow the
@@ -1726,7 +1865,7 @@ export default function App(): JSX.Element {
     const epoch = generationEpochRef.current;
     const cycle = await runGenerateStep();
     const gen = cycle?.result;
-    if (!gen?.ok || gen.files.length === 0) return;
+    if (!gen?.ok || gen.files.length === 0) return "generate";
     // Intentional run → version the output and bundle the merged tree
     // (reflects hand edits to generated code).
     let bundleGen: GenerateOk = gen;
@@ -1734,7 +1873,7 @@ export default function App(): JSX.Element {
     if (merged) bundleGen = { ...gen, files: merged };
     publishBundleInput(epoch, bundleGen);
     const bundleRes = await runBundleStep(bundleGen);
-    if (!bundleRes?.hono.ok) return;
+    if (!bundleRes?.backends) return "bundle";
     // MOBILE: hand the memory back before booting.  The bundler worker has
     // done its job for this Run and is still holding an esbuild context plus
     // the whole installed npm VFS (~8.8k files); PGlite's real startup —
@@ -1745,13 +1884,42 @@ export default function App(): JSX.Element {
     // Costs the next mobile bundle a cold start, largely served by the IDB
     // install cache.  A slower second Run beats a first Run that never ends.
     if (!isDesktop) engineRef.current?.releaseBundler?.();
-    const booted = await runBootStep(bundleRes.hono);
-    if (!booted) return;
+    const booted = await runBootStep(bundleRes.backends);
+    if (!booted) return "boot";
     // React frontend present and successfully bundled → Preview is
     // the natural destination.  Otherwise the user gets the Backend
     // tab so they can poke endpoints against the live runtime.
-    setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
+    if (navigate) setActiveTab(bundleRes.react?.ok ? "preview" : "backend");
     clearPhase();
+    return "done";
+  }
+
+  // The agent's tool set: the catalog with the playground's migration tools
+  // layered on, so status / record / apply act on the workspace and record
+  // through the same `recordMigration` the Migrations tab and the strip badge
+  // use.  Loaded behind the dynamic boundary, like every other `src/tools`
+  // value import.
+  async function agentToolSet(): Promise<ToolDef[]> {
+    const [{ migrationHostTools }, { withHostTools }] = await Promise.all([
+      import("./agent/host-tools"),
+      import("../../src/tools/index.js"),
+    ]);
+    return withHostTools(
+      migrationHostTools({
+        workspaceSource: () => sourceRef.current,
+        chainFiles: async () => {
+          const entryPath = sourcesRef.current.controller.snapshot().activePath;
+          const files = (await readWorkspaceChain(entryPath)).filter(
+            (f): f is VfsEntry & { kind: "file" } => f.kind === "file",
+          );
+          return files.length > 0
+            ? files.map((f) => ({ name: f.path.slice(f.path.lastIndexOf("/") + 1), content: f.content }))
+            : undefined;
+        },
+        recordMigration,
+        applyMigrations: agentApplyMigrations,
+      }),
+    );
   }
 
   async function runWipe(): Promise<void> {
@@ -1781,7 +1949,8 @@ export default function App(): JSX.Element {
       // `requires`-gated route can be exercised as different users.
       const claims = devClaimsHeader(authStub);
       if (claims) headers["x-loom-dev-claims"] = claims;
-      const result = await engine.dispatch({ url, method: reqMethod, headers, body });
+      const target = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : undefined;
+      const result = await engine.dispatch({ url, method: reqMethod, headers, body }, target);
       dispatch({ type: "DISPATCH_DONE", result });
     } catch (err) {
       dispatch({
@@ -2092,9 +2261,19 @@ export default function App(): JSX.Element {
         else sessionChainRef.current.set(f.path, f.content);
       }
       void runEvolutionDiff(evolutionBaselineRef);
+      scheduleMigrationCheck(0);
       void runGenerate();
     }
     return result;
+  }
+
+  // What recording would write: the live tree against the chain's heads
+  // alone.  Without a baseline source the diff's migrations ARE the entries
+  // `recordMigration` writes — each module's Initial when there is no chain.
+  async function previewRecordMigration(): Promise<EvolutionResult | null> {
+    const client = buildClientRef.current;
+    if (!client) return null;
+    return client.evolution({ baseline: null, current: await currentEvolutionTree() });
   }
 
   // Pin `ref` as the evolution baseline, reveal the Migrations dock tab, and
@@ -2192,11 +2371,16 @@ export default function App(): JSX.Element {
     setAgentExtras([]);
     setAgentRunning(true);
     try {
-      const { runAgentDemo: playAgentDemo } = await import("./agent/demo");
+      const [{ runAgentDemo: playAgentDemo }, { toolDispatcher }, tools] = await Promise.all([
+        import("./agent/demo"),
+        import("../../src/tools/index.js"),
+        agentToolSet(),
+      ]);
       await playAgentDemo({
         setMessages: setAgentMessages,
         applySource: applyAgentSource,
         triggerGenerate: () => void runGenerate(true),
+        callTool: toolDispatcher(tools),
         signal: agentSignalRef.current,
       });
     } finally {
@@ -2462,11 +2646,12 @@ export default function App(): JSX.Element {
     let generatePromise: Promise<void> | null = null;
     let usage: TokenUsage | undefined;
     try {
-      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }] =
+      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }, tools] =
         await Promise.all([
           import("./agent/live"),
           import("./agent/system-prompt"),
           import("./agent/openai-transport"),
+          agentToolSet(),
         ]);
       // Built here rather than above the `try` so the transport module joins
       // its siblings behind the dynamic boundary: it too has a value import of
@@ -2485,7 +2670,8 @@ export default function App(): JSX.Element {
         prompt,
         currentSource: sourceRef.current,
         history: agentTranscriptRef.current,
-        system: buildSystemPrompt(),
+        system: buildSystemPrompt(tools),
+        tools,
         setMessages: setAgentMessages,
         applySource: applyAgentSource,
         // Plan-first is the owner default; the toggle turns the gate off
@@ -2803,6 +2989,9 @@ export default function App(): JSX.Element {
     runWipe: (): void => void runWipe(),
     runDispatch: (): void => void runDispatch(),
     runFull: (): void => void runFull(),
+    runApplyMigrations: (): void => void runApplyMigrations(),
+    previewRecordMigration,
+    setRecordMigrationOpen,
     runEvolutionDiff: (ref?: string): void => void runEvolutionDiff(ref),
     pinEvolutionBaseline,
     recordMigration,
@@ -2869,6 +3058,7 @@ export default function App(): JSX.Element {
       persistent,
       appliedMigrations,
       bootPending,
+      pendingMigration,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -2884,6 +3074,9 @@ export default function App(): JSX.Element {
       colourMap,
       sourceBands: correspondenceBands,
       selectResult,
+      bootedBackends,
+      reqTarget,
+      setReqTarget,
       reqMethod,
       reqPath,
       reqBody,
@@ -2914,6 +3107,7 @@ export default function App(): JSX.Element {
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
+      recordMigrationOpen,
       snapshotResult,
       snapshotRunning,
       centerView,
@@ -2967,6 +3161,7 @@ export default function App(): JSX.Element {
       persistent,
       appliedMigrations,
       bootPending,
+      pendingMigration,
       bootErrorMessage,
       dispatchSlot,
       files,
@@ -2982,6 +3177,8 @@ export default function App(): JSX.Element {
       colourMap,
       correspondenceBands,
       selectResult,
+      bootedBackends,
+      reqTarget,
       reqMethod,
       reqPath,
       reqBody,
@@ -3011,6 +3208,7 @@ export default function App(): JSX.Element {
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
+      recordMigrationOpen,
       snapshotResult,
       snapshotRunning,
       centerView,
@@ -3030,14 +3228,21 @@ export default function App(): JSX.Element {
       // common laptop width); a fixed 48 px header then paints that row
       // over the Explorer / editor.  Give the wrapped layout its own
       // height instead of clipping it.
+      // The migration badge widens the pipeline strip past one row at any
+      // common width, so while it shows the header keeps the two-row height.
       // Mobile: the 48 px row plus the pipeline dots under it.
-      header={{ height: isDesktop ? { base: 88, lg: 48 } : 74 }}
+      header={{
+        height: isDesktop
+          ? { base: 88, lg: describePendingMigration(pendingMigration) ? 88 : 48 }
+          : 74,
+      }}
       footer={{ height: isDesktop ? 28 : 0 }}
       padding={0}
     >
       <ConfirmHost />
       {/* M-T8.18: the ⌘K palette, the `?` sheet, and the F8 announcer. */}
       <CommandPalette ctx={ctx} />
+      <RecordMigrationDialog ctx={ctx} />
       <ShortcutSheet opened={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
       <div
         aria-live="polite"

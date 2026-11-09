@@ -89,8 +89,12 @@ function runEmittedUnitTests(proj: string): UnitTestCounts | null {
     fs.rmSync(trxDir, { recursive: true, force: true });
     let runError: unknown = null;
     try {
+      // Unit tests only: a context `test` lowers to a `<Ctx>IntegrationTests`
+      // class that needs a live Postgres, which this compile leg does not
+      // start. Those classes still COMPILE above under /warnaserror; they RUN
+      // against a database in `context-integration-e2e.yml`.
       execSync(
-        `dotnet test "${csproj}" --no-build --nologo --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
+        `dotnet test "${csproj}" --no-build --nologo --filter "FullyQualifiedName!~IntegrationTests" --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
         { cwd: proj, stdio: "inherit", timeout: 300_000 },
       );
     } catch (e) {

@@ -1,4 +1,8 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import {
+  forwardsCallerCredential,
+  hostedHierarchyRegistry,
+} from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
@@ -58,7 +62,6 @@ import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
 import { rewrite } from "../../util/emission-sink.js";
@@ -513,18 +516,6 @@ function emitProjectFromContexts(
       const svcTests = renderServiceTestsFile(svc, ctx, ns);
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
-    // Context INTEGRATION test (test-placement.md) — an in-process,
-    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
-    // the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(
-      ctx,
-      ns,
-      system.deployable.persistence === "dapper",
-    );
-    if (integrationTests) {
-      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
-    }
     emitWorkflows(ctx, ns, out, { routePrefix, sys: system.sys, sourcemap });
     // Explicit application layer (unfoldable-api-derivation.md, A1): emit the
     // `commandHandler` / `queryHandler` Mediator records + handlers.  A no-op
@@ -708,7 +699,13 @@ function emitProjectFromContexts(
     // The persistence adapter picks the `IOrgPathResolver` implementation the
     // hierarchy seam emits — the EF one references AppDbContext, which a
     // `persistence: dapper` project does not have.
-    emitAuthFiles(system.sys, ns, out, system.deployable.persistence === "dapper");
+    emitAuthFiles(
+      system.sys,
+      ns,
+      out,
+      system.deployable.persistence === "dapper",
+      system.deployable.contextNames,
+    );
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor
@@ -909,6 +906,31 @@ function emitProjectFromContexts(
       answersEntryResults(merged)
     ) {
       out.set("Infrastructure/Persistence/PersistencePorts.cs", renderPersistencePortAdapters(ns));
+    }
+  }
+  // Context INTEGRATION tests (test-placement.md) — an in-process,
+  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+  // the repos, and persisting→reading.  Rendered after the persistence branch
+  // (AppDbContext) and the auth layer: the test constructs the context with the accessor its
+  // constructor takes, and adds the save interceptor the app registers.
+  const dbContextSrc = out.get("Infrastructure/Persistence/AppDbContext.cs") ?? "";
+  for (const ctx of contexts) {
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system.deployable.persistence === "dapper",
+      {
+        dbContextTakesUser:
+          /AppDbContext\(DbContextOptions<AppDbContext> options, ICurrentUserAccessor/.test(
+            dbContextSrc,
+          ),
+        interceptor: out.has("Infrastructure/Persistence/AuditableInterceptor.cs"),
+        ...(authRequired && system.sys.user ? { user: system.sys.user } : {}),
+      },
+    );
+    if (integrationTests) {
+      out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
   }
   // Per-operation audit shared files — the append-only audit POCO + the
@@ -1154,7 +1176,11 @@ function emitProjectFromContexts(
     // `tenantRegistry` (a `dataKey` column), so Program.cs registers the scoped
     // `IOrgPathResolver` → `EfOrgPathResolver` the auth middleware calls to
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
-    orgPathResolver: !!(authRequired && system.sys && hierarchyRegistry(system.sys)),
+    orgPathResolver: !!(
+      authRequired && hostedHierarchyRegistry(system.sys, system.deployable.contextNames)
+    ),
+    forwardCallerCredential:
+      authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
   emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
@@ -1800,6 +1826,8 @@ function emitProject(
      *  `IOrgPathResolver` → `EfOrgPathResolver` for the per-request
      *  `currentUser.orgPath` registry `data_key` read. */
     orgPathResolver?: boolean;
+    /** Typed calls to an `auth: required` callee forward the caller's credential. */
+    forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
      *  deployable emits `<Pascal>TimerService` BackgroundServices for.  Drives
      *  the `AddHostedService<…>()` registrations (Program.cs) and — when any
@@ -1875,6 +1903,7 @@ function emitProject(
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
       orgPathResolver: !!options?.orgPathResolver,
+      forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),
       hangfireCronTimers: anyTimerUsesCron(timers),

@@ -8,10 +8,10 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 // ---------------------------------------------------------------------------
 // Which generated deployables the playground bundles + boots.
 //
-// The browser runtime boots ONE Hono backend.  The Acme example with its two
-// `.NET` deployables switched to `platform: node` generates three Hono
-// backends; the playground must boot the one the React frontend targets and
-// name the other two as not booted, instead of dropping them silently.
+// The browser runtime boots every Hono backend, one worker each.  The Acme
+// example with its two `.NET` deployables switched to `platform: node`
+// generates three Hono backends; the playground boots all three, the one the
+// React frontend targets first (the default request target).
 // ---------------------------------------------------------------------------
 
 const ACME = readFileSync(path.resolve(__dirname, "../../web/src/examples/acme.ddd"), "utf8");
@@ -25,16 +25,17 @@ async function tree(source: string): Promise<VirtualFile[]> {
 }
 
 describe("analyzeDeployables", () => {
-  it("Acme switched to all-node boots the targeted backend and lists the other Hono backends", async () => {
+  it("Acme switched to all-node boots every Hono backend, the targeted one first", async () => {
     const allNode = ACME.replaceAll("platform: dotnet", "platform: node");
     expect(allNode).not.toContain("platform: dotnet");
     const out = analyzeDeployables(await tree(allNode));
-    expect(out.hono).toBe("api/http/index.ts");
-    expect(out.react).toBe("web_app/src/main.tsx");
-    expect(out.unsupported).toEqual([
-      { slug: "catalog_api", platform: "hono-extra" },
-      { slug: "catalog_web", platform: "hono-extra" },
+    expect(out.backends).toEqual([
+      "api/http/index.ts",
+      "catalog_api/http/index.ts",
+      "catalog_web/http/index.ts",
     ]);
+    expect(out.react).toBe("web_app/src/main.tsx");
+    expect(out.unsupported).toEqual([]);
   });
 
   it("prefers the Hono backend the React frontend targets over path order", async () => {
@@ -58,13 +59,17 @@ describe("analyzeDeployables", () => {
       )
       .replace("targets: api", "targets: catalogWeb");
     const out = analyzeDeployables(await tree(source));
-    expect(out.hono).toBe("catalog_web/http/index.ts");
-    expect(out.unsupported.map((d) => d.slug)).toEqual(["api", "catalog_api"]);
+    expect(out.backends).toEqual([
+      "catalog_web/http/index.ts",
+      "api/http/index.ts",
+      "catalog_api/http/index.ts",
+    ]);
+    expect(out.unsupported).toEqual([]);
   });
 
   it("the shipped Acme boots its only Hono backend and lists the .NET ones", async () => {
     const out = analyzeDeployables(await tree(ACME));
-    expect(out.hono).toBe("catalog_web/http/index.ts");
+    expect(out.backends).toEqual(["catalog_web/http/index.ts"]);
     expect(out.unsupported).toEqual([
       { slug: "api", platform: "dotnet" },
       { slug: "catalog_api", platform: "dotnet" },

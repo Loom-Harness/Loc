@@ -411,6 +411,16 @@ system DevPlatform {
             repository Builds for Build { }
             criterion BySha(commitSha: string) of Build = this.commitSha == commitSha
 
+            // TestPrincipal — a context integration test runs as the dev-stub
+            // principal with the `as { … }` claims set; the same clause on a
+            // line of its own switches the principal for what follows.
+            test "a build recorded by an admin reads back" as { role: "admin", permissions: ["builds.read"] } {
+                let b = Build.create(commitSha: "abc1234", buildState: Passed, total: 0, startedAt: now())
+                as { role: "viewer" }
+                let read = Build.find(b.id)
+                expect(read.commitSha).toBe("abc1234")
+            }
+
             // Transactional workflow with explicit isolation level.
             workflow promoteToProduction transactional(serializable) {
               create(buildId: Build id) {

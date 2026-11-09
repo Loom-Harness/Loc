@@ -243,7 +243,7 @@ function unrecordedWarning(loom: EnrichedLoomModel, chain: MigrationChain): Buil
   if (drifted.length === 0) return null;
   return {
     severity: "warning",
-    message: `${new MigrationDriftError(drifted).message} In the playground: Migrations tab → Record migration. Until then the generated migrations stop at the recorded chain and Boot leaves the database as it is.`,
+    message: `${new MigrationDriftError(drifted).message} In the playground: Record migration… beside Boot (or the Migrations tab). Until then the generated migrations stop at the recorded chain and Boot leaves the database as it is.`,
     source: "loom-migrations",
   };
 }

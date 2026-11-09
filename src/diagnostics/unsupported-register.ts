@@ -175,9 +175,35 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.api-call-principal-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/resource-capability-checks.ts:311",
+    what:
+      "a typed call to an api whose server requires auth, made with no request principal " +
+      "to forward: from an event reactor (an event-triggered create, an `on(…)`, a timer " +
+      "tick or a broker consumer), or from a deployable that authenticates no one.  Every " +
+      "backend forwards only the caller's own credential; a service credential is not " +
+      "emitted yet.",
+    mission: "#4804",
+    verified: false,
+  },
+  {
+    code: "loom.tenancy-registry-remote-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/tenancy-checks.ts:557",
+    what:
+      "a backend deployable hosting a context that reads the tenant hierarchy (a " +
+      "`tenantOwned` aggregate's `dataKey` stamp, or an `orgPath` / `rootOrg` / " +
+      "`organizationContext` read) without hosting the registry's context.  Its database has " +
+      "no registry table, and no backend resolves the caller org's path from another " +
+      "deployable yet.",
+    mission: "#4806",
+    verified: false,
+  },
+  {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:385",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:310",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on every " +
       "backend — fires only when no backend deployable hosts the context",
@@ -192,7 +218,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.context-test-unsupported",
     kind: "seam",
-    site: "src/language/validators/test-placement.ts:98",
+    site: "src/language/validators/test-placement.ts:147",
     what:
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",
@@ -275,17 +301,14 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // classifies each cell — `test/system/target-capability-table.test.ts`
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
-    kind: "seam",
-    site: "src/ir/validate/checks/target-capability-checks.ts:350",
+    kind: "gap",
+    site: "src/ir/validate/checks/target-capability-checks.ts:670",
     what:
-      "a construct × position its target cannot render, per the capability table.  LATENT: " +
-      "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
-      "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
-      "the entity-history read are supported on every shipping frontend, so the remaining " +
-      "refusals are the seam a NEW frontend gates on until it ports.  One LIVE gap: a " +
-      "`tenantOwned` event-sourced aggregate (`#tenant-owned-event-sourced`) is carried on " +
-      "every backend's event store except node's mikroorm, which refuses it until that " +
-      "store carries the stream tenant (#4686)",
+      "a construct × position, or a feature pair, its target cannot render, per the capability " +
+      "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
+      "the `#feature-composition-broken` / `#feature-composition-unwitnessed` cells are gaps, " +
+      "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
+      "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686)",
     mission: "#3592",
     verified: true,
   },
@@ -352,7 +375,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.field-mask-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:290",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:215",
     what:
       "`mask unless` read redaction ships on every backend — fires only when no backend " +
       "deployable hosts the context",

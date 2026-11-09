@@ -588,6 +588,16 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
   { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
   {
+    id: "tenancy-registry-split",
+    title: "a hierarchy registry on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
+    doc: "tenancy",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the registry.
+    deployables: ["orgs", "catalog"],
+    note: "Every backend emitted its `currentUser.orgPath` registry lookup on every `auth: required` deployable of a hierarchy system, whether or not that deployable hosted the registry: node selected `schema.orgs` (TS2339), .NET emitted `EfOrgPathResolver` over a missing `DbSet` (CS0246/CS1061), elixir called an undefined schema module (`--warnings-as-errors`), python ran `SELECT data_key FROM orgs` on a database without the table.  The lookup now keys on `hostedHierarchyRegistry` (`src/ir/enrich/hosting-facts.ts`); the compile tier is the oracle.  The tenant-owned half of the pair is refused (`loom.tenancy-registry-remote-unsupported`).",
+  },
+  {
     id: "org-context",
     title:
       "`organizationContext` — the operating-scope accessor re-rooting the tenantOwned write stamp, behind every backend's fail-closed `x-org-context` switch gate",
@@ -806,6 +816,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     // The emitted DIR names, which are snake_cased from the deployable names
     // (`ordersSvc` → `orders_svc`) — the coverage gate cross-checks these
     // against what actually lands on disk.
+    deployables: ["orders_svc", "shipping_svc"],
+  },
+  {
+    id: "api-call-auth",
+    title: "typed in-system api call to an `auth: required` callee — the caller's credential is forwarded",
+    doc: "auth",
+    backends: ALL,
+    note: "Two deployables, both `auth: required`: each backend's client copies the inbound bearer token (or the dev-stub claims header) from its request-scoped carrier onto every call.  The runtime half is `api-call-e2e`, whose fixture requires auth on both sides.",
     deployables: ["orders_svc", "shipping_svc"],
   },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },

@@ -1,3 +1,4 @@
+import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
 import { registryTableName } from "../../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
@@ -51,6 +52,7 @@ export function emitAuthFiles(
   ns: string,
   out: Map<string, string>,
   usingDapper = false,
+  hostedContextNames?: readonly string[],
 ): void {
   if (!sys.user) return;
   const orgPathClaim = sys.tenancy?.claimField;
@@ -61,7 +63,14 @@ export function emitAuthFiles(
   // the request principal.  Without it (flat tenancy), the claim-copy
   // computed property stands.  `registry` (undefined ⇒ flat) is the single
   // signal both the User record and the middleware branch on.
-  const registry = orgPathClaim ? hierarchyRegistry(sys) : undefined;
+  // Only a deployable that hosts the registry's context has its table.
+  // `hostedContextNames` is absent in legacy single-project mode, where every
+  // context is hosted.
+  const registry = !orgPathClaim
+    ? undefined
+    : hostedContextNames
+      ? hostedHierarchyRegistry(sys, hostedContextNames)
+      : hierarchyRegistry(sys);
   const orgPathClaimExpr =
     registry && orgPathClaim ? userClaimExpr(sys.user, orgPathClaim) : undefined;
   // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
@@ -809,10 +818,15 @@ public static class AuthHandshake
  *  boots end-to-end without the caller having to wire a JWT decoder
  *  first.  Replace by registering your own IUserVerifier (the last DI
  *  registration wins for new scope resolutions). */
+/** The dev-stub identity's named constructor arguments, one per declared
+ *  `user { … }` field — shared by the stub verifier and the context
+ *  integration test, which runs as this identity. */
+export function renderCsDevStubUserArgs(user: UserIR, sep = ", "): string {
+  return user.fields.map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`).join(sep);
+}
+
 function renderDevStubVerifier(user: UserIR, ns: string): string {
-  const args = user.fields
-    .map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`)
-    .join(",\n            ");
+  const args = renderCsDevStubUserArgs(user, ",\n            ");
   // An `X id` claim's stub value CONSTRUCTS the strong id (`new CustomerId(…)`)
   // — a raw `Guid.Empty` against `readonly record struct CustomerId(Guid)` is
   // CS0029 — and the id structs live in `<ns>.Domain.Ids` while this verifier

@@ -309,6 +309,51 @@ async (httpCtx) => {
 },
 ```
 
+### Contract records on every exposed context
+
+A context that ships an API carries the declared contract of that API as
+`response` / `command` / `query` records. This applies whether the context is
+exposed by the implicit `api X from <Subdomain>` form, by a deployable's
+`contexts: [...]`, or by `with scaffoldHandlers`. The records are the same ones
+`scaffoldHandlers` splices, and they are real source you can read with `unfold`
+or print:
+
+```ddd
+subdomain Sales {
+  context Ordering {
+    aggregate Order { code: string  status: string  create(code: string, status: string) { … } }
+    repository Orders for Order { }
+  }
+}
+api SalesApi from Sales
+```
+
+The `Ordering` context gains:
+
+```ddd
+response OrderResponse { code: string, status: string, rowVersion: int }
+query GetOrderQuery { orderId: Order id }
+command CreateOrderCommand { code: string, status: string }
+```
+
+For the implicit form the routes and handlers stay derived, so generated code
+is unchanged. Every backend's response DTO / schema emitter renders
+`OrderResponse` through `declaredResponseFor` (`src/ir/util/declared-response.ts`):
+
+```ts
+export const OrderResponse = z.object({
+  id: z.string(),
+  code: z.string(),
+  status: z.string(),
+  rowVersion: z.number().int().openapi({ format: "int32" }),
+}).openapi("OrderResponse");
+```
+
+There is one exception. A record field cannot carry `mask unless`, so an
+aggregate with a masked field keeps the derived wire shape. That shape carries
+the predicate, so the masked field stays nullable on the response. A
+hand-declared record of the same name wins over the spliced one.
+
 ### Composability
 
 Unfolding one level on `with scaffold(subdomains: [Sales])` reveals one

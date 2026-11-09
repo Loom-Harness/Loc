@@ -8,6 +8,7 @@ import {
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
+import { hostedHierarchyRegistry } from "../../../ir/enrich/hosting-facts.js";
 import type {
   AuthIR,
   AuthValueIR,
@@ -17,7 +18,6 @@ import type {
   UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
-import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
@@ -45,7 +45,11 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 // /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
-export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
+export function emitAuthFiles(
+  sys: SystemIR,
+  hostedContextNames: readonly string[],
+  out: Map<string, string>,
+): void {
   if (!sys.user) return;
   const oidc = sys.auth;
   // The tenancy claim field, when the system declares `tenancy by …` — drives
@@ -54,8 +58,10 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
   // Hierarchy: when the registry opts into `tenantRegistry` (a `dataKey`
   // column exists), `orgPath` becomes a per-request memoized registry read via
   // a registered resolver (falling back to the claim when the row/dataKey is
-  // absent).  Without it (flat tenancy), the claim-copy stands.
-  const orgPathReadsRegistry = hierarchyRegistry(sys) !== undefined;
+  // absent).  Only a deployable that hosts the registry has its table; one
+  // that does not keeps the claim-copy, and phase ⑦ refuses it if anything it
+  // hosts reads the path (`loom.tenancy-registry-remote-unsupported`).
+  const orgPathReadsRegistry = hostedHierarchyRegistry(sys, hostedContextNames) !== undefined;
   // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5):
   // emitted only when something in the system reads the operating scope — the
   // phase-⑦ `loom.org-context-gate-unmet` guarantees that also means a
@@ -121,13 +127,7 @@ import { registerUserVerifier } from "./verifier";
 ${usage} */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
-    // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
-    // only through the closure's inferred return type — and the header branch
-    // below spreads \`JSON.parse(...)\`, whose \`any\` widens that union to \`any\`
-    // and swallows the check entirely.  That is how a raw \`"0000…"\` string sat
-    // in a \`customerId: Ids.CustomerId\` slot and still passed \`tsc --noEmit\`.
-    // The annotation puts the declared claim shape back in the checker's way.
-    const base: UserClaims = ${indentBy(renderStubUserLiteral(user), "    ")};
+    const base = devStubClaims();
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
     let decoded: unknown;
@@ -145,6 +145,19 @@ export function registerDevStubVerifier(): void {
     }
     return { ...base, ...decoded };
   });
+}
+
+/** The built-in dev-stub identity: one value per declared \`user { … }\` field.
+ *  Also the principal a context integration test runs as, with its
+ *  \`as { … }\` claims spread over it.
+ *
+ *  ANNOTATED on purpose: the verifier spreads \`JSON.parse(...)\` over this, and
+ *  that \`any\` would otherwise swallow the check of the literal entirely — a raw
+ *  \`"0000…"\` string in a \`customerId: Ids.CustomerId\` slot passed
+ *  \`tsc --noEmit\` that way.  The return type puts the declared claim shape back
+ *  in the checker's way. */
+export function devStubClaims(): UserClaims {
+  return ${indentBy(renderStubUserLiteral(user), "  ")};
 }
 
 /** Thrown by the dev stub for a present-but-undecodable \`x-loom-dev-claims\`
@@ -386,6 +399,14 @@ function renderMiddleware(
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
+  // The same derivation for a principal built OUTSIDE a request (a context
+  // integration test): no header, so the operating scope is the principal's
+  // own \`orgPath\`.
+  const buildPrincipal = orgPathClaim
+    ? `const orgPath = ${orgPathExpr};\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath)${orgContext ? ", orgContextPath: orgPath" : ""} };`
+    : arrayClaimDefaults.length > 0
+      ? `const user: User = { ${claimsSpread} };`
+      : `const user: User = claims;`;
   // The registry-lookup seam.  The auth layer can't reach the db (it is
   // constructed at boot and injected into repositories), so — like the verifier
   // — the resolver is REGISTERED at boot (index.ts) with a closure that reads
@@ -618,6 +639,45 @@ export function requireCurrentUser(): User {
     );
   }
   return user as User;
+}
+
+/** Run \`fn\` in a fresh ambient frame whose principal is built from \`claims\`
+ *  exactly as the middleware builds a request's — the seam a context
+ *  integration test binds its principal through, so every
+ *  \`requireCurrentUser()\` reader under it (tenant stamps, scope filters,
+ *  gates) sees that principal. */
+export async function runAsUser<T>(claims: UserClaims, fn: () => Promise<T>): Promise<T> {
+  ${buildPrincipal}
+  return requestContextStore.run(
+    {
+      correlationId: randomUUID(),
+      currentUser: user,
+      actorId: ${idField ? `String(user.${idField})` : "null"},
+      locale: "en",
+      startedAt: Date.now(),
+      scopeId: randomUUID(),
+      parentId: null,
+      traceId: "",
+      spanId: "",
+      log: baseLogger,
+    },
+    fn,
+  );
+}
+
+/** Rebind the principal of the CURRENT ambient frame (opened by
+ *  \`runAsUser\`) — a test body's \`as { … }\` line, after which every
+ *  ambient-principal reader sees the new principal. */
+export async function actAsUser(claims: UserClaims): Promise<void> {
+  ${buildPrincipal}
+  const ctx = requestContext();
+  if (ctx == null) throw new Error("actAsUser needs an ambient frame — call it inside runAsUser.");
+  ctx.currentUser = user;${
+    idField
+      ? `
+  ctx.actorId = String(user.${idField});`
+      : ""
+  }
 }
 ${renderSystemPrincipal(user, orgPathClaim, orgContext)}`;
 }
