@@ -712,7 +712,7 @@ A `return` may sit inside a statement `if` — `function tier(t: decimal): strin
 aggregate Order {
   code: string
   note: string?
-  function label(): string {
+  function caption(): string {
     let shown = match note { string s => s, else => code }
     return shown
   }
@@ -721,7 +721,7 @@ aggregate Order {
 
 ```ts
 // domain/order.ts — the value form over a `T?` is a presence ternary
-public label(): string {
+public caption(): string {
   const shown = this._note !== null ? this._note : this._code;
   return shown;
 }
