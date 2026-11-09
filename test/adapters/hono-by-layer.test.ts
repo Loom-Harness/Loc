@@ -8,7 +8,7 @@ import type { EmitCtx } from "../../src/generator/_adapters/index.js";
 import {
   byLayerLayoutAdapter,
   type HonoArtifact,
-} from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
+} from "../../src/platform/hono/shared/adapters/by-layer-layout.js";
 import { resolveLayout } from "../../src/platform/resolve-adapters.js";
 
 const ctx = {} as EmitCtx;

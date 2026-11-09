@@ -192,7 +192,7 @@ export function buildWorkflowsFile(
    *  imported from `../resources/<sourceType>`. */
   resourceSourceTypes: Map<string, string> = new Map(),
   /** Source-map (workflow-body statement regions) — allocated by
-   *  the caller (`src/platform/hono/v4/emit.ts`) ONLY when a recorder is
+   *  the caller (`src/platform/hono/shared/emit.ts`) ONLY when a recorder is
    *  present, so a no-`--sourcemap` run pays no per-statement bookkeeping
    *  cost.  `http/workflows.ts` pools every workflow's command route AND its
    *  reactor/starter handlers, so it never gets a `sourcemap.file(...)`

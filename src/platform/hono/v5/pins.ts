@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // hono@v5 — dependency pins (the version-owned "templating" slice of
-// the backend package; the shared emitter under `../v4/` reads them).
+// the backend package; the shared emitter under `../shared/` reads them).
 //
 // The package version tracks its dep majors, not Hono's: Hono itself is
 // 4.x, and v5 is the zod 4 (+ `@hono/zod-openapi` 1.x) / TypeScript 6 set.

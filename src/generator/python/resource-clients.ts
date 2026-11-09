@@ -144,7 +144,7 @@ const s3Adapter: PyResourceAdapter = {
 };
 
 /** localDisk — a dependency-free local-directory object store (M-T1.2), the
- *  Python twin of `localDiskResourceAdapter` (hono/v4).  Stores each object's
+ *  Python twin of `localDiskResourceAdapter` (hono/shared).  Stores each object's
  *  raw bytes under a data dir keyed by `key`, plus a `<key>.meta.json` sidecar
  *  carrying the contentType so a download round-trips its metadata.  Backs the
  *  File upload/download endpoints without any cloud SDK (stdlib `pathlib`). */

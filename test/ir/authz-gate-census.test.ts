@@ -374,7 +374,7 @@ function surfacesOf(model: LoomModel): Surfaces {
       // ── NOT LIFTED (`apiSurfaceCoverage.notLifted`), all six classes ─────
       // `prepare` — `GET /api/<aggs>/prepare`, the create-form seed read.
       // Enumerated through the EMITTER'S OWN predicate
-      // (`honoStaticSubpathMethods`, `src/platform/hono/v4/routes-builder.ts`):
+      // (`honoStaticSubpathMethods`, `src/platform/hono/shared/routes-builder.ts`):
       // a REST create plus at least one server-sourced default.  Guessing "one
       // per aggregate" instead would have this census claim ~20 routes no
       // backend mounts — the same two-truths mistake `api-surface.ts` fixed

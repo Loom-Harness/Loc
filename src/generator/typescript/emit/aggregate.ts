@@ -57,7 +57,7 @@ import { tsRuleParams } from "../wire-policy-ts.js";
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderAggregate` (when `opFragments` is
  *  passed) to the caller that owns the recorder and the final file content
- *  (`src/platform/hono/v4/emit.ts`), which anchors it via
+ *  (`src/platform/hono/shared/emit.ts`), which anchors it via
  *  `SourceMapRecorder.fragment`.  Covers only the REGULAR (non-extern,
  *  non-lifecycle) operation-body path — see the call site in `renderEntity`
  *  below. */

@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { QUERY_BOOL } from "../../../src/platform/hono/v4/routes-builder.js";
+import { QUERY_BOOL } from "../../../src/platform/hono/shared/routes-builder.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `

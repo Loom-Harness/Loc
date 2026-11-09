@@ -1,7 +1,7 @@
 // drizzle — real PersistenceAdapter for hono (F6a).  Verifies the
 // adapter returns non-empty Lines for every method that wraps an
 // existing TypeScript/Hono emit fn.  Parallel of dotnet-efcore.test.ts;
-// today the orchestrator (`src/platform/hono/v4/emit.ts`) still calls
+// today the orchestrator (`src/platform/hono/shared/emit.ts`) still calls
 // the underlying emit fns directly, so the byte-identical gate is the
 // existing typescript-generator fixture suite — this file proves the
 // adapter contract is wired through to real output.
@@ -12,9 +12,10 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../../src/ir/types/loom-ir.js";
 import {
-  drizzlePersistenceAdapter,
+  drizzlePersistenceAdapterFor,
   emitDrizzleSchema,
-} from "../../src/platform/hono/v4/adapters/drizzle-persistence.js";
+} from "../../src/platform/hono/shared/adapters/drizzle-persistence.js";
+import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
 import { adaptersFor, availableAdapterNames } from "../../src/platform/resolve-adapters.js";
 import { parseValid } from "../_helpers/parse.js";
 
@@ -40,6 +41,9 @@ system Sys {
 }
 `;
 
+/** A drizzle adapter over the registered `node@v5` pins. */
+const drizzlePersistenceAdapter = drizzlePersistenceAdapterFor(BACKEND_PINS);
+
 async function buildCtx(): Promise<EmitCtx> {
   const loom = enrichLoomModel(lowerModel(await parseValid(SRC)));
   const sys = loom.systems[0]!;
@@ -52,8 +56,12 @@ async function buildCtx(): Promise<EmitCtx> {
 describe("drizzle PersistenceAdapter (real)", () => {
   it("is registered as the hono drizzle persistence adapter", () => {
     const resolved = adaptersFor("node")!.persistence.drizzle;
-    expect(resolved).toBe(drizzlePersistenceAdapter);
     expect(resolved.name).toBe("drizzle");
+    // Built from the v5 pins: the same deps as an adapter over those pins.
+    const ctx = {} as EmitCtx;
+    expect(resolved.emitProjectDeps(ctx)).toEqual(drizzlePersistenceAdapter.emitProjectDeps(ctx));
+    // One adapter object per surface, not one per menu read.
+    expect(adaptersFor("node")!.persistence.drizzle).toBe(resolved);
   });
 
   it("is a REAL adapter, not a reserved stub (no stub-throw)", () => {

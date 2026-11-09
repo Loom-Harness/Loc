@@ -81,7 +81,7 @@ describe("money emission — IR binary nodes carry the type stash", () => {
 
 describe("money emission — Hono Zod schemas", () => {
   it("request zodFor(money) references the shared `moneySchema` helper", async () => {
-    const { zodFor } = await import("../../../src/platform/hono/v4/routes-builder.js");
+    const { zodFor } = await import("../../../src/platform/hono/shared/routes-builder.js");
     // The string-to-Decimal transform + format check is factored out
     // to `lib/schemas.ts`; per-route schemas reference it by name
     // rather than redeclaring the chain at every field site.

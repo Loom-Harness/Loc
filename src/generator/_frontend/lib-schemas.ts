@@ -6,7 +6,7 @@
 // pipeline-layering.test.ts's "sibling platform directory" rule).
 //
 // The provenance-lineage schema mirrors the Hono route's `ProvenanceLineage`
-// zod shape byte-for-byte (src/platform/hono/v4/routes-builder.ts) so the
+// zod shape byte-for-byte (src/platform/hono/shared/routes-builder.ts) so the
 // frontend parses the `lineage` half of the `Provenanced<T>` wire carrier into
 // a typed `ProvLineage` a `ProvenanceInfo` disclosure reads (docs/provenance.md).
 //

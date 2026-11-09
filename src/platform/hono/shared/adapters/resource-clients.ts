@@ -1,4 +1,4 @@
-// hono/v4 ResourceAdapters — boot-time client modules for the
+// hono/shared ResourceAdapters — boot-time client modules for the
 // non-persistence infrastructure kinds (objectStore / queue / api).
 //
 // Each adapter emits a self-contained `resources/<sourceType>.ts`

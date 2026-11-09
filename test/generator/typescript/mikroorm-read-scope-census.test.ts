@@ -46,7 +46,7 @@ function mikroSources(): string[] {
   ].sort();
 }
 
-const PROJECTION_ROUTES = "src/platform/hono/v4/projection-query-routes-builder.ts";
+const PROJECTION_ROUTES = "src/platform/hono/shared/projection-query-routes-builder.ts";
 
 /** The one module that renders a read restriction. */
 const RENDERER = `${EMIT}/mikroorm-schema-filters.ts`;

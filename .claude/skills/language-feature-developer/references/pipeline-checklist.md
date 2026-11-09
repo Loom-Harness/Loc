@@ -104,7 +104,7 @@ tells you when it applies.
   compile error until you fill it.  Elixir has no `render-stmt.ts`.
 - **Backend-specific emission** (persistence, stores, routes, stamps): the
   matching emitter — TS `src/generator/typescript/emit/*.ts` +
-  `src/platform/hono/v4/{emit,routes-builder}.ts`; .NET `src/generator/dotnet/emit/*.ts`;
+  `src/platform/hono/shared/{emit,routes-builder}.ts`; .NET `src/generator/dotnet/emit/*.ts`;
   Elixir `src/generator/elixir/{domain/*,*-emit}.ts` (+ `vanilla/*` for the
   vanilla Ecto foundation); Python `src/generator/python/emit/*.ts`; Java
   `src/generator/java/emit/*.ts`. Larger per-aggregate-variable content lives in

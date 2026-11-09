@@ -42,7 +42,7 @@ function drizzleSources(): string[] {
     ...repoBuilders,
     `${dir}/base-reader-builder.ts`,
     `${dir}/read-scopes-builder.ts`,
-    "src/platform/hono/v4/projection-query-routes-builder.ts",
+    "src/platform/hono/shared/projection-query-routes-builder.ts",
   ].sort();
 }
 

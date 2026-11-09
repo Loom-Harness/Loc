@@ -121,7 +121,7 @@ known-landmines reference for the 4.3 renames).
 - **Pack-specific deps:** `designs/<pack>/<vN>/package-json.hbs`.
 - **Backend deps:** the backend's manifest emitter (Hono — bareword `node`
   resolves to **`node@v5`**, the only registered lane, so the pins are
-  `src/platform/hono/v5/pins.ts`; `src/platform/hono/v4/` holds only the shared
+  `src/platform/hono/v5/pins.ts`; `src/platform/hono/shared/` holds only the shared
   emitter and owns no pins. .NET `renderCsproj` in
   `src/generator/dotnet/emit/program.ts`; Java `renderGradleBuild` +
   `SPRING_BOOT_VERSION`/`JAVA_VERSION` in `src/generator/java/emit/program.ts`;
