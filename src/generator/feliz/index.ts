@@ -11,6 +11,7 @@
 // `id` read from outside a page view fn (`update`/`init`).  A single-page ui
 // still emits the one flat root `view` with no routing table.
 
+import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -52,8 +53,14 @@ import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { sourceText } from "../_i18n/source-text.js";
+import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
+import {
+  APP_SHELL_CHROME,
+  AUTH_GATE_CHROME,
+  authGateMessage,
+  chromeKey,
+} from "../_walker/i18n-chrome.js";
 import { literalString, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
@@ -61,11 +68,11 @@ import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
-  FORBIDDEN_VIEW,
   opActionGate,
   renderCurrentUserDecoder,
   renderCurrentUserType,
   renderFelizGate,
+  renderForbiddenView,
   uiHasPageGate,
 } from "./auth-gate.js";
 import {
@@ -193,15 +200,21 @@ const AUTH_MODULE = `module Auth =
 
 /** The gate `view` — matches `Session`: a probe-in-flight spinner, an
  *  unauthenticated sign-in prompt, or the real `appView` once authed. */
-function renderAuthGate(): string {
+function renderAuthGate(i18n: boolean): string {
+  const signIn = i18n
+    ? `(I18n.t ${fsString(chromeKey("signIn"))} ${fsString(authGateMessage("signIn"))})`
+    : fsString(AUTH_GATE_CHROME[chromeKey("signIn")]!);
+  const prompt = i18n
+    ? `(I18n.t ${fsString(wireCode("unauthenticated"))} ${fsString(wireErrorMessage(wireCode("unauthenticated")))})`
+    : fsString(wireErrorMessage(wireCode("unauthenticated")));
   return [
     "let view (model: Model) (dispatch: Msg -> unit) =",
     "  match model.Session with",
     '  | Checking -> Html.div [ prop.className "flex min-h-screen items-center justify-center"; prop.children [ Html.span [ prop.className "loading loading-spinner loading-lg" ] ] ]',
     "  | Anon ->",
     '      Html.div [ prop.className "flex min-h-screen flex-col items-center justify-center gap-4"; prop.children [',
-    '        Html.p [ Html.text "Please sign in." ]',
-    '        Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> Auth.signIn ()); prop.text "Sign in" ]',
+    `        Html.p [ Html.text ${prompt} ]`,
+    `        Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> Auth.signIn ()); prop.text ${signIn} ]`,
     "      ] ]",
     "  | Authed -> appView model dispatch",
   ].join("\n");
@@ -1770,8 +1783,8 @@ function renderAppFs(
       ];
   // A gated app defines `forbiddenView` ahead of the page views that render it
   // (the claims-fallback element).
-  const gatedViews = pageGate ? [FORBIDDEN_VIEW, "", ...rootViews] : rootViews;
-  const views = authUi ? [...gatedViews, "", renderAuthGate()] : gatedViews;
+  const gatedViews = pageGate ? [renderForbiddenView(i18nEnabled), "", ...rootViews] : rootViews;
+  const views = authUi ? [...gatedViews, "", renderAuthGate(i18nEnabled)] : gatedViews;
   // The `IdLink` reference-label module — only when a view or a walked
   // component actually calls it (`feliz/ref-label-runtime.ts`).
   const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
@@ -1859,7 +1872,7 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts, translations) : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts, translations, authUi) : false,
     // The Fable.SimpleHttp requests below carry `Accept-Language`.
     i18nEnabled && hasHttp ? "" : false,
     i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,

@@ -140,8 +140,11 @@ export function renderFlutterI18nModule(
   contexts: readonly BoundedContextIR[] = [],
   /** Translated catalogs from the `ddd i18n` translator tree. */
   translations?: TranslationCatalogs,
+  /** The app draws the generated session gate, so its sign-in / forbidden
+   *  chrome joins the runtime catalog. */
+  authGate = false,
 ): string {
-  const scope = { contexts, sentences: [], implicitModelText: true };
+  const scope = { contexts, sentences: [], implicitModelText: true, authGate };
   const catalog = buildUiCatalog(ui, {}, scope);
   // Each translated catalog is SCOPED to this ui's keys, exactly as the source
   // catalog is, and returned as one JSON document per locale tag.
