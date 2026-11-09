@@ -12,7 +12,7 @@
 // new-group start offsets) are pinned without a browser in
 // test/web/broker-model.test.ts.  Needs real internet, like runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

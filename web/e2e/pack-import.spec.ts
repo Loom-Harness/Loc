@@ -30,7 +30,7 @@
 // custom-pack semantics live entirely in the worker, before the
 // network-required steps.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { selectExample, waitForPlaygroundReady } from "./_helpers";
 import * as fs from "node:fs";
 import * as path from "node:path";

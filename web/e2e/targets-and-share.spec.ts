@@ -4,7 +4,7 @@
 // clause is rewritten) and through the pipeline strip's Generate count (the
 // regenerate actually ran against the new stack).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 const SHARED = `system Shared {

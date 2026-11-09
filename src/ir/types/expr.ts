@@ -1,11 +1,10 @@
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
-import type { BypassReadIR, KeyLookupIR } from "./context.js";
+import type { Bypassing, BypassReadIR, KeyLookupIR } from "./context.js";
 import type { DataSourceKind, LoomInterface } from "./deployment.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
-import type { PrimitiveName, TypeIR } from "./types.js";
+import type { PrimitiveName, Sourced, TypeIR } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Expressions — fully resolved, every name has a kind tag.
@@ -109,10 +108,10 @@ export type AuthzFilterKind =
       tenantClaim: ExprIR;
     };
 
-export type ExprIR =
-  | { kind: "literal"; lit: LiteralKind; value: string; origin?: OriginRef }
-  | { kind: "this"; origin?: OriginRef }
-  | { kind: "id"; origin?: OriginRef }
+export type ExprIR = (
+  | { kind: "literal"; lit: LiteralKind; value: string }
+  | { kind: "this" }
+  | { kind: "id" }
   | {
       kind: "ref";
       name: string;
@@ -152,7 +151,6 @@ export type ExprIR =
        *  name, so a bare reference renders the scoped helper name `<wf><fn>`
        *  (workflows share a file, so helpers are namespaced by workflow). */
       wfScope?: string;
-      origin?: OriginRef;
     }
   | {
       kind: "member";
@@ -160,7 +158,6 @@ export type ExprIR =
       member: string;
       receiverType: TypeIR;
       memberType: TypeIR;
-      origin?: OriginRef;
     }
   | {
       kind: "method-call";
@@ -198,7 +195,6 @@ export type ExprIR =
        *  method (`bypassReadMethodName`), which enrichment synthesises on the
        *  aggregate's repository from this source and stance. */
       bypassRead?: BypassReadIR;
-      origin?: OriginRef;
     }
   | {
       kind: "call";
@@ -274,7 +270,10 @@ export type ExprIR =
        *  `aggregate` its target aggregate, `method` the find / retrieval method
        *  to render against the generated repository, and `op` what the read
        *  does.  Backends render a real call into the generated repository
-       *  without re-recognising the AST. */
+       *  without re-recognising the AST.  Its `ignoring` stance is set on a
+       *  widened list read (`all(<Ref>) ignoring …`): `retrievalName` then
+       *  names the read's own retrieval (`widenedRetrievalName`), which
+       *  enrichment derives with this stance on it. */
       repoRead?: {
         repo: string;
         aggregate: string;
@@ -306,13 +305,7 @@ export type ExprIR =
          *  filters (`ignoring …`): `method` names the read's own method and
          *  there is no `retrievalName`. */
         bypassRead?: BypassReadIR;
-        /** The `ignoring` stance of a widened list read (`all(<Ref>) ignoring
-         *  …`): `retrievalName` then names the read's own retrieval
-         *  (`widenedRetrievalName`), which enrichment derives with this
-         *  stance on it. */
-        bypassAll?: boolean;
-        bypassCaps?: string[];
-      };
+      } & Bypassing;
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
        *  (not overloaded onto flat `name`) so backends bind the store action
@@ -335,7 +328,6 @@ export type ExprIR =
        *  `function` calls (functions are always private) and every other
        *  `callKind`. */
       targetPrivate?: boolean;
-      origin?: OriginRef;
     }
   | {
       /** A bare reference to a named page/component `action` in
@@ -356,7 +348,6 @@ export type ExprIR =
        *  seam (record the use, reference the shell-bound store-action local)
        *  instead of the page-action handler.  Absent for a page action. */
       storeName?: string;
-      origin?: OriginRef;
     }
   | {
       kind: "lambda";
@@ -369,7 +360,6 @@ export type ExprIR =
        *  emits, etc. are admissible.  React emitter lowers
        *  state mutations against `state {}` fields to `setX(...)`. */
       block?: StmtIR[];
-      origin?: OriginRef;
     }
   | {
       kind: "new";
@@ -383,12 +373,10 @@ export type ExprIR =
        *  false for a root-level part (`new Shipment`), which keeps passing the
        *  ambient `this` id — byte-identical. */
       nested?: boolean;
-      origin?: OriginRef;
     }
   | {
       kind: "object";
       fields: { name: string; value: ExprIR }[];
-      origin?: OriginRef;
     }
   | {
       /** Bracketed list literal — `[expr, expr, ...]`.  Produced by
@@ -399,7 +387,6 @@ export type ExprIR =
        *  validators decide whether to flag them. */
       kind: "list";
       elements: ExprIR[];
-      origin?: OriginRef;
     }
   /**
    * Authorization / tenancy filter sentinel (M-T9.9).  A synthesized,
@@ -434,10 +421,9 @@ export type ExprIR =
        *  table/alias off their render context, not this — it is carried for
        *  provenance / debugging. */
       aggregate: string;
-      origin?: OriginRef;
     }
-  | { kind: "paren"; inner: ExprIR; origin?: OriginRef }
-  | { kind: "unary"; op: "-" | "!"; operand: ExprIR; origin?: OriginRef }
+  | { kind: "paren"; inner: ExprIR }
+  | { kind: "unary"; op: "-" | "!"; operand: ExprIR }
   | {
       kind: "binary";
       op: BinOp;
@@ -463,9 +449,8 @@ export type ExprIR =
        *  closed-money and numeric-widening rules.  Same population
        *  policy as `leftType`. */
       resultType?: TypeIR;
-      origin?: OriginRef;
     }
-  | { kind: "ternary"; cond: ExprIR; then: ExprIR; otherwise: ExprIR; origin?: OriginRef }
+  | { kind: "ternary"; cond: ExprIR; then: ExprIR; otherwise: ExprIR }
   /**
    * Explicit primitive conversion — `<target>(<value>)`.  Source-
    * level form: `string(age)`, `money(decimalField)`,
@@ -487,7 +472,6 @@ export type ExprIR =
       target: PrimitiveName;
       from: PrimitiveName | undefined;
       value: ExprIR;
-      origin?: OriginRef;
     }
   /**
    * Duration constructor (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) —
@@ -505,7 +489,6 @@ export type ExprIR =
       kind: "duration";
       unit: DurationUnit;
       amount: ExprIR;
-      origin?: OriginRef;
     }
   /**
    * i18n ICU format suffix on an interpolation hole (M-T1.11, i18n.md) — a
@@ -530,7 +513,6 @@ export type ExprIR =
       inner: ExprIR;
       /** Raw ICU suffix incl. the leading comma, e.g. `", number, ::currency/USD"`. */
       format: string;
-      origin?: OriginRef;
     }
   /**
    * The translated text a user sees for a model element — the lowered
@@ -548,7 +530,6 @@ export type ExprIR =
       kind: "modelText";
       key: string;
       defaultText: string;
-      origin?: OriginRef;
     }
   /**
    * Predicate-arms expression — first arm whose
@@ -614,8 +595,9 @@ export type ExprIR =
          *  (the generators have no context to re-derive it). */
         isError?: boolean;
       }[];
-      origin?: OriginRef;
-    };
+    }
+) &
+  Sourced;
 
 // Convenience constructors used by the lowering layer.
 export const lit = (kind: LiteralKind, value: string): ExprIR => ({

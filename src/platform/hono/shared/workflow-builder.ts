@@ -57,6 +57,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { lookupOp } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -3096,14 +3097,6 @@ export function honoWorkflowStmtTarget(
  *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`. */
 function firstRowOf(repoName: string, retrievalName: string, args: readonly string[]): string {
   return `(await ${lowerFirst(repoName)}.run${upperFirst(retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
-}
-
-function lookupOp(
-  ctx: BoundedContextIR,
-  aggName: string,
-  opName: string,
-): import("../../../ir/types/loom-ir.js").OperationIR | undefined {
-  return ctx.aggregates.find((a) => a.name === aggName)?.operations.find((o) => o.name === opName);
 }
 
 export function renderExprWithParams(

@@ -17,7 +17,7 @@
 // raw reason: test 3's `toContainText("A panel crashed while rendering")`
 // fails (see the PR body).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { waitForPlaygroundReady } from "./_helpers";
 
 test("Migrations tab says Compare with, never 'click Refresh', and draws the tinted diagram", async ({

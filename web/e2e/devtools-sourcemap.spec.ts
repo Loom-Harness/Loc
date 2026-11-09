@@ -63,7 +63,7 @@
 // Tier 2 (set a real breakpoint in the worker and assert `Debugger.paused`)
 // stays out of scope, per the design brief, and is the natural pickup point
 // once either escape hatch above exists.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { browserCanReachNetwork, selectExample, waitForBundle, waitForPlaygroundReady } from "./_helpers";
 
 interface DecodedMap {

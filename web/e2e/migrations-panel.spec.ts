@@ -18,7 +18,7 @@
 //      of the removed single-file gate (both trees now lower via the project
 //      loader).
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./_test";
 import { selectExample, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so an edit-driven test starts from a clean
