@@ -72,15 +72,16 @@ export interface AggregateIR {
    * that reify capability filters consume this — the Hono repository calls
    * the module-level `<name>Criterion` predicate fn instead of re-inlining
    * the body (reified-criteria.md, the anonymous-`filter` row). */
-  contextFilterRefs?: ({ name: string; args: ExprIR[] } | undefined)[];
+  contextFilterRefs: ({ name: string; args: ExprIR[] } | undefined)[];
   /** Per-`contextFilters` entry: the name of the capability that contributed
    * the filter (e.g. `softDeletable`), or `undefined` for a hand-written /
    * context-level bare filter — index-aligned with `contextFilters`, set by the
    * expander on the spliced `FilterDecl` and threaded through lowering.  This is
    * the provenance the `ignoring <Cap>` bypass surface resolves against: a
-   * backend maps a bypassed capability name to the predicate(s) it owns.  Purely
-   * additive — no consumer until the bypass surface lands, so byte-neutral. */
-  contextFilterOrigins?: (string | undefined)[];
+   * backend maps a bypassed capability name to the predicate(s) it owns.
+   * `contextFilterRefs` and this array always have exactly one slot per
+   * `contextFilters` entry; every writer that appends a filter appends both. */
+  contextFilterOrigins: (string | undefined)[];
   /** The WRITE-scope predicate an INSTANCE mutation's command load must satisfy
    *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Derived in enrichment from the aggregate's `policy` read + write levels,
    *  and set **only when the write scope is strictly narrower than the read

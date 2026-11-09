@@ -98,10 +98,8 @@ export function inheritBaseCapabilities(aggs: readonly AggregateIR[]): Aggregate
     const out: AggregateIR = {
       ...a,
       contextFilters: filters.map((f) => f.predicate),
-      contextFilterRefs: filters.some((f) => f.ref) ? filters.map((f) => f.ref) : undefined,
-      contextFilterOrigins: filters.some((f) => f.origin)
-        ? filters.map((f) => f.origin)
-        : undefined,
+      contextFilterRefs: filters.map((f) => f.ref),
+      contextFilterOrigins: filters.map((f) => f.origin),
       contextStamps: stamps,
       capabilities: caps,
       crossTenant: a.crossTenant || base.crossTenant,

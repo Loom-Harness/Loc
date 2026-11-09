@@ -24,7 +24,7 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
-  "aggregate.ts": 20,
+  "aggregate.ts": 18,
   "context.ts": 44,
   "deployment.ts": 24,
   "expr.ts": 67,

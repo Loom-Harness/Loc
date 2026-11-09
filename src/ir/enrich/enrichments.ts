@@ -519,20 +519,18 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
       aggregates: ctx.aggregates.map((agg) => {
         if (agg.name !== tenancy.registryName) return agg;
         // Already scoped (second enrichment pass) — keep byte-identical.
-        if ((agg.contextFilterOrigins ?? []).includes(TENANCY_SELF_SCOPE_ORIGIN)) return agg;
+        if (agg.contextFilterOrigins.includes(TENANCY_SELF_SCOPE_ORIGIN)) return agg;
         // Incompatible claim type: derive nothing — IR validation rejects
         // the model (`loom.tenancy-claim-type-mismatch`).
         if (tenancyClaimBinding(claimType) === "mismatch") return agg;
-        const filters = agg.contextFilters ?? [];
-        const origins =
-          agg.contextFilterOrigins ?? filters.map((): string | undefined => undefined);
         return {
           ...agg,
           contextFilters: [
-            ...filters,
+            ...agg.contextFilters,
             buildRegistrySelfScopeFilter(agg, tenancy.claimField, claimType),
           ],
-          contextFilterOrigins: [...origins, TENANCY_SELF_SCOPE_ORIGIN],
+          contextFilterRefs: [...agg.contextFilterRefs, undefined],
+          contextFilterOrigins: [...agg.contextFilterOrigins, TENANCY_SELF_SCOPE_ORIGIN],
         };
       }),
     })),
@@ -595,11 +593,9 @@ function applyPolicyReadLevels(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedS
           if (!level || !hasTenantOwned(agg)) return agg;
           const replacement = filterFor(agg, level);
           if (!replacement) return agg;
-          const filters = agg.contextFilters ?? [];
-          const origins = agg.contextFilterOrigins ?? filters.map(() => undefined);
-          const i = origins.indexOf(TENANT_OWNED_CAPABILITY);
+          const i = agg.contextFilterOrigins.indexOf(TENANT_OWNED_CAPABILITY);
           if (i < 0) return agg;
-          const rewritten = [...filters];
+          const rewritten = [...agg.contextFilters];
           rewritten[i] = replacement;
           return { ...agg, contextFilters: rewritten };
         }),
@@ -725,19 +721,17 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
           // entitled to rely on.  `buildDenyFilter` has exactly one call site
           // that touches `contextFilters` (this one), so the guard is a no-op
           // on a first pass by construction.
-          if (readHit && !(next.contextFilters ?? []).some(isDenyFilter)) {
+          if (readHit && !next.contextFilters.some(isDenyFilter)) {
             // Append the always-false term to the read filter list (deny wins:
-            // any widened allow scope earlier in the list is dominated).  Keep
-            // `contextFilterOrigins` index-aligned (undefined origin ⇒ the deny
-            // is a bare/hand-written filter, never `ignoring`-bypassable — the
-            // desired semantics for a carve-out) only when origins are tracked.
-            const filters = [...(next.contextFilters ?? []), buildDenyFilter(agg)];
+            // any widened allow scope earlier in the list is dominated).  Its
+            // ref and origin slots are `undefined`: the deny is a bare filter,
+            // never `ignoring`-bypassable — the desired semantics for a
+            // carve-out.
             next = {
               ...next,
-              contextFilters: filters,
-              ...(next.contextFilterOrigins
-                ? { contextFilterOrigins: [...next.contextFilterOrigins, undefined] }
-                : {}),
+              contextFilters: [...next.contextFilters, buildDenyFilter(agg)],
+              contextFilterRefs: [...next.contextFilterRefs, undefined],
+              contextFilterOrigins: [...next.contextFilterOrigins, undefined],
             };
           }
           if (writeHit) {

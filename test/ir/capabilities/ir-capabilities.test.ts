@@ -95,7 +95,7 @@ describe("macro capabilities propagate to AggregateIR", () => {
     expect(agg.contextFilterOrigins).toContain(undefined);
   });
 
-  it("contextFilterOrigins is undefined when no filter came from a capability", async () => {
+  it("contextFilterOrigins holds an undefined slot per filter when none came from a capability", async () => {
     const ir = await buildLoomModel(`
       system Demo {
         subdomain M { context C {
@@ -108,8 +108,9 @@ describe("macro capabilities propagate to AggregateIR", () => {
     `);
     const agg = findAgg(ir, "Doc");
     expect(agg.contextFilters!.length).toBe(1);
-    // Only a hand-written filter → the whole array stays undefined (byte-neutral).
-    expect(agg.contextFilterOrigins).toBeUndefined();
+    // Only a hand-written filter → one `undefined` origin and ref, index-aligned.
+    expect(agg.contextFilterOrigins).toEqual([undefined]);
+    expect(agg.contextFilterRefs).toEqual([undefined]);
   });
 
   it("composed trios yield both capability kinds, independently", async () => {

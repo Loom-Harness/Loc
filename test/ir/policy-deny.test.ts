@@ -122,15 +122,16 @@ describe("policy deny — enrichment composition", () => {
     expect((inv.contextFilters ?? []).some(isDenyFilter)).toBe(false);
   });
 
-  it("keeps contextFilterOrigins index-aligned after appending the deny term", async () => {
+  it("keeps the filter refs and origins index-aligned after appending the deny term", async () => {
     const model = await buildLoomModel(hierarchy({ policy: "deny on Invoice" }));
     const inv = agg(model, "Invoice");
-    if (inv.contextFilterOrigins) {
-      expect(inv.contextFilterOrigins.length).toBe((inv.contextFilters ?? []).length);
-      // The deny term carries no capability origin (never `ignoring`-bypassable).
-      const i = (inv.contextFilters ?? []).findIndex(isDenyFilter);
-      expect(inv.contextFilterOrigins[i]).toBeUndefined();
-    }
+    const n = inv.contextFilters.length;
+    expect(inv.contextFilterRefs).toHaveLength(n);
+    expect(inv.contextFilterOrigins).toHaveLength(n);
+    // The deny term carries no capability origin (never `ignoring`-bypassable).
+    const i = inv.contextFilters.findIndex(isDenyFilter);
+    expect(i).toBeGreaterThan(-1);
+    expect(inv.contextFilterOrigins[i]).toBeUndefined();
   });
 
   it("only the named aggregate is affected; siblings are untouched", async () => {
