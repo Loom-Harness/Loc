@@ -895,7 +895,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           ? { kind: "cron", cron: ts.cron }
           : { kind: "every", everyMs: parseDurationMs(ts.every ?? "") },
         ...(ts.timezone ? { timezone: ts.timezone } : {}),
-        overlap: !!ts.overlap,
+        ...(ts.overlap ? { overlap: true } : {}),
       }),
     );
   const layouts = members
