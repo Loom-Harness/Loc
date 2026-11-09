@@ -39,6 +39,11 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import {
+  frameworksWithScope,
+  platformHasUiScope,
+  platformUiOwnedBy,
+} from "../../../util/target-capabilities.js";
 import type { EnrichedLoomModel, StmtIR, StoreIR } from "../../types/loom-ir.js";
 import { classifyFelizAsyncEffect } from "../../util/feliz-async-effect.js";
 import { felizPersistCodec } from "../../util/feliz-persist-codec.js";
@@ -55,6 +60,9 @@ function flutterTierOf(lifetime: string): FlutterPersistTier {
 
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { mountedUis } from "./ui-framework-checks.js";
+
+/** Frameworks whose store is a server-side, per-process struct. */
+const SERVER_PROCESS_STORES = frameworksWithScope("stores:server-process");
 
 /** The frontends whose store fields boot through the shared JS store
  *  renderer (`_frontend/store-field-init.ts`); Feliz, Flutter and LiveView
@@ -278,7 +286,8 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         if (!stores || stores.length === 0) continue;
         const ui = sys.uis.find((u) => u.name === uiName);
         const isLiveView =
-          dep.uiFramework === "phoenixLiveView" || ui?.framework === "phoenixLiveView";
+          SERVER_PROCESS_STORES.has(dep.uiFramework ?? "") ||
+          SERVER_PROCESS_STORES.has(ui?.framework ?? "");
         if (!isLiveView) continue;
         // loom.store-lifetime-liveview-invalid — the persistence tiers of
         // the lifetime ladder don't map onto a server-rendered LiveView store:
@@ -355,12 +364,11 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     // loudly instead — and the same ratchet applies: widen the codec table,
     // delete the platform's block here.
     //
-    // Detected off `dep.platform`, not `uiFramework`, for the reason the Feliz
-    // block below spells out: `platform: feliz` / `platform: flutter` each host
-    // only their own framework, and a bare declaration resolves `uiFramework`
-    // to the frontend default rather than to the platform's own name.
+    // Scoped by the deployable's OWN platform table (its `stores:persist-*`
+    // scope): Feliz and Flutter each self-host only their own framework, and a
+    // backend embedding a bundle does not run that bundle's store codec.
     for (const dep of sys.deployables) {
-      if (dep.platform !== "feliz") continue;
+      if (!platformHasUiScope(dep.platform, "stores:persist-fsharp-codec")) continue;
       const mounted = [dep.uiName, ...(dep.hostedUiNames ?? [])].filter((n): n is string => !!n);
       for (const uiName of mounted) {
         for (const store of storesByUi.get(uiName) ?? []) {
@@ -384,7 +392,7 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     }
 
     for (const dep of sys.deployables) {
-      if (dep.platform !== "flutter") continue;
+      if (!platformHasUiScope(dep.platform, "stores:persist-dart-codec")) continue;
       const mounted = [dep.uiName, ...(dep.hostedUiNames ?? [])].filter((n): n is string => !!n);
       for (const uiName of mounted) {
         for (const store of storesByUi.get(uiName) ?? []) {
@@ -412,17 +420,6 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
       }
     }
 
-    // loom.feliz-store-unsupported — the Feliz (F#/Fable/Elmish) frontend has no
-    // store subsystem yet.  A store composes SHARED reactive state across pages;
-    // in the single-program Elmish model that means folding store state into the
-    // one `Model` (with a store-scoped read seam so `Cart.count` resolves to the
-    // right namespaced field) and store actions into `Msg`/`update` — a genuine
-    // subsystem, not a single emit arm.  Rather than emit a non-reactive mutable
-    // module (silently wrong), a store used by a Feliz-hosted ui is gated here
-    // until that subsystem lands.  (`platform: feliz` hosts only `framework:
-    // feliz` — `hostableFrameworks: {feliz}` — so the deployable platform is the
-    // reliable detector; a bare `platform: feliz` resolves `uiFramework` to the
-    // frontend default, not `"feliz"`.)  Tracked in T6-backend-parity.md M-T6.15.
     // Every aggregate name reachable in this system — the shared async-effect
     // classifier resolves the awaited op's aggregate + success variant against it.
     const aggregateNames = new Set<string>();
@@ -431,13 +428,17 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         for (const a of c.aggregates ?? []) aggregateNames.add(a.name);
     }
     for (const dep of sys.deployables) {
-      if (dep.platform !== "feliz") continue;
+      if (
+        !platformUiOwnedBy(
+          dep.platform,
+          "stmt:match-await@component-action",
+          "loom.feliz-async-effect-unsupported",
+        )
+      ) {
+        continue;
+      }
       const mounted = [dep.uiName, ...(dep.hostedUiNames ?? [])].filter((n): n is string => !!n);
       for (const uiName of mounted) {
-        // Stores now fold into the single-program Elmish Model/Msg/update (each
-        // store field → a namespaced Model field, each store action → a Msg
-        // case), so `loom.feliz-store-unsupported` was lifted once that
-        // subsystem landed — the store reads/actions emit against `model`.
 
         // async-effect gate — loom.feliz-async-effect-unsupported.  A frontend
         // `match await <op>()` (async-actions-and-effects.md Stage 2) lowers to a
@@ -604,13 +605,20 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     // there is no subject-shape classification here.  The Flutter filter keys on
     // the statement KIND alone, and this gate mirrors exactly that.
     //
-    // Detected off `dep.platform` for the reason the lifetime gate spells out:
-    // `platform: flutter` hosts only `framework: flutter`, and a bare declaration
-    // resolves `uiFramework` to the frontend default rather than `"flutter"`.
-    // Drains when the Flutter component emitter grows the async-effect path
-    // (M-T1.20), which deletes this arm.
+    // Scoped by the deployable's own platform table, whose
+    // `stmt:match-await@component-action` row this check owns; the row moves to
+    // `supported` when the Flutter component emitter grows the async-effect
+    // path.
     for (const dep of sys.deployables) {
-      if (dep.platform !== "flutter") continue;
+      if (
+        !platformUiOwnedBy(
+          dep.platform,
+          "stmt:match-await@component-action",
+          "loom.flutter-async-effect-unsupported",
+        )
+      ) {
+        continue;
+      }
       const mounted = [dep.uiName, ...(dep.hostedUiNames ?? [])].filter((n): n is string => !!n);
       for (const uiName of mounted) {
         const ui = sys.uis.find((u) => u.name === uiName);

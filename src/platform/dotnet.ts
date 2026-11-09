@@ -8,6 +8,7 @@ import { dotnetRootNamespace } from "../generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../generator/dotnet/emit/program.js";
 import { generateDotnetForContexts } from "../generator/dotnet/index.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import { TARGET_FACTS } from "./target-facts.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -44,6 +45,7 @@ const dotnetPlatform: PlatformSurface = {
   // an explicit `ui:` declaration.
   mountsUi: true,
   capabilities: TARGET_CAPABILITIES.dotnet,
+  facts: TARGET_FACTS.dotnet,
   emitProject({
     contexts,
     deployable,

@@ -6,6 +6,7 @@ import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import { TARGET_FACTS } from "./target-facts.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -41,6 +42,7 @@ const javaPlatform: PlatformSurface = {
   // not static-only.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
   capabilities: TARGET_CAPABILITIES.java,
+  facts: TARGET_FACTS.java,
   emitProject({
     contexts,
     deployable,

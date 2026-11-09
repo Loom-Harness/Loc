@@ -1,5 +1,6 @@
 import { generatePythonForContexts } from "../generator/python/index.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
+import { TARGET_FACTS } from "./target-facts.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -38,6 +39,7 @@ const pythonPlatform: PlatformSurface = {
   // static-bundle framework.  D-PHOENIX-SURFACE.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
   capabilities: TARGET_CAPABILITIES.python,
+  facts: TARGET_FACTS.python,
   emitProject({
     contexts,
     deployable,

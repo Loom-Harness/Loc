@@ -6,8 +6,11 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { upperFirst } from "../../../util/naming.js";
+import {
+  platformBackendOwnedBy,
+  platformHasBackendScope,
+} from "../../../util/target-capabilities.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -136,6 +139,26 @@ function unenforceableReason(inv: InvariantIR, opaque: ReadonlySet<string>): str
   return "its predicate cannot be evaluated against the proposed row";
 }
 
+/** Every invariant of `ctx` the Ecto changeset cannot evaluate against the
+ *  record it validates, with the reason — the uses of
+ *  `invariant:unvalidated-shape@aggregate`. */
+export function unvalidatedInvariants(
+  ctx: BoundedContextIR,
+): { agg: AggregateIR; inv: InvariantIR; reason: string }[] {
+  const out: { agg: AggregateIR; inv: InvariantIR; reason: string }[] = [];
+  for (const agg of ctx.aggregates) {
+    // An event-sourced aggregate is checked against its in-memory fold, which
+    // holds a reference collection as the plain id list — so nothing is
+    // opaque there, and only the shapes no carrier can evaluate remain.
+    const carrier = agg.persistedAs === "eventLog" ? { invariants: agg.invariants } : agg;
+    const opaque = unreadableCollections(carrier);
+    for (const inv of unrenderableInvariants(carrier)) {
+      out.push({ agg, inv, reason: unenforceableReason(inv, opaque) });
+    }
+  }
+  return out;
+}
+
 export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
@@ -145,36 +168,88 @@ export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagno
   const seen = new Set<string>();
 
   for (const dep of sys.deployables) {
-    if (dep.platform !== "elixir") continue;
+    if (
+      !platformBackendOwnedBy(
+        dep.platform,
+        "invariant:unvalidated-shape@aggregate",
+        "loom.elixir-invariant-unenforced",
+      )
+    ) {
+      continue;
+    }
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
-      for (const agg of ctx.aggregates) {
-        // An event-sourced aggregate is checked against its in-memory fold, which
-        // holds a reference collection as the plain id list — so nothing is
-        // opaque there, and only the shapes no carrier can evaluate remain.
-        const carrier = agg.persistedAs === "eventLog" ? { invariants: agg.invariants } : agg;
-        const opaque = unreadableCollections(carrier);
-        for (const inv of unrenderableInvariants(carrier)) {
-          const key = `${ctxName}/${agg.name}/${inv.source}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          diags.push({
-            severity: "warning",
-            code: "loom.elixir-invariant-unenforced",
-            message: diagMessage("loom.elixir-invariant-unenforced", {
-              ctxName,
-              name: agg.name,
-              source: inv.source,
-              reason: unenforceableReason(inv, opaque),
-            }),
-            source: `${sys.name}/${dep.name}`,
-            origin: dep.origin,
-          });
-        }
+      for (const { agg, inv, reason } of unvalidatedInvariants(ctx)) {
+        const key = `${ctxName}/${agg.name}/${inv.source}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        diags.push({
+          severity: "warning",
+          code: "loom.elixir-invariant-unenforced",
+          message: diagMessage("loom.elixir-invariant-unenforced", {
+            ctxName,
+            name: agg.name,
+            source: inv.source,
+            reason,
+          }),
+          source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
+        });
       }
     }
   }
+}
+
+/** One operation self-call an operation body of `ctx` makes in a position
+ *  the vanilla Phoenix operation cannot carry: anywhere but the whole value
+ *  of a `return` (`position`), or a bare call to a private operation whose
+ *  body reads `currentUser` (`actor`).  In body order. */
+export interface OpSelfCallHit {
+  readonly kind: "position" | "actor";
+  readonly agg: AggregateIR;
+  readonly op: OperationIR;
+  readonly eName: string;
+}
+
+export function opSelfCallHits(ctx: BoundedContextIR): OpSelfCallHit[] {
+  const out: OpSelfCallHit[] = [];
+  for (const agg of ctx.aggregates) {
+    for (const op of agg.operations as OperationIR[]) {
+      // Every statement the body reaches, branch bodies included —
+      // `walkStmtsDeep`, not a top-level `for`, because a self-call inside an
+      // `if` branch renders in exactly the same non-tail position.
+      const bodyStmts: StmtIR[] = [];
+      for (const top of op.statements) walkStmtsDeep(top, (n) => bodyStmts.push(n));
+      for (const s of bodyStmts) {
+        // The single allowed site: an op-call that IS the whole value of a
+        // `return` (tail passthrough).  Decided per STATEMENT, so a branch's
+        // own `return this.<op>()` keeps the carve-out.
+        const allowed = s.kind === "return" && isOperationSelfCall(s.value) ? s.value : undefined;
+        eachStmtExpr(s, (e) => {
+          if (e === allowed || !isOperationSelfCall(e)) return;
+          out.push({ kind: "position", agg, op, eName: e.name });
+        });
+      }
+      // A BARE call statement to a private operation is emitted on vanilla
+      // as `record = __op_<name>(record, …)` — a pure struct transform in
+      // the caller's module.  That helper is `defp`-local and takes no actor,
+      // and the CALLER binds `current_user` only when its OWN body reads the
+      // principal, so a callee whose body reads `currentUser` would render an
+      // unbound `current_user` — `mix compile` fails with "undefined
+      // variable".  Independent of the call-position rule above: this one is
+      // about the CALLEE's body, not the call's syntactic slot.
+      for (const s of op.statements) {
+        walkStmtsDeep(s, (inner) => {
+          if (inner.kind !== "call" || inner.target !== "private-operation") return;
+          const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
+          if (!callee?.statements.some(stmtReadsCurrentUser)) return;
+          out.push({ kind: "actor", agg, op, eName: inner.name });
+        });
+      }
+    }
+  }
+  return out;
 }
 
 export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagnostic[]): void {
@@ -182,70 +257,49 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
 
   for (const dep of sys.deployables) {
-    if (dep.platform !== "elixir") continue;
+    const gatesPosition = platformBackendOwnedBy(
+      dep.platform,
+      "call:op-self-non-tail@operation",
+      "loom.vanilla-op-call-position",
+    );
+    const gatesActor = platformBackendOwnedBy(
+      dep.platform,
+      "call:private-op-reads-principal@operation",
+      "loom.vanilla-op-call-actor",
+    );
+    if (!gatesPosition && !gatesActor) continue;
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
-      for (const agg of ctx.aggregates) {
-        for (const op of agg.operations as OperationIR[]) {
-          // Every statement the body reaches, branch bodies included —
-          // `walkStmtsDeep`, not a top-level `for`, because a self-call inside an
-          // `if` branch renders in exactly the same non-tail position.
-          const bodyStmts: StmtIR[] = [];
-          for (const top of op.statements) walkStmtsDeep(top, (n) => bodyStmts.push(n));
-          for (const s of bodyStmts) {
-            // The single allowed site: an op-call that IS the whole value of a
-            // `return` (tail passthrough).  Decided per STATEMENT, so a branch's
-            // own `return this.<op>()` keeps the carve-out.
-            const allowed =
-              s.kind === "return" && isOperationSelfCall(s.value) ? s.value : undefined;
-            eachStmtExpr(s, (e) => {
-              if (e === allowed || !isOperationSelfCall(e)) return;
-              diags.push({
-                severity: "error",
-                code: "loom.vanilla-op-call-position",
-                message: diagMessage("loom.vanilla-op-call-position", {
-                  ctxName,
-                  name: agg.name,
-                  opName: op.name,
-                  eName: e.name,
-                }),
-                source: `${sys.name}/${dep.name}`,
-                origin: dep.origin,
-              });
-            });
-          }
-          // A BARE call statement to a private operation is emitted on vanilla
-          // as `record = __op_<name>(record, …)` — a pure struct transform in
-          // the caller's module (M-T6.55 F24).  That helper is `defp`-local and
-          // takes no actor, and the CALLER binds `current_user` only when its
-          // OWN body reads the principal, so a callee whose body reads
-          // `currentUser` would render an unbound `current_user` —
-          // `mix compile` fails with "undefined variable".  The threading is a
-          // real feature (every actor-arg site in the elixir emitter would have
-          // to become transitive over the private-op call graph); until then it
-          // is an HONEST refusal here rather than an emitted body that does not
-          // compile.  Independent of the call-position rule above: this one is
-          // about the CALLEE's body, not the call's syntactic slot.
-          for (const s of op.statements) {
-            walkStmtsDeep(s, (inner) => {
-              if (inner.kind !== "call" || inner.target !== "private-operation") return;
-              const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
-              if (!callee?.statements.some(stmtReadsCurrentUser)) return;
-              diags.push({
-                severity: "error",
-                code: "loom.vanilla-op-call-actor",
-                message: diagMessage("loom.vanilla-op-call-actor", {
-                  ctxName,
-                  name: agg.name,
-                  opName: op.name,
-                  eName: inner.name,
-                }),
-                source: `${sys.name}/${dep.name}`,
-                origin: dep.origin,
-              });
-            });
-          }
+      for (const hit of opSelfCallHits(ctx)) {
+        if (hit.kind === "position") {
+          if (!gatesPosition) continue;
+          diags.push({
+            severity: "error",
+            code: "loom.vanilla-op-call-position",
+            message: diagMessage("loom.vanilla-op-call-position", {
+              ctxName,
+              name: hit.agg.name,
+              opName: hit.op.name,
+              eName: hit.eName,
+            }),
+            source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
+          });
+        } else {
+          if (!gatesActor) continue;
+          diags.push({
+            severity: "error",
+            code: "loom.vanilla-op-call-actor",
+            message: diagMessage("loom.vanilla-op-call-actor", {
+              ctxName,
+              name: hit.agg.name,
+              opName: hit.op.name,
+              eName: hit.eName,
+            }),
+            source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
+          });
         }
       }
     }
@@ -559,7 +613,7 @@ export function validateDotnetNameCollisions(sys: SystemIR, diags: LoomDiagnosti
   // deployables serving the same context describe one defect, not two.
   const seen = new Set<string>();
   for (const dep of sys.deployables) {
-    if (platformFamily(dep.platform) !== "dotnet") continue;
+    if (!platformHasBackendScope(dep.platform, "names:csharp-members")) continue;
     for (const ctxName of dep.contextNames) {
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;

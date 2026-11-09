@@ -43,6 +43,7 @@ import {
 } from "../ir/util/demo-tenant.js";
 import { assertLoomModelVerifies } from "../ir/verify/verify-ir.js";
 import type { Model } from "../language/generated/ast.js";
+import { factsFor } from "../platform/metadata.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
@@ -589,12 +590,7 @@ function collectContextsFor(
   // `HasDiscriminator`), Phoenix (Ecto shared table with a `kind` discriminator
   // column), Python, and Java (JPA SINGLE_TABLE); all keep
   // the base so it can own the shared table.
-  const isTphCapable =
-    d.platform === "node" ||
-    d.platform === "dotnet" ||
-    d.platform === "elixir" ||
-    d.platform === "python" ||
-    d.platform === "java";
+  const isTphCapable = factsFor(d.platform)?.sharedTableInheritance ?? false;
   const keepsTable = (a: { isAbstract?: boolean; inheritanceUsing?: string }) =>
     !!a.isAbstract && isTphCapable && (a.inheritanceUsing ?? "sharedTable") === "sharedTable";
   // A TPC (`ownTable`) base is kept in the view on every backend that
@@ -1767,13 +1763,14 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   lines.push(`    interval: 5s`);
   lines.push(`    timeout: 3s`);
   lines.push(`    retries: 10`);
-  // Elixir OIDC: the generated Phoenix app warms the issuer's JWKS synchronously
-  // BEFORE its Endpoint starts (so `/health` serves only once tokens can be
-  // verified — no cold-cache 401 window).  That blocks boot on the IdP's own
-  // boot/realm-import, so give the healthcheck extra startup grace under compose
-  // `--wait`; the fetch degrades gracefully (never crashes) if the budget runs out.
-  if (oidc && d.platform === "elixir") {
-    lines.push(`    start_period: 60s`);
+  // A backend that warms the issuer's JWKS synchronously BEFORE it serves
+  // `/health` (so tokens verify from the first request — no cold-cache 401
+  // window) blocks boot on the IdP's own boot/realm-import, so its healthcheck
+  // gets the start grace its `oidcStartGraceSeconds` fact names under compose
+  // `--wait`; the fetch degrades gracefully if the budget runs out.
+  const startGrace = factsFor(d.platform)?.oidcStartGraceSeconds;
+  if (oidc && startGrace !== undefined) {
+    lines.push(`    start_period: ${startGrace}s`);
   }
   return lines;
 }

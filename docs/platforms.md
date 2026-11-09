@@ -268,6 +268,8 @@ Every surface implements:
 | `defaultPort` | Used when the deployable doesn't specify one. |
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
+| `capabilities` | What the target renders, per construct × position — `src/util/target-capabilities.ts`. |
+| `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects) live in the same file, read through `frameworkFacts(framework)`. |
 | `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
 | `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
 
@@ -276,6 +278,18 @@ self-contained — no cross-platform calls.  The system orchestrator
 in `src/system/` composes the resulting per-deployable file maps into
 one tree and writes the cross-cutting `docker-compose.yml`,
 `db-init/`, and `.loom/` artefacts on top.
+
+### Per-target knowledge lives on the target's row
+
+Lowering, the validators and system composition (`src/ir/`, `src/language/`,
+`src/system/`) never compare a platform or ui-framework name against a
+literal.  A fact about one target is a field on its row — `facts` for what it
+is, a `capabilities` verdict for what it renders, a capability-table scope
+for a rule that applies only to the targets it describes — and the front half
+reads that field.  Adding a target therefore means adding its rows, not
+editing a branch under `src/ir/lower/`.  The Biome plugin
+`biome-plugins/no-target-name-literal.grit` refuses such a comparison in
+those directories, so `npm run lint` fails on one.
 
 ### `platform: node` does not mount a UI — a settled non-goal
 

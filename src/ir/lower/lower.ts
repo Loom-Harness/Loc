@@ -743,7 +743,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
     // Test-kind dispatch.
     //   - `react` / `static` are frontend-only → only `ui` (Playwright).
     //   - `dotnet` / `hono` are backend-only → only `api` (vitest+fetch).
-    //   - `phoenixLiveView` is fullstack — it can carry EITHER kind, so the
+    //   - a fullstack platform (Phoenix) can carry EITHER kind, so the
     //     block's own CALL ROOT decides: a body written against `ui.<agg>.…`
     //     lowers to the Playwright spec, one written against `api.<agg>.…` to
     //     the fetch spec.
@@ -757,7 +757,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
     // api renderer throw outright, which would fail `generate system` on a
     // perfectly valid ui block.
     const isFrontendOnly = !!targetPlatform && descriptorFor(targetPlatform).isFrontend;
-    const isFullstack = targetPlatform === "elixir";
+    const isFullstack = !!targetPlatform && descriptorFor(targetPlatform).facts.fullstack;
     if (isFrontendOnly) {
       e2eTests.push(lowerE2E(b, e2eEnv, "ui"));
     } else if (isFullstack) {

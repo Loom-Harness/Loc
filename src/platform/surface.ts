@@ -14,6 +14,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import type { TargetCapabilityTable } from "../util/target-capabilities.js";
+import type { TargetFacts } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // D-PHOENIX-SURFACE — framework host-capability building blocks.
@@ -180,6 +181,11 @@ export interface PlatformDescriptor {
    *  it.  Pure data from `src/util/target-capabilities.ts`, shared with the
    *  emitters that pick a path per target. */
   readonly capabilities: TargetCapabilityTable;
+  /** What this target is — its default ui framework and design pack, whether
+   *  it serves realtime, and the other per-target facts the front half reads
+   *  instead of comparing platform names.  Pure data from
+   *  `src/platform/target-facts.ts`. */
+  readonly facts: TargetFacts;
 }
 
 /** The full platform surface — its data descriptor plus the

@@ -10,6 +10,7 @@ import type {
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
 import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
+import { TARGET_FACTS } from "../../target-facts.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
@@ -38,6 +39,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // framework.  D-PHOENIX-SURFACE.
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.node,
+    facts: TARGET_FACTS.node,
     emitProject({
       contexts,
       deployable,
