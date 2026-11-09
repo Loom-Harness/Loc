@@ -84,9 +84,10 @@ export const messages = {
     hosts: unknown;
   }) =>
     `entity part '${p.ownerName}' field '${p.field}' is a value-object collection ('<VO>[]'), but ` +
-    `this context's persistence adapters are ${p.hosts}, and only a context hosted solely on JPA ` +
-    `(java, a child table), Dapper or MikroORM (a jsonb column) stores a part's value-object ` +
-    `collection; the others would lose it.  Move '${p.field}' onto the aggregate root, or model each element as a ` +
+    `this context's persistence adapters are ${p.hosts}: Dapper and MikroORM keep a part's ` +
+    `value-object collection in a jsonb column of their own, while every other adapter keeps it in ` +
+    `the part's child table, so the hosts would not read each other's writes.  Host the context ` +
+    `on one kind of adapter, move '${p.field}' onto the aggregate root, or model each element as a ` +
     `contained entity part.`,
   "loom.collection-field-unpersisted#state-value-collection": (p: {
     owner: unknown;

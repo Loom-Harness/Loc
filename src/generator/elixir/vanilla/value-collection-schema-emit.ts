@@ -2,6 +2,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EnumIR,
+  FieldIR,
   SystemIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -13,6 +14,7 @@ import { ectoValidator, messageCodeTagging } from "./changeset-validators.js";
 import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
+import { usesRelationalContainments } from "./schema-emit.js";
 
 // ---------------------------------------------------------------------------
 // Vanilla (Ecto) value-object COLLECTION child schema (`charges: Money[]`).
@@ -49,14 +51,14 @@ function childSuffix(vc: ValueCollectionIR): string {
   return vc.childTable.split("_").map(upperFirst).join("");
 }
 
-/** Descriptors for an aggregate's value-collection fields paired with the
- *  resolved VO declaration. */
+/** Descriptors for an owner's (aggregate root's or entity part's)
+ *  value-collection fields paired with the resolved VO declaration. */
 export function valueCollectionsWithVo(
-  agg: AggregateIR,
+  owner: { name: string; fields: readonly FieldIR[] },
   ctx: BoundedContextIR,
 ): { vc: ValueCollectionIR; vo: ValueObjectIR }[] {
   const vosByName = new Map(ctx.valueObjects.map((v) => [v.name, v]));
-  return valueCollectionsFor(agg).flatMap((vc) => {
+  return valueCollectionsFor(owner).flatMap((vc) => {
     const vo = vosByName.get(vc.voName);
     return vo ? [{ vc, vo }] : [];
   });
@@ -71,7 +73,8 @@ export function valueRowFieldsOf(agg: AggregateIR, ctx: BoundedContextIR): Set<s
 }
 
 /** Emit one child schema module file per value-collection field on every
- *  aggregate in the context. */
+ *  aggregate in the context — the root's, and each relational entity part's
+ *  (the part's child table FKs the part's own row). */
 export function emitVanillaValueCollectionSchemas(
   appModule: string,
   ctx: BoundedContextIR,
@@ -102,6 +105,17 @@ export function emitVanillaValueCollectionSchemas(
         renderChildSchema(appModule, ctx, agg, vc, vo, enumsByName),
       );
     }
+    // A part folded into the root's jsonb column (`shape: embedded`) keeps its
+    // lists inline; only a part with its own table owns a child table.
+    if (!usesRelationalContainments(agg, ctx, sys)) continue;
+    for (const part of agg.parts) {
+      for (const { vc, vo } of valueCollectionsWithVo(part, ctx)) {
+        out.set(
+          `lib/${appSnake}/${ctxSnake}/${vc.childTable}.ex`,
+          renderChildSchema(appModule, ctx, part, vc, vo, enumsByName),
+        );
+      }
+    }
   }
 }
 
@@ -130,7 +144,7 @@ function ectoFieldType(
 function renderChildSchema(
   appModule: string,
   ctx: BoundedContextIR,
-  agg: AggregateIR,
+  agg: { name: string },
   vc: ValueCollectionIR,
   vo: ValueObjectIR,
   enumsByName: Map<string, EnumIR>,

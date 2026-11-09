@@ -79,7 +79,7 @@ export function containmentPreloadRels(
   const flat: string[] = [];
   const nested: string[] = [];
   for (const c of agg.contains) {
-    const term = nestedPreloadOf(c, partsByName);
+    const term = nestedPreloadOf(c, partsByName, ctx);
     if (term) nested.push(`${snake(c.name)}: ${term}`);
     else flat.push(`:${snake(c.name)}`);
   }
@@ -87,19 +87,23 @@ export function containmentPreloadRels(
 }
 
 /** The nested-preload term for a containment whose contained part ITSELF has
+ *  child tables — its own value-object collections (`:conditions`) and its
  *  relational containments — `:tags` for one child, `[:tags, :labels]` for
  *  several, recursing (`[items: :notes]`) for deeper nesting.  `undefined` when
- *  the contained part is a leaf (no further containments to preload). */
+ *  the contained part is a leaf (nothing further to preload). */
 function nestedPreloadOf(
   c: ContainmentIR,
   partsByName: Map<string, EntityPartIR>,
+  ctx: BoundedContextIR,
 ): string | undefined {
   const part = partsByName.get(c.partName);
-  const children = part?.contains ?? [];
-  if (children.length === 0) return undefined;
-  const terms = children.map((cc) => {
-    const deeper = nestedPreloadOf(cc, partsByName);
+  if (!part) return undefined;
+  const valueTerms = valueCollectionsWithVo(part, ctx).map(({ vc }) => `:${snake(vc.fieldName)}`);
+  const containTerms = part.contains.map((cc) => {
+    const deeper = nestedPreloadOf(cc, partsByName, ctx);
     return deeper ? `[${snake(cc.name)}: ${deeper}]` : `:${snake(cc.name)}`;
   });
+  const terms = [...valueTerms, ...containTerms];
+  if (terms.length === 0) return undefined;
   return terms.length === 1 ? terms[0]! : `[${terms.join(", ")}]`;
 }

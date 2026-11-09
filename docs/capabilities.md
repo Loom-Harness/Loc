@@ -559,7 +559,6 @@ Pairs whose features meet at a deployable, a resource or a field, rather than on
 | a typed `kind: api` resource calling an `auth: required` deployable | every backend (no credentials are forwarded) |
 | a `timerSource` whose event rides a broker-bound channel | node (the tick is dispatched in-process); the other four (unwitnessed) |
 | `allow deep` / `allow global` on a TPH subtype of a `tenantOwned` base | dotnet (the base filter pins the exact tenant); the other four (unwitnessed) |
-| a value-object collection on an entity part | node, dotnet, python, elixir (`loom.collection-field-unpersisted`); java (unwitnessed) |
 | a value object field whose type is a value object with an invariant | elixir (the inner invariant never runs) |
 | an event carrying a `mask unless` value on a channel | every backend (`loom.field-mask-event-channel`) |
 | a unique key over a `mask unless` field whose create is not gated on the mask | every backend (`loom.field-mask-unique-oracle`) |

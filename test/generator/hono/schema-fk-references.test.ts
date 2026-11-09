@@ -14,7 +14,7 @@
 // FK/index metadata drifted from it — aligned here for consistency.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SRC = `
 system Acme {
@@ -102,14 +102,10 @@ system Acme {
 
 describe("hono drizzle schema — value-collection FK matches the migration", () => {
   async function generated() {
-    // A part's `<VO>[]` is refused on node (drizzle never reads or writes
-    // its child table: `loom.collection-field-unpersisted#part-value-collection`),
-    // but the shared migration still creates that table and drizzle's schema
-    // still declares it, so the two must agree on its FK and index.
-    const files = await generateSystemFilesUnchecked(
-      VC_SRC,
-      "the part-owned value collection is refused on node, yet its declared table must match the migration",
-    );
+    // Drizzle reads and writes a part's `<VO>[]` in the child table the shared
+    // migration creates, so its schema and the migration must agree on that
+    // table's FK and index.
+    const files = await generateSystemFiles(VC_SRC);
     const entries = [...files.entries()];
     const schema = entries.find(([p]) => p.endsWith("db/schema.ts"))?.[1];
     const sql = entries
