@@ -200,10 +200,12 @@ where durability matters:
   history); on a later boot, if the previous boundary is > 60s old and later than
   the last recorded run, it replays that boundary **exactly once** (a 20-minute
   outage over four 5-minute boundaries fires one catch-up, not four).
-- **`every:` (sub-minute) timers → in-process** `setInterval` + a
-  transaction-scoped `pg_try_advisory_xact_lock` (single-fire) with a `running`
-  no-overlap guard. Durability is meaningless for a high-frequency poll
-  (resume-at-next-tick is correct) and pg-boss cron is minute-granularity.
+- **`every:` (sub-minute) timers → in-process**: a `setInterval` poll at half
+  the period with a `running` no-overlap guard. Each poll claims the current
+  period in the `__loom_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions.md)),
+  and only the poll that advances the row dispatches, so the tick fires once
+  per period across replicas. Durability is meaningless for a high-frequency
+  poll (resume-at-next-period is correct) and pg-boss cron is minute-granularity.
 - **Dispatch.** The tick event is constructed (id fields minted, `at` stamped)
   and dispatched through the same in-process dispatcher the sagas use, so an
   `on`/`create` reactor fires with no new machinery.
@@ -212,8 +214,10 @@ where durability matters:
 - **`infra: "in-process"`** (`startTimerScheduler`'s option, passed through from
   `bootApp` — the browser playground sets it): `cron:` timers run on an
   in-memory stand-in for pg-boss that fires each boundary in this process
-  (`timer_cron_in_process`, warn — not durable, no retry, no single-fire), and
-  `every:` ticks dispatch without the advisory-lock transaction.
+  (`timer_cron_in_process`, warn — not durable, no retry, no single-fire).
+  `every:` ticks claim their period exactly as deployed; the claim is one
+  autocommitted statement, so PGlite's single connection runs it without
+  deadlocking the tick's writes.
 
 **Delivery semantics (multi-pod).** Still **at-least-once**: pg-boss gives
 single-fire per boundary and durable retry, but a clock-skewed peer or a
@@ -224,15 +228,15 @@ goal — at-least-once + idempotent reactors is the contract.
 A deployable owning no timer emits no `scheduler.ts`, no `pg-boss` dep, and no
 boot wiring — byte-identical to before.
 
-**Phase-2 durable drivers (M-T4.1).** The advisory-lock path above is the
-*in-process* tier — correct for `every:` (sub-minute) cadences but at-least-once.
-`cron:` timers additionally get a **durable, store-coordinated** driver per
+**Durable drivers.** The claim path above is the *in-process* tier — correct
+for `every:` (sub-minute) cadences, at most once per period. `cron:` timers get a **durable, store-coordinated** driver per
 backend, so a boundary missed while every replica was down is replayed once on
 recovery (missed-run catch-up) and fires exactly once across replicas
 (single-fire), with retries. Each backend uses its ecosystem's Postgres-native
 job store: **node → pg-boss**, **.NET → Hangfire**, **Java → JobRunr**,
-**Python → procrastinate**, **Elixir → Oban**. The `every:` tier stays the
-in-process interval loop + `pg_try_advisory_xact_lock` on every backend.
+**Python → procrastinate**, **Elixir → Oban**. The `every:` tier is the
+in-process poll + the `__loom_timer` period claim on every backend (one shared
+statement, one shared `MigrationsIR` table).
 
 ### Per-aggregate detail
 

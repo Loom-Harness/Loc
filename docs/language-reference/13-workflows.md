@@ -739,7 +739,20 @@ Gates (`src/language/validators/timer.ts` for the cadence, `src/ir/validate/chec
 | `loom.timer-source-unbound` | no workflow reacts to the event (**warning**) — the timer fires into the void. |
 | `loom.reserved-not-emitted` | `in: "<tz>"` and `overlap: allow` parse and reach the IR, but **no emitter reads either** — cron is evaluated in the container's clock, and every backend still guards against an overlapping run. |
 
-Each backend hosts the timer on its ecosystem's durable job runner — single-fire across replicas, automatic retry, and missed-boundary catch-up are the runner's, not Loom's:
+Every timer fires once per period across the replicas of its owning deployable and across deployables that share its storage ([D-TIMER-SINGLE-FIRE](../decisions.md)).
+
+A `cron:` timer runs on its backend's durable job runner. Single-fire across replicas, automatic retry and missed-boundary catch-up come from the runner, not from Loom.
+
+An `every:` timer runs in-process. It polls at half the period, and each poll claims the current period in the `__loom_timer` table with one upsert that advances the row only when it is behind. Only the poll that advances it dispatches the tick. The period comes from the database clock, so clock skew between replicas does not matter. A period is fired at most once: a replica that dies between the claim and the dispatch loses that period's fire. Periods during which no replica ran are skipped, not replayed.
+
+```ts
+// scheduler.ts — the every: claim (same statement on every backend)
+const claimed = (await db.execute(sql.raw(claimSql))).rows.length > 0;
+if (!claimed) return; // another poll — on any replica — already fired this period
+await events.dispatch(build());
+```
+
+The `cron:` runners, per backend:
 
 ::: tabs backend
 == node

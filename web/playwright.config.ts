@@ -27,6 +27,7 @@ const HEAVY_PREVIEW_SPECS = [
   "**/cross-deployable-runtime.spec.ts",
   "**/resource-fakes.spec.ts",
   "**/multi-deployable-ui.spec.ts",
+  "**/timer-single-fire.spec.ts",
 ];
 
 export default defineConfig({

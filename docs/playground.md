@@ -142,7 +142,7 @@ the browser's answers, each announced at warn level in the runtime log:
 | `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
 | `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
-| `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
+| `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `__loom_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
 
 The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
 `pg-boss`) are swapped at bundle time for stubs whose constructors throw
