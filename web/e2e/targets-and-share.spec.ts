@@ -1,10 +1,10 @@
 // M-T8.23 — the targets drawer, the read-only / embed links, and what the
 // share dialog says the link carries.  No network: nothing here bundles or
 // boots.  The target change is proved through the SOURCE (the deployable's
-// clause is rewritten) and through the pipeline strip's Generate count (the
+// clause is rewritten) and through the generated tree's file names (the
 // regenerate actually ran against the new stack).
 
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 const SHARED = `system Shared {
@@ -45,11 +45,11 @@ test("switching the frontend target React → Vue rewrites the clause and regene
   await page.goto("/");
   await waitForPlaygroundReady(page);
 
-  // Wait for the first generate so the file count we compare against is real.
+  // Wait for the first generate so the tree we compare against is real.
   await expect(page.getByTestId("btn-generate")).toHaveAttribute("data-state", "ok", {
     timeout: 60_000,
   });
-  const before = await page.getByTestId("pipeline-count-generate").textContent();
+  expect(await downloadedNames(page)).toContain("web_app/src/App.tsx");
   expect(await readEditorSource(page)).toContain("platform: react");
 
   await page.getByTestId("btn-targets").click();
@@ -65,17 +65,35 @@ test("switching the frontend target React → Vue rewrites the clause and regene
   expect(source).toContain("platform: node");
   expect(source).not.toContain("platform: react");
 
-  // 2. …and the pipeline regenerated against the new stack: a Vue project is
-  //    a different tree from a React one, so the file count moves.
+  // 2. …and the pipeline regenerated against the new stack: the generated
+  //    tree now carries the Vue entry component instead of React's.  The file
+  //    COUNT is no proof — the sales-system React and Vue trees have the same
+  //    number of files — so read the names off the Download .zip archive.
   await expect(page.getByTestId("btn-generate")).toHaveAttribute("data-state", "ok", {
     timeout: 60_000,
   });
+  await page.keyboard.press("Escape");
   await expect
-    .poll(async () => await page.getByTestId("pipeline-count-generate").textContent(), {
-      timeout: 60_000,
-    })
-    .not.toBe(before);
+    .poll(async () => await downloadedNames(page), { timeout: 60_000 })
+    .toContain("web_app/src/App.vue");
+  expect(await downloadedNames(page)).not.toContain("web_app/src/App.tsx");
 });
+
+/** The generated project's file names, read off the Download .zip archive's
+ *  central directory (each `PK\x01\x02` record: name length at +28, name at +46). */
+async function downloadedNames(page: Page): Promise<string[]> {
+  await page.getByTestId("explorer-mode-generated").click();
+  const download = page.waitForEvent("download");
+  await page.getByText("Download .zip").click();
+  const chunks: Buffer[] = [];
+  for await (const c of await (await download).createReadStream()) chunks.push(c as Buffer);
+  const zip = Buffer.concat(chunks);
+  const names: string[] = [];
+  for (let i = zip.indexOf("PK\x01\x02"); i >= 0; i = zip.indexOf("PK\x01\x02", i + 46)) {
+    names.push(zip.toString("utf8", i + 46, i + 46 + zip.readUInt16LE(i + 28)));
+  }
+  return names;
+}
 
 test("the drawer offers only frontends to a frontend and only backends to a backend", async ({
   page,
