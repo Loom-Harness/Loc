@@ -213,7 +213,8 @@ export function generateVueForContexts(
   // shim + `src/locales/en.json`.  Empty catalog → no translation runtime, walk
   // sites pass `undefined` and output stays byte-identical to pre-i18n.
   const i18nEnabled =
-    collectUiMessages(ui, sys.layouts).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+    collectUiMessages(ui, sys.layouts).length > 0 ||
+    uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
   // Two or more locales ship (the source plus a translated catalog): the shell
   // header carries the `LocaleSwitcher` and the routed tree re-renders on a
   // switch.  Set where the translated catalogs are emitted, below.

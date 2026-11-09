@@ -272,7 +272,8 @@ export function generateAngularForContexts(
   // (Angular templates resolve interpolations against the instance).  A
   // string-less ui emits neither the runtime nor a prefix → byte-identical.
   const i18nEnabled = ui
-    ? collectUiMessages(ui, sys.layouts).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
+    ? collectUiMessages(ui, sys.layouts).length > 0 ||
+      uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
     : false;
   // Two or more locales ship (the source plus a translated catalog): the shell
   // carries the `LocaleSwitcher` and reads the `locale` signal.  Set where the
