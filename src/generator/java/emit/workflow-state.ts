@@ -1,5 +1,4 @@
 import type { EnrichedBoundedContextIR, FieldIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
@@ -79,6 +78,8 @@ export function renderWorkflowStateEntity(
   /** The workflow's owning-context schema for the saga-state `@Table`.
    *  Undefined ⇒ unqualified, byte-identical. */
   schema?: string,
+  /** Any context this deployable hosts declares a durable channel. */
+  durable = false,
 ): string {
   const corr = wf.correlationField as string;
   const fields = wf.stateFields ?? [];
@@ -104,7 +105,6 @@ export function renderWorkflowStateEntity(
   // module migrations add to this saga table (migrations-builder.ts), so the
   // dispatcher's handler preamble can no-op on the relay's / broker's
   // at-least-once redelivery.  Byte-identical when no channel asks for durability.
-  const durable = durableEventTypes(ctx).size > 0;
   if (durable) {
     fieldLines.push(`    @Column(name = "last_event_id")`);
     fieldLines.push(`    String lastEventId;`);
