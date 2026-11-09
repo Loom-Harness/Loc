@@ -54,6 +54,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
     const org = findAgg(ir, "Organization");
     expect(org.contextFilters).toHaveLength(1);
     expect(org.contextFilterOrigins).toEqual([TENANCY_SELF_SCOPE_ORIGIN]);
+    expect(org.contextFilterRefs).toEqual([undefined]);
     const pred = org.contextFilters![0]!;
     // The exact resolved shape every backend's principal-filter path consumes.
     expect(pred).toMatchObject({
@@ -122,6 +123,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
     const org = findAgg(ir, "Organization");
     expect(org.contextFilters).toHaveLength(2);
     expect(org.contextFilterOrigins).toEqual([undefined, TENANCY_SELF_SCOPE_ORIGIN]);
+    expect(org.contextFilterRefs).toHaveLength(2);
   });
 
   it("is idempotent — a second enrichment pass appends nothing", async () => {
@@ -173,7 +175,7 @@ describe("guidFromStringSelfScope", () => {
     const { model } = await parseString(TENANCY_SRC, { validate: false });
     const reg = findAgg(enrichLoomModel(lowerModel(model)), "Organization");
     const pred = (reg.contextFilters ?? [])[
-      (reg.contextFilterOrigins ?? []).indexOf(TENANCY_SELF_SCOPE_ORIGIN)
+      reg.contextFilterOrigins.indexOf(TENANCY_SELF_SCOPE_ORIGIN)
     ]!;
     expect(guidFromStringSelfScope(pred)).toEqual({ claim: "tenantId", idOnLeft: true });
   });
@@ -184,7 +186,7 @@ describe("guidFromStringSelfScope", () => {
     });
     const reg = findAgg(enrichLoomModel(lowerModel(model)), "Organization");
     const pred = (reg.contextFilters ?? [])[
-      (reg.contextFilterOrigins ?? []).indexOf(TENANCY_SELF_SCOPE_ORIGIN)
+      reg.contextFilterOrigins.indexOf(TENANCY_SELF_SCOPE_ORIGIN)
     ]!;
     expect(guidFromStringSelfScope(pred)).toBeUndefined();
   });
