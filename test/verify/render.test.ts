@@ -9,7 +9,7 @@
 //     added to the union but not to a map renders as the literal string
 //     `undefined` in the Markdown / the `class` line, which is exactly the
 //     silent-degradation shape a golden-file test would ratify.  The verdict
-//     set is read out of the union's declaration in `loom-ir.ts`, so a fifth
+//     set is read out of the union's declaration in the IR types, so a fifth
 //     verdict is covered the moment it is declared.
 //   • `pct(n, 0)` is `"n/a"`, never `NaN%`.
 //   • Every requirement appears exactly once in the Markdown tree and exactly
@@ -20,8 +20,7 @@
 //   • A Mermaid-hostile requirement id / title cannot corrupt the graph.
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 import type {
   LoomModel,
@@ -37,6 +36,7 @@ import {
 } from "../../src/verify/render.js";
 import { computeVerification } from "../../src/verify/verification.js";
 import { buildLoomModel } from "../_helpers/index.js";
+import { irTypesSource } from "../_helpers/ir-types-source.js";
 
 // ---------------------------------------------------------------------------
 // Fixture: a two-level requirement hierarchy whose rollup exercises all four
@@ -97,12 +97,9 @@ async function fixture(): Promise<{ loom: LoomModel; v: VerificationIR }> {
  *  declaration itself — so a verdict added to the union is covered here
  *  without anyone remembering to extend a hand-written list. */
 const VERDICTS: RequirementVerdict[] = (() => {
-  const src = readFileSync(
-    fileURLToPath(new URL("../../src/ir/types/loom-ir.ts", import.meta.url)),
-    "utf8",
-  );
+  const src = irTypesSource();
   const decl = src.match(/export type RequirementVerdict =([^;]+);/);
-  if (!decl) throw new Error("RequirementVerdict union not found in src/ir/types/loom-ir.ts");
+  if (!decl) throw new Error("RequirementVerdict union not found in the IR types");
   const values = [...decl[1].matchAll(/"([A-Z_]+)"/g)].map((m) => m[1] as RequirementVerdict);
   if (values.length === 0) throw new Error(`no literals in RequirementVerdict union: ${decl[1]}`);
   return values;

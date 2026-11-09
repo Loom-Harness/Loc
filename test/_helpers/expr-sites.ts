@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
+import { irTypeModules } from "./ir-types-source.js";
 
 // ---------------------------------------------------------------------------
 // The EXPRESSION-SITE CENSUS — every (declaration, field) pair in the Loom IR
@@ -19,7 +20,7 @@ import ts from "typescript";
 // The missing thing is a DENOMINATOR.  This module computes one from the IR's
 // own type declarations: a field is an expression site when its type
 // transitively reaches `ExprIR`.  That makes the census a function of
-// `loom-ir.ts` rather than a list someone maintains — the same reason
+// the IR types rather than a list someone maintains — the same reason
 // `gate-ledger.ts` derives instead of storing, and the reason
 // `gated-features-inventory.md` rotted.
 //
@@ -32,8 +33,7 @@ import ts from "typescript";
 // this whole module exists because silent gaps are the expensive kind.
 // ---------------------------------------------------------------------------
 
-const REPO = join(import.meta.dirname, "..", "..");
-const IR_TYPES = join(REPO, "src", "ir", "types", "loom-ir.ts");
+const _REPO = join(import.meta.dirname, "..", "..");
 
 /** One field that can carry expressions. `owner` is the declaring interface /
  *  type-alias name, `field` the property name (without the `?`). */
@@ -68,11 +68,8 @@ function referencedNames(node: ts.TypeNode): Set<string> {
 
 /** Parse the IR type declarations into a name → shape map. */
 function readDecls(): Map<string, Decl> {
-  const src = ts.createSourceFile(
-    IR_TYPES,
-    readFileSync(IR_TYPES, "utf8"),
-    ts.ScriptTarget.ESNext,
-    true,
+  const statements = irTypeModules().flatMap(
+    (f) => ts.createSourceFile(f, readFileSync(f, "utf8"), ts.ScriptTarget.ESNext, true).statements,
   );
   const decls = new Map<string, Decl>();
 
@@ -100,7 +97,7 @@ function readDecls(): Map<string, Decl> {
     decls.set(name, { props, refs });
   };
 
-  for (const st of src.statements) {
+  for (const st of statements) {
     if (ts.isInterfaceDeclaration(st)) {
       // `extends` clauses are edges too — a base's expression sites belong to
       // the derived type.
