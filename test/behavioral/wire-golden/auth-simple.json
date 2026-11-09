@@ -159,6 +159,64 @@
     },
     {
       "seq": 15,
+      "method": "GET",
+      "path": "/api/memos",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "two",
+            "id": "<volatile:key>",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "text": "two"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 17,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 19,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -172,7 +230,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 20,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -186,7 +244,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 21,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -200,7 +258,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 22,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -210,7 +268,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 23,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 404,
@@ -224,7 +282,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 24,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 404,
@@ -238,7 +296,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 25,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 415,
@@ -252,7 +310,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 26,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 404,
@@ -266,7 +324,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 27,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -275,7 +333,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 28,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -289,14 +347,14 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 29,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 26,
+      "seq": 30,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -305,7 +363,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 31,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 403,
@@ -319,55 +377,11 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 32,
       "method": "POST",
       "path": "/api/memos/{id}/update",
       "status": 204,
       "body": ""
-    },
-    {
-      "seq": 29,
-      "method": "POST",
-      "path": "/api/notes",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 30,
-      "method": "POST",
-      "path": "/api/notes/{id}/update",
-      "status": 403,
-      "body": {
-        "code": "problem.forbidden",
-        "detail": "Forbidden",
-        "instance": "/api/notes/{id}/update",
-        "status": 403,
-        "title": "Forbidden",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 31,
-      "method": "POST",
-      "path": "/api/notes/{id}/update",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 32,
-      "method": "POST",
-      "path": "/api/notes",
-      "status": 403,
-      "body": {
-        "code": "problem.forbidden",
-        "detail": "Forbidden",
-        "instance": "/api/notes",
-        "status": 403,
-        "title": "Forbidden",
-        "type": "about:blank"
-      }
     },
     {
       "seq": 33,
@@ -381,6 +395,41 @@
     {
       "seq": 34,
       "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/notes/{id}/update",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 36,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/notes",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "POST",
       "path": "/api/notes",
       "status": 201,
       "body": {
@@ -388,7 +437,16 @@
       }
     },
     {
-      "seq": 35,
+      "seq": 38,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 39,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 403,
@@ -402,7 +460,7 @@
       }
     },
     {
-      "seq": 36,
+      "seq": 40,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,

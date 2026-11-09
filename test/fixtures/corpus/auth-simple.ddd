@@ -87,5 +87,9 @@ system SimpleAuth {
     let n = api.notes.create({ text: "one" })
     api.notes.update(n, { text: "two" })
     expect(api.notes.getById(n).text).toBe("two")
+    expect(api.memos.all().items.length).toBe(1)
+    expect(api.notes.all().items.length).toBe(1)
+    api.notes.destroy(n)
+    expect(api.notes.all().items.length).toBe(0)
   }
 }
