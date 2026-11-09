@@ -21,12 +21,14 @@ system DotnetDocTenancy {
 
   subdomain Core {
     context Books {
-      // The tenant floor, read and write, on both twins.
+      // The tenant floor on reads, and a `deny write` carve-out on both twins:
+      // the narrowed write scope is what makes `GetByIdForWriteAsync` exist,
+      // so the document repository has to implement it (CS0535 otherwise).
       policy {
         allow local on Note
-        allow write local on Note
+        deny write on Note
         allow local on Ledger
-        allow write local on Ledger
+        deny write on Ledger
       }
 
       // The DOCUMENT twin — one jsonb column, so its `tenantId` is inside the
