@@ -2148,7 +2148,7 @@ gate.
 
 ## D-TENANCY-REGISTRY — registry named in `tenancy by … of X` + a `tenantRegistry` capability
 
-**Status:** PINNED — **amended by D-TENANCY-FLAT** (owner ruling, 2026-11-09): the capability provides no `dataKey` and no path stamp, and `parent` is movable through a provided `move(to)`.
+**Status:** PINNED — **amended by D-TENANCY-FLAT** (owner ruling, 2026-11-09): the capability provides no `dataKey` and no path stamp, and `parent` is an ordinary mutable field: a move is an author-written operation.
 
 **Problem.** The tenant registry (the `Organization`/`Tenant` aggregate) can't be
 plain tenant-scoped (it is created before its own tenant context exists, and is
@@ -2261,15 +2261,21 @@ consequence of where an org sits in the tree.
    its filter.
 
 3. **The registry tree is for managing sub-tenants.** `implements
-   tenantRegistry` provides `parent: Self id?` and a generated operation
-   `move(to: Self id)`:
-   - the move is one `parent` update — no row elsewhere changes;
-   - it is refused (422, a `loom.*` code) when `to` is the org itself or one of
-     its descendants (a cycle), or lies under a different top-level org (an org
-     never leaves its customer);
-   - who may move, create or administer child orgs is the author's ordinary
-     `requires` and policy on the registry — the capability gates nothing by
-     itself.
+   tenantRegistry` provides `parent: Self id?` as an **ordinary mutable field**
+   — no generated move operation. Re-parenting an org is an operation the author
+   writes when tenant management needs it (`operation move(to: Organization id)
+   { parent := to }`), gated by the author's `requires` and policy like any
+   other registry operation:
+   - a move is one `parent` update — no row elsewhere changes, because nothing
+     positional is stamped on rows;
+   - guarding against cycles and cross-customer moves is the author's
+     operation's job; the generated code stays correct regardless: the
+     ancestors walk (item 4) terminates on a cycle, and the non-host copy
+     (item 6) follows any operation that assigns `parent`;
+   - a generated, fully checked `move(to)` was considered and dropped: its
+     cycle and same-top-level-org checks are a registry walk no operation body
+     can express, so it needed a dedicated macro plus a generated precondition
+     on every backend, for a rare tenant-management action.
 
 4. **`organizationContext` is the operating org.**
    - `organizationContext.org` — the org the request acts in: the caller's home
@@ -2278,7 +2284,9 @@ consequence of where an org sits in the tree.
      decide; a refused switch is a 403 before any handler runs).
    - `organizationContext.ancestors` — the operating org **and** every org above
      it, resolved **once per request** and memoized, by a recursive walk over
-     `parent`. Its one consumer here is the `subtree` share grantee.
+     `parent` that **terminates on a cycle** (set semantics, so an author-written
+     move that creates a loop cannot hang a request). Its one consumer here is
+     the `subtree` share grantee.
    - Reads, writes and the write stamp anchor on `organizationContext.org`.
      `currentUser` is never rewritten by a switch: it is always the real
      principal with its home-org claim.
@@ -2298,8 +2306,11 @@ consequence of where an org sits in the tree.
 6. **A deployable that does not host the registry** resolves
    `organizationContext.ancestors` and admits the switch from a generated,
    internal folded projection of the registry — one `(org, parent)` row per
-   org, fed by registry events (`<Registry>Placed`, `<Registry>Moved`) over the
-   outbox and a channel derived on the system's broker. A system that needs the
+   org, fed over the outbox and a channel derived on the system's broker by two
+   generated registry events: `<Registry>Placed { org, parent }` on create, and
+   `<Registry>ParentChanged { org, parent }` emitted by **every** operation whose
+   body assigns `parent` (read off its write effects, so an author-written move
+   is covered without naming it). A system that needs the
    copy and declares no broker is refused at compile time. No closure table and
    no bespoke replication path.
 
@@ -2315,7 +2326,10 @@ tenancy by user.tenantId of Organization
 
 aggregate Organization with crudish {
   name: string
-  implements tenantRegistry        // parent: Organization id?  +  move(to)
+  implements tenantRegistry        // parent: Organization id?  (mutable)
+  operation move(to: Organization id) requires currentUser.role == "admin" {
+    parent := to                   // authored; the capability generates no move
+  }
 }
 aggregate Invoice with tenantOwned { number: string  amountDue: decimal }
 ```
@@ -2327,13 +2341,8 @@ SELECT * FROM invoices WHERE tenant_id = $operatingOrg;
 -- organizationContext.ancestors, once per request (memoized)
 WITH RECURSIVE up(id, parent) AS (
   SELECT id, parent FROM organizations WHERE id = $operatingOrg
-  UNION ALL SELECT o.id, o.parent FROM organizations o JOIN up ON o.id = up.parent)
+  UNION SELECT o.id, o.parent FROM organizations o JOIN up ON o.id = up.parent)   -- UNION: stops on a cycle
 SELECT id FROM up;
-
--- POST /api/organizations/{id}/move {"to": "<newParent>"}
---   refused when <newParent> is {id} or below it (walk down from {id}),
---   or when the two orgs have different top-level orgs; otherwise:
-UPDATE organizations SET parent = $2 WHERE id = $1;
 ```
 
 **Alternatives rejected.**
