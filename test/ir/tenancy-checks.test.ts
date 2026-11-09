@@ -393,8 +393,8 @@ describe("loom.tenant-owned-claim-type (1b-tail)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// tenantRegistry hierarchy capability (multi-tenancy Phase 2, plan P2.2).
-// The registry opts into the tree (`parent: Self id?` + managed `dataKey`) by
+// tenantRegistry tree capability.
+// The registry opts into the tree (`parent: Self id?`) by
 // carrying `implements tenantRegistry`.  These structural checks verify the
 // facts field-presence can't: only under a `tenancy by` system, exactly one
 // aggregate, and on the `of <Registry>` target.

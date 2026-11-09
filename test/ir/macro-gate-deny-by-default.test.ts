@@ -185,7 +185,7 @@ describe("what `requires:` refuses", () => {
     const { doc } = await parseString(
       starter({
         crudish: "with crudish(requires: Reach)",
-        policy: "policy Reach { allow deep on Project }",
+        policy: "policy Reach { allow local on Project }",
       }),
       { validate: true },
     );
