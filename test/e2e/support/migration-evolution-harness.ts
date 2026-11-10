@@ -366,14 +366,19 @@ function rows<T>(body: unknown): T[] {
 }
 
 /** The seeded v1 row's value fingerprint — asserted to survive forward-migration. */
-export const SEED = { name: "Widget", price: 9.99, status: "draft" } as const;
+export const SEED = { name: "Widget", price: 9.99, status: "draft", stage: "draft" } as const;
 
 /** POST a v1 Product `{name, price}` and return its id. */
 export async function seedV1Product(base: string): Promise<string> {
   const r = await fetch(`${base}/api/products`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: SEED.name, price: String(SEED.price), status: SEED.status }),
+    body: JSON.stringify({
+      name: SEED.name,
+      price: String(SEED.price),
+      status: SEED.status,
+      stage: SEED.stage,
+    }),
   });
   expect(r.status, `seed create: ${await r.clone().text()}`).toBe(201);
   const { id } = (await r.json()) as { id: string };
@@ -388,6 +393,7 @@ interface V2Product {
   sku: string;
   description: string | null;
   status: string;
+  stage: string;
 }
 
 /**
@@ -411,6 +417,10 @@ export async function assertForwardMigrated(base: string, id: string): Promise<v
   // stored value: the CHECK the migration adds is `NOT VALID`, so the seeded
   // row rides through untouched.
   expect(p.status, "value preserved across the string → enum narrowing").toBe(SEED.status);
+  // The declared enum value rename (`Stage.draft -> drafted`) rewrote the
+  // stored value; without it the row would hold a value the enum no longer
+  // declares (and `migrate add` would have refused the narrowing).
+  expect(p.stage, "stored enum value renamed by the declared step").toBe("drafted");
 
   // The row must still be the ONLY row (no phantom/duplicate from the migration).
   const list = rows<V2Product>(await (await fetch(`${base}/api/products`)).json());

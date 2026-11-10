@@ -750,6 +750,14 @@ system S {
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.migration-enum-value-form": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft = Open }`,
+  "loom.migration-enum-value-unknown": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft -> Pending }`,
   "loom.migration-step-target-missing": `${systemScope("")}
 migration "m" { Gone -> Missing }`,
   "loom.migration-step-ambiguous": `
@@ -4752,9 +4760,15 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
   // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
-  // BASELINE's value set. The pointed-at file drives the warning, its
-  // `sql before` silencing, and the widening / first-generation exemptions.
+  // BASELINE's value set. The pointed-at file drives the refusal, its
+  // declared-rename / `sql` / `--allow-destructive` releases, and the
+  // widening / first-generation exemptions.
   "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
+  // Phase ⑨, same reason: a declared enum value rename announces the JSON
+  // places it cannot rewrite only on a generation that runs it, against a
+  // BASELINE. The pointed-at file drives it on a document-shaped aggregate and
+  // its silence on a purely relational one.
+  "loom.migration-enum-value-unmigrated": "test/system/migration-enum-value-rename.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

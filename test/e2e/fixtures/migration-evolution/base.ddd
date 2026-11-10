@@ -18,16 +18,21 @@
 //     chain adds it as an ALTER, and on Phoenix those are two different
 //     renderers: CHECK 1 (migrate-chain ≡ fresh-create) is what proves they
 //     agree.
+//   • an enum VALUE renamed (`Stage.draft -> drafted`) — the seeded row stores
+//     `'draft'`, so the declared step's UPDATE is what lets it load after the
+//     migration (every backend but node refuses an undeclared value).
 //
 // `__PLATFORM__` is swapped per backend by the harness (node/dotnet/java/
 // python/elixir).  Deployable name `d` matches the other e2e fixtures.
 system ShopEvo {
   subdomain Catalog {
     context Catalog {
+      enum Stage { draft, done }
       aggregate Product with crudish {
         name: string
         price: money
         status: string
+        stage: Stage
       }
       repository Products for Product { }
     }

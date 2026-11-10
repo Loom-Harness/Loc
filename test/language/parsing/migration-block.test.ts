@@ -37,7 +37,7 @@ migration "rename-order-fields" {
     expect(block?.name).toBe("rename-order-fields");
     expect(
       block?.steps.map((r) =>
-        r.$type === "ColumnStep" ? `${r.aggregate.$refText}.${r.field}->${r.renamedTo}` : "TABLE",
+        r.$type === "ColumnStep" ? `${r.owner.$refText}.${r.field}->${r.renamedTo}` : "TABLE",
       ),
     ).toEqual(["Order.qty->quantity", "Order.shippedAt->fulfilledAt"]);
   });
