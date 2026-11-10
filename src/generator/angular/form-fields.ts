@@ -771,7 +771,7 @@ function formSubFields(
  *  when the field isn't an array whose element is a resolvable value object.
  *  The sub-fields kept are the ones {@link isFormSubField} admits; a nested
  *  value object renders as a nested group inside the row. */
-export function arrayVoFields(
+function arrayVoFields(
   t: TypeIR,
   bc: BoundedContextIR,
   seen: ReadonlySet<string> = new Set(),
