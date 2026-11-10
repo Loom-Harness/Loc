@@ -242,7 +242,85 @@ export type IcuIssue =
   | { kind: "missing-placeholder"; name: string }
   | { kind: "unexpected-placeholder"; name: string }
   | { kind: "plural-missing-form"; arg: string; form: string; valid: readonly string[] }
-  | { kind: "plural-extra-form"; arg: string; form: string; valid: readonly string[] };
+  | { kind: "plural-extra-form"; arg: string; form: string; valid: readonly string[] }
+  | { kind: "tag-missing"; tag: string }
+  | { kind: "tag-unexpected"; tag: string }
+  | { kind: "tag-unbalanced"; detail: string }
+  | { kind: "tag-unknown"; tag: string };
+
+/** The inline-emphasis tags the rich-text runtime renders; any other tag is
+ *  escaped to literal text. */
+const RICH_TAGS: ReadonlySet<string> = new Set(["b", "i", "code"]);
+const TAG = /<(\/?)([A-Za-z][\w-]*)\s*>/g;
+
+type TagToken = { close: boolean; name: string };
+
+function tagsIn(text: string): TagToken[] {
+  return [...text.matchAll(TAG)].map((m) => ({ close: m[1] === "/", name: m[2]! }));
+}
+
+/** Balance problems of the tags in one scope (a message body or one plural /
+ *  select branch), each judged on its own: a tag opened in a branch closes in it. */
+function balanceIssues(nodes: readonly IcuNode[], out: IcuIssue[]): void {
+  const stack: string[] = [];
+  const problem = (detail: string) => out.push({ kind: "tag-unbalanced", detail });
+  for (const n of nodes) {
+    if (n.kind === "text") {
+      for (const t of tagsIn(n.value)) {
+        if (!RICH_TAGS.has(t.name)) continue;
+        if (!t.close) stack.push(t.name);
+        else if (stack[stack.length - 1] === t.name) stack.pop();
+        else problem(`</${t.name}> does not close the open <${stack[stack.length - 1] ?? "…"}>`);
+      }
+    } else if (n.kind === "choice") {
+      for (const o of n.options) balanceIssues(o.body, out);
+    }
+  }
+  for (const open of stack) problem(`<${open}> is never closed`);
+}
+
+function collectTags(nodes: readonly IcuNode[], into: TagToken[] = []): TagToken[] {
+  for (const n of nodes) {
+    if (n.kind === "text") into.push(...tagsIn(n.value));
+    else if (n.kind === "choice") for (const o of n.options) collectTags(o.body, into);
+  }
+  return into;
+}
+
+function hasChoice(nodes: readonly IcuNode[]): boolean {
+  return nodes.some((n) => n.kind === "choice");
+}
+
+function tagIssues(
+  source: readonly IcuNode[] | undefined,
+  parsed: readonly IcuNode[],
+): IcuIssue[] {
+  const issues: IcuIssue[] = [];
+  balanceIssues(parsed, issues);
+  const have = collectTags(parsed);
+  const known = (ts: TagToken[]) => ts.filter((t) => RICH_TAGS.has(t.name));
+  const sourceNames = new Set((source ? collectTags(source) : []).map((t) => t.name));
+  for (const name of new Set(have.map((t) => t.name))) {
+    if (!RICH_TAGS.has(name) && !sourceNames.has(name)) {
+      issues.push({ kind: "tag-unknown", tag: name });
+    }
+  }
+  if (!source) return issues;
+  const want = known(collectTags(source));
+  const got = known(have);
+  // A plural branch repeats its tags once per form, and a locale has its own
+  // form count, so a message with branches compares tag NAMES; a flat message
+  // compares how many of each are used.
+  const exact = !hasChoice(source) && !hasChoice(parsed);
+  const count = (ts: TagToken[], n: string) => ts.filter((t) => !t.close && t.name === n).length;
+  for (const name of [...RICH_TAGS].sort()) {
+    const w = count(want, name);
+    const g = count(got, name);
+    if (g < w && (exact || g === 0)) issues.push({ kind: "tag-missing", tag: name });
+    else if (g > w && (exact || w === 0)) issues.push({ kind: "tag-unexpected", tag: name });
+  }
+  return issues;
+}
 
 /** Human-readable one-liner for an issue. */
 export function describeIssue(issue: IcuIssue): string {
@@ -257,6 +335,14 @@ export function describeIssue(issue: IcuIssue): string {
       return `plural {${issue.arg}} lacks the "${issue.form}" form this locale requires (it uses ${issue.valid.join(", ")})`;
     case "plural-extra-form":
       return `plural {${issue.arg}} has a "${issue.form}" form this locale does not use (it uses ${issue.valid.join(", ")})`;
+    case "tag-missing":
+      return `rich-text tag <${issue.tag}> from the source is missing`;
+    case "tag-unexpected":
+      return `rich-text tag <${issue.tag}> is not in the source`;
+    case "tag-unbalanced":
+      return `unbalanced rich-text tags: ${issue.detail}`;
+    case "tag-unknown":
+      return `unknown tag <${issue.tag}> (only <b>, <i> and <code> are rendered)`;
     default: {
       const never: never = issue;
       return never;
@@ -282,11 +368,14 @@ export function validateTranslation(
   }
   const issues: IcuIssue[] = [];
   let sourceNames: Set<string> | undefined;
+  let sourceNodes: IcuNode[] | undefined;
   try {
-    sourceNames = placeholdersOf(parseIcu(source));
+    sourceNodes = parseIcu(source);
+    sourceNames = placeholdersOf(sourceNodes);
   } catch {
     sourceNames = undefined;
   }
+  issues.push(...tagIssues(sourceNodes, parsed));
   if (sourceNames) {
     const have = placeholdersOf(parsed);
     for (const name of [...sourceNames].sort()) {
