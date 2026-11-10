@@ -1,5 +1,5 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
-import { lookupOp } from "../../ir/plan/index.js";
+import { lookupOp, observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -148,9 +148,6 @@ const eventRef = (name: string): string => pyRef("app.domain.events", name);
 /** Observable workflows — correlation-bearing, state-table-backed sagas the
  *  enricher gave an `instanceWireShape` (workflow-instance-visibility.md).
  *  Each gets the read-only instance endpoints over its persisted saga row. */
-export function observableWorkflowsOf(ctx: EnrichedBoundedContextIR): WorkflowIR[] {
-  return ctx.workflows.filter((wf) => wf.instanceWireShape != null);
-}
 
 export function buildPyWorkflowsFile(
   ctx: EnrichedBoundedContextIR,
@@ -167,7 +164,7 @@ export function buildPyWorkflowsFile(
   opFragments?: OpFragment[],
 ): string | null {
   const wfs = commandWorkflowsOf(ctx);
-  const obsWfs = observableWorkflowsOf(ctx);
+  const obsWfs = observableWorkflows(ctx.workflows);
   if (wfs.length === 0 && obsWfs.length === 0) return null;
   // Resource verb-helper imports for any `<resource>.<verb>(...)` the
   // workflows call (resources.md).

@@ -89,3 +89,13 @@ describe("svelte named layouts — route groups", () => {
     expect(out.has("web/src/routes/(app)/+page.svelte")).toBe(true);
   });
 });
+
+describe("named layouts — i18n", () => {
+  it("renders slot text through t() under the layout's key prefix", async () => {
+    const out = await generateSystemFiles(SRC);
+    const layout = out.get("web/src/routes/(marketing)/+layout.svelte")!;
+    expect(layout).toContain('import { t } from "$lib/locale.svelte";');
+    expect(layout).toMatch(/\{t\("Web\.layout\.Marketing\.heading\.[a-z0-9]+", "Acme"\)\}/);
+    expect(layout).toMatch(/t\("Web\.layout\.Marketing\.text\.[a-z0-9]+", "© Acme"\)/);
+  });
+});

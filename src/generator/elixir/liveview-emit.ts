@@ -950,6 +950,7 @@ function renderLiveView(a: RenderArgs): {
     a.listReadGateByAggName,
     a.historyReads,
     refreshLabels,
+    walked.titleExpr,
   );
   const detailBaseRoute = page.route ? page.route.replace(/\/:[^/]+$/, "") : null;
   // Hoist `Action(...)` handlers from the page body + every component
@@ -1451,9 +1452,9 @@ function renderMount(
   const assigns: string[] = [];
   // Per-page document title: the root layout reads `@page_title` (falling back
   // to the app name).  Only a plain literal can be set here — `mount` runs
-  // before route params and loaded records exist, so an interpolated title has
-  // nothing to read.  Under i18n it translates through the catalog key
-  // `collectUiMessages` wrote.
+  // before route params and loaded records exist; an interpolated title is
+  // assigned in `handle_params/3` (`renderHandleParams`).  Under i18n it
+  // translates through the catalog key `collectUiMessages` wrote.
   const pageTitle = page.title;
   if (pageTitle && pageTitle.kind === "literal" && pageTitle.lit === "string") {
     const rendered = i18nPrefix
@@ -1863,6 +1864,9 @@ function renderHandleParams(
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
   historyReads: ReadonlyMap<string, HistoryRead>,
   refreshLabels = false,
+  /** A non-literal page `title:` — assigned once the params and records it
+   *  reads have loaded. */
+  titleExpr?: string,
 ): string {
   const paramAssigns: string[] = [];
   for (const p of page.params) {
@@ -1918,6 +1922,15 @@ function renderHandleParams(
   }
   if (hasLoad) bodyParts.push(loadBlocks.join("\n\n"));
   if (hasLoad && refreshLabels) bodyParts.push(REF_LABELS_RELOAD.replace(/^\n+/, ""));
+  // An interpolated title reads route params and loaded records, so it is set
+  // here rather than in `mount/3`.  A record that failed to load is a sentinel
+  // atom the expression cannot read; the layout's app-name fallback title then
+  // stands.
+  if (titleExpr !== undefined) {
+    bodyParts.push(
+      `    socket =\n      try do\n        assign(socket, :page_title, ${titleExpr})\n      rescue\n        _ -> socket\n      end`,
+    );
+  }
   bodyParts.push(`    {:noreply, socket}`);
   const coreBody = bodyParts.join("\n\n");
 

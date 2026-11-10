@@ -6,6 +6,7 @@
 import type { ExprIR, StateFieldIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { provableStringType } from "../../../util/expr-body-type.js";
 import { giveUp } from "../give-up.js";
+import { sentenceChromeName } from "../i18n-chrome.js";
 import {
   localizedChromeIcuText,
   localizedChromeIcuValue,
@@ -413,12 +414,16 @@ function emitColumn(
   // RENDERED token (`{t(…)}` / `Html.text (I18n.t …)` / `Text(t(…))`) rather
   // than raw text — the same shape a sortable header has, so it rides the
   // existing `headerMarkup` flag the packs already branch on.  A dynamic header
-  // has no source string and keeps the `Column N` fallback.
+  // has no source string; its `Column N` fallback is a chrome sentence.
   const headerTranslation = headerIsLiteral
     ? localizedPositionalTranslation(call, ctx, "columnHeader")
-    : headerText && ctx.i18nPrefix
-      ? localizedModelText(ctx, headerText.key, headerText.defaultText)
-      : undefined;
+    : headerText
+      ? ctx.i18nPrefix
+        ? localizedModelText(ctx, headerText.key, headerText.defaultText)
+        : undefined
+      : ctx.i18nPrefix
+        ? localizedChromeValue(ctx, sentenceChromeName("column", String(index + 1)))
+        : undefined;
   let header =
     headerTranslation === undefined
       ? ctx.target.escapeText(headerStr)

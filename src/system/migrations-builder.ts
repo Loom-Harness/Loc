@@ -11,6 +11,7 @@ import {
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
+import { hasStateRow } from "../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -275,7 +276,7 @@ export function schemaFromModule(
   };
 
   for (const agg of pool) {
-    const produced = withTenantIndex(agg, tablesForOneAggregate(agg));
+    const produced = withTenantIndex(agg, tablesForOneAggregate(agg), pool);
     const schema = schemaOf(agg, ctxFor(agg));
     if (schema !== undefined) {
       for (const t of produced) t.schema = schema;
@@ -322,7 +323,7 @@ export function schemaFromModule(
       // log emitted above (folded on load, filtered by `stream_type`) — no
       // per-workflow table.  A plain correlation-bearing workflow keeps its
       // mutable state table.
-      if (!wf.eventSourced && wf.correlationField) {
+      if (hasStateRow(wf)) {
         const t = workflowStateTableShape(wf, module.name, voLookup, durable);
         if (ctxSchema !== undefined) t.schema = ctxSchema;
         tables.push(t);
@@ -2968,7 +2969,7 @@ function namingFixTableRenames(
   const liveNames = new Set(next.tables.map((t) => t.name));
   for (const ctx of module.contexts) {
     for (const wf of ctx.workflows) {
-      if (wf.eventSourced || !wf.correlationField) continue; // no state table
+      if (!hasStateRow(wf)) continue; // no state table
       const from = legacyWorkflowStateTableName(wf.name);
       const to = workflowStateTableName(wf.name);
       if (from === to || liveNames.has(from)) continue;
@@ -3446,8 +3447,18 @@ function applyManualIndexes(tables: readonly TableShape[], specs: readonly Manua
  *  `unique (tenantId, ...)`-style index only by exact single-column shape —
  *  a unique composite still benefits from the plain prefix index.  The
  *  registry, id-keyed and NOT `tenantOwned`, is read by id and gets none. */
-function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
-  if (!(agg.capabilities?.includes("tenantOwned") ?? false)) return tables;
+function withTenantIndex(
+  agg: AggregateIR,
+  tables: TableShape[],
+  pool: readonly AggregateIR[],
+): TableShape[] {
+  const owned = (a: AggregateIR): boolean => a.capabilities?.includes("tenantOwned") ?? false;
+  // A TPH base's shared table carries `tenant_id` when ANY concrete of the
+  // hierarchy is tenant-owned, so the stance may live only on a subtype.
+  const tphOwned =
+    isTphBase(agg, pool) &&
+    pool.some((c) => isTphConcrete(c, pool) && tableOwnerName(c, pool) === agg.name && owned(c));
+  if (!owned(agg) && !tphOwned) return tables;
   const derive = (column: string): void => {
     for (const t of tables) {
       if (!t.columns.some((c) => c.name === column)) continue;

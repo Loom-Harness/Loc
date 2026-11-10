@@ -171,7 +171,7 @@ function angularTimeline(entries: string, testid: string): string {
     `  @for (__e of ${entries}; track __e.auditId) {`,
     `    <li class="loom-timeline-entry">`,
     `      <span class="loom-timeline-action">{{ __e.action }}</span>`,
-    `      <time [attr.datetime]="__e.at">{{ __e.at }}</time>`,
+    `      <time [attr.datetime]="__e.at">{{ formatDateTime(__e.at) }}</time>`,
     `      @if (__e.actor != null) { <span class="loom-timeline-actor">{{ $any(__e.actor) }}</span> }`,
     `      @if (__e.changes.length > 0) {`,
     `        <dl class="loom-timeline-changes">`,

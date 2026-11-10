@@ -1137,8 +1137,12 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // re-expose the imported `t` as a member (same lift `FORMAT_HELPERS` uses).
   // The import line itself rides `result.imports` (drained + path-rewritten
   // above); this only adds the member so the template binding resolves.
-  if (result.imports.has("../i18n")) {
+  if (result.imports.get("../i18n")?.has("t")) {
     members.push(`  protected readonly t = t;`);
+  }
+  // A rich-text sentence binds \`[innerHTML]="tRich(…)"\`, which resolves the same way.
+  if (result.imports.get("../i18n")?.has("tRich")) {
+    members.push(`  protected readonly tRich = tRich;`);
   }
   const componentImportsList = [...componentImports].sort();
 

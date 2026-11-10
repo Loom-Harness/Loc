@@ -61,6 +61,7 @@ import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
@@ -271,7 +272,8 @@ export function generateAngularForContexts(
   // (Angular templates resolve interpolations against the instance).  A
   // string-less ui emits neither the runtime nor a prefix → byte-identical.
   const i18nEnabled = ui
-    ? collectUiMessages(ui).length > 0 || uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
+    ? collectUiMessages(ui, sys.layouts).length > 0 ||
+      uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? [])
     : false;
   // Two or more locales ship (the source plus a translated catalog): the shell
   // carries the `LocaleSwitcher` and reads the `locale` signal.  Set where the
@@ -291,12 +293,13 @@ export function generateAngularForContexts(
     pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
   );
   if (i18nEnabled && ui) {
-    // The Angular forms are hand-built (`form-fields.ts`), so no pack sentence
-    // chrome (`addItem`, `operationSucceeded`) is rendered — only the
-    // identity-keyed model text of the forms' labels, options and buttons.
+    // The Angular forms are hand-built (`form-fields.ts`): they render the
+    // dynamic-row `addItem` sentence and the identity-keyed model text of the
+    // forms' labels, options and buttons, but no pack sentence chrome.
     const formScope = {
+      layouts: sys.layouts,
       contexts,
-      sentences: [],
+      sentences: HAND_BUILT_FORM_SENTENCES,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
     };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`

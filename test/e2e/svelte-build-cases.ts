@@ -40,6 +40,9 @@ export const svelteBuildExamples = [
   // error that fails svelte-check AND `vite build`.  No other case puts two
   // picker-bearing forms on one page.
   "test/e2e/fixtures/svelte-build/two-op-picker.ddd",
+  // A named layout's header / footer text, rendered through `t()` in the route
+  // group's `+layout.svelte`.
+  "test/e2e/fixtures/svelte-build/named-layout.ddd",
 ] as const;
 
 export const sveltePacks = ["shadcnSvelte@v1", "flowbite@v1"] as const;

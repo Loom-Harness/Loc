@@ -1,5 +1,6 @@
 import { readFilterRestrictions, readScopeFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
+import { stateRowWorkflows } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -39,11 +40,7 @@ import { csJsonSqlType } from "../codec-spelling.js";
 import { CS } from "../cs-symbols.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
-import {
-  correlationWorkflows,
-  workflowStateClass,
-  workflowStateDbSet,
-} from "../workflow-state-emit.js";
+import { workflowStateClass, workflowStateDbSet } from "../workflow-state-emit.js";
 import { joinDbSetName, joinEntityName } from "./join-entities.js";
 
 // AppDbContext + per-aggregate IEntityTypeConfiguration<T>.  The
@@ -212,7 +209,7 @@ export function renderDbContext(
   // by its correlation field.  Empty (byte-identical) when the context declares
   // no saga.  Requires `using <ns>.Infrastructure.Persistence.Workflows;` for
   // the state POCO type.
-  const corrWfs = correlationWorkflows(ctx.workflows);
+  const corrWfs = stateRowWorkflows(ctx.workflows);
   const wfStateUsings =
     corrWfs.length > 0 ? [`using ${ns}.Infrastructure.Persistence.Workflows;`] : [];
   const wfStateDbSets = corrWfs.map(

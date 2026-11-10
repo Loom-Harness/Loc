@@ -210,7 +210,7 @@ function renderPyExternDispatch(h: Handler): string {
 }
 
 /** The scaffold-once user impl stub — `app/application/impl/<snake>_impl.py`.
- *  Raises loudly until the user fills it in (marker on line 1 → the CLI writer
+ *  Raises `ExternNotImplementedError` (answered 501) until the user fills it in (marker on line 1 → the CLI writer
  *  preserves it on regen). */
 function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const implFn = externImplFn(h.name);
@@ -229,10 +229,12 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
     "# regenerate.  Replace the `raise` with the extern handler's real logic.",
     '"""Hand-written extern handler implementation."""',
     "",
-    ...(importsSig ? [PY_IMPORTS, ""] : []),
+    "from app.domain.errors import ExternNotImplementedError",
+    ...(importsSig ? [PY_IMPORTS] : []),
+    "",
     "",
     `async def ${implFn}(${paramSig.join(", ")}) -> ${ret}:`,
-    `    raise NotImplementedError(`,
+    `    raise ExternNotImplementedError(`,
     `        ${JSON.stringify(msg)}`,
     `    )`,
     "",

@@ -63,9 +63,18 @@ import {
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
 
-/** True when some aggregate declares an `extern` operation. */
-function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
-  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+/** True when some aggregate declares an `extern` operation or the context
+ *  declares an `extern` command/query handler — the seams whose scaffold-once
+ *  stub raises `ExternNotImplementedException` (answered 501). */
+function hasExternOperation(ctx: {
+  aggregates: readonly EnrichedAggregateIR[];
+  commandHandlers?: readonly { extern?: boolean }[];
+  queryHandlers?: readonly { extern?: boolean }[];
+}): boolean {
+  return (
+    ctx.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some((h) => h.extern)
+  );
 }
 
 import { apiRoutePrefix } from "../../util/api-base.js";

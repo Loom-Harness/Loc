@@ -146,7 +146,12 @@ describe("python — extern commandHandler / queryHandler", () => {
     const impl = fileEndingWith(m, "app/application/impl/place_order_impl.py");
     expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
     expect(impl).toContain("async def place_order_impl(code: str)");
-    expect(impl).toContain("raise NotImplementedError(");
+    expect(impl).toContain("raise ExternNotImplementedError(");
+    expect(impl).toContain("from app.domain.errors import ExternNotImplementedError");
+    // The 501 carrier is emitted for a handler-only extern seam too.
+    const errors = fileEndingWith(m, "app/domain/errors.py");
+    expect(errors).toContain("class ExternNotImplementedError(NotImplementedError)");
+    expect([...m.values()].join("")).toContain("problem.not-implemented");
   });
 });
 

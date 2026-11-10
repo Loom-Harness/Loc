@@ -94,4 +94,14 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
     expect(sql).toMatch(/invoices_tenant_id_uq/);
     expect(sql).not.toMatch(/invoices_tenant_id_idx/);
   });
+
+  it("derives the index on a TPH shared table whose tenantOwned stance is only on a subtype", async () => {
+    const files = await generateSystemFiles(
+      tenancySystem(
+        `abstract aggregate Asset inheritanceUsing: sharedTable { label: string }
+         aggregate Car extends Asset with tenantOwned { wheels: int }`,
+      ),
+    );
+    expect(sqlOf(files)).toMatch(/CREATE INDEX "?assets_tenant_id_idx"? ON \S+ \("?tenant_id"?\)/);
+  });
 });

@@ -257,6 +257,75 @@ export function renderLocaleHook(appModule: string): string {
   );
 }
 
+/** `test/locale_test.exs` — the negotiation fallbacks, run in the generated
+ *  app: a request that names no shipped language resolves to the source, a
+ *  header naming a shipped one resolves to it, and the error page carries the
+ *  negotiated `lang` / `dir`. */
+export function renderLocaleTest(
+  appModule: string,
+  model: PhoenixLocaleModel,
+  hasErrorPage: boolean,
+): string {
+  const web = `${appModule}Web`;
+  const other = model.entries[1];
+  const request = (header?: string): string =>
+    header === undefined
+      ? '    conn = Plug.Test.conn(:get, "/")'
+      : `    conn = Plug.Test.conn(:get, "/") |> Plug.Conn.put_req_header("accept-language", ${ex(header)})`;
+  const errorPage = (conn: string, tag: string, dir: string): string[] => [
+    conn,
+    '    html = ErrorHTML.render("404.html", %{conn: conn}) |> Phoenix.HTML.safe_to_string()',
+    `    assert html =~ ~s(<html lang=${ex(tag)} dir=${ex(dir)}>)`,
+  ];
+  return lines(
+    `defmodule ${web}.LocaleTest do`,
+    "  use ExUnit.Case, async: true",
+    "",
+    `  alias ${web}.Locale`,
+    `  alias ${appModule}.RequestContext`,
+    ...(hasErrorPage ? [`  alias ${web}.ErrorHTML`] : []),
+    "",
+    '  test "no language preference resolves to the source language" do',
+    `    assert Locale.negotiate(nil, nil, nil) == ${ex(model.source)}`,
+    `    assert Locale.negotiate(nil, nil, "xx-NOPE") == ${ex(model.source)}`,
+    "    assert Locale.from_accept_language(nil) == nil",
+    "  end",
+    "",
+    '  test "a header-less request carries the source language, not a literal" do',
+    request(),
+    "    RequestContext.call(conn, [])",
+    `    assert RequestContext.locale() == ${ex(model.source)}`,
+    "  end",
+    ...(other
+      ? [
+          "",
+          `  test "an Accept-Language naming a shipped locale selects it" do`,
+          request(`${other.tag},${model.source};q=0.5`),
+          "    RequestContext.call(conn, [])",
+          `    assert RequestContext.locale() == ${ex(other.tag)}`,
+          "  end",
+        ]
+      : []),
+    ...(hasErrorPage
+      ? [
+          "",
+          '  test "the error page carries the source language when no header names another" do',
+          ...errorPage(request(), model.source, model.entries[0]?.dir ?? "ltr"),
+          "  end",
+          ...(other
+            ? [
+                "",
+                '  test "the error page carries the negotiated language and direction" do',
+                ...errorPage(request(other.tag), other.tag, other.dir),
+                "  end",
+              ]
+            : []),
+        ]
+      : []),
+    "end",
+  );
+}
+
 function escapeText(value: string): string {
   return value
     .replace(/&/g, "&amp;")

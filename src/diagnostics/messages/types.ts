@@ -292,6 +292,14 @@ export const messages = {
     `(\`{n, plural, one {# item} other {# items}}\` yields "3", not "3 items"). ` +
     `Only a ui page slot renders ICU '${p.format}' (through the i18n runtime). ` +
     `Spell the branches with \`match\` or a ternary here, or move the template into the page.`,
+  "loom.interp-format-invalid#syntax": (p: { format: unknown; detail: unknown }) =>
+    `This '${p.format}' hole is not valid ICU: ${p.detail}. Every '${p.format}' needs an ` +
+    `\`other\` branch; a \`plural\` / \`selectordinal\` branch is selected by a CLDR ` +
+    `category (\`zero\`, \`one\`, \`two\`, \`few\`, \`many\`, \`other\`) or an exact \`=N\`.`,
+  "loom.interp-format-invalid#nested-arg": (p: { format: unknown; name: unknown }) =>
+    `A '${p.format}' branch cannot read another value ('{${p.name}}'): the hole hands the ` +
+    `i18n runtime only its own value, so '{${p.name}}' has nothing to render. Use \`#\` ` +
+    `for this hole's number, or \`match\` on the values in the page to pick a whole sentence.`,
   "loom.interp-hole-type#select-format": (p: { t: unknown }) =>
     `A 'select' format expects a string or enum value, but this hole is '${p.t}'.`,
   "loom.interp-hole-type#date-format": (p: { kind: unknown; t: unknown }) =>

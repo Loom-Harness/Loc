@@ -130,7 +130,18 @@ describe("hono — extern commandHandler / queryHandler", () => {
     expect(impl).toContain(
       "export async function placeOrderImpl(code: string): Promise<Ids.OrderId>",
     );
-    expect(impl).toContain("throw new ExternHandlerError(");
+    expect(impl).toContain("throw new NotImplementedError(");
+    expect(impl).not.toContain("ExternHandlerError");
     expect(impl).toContain("is not implemented");
+  });
+
+  it("answers the unfilled stub 501 problem.not-implemented, not the generic 500", async () => {
+    const m = await generateSystemFiles(EXTERN_SRC);
+    const router = fileEndingWith(m, "http/salesApi-routes.ts");
+    expect(router).toContain("if (err instanceof NotImplementedError)");
+    expect(router).toContain('"problem.not-implemented"');
+    expect(router).toContain('"This operation is not implemented."');
+    const errors = fileEndingWith(m, "domain/errors.ts");
+    expect(errors).toContain("export class NotImplementedError");
   });
 });
