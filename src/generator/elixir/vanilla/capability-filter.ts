@@ -66,6 +66,7 @@ export function quantifiesOver(
     t.kind === "entity" && t.name === agg.name;
   const exprs: ExprIR[] = [
     ...(agg.contextFilters ?? []),
+    ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
     ...(ctx.criteria ?? []).filter((c) => over(c.targetType)).map((c) => c.body),
     ...(ctx.retrievals ?? []).filter((r) => over(r.targetType)).map((r) => r.where),
     ...(ctx.repositories ?? [])
@@ -168,7 +169,12 @@ function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | und
  *  no write-scope narrowing.  Rendered exactly like a principal capability read
  *  filter (the principal side pinned fail-closed), so the write guard needs no
  *  new render path. */
-export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string): string | null {
+export function vanillaWriteScopeFilter(
+  agg: AggregateIR,
+  contextModule: string,
+  /** The context's aggregates — resolves an `exists` quantifier in the scope. */
+  pool: readonly AggregateIR[] = [],
+): string | null {
   if (!agg.writeScopeFilter) return null;
   // See `vanillaCapabilityFilter`: rendered into an Ecto `where:`, so money/
   // decimal/datetime must use the native-query form (`filterArgs: true`).
@@ -176,6 +182,7 @@ export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string)
     thisName: "record",
     contextModule,
     filterArgs: true,
+    pool,
   };
   return renderPrincipalFilter(agg.writeScopeFilter, ctx);
 }

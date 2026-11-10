@@ -18,11 +18,11 @@
 // `ignoring` clause drops the whole tenant scope exactly as it dropped the bare
 // floor.
 //
-// WRITE: the composite becomes `writeScopeFilter`.  Every backend's command
-// load applies the read scope AND the write scope, so a row a read rule opens
-// is still out of write reach unless a write rule (or the write default)
-// admits it — which is why an aggregate with any read row rule gets an
-// explicit write scope even when it declares no write rule.
+// WRITE: `writeScopeFilter` is the read composite AND the write composite, so a
+// row a read rule opens is still out of write reach unless a write rule (or the
+// write default) admits it — which is why an aggregate with any read row rule
+// gets an explicit write scope even when it declares no write rule — and a row
+// a write rule names is writable only while it is also readable.
 //
 // `when` conditions are principal terms (`currentUser.role == "clerk"`); the
 // negated fallback arm is pushed down to its leaves (`==` ↔ `!=`, De Morgan),
@@ -87,6 +87,10 @@ function composeContext(ctx: EnrichedBoundedContextIR, userIdType: TypeIR) {
       const writeShaped = readShaped || writeRows.length > 0 || shaping(writeArms);
       if (!writeShaped) return agg;
       if (agg.isAbstract || agg.extendsAggregate) return agg;
+      // Idempotent: every aggregate this pass composes leaves with a write
+      // scope (and only `deny`, which runs after it, sets one otherwise), so a
+      // second enrichment finds the composite in place and keeps it.
+      if (agg.writeScopeFilter !== undefined) return agg;
       // The default is the tenant floor, or — on the registry — its derived
       // self-scope (the org rows a caller may read, e.g. to switch into one).
       const slot = [TENANT_OWNED_CAPABILITY, TENANCY_SELF_SCOPE_ORIGIN]
@@ -97,21 +101,24 @@ function composeContext(ctx: EnrichedBoundedContextIR, userIdType: TypeIR) {
       const own = ownTerm(agg, floor, userIdType);
       const compose = (arms: readonly LevelArm[], extra: readonly ExprIR[]): ExprIR =>
         anyOf([levelDefault(arms, floor, own), ...extra]);
-      let next = agg;
-      if (readShaped) {
-        const filters = [...agg.contextFilters];
-        filters[slot] = compose(
-          readArms,
-          readRows.map((r) => r.where),
-        );
-        next = { ...next, contextFilters: filters };
-      }
+      const read = compose(
+        readArms,
+        readRows.map((r) => r.where),
+      );
+      const write = compose(
+        writeArms,
+        writeRows.map((r) => r.where),
+      );
+      const filters = [...agg.contextFilters];
+      filters[slot] = read;
       return {
-        ...next,
-        writeScopeFilter: compose(
-          writeArms,
-          writeRows.map((r) => r.where),
-        ),
+        ...agg,
+        contextFilters: filters,
+        // A writable row is a readable one.  Most backends AND the read scope
+        // into the command load anyway; the Ecto load swaps the read
+        // restrictions for the write scope, so the write scope carries the
+        // read composite itself whenever the two differ.
+        writeScopeFilter: sameExpr(read, write) ? write : allOf([read, write]),
       };
     }),
   };
@@ -162,6 +169,11 @@ function ownTerm(agg: AggregateIR, floor: ExprIR, userIdType: TypeIR): ExprIR | 
   return allOf([floor, mine]);
 }
 
+function sameExpr(a: ExprIR, b: ExprIR): boolean {
+  const strip = (_k: string, v: unknown) => (_k === "origin" ? undefined : v);
+  return JSON.stringify(a, strip) === JSON.stringify(b, strip);
+}
+
 function paren(e: ExprIR): ExprIR {
   return e.kind === "paren" ? e : { kind: "paren", inner: e };
 }
@@ -190,7 +202,7 @@ function anyOf(terms: readonly ExprIR[]): ExprIR {
  *  combination of principal terms: `==` ↔ `!=`, De Morgan over `&&` / `||`,
  *  `!!e` = `e`.  Any other shape (phase ⑦ refuses it in a `when`) keeps a
  *  plain `!`. */
-export function negate(e: ExprIR): ExprIR {
+function negate(e: ExprIR): ExprIR {
   if (e.kind === "paren") return negate(e.inner);
   if (e.kind === "unary" && e.op === "!") return e.operand;
   if (e.kind === "literal" && e.lit === "bool")

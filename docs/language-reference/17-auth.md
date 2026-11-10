@@ -590,7 +590,7 @@ var inScope = await _db.Categories.AnyAsync(x => x.Id == id && ((x.TenantId == R
 | Read scopes that reach each other through `exists` | `loom.policy-row-cycle` |
 | A row-rule verb other than `read` / `write` | `loom.policy-unknown-rule` |
 
-Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy-block--levels-row-rules-and-deny).
+Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--block--levels-row-rules-and-deny).
 
 ### `read` — who may read an aggregate
 

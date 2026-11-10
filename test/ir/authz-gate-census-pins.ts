@@ -381,6 +381,32 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
   },
+  // Row rules / `when` / `own` (D-SHARING).  The ladder refuses a foreign
+  // tenant on Category's and Note's by-id read, update and destroy.  Products
+  // and shares carry a `Category id` foreign key, so a seed needs a second
+  // aggregate's row; the fixture's own `test e2e` refuses them (a foreign org
+  // reads, updates and loses its shares as 404s).
+  "corpus/policy-row-rules": {
+    "create POST /api/orgs": R.sharedTenancyIdentity,
+    "find GET /api/orgs": R.sharedTenancyIdentity,
+    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
+    "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
+    "create POST /api/categories": R.sharedTenancyIdentity,
+    "find GET /api/categories": R.sharedTenancyIdentity,
+    "create POST /api/category_shares": R.sharedTenancyIdentity,
+    "find GET /api/category_shares": R.sharedTenancyIdentity,
+    "getById GET /api/category_shares/{id}": R.oneSeededId,
+    "operation POST /api/category_shares/{id}/update": R.oneSeededId,
+    "destroy DELETE /api/category_shares/{id}": R.oneSeededId,
+    "create POST /api/products": R.sharedTenancyIdentity,
+    "find GET /api/products": R.sharedTenancyIdentity,
+    "getById GET /api/products/{id}": R.oneSeededId,
+    "operation POST /api/products/{id}/update": R.oneSeededId,
+    "destroy DELETE /api/products/{id}": R.oneSeededId,
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
+  },
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
     "create POST /api/organizations": R.sharedTenancyIdentity,
@@ -498,5 +524,6 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 92,
+  sharedTenancyIdentity: 105,
+  oneSeededId: 6,
 };

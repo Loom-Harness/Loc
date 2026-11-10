@@ -128,6 +128,19 @@ system PolicyRowRules {
     expect(api.products.update(hammer, { name: "Saw", category: tools.id })).toThrow(404)
     as { id: "alice", tenantId: "acme", role: "manager" }
 
+    // Deletes load through the write scope too: globex cannot delete the
+    // category it may update through the share.
+    as { id: "bob", tenantId: "globex", role: "manager" }
+    expect(api.categories.destroy(toys)).toThrow(404)
+    expect(api.products.destroy(hammer)).toThrow(404)
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let spare = api.categories.create({ name: "Spare" })
+    api.categories.destroy(spare)
+    expect(api.categories.getById(spare)).toThrow(404)
+    let bat = api.products.create({ name: "Bat", category: toys.id })
+    api.products.destroy(bat)
+    expect(api.products.all().total).toBe(2)
+
     // Revoking the share closes the category and its product again.
     api.category_shares.destroy(toGlobex)
     as { id: "bob", tenantId: "globex", role: "manager" }
@@ -137,28 +150,39 @@ system PolicyRowRules {
     expect(api.products.getById(hammer)).toThrow(404)
   }
 
+  test e2e "the tenant registry keeps its own self-scope" against d {
+    // The registry reads only the caller's own org row; the harness tenancy
+    // claim is not an org id, so the row exists and stays hidden.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let org = api.orgs.create({ name: "Acme" })
+    expect(api.orgs.getById(org)).toThrow(404)
+    expect(api.orgs.all().total).toBe(0)
+    expect(api.orgs.update(org, { name: "Acme Ltd" })).toThrow(404)
+    expect(api.orgs.destroy(org)).toThrow(404)
+  }
+
   test e2e "managers read the org's notes, clerks only their own" against d {
     as { id: "alice", tenantId: "acme", role: "manager" }
     let memo = api.notes.create({ body: "memo" })
     as { id: "carol", tenantId: "acme", role: "clerk" }
     let draft = api.notes.create({ body: "draft" })
     as { id: "dave", tenantId: "acme", role: "clerk" }
-    let todo = api.notes.create({ body: "todo" })
+    let chores = api.notes.create({ body: "chores" })
 
     // A clerk reads and writes only the notes they created.
     as { id: "carol", tenantId: "acme", role: "clerk" }
     expect(api.notes.all().total).toBe(1)
     expect(api.notes.getById(draft).body).toBe("draft")
     expect(api.notes.getById(memo)).toThrow(404)
-    expect(api.notes.getById(todo)).toThrow(404)
+    expect(api.notes.getById(chores)).toThrow(404)
     api.notes.update(draft, { body: "final" })
     expect(api.notes.getById(draft).body).toBe("final")
-    expect(api.notes.update(todo, { body: "mine now" })).toThrow(404)
+    expect(api.notes.update(chores, { body: "mine now" })).toThrow(404)
 
     // A manager reads every note of the org.
     as { id: "alice", tenantId: "acme", role: "manager" }
     expect(api.notes.all().total).toBe(3)
-    expect(api.notes.getById(todo).body).toBe("todo")
+    expect(api.notes.getById(chores).body).toBe("chores")
 
     // A caller neither `when` admits keeps the `local` default.
     as { id: "erin", tenantId: "acme", role: "agent" }

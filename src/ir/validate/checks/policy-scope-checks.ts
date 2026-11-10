@@ -44,10 +44,15 @@ export function validatePolicyScopes(sys: SystemIR, diags: LoomDiagnostic[]): vo
   }
 }
 
-function push(diags: LoomDiagnostic[], ctx: BoundedContextIR, code: string, message: string): void {
+function push(
+  diags: LoomDiagnostic[],
+  ctx: BoundedContextIR,
+  diagCode: string,
+  message: string,
+): void {
   diags.push({
     severity: "error",
-    code,
+    code: diagCode,
     message,
     source: `${ctx.name}/policy`,
     origin: ctx.origin,
@@ -60,7 +65,6 @@ function inHierarchy(agg: AggregateIR): boolean {
 
 function checkRowRules(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const rule of ctx.policyRowRules ?? []) {
-    const p = { name: ctx.name, source: rule.source, aggregate: rule.aggregate };
     const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
     if (!agg) {
       push(
@@ -68,8 +72,16 @@ function checkRowRules(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
         ctx,
         "loom.policy-unknown-aggregate",
         rule.access === "write"
-          ? diagMessage("loom.policy-unknown-aggregate#write", p)
-          : diagMessage("loom.policy-unknown-aggregate#read", p),
+          ? diagMessage("loom.policy-unknown-aggregate#write", {
+              name: ctx.name,
+              source: rule.source,
+              aggregate: rule.aggregate,
+            })
+          : diagMessage("loom.policy-unknown-aggregate#read", {
+              name: ctx.name,
+              source: rule.source,
+              aggregate: rule.aggregate,
+            }),
       );
       continue;
     }
@@ -78,7 +90,11 @@ function checkRowRules(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
         diags,
         ctx,
         "loom.policy-target-not-tenant-owned",
-        diagMessage("loom.policy-target-not-tenant-owned#row", p),
+        diagMessage("loom.policy-target-not-tenant-owned#row", {
+          name: ctx.name,
+          source: rule.source,
+          aggregate: rule.aggregate,
+        }),
       );
       continue;
     }
@@ -87,7 +103,10 @@ function checkRowRules(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
         diags,
         ctx,
         "loom.policy-scope-inheritance-unsupported",
-        diagMessage("loom.policy-scope-inheritance-unsupported", p),
+        diagMessage("loom.policy-scope-inheritance-unsupported", {
+          source: rule.source,
+          aggregate: rule.aggregate,
+        }),
       );
       continue;
     }
@@ -129,13 +148,15 @@ function checkLevels(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
     const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
     // Unknown / not tenant-owned targets are reported by the level checks.
     if (!agg || !hasTenantOwned(agg)) continue;
-    const p = { source: rule.source, aggregate: rule.aggregate };
     if ((rule.level !== "local" || rule.when) && inHierarchy(agg)) {
       push(
         diags,
         ctx,
         "loom.policy-scope-inheritance-unsupported",
-        diagMessage("loom.policy-scope-inheritance-unsupported", p),
+        diagMessage("loom.policy-scope-inheritance-unsupported", {
+          source: rule.source,
+          aggregate: rule.aggregate,
+        }),
       );
       continue;
     }
@@ -153,7 +174,15 @@ function checkLevels(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
         );
     }
     if (rule.level === "own" && !agg.fields.some((f) => f.name === OWN_CREATOR_FIELD)) {
-      push(diags, ctx, "loom.policy-own-no-creator", diagMessage("loom.policy-own-no-creator", p));
+      push(
+        diags,
+        ctx,
+        "loom.policy-own-no-creator",
+        diagMessage("loom.policy-own-no-creator", {
+          source: rule.source,
+          aggregate: rule.aggregate,
+        }),
+      );
     }
   }
 }

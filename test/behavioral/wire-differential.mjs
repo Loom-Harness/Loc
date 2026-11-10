@@ -362,8 +362,15 @@ const __record = (dispatch) => {
         __urls.push(req.url);
         __bodies.push(req.body);
         __ifMatched.push(Object.keys(req.headers ?? {}).some((k) => /^if-match$/i.test(k)));
+        // A request made under a test's \`as { … }\` principal carries other
+        // dev claims than the runner's own; the ladder and the probes keep
+        // authenticating as the runner's principal, so its claims stand in.
         for (const [k, v] of Object.entries(req.headers ?? {})) {
-          if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
+          if (/^content-(type|length)$/i.test(k)) continue;
+          __authHeaders[k] =
+            /^x-loom-dev-claims$/i.test(k) && typeof DEV_CLAIMS === "string"
+              ? Buffer.from(DEV_CLAIMS).toString("base64")
+              : v;
         }
         __wire.push(__toWireEntry(__wire.length, req.method, req.url, r.status, r.body ?? ""));
         __checkSecurityHeaders(req, r);

@@ -865,7 +865,7 @@ WHERE p.tenant_id = $tenant
 ```
 
 The composition rules, the generated output and the diagnostics are in
-[tenancy.md](tenancy.md#the-policy-block--levels-row-rules-and-deny) and the
+[tenancy.md](tenancy.md#the-policy--block--levels-row-rules-and-deny) and the
 language reference ([§17](language-reference/17-auth.md#row-rules-when-and-own)).
 
 ### Deny carve-outs

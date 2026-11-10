@@ -108,7 +108,7 @@ function lowerRule(r: PolicyReadRule, ctx: BoundedContext, env: Env, out: Lowere
  *  to it into `this`, so the predicate is an ordinary row filter every
  *  backend's filter renderer already compiles.  An inner `exists … as <same
  *  name>` rebinds the name, so the rewrite stops at it. */
-export function rowAsThis(e: ExprIR, binding: string): ExprIR {
+function rowAsThis(e: ExprIR, binding: string): ExprIR {
   if (e.kind === "ref" && e.refKind === "row" && e.name === binding) return { kind: "this" };
   if (e.kind === "exists" && e.binding === binding) return e;
   return mapExprChildren(e, (c) => rowAsThis(c, binding));

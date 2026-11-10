@@ -592,7 +592,10 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
               contextFilterOrigins: [...next.contextFilterOrigins, undefined],
             };
           }
-          if (writeHit) {
+          // A denied read denies writes too.  The read term above already does
+          // that wherever the command load reuses the read scope; an explicit
+          // write scope (a policy rule's) must say it itself.
+          if (writeHit || (readHit && next.writeScopeFilter !== undefined)) {
             // The carve-out is the aggregate's whole write scope.
             next = { ...next, writeScopeFilter: buildDenyFilter(agg) };
           }

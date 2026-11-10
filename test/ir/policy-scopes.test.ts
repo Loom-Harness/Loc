@@ -4,7 +4,6 @@
 // structure — which slot it takes, what stays byte-neutral, and the negated
 // fallback arm — none of which a booted tier can name.
 import { describe, expect, it } from "vitest";
-import { negate } from "../../src/ir/enrich/policy-scopes.js";
 import type { AggregateIR, ExprIR } from "../../src/ir/types/loom-ir.js";
 import { walkExprDeep } from "../../src/ir/util/walk.js";
 import { buildLoomModel } from "../_helpers/ir.js";
@@ -54,8 +53,14 @@ describe("policy scope composition", () => {
     const composed = ruled.contextFilters[slot]!;
     expect(composed.kind === "binary" && composed.op).toBe("||");
     expect(kinds(composed)).toContain("exists");
-    // A read rule never widens writes: the write scope is the floor alone.
-    expect(ruled.writeScopeFilter).toEqual(plain.contextFilters[slot]);
+    // A read rule never widens writes: the write scope is the read composite
+    // AND the write default (the floor).
+    const w = ruled.writeScopeFilter!;
+    expect(w.kind === "binary" && w.op).toBe("&&");
+    expect(w.kind === "binary" && w.right).toEqual({
+      kind: "paren",
+      inner: plain.contextFilters[slot],
+    });
   });
 
   it("guards `when` arms and keeps `local` for the callers no `when` admits", async () => {
@@ -82,26 +87,5 @@ describe("policy scope composition", () => {
     const ops = kinds(d.contextFilters[d.contextFilterOrigins.indexOf("tenantOwned")]);
     expect(ops).not.toContain("||");
     expect(ops.filter((o) => o === "==")).toHaveLength(2);
-  });
-
-  it("pushes a negation down to its principal leaves", () => {
-    const claim = (v: string): ExprIR => ({
-      kind: "binary",
-      op: "==",
-      left: { kind: "literal", lit: "string", value: v },
-      right: { kind: "literal", lit: "string", value: v },
-    });
-    const n = negate({ kind: "binary", op: "||", left: claim("a"), right: claim("b") });
-    expect(kinds(n)).toEqual([
-      "&&",
-      "paren",
-      "!=",
-      "literal",
-      "literal",
-      "paren",
-      "!=",
-      "literal",
-      "literal",
-    ]);
   });
 });

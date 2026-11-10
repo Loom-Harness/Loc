@@ -39,6 +39,7 @@ const QUERY_SITES: ReadonlySet<string> = new Set([
   "AggregateIR.contextFilters",
   "AggregateIR.contextFilterRefs",
   "AggregateIR.writeScopeFilter",
+  "PolicyRowRuleIR.where",
   "CriterionIR.body",
   "FindIR.filter",
   "FindIR.criterionRef",
