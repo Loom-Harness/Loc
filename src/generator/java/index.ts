@@ -2050,6 +2050,7 @@ function emitAggregate(
       pkg: applicationPkg,
       entityPkg: pkgFor("entity", agg.name),
       domainRepoPkg: pkgFor("repository-interface", agg.name),
+      repoPkgOf: (name: string) => pkgFor("repository-interface", name),
       authed: authRequired,
       userFields: authRequired ? (sys?.user?.fields ?? []).map((f) => f.name) : [],
       boundedContext: ctx,

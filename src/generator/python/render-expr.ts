@@ -1,6 +1,7 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
+import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
@@ -128,8 +129,14 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   // Bare object literals only appear in e2e contexts; in operation bodies
   // this branch is unreachable (the validator rejects them).
   object: (fields) => `{${fields.map((f) => `"${f.name}": ${f.value}`).join(", ")}}`,
-  unary: (op, operand, e) =>
-    op === "!" ? `not ${operand}` : pyCheckedInt(`${op}${operand}`, checkedUnaryKind(e)),
+  unary: (op, operand, e) => {
+    // `!exists …` flips the identity test rather than wrapping it: ruff's E714
+    // refuses `not (x is not None)`.
+    if (op === "!" && isExistsRead(e.operand) && operand.endsWith(NOT_NONE)) {
+      return `${operand.slice(0, -NOT_NONE.length)} is None)`;
+    }
+    return op === "!" ? `not ${operand}` : pyCheckedInt(`${op}${operand}`, checkedUnaryKind(e));
+  },
   binary: renderBinary,
   ternary: (cond, then, otherwise) => `(${then} if ${cond} else ${otherwise})`,
   // A one-element comprehension binds the left once without a walrus (illegal
@@ -196,7 +203,27 @@ const PY_TARGET: ExprTarget<PyRenderContext> = {
   // None` keeps the emit clean under ruff's default E711 gate.
   absenceCheck: (subject) => `${subject} is not None`,
   list: (elements) => `[${elements.join(", ")}]`,
+  // An in-app `exists`: every route takes the request's `session`, so the
+  // quantified aggregate's repository is constructed in place, as `_repo` does.
+  existsRead: (e, args) => `(${existsReadCall(e, args)} is not None)`,
 };
+
+const NOT_NONE = " is not None)";
+
+/** The awaited synthesized-find call behind an in-app `exists`. */
+function existsReadCall(e: ExistsReadNode, args: readonly string[]): string {
+  const repo = pyRef(
+    `app.db.repositories.${snake(e.aggregate)}_repository`,
+    `${e.aggregate}Repository`,
+  );
+  const events = pyRef("app.domain.events", "NoopDomainEventDispatcher");
+  return `(await ${repo}(session, ${events}()).${snake(e.read.find)}(${args.join(", ")}))`;
+}
+
+function isExistsRead(e: ExprIR): boolean {
+  const inner = e.kind === "paren" ? e.inner : e;
+  return inner.kind === "exists" && inner.read !== undefined;
+}
 
 export function renderPyExpr(e: ExprIR, ctx: PyRenderContext = DEFAULT): string {
   return renderExprWith(e, PY_TARGET, ctx);
@@ -230,7 +257,19 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
       return `${renderPyExpr(nullTest.operand, ctx)} is ${nullTest.negated ? "" : "not "}None`;
     }
   }
-  return `not (${renderPyExpr(e, ctx)})`;
+  // An in-app `exists` negates to `is None` for the same reason (E714), and
+  // `!exists` back to `is not None`.
+  {
+    const inner = e.kind === "paren" ? e.inner : e;
+    if (inner.kind === "unary" && inner.op === "!" && isExistsRead(inner.operand)) {
+      return renderPyExpr(inner.operand, ctx);
+    }
+    const text = renderPyExpr(e, ctx);
+    if (isExistsRead(e) && text.endsWith(NOT_NONE)) {
+      return `${text.slice(0, -NOT_NONE.length)} is None)`;
+    }
+    return `not (${text})`;
+  }
 }
 
 /**

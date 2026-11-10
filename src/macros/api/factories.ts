@@ -1672,14 +1672,21 @@ export function policyBlock(
   return node as PolicyDecl & ContextMember;
 }
 
-/** `exists <aggregate> as <binding> where <where>` — the existential
- *  quantifier over another aggregate's rows. */
-export function existsExpr(aggregateName: string, binding: string, where: Expression): ExistsExpr {
+/** `exists <aggregate> [for write] as <binding> where <where>` — the
+ *  existential quantifier over another aggregate's rows; `forWrite` quantifies
+ *  over the rows the caller may write. */
+export function existsExpr(
+  aggregateName: string,
+  binding: string,
+  where: Expression,
+  opts: { forWrite?: boolean } = {},
+): ExistsExpr {
   const origin = currentOrigin();
   const node: ExistsExpr = tag(
     mkAst<ExistsExpr>({
       $type: "ExistsExpr",
       aggregate: makeRef<Aggregate>(aggregateName) as ExistsExpr["aggregate"],
+      forWrite: opts.forWrite ?? false,
       binding,
       where,
     }),

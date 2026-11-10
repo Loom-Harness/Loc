@@ -34,7 +34,12 @@ import {
 } from "../dto-mapping.js";
 import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
-import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
+import {
+  collectCsExprUsings,
+  csExistsReadDeps,
+  renderCsExpr,
+  renderCsType,
+} from "../render-expr.js";
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
 import { csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
@@ -102,6 +107,9 @@ function lifecycleGate(
   const gates = lifecycleGates(action);
   if (gates.length === 0) return { body: "", deps: [], usings: [] };
   const usesUser = lifecycleGatesUseCurrentUser(action);
+  // A create gate's parameters are the create-input fields the command
+  // carries (`loom.lifecycle-guard-unreadable` admits no other).
+  const params = new Set((action?.params ?? []).map((p) => p.name));
   const usings = new Set<string>();
   for (const g of gates) collectCsExprUsings(g.expr, usings, ns);
   // `ICurrentUserAccessor` lives in `<ns>.Auth`, which the base handler usings
@@ -114,7 +122,10 @@ function lifecycleGate(
     gates
       .map(
         (g) =>
-          `        if (!(${renderCsExpr(g.expr, thisName ? { thisName } : undefined)}))\n` +
+          `        if (!(${renderCsExpr(g.expr, {
+            thisName: thisName ?? "this",
+            paramExpr: (name) => (params.has(name) ? `command.${upperFirst(name)}` : undefined),
+          })}))\n` +
           `        {\n` +
           `            throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});\n` +
           `        }\n`,
@@ -124,7 +135,10 @@ function lifecycleGate(
     body,
     // Only a principal-reading gate needs the accessor injected; a row-only
     // gate reads the local the handler already loaded.
-    deps: usesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [],
+    deps: [
+      ...(usesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : []),
+      ...csExistsReadDeps(gates.map((g) => g.expr)),
+    ],
     usings: [...usings],
   };
 }
@@ -511,8 +525,13 @@ export function emitOperationCommandAndHandler(
         : `command.${upperFirst(p.name)}`,
     );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
-    const userExtraDeps =
-      usesUser || gateUsesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : [];
+    const userExtraDeps = [
+      ...(usesUser || gateUsesUser
+        ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }]
+        : []),
+      // The repositories an in-app `exists` in the gates reads through.
+      ...csExistsReadDeps([op.when, ...operationGates(op).map((g) => g.expr)]),
+    ];
     const userExtraUsings = [
       ...(usesUser || gateUsesUser ? [`${ns}.Auth`] : []),
       ...gateUsings(op, ns),

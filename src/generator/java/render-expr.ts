@@ -441,7 +441,16 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
   list: (elements) => `${J.List}.of(${elements.join(", ")})`,
+  // An in-app `exists`: the service holding the gate has the quantified
+  // aggregate's repository injected (`javaExistsReadField`).
+  existsRead: (e, args) =>
+    `(${javaExistsReadField(e.aggregate)}.${e.read.find}(${args.join(", ")}) != null)`,
 };
+
+/** The service field an in-app `exists` over `aggregate` reads through. */
+export function javaExistsReadField(aggregate: string): string {
+  return `${aggregate[0]!.toLowerCase()}${aggregate.slice(1)}Reads`;
+}
 
 export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): string {
   return renderExprWith(e, JAVA_TARGET, ctx);

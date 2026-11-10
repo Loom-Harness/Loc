@@ -835,7 +835,10 @@ function createRoute(
     bindPrincipal ? PY_USER_BIND : null,
     // BEFORE the factory: a denied create must construct nothing (and, when
     // audited, stage nothing).
-    ...lifecycleGate(canonicalCreate(agg)),
+    ...lifecycleGate(canonicalCreate(agg), undefined, (name) => {
+      const f = inputs.find((q) => q.name === name);
+      return f ? pyWireToDomain(`body.${pythonWireIdent(f.name)}`, f.type, ctx) : undefined;
+    }),
     `    created = ${aggClassRef(agg.name)}.create(${args})`,
     hasStamp(agg, "create") ? stampCall(agg, "create", "created") : null,
     auditCreate ? "    repo = _repo(session)" : null,
@@ -1090,9 +1093,15 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
  *              only (`loom.lifecycle-guard-unreadable` enforces that).
  *    destroy — `__loaded`, the row the route already loaded for its 404 probe,
  *              so an unreachable id answers 404 before 403. */
-function lifecycleGate(action: OperationIR | null | undefined, thisName?: string): string[] {
+function lifecycleGate(
+  action: OperationIR | null | undefined,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  // A create gate's parameters are the create-input fields the body carries
+  // (`loom.lifecycle-guard-unreadable` admits no other).
   return lifecycleGates(action).flatMap((g) => [
-    `    if ${renderPyNegatedGuard(g.expr, thisName ? { thisName } : undefined)}:`,
+    `    if ${renderPyNegatedGuard(g.expr, { thisName: thisName ?? "self", ...(paramExpr ? { paramExpr } : {}) })}:`,
     `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
   ]);
 }

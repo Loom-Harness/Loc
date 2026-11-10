@@ -20103,6 +20103,25 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             }
           },
           {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "forWrite",
+                "operator": "?=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "for"
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "write"
+              }
+            ],
+            "cardinality": "?"
+          },
+          {
             "$type": "Keyword",
             "value": "as"
           },

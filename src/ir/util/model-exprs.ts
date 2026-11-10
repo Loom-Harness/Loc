@@ -301,9 +301,12 @@ export const SITES = {
    *    not a declaration site: every entry is the identical `ValueObjectIR`
    *    object the DECLARING context already exposes as `valueObjects`, which
    *    the walk visits there.  Walking it again would report each sibling VO's
-   *    invariants and derived expressions once per consuming context. */
+   *    invariants and derived expressions once per consuming context.
+   *  - `ExistsReadIR.args` are the row-free subterms of their `exists` node's
+   *    own `where` — the very same objects, which the walk reaches there. */
   aliased: new Set<string>([
     "BoundedContextIR.siblingValueObjects",
+    "ExistsReadIR.args",
     "EnrichedAggregateIR.createInput",
     "EnrichedAggregateIR.parts",
     "EnrichedBoundedContextIR.aggregates",

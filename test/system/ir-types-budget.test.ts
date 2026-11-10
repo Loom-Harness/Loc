@@ -29,7 +29,9 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // `policyRowRules` list, absent like its `policyReadLevels` siblings.
   "context.ts": 31,
   "deployment.ts": 22,
-  "expr.ts": 36,
+  // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
+  // in-app gate position; a query-position quantifier has no read).
+  "expr.ts": 38,
   "members.ts": 16,
   // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
   // `UnresolvedTypeSite.origin` (absent for a node with no source span).
