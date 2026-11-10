@@ -409,9 +409,10 @@ reads every value in it as a real translation.
   order:
   1. **Declared** — the same `migration "<name>" { … }` steps `ddd migrate`
      reads: `Order -> PurchaseOrder` (every facet of the type),
-     `Order.qty -> quantity` (the `field` key), `Sales.Order -> Billing.Order`
-     (a move). No i18n-specific syntax; steps are ledger-inert once carried.
-  2. **Inferred** — for what a block cannot name (ops, enum values, rules,
+     `Order.qty -> quantity` (the `field` key), `Status.Draft -> Pending` (the
+     enum `value` key), `Sales.Order -> Billing.Order` (a move). No
+     i18n-specific syntax; steps are ledger-inert once carried.
+  2. **Inferred** — for what no block names (ops, enum values, rules,
      error messages, or a project with no block): exactly one key vanished and
      one appeared with the same shape (same member facet in the same type, same
      name/message facet in the same context, or same type and member in another
