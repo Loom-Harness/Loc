@@ -719,6 +719,45 @@
     },
     {
       "seq": 61,
+      "method": "GET",
+      "path": "/api/seals",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 62,
+      "method": "GET",
+      "path": "/api/racks",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "label": "D",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 63,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -732,7 +771,7 @@
       }
     },
     {
-      "seq": 62,
+      "seq": 64,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -746,7 +785,7 @@
       }
     },
     {
-      "seq": 63,
+      "seq": 65,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -760,7 +799,7 @@
       }
     },
     {
-      "seq": 64,
+      "seq": 66,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -770,7 +809,7 @@
       }
     },
     {
-      "seq": 65,
+      "seq": 67,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 404,
