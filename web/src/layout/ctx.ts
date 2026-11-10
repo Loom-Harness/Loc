@@ -34,6 +34,7 @@ import type { OutputDiff } from "../build/output-diff";
 import type { SelectTarget } from "../build/select-target";
 import type { BundleFail, BundleOk } from "../bundle/protocol";
 import type { LoomExample } from "../examples";
+import type { OidcSetup } from "../backend/oidc-personas";
 import type { TreeFolder } from "../preview/file-tree";
 import type { useWorkspace } from "../workspace/use-workspace";
 import type {
@@ -61,24 +62,60 @@ export type ReactBundleStatus =
   | { kind: "fail"; result: BundleFail }
   | { kind: "ok"; result: BundleOk };
 
-/** Playground auth-stub config (Phase 7).  When enabled, the configured
- *  claims are injected into every dispatched request as the
- *  `x-loom-dev-claims` header (base64 JSON), which the generated Hono
- *  dev-stub verifier merges over its built-in identity — so an
- *  `auth: required` system is explorable in the sandbox as different
- *  users without a reachable IdP.  Applies to `auth { oidc }` systems too:
- *  the preview registers their emitted dev stub, since no IdP is reachable
- *  from the worker (the generated app registers the OIDC verifier). */
+/** The Auth panel's config, persisted per browser.
+ *
+ *  For a system with `auth { oidc }` the preview boots the generated OIDC
+ *  verifier against the infra worker's fake identity provider (`verifier:
+ *  "oidc"`, the default): the panel mints a real token for a persona of the
+ *  generated dev realm, and every dispatched request carries it as
+ *  `Authorization: Bearer …`.  `verifier: "stub"` — and every system without
+ *  `auth { oidc }` — boots the dev-stub verifier instead, which trusts the
+ *  configured claims sent as the `x-loom-dev-claims` header (base64 JSON). */
 export interface AuthStubConfig {
   enabled: boolean;
   /** A JSON object literal of claims, edited in the Auth panel. */
   claimsJson: string;
+  /** Which verifier an `auth { oidc }` system boots with.  Default `"oidc"`. */
+  verifier?: AuthVerifierChoice;
 }
+
+export type AuthVerifierChoice = "oidc" | "stub";
 
 export const DEFAULT_AUTH_STUB: AuthStubConfig = {
   enabled: false,
   claimsJson: '{\n  "role": "admin"\n}',
 };
+
+/** A token the fake identity provider minted for the Auth panel. */
+export interface OidcToken {
+  persona: string;
+  accessToken: string;
+  /** Epoch ms. */
+  expiresAt: number;
+  /** The access token's payload, for display. */
+  claims: Record<string, unknown>;
+}
+
+/** The fake identity provider as the last boot set it up. */
+export interface OidcState {
+  /** Realms and personas, or null when the booted system has no
+   *  `auth { oidc }`. */
+  setup: OidcSetup | null;
+  /** Whether the booted backends run the generated OIDC verifier. */
+  active: boolean;
+  token: OidcToken | null;
+}
+
+export const NO_OIDC: OidcState = { setup: null, active: false, token: null };
+
+/** The auth headers a dispatched request carries: the minted bearer token when
+ *  the booted backends verify OIDC tokens, otherwise the dev-stub claims
+ *  header (when the stub override is on). */
+export function authHeaders(cfg: AuthStubConfig, oidc: OidcState): Record<string, string> {
+  if (oidc.active) return oidc.token ? { authorization: `Bearer ${oidc.token.accessToken}` } : {};
+  const claims = devClaimsHeader(cfg);
+  return claims ? { "x-loom-dev-claims": claims } : {};
+}
 
 /** Encode the configured claims as the `x-loom-dev-claims` header value
  *  (base64 of UTF-8 JSON) — or null when disabled / empty / invalid, in
@@ -474,10 +511,16 @@ export interface LayoutCtx {
   selectResult: SelectResult | null;
   dismissSelectResult: () => void;
 
-  // Playground auth stub (Phase 7) — identity injected into dispatched
-  // requests via the `x-loom-dev-claims` header.  Persisted by App.tsx.
+  // The identity dispatched requests carry (see `authHeaders`).  The config
+  // is persisted by App.tsx; the token lives as long as the page.
   authStub: AuthStubConfig;
   setAuthStub: (v: AuthStubConfig | ((prev: AuthStubConfig) => AuthStubConfig)) => void;
+  oidc: OidcState;
+  /** Mint a token for `persona` (its realm claims, `claims` merged over) and
+   *  send it from now on.  Rejects when no system with `auth { oidc }` is
+   *  booted. */
+  mintOidcToken: (persona: string, claims: Record<string, unknown>) => Promise<void>;
+  clearOidcToken: () => void;
 
   // Backend tester form
   /** The booted Node deployables, the default request target first; the

@@ -84,9 +84,9 @@ import {
   RICH_TEXT_ROLE,
 } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
-import { walkBody } from "../_walker/walker-core.js";
+import { type WalkContext as SharedWalkContext, walk, walkBody } from "../_walker/walker-core.js";
 import { modelTextExpr } from "./heex-model-text.js";
-import { heexPack } from "./heex-pack.js";
+import { HEEX_SHARED_PRIMITIVES, heexPack } from "./heex-pack.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { pgettextCall } from "./i18n.js";
 import {
@@ -467,8 +467,10 @@ export interface WalkContext {
   tableHelpersUsed: { value: boolean };
   /** Monotonic per-page counter for `Tabs` instances — boxed (survives the
    *  `{...ctx}` copies) so each Tabs gets a unique id used to scope its
-   *  client-side `JS.show`/`JS.hide` toggle selectors. */
-  tabSeq: { value: number };
+   *  client-side `JS.show`/`JS.hide` toggle selectors.  Ids are numbered in
+   *  document order: `reserved` holds the ids taken on entering a `Tabs` whose
+   *  markup is not built yet (its panels render first), innermost last. */
+  tabSeq: { value: number; reserved?: number[] };
   /** Monotonic per-page counter for `Table` instances WITHOUT an explicit
    *  `testid:` — boxed for the same reason as `tabSeq`.  `<.table>` requires a
    *  DOM `id` (the Phoenix.Component contract), and every default-id table on a
@@ -555,10 +557,15 @@ export interface WalkContext {
   /** Section/Card nesting depth, so a `Heading` with no explicit `level:`
    *  derives its rank from structure — `min(6, 2 + headingDepth)`, matching
    *  the JSX frontends' `WalkEnv.headingDepth` (accessibility.md, so
-   *  ranks never skip).  Incremented by `renderSection` / `renderCard` for
-   *  their children; undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
+   *  ranks never skip).  Incremented by `Section` / `Card` / `Paper` for
+   *  their children (the shared walk and this engine keep it in step);
+   *  undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
    *  owns the single `<h1>`). */
   headingDepth?: number;
+  /** The shared walker-core context this engine was entered from.  A ported
+   *  primitive (`HEEX_SHARED_PRIMITIVES`) below an engine-rendered node goes
+   *  back through it, so the two engines nest in either direction. */
+  sharedWalk?: SharedWalkContext;
   /** i18n key prefix for this body — `page.<Page>` / `component.<Comp>`
    *  Set only when the ui has extractable user-visible strings;
    *  undefined ⇒ every literal renders raw.
@@ -686,33 +693,47 @@ export function walkBodyToHeex(
   // handed back to this engine through `heexTarget.renderNodeOverride`, which
   // renders it with the HEEx walk context carried in the sink.
   const sink: HeexWalkSink = { heex: ctx };
-  const heex = body
-    ? walkBody(
-        body,
-        heexTarget,
-        heexPack(),
-        // The shared core's own lookups stay empty: no node reaches its
-        // dispatch while every node is overridden.
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        sink,
-      ).tsx
-    : `<!-- empty body -->`;
+  const heex = body ? walkShared(body, sink) : `<!-- empty body -->`;
   const titleExpr = pageTitleExpr(page, ctx);
 
   return walkResultFromSink(heex, sink, titleExpr);
+}
+
+/** Run the shared walker core over `body` with the HEEx walk state in its
+ *  sink.  The core's own lookups stay empty: every node it does not render
+ *  itself goes back to this engine, which owns those lookups. */
+function walkShared(body: ExprIR, sink: HeexWalkSink): string {
+  return walkBody(
+    body,
+    heexTarget,
+    heexPack(sink),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    sink.heex.i18nPrefix,
+    sink,
+  ).tsx;
+}
+
+/** A ported primitive reached from inside this engine, rendered by the shared
+ *  core under the current HEEx walk state.  It walks at depth 0 because this
+ *  engine indents a child relative to its parent (`indent`), and the shared
+ *  core's depth-0 output is exactly that relative form. */
+function renderThroughSharedCore(expr: ExprIR & { kind: "call" }, ctx: WalkContext): string {
+  const sink: HeexWalkSink = { heex: ctx };
+  const shared = ctx.sharedWalk;
+  if (!shared) return walkShared(expr, sink);
+  return walk(expr, { ...shared, sink, headingDepth: ctx.headingDepth }, 0);
 }
 
 /** The HEEx walk state the shared core carries in `ctx.sink` for this target. */
@@ -1471,8 +1492,8 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   }
   // A VALUE-OBJECT construction (`Money(9.99, "USD")`) — checked BEFORE the
   // primitive-name registry below, since a domain VO can share a name with a
-  // built-in walker primitive (`Money` is also a display primitive,
-  // `renderMoney`).  Without this the registry lookup won though first and
+  // built-in walker primitive (`Money` is also a display primitive).  Without
+  // this the registry lookup won though first and
   // rendered the primitive's MARKUP — `<span class="money">…</span>` — in
   // what was meant to be a value position, and a following `.currency`
   // member access then got appended as literal text after the closing
@@ -1501,6 +1522,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   // without a `heex` entry fall through to the user-component /
   // helper paths and ultimately to a visible HEEx comment so the
   // gap is visible in generated output.
+  if (HEEX_SHARED_PRIMITIVES.has(expr.name)) return renderThroughSharedCore(expr, ctx);
   const def = WALKER_PRIMITIVES[expr.name];
   if (def?.heex) return def.heex(expr, ctx);
   // User-defined `component` invocation → a remote HEEx function
@@ -2020,7 +2042,7 @@ export interface PrimitiveSpec {
    *  Layout utilities are design-NEUTRAL (daisyUI adds a COMPONENT vocabulary —
    *  `btn`, `card`, `alert` — not a layout one), which is why they live in the
    *  walker while the card SURFACE goes through the pack's `<.card>` function
-   *  component.  See `renderCard`. */
+   *  component (`heex-pack.ts`). */
   baseClass?: string;
   /** Named args that legitimately become attributes on this tag — everything
    *  else is DROPPED rather than spliced through as a bare HTML attribute.

@@ -77,21 +77,12 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "File",
 ] as const;
 
-/** Information-flow sensitivity tags carried by a value's type.  See
- * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.  Mirror of
- * `SensitivityTags` in `src/language/type-system.ts`; kept as a sorted,
- * unique `readonly string[]` so the IR remains JSON-serialisable for
- * `.loom/wire-spec.json`. */
+/** The sensitivity tags a property declares with `sensitive(...)` — sorted,
+ *  unique, JSON-serialisable.  A field fact (`FieldIR.sensitivity`), never a
+ *  type fact: no `TypeIR` carries tags, so the typing pass and every type
+ *  comparison stay tag-free, and the one consumer (the redacted `inspect`)
+ *  reads the field. */
 export type SensitivityTags = readonly string[];
-
-/** Base of every `TypeIR` arm: the information-flow sensitivity tags a
- *  value's type carries (sorted, unique).  Absent when the type carries no
- *  tags — the common case; consumers read absent as "no tags", never as an
- *  error.  A type alias, like `Sourced`, so `TypeIR` stays assignable to
- *  `Record<string, unknown>`. */
-export type Sensitive = {
-  sensitivity?: SensitivityTags;
-};
 
 /** Canonical type-discriminated union for every type that appears in
  *  the IR — primitives, ids, enums, value objects, entities, arrays,
@@ -112,7 +103,7 @@ export type Sensitive = {
  *  Every identity is a guid — there is no per-aggregate id value type, so
  *  backends spell an id's underlying scalar (column, wire format, CLR/Java
  *  type) as their guid form unconditionally. */
-export type TypeIR = (
+export type TypeIR =
   | { kind: "primitive"; name: PrimitiveName }
   | { kind: "id"; targetName: string }
   | { kind: "enum"; name: string }
@@ -156,9 +147,7 @@ export type TypeIR = (
    *  lambda walked + hoisted in the caller's scope, and the React
    *  props type gains `(arg: TWire) => void`.  `arg` is the declared
    *  callback argument type; undefined for a bare zero-arg `action`. */
-  | { kind: "action"; arg?: TypeIR }
-) &
-  Sensitive;
+  | { kind: "action"; arg?: TypeIR };
 
 /** The blessed closed set of generic-payload **record** carriers.  Kept in
  *  lockstep with the record arms of the `GenericCtor` grammar rule and the

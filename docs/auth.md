@@ -1456,7 +1456,7 @@ under `auth/`:
 | `auth/user-types.ts` | `User` interface matching the user block |
 | `auth/verifier.ts` | `registerUserVerifier(...)` registry + `verifyUserOrThrow(req)` helper |
 | `auth/middleware.ts` | Hono middleware mounted in `http/index.ts` |
-| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview |
+| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview, and only when its Auth tab selects the dev stub |
 | `auth/oidc.ts` + `auth/handshake.ts` | With an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake |
 
 `http/index.ts` mounts `app.use("*", authMiddleware)` after
@@ -1633,7 +1633,7 @@ public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancel
 The other backends gate the same way: node's `boot.ts` passes
 `opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1"` to
 `registerDevStubVerifier(...)` (the playground preview boots with
-`verifier: "dev-stub"`), Java's `DevStubUserVerifier.verify` and Python's
+`verifier: "dev-stub"` unless the system declares `auth { oidc }`), Java's `DevStubUserVerifier.verify` and Python's
 `_dev_stub_verifier` return null/`None`, and Phoenix's `verify_token/1`
 answers `{:error, :dev_auth_off}`.
 
@@ -1651,7 +1651,8 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > replaces the stub with the generated OIDC verifier on every backend
 > (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and
 > node's `auth/dev-stub.ts` is registered only by the playground preview's
-> `bootApp(db, { verifier: "dev-stub" })`.  There is no `x-loom-dev-claims`
+> `bootApp(db, { verifier: "dev-stub" })`, which the preview passes only when
+> its Auth tab selects the dev stub.  There is no `x-loom-dev-claims`
 > path and no env switch that brings it back, so every request needs a real
 > bearer token. Local
 > development with an `oidc` block therefore needs an IdP:
@@ -1690,11 +1691,12 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
 registers the stub only when the host passes `verifier: "dev-stub"`, which the
 server's `index.ts` never does, so a running app ignores the header. The
-playground preview passes it, because no identity provider is reachable from
-its browser worker —
-that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
-header there answers 401, not 400, since the OIDC middleware does not know the
-stub).
+playground preview boots the generated OIDC verifier against its in-browser
+identity provider (see [Playground: the in-browser identity
+provider](#playground-the-in-browser-identity-provider)); its Auth tab can
+switch the preview to the stub instead, and that is the one place an OIDC
+system honours `x-loom-dev-claims` (a malformed header there answers 401, not
+400, since the OIDC middleware does not know the stub).
 
 ```ts
 // generated (node, auth { oidc }) — index.ts
@@ -1761,6 +1763,67 @@ that an identifier claim (`guid`, or an `X id`) must be a UUID. An optional
 claim that is absent or can't be decoded is `null`. A **required** one rejects
 the token with 401. Value-object, enum, `money` and `json` claims are not decoded on
 .NET/Java; they keep the type default.
+
+## Playground: the in-browser identity provider
+
+The playground preview runs the generated **OIDC verifier** of an
+`auth { oidc }` system unchanged — discovery, JWKS, signature, `iss`, `aud`,
+`exp` and the claim projection — against an identity provider that runs in the
+browser's infra worker (`web/src/runtime/infra/oidc.ts`):
+
+- **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
+  service names, with Keycloak's endpoint paths
+  (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
+  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
+  otherwise what the dev realm's audience mapper mints (the declared
+  `audience:`), otherwise the client id.
+- **Personas.** The users of the generated dev realm (`keycloak/realm.json`),
+  with the claims Keycloak's mappers put in their access token: a UUID `sub`,
+  the profile claims, `realm_access.roles` (so a permission held as a realm
+  role satisfies `permissions.contains(…)`), and one claim per user-attribute
+  mapper (`role`, `tenantId`, …). A token minted in the playground carries what
+  the docker compose stack's Keycloak mints for the same user.
+- **Tokens.** The Auth tab mints one for the persona you pick, with its claims
+  editable (another tenant, another permission set); the API console and the
+  preview send it as `Authorization: Bearer …`. The token endpoint answers the
+  `authorization_code` grant (PKCE `S256` checked against the challenge) and
+the `password` grant, and rotates refresh tokens (each redeems once).
+
+```ddd
+system Desk {
+  user { id: guid  role: string  permissions: string[]  tenantId: string }
+  auth {
+    provider: keycloak
+    oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: "desk-api" }
+    claims: { permissions: "realm_access.roles" }
+  }
+  tenancy by user.tenantId of Org
+  // … operation close() { requires currentUser.permissions.contains(permissions.closeNotes) … }
+}
+```
+
+```ts
+// generated — api/auth/oidc.ts, booted unchanged in the preview
+const ISSUER = process.env.OIDC_ISSUER ?? "";           // http://host.docker.internal:8081/realms/desk
+const AUDIENCE = process.env.OIDC_AUDIENCE ?? "desk-api";
+// …
+const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
+```
+
+An expired token, one signed with another key and one minted for another
+audience are each refused with 401 by that code; `demo` is refused `close()`
+with 403 and `demo-admin`, who holds `support.closeNotes`, is not; a token
+whose `tenantId` names another tenant reads only that tenant's rows.
+
+The generated frontend's own login (`auth: ui`) runs too. Its **Sign in**
+navigates to `/api/auth/login`; the preview cancels that navigation and follows
+the redirect chain itself: the backend's `/login` (state + PKCE cookies) → the
+provider's login page, rendered inside the preview (one button per persona) →
+the backend's `/callback`, which exchanges the code with its PKCE verifier and
+sets the HttpOnly `session` and `refresh` cookies → the app. The preview keeps
+those cookies for the app's requests, so `/api/auth/refresh` rotates the
+refresh token when the access token expires and **Sign out** clears both.
 
 ## Token audience (`aud`)
 

@@ -33,6 +33,16 @@ export function workflowBodyUsesOwnState(statements: readonly WorkflowStmtIR[]):
   );
 }
 
+/** True when a workflow body READS its own state — any expression naming a
+ *  `this-prop` / `this-derived` on the workflow instance, at any nesting
+ *  depth.  An event-sourced handler binds its folded snapshot exactly when
+ *  this holds. */
+export function workflowBodyReadsOwnState(statements: readonly WorkflowStmtIR[]): boolean {
+  return bodyEffects({ statements, savesAtExit: [] }, undefined).some(
+    (e) => e.kind === "read-state",
+  );
+}
+
 /** True when a workflow body WRITES its own state (`field := …`, including the
  *  compound forms, at any nesting depth).  Narrower than
  *  {@link workflowBodyUsesOwnState}: a body that only READS state needs the row

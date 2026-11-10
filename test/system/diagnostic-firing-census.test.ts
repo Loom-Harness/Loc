@@ -177,7 +177,7 @@ ${members}
 }`;
 
 /** One aggregate whose MEMBERS are the defect, for the `structural.ts` shape
- *  rules and the `_shared.ts` sensitivity-drop helper (M-T9.56).  `modifiers`
+ *  rules (M-T9.56).  `modifiers`
  *  goes on the aggregate itself (`audited`). */
 const aggShape = (modifiers: string, members: string): string => `
 system S {
@@ -554,6 +554,27 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // The lowering backstop: a ui body reading a name nothing declares — the
+  // names validator leaves ui bodies to the typing pass, so nothing else
+  // refuses it.
+  "loom.unresolved-type": `
+system S {
+  subdomain M { context C { aggregate Doc with crudish { title: string } repository Docs for Doc { } } }
+  api A from M
+  ui U { api Api: A  page P { route: "/" body: For { each: orders, render: o => Text { "x" } } } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+  deployable web { platform: react targets: d ui: U { Api: d } port: 3001 }
+}`,
+  // A response record typed onto a stored aggregate field.
+  "loom.transport-type-position": `
+system S {
+  subdomain M { context C {
+    response Ok { n: int }
+    aggregate Doc with crudish { title: string  last: Ok }
+  } }
+}`,
   // An `exists` in an operation guard: not a position compiled into a query.
   "loom.exists-outside-query": `
 system S {
@@ -3194,13 +3215,6 @@ system S {
   "loom.containment-optional-collection": aggShape(
     "",
     "      entity Part { n: int }\n      contains parts: Part[]?",
-  ),
-  // The one FORWARDING helper in the census (`warnSensitivityDrop`): a
-  // sensitivity-tagged value flowing into an untagged target.  Its callers do
-  // not word anything, so the drain touched the helper.
-  "loom.sensitivity-drop": aggShape(
-    "",
-    "      secret: string sensitive(pii)\n      derived leak: string = secret",
   ),
 
   // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------

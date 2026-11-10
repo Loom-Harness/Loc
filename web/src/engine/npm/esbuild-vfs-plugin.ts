@@ -30,6 +30,33 @@ const EMPTY_CSS = "vfs-empty-css";
 // browser/PGlite path never takes (the `pg` driver tree etc.).
 // Stubbed so the bundle stays self-contained and builds; B4 verifies
 // the live browser entry never actually needs one.
+// A synchronous SHA-256 for the `node:crypto` polyfill's `createHash`: the
+// generated OIDC handshake derives its PKCE challenge with it, and WebCrypto's
+// digest is async-only.
+export const SYNC_SHA256 = `function sha256(bytes) {
+  const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+  const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+  const n = bytes.length, padded = new Uint8Array(((n + 9 + 63) >> 6) << 6);
+  padded.set(bytes); padded[n] = 0x80;
+  const dv = new DataView(padded.buffer);
+  dv.setUint32(padded.length - 8, Math.floor(n / 0x20000000)); dv.setUint32(padded.length - 4, (n << 3) >>> 0);
+  const W = new Uint32Array(64), r = (x, k) => (x >>> k) | (x << (32 - k));
+  for (let o = 0; o < padded.length; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) W[i] = (W[i-16] + (r(W[i-15],7) ^ r(W[i-15],18) ^ (W[i-15] >>> 3)) + W[i-7] + (r(W[i-2],17) ^ r(W[i-2],19) ^ (W[i-2] >>> 10))) >>> 0;
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (r(e,6) ^ r(e,11) ^ r(e,25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) >>> 0;
+      const t2 = ((r(a,2) ^ r(a,13) ^ r(a,22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    H[0] += a; H[1] += b; H[2] += c; H[3] += d; H[4] += e; H[5] += f; H[6] += g; H[7] += h;
+  }
+  const out = new Uint8Array(32), odv = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) odv.setUint32(i * 4, H[i]);
+  return out;
+}`;
+
 const NODE_BUILTINS = new Set([
   "assert", "async_hooks", "buffer", "child_process", "cluster",
   "console", "constants", "crypto", "dgram", "diagnostics_channel",
@@ -302,20 +329,39 @@ export function makeVfsNpmPlugin(
           return {
             contents: [
               "const c = globalThis.crypto;",
+              "const toBuf = (u8) => (globalThis.Buffer ? globalThis.Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength) : u8);",
               "const randomUUID = () => c.randomUUID();",
               "const getRandomValues = (a) => c.getRandomValues(a);",
-              "const randomBytes = (n) => c.getRandomValues(new Uint8Array(n));",
-              "module.exports = { randomUUID, getRandomValues, randomBytes, webcrypto: c, default: c };",
+              "const randomBytes = (n) => toBuf(c.getRandomValues(new Uint8Array(n)));",
+              SYNC_SHA256,
+              "function createHash(alg) {",
+              "  if (String(alg).toLowerCase() !== 'sha256') throw new Error('crypto.createHash: only sha256 is available in the browser preview');",
+              "  const parts = [];",
+              "  const h = {",
+              "    update(d) { parts.push(typeof d === 'string' ? new TextEncoder().encode(d) : new Uint8Array(d.buffer ? d.buffer : d, d.byteOffset || 0, d.byteLength === undefined ? d.length : d.byteLength)); return h; },",
+              "    digest(enc) {",
+              "      const len = parts.reduce((n, p) => n + p.length, 0);",
+              "      const all = new Uint8Array(len); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }",
+              "      const out = toBuf(sha256(all));",
+              "      return enc ? out.toString(enc) : out;",
+              "    },",
+              "  };",
+              "  return h;",
+              "}",
+              "module.exports = { randomUUID, getRandomValues, randomBytes, createHash, webcrypto: c, default: c };",
             ].join("\n"),
             loader: "js",
           };
         }
         // async_hooks — generated obs/als.ts constructs
         // `new AsyncLocalStorage()`.  The empty stub makes the
-        // constructor undefined → crash at module init.  Synchronous
-        // polyfill: keeps the same surface (run/getStore/enterWith)
-        // working in a single async context — sufficient for the
-        // playground worker where request flow is one chain.
+        // constructor undefined → crash at module init.  The polyfill keeps
+        // one store slot: `run` holds `store` until `fn` returns — or, when
+        // `fn` returns a promise, until that promise settles — so the request
+        // context (`requireCurrentUser()`, the request logger) survives the
+        // awaits inside a request.  It is correct while one request runs at a
+        // time, which the runtime worker guarantees by serving its RPCs in
+        // order (`runtime.worker.ts`).
         if (name === "async_hooks") {
           return {
             contents: [
@@ -324,7 +370,13 @@ export function makeVfsNpmPlugin(
               "  run(store, fn, ...a) {",
               "    const prev = this._store;",
               "    this._store = store;",
-              "    try { return fn(...a); } finally { this._store = prev; }",
+              "    let out;",
+              "    try { out = fn(...a); } catch (e) { this._store = prev; throw e; }",
+              "    if (out && typeof out.then === 'function') {",
+              "      return Promise.resolve(out).finally(() => { this._store = prev; });",
+              "    }",
+              "    this._store = prev;",
+              "    return out;",
               "  }",
               "  getStore() { return this._store; }",
               "  enterWith(store) { this._store = store; }",

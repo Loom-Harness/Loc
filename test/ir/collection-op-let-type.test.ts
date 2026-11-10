@@ -2,7 +2,7 @@
 //
 // `applySuffixToRecv` (the lowering call site) refined `map`/`min`/`max` from
 // the λ body; `inferSuffixType` — the path that types a `let` binding through
-// `inferExprType` — called the structural `memberType` raw.  Two consequences,
+// `passType` — called the structural `memberType` raw.  Two consequences,
 // both silent through `ddd parse` and `generate system`:
 //
 //   F2-EXPR-2  `memberType` had NO `map` arm, so it fell to its `string`

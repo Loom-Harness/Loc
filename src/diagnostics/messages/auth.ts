@@ -29,15 +29,6 @@ export const segments = [
 
 export const messages = {
   // ----------------------------------------------------------------------
-  // src/language/validators/_shared.ts
-  // ----------------------------------------------------------------------
-  // `warnSensitivityDrop` is ONE forwarding helper called from every
-  // assignment / default / emit / derived type check, so the drain (M-T9.56)
-  // touched the helper, not its callers.
-  "loom.sensitivity-drop": (p: { dropped: unknown; actual: unknown; expected: unknown }) =>
-    `Implicit conversion drops sensitivity tag(s) {${p.dropped}}: '${p.actual}' flows into '${p.expected}'.`,
-
-  // ----------------------------------------------------------------------
   // src/language/validators/auth.ts
   // ----------------------------------------------------------------------
   "loom.auth-without-user":

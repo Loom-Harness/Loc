@@ -26,6 +26,8 @@ const HEAVY_PREVIEW_SPECS = [
   "**/channels-broker.spec.ts",
   "**/cross-deployable-runtime.spec.ts",
   "**/resource-fakes.spec.ts",
+  "**/oidc-identity-provider.spec.ts",
+  "**/oidc-login-preview.spec.ts",
   "**/multi-deployable-ui.spec.ts",
   "**/timer-single-fire.spec.ts",
 ];

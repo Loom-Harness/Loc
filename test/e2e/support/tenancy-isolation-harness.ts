@@ -495,11 +495,15 @@ export async function assertOrgContextGate(
   pg: Postgres,
   bootLog: () => string,
 ): Promise<void> {
-  async function createOrg(name: string, parent?: string): Promise<string> {
+  async function createOrg(name: string, parent?: string, steward?: string): Promise<string> {
     const r = await fetch(`${base}/api/orgs`, {
       method: "POST",
       headers: { "content-type": "application/json" }, // claim-less signup
-      body: JSON.stringify(parent ? { name, parent } : { name }),
+      body: JSON.stringify({
+        name,
+        ...(parent ? { parent } : {}),
+        ...(steward ? { steward } : {}),
+      }),
     });
     expect(r.status, await r.clone().text()).toBe(201);
     return ((await r.json()) as { id: string }).id;
@@ -586,6 +590,23 @@ export async function assertOrgContextGate(
     body: JSON.stringify({}),
   });
   expect(noteRefused.status).toBe(403);
+
+  // === (2b) A FOREIGN org the caller can read on the registry is admitted:
+  // the registry row rule (`steward == currentUser.tenantId`) puts S in A's
+  // registry read scope, so A may act in S.  The write is stamped with S, is
+  // read back under the switch and by S itself, and never shows in A's own
+  // org.  Z, which names no steward, stays refused (2). ===
+  const orgS = await createOrg("S", undefined, orgA);
+  const switched = await create(actingAs(orgA, orgS), "switched-s");
+  expect(switched.status, switched.body).toBe(201);
+  expect(tenantOf("switched-s")).toBe(orgS);
+  expect(await labels(actingAs(orgA, orgS))).toContain("switched-s");
+  expect(await labels(actingAs(orgS))).toContain("switched-s");
+  expect(await labels(actingAs(orgA))).not.toContain("switched-s");
+  // The steward relation is one-way: S cannot act in A.
+  const reverse = await create(actingAs(orgS, orgA), "reverse-s");
+  expect(reverse.status, reverse.body).toBe(403);
+  expect(rowCount("reverse-s")).toBe("0");
 
   // === (3) A forged header on a token with no tenancy claim: 403, no write. ===
   const forged = await create(actingAs("", orgA), "forged");

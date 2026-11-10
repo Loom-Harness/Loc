@@ -116,6 +116,22 @@ the corresponding feature developer; for shared phases, run it after they land.
 The recipe minimum: 1 parsing + 1 negative validator + 1 IR + 1 generator test
 per touched backend, plus at least one `LOOM_*` compile pass.
 
+**Intersections are part of done, not a later audit's job.** Most defects in
+this compiler live where two features meet, not inside one, and a feature that
+only works on its own is debt the next audit files. Before landing:
+- **On the cover.** An aggregate-level modifier (a prelude capability, a header
+  flag, a shape / truth kind / inheritance layout) becomes a value in
+  `test/pairwise/axes.ts`, wired in `compose.ts`, so the all-pairs cover crosses
+  it with every other axis on all five backends. `test/pairwise/axis-coverage.test.ts`
+  fails until it is, or until a dated waiver names the issue that will.
+- **In the table.** Fill the feature's row in `src/util/target-capabilities.ts`
+  against the features it can combine with: each cell is witnessed by a
+  behavioural fixture, or refused with a `loom.*` diagnostic. Never left unknown.
+- **Run the pairwise legs** locally: `npm run test:pairwise-corpus` (every
+  crossing, every backend) and `npm run test:pairwise-corpus-tsc`, plus the
+  compile cell of each backend you touched. A finding the wider cover reaches is
+  fixed in this PR when it is this feature's, filed and waived otherwise.
+
 ### Phase 6 — Final review and land
 - Run the fast suite (`npm test`) and the relevant `LOOM_*` build gates; report
   what you ran and the actual results — never claim green you didn't see.

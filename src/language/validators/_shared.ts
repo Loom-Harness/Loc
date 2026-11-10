@@ -5,8 +5,6 @@
 //   * Env builders (`envForAggregate` / `envForPart` / `envForValueObject`) —
 //     shared by `structural.ts` (aggregate / part / value-object walks),
 //     `statements.ts` (operation body walk), and `types.ts`.
-//   * `warnSensitivityDrop` — shared by `types.ts` (derived / function)
-//     and `statements.ts` (assign / emit).
 //   * Literal-promotion gates (`canPromoteLiteralTo` / `canPromoteAstLitTo`
 //     / `literalPromotionAnchor`) — shared by `types.ts`
 //     (`checkDerived`, `checkSingleBinaryOperands`) and `statements.ts`
@@ -44,18 +42,7 @@ import {
   type ValueObject,
 } from "../generated/ast.js";
 import { declaredRuleName, type RuleNode, ruleContext, ruleOwner, rulesOf } from "../rule-names.js";
-import {
-  type Env,
-  makeEnv,
-  paramType,
-  propertySensitivity,
-  resolveTypeRef,
-  sensitivityNarrows,
-  T,
-  type Ty,
-  typeToString,
-  withTags,
-} from "../type-system.js";
+import { type Env, makeEnv, paramType, resolveTypeRef, T, type Ty } from "../type-system.js";
 
 // ---------------------------------------------------------------------------
 // Env builders
@@ -64,13 +51,11 @@ import {
 export function envForAggregate(agg: Aggregate, fn?: FunctionDecl): Env {
   const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   // Aggregate properties / derived / contains are in scope as bare
-  // identifiers — same as if we accessed them via `this`.  Property
-  // bindings attach the declared sensitivity tags so propagation
-  // inside operation bodies sees them.
+  // identifiers — same as if we accessed them via `this`.
   for (const m of agg.members) {
     if (isProperty(m))
       bindings.set(m.name, {
-        type: withTags(resolveTypeRef(m.type), propertySensitivity(m)),
+        type: resolveTypeRef(m.type),
         origin: m,
       });
     else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
@@ -91,7 +76,7 @@ export function envForPart(agg: Aggregate, part: EntityPart, fn?: FunctionDecl):
   for (const m of part.members) {
     if (isProperty(m))
       bindings.set(m.name, {
-        type: withTags(resolveTypeRef(m.type), propertySensitivity(m)),
+        type: resolveTypeRef(m.type),
         origin: m,
       });
     else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
@@ -114,33 +99,6 @@ export function envForValueObject(vo: ValueObject): Env {
     else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
   }
   return makeEnv(undefined, bindings, { valueObject: vo });
-}
-
-// ---------------------------------------------------------------------------
-// Sensitivity-narrowing warning
-// ---------------------------------------------------------------------------
-
-/** Emit a warning when a value's sensitivity tags would be silently
- *  dropped flowing into a less-sensitive target.  Implicit conversion
- *  is permitted by `isAssignable`; this surfaces it. */
-export function warnSensitivityDrop(
-  actual: Ty,
-  expected: Ty,
-  accept: import("langium").ValidationAcceptor,
-  info: { node: AstNode; property?: string },
-): void {
-  if (actual.kind === "unknown" || expected.kind === "unknown") return;
-  const dropped = sensitivityNarrows(actual, expected);
-  if (!dropped) return;
-  accept(
-    "warning",
-    diagMessage("loom.sensitivity-drop", {
-      dropped: dropped.join(", "),
-      actual: typeToString(actual),
-      expected: typeToString(expected),
-    }),
-    { ...info, code: "loom.sensitivity-drop" },
-  );
 }
 
 // ---------------------------------------------------------------------------

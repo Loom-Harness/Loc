@@ -33,13 +33,15 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "deployment.ts": 22,
   "expr.ts": 36,
   "members.ts": 16,
-  "model.ts": 8,
+  // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
+  // `UnresolvedTypeSite.origin` (absent for a node with no source span).
+  "model.ts": 10,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
   "system.ts": 29,
   "traceability.ts": 5,
-  "types.ts": 3,
+  "types.ts": 2,
   "ui.ts": 20,
   "workflow.ts": 14,
   "workflow-stmt.ts": 26,

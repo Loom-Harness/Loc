@@ -184,7 +184,7 @@ describe("HEEx Card/Paper render through the pack's <.card> component", () => {
 describe("HEEx Table column headers are attribute-safe", () => {
   it("escapes a label carrying a quote and angle brackets", async () => {
     const heex = await landingHeex(
-      `Table { rows: api.Doc.all, Column { "Na\\"me <b>", d => d.name } }`,
+      `Table { rows: C.Doc.all, Column { "Na\\"me <b>", d => d.name } }`,
     );
     // A literal header rides the i18n slot (`columnHeader`, M-T1.11) through the
     // `{…}` expression-attribute form, so the hazard characters live inside an
@@ -198,7 +198,7 @@ describe("HEEx Table column headers are attribute-safe", () => {
 
   it("a NON-LITERAL header falls back to `Column N`, like the JSX side", async () => {
     const heex = await landingHeex(
-      `Table { rows: api.Doc.all, Column { "First", d => d.name }, Column { q, d => d.name } }`,
+      `Table { rows: C.Doc.all, Column { "First", d => d.name }, Column { q, d => d.name } }`,
       `state { q: string = "" }`,
     );
     // The literal header translates by its content hash; the non-literal one

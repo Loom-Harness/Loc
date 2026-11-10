@@ -3,11 +3,9 @@
 // Every expression is typed ONCE, by the single typing pass in
 // `src/language/typing/`.  The validators read its results (through `typeOf`
 // / `suffixType` / `envForNode`, which delegate), and lowering COPIES them
-// into `TypeIR` (through `passType` / `inferExprType`).  Before M-T5.47 there
-// were two whole checkers — `type-system.ts`'s `typeOf`/`typeAfterSuffix` and
-// `lower-expr.ts`'s `inferExprType`/`memberType` — that disagreed on 60 % of
-// the fleet's expressions; the census below keeps a third one from growing
-// back, one helper at a time.
+// into `TypeIR` (through `passType`).  A second checker over the same AST
+// disagrees with the first on a large share of the fleet's expressions; the
+// census below keeps one from growing back, one helper at a time.
 //
 // THE RULE: outside `src/language/typing/`, no function may map an AST node
 // to a type.  The scan finds every function in the language layer and in the
@@ -49,11 +47,14 @@ const ALLOWED: Record<string, string> = {
     "`typingFor(lv).lvalueStepsAt(lv)`; reports the unresolved segment the pass left `unknown`",
   "src/ir/lower/lower-expr.ts:passSynth":
     "`typingFor(node).synthAt(node)` — or `synthAtFor(node, host)` in a context-level filter / stamp",
-  "src/ir/lower/lower-expr.ts:passType": "`passSynth` through `irType`",
   "src/ir/lower/lower-expr.ts:passTargetSteps":
     "`typingFor(lv).lvalueStepsAt(lv)` through `irType`",
-  "src/ir/lower/lower-expr.ts:inferExprType":
-    "the pass's type, plus the two §D7 REPRESENTATION rules for a ui element",
+  "src/ir/lower/lower-expr.ts:passTypeUnrecorded":
+    "`passType` with the unresolved-read recorder detached, for an observer",
+  "src/ir/lower/lower-expr.ts:recordUnresolved":
+    "records a node the pass left unknown; answers the fixed placeholder, infers nothing",
+  "src/ir/lower/lower-expr.ts:passType":
+    "`passSynth` through `irType`, plus the two §D7 REPRESENTATION rules for a ui element",
   "src/ir/lower/lower-expr.ts:unwrapGuardedIntrinsicReceiver":
     "reads only the suffix's call SHAPE to pick the receiver's representation; infers nothing",
 };
@@ -67,7 +68,6 @@ const MUST_READ_THE_PASS = [
   "src/ir/lower/lower-expr.ts:passSynth",
   "src/ir/lower/lower-expr.ts:passType",
   "src/ir/lower/lower-expr.ts:passTargetSteps",
-  "src/ir/lower/lower-expr.ts:inferExprType",
 ];
 
 function tsFiles(dir: string): string[] {
@@ -110,7 +110,7 @@ describe("M-T5.47 — one typing pass: no second type-inference path", () => {
   it("the scan reaches the real code", () => {
     // Vacuum guard: a scan that matched nothing would pass everything below.
     expectReach("typing delegators found", found.size, 5);
-    expect([...found.keys()]).toContain("src/ir/lower/lower-expr.ts:inferExprType");
+    expect([...found.keys()]).toContain("src/ir/lower/lower-expr.ts:passType");
   });
 
   it("no function outside the pass maps an AST node to a type, except the listed delegators", () => {
@@ -142,14 +142,7 @@ describe("M-T5.47 — one typing pass: no second type-inference path", () => {
 
 /** The relations the validators judge with — defined in `typing/relations.ts`
  *  and nowhere else. */
-const RELATIONS = [
-  "typesEqual",
-  "isAssignable",
-  "comparable",
-  "ternaryJoin",
-  "typeToString",
-  "sensitivityNarrows",
-];
+const RELATIONS = ["typesEqual", "isAssignable", "comparable", "ternaryJoin", "typeToString"];
 
 describe("one type vocabulary, one set of type relations", () => {
   const files = SCANNED.flatMap((d) => tsFiles(join(ROOT, d)));

@@ -11,7 +11,8 @@ import { errText } from "./migrate.js";
 import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
 import { InfraPort } from "./infra-port.js";
 import { serviceFetch } from "./service-fetch.js";
-import { connectResourceFakes, prepareResourceFakes, setRoutedHosts } from "./resource-fakes.js";
+import { keepCookieHeaders } from "./cookie-headers.js";
+import { connectResourceFakes, prepareResourceFakes, setOidcIssuer, setRoutedHosts } from "./resource-fakes.js";
 import { StorageClient } from "./storage-client.js";
 import type {
   DispatchResult,
@@ -25,6 +26,7 @@ import type {
   SerializedRequest,
   SerializedResponse,
   StartResult,
+  Verifier,
 } from "./protocol.js";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -60,6 +62,7 @@ setBackgroundFlush((lines) => {
   }
 });
 prepareResourceFakes();
+keepCookieHeaders();
 
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
@@ -68,7 +71,7 @@ interface BundleModule {
   bootApp?: (
     db: unknown,
     opts: {
-      verifier: "dev-stub";
+      verifier: Verifier;
       infra: "in-process";
       /** Read only by a backend that wires channels. */
       channelTransport?: (binding: ChannelBindingLike) => ChannelTransport;
@@ -127,9 +130,12 @@ function installEnv(env: Record<string, string> | undefined, hosts: readonly str
   g.process = { ...(g.process ?? {}), env: { ...(env ?? {}) } };
   globalThis.fetch = serviceFetch(new Set(hosts), forwardHttp, realFetch);
   setRoutedHosts(new Set(hosts));
+  setOidcIssuer(env?.OIDC_ISSUER ?? null);
 }
 
 let loaded: Loaded | null = null;
+/** The verifier the loaded bundle boots with. */
+let verifier: Verifier = "dev-stub";
 let started: Started | null = null;
 
 // Default cap on a single dispatch.  A generated op with an
@@ -171,9 +177,11 @@ async function load(
   synthDdl: boolean,
   env?: Record<string, string>,
   serviceHosts: readonly string[] = [],
+  verifierChoice: Verifier = "dev-stub",
 ): Promise<LoadResult> {
   await tearDown();
   installEnv(env, serviceHosts);
+  verifier = verifierChoice;
   progress("import-bundle");
   const blob = new Blob([bundleCode], { type: "application/javascript" });
   const url = URL.createObjectURL(blob);
@@ -225,13 +233,14 @@ async function start(storagePort: MessagePort | undefined, infraPort: MessagePor
     progress("create-app");
     if (mod.bootApp) {
       // The deployed start-up sequence minus `serve()`: seeds, verifier,
-      // dispatchers, channel consumers, outbox relay, timers.  The preview
-      // reaches no IdP, so it takes the dev-stub verifier; its brokers are
-      // the infra worker's emulated ones (one facade per binding), and
-      // `cron:` runs in-process.
+      // dispatchers, channel consumers, outbox relay, timers.  The verifier is
+      // the engine's choice: the configured one (under `auth { oidc }`, the
+      // generated OIDC verifier against the infra worker's fake identity
+      // provider) or the dev stub.  Its brokers are the infra worker's
+      // emulated ones (one facade per binding), and `cron:` runs in-process.
       const broker = infra ? new BrokerClient(infra) : null;
       const booted = await mod.bootApp(db, {
-        verifier: "dev-stub",
+        verifier,
         infra: "in-process",
         ...(broker ? { channelTransport: (b: ChannelBindingLike) => broker.transportFor(b) } : {}),
       });
@@ -281,10 +290,12 @@ async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
       headers[k] = v;
     });
     const body = await response.text();
+    const setCookies = response.headers.getSetCookie?.() ?? [];
     const out: SerializedResponse = {
       status: response.status,
       statusText: response.statusText,
       headers,
+      ...(setCookies.length > 0 ? { setCookies } : {}),
       body,
     };
     return { ok: true, response: out, durationMs: Math.round(performance.now() - begin) };
@@ -301,7 +312,13 @@ async function reset(): Promise<{ ok: true }> {
   return { ok: true };
 }
 
-self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
+/** The RPC being served; the next one waits for it.  One RPC at a time is
+ *  what keeps the module-level slots honest: the log sink below and the
+ *  bundle's `AsyncLocalStorage` polyfill, whose single store would otherwise
+ *  hand one request's principal to another's continuation. */
+let serving: Promise<void> = Promise.resolve();
+
+self.onmessage = (ev: MessageEvent<RuntimeRpcRequest>) => {
   const req = ev.data;
   // An answer, not an RPC: settle the call and leave the log sink alone —
   // a dispatch is awaiting it.
@@ -311,6 +328,17 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
     pendingHttp.delete(reply.httpCall);
     return;
   }
+  // Reset is the way out of a hung dispatch: it does not queue behind it.
+  if (req.method === "reset") {
+    void serve(ev);
+    return;
+  }
+  serving = serving.then(() => serve(ev)).catch(() => undefined);
+};
+
+async function serve(ev: MessageEvent<RuntimeRpcRequest>): Promise<void> {
+  const req = ev.data;
+  if (req.method === "httpReply") return;
   const response: RuntimeRpcResponse = { id: req.id };
   const logs: LogLine[] = [];
   // Route this RPC's console output (incl. the bundle's pino lines) into
@@ -319,7 +347,13 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   try {
     switch (req.method) {
       case "load":
-        response.result = await load(req.params.bundleCode, req.params.synthDdl, req.params.env, req.params.serviceHosts);
+        response.result = await load(
+          req.params.bundleCode,
+          req.params.synthDdl,
+          req.params.env,
+          req.params.serviceHosts,
+          req.params.verifier,
+        );
         break;
       case "start":
         response.result = await start(ev.ports[0], ev.ports[1]);
@@ -350,4 +384,4 @@ self.onmessage = async (ev: MessageEvent<RuntimeRpcRequest>) => {
   }
   if (logs.length > 0) response.logs = logs;
   self.postMessage(response);
-};
+}

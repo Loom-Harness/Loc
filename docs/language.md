@@ -955,6 +955,10 @@ aggregate Patient {
 }
 ```
 
+The tags belong to the field, not to its type: an expression that
+reads a sensitive field has the field's plain type, and the tags do not
+follow the value through assignments or calls.
+
 A field's `derived inspect` output redacts sensitive fields by
 default — the auto-generated structural form prints
 `<redacted>` for any property carrying any sensitivity tag.  A
@@ -964,13 +968,13 @@ opts out of redaction by writing their own debug form.
 ### Type references
 
 ```
-TypeRef       = TypeAtom ('or' TypeAtom)*                  // anonymous union
-TypeAtom      = BaseType GenericCtor* ('[]')? ('?')?
+TypeRef       = BaseType GenericCtor* ('[]')? ('?')? ('or' TypeAtom)*   // anonymous union tail
+TypeAtom      = BaseType GenericCtor* ('[]')? ('?')?     // one union variant
 GenericCtor   = 'paged' | 'option' | 'envelope'             // ML-postfix carriers ('envelope' is refused)
 BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
-SelfType      = 'Self'                         // the host aggregate, inside a capability
+SelfType      = 'Self' 'id'                    // the host aggregate's id, inside a capability
 PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
@@ -1007,7 +1011,7 @@ A bare `Identifier` in type position must resolve to one of:
 | Enum (any context) | An `enum` value. |
 | Value object (any context) | An embedded value object — copied by value into the wire shape. |
 | Entity part of the *same* aggregate | An addressable child of this aggregate, by-reference at runtime (the engine has the loaded object). |
-| Event / payload — **workflow `create` parameter only** | The transport record that triggers the starter — `create(e: PaymentReceived) by …`, `create(c: SettleOrder)`.  Offered as a type *only* in that position (see below). |
+| Event / payload — **at a transport boundary only** | A wire record: a workflow `create` parameter or result, a `commandHandler` / `queryHandler` parameter or return, a union variant (see below). |
 
 Cross-aggregate references must use **`X id`** — an explicit foreign
 key.  The validator rejects a bare aggregate name in storage / wire
@@ -1016,25 +1020,27 @@ find / workflow parameters) with a fixit pointing at `'X id'`; it
 also rejects an entity-part from a different aggregate the same way,
 pointing at the owning aggregate's id.
 
-**Events and payloads as parameter types.** An `event` or a `payload`
+**Events and payloads as types.** An `event` or a `payload`
 (`command` / `query` / `response` / `error`) may be named by a bare
-identifier as the type of a workflow **`create`**
-parameter — the workflow command surface (`create(c: PlaceOrder)`,
-`create(e: OrderPlaced) by e.order`;
-see [`workflow.md`](workflow.md)).  The bound parameter is a flat
-transport record: `e.field` resolves to the field's declared type and
-participates in the usual comparison / arithmetic / assignment checks.
-These types are scoped **only** to that position — a stray event
-name in an aggregate field, operation parameter, or UI position stays
-an unresolved reference, and `Event id` is not a valid `X id` link.
+identifier at a transport boundary: a workflow **`create`** parameter or
+result (`create(c: PlaceOrder)`, `create(e: OrderPlaced) by e.order`; see
+[`workflow.md`](workflow.md)), a `commandHandler` / `queryHandler` contract, or
+a union variant.  The bound parameter is a flat transport record: `e.field`
+resolves to the field's declared type and participates in the usual
+comparison / arithmetic / assignment checks.  Anywhere else — an aggregate
+field, an operation parameter, a UI parameter — the name is refused with
+`loom.transport-type-position`, naming the record and the position, and
+`Event id` is not a valid `X id` link.  The full form × position table is in
+[language-reference/04-type-system.md, "Where a type form may appear"](language-reference/04-type-system.md#where-a-type-form-may-appear).
 
 The result is a legible three-keyword surface — `id` shows up exactly
 when you cross an aggregate boundary; everything else is a bare name,
 and the type system tells you what it means.
 
 `T[]` denotes a collection; `T?` denotes an optional value.  Both
-suffixes apply to the same `TypeRef`, in either order
-(`Customer id?`, `Pokemon id[]`, `Address?`).
+suffixes apply to the same `TypeRef` in that fixed order — `T[]?` is an
+optional collection, and `int?[]` is a parse error
+(`Customer id?`, `Pokemon id[]`, `Address?`, `Tag[]?`).
 
 ### Null narrowing
 

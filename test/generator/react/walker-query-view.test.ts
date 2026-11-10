@@ -20,7 +20,11 @@
 //   4. Plain (non-lambda) `data:` bodies render unchanged.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles, parseString } from "../../_helpers/index.js";
+import {
+  generateSystemFiles,
+  generateSystemFilesUnchecked,
+  parseString,
+} from "../../_helpers/index.js";
 
 const buildAndGenerate = generateSystemFiles;
 
@@ -278,13 +282,15 @@ describe("QueryView macro", () => {
   });
 
   it("missing 'of:' surfaces a visible TSX comment, no crash", async () => {
-    const files = await buildAndGenerate(
+    const files = await generateSystemFilesUnchecked(
       ordersListBody(`QueryView {
         loading: Empty { "…" },
         error:   Empty { "…" },
         empty:   Empty { "…" },
         data:    rows => Empty { "…" }
       }`),
+      "with no `of:` nothing types the `data:` lambda's parameter, so the model is refused " +
+        "(`loom.unresolved-type`); the subject is that the emitter still degrades visibly",
     );
     const tsx = files.get("web/src/pages/orders_list.tsx")!;
     expect(tsx).toMatch(

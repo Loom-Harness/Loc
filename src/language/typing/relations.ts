@@ -4,8 +4,8 @@
 // else: a second copy over a second type vocabulary is how a union came to be
 // judged as its first variant.
 
-import type { PrimitiveName, SensitivityTags } from "../../ir/types/loom-ir.js";
-import { type Ty, tyKey } from "./ty.js";
+import type { PrimitiveName } from "../../ir/types/loom-ir.js";
+import { type RecordShape, type Ty, tyKey } from "./ty.js";
 
 /** `none` is the unit variant only an `option` builds, so a two-variant union
  *  carrying it prints the way it was written. */
@@ -18,7 +18,7 @@ function optionArg(t: Ty & { kind: "union" }): Ty | undefined {
 }
 
 export function typeToString(t: Ty): string {
-  const base = ((): string => {
+  return ((): string => {
     switch (t.kind) {
       case "primitive":
         return t.name;
@@ -38,6 +38,8 @@ export function typeToString(t: Ty): string {
             return `{ id } of ${t.shape.ref.name}`;
           case "request":
             return "request body";
+          case "fields":
+            return t.shape.name;
           default:
             return t.shape.ref.name;
         }
@@ -65,7 +67,6 @@ export function typeToString(t: Ty): string {
       }
     }
   })();
-  return t.sensitivity && t.sensitivity.length > 0 ? `${base}!{${t.sensitivity.join(",")}}` : base;
 }
 
 /** The declaration a nominal type names, when it resolved. Two unresolved
@@ -93,6 +94,8 @@ export function typesEqual(a: Ty, b: Ty): boolean {
     }
     case "record": {
       const o = (b as typeof a).shape;
+      if (a.shape.of === "fields" || o.of === "fields")
+        return a.shape.of === o.of && recordFieldsName(a.shape) === recordFieldsName(o);
       return a.shape.of === o.of && a.shape.ref === o.ref;
     }
     case "array":
@@ -167,10 +170,7 @@ function guidStringBridge(a: PrimitiveName, b: PrimitiveName): boolean {
  *  - a union value fits only when EVERY variant does — a value that may be
  *    `NotFound` does not fit an `Order` slot; a union slot takes a value that
  *    fits one of its variants. `none` is a variant like any other: `null` is
- *    not an `option`'s absent case.
- *
- *  Sensitivity narrowing (`string!{pii}` → `string`) is allowed here and
- *  reported separately by `sensitivityNarrows`. */
+ *    not an `option`'s absent case. */
 export function isAssignable(value: Ty, target: Ty): boolean {
   if (typesEqual(value, target)) return true;
   if (value.kind === "any" || target.kind === "any") return true;
@@ -220,8 +220,7 @@ export function comparable(a: Ty, b: Ty): boolean {
 /** The type a ternary `cond ? a : b` produces: the more general branch when one
  *  fits the other (`int`/`long` ⇒ `long`, `T`/`T?` ⇒ `T?`), `T?` when one
  *  branch is the `null` literal, else `undefined` — the branches share no
- *  supertype and the ternary validator reports it. Sensitivity is not merged
- *  here; the caller attaches both branches' tags. */
+ *  supertype and the ternary validator reports it. */
 export function ternaryJoin(a: Ty, b: Ty): Ty | undefined {
   if (a.kind === "unknown") return a;
   if (b.kind === "unknown") return b;
@@ -235,21 +234,7 @@ export function ternaryJoin(a: Ty, b: Ty): Ty | undefined {
   return undefined;
 }
 
-/** Is `sub` ⊆ `sup`? An absent set is empty. */
-export function tagsSubset(
-  sub: SensitivityTags | undefined,
-  sup: SensitivityTags | undefined,
-): boolean {
-  if (!sub || sub.length === 0) return true;
-  if (!sup || sup.length === 0) return false;
-  return sub.every((t) => sup.includes(t));
-}
-
-/** The tags `value` carries that `target` does not — a sensitive value flowing
- *  into a less-sensitive slot. Permitted by `isAssignable`; the validator warns
- *  at the flow boundary so the drop is visible. `undefined` when nothing drops. */
-export function sensitivityNarrows(value: Ty, target: Ty): SensitivityTags | undefined {
-  if (tagsSubset(value.sensitivity, target.sensitivity)) return undefined;
-  const dropped = (value.sensitivity ?? []).filter((t) => !target.sensitivity?.includes(t));
-  return dropped.length === 0 ? undefined : (Object.freeze(dropped.sort()) as SensitivityTags);
+/** The wire name of a fixed-fields record (the runtime defines one per name). */
+function recordFieldsName(shape: RecordShape): string | undefined {
+  return shape.of === "fields" ? shape.name : undefined;
 }

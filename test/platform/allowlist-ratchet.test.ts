@@ -412,7 +412,10 @@ const REGISTERED: Ratchet[] = [
     // 19 → 20: `api-call-auth`, a second-deployable row: the forwarded
     // credential only means something when both services boot, which
     // `api-call-e2e` does (its fixture requires auth on both sides).
-    max: 20,
+    // 20 → 21: `shareable`, a request-header / real-registry-id row like
+    // `org-context`: a grantee is a registry org id the `test e2e` vocabulary
+    // cannot name; the booted `assertShareable` leg of tenancy-e2e gates it.
+    max: 21,
   },
 ];
 

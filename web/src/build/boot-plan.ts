@@ -5,6 +5,7 @@
 import type { BundleOk } from "../bundle/protocol.js";
 import type { BackendBundle } from "../engine/runtime-engine.js";
 import type { BootPlan, MigrationPlan } from "../runtime/protocol.js";
+import type { OidcSetup } from "../backend/oidc-personas.js";
 import type { StoragePlan } from "./protocol.js";
 
 export interface BootableBackend {
@@ -40,6 +41,10 @@ export function bootPlan(
   /** The process env of a deployable's compose service. */
   envOf?: (slug: string) => Record<string, string>,
   restSpecs: { origin: string; spec: object }[] = [],
+  /** The fake identity provider's realms and personas: when set, every
+   *  deployable whose env names an `OIDC_ISSUER` boots its generated OIDC
+   *  verifier; otherwise every deployable boots the dev stub. */
+  oidc: OidcSetup | null = null,
 ): { plan: BootPlan; islands: string[] } {
   const groups: StoragePlan[] =
     storages.length > 0
@@ -52,6 +57,7 @@ export function bootPlan(
   const islands: string[] = [];
   const out: BootPlan = {
     ...(restSpecs.length > 0 ? { restSpecs } : {}),
+    ...(oidc ? { oidc: { realms: oidc.realms, personas: oidc.personas } } : {}),
     storages: groups
       .filter((g) => bound.has(g.key))
       .map((g) => {
@@ -59,12 +65,16 @@ export function bootPlan(
         if (island !== null) islands.push(island);
         return { key: g.key, dataDir, migrations: g.plan };
       }),
-    backends: backends.map((b) => ({
-      slug: b.slug,
-      bundleCode: b.bundle.code,
-      storage: storageOf(b.slug),
-      ...(envOf ? { env: envOf(b.slug) } : {}),
-    })),
+    backends: backends.map((b) => {
+      const env = envOf?.(b.slug);
+      return {
+        slug: b.slug,
+        bundleCode: b.bundle.code,
+        storage: storageOf(b.slug),
+        ...(env ? { env } : {}),
+        ...(oidc && env?.OIDC_ISSUER ? { verifier: "configured" as const } : {}),
+      };
+    }),
   };
   return { plan: out, islands };
 }

@@ -64,9 +64,9 @@ const WAIVERS: Record<string, Waiver> = {
   "src/system/e2e-render.ts": { count: 1, reason: E2E_API_VERB },
   "src/system/ui-e2e-render.ts": { count: 2, reason: E2E_API_VERB },
   "src/language/typing/elaborate.ts": {
-    count: 2,
+    count: 3,
     reason:
-      "the e2e test client's verbs and the ui data-handle path (`Ctx.Agg.findAll`), both API-surface vocabularies",
+      "the e2e test clients' verbs (`api.*` and `ui.*`) and the ui data-handle path (`Ctx.Agg.findAll`), all API-surface vocabularies",
   },
 };
 

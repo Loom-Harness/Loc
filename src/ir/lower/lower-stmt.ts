@@ -25,7 +25,6 @@ import type { ExprIR, PathIR, ReturnVariantIR, StmtIR, TypeIR } from "../types/l
 import {
   ambientResourceKind,
   boundApiOf,
-  inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
@@ -123,7 +122,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
   if (isLetStmt(stmt)) {
     // `let x: T = e` binds `T` and lowers `e` against it (a bare literal
     // promotes: `let z: long = 1`).
-    const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
+    const t = stmt.type ? lowerType(stmt.type, env) : passType(stmt.expr, env);
     const expr = stmt.type ? lowerExprAsDeclared(stmt.expr, t, env) : lowerExpr(stmt.expr, env);
     const next = withLocal(env, stmt.name, "let", t);
     return {
@@ -143,7 +142,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     // the subject narrowed to the arm's variant (Env.refAliases), so backends
     // read the subject itself and no tagged carrier is bound.
     const subject = lowerExpr(stmt.subject, env);
-    const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+    const subjectType = subject.kind === "ref" ? subject.type : passType(stmt.subject, env);
     const absenceSubject =
       subjectType?.kind === "optional" ||
       (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
@@ -212,7 +211,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       if (armVariants) {
         return { stmt: { kind: "return", value, armVariants }, envAfter: env };
       }
-      const whole = returnVariantOf(inferExprType(stmt.value, env), env.returnVariants);
+      const whole = returnVariantOf(passType(stmt.value, env), env.returnVariants);
       return { stmt: { kind: "return", value, ...whole }, envAfter: env };
     }
     return {
@@ -578,13 +577,13 @@ function matchArmVariants(
               ]),
             }
           : withLocal(env, arm.binding, "match-binding", varType);
-      armTypes.push(inferExprType(arm.value, armEnv));
+      armTypes.push(passType(arm.value, armEnv));
     });
   } else {
     if (!ast.elseExpr) return undefined;
-    for (const arm of ast.arms) armTypes.push(inferExprType(arm.value, env));
+    for (const arm of ast.arms) armTypes.push(passType(arm.value, env));
   }
-  if (ast.elseExpr) armTypes.push(inferExprType(ast.elseExpr, env));
+  if (ast.elseExpr) armTypes.push(passType(ast.elseExpr, env));
   const out: ReturnVariantIR[] = [];
   for (const t of armTypes) {
     const v = returnVariantOf(t, variants);
