@@ -341,8 +341,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "result projection on each of the seven frontend emitters); (2) `match await " +
       "<api>.<Agg>.all` — a collection READ, which has no command to await; (3) `match await " +
       "<state field>`.  (2) and (3) are nonsense the statement form could not otherwise " +
-      "refuse, because a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType` " +
-      "(catch-all `string`) and so cannot reach `loom.match-non-union-subject` — so the row " +
+      "refuse, because a `StmtIR.variant-match`'s `subjectType` is the typing pass's answer " +
+      "and so cannot reach `loom.match-non-union-subject` — so the row " +
       "will NOT reach zero by building; when the workflow subject lands, what is left is a " +
       "permanent refusal and the row re-classes `scope`.  Two shapes a reader might expect " +
       "here are NOT this row's: a dotted workflow (`<api>.<Workflow>.run(…)`) and a " +

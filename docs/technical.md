@@ -413,7 +413,7 @@ expression / statement construction:
 | `lowerType` / `lowerBase` | AST `TypeRef` → `TypeIR` (primitive / id / enum / valueobject / entity / array / optional). |
 | `resolveNameRef` | Bare identifier → `RefIR` with the right `refKind` (param / let / lambda / this-prop / this-vo-prop / this-derived / helper-fn / enum-value / unknown). |
 | `resolveCallKind` | Free call name → `CallKind` (function / value-object-ctor / private-operation / free). |
-| `inferExprType` | Best-effort type inference for an AST expression — used to inform IR nodes (`receiverType`, let-binding type, etc.). |
+| `passType` | The typing pass's type for an AST node, copied into `TypeIR` (`receiverType`, let-binding type, etc.). Lowering infers nothing itself; a node the pass left unresolved is recorded on the model, which then fails validation with `loom.unresolved-type`. |
 | `binaryResultType` | Result type for a binary expression, including `int → long → decimal` numeric widening for arithmetic. |
 | `memberType` / `memberOnEntity` / `memberOnValueObject` | `T.member` typing — handles primitives, entities, value objects, collection ops, and the `string.length` shortcut. |
 | `findEntityByName` / `findValueObjectByName` / `findFunctionInEnv` / `findOperationInEnv` | Look-ups that run against the env (parts → aggregate → ctx). |

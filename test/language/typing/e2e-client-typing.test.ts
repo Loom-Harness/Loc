@@ -146,11 +146,12 @@ describe("the e2e api client's request bodies, typed as what the client sends", 
 });
 
 describe("the e2e ui client, typed from the page objects it drives", () => {
-  it("a create answers its { id }; a getById answers the record as its JSON", async () => {
-    const src = sys(`let c = ui.customers.create({ name: "x" })  let i = c.id
+  it("a create and a getById answer the record as its JSON", async () => {
+    const src = sys(`let c = ui.customers.create({ name: "x" })  let i = c.id  let n = c.name
       let rd = ui.orders.getById(c)  let t = rd.total  let code = rd.code`);
-    expect(await typeOfText(src, `ui.customers.create({ name: "x" })`)).toBe("rec:CustomerCreated");
+    expect(await typeOfText(src, `ui.customers.create({ name: "x" })`)).toBe("rec:Customer");
     expect(await typeOfText(src, "c.id")).toBe("p:string");
+    expect(await typeOfText(src, "c.name")).toBe("p:string");
     expect(await typeOfText(src, "rd.total")).toBe("p:string");
     expect(await typeOfText(src, "rd.code")).toBe("p:string");
   });

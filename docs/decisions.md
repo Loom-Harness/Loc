@@ -501,6 +501,18 @@ table-layout resolution.
 
 ## D1–D4, D14–D15 — type-system grammar names + ML syntax
 
+> **Superseded in part.** **D2:** the union discriminator field is **`type`**,
+> not `kind` — every backend's tagged wire carries `{ "type": "<Variant>", … }`
+> (`src/generator/_payload/union-wire.ts`, the one source of the tagged shape),
+> and the event frame keeps its own `kind`.  **D14 / D15:** the page carrier is
+> spelled `paged`, and `T option` is a deprecated spelling of `T?`
+> (D-ABSENCE-MODEL), so the `option` examples read as `T?`.  **D5–D37:** the
+> recommended answers in the implementation plan predate D-FAILURE-MODEL,
+> D-ABSENCE-MODEL and D-ENVELOPE-RATIFY, and are superseded by them; they are
+> not decisions to take.  Where a type form may appear is the generated table in
+> [04-type-system.md](language-reference/04-type-system.md#where-a-type-form-may-appear).
+> D1, D3, D4 and the postfix-ML / precedence rules of D14 / D15 stand.
+
 **Status:** PINNED (the six grammar-shaping tags). The remaining
 type-system decisions D5–D37 keep their **recommended** answers in
 [`proposals/implementation-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implementation-plan.md)
@@ -511,7 +523,7 @@ fix the grammar surface before P3.
 | Tag | Question | **Pinned answer** |
 |---|---|---|
 | D1 | Carrier bound name | **`carrier`** (over `value`/`data`) |
-| D2 | Union discriminator field name | **`kind`** (over `type`/`_type`) |
+| D2 | Union discriminator field name | ~~`kind`~~ — superseded: **`type`** (see the note above) |
 | D3 | Union identity | **Variant-name-tagged** (not structural) |
 | D4 | Aggregate-in-carrier semantics | **Handle-in-process, wire-at-boundary** |
 | D14 | Parameterised-payload use-site syntax | **Postfix ML** (`customer page`); consistent with `Customer id`; **no angle brackets anywhere** |
@@ -802,7 +814,7 @@ value** (single entity/payload/primitive), **`Paged<T>`** (lists),
 **ProblemDetails** (RFC 7807, all errors), **event-frame** (`{ kind,
 occurredAt, correlationId, data }`). The HTTP **status code is the
 success/error discriminator**; the success path is **never** wrapped in
-a `{ kind: "ok", value }` envelope (D16) — the payload `kind`
+a `{ kind: "ok", value }` envelope (D16) — the payload `type`
 discriminator (D2/D3) lives inside tagged-union bodies, not at the
 envelope level. A uniform `{ ok, value | error }` envelope is rejected
 (forces every client to unwrap; duplicates the status line).

@@ -22,7 +22,13 @@ error    NotFound     { resource: string }
 
 ### Where a record resolves as a type
 
-A payload (named union included) is offered as a **type** only in a *transport position*: a workflow `create`/`handle` command parameter, a `commandHandler` / `queryHandler` parameter or return, a variant of an inline `or` union, or a generic-carrier argument (`Address paged`). It is **not** admissible by name as an aggregate field type, a repository `find` return, or an `operation` return — the scope provider (`src/language/ddd-scope.ts`) keeps transport records out of those positions, and the reference fails to link ("Could not resolve reference to NamedDecl named 'Address'"). An `error` still reaches an operation or find return as a **variant** of an inline union (`string or OutOfStock`), which is the shape the rest of this chapter builds on.
+A payload or event is admitted as a **type** only at a *transport boundary*: a workflow `create` parameter or result, a `commandHandler` / `queryHandler` parameter or return, or a variant of an inline `or` union. Anywhere else — an aggregate field, a payload field, an `operation` parameter or return, a carrier argument (`Address paged`) — it is refused with `loom.transport-type-position`, which names the record and the position:
+
+```
+error: 'Address' is a payload, a transport record — it may be named as a type only as a workflow `create` parameter, a workflow `create` result, a commandHandler parameter, a commandHandler return, a queryHandler parameter, a queryHandler return or a union variant or `match` arm, not as an aggregate field. …
+```
+
+An `error` still reaches an operation return as a **variant** of an inline union (`string or OutOfStock`), which is the shape the rest of this chapter builds on. Every form × position pair is in the generated table in [Type system, "Where a type form may appear"](04-type-system.md#where-a-type-form-may-appear).
 
 > **Honest gap:** a free-standing payload that no transport position references (e.g. `Address` above) materializes **no DTO** in the generated backend — it appears in neither the emitted source nor `.loom/wire-spec.json`. Records reach the wire only when something puts them on a boundary.
 
@@ -100,7 +106,7 @@ Every aggregate, part, and value object carries a canonical ordered `wireShape` 
 
 ## Anonymous union — `A or B`
 
-A union is a value that is **one of several distinct variants**. The inline form needs no declaration — write `A or B` directly in a transport position: an `operation` return or a repository `find` return (in the constrained *absence* shape — next section). `A or B or C` flattens to one variant set; `or` is associative-commutative, so an anonymous union is **structural on its variants** (`A or B` ≡ `B or A`). An inline `or` anywhere else (an aggregate field, say) is rejected with `loom.union-position` — a payload field too, because no backend renders a tagged union nested inside a record (return the union from the operation, or give the payload one optional field per variant); a repeated variant (`A or A`) with `loom.union-duplicate-variant`; a non-carrier variant (a `slot`) with `loom.union-variant-not-carrier`.
+A union is a value that is **one of several distinct variants**. The inline form needs no declaration — write `A or B` directly in a transport position: an `operation` or `domainService` operation return, or — with at least one `error` variant — the result of a workflow `create`, a `commandHandler` or a `queryHandler`. `A or B or C` flattens to one variant set; `or` is associative-commutative, so an anonymous union is **structural on its variants** (`A or B` ≡ `B or A`). An inline `or` anywhere else (an aggregate field, say) is rejected with `loom.union-position` — a payload field too, because no backend renders a tagged union nested inside a record (return the union from the operation, or give the payload one optional field per variant); a repeated variant (`A or A`) with `loom.union-duplicate-variant`; a non-carrier variant (a `slot`) with `loom.union-variant-not-carrier`.
 
 An **operation return** is the tagged case — the producer picks the variant, so the wire carries a **`type` discriminator**. A record variant (an aggregate → its `<Agg>Wire`, a payload/event → its fields) flattens its fields alongside `type`; a scalar variant is wrapped as `{ type, value }`; the tag is the variant type's name:
 
@@ -191,7 +197,7 @@ The named form declares the variant set up front with identity **by name** (nomi
 payload OrderEvent = OrderPlaced | OrderCancelled
 ```
 
-It lowers to one `PayloadIR` with `variants` (no fields) and rides the same union machinery as `A or B`, so a consumer that receives it sees the identical tagged wire (`{ "type": "OrderPlaced", … }`). A repeated variant (`payload F = A | A`) is `loom.union-duplicate-variant`. Its reach is that of any payload (§[Where a record resolves](#where-a-record-resolves-as-a-type)): a named union is admitted as a **variant of an inline union** (`OrderEvent or string`) and in a **handler contract**, but not by bare name as a field type, a `find` return, or an `operation` return — those positions do not resolve it. Like any unreferenced record it emits no DTO until a transport position names it.
+It lowers to one `PayloadIR` with `variants` (no fields) and rides the same union machinery as `A or B`, so a consumer that receives it sees the identical tagged wire (`{ "type": "OrderPlaced", … }`). A repeated variant (`payload F = A | A`) is `loom.union-duplicate-variant`. A value of a named union is always one of its variants, so a return declared as the union itself cannot be answered: a named union is admitted as a **variant of an inline union** (`OrderEvent or string`) and as a workflow `create` or handler **parameter**, and refused everywhere else — a field, an `operation` parameter, any return — with `loom.union-position`, naming the position. Where a value is one of the variants, write the inline `A or B` in a return that admits it. Like any unreferenced record it emits no DTO until a transport position names it.
 
 ### `option` — a deprecated spelling of `T?`
 

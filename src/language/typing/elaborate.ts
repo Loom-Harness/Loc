@@ -16,6 +16,7 @@ import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
+import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
@@ -41,6 +42,7 @@ import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { walkerPrimitiveArgValues } from "../../util/walker-primitive-arg-values.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
+import { factoryArgs } from "../factory-call.js";
 import type {
   Aggregate,
   Api,
@@ -48,6 +50,7 @@ import type {
   BoundedContext,
   BuilderCall,
   CallArg,
+  Component,
   Create,
   EntityPart,
   Expression,
@@ -56,7 +59,9 @@ import type {
   Lambda,
   MemberSuffix,
   Model,
+  NameRef,
   Operation,
+  Page,
   PostfixChain,
   PostfixSuffix,
   Projection,
@@ -64,6 +69,8 @@ import type {
   Statement,
   TypeAtom,
   TypeRef,
+  Ui,
+  UiFunction,
   ValueObject,
   Workflow,
   WorkflowCreateDecl,
@@ -144,6 +151,7 @@ import {
   isTestE2E,
   isThisRef,
   isUi,
+  isUiFunction,
   isUiNotification,
   isUnaryExpr,
   isValueObject,
@@ -322,6 +330,24 @@ export class Elaborator {
         // the request they are sent as.
         if (inner.frame.e2e && isE2eClient(lv.head) && lv.tail.length === 2)
           this.typeE2eArgs(lv.head, String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
+        // `Api.Agg.create.mutate({ … })` in a ui body sends the create's request.
+        if (
+          inner.frame.ui &&
+          lv.tail.length === 3 &&
+          lv.tail[1] === "create" &&
+          lv.tail[2] === "mutate"
+        ) {
+          const agg = this.apiParamNamed(lv.head, lv)
+            ? this.index.find("aggregate", String(lv.tail[0]), lv)
+            : undefined;
+          const create = agg && restCreate(agg);
+          const body = lv.args[0];
+          // With no declared create the body is the aggregate's own fields.
+          const want = create
+            ? Ty.record({ of: "request", ref: create })
+            : agg && wireOf(Ty.record({ of: "aggregate", ref: agg }));
+          if (want && body) this.synthAgainst(body, inner, want);
+        }
         const member = lv.tail.length > 0 ? lv.tail[lv.tail.length - 1]! : lv.head;
         const call = { $type: "MemberSuffix", member, call: true, args: [] } as never;
         this.lvalueCallResults.set(
@@ -684,6 +710,8 @@ export class Elaborator {
       if (bound) return bound.ty;
       const owner = scope.frame.owner;
       if (owner && !isValueObject(owner)) return { kind: "id", target: owner, name: owner.name };
+      // A page reads its route's `id` segment, as the page shell binds it.
+      if (AstUtils.getContainerOfType(e, isPage)) return Ty.prim("string");
       return Ty.unknown("unresolved-name");
     }
     if (isParenExpr(e)) return this.synth(e.inner, scope);
@@ -902,6 +930,17 @@ export class Elaborator {
     return undefined;
   }
 
+  private componentDecl(name: string, node: AstNode): Component | undefined {
+    for (let c: AstNode | undefined = node; c; c = c.$container) {
+      if (isUi(c) || c.$type === "Model") {
+        return (c as Ui | Model).members.find(
+          (m): m is Component => isComponent(m) && m.name === name,
+        );
+      }
+    }
+    return undefined;
+  }
+
   private componentNamed(name: string, node: AstNode): boolean {
     for (let c: AstNode | undefined = node; c; c = c.$container) {
       if (isUi(c)) return c.members.some((m) => isComponent(m) && m.name === name);
@@ -1003,7 +1042,19 @@ export class Elaborator {
     const isPrimitive =
       isWalkerPrimitive(name) && !(this.index.find("valueobject", name, e) && !scope.frame.ui);
     if (isPrimitive) this.synthPrimitiveArgs(name, e.entries, scope, e);
-    else for (const entry of e.entries) this.synth(entry.value, scope);
+    else {
+      // A user component's lambda prop takes the parameter its declared
+      // `action(T)` gives it.
+      const comp = scope.frame.ui ? this.componentDecl(name, e) : undefined;
+      for (const entry of e.entries) {
+        const p = entry.name ? comp?.params.find((x) => x.name === entry.name) : undefined;
+        const want = p ? this.resolveType(p.type, scope) : undefined;
+        const action = want?.kind === "optional" ? want.inner : want;
+        if (isLambda(entry.value) && action?.kind === "action" && action.arg)
+          this.synthLambda(entry.value, scope, action.arg);
+        else this.synth(entry.value, scope);
+      }
+    }
     if (scope.frame.ui && isWalkerPrimitive(name)) return { kind: "slot" };
     const vo = this.index.find("valueobject", name, e);
     if (vo) return { kind: "valueobject", ref: vo, name };
@@ -1087,7 +1138,8 @@ export class Elaborator {
     scope: Scope,
   ): Ty | undefined {
     const of = entries.find((x) => x.name === "of")?.value;
-    if (!of || !isPostfixChain(of)) return undefined;
+    // `of:` is a read path, or a bare projection name (a ui with no `api`).
+    if (!of || !(isPostfixChain(of) || isNameRef(of))) return undefined;
     this.synth(of, scope);
     const t = this.apiReadType(of, scope);
     return t?.kind === "optional" ? t.inner : t;
@@ -1106,10 +1158,15 @@ export class Elaborator {
   /** The value a ui-side read `<handle>.<Agg>.<verb>(…)` (or
    *  `<handle>.<Projection>`) yields — the aggregate is the LAST suffix naming
    *  one, the verb the suffix after it. */
-  private apiReadType(of: PostfixChain, scope: Scope, upTo?: number): Ty | undefined {
+  private apiReadType(of: PostfixChain | NameRef, scope: Scope, upTo?: number): Ty | undefined {
     // The path segments: the head name, then each member suffix.
+    if (isNameRef(of)) return this.apiReadSegments([of.name], of, scope);
     const segs: string[] = [isNameRef(of.head) ? of.head.name : ""];
     for (const s of of.suffixes.slice(0, upTo)) if (isMemberSuffix(s)) segs.push(String(s.member));
+    return this.apiReadSegments(segs, of, scope);
+  }
+
+  private apiReadSegments(segs: string[], of: AstNode, scope: Scope): Ty | undefined {
     for (let i = segs.length - 1; i >= 0; i--) {
       const m = segs[i]!;
       if (!m) continue;
@@ -1230,16 +1287,17 @@ export class Elaborator {
 
   /** A `test e2e` `ui.<handle>.<verb>(…)` call: what the Playwright page
    *  objects hand back (`ui-e2e-render.ts`).  `create` fills and submits the
-   *  aggregate's create form and answers the `{ id }` of the record it made;
-   *  `getById` answers the navigated detail page, whose fields read as the
-   *  record's JSON; a public operation and `ui.workflows.<wf>(…)` drive a form
-   *  and answer nothing. */
+   *  aggregate's create form and `getById` navigates to a detail page; both
+   *  answer the record, its fields read as its JSON.  A public operation and
+   *  `ui.workflows.<wf>(…)` drive a form and answer nothing. */
   private e2eUiCall(handle: string, verb: string): Ty | undefined {
     if (handle === UI_WORKFLOWS_HANDLE) return this.index.e2eHandle(verb).workflow && Ty.never;
     const target = this.index.e2eHandle(handle).aggregate;
     if (!target) return undefined;
-    if (verb === "create") return Ty.record({ of: "created", ref: target });
-    if (verb === "getById") return wireOf(Ty.record({ of: "aggregate", ref: target }));
+    // A create local is the record it made: a field read on it navigates to
+    // that record's detail page first (`ui-e2e-render.ts`).
+    if (verb === "create" || verb === "getById")
+      return wireOf(Ty.record({ of: "aggregate", ref: target }));
     return publicOperation(target, verb) ? Ty.never : undefined;
   }
 
@@ -1397,6 +1455,28 @@ export class Elaborator {
     return undefined;
   }
 
+  /** `navigate(Page, { … })`: the record is the state the target page
+   *  receives, one entry per param it declares (an undeclared key keeps its
+   *  own value's type). */
+  private typeNavigationState(args: readonly CallArg[], scope: Scope, node: AstNode): void {
+    const state = args[1]?.value;
+    if (!state || !isObjectLit(state)) return;
+    const target = args[0]?.value;
+    const pageName = target && isNameRef(target) ? target.name : undefined;
+    const ui = AstUtils.getContainerOfType(node, isUi);
+    const page =
+      pageName && ui
+        ? AstUtils.streamAllContents(ui).find((n): n is Page => isPage(n) && n.name === pageName)
+        : undefined;
+    const fields: Record<string, Ty> = {};
+    for (const f of state.fields) {
+      const p = page?.params.find((x) => x.name === f.name);
+      fields[String(f.name)] = p ? this.resolveType(p.type, scope) : this.synth(f.value, scope);
+    }
+    const name = `${pageName ?? "Page"}State`;
+    this.synthAgainst(state, scope, Ty.record({ of: "fields", name, fields }));
+  }
+
   /** The declaration whose params argument `index` of the api operation
    *  `opId` sends: an aggregate's canonical `create` (argument 0), a public
    *  operation (argument 1, after the id). */
@@ -1516,6 +1596,8 @@ export class Elaborator {
     const shadowed = scope.lookup(name) !== undefined;
     if (isCallSuffix(first)) {
       const args = first.args;
+      if (scope.frame.ui && name === "navigate" && !shadowed)
+        this.typeNavigationState(args, scope, node);
       const t = this.freeCall(name, scope, node, args);
       if (scope.frame.ui && t.kind === "slot" && isWalkerPrimitive(name)) {
         this.synthPrimitiveArgs(name, args, scope, node);
@@ -1555,6 +1637,9 @@ export class Elaborator {
     }
     const readHead =
       this.apiParamNamed(name, node) ||
+      // A ui with no `api` param reads a context's aggregates directly
+      // (`Ctx.Order.all`).
+      (scope.frame.ui && this.index.contexts.some((c) => c.name === name)) ||
       this.index.find("aggregate", name, node) ||
       this.index.find("projection", name, node) ||
       this.index.find("workflow", name, node);
@@ -1572,8 +1657,16 @@ export class Elaborator {
       const read = this.apiReadType(e, scope, path) ?? Ty.unknown("no-rule");
       if (hook === -1) return { t: read, consumed: path };
       const prop = String((e.suffixes[hook] as MemberSuffix).member);
+      // `.data` is the read; `.isLoading` & co. are flags; `.error` is the
+      // failed read's message, absent while none failed.
       const t =
-        prop === "data" ? read : prop.startsWith("is") ? Ty.prim("bool") : Ty.unknown("no-rule");
+        prop === "data"
+          ? read
+          : prop.startsWith("is")
+            ? Ty.prim("bool")
+            : prop === "error"
+              ? Ty.opt(Ty.prim("string"))
+              : Ty.unknown("no-rule");
       return { t, consumed: hook + 1 };
     }
     if (name === "permissions" && !ms.call && !scope.lookup("permissions")) {
@@ -1586,15 +1679,32 @@ export class Elaborator {
         return { t: { kind: "enum", ref: en, name: en.name }, consumed: 1 };
     }
     if (ms.call && ms.member === "create") {
+      const vo = this.index.find("valueobject", name, node);
+      if (vo) {
+        // `Vo.create({ … })` builds the value object from a record of its
+        // fields; `Vo.create(f: …)` names them one by one.
+        const voTy: Ty = { kind: "valueobject", ref: vo, name: vo.name };
+        for (const a of ms.args) {
+          if (a.name) {
+            const p = vo.members.find((m): m is Property => isProperty(m) && m.name === a.name);
+            if (p) this.synthAgainst(a.value, scope, this.resolveType(p.type, scope));
+          } else if (ms.args.length === 1) this.synthAgainst(a.value, scope, voTy);
+        }
+        this.synthArgs(ms.args, scope);
+        return { t: voTy, consumed: 1 };
+      }
       const agg = this.index.find("aggregate", name, node);
       if (agg) {
-        // Each argument fills the create's param it names (or sits at).
+        // Each argument fills the factory input it names (or sits at): a
+        // declared create's param, else the aggregate's field.
         const params = agg.members.find((m): m is Create => isCreate(m) && !m.name)?.params ?? [];
-        ms.args.forEach((a, i) => {
-          const p = a.name ? params.find((x) => x.name === a.name) : params[i];
-          if (p && !isLambda(a.value))
-            this.synthAgainst(a.value, scope, this.resolveType(p.type, scope));
-        });
+        const mapped = factoryArgs(agg, ms.args);
+        for (const f of mapped.kind === "fields" ? mapped.fields : []) {
+          const p = params.find((x) => x.name === f.name);
+          const want = p ? this.resolveType(p.type, scope) : this.ownerMember(agg, f.name, scope);
+          if (want && want.kind !== "unknown" && !isLambda(f.value))
+            this.synthAgainst(f.value, scope, want);
+        }
         this.synthArgs(ms.args, scope);
         return { t: Ty.record({ of: "aggregate", ref: agg }), consumed: 1 };
       }
@@ -1712,6 +1822,13 @@ export class Elaborator {
     const fn: FunctionDecl | undefined =
       this.index.find("function", name, node) ?? stdFunction(name);
     if (fn) return this.resolveType(fn.returnType, scope);
+    // A ui's own `function … extern from "…"`.
+    const uiFn = scope.frame.ui
+      ? AstUtils.getContainerOfType(node, isUi)?.members.find(
+          (m): m is UiFunction => isUiFunction(m) && m.name === name,
+        )
+      : undefined;
+    if (uiFn) return this.resolveType(uiFn.returnType, scope);
     if (durationUnitOf(name)) return Ty.prim("duration");
     // A walker primitive / user component invoked in call form builds a ui element.
     if (scope.frame.ui && (isWalkerPrimitive(name) || this.componentNamed(name, node)))
@@ -1731,6 +1848,9 @@ export class Elaborator {
     // An assertion matcher (`expect(x).toBe(y)`) is a statement, not a value.
     if (t.kind === "unknown" && isMemberSuffix(s) && s.call && isIntrinsicMatcher(s.member))
       return Ty.never;
+    // `.not` negates the matcher after it (`expect(x).not.toBeNull()`): it is
+    // still the value under assertion.
+    if (t.kind === "unknown" && isNegatedMatcherModifier(s)) return recv;
     return t;
   }
 
@@ -1799,6 +1919,9 @@ export class Elaborator {
         const p = bare.name;
         const field = primitiveFieldType(p, name);
         if (field) return Ty.prim(field);
+        // A frontend or e2e body holds a `File` as its `FileRef` wire record.
+        const ref = p === "File" && !ms.call ? FILE_REF_MEMBERS.get(name) : undefined;
+        if (ref && (scope.frame.ui || scope.frame.e2e || inFrontendDecl(ms))) return Ty.prim(ref);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
         const sig = intrinsicFor(p, name);
         if (sig) {
@@ -2064,6 +2187,14 @@ function inFrontendDecl(node: AstNode): boolean {
     AstUtils.getContainerOfType(node, isUi) !== undefined ||
     AstUtils.getContainerOfType(node, isComponent) !== undefined
   );
+}
+
+/** A `.not` member followed by an assertion matcher call. */
+function isNegatedMatcherModifier(s: PostfixSuffix): boolean {
+  if (!isMemberSuffix(s) || s.call || s.member !== "not" || !isPostfixChain(s.$container))
+    return false;
+  const next = s.$container.suffixes[s.$container.suffixes.indexOf(s) + 1];
+  return !!next && isMemberSuffix(next) && next.call && isIntrinsicMatcher(next.member);
 }
 
 /** True inside a `test e2e` body, which reads records as the wire sends them. */

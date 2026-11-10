@@ -96,7 +96,7 @@ import type {
   StyleIR,
   TypeIR,
 } from "../types/loom-ir.js";
-import { lit } from "../types/loom-ir.js";
+import { lit, type UnresolvedTypeSite } from "../types/loom-ir.js";
 import { snapshotIdFor } from "../util/prov-id.js";
 import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -237,8 +237,8 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     const op = chain.ops[i]! as BinOp;
     const rhsExpr = chain.rest[i]!;
     const fold = folds[i];
-    let accType = fold ? irType(fold.left) : inferExprType(chain.head, env);
-    let rhsType = fold ? irType(fold.right) : inferExprType(rhsExpr, env);
+    let accType = fold ? irType(fold.left) : passType(chain.head, env);
+    let rhsType = fold ? irType(fold.right) : passType(rhsExpr, env);
     let rhsIR = promoteLiteral(rhsExpr, lowerExpr(rhsExpr, env), typing);
     // Implicit `string + X` concat: wrap the non-string operand in a
     // `convert` IR so backends emit `String(x)` / `x.ToString()` /
@@ -318,16 +318,94 @@ function irType(t: Ty): TypeIR {
   return toTypeIR(t);
 }
 
-const STRING_T: TypeIR = { kind: "primitive", name: "string" };
+/** The type an expression the typing pass could not resolve carries in the
+ *  IR.  Only a model that fails validation holds one: every such read is
+ *  recorded (`recordUnresolved`) and `validateLoomModel` refuses the model
+ *  with `loom.unresolved-type`, so no emitter ever sees it. */
+const UNRESOLVED_PLACEHOLDER: TypeIR = { kind: "primitive", name: "string" };
+
+/** The reads of unresolved types the current lowering has made, keyed by node
+ *  so a node read twice is reported once.  Set by `collectUnresolvedTypes`. */
+let unresolvedSink: Map<AstNode, UnresolvedTypeSite> | undefined;
+
+/** Run `lower` and collect every read it made of an expression the typing pass
+ *  left unresolved.  Re-entrant: an inner collection is folded into the outer. */
+export function collectUnresolvedTypes<T>(lower: () => T): {
+  result: T;
+  sites: UnresolvedTypeSite[];
+} {
+  const outer = unresolvedSink;
+  const sink = new Map<AstNode, UnresolvedTypeSite>();
+  unresolvedSink = sink;
+  try {
+    const result = lower();
+    return { result, sites: innermost(sink) };
+  } finally {
+    unresolvedSink = outer;
+    if (outer) for (const [n, site] of sink) outer.set(n, site);
+  }
+}
+
+/** The recorded sites with no other recorded site inside them: an unresolved
+ *  member makes its whole chain unresolved, and the member is the one to
+ *  report. */
+function innermost(sink: Map<AstNode, UnresolvedTypeSite>): UnresolvedTypeSite[] {
+  const enclosing = new Set<AstNode>();
+  for (const node of sink.keys()) {
+    for (let up = node.$container; up; up = up.$container) if (sink.has(up)) enclosing.add(up);
+  }
+  return [...sink].filter(([n]) => !enclosing.has(n)).map(([, site]) => site);
+}
+
+function recordUnresolved(node: AstNode, cause: string): TypeIR {
+  if (unresolvedSink && !unresolvedSink.has(node)) {
+    const origin = originFor(node);
+    unresolvedSink.set(node, {
+      text: (node.$cstNode?.text ?? node.$type).replace(/\s+/g, " ").slice(0, 80),
+      cause,
+      ...(origin ? { origin } : {}),
+    });
+  }
+  return UNRESOLVED_PLACEHOLDER;
+}
 
 /** The type the single typing pass recorded for `node` — a postfix suffix (the
  *  receiver type AFTER it), an assignment target, or any expression — copied
- *  into the IR.  Lowering infers nothing itself (M-T5.47); the pass's
- *  `unknown` and a node it never reached both carry the `string` placeholder,
- *  which the single-typing-pass census pins shrink-only. */
-export function passType(node: AstNode, env?: Env): TypeIR {
+ *  into the IR.  Lowering infers nothing itself: it reads the pass's answer
+ *  and nothing else.  A ui element keeps the IR's representation (design
+ *  §D7): the `entity{<primitive>}` marker a builder always carried, and a
+ *  `match` the type of its first arm.  A node the pass left `unknown` (or never
+ *  reached) is recorded, and the model it sits in fails validation. */
+export function passType(node: AstNode | undefined, env?: Env): TypeIR {
+  if (!node) return UNRESOLVED_PLACEHOLDER;
   const t = passSynth(node, env);
-  return t ? irType(t) : STRING_T;
+  if (t?.kind === "slot") {
+    if (isBuilderCall(node)) return { kind: "entity", name: node.type, declKind: "synthetic" };
+    if (isMatchExpr(node)) {
+      const first = node.arms[0]?.value ?? node.varArms[0]?.value ?? node.elseExpr;
+      return first ? passType(first, env) : UNRESOLVED_PLACEHOLDER;
+    }
+  }
+  if (!t) return recordUnresolved(node, "unreached");
+  // `not-a-value` is a declaration's NAME read where a chain starts
+  // (`Orders` in `Orders.getById(…)`): no value, nothing to type.
+  if (t.kind === "unknown") {
+    return t.cause === "not-a-value" ? UNRESOLVED_PLACEHOLDER : recordUnresolved(node, t.cause);
+  }
+  return irType(t);
+}
+
+/** `passType` without recording an unresolved read: for an observer asking
+ *  the same question lowering asks (the typing differential), which must not
+ *  add reads lowering never made. */
+export function passTypeUnrecorded(node: AstNode, env?: Env): TypeIR {
+  const sink = unresolvedSink;
+  unresolvedSink = undefined;
+  try {
+    return passType(node, env);
+  } finally {
+    unresolvedSink = sink;
+  }
 }
 
 /** The pass's type for `node` — typed against the aggregate being lowered
@@ -379,7 +457,7 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   // compile when `upper` is a `BigDecimal`).
   const lowerFallback = (i: number): ExprIR => {
     const lowered = lowerExpr(operands[i]!, env);
-    const prev = inferExprType(operands[i - 1]!, env);
+    const prev = passType(operands[i - 1]!, env);
     const anchor = prev.kind === "optional" ? prev.inner : prev;
     return anchor.kind === "primitive"
       ? (tryPromoteNumericLit(operands[i]!, anchor.name) ?? lowered)
@@ -388,7 +466,7 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   let acc = lowerFallback(operands.length - 1);
   for (let i = operands.length - 2; i >= 0; i--) {
     const left = i === 0 ? lowerExpr(operands[i]!, env) : lowerFallback(i);
-    const leftType = inferExprType(operands[i]!, env);
+    const leftType = passType(operands[i]!, env);
     acc = {
       kind: "ternary",
       cond: {
@@ -397,7 +475,7 @@ function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
         left,
         right: lit("null", "null"),
         leftType,
-        // The null literal's own inferred type — `inferExprType` types a bare
+        // The null literal's own inferred type — `passType` types a bare
         // `null` as `string` (see its `isNullLit` arm), and an `x == null`
         // written by hand lowers with exactly this pair.
         rightType: { kind: "primitive", name: "string" },
@@ -422,7 +500,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
   const hoisted = env.hoistedReads?.get(chain);
   if (hoisted) {
     let recv = resolveNameRef(hoisted, env, chain);
-    let recvType = env.locals.get(hoisted)?.type ?? STRING_T;
+    let recvType = env.locals.get(hoisted)?.type ?? UNRESOLVED_PLACEHOLDER;
     for (const s of chain.suffixes.slice(1)) {
       const out = applySuffixToRecv(recv, recvType, s, env);
       recv = out.recv;
@@ -588,7 +666,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     }
   }
   let recv = lowerExpr(chain.head, env);
-  let recvType = inferExprType(chain.head, env);
+  let recvType = passType(chain.head, env);
   for (const s of chain.suffixes) {
     const out = applySuffixToRecv(recv, recvType, s, env);
     recv = out.recv;
@@ -729,8 +807,7 @@ function applySuffixToRecv(
       // operation returns its declared return type (an `or`-union for an
       // exception-less op, so a `let x = reserve()` types as the union; the `?`
       // propagation operator builds on this), a value-object ctor returns the
-      // VO, everything else falls back to a string placeholder (matches the
-      // legacy inferExprType).
+      // VO, everything else keeps the string placeholder.
       let resultType: TypeIR = { kind: "primitive", name: "string" };
       const fn = findFunctionInEnv(env, recv.name);
       if (fn) resultType = lowerType(fn.returnType);
@@ -1298,7 +1375,7 @@ export function lowerExpr(expr: Expression | undefined, env: Env): ExprIR {
 
 /** Shadow-mode observer (M-T5.47): sees every expression `lowerExpr` lowers,
  *  with the lowering `Env` it was lowered in, so the typing differential can
- *  ask `inferExprType` the same question at the same point. Unset (and so
+ *  ask `passType` the same question at the same point. Unset (and so
  *  free) outside that test; it never changes what is lowered. */
 let lowerExprObserver: ((expr: Expression, env: Env, ir: ExprIR) => void) | undefined;
 
@@ -1325,7 +1402,7 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     // lowers to exactly the `lit("money", …)` the deleted `MoneyLit` rule did.
     const moneyText = moneyLiteralText(expr);
     if (moneyText !== undefined) return lit("money", moneyText);
-    const fromType = inferExprType(expr.value, env);
+    const fromType = passType(expr.value, env);
     // Aggregate → string lowers to `aggregate.display` member access.
     // The validator has already ensured `display` exists; if it
     // didn't, lowering still produces a member access that backends
@@ -1453,9 +1530,9 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       const subject = lowerExpr(expr.subject, env);
       // A plain ref subject carries its own resolved type; an `await <call>`
       // subject (Stage 2) is a call whose type is the op's `or`-union return —
-      // resolve it via `inferExprType` so the variant-arm set is available for
+      // resolve it via `passType` so the variant-arm set is available for
       // exhaustiveness checks and backends never re-resolve.
-      const subjectType = subject.kind === "ref" ? subject.type : inferExprType(expr.subject, env);
+      const subjectType = subject.kind === "ref" ? subject.type : passType(expr.subject, env);
       // A subject bound to a repository union find carries the absence
       // runtime shape (bare aggregate-or-absent), not the tagged wire —
       // stamp it so backends render a presence check instead of a
@@ -1680,7 +1757,7 @@ function rowBindingEnv(
     entries.find((e) => e.name === sourceArg) ??
     entries.find((e) => e.name === undefined && !isLambda(e.value));
   if (!source) return env;
-  const element = collectionElementType(inferExprType(source.value, env));
+  const element = collectionElementType(passType(source.value, env));
   if (!element) return env;
   return { ...env, rowElem: element };
 }
@@ -2589,26 +2666,6 @@ function resolveCallKind(
   return "free";
 }
 
-// ---------------------------------------------------------------------------
-// Type inference for expressions (best-effort, used to inform IR nodes)
-// ---------------------------------------------------------------------------
-
-export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
-  if (!expr) return STRING_T;
-  const t = passSynth(expr, env);
-  // A ui element keeps the IR's representation (design §D7): the
-  // `entity{<primitive>}` marker a builder always carried, and a `match` the
-  // type of its first arm.
-  if (t?.kind === "slot") {
-    if (isBuilderCall(expr)) return { kind: "entity", name: expr.type, declKind: "synthetic" };
-    if (isMatchExpr(expr)) {
-      const first = expr.arms[0]?.value ?? expr.varArms[0]?.value ?? expr.elseExpr;
-      return first ? inferExprType(first, env) : STRING_T;
-    }
-  }
-  return t ? irType(t) : STRING_T;
-}
-
 /**
  * IR-layer mirror of the typing pass's `arithmetic`/comparison
  * logic, but operating on `TypeIR` and dispatching on the operator.
@@ -2684,7 +2741,7 @@ export function lowerExprAsDeclared(
 ): ExprIR {
   const value = lowerExprInContext(expr, declared, env);
   if (declared.kind !== "primitive" || value.kind === "literal") return value;
-  const from = inferExprType(expr, env);
+  const from = passType(expr, env);
   if (from.kind !== "primitive") return value;
   const widens =
     (from.name === "int" && (declared.name === "long" || declared.name === "decimal")) ||
@@ -2832,7 +2889,7 @@ function lowerTemplateString(expr: TemplateStr, env: Env): ExprIR {
     if (hole) {
       const holeExpr = hole.value;
       const holeIR = lowerExpr(holeExpr, env);
-      const holeType = inferExprType(holeExpr, env);
+      const holeType = passType(holeExpr, env);
       const isStr = holeType.kind === "primitive" && holeType.name === "string";
       // Same string-concat operand as a format-less hole — this is what the
       // raw path (every backend + Feliz/Flutter/HEEx) renders, so the byte

@@ -52,7 +52,7 @@ import type {
 } from "../types/loom-ir.js";
 import { joinRefPath, mapVarForPath } from "./id-follow.js";
 import { resolveBypass } from "./lower-capabilities.js";
-import { criterionRefOf, inferExprType, lowerExpr } from "./lower-expr.js";
+import { criterionRefOf, lowerExpr, passType } from "./lower-expr.js";
 import { lowerField } from "./lower-members.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
@@ -209,10 +209,10 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
       field: s.field,
       expr,
       // An aggregation's own type comes from the OPERATOR, not from the
-      // unresolved expression `inferExprType` sees (a bare `count` infers as
+      // unresolved expression `passType` sees (a bare `count` infers as
       // `string`, which is simply wrong).  Non-aggregation selects keep the
       // inferred type unchanged.
-      type: aggregate ? aggregateResultType(aggregate, scope) : inferExprType(s.expr, scope),
+      type: aggregate ? aggregateResultType(aggregate, scope) : passType(s.expr, scope),
       ...(aggregate ? { aggregate } : {}),
     };
   });

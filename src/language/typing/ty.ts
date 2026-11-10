@@ -240,9 +240,9 @@ export function wireOf(t: Ty): Ty {
 // The projection onto TypeIR (design §D3) — total, no lookups.
 // ---------------------------------------------------------------------------
 
-/** `unknown` projects to `primitive string` DURING CUTOVER ONLY — the IR's
- *  historical fallback, kept so emitted bytes stay identical; the count of
- *  nodes taking this arm is what the slice-4 ratchet pins shrink-only. */
+/** `unknown` projects to `primitive string`: a placeholder only a refused
+ *  model carries — lowering records every read of one, and
+ *  `loom.unresolved-type` refuses the model (`lower-expr.ts` `passType`). */
 export function toTypeIR(t: Ty): TypeIR {
   switch (t.kind) {
     case "primitive":

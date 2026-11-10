@@ -6,6 +6,22 @@ Every type position in the language: the eleven primitive scalars (plus the expr
 
 A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrier constructors, an optional `[]` array marker, an optional `?` nullable marker, and an optional `or`-union tail — in that fixed order. Carriers and the array/optional markers bind **tighter** than `or` (`string or int option` ≡ `string or (int option)`). The head `BaseType` is one of: a `PrimitiveType`, an `X id` (`IdType`), a bare `NamedType` (enum / value object / part; an event or payload only in the transport positions that admit them), or the UI-only `slot` / `action` / capability-only `Self id`. All examples below are generated from one scratch system with a backend deployable per platform; output is excerpted.
 
+## Every value has a type
+
+Every expression a target generates has a type the model fixes: a declared field, parameter or result, a literal, or a rule the language derives from those (`a.total * 2`, `api.orders.getById(o).code`). An expression with no such type refuses the model with `loom.unresolved-type`, naming the expression and why; no target ever receives a guessed type.
+
+```ddd
+ui Web {
+  page P { route: "/" body: For { each: orders, render: o => Text { o.code } } }
+}
+```
+
+```text
+loom.unresolved-type orders: Cannot work out the type of 'orders': it names nothing in scope. …
+```
+
+Most unresolved expressions already have a more specific diagnostic (an unknown name, member or e2e handle). `loom.unresolved-type` is the backstop that reports the rest, so it appears only when nothing else refuses the model.
+
 ## Primitive scalars
 
 Eleven primitives: `int`, `long`, `decimal`, `money`, `string`, `bool`, `date`, `datetime`, `guid`, `json`, `File`. Each maps to a host-language type, a wire (DTO) type, and a SQL column per backend. (`duration` is a type in the expression language — the result of `days(3)` or `datetime - datetime` — but not a declarable field type; see [`duration`](#duration--expression-only).) `date` is a calendar day and `datetime` an instant — see [`date`](#date--a-calendar-day).
@@ -858,4 +874,4 @@ return ResponseEntity.ok(result == null ? null : (result) == null ? null : Order
 ```
 ::: end
 
-The tagged-wire machinery — `z.discriminatedUnion("type", …)` / `[JsonPolymorphic]` / `@JsonTypeInfo` — backs the anonymous `A or B` union and the named `payload F = A | B` form in their payload-field and operation-return positions. The full union surface (variant kinds, precedence, position rules, the `loom.union-*` validators, the `Agg or <error>` find shape) lives in [Payloads & unions](09-payloads-and-unions.md) and [`../payloads.md`](../payloads.md).
+The tagged-wire machinery — `z.discriminatedUnion("type", …)` / `[JsonPolymorphic]` / `@JsonTypeInfo` — backs the anonymous `A or B` union in the return positions [the position table](#where-a-type-form-may-appear) admits. The full union surface (variant kinds, precedence, the `loom.union-*` validators) lives in [Payloads & unions](09-payloads-and-unions.md) and [`../payloads.md`](../payloads.md).

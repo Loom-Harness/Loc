@@ -102,6 +102,12 @@ export const messages = {
   "loom.unresolved-member#on-type": (p: { member: unknown; recv: unknown }) =>
     `Cannot resolve member '${p.member}' on type '${p.recv}'.`,
   "loom.unresolved-lvalue-head": (p: { head: unknown }) => `Cannot resolve '${p.head}'.`,
+  // The lowering backstop (`ir/validate/checks/unresolved-type-checks.ts`): an
+  // expression whose type the typing pass could not work out, in a model no
+  // other diagnostic refuses.
+  "loom.unresolved-type": (p: { text: unknown; why: unknown }) =>
+    `Cannot work out the type of '${p.text}': ${p.why}. Every value a target generates ` +
+    "needs a type the model declares — a field, a parameter, a result, or a literal.",
 
   // ----------------------------------------------------------------------
   // src/language/validators/structural.ts
