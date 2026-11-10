@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { allContexts, type ExprIR, type StmtIR } from "../../src/ir/types/loom-ir.js";
+import { allContexts, type StmtIR } from "../../src/ir/types/loom-ir.js";
 import { type CallOf, expectCallKind } from "../_helpers/call-kind.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";

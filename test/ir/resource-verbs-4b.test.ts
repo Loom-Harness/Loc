@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { findVerb, verbsForKind } from "../../src/ir/resource-verbs.js";
-import type { ExprIR, WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
+import type { WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
 import { type CallOf, expectCallKind } from "../_helpers/call-kind.js";
 import { parseString } from "../_helpers/parse.js";
 
