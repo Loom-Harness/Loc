@@ -4,6 +4,7 @@
 // .NET site (EF and Dapper alike) renders the same refusal the same way.
 
 import {
+  aggregateProblemParams,
   errorVariantCode,
   errorVariantResponse,
   FIND_ABSENT_DETAIL,
@@ -13,6 +14,7 @@ import {
   type WireRejectionClass,
   wireCode,
   wireFixedDetail,
+  wireParams,
   wireSentence,
   wireStatus,
   wireTitle,
@@ -42,9 +44,51 @@ export function csRuleParams(
 }
 
 /** The `Extensions = { ["code"] = … }` initializer member of a problem body
- *  for a rejection class — the catalog key a client localizes it by. */
-export function csCodeInit(cls: WireRejectionClass): string {
-  return `Extensions = { ["code"] = ${csCode(cls)} }`;
+ *  for a rejection class — the catalog key a client localizes it by.  With
+ *  `typeKey` (a refusal answered for one aggregate), a class that carries
+ *  `params.type` gets it too. */
+export function csCodeInit(cls: WireRejectionClass, typeKey?: string): string {
+  const params = typeKey === undefined ? undefined : aggregateProblemParams(cls, typeKey);
+  const paramsInit =
+    params === undefined
+      ? ""
+      : `, ["params"] = new System.Collections.Generic.Dictionary<string, object?> { ${Object.entries(
+          params,
+        )
+          .map(([k, v]) => `[${csLit(k)}] = ${csLit(v)}`)
+          .join(", ")} }`;
+  return `Extensions = { ["code"] = ${csCode(cls)}${paramsInit} }`;
+}
+
+/** The members of an app-wide exception filter that read the aggregate a
+ *  request addresses off its path (`/api/<segment>/…`) — the `[segment,
+ *  params.type]` table (`aggregateRouteTypes`) and `TypeParams(context)`,
+ *  which answers `{ ["type"] = … }` or null for a route of no aggregate. */
+export function csAggregateTypeParamsMembers(routeTypes: readonly (readonly [string, string])[]) {
+  return `
+    // The aggregate each \`/api/<segment>\` route serves: a refusal answered for
+    // one carries its identity key as \`params.type\`.
+    private static readonly System.Collections.Generic.Dictionary<string, string> AggregateTypes = new()
+    {
+${routeTypes.map(([seg, type]) => `        [${csLit(seg)}] = ${csLit(type)},`).join("\n")}
+    };
+
+    private static System.Collections.Generic.Dictionary<string, object?>? TypeParams(ExceptionContext context)
+    {
+        var segments = (context.HttpContext.Request.Path.Value ?? "").Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+        var at = segments.Length > 0 && segments[0] == "api" ? 1 : 0;
+        return segments.Length > at && AggregateTypes.TryGetValue(segments[at], out var type)
+            ? new System.Collections.Generic.Dictionary<string, object?> { ["type"] = type }
+            : null;
+    }
+`;
+}
+
+/** The trailing `params` argument of an app-wide filter's `Problem(…)` call
+ *  for `cls`: `, TypeParams(context)` for a class that carries `params.type`
+ *  (when the filter has the table), else nothing. */
+export function csTypeParamsArg(cls: WireRejectionClass, hasTable: boolean): string {
+  return hasTable && wireParams(cls).includes("type") ? ", TypeParams(context)" : "";
 }
 
 /** Statements giving the ProblemDetails local `problemVar` a DECLARED error

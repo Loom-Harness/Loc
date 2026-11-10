@@ -4,6 +4,8 @@
 // every node site renders the same sentence the same way.
 
 import {
+  aggregateProblemParams,
+  aggregateTypeKey,
   errorVariantCode,
   type WireRejectionClass,
   wireSentence,
@@ -24,6 +26,18 @@ export function tsSentence(cls: WireRejectionClass, subject: string): string {
  *  read's absence (RS-27).  `idExpr` is the TS expression holding the id. */
 export function tsNotFoundThrow(aggName: string, idExpr: string): string {
   return `throw new AggregateNotFoundError(${tsSentence("not-found", `${aggName} \${${idExpr}}`)});`;
+}
+
+/** The `params` object of an aggregate-route refusal of `cls`, as a TS object
+ *  literal (`{ "type": "Sales.Order" }`), or undefined for a class that
+ *  carries no `type` (`aggregateProblemParams`). */
+export function tsAggregateProblemParams(
+  cls: WireRejectionClass,
+  ctxName: string | undefined,
+  aggName: string,
+): string | undefined {
+  const params = aggregateProblemParams(cls, aggregateTypeKey(ctxName, aggName));
+  return params === undefined ? undefined : JSON.stringify(params);
 }
 
 /** The TS object literal carrying the VALUES of the identifiers `rule` reads

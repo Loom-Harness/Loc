@@ -44,6 +44,7 @@ import {
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
+  tsAggregateProblemParams,
   tsErrorVariantExt,
   tsNotFoundThrow,
 } from "../../../generator/typescript/wire-policy-ts.js";
@@ -68,6 +69,7 @@ import {
   fieldFixedMessage,
   noneVariantResponse,
   reasonPhrase,
+  type WireRejectionClass,
   wireCode,
   wireFixedDetail,
   wireStatus,
@@ -1443,7 +1445,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))}, params: ${tsAggregateProblemParams("referenced-in-use", ctx.name, agg.name)} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1531,6 +1533,12 @@ export function buildRoutesFile(
   // status union; without this the emitted call is a TS type error.
   if (agg.operations.some((o) => o.extern)) emittedProblemStatuses.add(NOT_IMPLEMENTED_STATUS);
   const problemStatusUnion = [...emittedProblemStatuses].sort((a, b) => a - b).join(" | ");
+  // This router serves one aggregate, so every refusal that concerns it carries
+  // its identity key as `params.type`.
+  const problemTypeArg = (cls: WireRejectionClass): string => {
+    const params = tsAggregateProblemParams(cls, ctx.name, agg.name);
+    return params === undefined ? "" : `, ${params}`;
+  };
   // Domain-error handler.  Order matters — ForbiddenError checked
   // before DomainError so 403 wins over 400 when a `requires`
   // clause throws; ExternHandlerError checked before the generic
@@ -1576,7 +1584,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("disallowed");`);
   lines.push(
-    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
+    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))}${problemTypeArg("state-gate")});`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DomainError) {`);
@@ -1594,7 +1602,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("not_found");`);
   lines.push(
-    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
+    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))}${problemTypeArg("not-found")});`,
   );
   lines.push(`    }`);
   // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
@@ -1620,7 +1628,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("domain_error");`);
     lines.push(
-      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))});`,
+      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))}, ${JSON.stringify(wireCode("dangling-reference"))}${problemTypeArg("dangling-reference")});`,
     );
     lines.push(`    }`);
   }
@@ -1644,7 +1652,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))});`,
+      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))}, ${JSON.stringify(wireCode("unique-conflict"))}${problemTypeArg("unique-conflict")});`,
     );
     lines.push(`    }`);
   }
@@ -1665,7 +1673,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("conflict");`);
     lines.push(
-      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
+      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))}${problemTypeArg("version-conflict")});`,
     );
     lines.push(`    }`);
   }

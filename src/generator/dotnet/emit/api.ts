@@ -33,6 +33,7 @@ import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";
 import {
+  csAggregateTypeParamsMembers,
   csCode,
   csCodeInit,
   csFieldInvalidProblem,
@@ -46,6 +47,7 @@ import {
   csSentence,
   csTitle,
   csTypeMismatchMessage,
+  csTypeParamsArg,
   wireStatusResolver,
 } from "../wire-policy-cs.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
@@ -223,6 +225,9 @@ export interface ControllerShape {
    *  under `/api/orders/*`).  Empty for standalone .NET (controllers
    *  stay at root, matching the v0 behaviour). */
   routePrefix?: string;
+  /** The aggregate's identity key (`Sales.Order`) — the `params.type` of a
+   *  refusal this controller answers itself. */
+  typeKey?: string;
   /** When true, controllers emit a `wire_in` trace line right after
    *  `[FromBody]` binding so the parsed request's key set is observable
    *  on the structured stream.  Off keeps the operation handler at its
@@ -318,7 +323,7 @@ export function renderController(
   // so the HTTP status matches the remapped value the OpenAPI declaration
   // advertises (the `Conflict()` helper is hardwired to 409).
   const referencedInUseStatus = wireStatus("referenced-in-use", shape.structuralStatuses);
-  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use")} }`;
+  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use", shape.typeKey)} }`;
   const fkConflictReturn =
     referencedInUseStatus === wireStatus("referenced-in-use")
       ? `            return Conflict(${fkProblem});`
@@ -888,6 +893,10 @@ export function renderExceptionFilter(
     /** True when an `extern` operation or handler exists — the filter then
      *  answers its unfilled stub with a 501. */
     hasExtern?: boolean;
+    /** The `[route segment, params.type]` pairs of the aggregates served here
+     *  (`aggregateRouteTypes`): a refusal answered on one's routes carries
+     *  its identity key. */
+    aggregateRouteTypes?: readonly (readonly [string, string])[];
   },
 ): string {
   const usesValidators = !!options?.usesValidators;
@@ -924,6 +933,8 @@ export function renderExceptionFilter(
   // A project with no cross-aggregate `X id` field emits no dangling-reference
   // arm — only such a write can raise 23503.
   const hasDanglingRef = !!options?.hasDanglingRef;
+  const routeTypes = options?.aggregateRouteTypes ?? [];
+  const hasRouteTypes = routeTypes.length > 0;
   // A value object refused inside a domain body (M-T5.1) — the domain-floor
   // status plus one RFC 7807 errors[] entry: the whole-request pointer "" (the
   // value was computed by the body, so it names no request member), the rule's
@@ -1049,7 +1060,7 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${domainStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
-            context.Result = Problem(context, ${wireStatus("dangling-reference", overrides)}, ${csTitle("dangling-reference", overrides)}, ${csFixedDetail("dangling-reference")}, trace_id, ${csCode("dangling-reference")});
+            context.Result = Problem(context, ${wireStatus("dangling-reference", overrides)}, ${csTitle("dangling-reference", overrides)}, ${csFixedDetail("dangling-reference")}, trace_id, ${csCode("dangling-reference")}${csTypeParamsArg("dangling-reference", hasRouteTypes)});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1069,7 +1080,7 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${uniquenessStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, ${uniquenessStatus}, ${csTitle("unique-conflict", overrides)}, ${csFixedDetail("unique-conflict")}, trace_id, ${csCode("unique-conflict")});
+            context.Result = Problem(context, ${uniquenessStatus}, ${csTitle("unique-conflict", overrides)}, ${csFixedDetail("unique-conflict")}, trace_id, ${csCode("unique-conflict")}${csTypeParamsArg("unique-conflict", hasRouteTypes)});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1123,7 +1134,7 @@ export function renderExceptionFilter(
               { name: "status", valueExpr: `${concurrencyStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, ${concurrencyStatus}, ${csTitle("version-conflict", overrides)}, __conflictDetail, trace_id, ${csCode("version-conflict")});
+            context.Result = Problem(context, ${concurrencyStatus}, ${csTitle("version-conflict", overrides)}, __conflictDetail, trace_id, ${csCode("version-conflict")}${csTypeParamsArg("version-conflict", hasRouteTypes)});
             context.ExceptionHandled = true;
             return;
         }`
@@ -1272,7 +1283,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "status", valueExpr: `${disallowedStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, ${disallowedStatus}, ${csTitle("state-gate", overrides)}, dx.Message, trace_id, ${csCode("state-gate")});
+            context.Result = Problem(context, ${disallowedStatus}, ${csTitle("state-gate", overrides)}, dx.Message, trace_id, ${csCode("state-gate")}${csTypeParamsArg("state-gate", hasRouteTypes)});
             context.ExceptionHandled = true;
             return;
         }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}${valueObjectInvariantArm}${domainFloorCodeArm}
@@ -1306,7 +1317,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
-            context.Result = Problem(context, ${notFoundStatus}, ${csTitle("not-found", overrides)}, nf.Message, trace_id, ${csCode("not-found")});
+            context.Result = Problem(context, ${notFoundStatus}, ${csTitle("not-found", overrides)}, nf.Message, trace_id, ${csCode("not-found")}${csTypeParamsArg("not-found", hasRouteTypes)});
             context.ExceptionHandled = true;
             return;
         }
@@ -1366,6 +1377,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         };
     }
 
+${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
     // The same 404 envelope, for the routes MVC cannot reach.
     //
     // This class is an \`IExceptionFilter\`: it only ever sees exceptions raised
