@@ -4,7 +4,12 @@
 // mirrors the .NET <Agg>Response record so the parity check sees
 // identical specs across backends.
 
-import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import {
+  forApiRead,
+  type WireMaskPlan,
+  wireFieldsFor,
+  wireMaskPlan,
+} from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -32,17 +37,18 @@ export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedConte
   );
 }
 
-/** The read-masked wire fields of an aggregate (`field: T mask unless <expr>`,
- *  authorization.md §5) — the API-read wire fields whose `maskUnless` predicate
- *  is set.  Empty when the aggregate declares no field mask. */
+/** The read-masked wire fields of an aggregate root (`field: T mask unless
+ *  <expr>`, authorization.md §5) — the API-read wire fields whose `maskUnless`
+ *  predicate is set.  A contained part's are reached through `wireMaskPlan`. */
 export function maskedWireFields(agg: AggregateIR): WireField[] {
   return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
 }
 
-/** True iff `agg` declares at least one `mask unless` field — the gate for
- *  emitting `toWireMasked` and routing responses through it. */
+/** True iff `agg` carries a `mask unless` member on its read wire — on the root
+ *  or on a contained part — the gate for emitting `toWireMasked` and routing
+ *  responses through it. */
 export function aggHasFieldMask(agg: AggregateIR): boolean {
-  return maskedWireFields(agg).length > 0;
+  return wireMaskPlan(agg, agg.parts) !== undefined;
 }
 
 /** `toWireMasked(root, currentUser)` — the response serializer for an aggregate
@@ -53,19 +59,47 @@ export function aggHasFieldMask(agg: AggregateIR): boolean {
  *  left unmasked; only response boundaries route through this.  Emitted only
  *  when `aggHasFieldMask(agg)` — a mask-free aggregate stays byte-identical. */
 export function toWireMaskedMethod(agg: AggregateIR): string {
-  const masked = maskedWireFields(agg);
+  const plan = wireMaskPlan(agg, agg.parts);
   const body: string[] = [
     `  toWireMasked(root: ${agg.name}, currentUser: User | null): unknown {`,
     `    const wire = this.toWire(root) as Record<string, unknown>;`,
   ];
-  for (const wf of masked) {
-    // `maskUnless` is a `currentUser`-only predicate; render it with the bare
-    // `currentUser` param in scope.  Guard the null caller before evaluating.
-    const pred = renderTsExpr(wf.maskUnless!, { thisName: "this", principalExpr: "currentUser" });
-    body.push(`    if (!(currentUser !== null && (${pred}))) wire.${wf.name} = null;`);
-  }
+  if (plan) body.push(...redactWire(plan, "wire", "    ", { n: 0 }));
   body.push(`    return wire;`, `  }`);
   return lines(...body);
+}
+
+/** The statements nulling every masked member `plan` names on the wire object
+ *  `target`, descending into each contained part (an element of a collection,
+ *  or a single containment when present).  `toWire` builds fresh objects, so
+ *  the redaction mutates them in place. */
+function redactWire(
+  plan: WireMaskPlan,
+  target: string,
+  indent: string,
+  counter: { n: number },
+): string[] {
+  const out: string[] = [];
+  for (const f of plan.fields) {
+    // `maskUnless` is a `currentUser`-only predicate; render it with the bare
+    // `currentUser` param in scope.  Guard the null caller before evaluating.
+    const pred = renderTsExpr(f.pred, { thisName: "this", principalExpr: "currentUser" });
+    out.push(`${indent}if (!(currentUser !== null && (${pred}))) ${target}.${f.name} = null;`);
+  }
+  for (const c of plan.nested) {
+    const v = `__m${counter.n++}`;
+    const value = `${target}[${JSON.stringify(c.name)}]`;
+    if (c.collection) {
+      out.push(`${indent}for (const ${v} of (${value} ?? []) as Record<string, unknown>[]) {`);
+    } else {
+      out.push(
+        `${indent}const ${v} = ${value} as Record<string, unknown> | null | undefined;`,
+        `${indent}if (${v}) {`,
+      );
+    }
+    out.push(...redactWire(c.plan, v, `${indent}  `, counter), `${indent}}`);
+  }
+  return out;
 }
 
 function wireProjectionEntity(

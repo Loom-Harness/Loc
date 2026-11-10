@@ -250,6 +250,9 @@ export interface LayoutCtx {
   createWorkspaceFromExample: (name: string, exampleId: string) => void;
   augmentedExamplesList: LoomExample[];
   initialSource: string;
+  /** Advances only when the editor is reseeded onto text it did not just
+   *  write (tab switch, import, workspace switch, restore) — never on typing. */
+  seedRevision: number;
   /** The live editor source (reflects unsaved edits); for the Builder. */
   getSource: () => string;
 

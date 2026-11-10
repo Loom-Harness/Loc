@@ -23,4 +23,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends wget \
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 COPY --from=build /app/publish ./
+# Run unprivileged (the image's `app` user, by number).  data/ is the one
+# directory the process writes (local object-store resources default there).
+RUN mkdir -p /app/data && chown $APP_UID /app/data
+USER $APP_UID
 ENTRYPOINT ["dotnet", "Api.dll"]

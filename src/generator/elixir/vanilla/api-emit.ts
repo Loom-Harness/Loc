@@ -13,6 +13,7 @@
 // byte-identical to the other backends.
 // ---------------------------------------------------------------------------
 
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import {
   destroyVersionCheck,
   operationVersionCheck,
@@ -378,9 +379,7 @@ function renderController(
   // A `mask unless` aggregate emits a redacting `serialize/1` (responses) plus an
   // unmasked `serialize_unmasked/1`; audit before/after snapshots must record the
   // REAL value, so they project through the unmasked one (authorization.md §5).
-  const auditSerialize = agg.fields.some((f) => f.maskUnless)
-    ? "serialize_unmasked(record)"
-    : "serialize(record)";
+  const auditSerialize = carriesFieldMask(agg) ? "serialize_unmasked(record)" : "serialize(record)";
 
   // Reference collections (`X id[]` → `many_to_many`) are projected to id arrays
   // in the wire response: each loaded relationship is mapped to its members'

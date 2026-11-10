@@ -104,6 +104,10 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
   });
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
+  // Render-count probe (see shell-render-scope.spec.ts), read by the last step.
+  await page.addInitScript(() => {
+    (window as unknown as { __loomRenderCounts: Record<string, number> }).__loomRenderCounts = {};
+  });
   await page.goto("/");
   await waitForPlaygroundReady(page);
   await selectExample(page, /Broker channels/);
@@ -208,6 +212,31 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
         lines.filter({ hasText: "channel_dead_lettered" }).and(page.locator(`[data-source="${source}"]`)).first(),
         `${source} channel_dead_lettered`,
       ).toBeAttached({ timeout: 30_000 });
+    }
+  });
+
+  await test.step("background log batches reach the log view without re-rendering the shell", async () => {
+    // The consumers' lines arrive as background batches after the launch
+    // returns.  They land in the `backendLog` ctx field, so the panels that
+    // read it re-render (the dock's tab marks, the log view) and the rest of
+    // the shell does not — a deployable logging on a timer must not cost a
+    // full shell render per batch.
+    const renderCounts = () =>
+      page.evaluate(() => ({
+        ...(window as unknown as { __loomRenderCounts: Record<string, number> }).__loomRenderCounts,
+      }));
+    const consumed = page.getByTestId("output-backend-log-structured").filter({ hasText: "channel_consumed" });
+    await page.waitForTimeout(1_000);
+    const consumedBefore = await consumed.count();
+    const before = await renderCounts();
+    expect(before.DesktopShell ?? 0, "the probe sees the shell").toBeGreaterThan(0);
+    await launch(page, "QUIET");
+    // Three channels × two consuming deployables.
+    await expect.poll(() => consumed.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(consumedBefore + 6);
+    await page.waitForTimeout(500);
+    const after = await renderCounts();
+    for (const name of ["DesktopShell", "PreviewPane", "DesktopHeader", "CommandPalette"]) {
+      expect((after[name] ?? 0) - (before[name] ?? 0), `${name} re-rendered on a background log batch`).toBe(0);
     }
   });
 });

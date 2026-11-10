@@ -1,5 +1,10 @@
 import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
-import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
+import {
+  forApiRead,
+  type WireMaskPlan,
+  wireFieldsFor,
+  wireMaskPlan,
+} from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
   type AssociationIR,
@@ -1974,10 +1979,11 @@ export function maskedWireFields(agg: EnrichedAggregateIR): WireField[] {
   return forApiRead(wireFieldsFor(agg)).filter((wf) => wf.maskUnless !== undefined);
 }
 
-/** True iff `agg` declares at least one `mask unless` field — the gate for
- *  emitting `to_wire_masked` and routing responses through it. */
+/** True iff `agg` carries a `mask unless` member on its read wire — on the root
+ *  or on a contained part — the gate for emitting `to_wire_masked` and routing
+ *  responses through it. */
 export function aggHasFieldMask(agg: EnrichedAggregateIR): boolean {
-  return maskedWireFields(agg).length > 0;
+  return wireMaskPlan(agg, agg.parts) !== undefined;
 }
 
 /** `to_wire_masked(root)` — the response serializer for an aggregate with
@@ -1988,27 +1994,60 @@ export function aggHasFieldMask(agg: EnrichedAggregateIR): boolean {
  *  unmasked; only response boundaries route through this.  Emitted only when
  *  `aggHasFieldMask(agg)` — a mask-free aggregate stays byte-identical. */
 export function toWireMaskedMethod(agg: EnrichedAggregateIR): string {
-  const masked = maskedWireFields(agg);
+  const plan = wireMaskPlan(agg, agg.parts);
   const body: (string | null)[] = [
     `    def to_wire_masked(self, root: ${aggRef(agg)}) -> dict[str, object]:`,
     `        d = self.to_wire(root)`,
     `        _mask_user = ${R.current_user}()`,
   ];
-  for (const f of masked) {
+  if (plan) body.push(...redactWire(plan, "d", "        ", { n: 0 }));
+  body.push(`        return d`);
+  return lines(...body);
+}
+
+/** The statements nulling every masked member `plan` names on the wire dict
+ *  `target`, descending into each contained part.  `to_wire` builds fresh
+ *  dicts, so the redaction mutates them in place; the nested values are typed
+ *  `object`, so each step narrows with `isinstance` (which also skips an unset
+ *  single containment). */
+function redactWire(
+  plan: WireMaskPlan,
+  target: string,
+  indent: string,
+  counter: { n: number },
+): string[] {
+  const out: string[] = [];
+  for (const f of plan.fields) {
     // `maskUnless` is a `current_user`-only predicate; render it against the
     // narrowed `_mask_user` local (the `current-user` ref arm rewrites through
     // `currentUserExpr`).  Guard the null caller before evaluating (fail-closed).
-    const pred = renderPyExpr(f.maskUnless!, { thisName: "self", currentUserExpr: "_mask_user" });
-    body.push(`        if not (_mask_user is not None and (${pred})):`);
-    // The WIRE key, not the snake_cased Python attribute name.  `to_wire`
+    const pred = renderPyExpr(f.pred, { thisName: "self", currentUserExpr: "_mask_user" });
+    out.push(`${indent}if not (_mask_user is not None and (${pred})):`);
+    // The WIRE key, not the snake_cased Python attribute name: `to_wire`
     // writes `"<wf.name>"` verbatim (only the attribute ACCESS is snaked), so
-    // redacting `d[snake(name)]` silently ADDED a second key for any camelCase
-    // field and left the real one at its full value — i.e. the mask did nothing
-    // for exactly the fields whose names are multi-word.
-    body.push(`            d[${JSON.stringify(f.name)}] = None`);
+    // `d[snake(name)]` would add a second key for a camelCase field and leave
+    // the real one at its full value.
+    out.push(`${indent}    ${target}[${JSON.stringify(f.name)}] = None`);
   }
-  body.push(`        return d`);
-  return lines(...body);
+  for (const c of plan.nested) {
+    const v = `_m${counter.n++}`;
+    out.push(`${indent}${v} = ${target}[${JSON.stringify(c.name)}]`);
+    if (c.collection) {
+      const e = `${v}_e`;
+      out.push(
+        `${indent}if isinstance(${v}, list):`,
+        `${indent}    for ${e} in ${v}:`,
+        `${indent}        if isinstance(${e}, dict):`,
+        ...redactWire(c.plan, e, `${indent}            `, counter),
+      );
+    } else {
+      out.push(
+        `${indent}if isinstance(${v}, dict):`,
+        ...redactWire(c.plan, v, `${indent}    `, counter),
+      );
+    }
+  }
+  return out;
 }
 
 export function partWireMethod(

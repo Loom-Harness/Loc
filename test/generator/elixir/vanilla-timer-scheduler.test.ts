@@ -5,7 +5,7 @@
 // durable-driver split: `cron:` timers become an Oban worker (durable, unique
 // single-fire, retry) plus a scheduler GenServer (crontab boundaries + a
 // coalesce-once watermark catch-up); `every:` timers stay the in-process
-// GenServer + transaction-scoped advisory lock; the supervision-tree wiring, the
+// GenServer polling the `__loom_timer` period claim; the supervision-tree wiring, the
 // conditional crontab+oban deps, the Oban config + migration — and that a
 // timer-free deployable is byte-identical (no scheduler artifacts at all).
 
@@ -136,17 +136,18 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     expect(sweep).not.toContain("pg_try_advisory_xact_lock");
   });
 
-  it("keeps every: timers in-process (GenServer + advisory lock, no Oban)", async () => {
+  it("keeps every: timers in-process (GenServer + period claim, no Oban)", async () => {
     const g = get(await filesFor(WITH_TIMERS));
 
     const healthz = g("d/lib/d/scheduler/healthz.ex");
     expect(healthz).toContain("defmodule D.Scheduler.Healthz do");
-    // Single-fire via a TRANSACTION-SCOPED advisory lock, dispatch inline.
-    expect(healthz).toContain("pg_try_advisory_xact_lock");
+    // Wiring: the period claim, then the dispatch in a transaction of its own.
+    // One fire per period is the booted two-replica leg's claim.
+    expect(healthz).toContain("INSERT INTO __loom_timer AS t");
     expect(healthz).toContain("D.Repo.transaction(fn ->");
-    expect(healthz).not.toContain("pg_advisory_unlock");
-    // every: → fixed-interval Process.send_after (no crontab, no Oban).
-    expect(healthz).toContain("Process.send_after(self(), :tick, 15000)");
+    expect(healthz).not.toContain("pg_try_advisory_xact_lock");
+    // every: → Process.send_after at half the period (no crontab, no Oban).
+    expect(healthz).toContain("Process.send_after(self(), :tick, 7500)");
     expect(healthz).not.toContain("Crontab");
     expect(healthz).not.toContain("Oban");
   });
@@ -179,8 +180,8 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     const g = get(await filesFor(EVERY_ONLY));
 
     const healthz = g("d/lib/d/scheduler/healthz.ex");
-    expect(healthz).toContain("Process.send_after(self(), :tick, 30000)");
-    expect(healthz).toContain("pg_try_advisory_xact_lock");
+    expect(healthz).toContain("Process.send_after(self(), :tick, 15000)");
+    expect(healthz).toContain("INSERT INTO __loom_timer AS t");
 
     // No durable-timer machinery when there is no cron timer.
     expect(g("d/mix.exs")).not.toContain("oban");

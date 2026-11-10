@@ -58,7 +58,6 @@ const TS_SYM = {
   projectionTee: tsNamed("~/http/projections", "projectionTee"),
   queryProjectionsRoutes: tsNamed("~/http/query-projections", "queryProjectionsRoutes"),
   authMiddleware: tsNamed("~/auth/middleware", "authMiddleware"),
-  registerRouteProbe: tsNamed("~/auth/middleware", "registerRouteProbe"),
   assertUserVerifierRegistered: tsNamed("~/auth/verifier", "assertUserVerifierRegistered"),
   authRoutes: tsNamed("~/auth/handshake", "authRoutes"),
   randomUUID: tsNamed("node:crypto", "randomUUID"),
