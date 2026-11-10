@@ -568,7 +568,11 @@ export const LOCATORS: Record<VariantId, Locator> = {
   dapper: {
     files: (p) => p.endsWith(".cs") && !/(^|\/)(Tests?|Migrations)\//.test(p),
     openers: [CS_METHOD()],
-    reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
+    // An `EXISTS (SELECT 1 FROM …)` subquery under `AND` / `OR` / `NOT` is part
+    // of the enclosing read's predicate (a read scope, or a find's own
+    // `exists`), not a read of its own; a leading `SELECT EXISTS (…)` (the
+    // write scope's pre-guard) is.
+    reads: [/"[^"\n]*?(?<!(?:AND|OR|NOT) \(?EXISTS \(SELECT 1 )\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
     prepare: (_files, text) => inlineDapperScope(text, { runtime: true }),
     helpers: CS_HELPERS,
     // A criterion read assembles its conjuncts into `__caps` AHEAD of the
@@ -699,10 +703,11 @@ export const LOCATORS: Record<VariantId, Locator> = {
   python: {
     files: (p) => p.endsWith(".py") && !/(^|\/)(tests?|migrations|alembic)\//.test(p),
     openers: [/^[ \t]*(?:async\s+)?def\s+(\w+)/m],
-    // An `exists` subquery inside a `with_loader_criteria(...)` read scope is
-    // part of that scope's predicate, not a read of its own.
+    // An `exists` subquery inside a `with_loader_criteria(...)` read scope, or
+    // inside a read's own `.where(...)`, is part of that predicate, not a read
+    // of its own.
     reads: [
-      /(?<!with_loader_criteria\([^\n]*)\bselect\((\w+)(?:\.\w+)?[,)]/,
+      /(?<!(?:with_loader_criteria|\.where)\([^\n]*)\bselect\((\w+)(?:\.\w+)?[,)]/,
       /\.select_from\((\w+)\)/,
       /\bsession\.get\((\w+)/,
     ],

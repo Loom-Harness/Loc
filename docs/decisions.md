@@ -2460,15 +2460,19 @@ already renders.
    - `subtree` matches through `organizationContext.ancestors` (the operating org
      and every org above it), so a move re-targets subtree shares on the next
      request with nothing rewritten.
-   - An `org` / `subtree` grantee must be under the sharer's top-level org;
-     a share never crosses customers.
+   - Shares may cross tenants: a parent org shares with its children, and a
+     sharer may grant another customer's org or user. The protection is
+     `allow share on X`, write access to the row in the sharer's own org, and
+     a share counting only when it sits in the row's own org.
    - Write shares count only for the write scope.
    - Rules on *dependent* aggregates ("products follow their category") are
      written by the author — whether a relation follows is a domain decision.
 
 6. **Who may share, and what a share opens.**
    - Creating or revoking a share needs `allow share on X [when …]` **and**
-     write access to that row. A grantee cannot re-share.
+     write access to that row in the sharer's operating org — the unfold's
+     `requires exists X for write as x where x.id == <x> && x.tenantId ==
+     organizationContext.org` (403). A grantee cannot re-share.
    - A grant opens the row only: `mask unless` still applies by the grantee's
      own principal.
    - Shares are state-stored (never inside an event stream), co-hosted with
@@ -2506,9 +2510,11 @@ context Catalog {
     invariant orgGrantee: granteeKind == ShareGranteeKind.User || org != null
     invariant userGrantee: granteeKind != ShareGranteeKind.User || user != null
     create(category: Category id, granteeKind: ShareGranteeKind, org: Organization id?, user: guid?, write: bool) {
+      requires exists Category for write as x where x.id == category && x.tenantId == organizationContext.org
       emit CategoryShared { share: id, category: category }
     }
     operation revoke() {
+      requires exists Category for write as x where x.id == category && x.tenantId == organizationContext.org
       revoked := true
       emit CategoryUnshared { share: id, category: category }
     }

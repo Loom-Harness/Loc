@@ -635,14 +635,14 @@ Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--
 `with shareable` on a `tenantOwned` aggregate X lets its rows be shared beyond their org. It unfolds to ordinary context members (`unfold` ejects them as editable source, and an authored member of the same name wins):
 
 - `enum ShareGranteeKind { Org, Subtree, User }` — once per context;
-- `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`granteeKind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`;
+- `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`granteeKind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`; both require `exists X for write as x where x.id == <x> && x.tenantId == organizationContext.org` — the sharer may write the row, in its own org;
 - `policy GranteeIsMe(s: XShare)` — the share is live and addressed to the caller: `Org` matches the operating org, `Subtree` matches when the grantee org is in `organizationContext.ancestors` (so a move re-targets it on the next request), `User` matches `currentUser.id`;
 - `policy SharedWithMe(x: X)` — X has such a share **in X's own org**;
 - `policy XSharing` — a grantee reads the shares addressed to it, reads X where `SharedWithMe`, and writes X where a share with `write` is addressed to it.
 
-A share row belongs to the sharer's org; it counts only when it sits in the shared row's own org, so a share another org writes — or a grantee's re-share — opens nothing. A grant opens the row, not its fields: `mask unless` still redacts by the grantee's own principal. A `softDeletable` row's shares open nothing once it is deleted: the `!isDeleted` filter ANDs onto the whole read scope, shares included. A query-time projection over a shareable aggregate applies the source's tenancy floor, not its share rules — it under-shows a grantee's rows, never leaks one — and one served off the aggregate's host is `loom.share-host-bypass`.
+A share row belongs to the sharer's org; it counts only when it sits in the shared row's own org, so a share another org writes opens nothing. Shares may cross tenants: a grantee can be any org, subtree or user, including another customer's. A grant opens the row, not its fields: `mask unless` still redacts by the grantee's own principal. A `softDeletable` row's shares open nothing once it is deleted: the `!isDeleted` filter ANDs onto the whole read scope, shares included. A query-time projection over a shareable aggregate applies the source's tenancy floor, not its share rules — it under-shows a grantee's rows, never leaks one — and one served off the aggregate's host is `loom.share-host-bypass`.
 
-`allow share on X [when <caller-only expr>]` decides who may create or revoke a share: XShare's `create` and `revoke` carry it as a leading `requires` (403). With no rule nobody may share. The share surface is XShare's own derived routes: `POST /api/<x>_shares`, `GET /api/<x>_shares` (the caller's org's shares and the ones addressed to it), `POST /api/<x>_shares/{id}/revoke`.
+`allow share on X [when <caller-only expr>]` decides who may create or revoke a share: XShare's `create` and `revoke` carry it as a leading `requires` (403). With no rule nobody may share. The unfold's own `requires exists X for write …` follows it (403): the row must be in the caller's operating org and inside X's write scope, so a colleague an `allow write own` rule keeps off the row may not share it, and a grantee may not re-share a row of another org even through a write share. The share surface is XShare's own derived routes: `POST /api/<x>_shares`, `GET /api/<x>_shares` (the caller's org's shares and the ones addressed to it), `POST /api/<x>_shares/{id}/revoke`.
 
 ```ddd
 aggregate Category with tenantOwned, shareable, crudish { name: string }
@@ -654,8 +654,9 @@ policy { allow share on Category when currentUser.role == "manager" }
 ```ts
 // db/read-scopes.ts — Category's read scope: the floor OR a live share addressed to the caller
 or(eq(schema.categories.tenantId, requireCurrentUser().operatingOrg), sql`exists (select 1 from ${schema.categoryShares} where ${and(and(and(eq(schema.categoryShares.category, schema.categories.id), eq(schema.categoryShares.tenantId, schema.categories.tenantId)), and(not(eq(schema.categoryShares.revoked, true)), or(or(and(eq(schema.categoryShares.granteeKind, "Org"), sql`${schema.categoryShares.org}::text = ${requireCurrentUser().operatingOrg}`), and(eq(schema.categoryShares.granteeKind, "Subtree"), inArray(schema.categoryShares.org, requireCurrentUser().operatingAncestors))), and(eq(schema.categoryShares.granteeKind, "User"), eq(schema.categoryShares.user, requireCurrentUser().id))))), /* CategoryShare's own read scope */)})`)
-// http/categoryShare.routes.ts — the share gate
+// http/categoryShare.routes.ts — the share gate, then write access to the row
 if (!(currentUser.role === "manager")) throw new ForbiddenError("Forbidden: allow share on Category");
+if (!(((await new CategoryRepository(db, events).existsForCategoryShareCreate0(Ids.CategoryId(body.category), currentUser.operatingOrg, /* … */ currentUser)) !== null))) throw new ForbiddenError("Forbidden: exists Category for write as x where x.id == category && x.tenantId == organizationContext.org");
 ```
 ::: end
 

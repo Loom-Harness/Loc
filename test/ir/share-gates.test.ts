@@ -61,4 +61,44 @@ describe("allow share on X", () => {
     const s = await share("policy { allow share on Doc }");
     expect(gate(s, "create")).toEqual({ kind: "literal", lit: "bool", value: "true" });
   });
+
+  it("requires write access to the row in the sharer's org, as one synthesized read per gate", async () => {
+    const m = await buildLoomModel(
+      system(`policy {
+        allow share on Doc when currentUser.role == "manager"
+        allow write own on Doc when currentUser.role == "manager"
+      }`).replace("tenantOwned, shareable", "tenantOwned, auditable, shareable"),
+    );
+    const ctx = m.systems[0]!.subdomains[0]!.contexts[0]!;
+    const s = ctx.aggregates.find((a) => a.name === "DocShare")!;
+    for (const op of ["create", "revoke"] as const) {
+      const action = op === "create" ? s.creates[0]! : s.operations.find((o) => o.name === op)!;
+      const req = action.statements[1];
+      expect(req?.kind === "requires" && req.expr.kind === "exists" && req.expr.forWrite).toBe(
+        true,
+      );
+    }
+    const reads = ctx.repositories
+      .flatMap((r) => r.finds)
+      .filter((f) => f.name.startsWith("existsForDocShare"));
+    // One read per gate: the share rule nested in Doc's write scope is part of
+    // that read's filter, never a read of its own.
+    expect(reads.map((f) => f.name).sort()).toEqual([
+      "existsForDocShareCreate0",
+      "existsForDocShareRevoke0",
+    ]);
+    const gateRead = (op: "create" | "revoke") => {
+      const action = op === "create" ? s.creates[0]! : s.operations.find((o) => o.name === op)!;
+      const req = action.statements[1]!;
+      return req.kind === "requires" && req.expr.kind === "exists" ? req.expr.read : undefined;
+    };
+    for (const op of ["create", "revoke"] as const) {
+      const read = gateRead(op)!;
+      // Only the gate's own values are lifted: no argument names a quantified
+      // row (the nested share's `s`), and the find keeps the write level's
+      // principal test, so the request principal is passed last.
+      for (const a of read.args) expect(JSON.stringify(a)).not.toContain('"refKind":"row"');
+      expect(read.args.at(-1)).toMatchObject({ kind: "ref", refKind: "current-user" });
+    }
+  });
 });

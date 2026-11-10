@@ -4,7 +4,8 @@
 //   enum ShareGranteeKind { Org, Subtree, User }        (once per context)
 //   aggregate XShare with tenantOwned { x, granteeKind, org, user, write, revoked,
 //     two grantee invariants, create (emits XShared), operation revoke()
-//     (emits XUnshared) }
+//     (emits XUnshared); both require
+//     `exists X for write as x where x.id == <x> && x.tenantId == organizationContext.org` }
 //   event XShared / XUnshared
 //   policy GranteeIsMe(s: XShare): bool    — the share is addressed to the caller
 //   policy SharedWithMe(x: X): bool         — X has a live share for the caller
@@ -46,6 +47,7 @@ import {
   policyBlock,
   policyFn,
   primType,
+  requiresStmt,
   selfId,
 } from "../../api/index.js";
 
@@ -98,6 +100,27 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
     param("user", userParamType),
     param("write", primType("bool")),
   ];
+  // The sharer must be able to write the row in their operating org: X's read
+  // AND write scope (`for write`), pinned to the operating org so a grantee's
+  // own write share cannot re-share the row.  The `allow share on X` gate
+  // (`share-gates.ts`) runs ahead of it.
+  const canWriteTarget = () =>
+    requiresStmt(
+      existsExpr(
+        aggName,
+        "x",
+        binaryExpr(
+          binaryExpr(memberAccess(nameRef("x"), "id"), "==", nameRef(n.field)),
+          "&&",
+          binaryExpr(
+            memberAccess(nameRef("x"), "tenantId"),
+            "==",
+            memberAccess(nameRef("organizationContext"), "org"),
+          ),
+        ),
+        { forWrite: true },
+      ),
+    );
   const shareEvent = () => [
     { name: "share", value: selfId() },
     { name: n.field, value: nameRef(n.field) },
@@ -125,11 +148,11 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
         binaryExpr(nameRef("user"), "!=", nullLit()),
       ),
     ),
-    create(createParams, [emitStmt(n.shared, shareEvent())]) as AggregateMember,
+    create(createParams, [canWriteTarget(), emitStmt(n.shared, shareEvent())]) as AggregateMember,
     operation(
       "revoke",
       [],
-      [assignStmt("revoked", boolLit(true)), emitStmt(n.unshared, shareEvent())],
+      [canWriteTarget(), assignStmt("revoked", boolLit(true)), emitStmt(n.unshared, shareEvent())],
     ) as AggregateMember,
   ];
 

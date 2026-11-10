@@ -51,7 +51,13 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           origin: repo.origin,
         });
       };
-      const offending = firstNonQueryablePredicate(find.filter);
+      // A synthesized in-app `exists` read keeps the one principal term its
+      // gate cannot lift into an argument — the operating org's lineage tested
+      // against a row column, from a share rule of the quantified aggregate's
+      // write scope — and renders it the way that scope renders on any read.
+      const offending = firstNonQueryablePredicate(find.filter, {
+        admitPrincipalTerms: find.synthesized === true,
+      });
       if (offending) {
         refuse(offending);
         continue;

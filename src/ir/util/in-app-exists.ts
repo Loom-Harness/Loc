@@ -6,20 +6,26 @@
 // have that repository in scope; these helpers name the reads it will make.
 
 import type { AggregateIR, ExprIR, OperationIR } from "../types/loom-ir.js";
-import { walkExprDeep } from "./walk.js";
+import { walkExprChildren, walkExprDeep } from "./walk.js";
 
 export type ExistsNode = Extract<ExprIR, { kind: "exists" }>;
 export type ExistsReadNode = ExistsNode & { read: NonNullable<ExistsNode["read"]> };
 
-/** Every `exists` in an in-app gate position of `op` — its `when` guard and
- *  its top-level `requires` statements (the gates the application layer runs
- *  before the body), in that order. */
+/** Every outermost `exists` in an in-app gate position of `op` — its `when`
+ *  guard and its top-level `requires` statements (the gates the application
+ *  layer runs before the body), in that order.  An `exists` nested in another's
+ *  `where` (a write scope's share rule) is part of that read's filter, rendered
+ *  in its query, never a read of its own. */
 export function inAppExists(op: OperationIR): ExistsNode[] {
   const out: ExistsNode[] = [];
-  const take = (e: ExprIR | undefined) =>
-    walkExprDeep(e, (x) => {
-      if (x.kind === "exists" && !out.includes(x)) out.push(x);
-    });
+  const take = (e: ExprIR | undefined): void => {
+    if (!e) return;
+    if (e.kind === "exists") {
+      if (!out.includes(e)) out.push(e);
+      return;
+    }
+    walkExprChildren(e, { expr: take });
+  };
   take(op.when);
   for (const s of op.statements) if (s.kind === "requires") take(s.expr);
   return out;
