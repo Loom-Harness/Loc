@@ -856,11 +856,18 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // (~30s) rides out the IdP's own boot/realm-import; if it is exhausted the
   // strategy starts anyway (never crashes the boot) and the periodic poll
   // heals once the IdP answers.
+  //
+  // The child is gated on the `:start_jwks_strategy` app env (default on):
+  // `config/test.exs` turns it off, because `mix test` has no issuer to fetch
+  // from and the generated tests derive their principal from a claims map
+  // (`Auth.as_principal/1`) rather than a signed token.  Dev and prod never set
+  // it, so they always fetch.
   const authChildren =
     authEnabled && sys.auth?.oidc
       ? [
-          `{${appModule}Web.Auth.JwksStrategy, first_fetch_sync: true, ` +
-            `time_interval: 30_000, http_max_retries_per_fetch: 30, http_delay_per_retry: 1_000}`,
+          `if(Application.get_env(:${appName}, :start_jwks_strategy, true), ` +
+            `do: {${appModule}Web.Auth.JwksStrategy, first_fetch_sync: true, ` +
+            `time_interval: 30_000, http_max_retries_per_fetch: 30, http_delay_per_retry: 1_000})`,
         ]
       : [];
 

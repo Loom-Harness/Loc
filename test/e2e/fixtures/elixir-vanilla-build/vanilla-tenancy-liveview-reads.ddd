@@ -27,6 +27,12 @@ system TenancyShopLive {
         balance: int
         // Always-on row scoping: every read is constrained to the principal's tenant.
         filter this.tenantId == currentUser.tenantId
+        // A `test` block makes the OIDC app emit an ExUnit suite, so the build
+        // gate runs `mix test` against an app whose JWKS strategy has no issuer.
+        test "a fresh account keeps its balance" {
+          let a = Account.create(tenantId: "acme", balance: 5)
+          expect(a.balance).toBe(5)
+        }
       }
       repository Accounts for Account
       // A criterion read (its `scaffoldPaged` find) exercises the
