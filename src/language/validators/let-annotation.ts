@@ -6,7 +6,7 @@ import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isLetStmt, type Model } from "../generated/ast.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
-import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
+import { canPromoteLiteralTo } from "./_shared.js";
 
 export function checkLetAnnotations(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
@@ -30,6 +30,5 @@ export function checkLetAnnotations(model: Model, accept: ValidationAcceptor): v
         { node, property: "expr", code: "loom.let-type-mismatch" },
       );
     }
-    warnSensitivityDrop(actual, declared, accept, { node, property: "expr" });
   }
 }

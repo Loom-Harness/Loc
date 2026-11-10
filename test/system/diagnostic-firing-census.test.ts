@@ -177,7 +177,7 @@ ${members}
 }`;
 
 /** One aggregate whose MEMBERS are the defect, for the `structural.ts` shape
- *  rules and the `_shared.ts` sensitivity-drop helper (M-T9.56).  `modifiers`
+ *  rules (M-T9.56).  `modifiers`
  *  goes on the aggregate itself (`audited`). */
 const aggShape = (modifiers: string, members: string): string => `
 system S {
@@ -3141,13 +3141,6 @@ system S {
   "loom.containment-optional-collection": aggShape(
     "",
     "      entity Part { n: int }\n      contains parts: Part[]?",
-  ),
-  // The one FORWARDING helper in the census (`warnSensitivityDrop`): a
-  // sensitivity-tagged value flowing into an untagged target.  Its callers do
-  // not word anything, so the drain touched the helper.
-  "loom.sensitivity-drop": aggShape(
-    "",
-    "      secret: string sensitive(pii)\n      derived leak: string = secret",
   ),
 
   // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------

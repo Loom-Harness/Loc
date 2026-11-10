@@ -37,7 +37,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "stmt.ts": 16,
   "system.ts": 29,
   "traceability.ts": 5,
-  "types.ts": 3,
+  "types.ts": 2,
   "ui.ts": 20,
   "workflow.ts": 14,
   "workflow-stmt.ts": 26,

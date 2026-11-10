@@ -45,11 +45,11 @@ export interface FieldIR extends Sourced {
    * (`loom.provenanced-backend-unsupported`, `validateProvenancedStorage`)
    * rather than silently dropping the trail. */
   provenanced?: boolean;
-  /** Information-flow sensitivity tags declared at the property site via
-   * `sensitive(<tag>, ...)`.  Sorted + deduped; omitted when the field
-   * declared no tags.  Captured at the declaration site only — neither the
-   * wire-shape, the DTO emitters, nor sink type-checking read it yet.  See
-   * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`. */
+  /** Sensitivity tags declared at the property site via `sensitive(<tag>,
+   * ...)` — sorted, deduped; omitted when the field declared none.  The only
+   * home of the tags (no `TypeIR` carries them).  Its one consequence is the
+   * redacted synthesized `inspect`; the wire is redacted by `mask unless`
+   * (D-SENSITIVE-INSPECT-ONLY). */
   sensitivity?: SensitivityTags;
   /** Resolved access role.  Populated by `enrichLoomModel`; lowering
    * leaves this undefined when the source declared no modifier so
