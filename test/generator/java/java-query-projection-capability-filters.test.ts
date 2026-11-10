@@ -99,7 +99,7 @@ describe("java query-projection aggregations apply the source capability filters
     const f = await files();
     const entity = [...f.keys()].find((k) => k.endsWith("orders/Order.java"));
     expect(f.get(entity!)!).toContain(
-      '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+      '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuOperatingOrg")',
     );
   });
 

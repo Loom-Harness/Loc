@@ -1,4 +1,5 @@
 import { migratesAtBoot } from "../../../ir/util/databases.js";
+import { frontendAxesOf } from "../../../util/frontend-axes.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -351,12 +352,18 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       }
     : standaloneOutbox
       ? // Route the emit seams through the standalone `<App>.Channels` tee (no
-        // broker widening / foreign structs — every durable event is hosted).
+        // broker widening — every durable event is hosted).  A reactor may
+        // consume an event a SIBLING hosted context declares, so structs
+        // qualify with the declaring context's module.
         {
           appModule,
           brokerEvents: new Set(),
           durableEvents: hostedDurable,
-          foreignEventModules: new Map(),
+          foreignEventModules: new Map(
+            contexts.flatMap((c) =>
+              c.events.map((ev) => [ev.name, `${appModule}.${upperFirst(c.name)}`] as const),
+            ),
+          ),
         }
       : undefined;
 
@@ -494,7 +501,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Saga tables live in the context's schema (matching the migration
     // `prefix:`), so the Ecto `@schema_prefix` and the DDL agree at runtime.
     const wfSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema);
+    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, hostedDurable.size > 0);
     // Event-sourced workflows (workflow-and-applier.md A2-S5b): the per-workflow
     // fold struct + `<wf>_events` Ecto schema + fold + stream IO modules (the
     // saga analogue of the ES aggregate files above).  The dispatcher branches
@@ -511,7 +518,17 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     allQueryProjections.push(
       ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys, contexts),
     );
-    emitDispatch(appName, ctx, appModule, out, sys, sourcemap, channelsCfg, wiredForeignChannels);
+    emitDispatch(
+      appName,
+      ctx,
+      appModule,
+      out,
+      sys,
+      sourcemap,
+      channelsCfg,
+      wiredForeignChannels,
+      hostedDurable.size > 0,
+    );
     // First-boot seed data (database-seeding.md, M-T6.37) — one
     // `<Ctx>.Seeds` module per context that declares a `seed` block, run at
     // Application boot right after the supervision tree is up (so the Repo is
@@ -592,15 +609,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // LiveView pages over the plain-Ecto context API — `emitLiveViewPages` reads
   // through the `list_<agg>s()` / `get_<agg>(id)` tuple-returning fetches.
   // The collected `liveRoutes` are spliced into the
-  // router's `live_session` by `emitVanillaShellFiles` below.  An embedded-SPA
-  // (`framework: react|vue|svelte|angular`) ui owns its own UI, so no
-  // LiveView pages.
-  const embedReact =
-    deployable.uiFramework === "react" ||
-    deployable.uiFramework === "vue" ||
-    deployable.uiFramework === "svelte" ||
-    deployable.uiFramework === "angular" ||
-    deployable.uiFramework === "feliz";
+  // router's `live_session` by `emitVanillaShellFiles` below.  A ui whose
+  // state lives in the client is an embedded SPA that owns its own UI, so no
+  // LiveView pages; the server-session ui is the LiveView one.
+  const embedReact = frontendAxesOf(deployable.uiFramework)?.stateHome === "client";
   // --- Embedded SPA (fullstack Phoenix) --------------------------------------
   // A `hosts:` React/Vue/Svelte/Angular ui means the Phoenix deployable is a JSON-API
   // backend that ALSO serves a client-side SPA.  Emit that SPA under `assets/`

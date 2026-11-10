@@ -4,7 +4,7 @@
 // path-sort comparator, and whether the scaffold-depth prefix rewrite
 // applies — so each is a thin adapter over groupedImportLines.
 
-import type { ApiHookUse, ImportMap } from "../body-walker.js";
+import type { DataBinding, ImportMap } from "../body-walker.js";
 
 /** Code-unit (default `Array.prototype.sort`) string ordering. */
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -69,12 +69,12 @@ export function renderImportLines(
  *  shape (one api/<aggregate>.ts per aggregate, exporting all
  *  hooks). */
 export function renderApiHookImports(
-  usedApiHooks: Map<string, ApiHookUse>,
+  dataBindings: Map<string, DataBinding>,
   /** See `renderImportLines` for prefix semantics. */
   srcImportPrefix: string = "../",
 ): string {
   const byPath = new Map<string, Set<string>>();
-  for (const h of usedApiHooks.values()) {
+  for (const h of dataBindings.values()) {
     let names = byPath.get(h.importFrom);
     if (!names) {
       names = new Set();

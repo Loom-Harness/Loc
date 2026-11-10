@@ -132,7 +132,7 @@ describe("node/Hono query-projection aggregations apply the source capability fi
     // Each conjunct is guarded by ITS capability: naming `softDeletable` cannot drop the tenant one.
     const scope = scopeFn(await files("node"), "orderScope");
     expect(scope).toContain(
-      'drops(use, "tenantOwned") ? undefined : eq(schema.orders.tenantId, requireCurrentUser().tenantId)',
+      'drops(use, "tenantOwned") ? undefined : eq(schema.orders.tenantId, requireCurrentUser().operatingOrg)',
     );
     expect(scope).toContain(
       'drops(use, "softDeletable") ? undefined : not(eq(schema.orders.isDeleted, true))',
@@ -144,7 +144,7 @@ describe("node/Hono query-projection aggregations apply the source capability fi
     const r = await routes("node");
     // The principal predicate renders once, inside the helper both read sites call.
     expect(scopeFn(f, "orderScope")).toContain(
-      "eq(schema.orders.tenantId, requireCurrentUser().tenantId)",
+      "eq(schema.orders.tenantId, requireCurrentUser().operatingOrg)",
     );
     // The aggregation and the repository read in the SAME run call the same helper —
     // a divergence here is the leak.

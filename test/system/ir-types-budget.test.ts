@@ -33,7 +33,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
-  "system.ts": 28,
+  "system.ts": 29,
   "traceability.ts": 5,
   "types.ts": 3,
   "ui.ts": 20,

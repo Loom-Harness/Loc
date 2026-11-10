@@ -324,7 +324,3 @@ workflow Fulfil {
   the authorized read re-gates on refetch. `loom.ui-realtime-unsupported` no
   longer names a shipped target on either half — it stays as the seam a new
   frontend (or an SSE ui whose serving deployable streams nothing) warns on.
-- **Elixir/java saga `last_event_id` dedup residual** — the column exists in
-  migrations but hosted-durable consumer dedup is wired only on
-  node/python/dotnet; elixir and java rely on broker ack semantics +
-  idempotent reactors.

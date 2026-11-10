@@ -10,10 +10,9 @@ import { expect, test } from "@playwright/test";
 import {
   browserCanReachNetwork,
   readEditorSource,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 const PERIOD_MS = 2_000;
@@ -22,8 +21,7 @@ const WINDOW_PERIODS = 8;
 test("shared storage: an every: timer fires once per period", async ({ page }) => {
   test.setTimeout(900_000);
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Shared storage/);
+  await startFromExample(page, /Shared storage/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
@@ -54,9 +52,7 @@ test("shared storage: an every: timer fires once per period", async ({ page }) =
   });
 
   await test.step("Generate, bundle, boot both deployables on one storage", async () => {
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
     await page.getByTestId("btn-bundle").click();
     await waitForBundle(page);
     await page.getByTestId("devtools-tab-backend").click();

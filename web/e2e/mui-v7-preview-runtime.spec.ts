@@ -10,12 +10,11 @@
 import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
-  clickWorkspaceCreate,
   dumpPreviewDiagnostics,
   fatalConsoleErrors,
-  recordInitialMigration,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 // #1242 (fixed): the bundle toast asserted "…KB…" but the Hono bundle is
@@ -37,17 +36,7 @@ test("mui@v7 preview boots without runtime errors", async ({ page }) => {
   });
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-
-  // Pick the pinned mui@v7 storybook.
-  await page.getByTestId("workspace-new").click();
-  await page.getByRole("textbox", { name: /Choose example/i }).click();
-  await page.getByRole("option", { name: /MUI v7 · aggregate-CRUD storybook/ }).click();
-  await clickWorkspaceCreate(page);
-
-  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({
-    timeout: 30_000,
-  });
+  await startFromExample(page, /MUI v7 · aggregate-CRUD storybook/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(
@@ -58,7 +47,7 @@ test("mui@v7 preview boots without runtime errors", async ({ page }) => {
 
   // The database is created only from recorded migrations — record the
   // example's initial migration before the first Boot.
-  await recordInitialMigration(page);
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
 

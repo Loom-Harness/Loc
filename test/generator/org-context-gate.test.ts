@@ -6,16 +6,18 @@
 // all five backends, that a system reading `organizationContext.org`:
 //
 //   - reads the request header in the auth layer, BEFORE any handler;
-//   - admits only the caller's own home-org id — an equality check against the
-//     tenancy claim, with no registry read and no path prefix (D-TENANCY-FLAT);
+//   - admits the caller's own home-org id by an equality check against the
+//     tenancy claim, with no path prefix (D-TENANCY-FLAT) — any other org goes
+//     to the registry's read scope (proven on a booted app, not here);
 //   - refuses anything else with a 403 and logs the catalog event
 //     `org_context_denied`, with a distinct reason when the caller has no
 //     home org at all;
 //   - stamps / reads the operating org through the principal member the
 //     lowering targets (`operatingOrg` in each backend's casing);
 //
-// and that a system which never reads it emits NO trace of the gate — the
-// header is never consulted.  The runtime proof on a booted app per backend is
+// and that a system without tenancy emits NO trace of the gate — the header is
+// never consulted.  (Under `tenancy by`, every `tenantOwned` floor reads the
+// operating org, so the gate is emitted.)  The runtime proof on a booted app per backend is
 // `test/e2e/tenancy-org-context*.test.ts`.
 
 import * as fs from "node:fs";
@@ -30,7 +32,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (name: string): string =>
   fs.readFileSync(path.resolve(here, `../fixtures/corpus/${name}.ddd`), "utf8");
 const ORG_CONTEXT = read("org-context");
-const HIERARCHY = read("tenancy-hierarchy");
+const NO_TENANCY = read("auth-simple");
 
 const EVENT = LogEvents.orgContextDenied.event;
 
@@ -52,7 +54,7 @@ const BACKENDS: BackendExpectation[] = [
     gateFile: /auth\/middleware\.ts$/,
     member: "currentUser.operatingOrg",
     stampFile: /db\/audit-stamp\.ts$/,
-    equality: "requested === homeOrg ? requested : null",
+    equality: "if (requested === homeOrg) return requested;",
   },
   {
     platform: "dotnet",
@@ -117,8 +119,8 @@ describe("organizationContext switch gate — emitted on every backend", () => {
         expect(pick(files, b.stampFile)).toContain(b.member);
       });
 
-      it("a system that never reads organizationContext emits no gate", async () => {
-        const files = await generateSystemFiles(HIERARCHY.replace("__PLATFORM__", b.platform));
+      it("a system without tenancy emits no gate", async () => {
+        const files = await generateSystemFiles(NO_TENANCY.replace("__PLATFORM__", b.platform));
         for (const [p, content] of files) {
           expect(content.includes(ORG_CONTEXT_HEADER), `${p} mentions the header`).toBe(false);
           expect(content.includes(EVENT), `${p} logs the deny event`).toBe(false);

@@ -154,7 +154,7 @@ describe("feliz projection read — the response SHAPE decides the matcher", () 
 describe("feliz Chart — inline SVG, no charting library", () => {
   it("calls View.chart with the Model field and the two accessors", async () => {
     const fs = await appFs(GROUPED(CHART));
-    // `model.` prefix: `buildHookUse` returns the bare field (Elmish has no hook
+    // `model.` prefix: `bindDataAccess` returns the bare field (Elmish has no hook
     // to hoist), so each consumer names the record it reads from.
     expect(fs).toContain(
       'View.chart true "Bar chart of SalesByStatus: revenue by status" model.SalesByStatus ' +

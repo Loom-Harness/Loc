@@ -291,6 +291,8 @@ export interface MigrationPlanOk {
    *  the units of the modules those deployables host — the union of their
    *  schemas.  Empty for a source without a system (one database, `plan`). */
   storages: StoragePlan[];
+  /** The OpenAPI documents the `restApi` mocks answer from (`config: { spec }`). */
+  restSpecs: { origin: string; spec: object }[];
   diagnostics: BuildDiagnostic[];
 }
 

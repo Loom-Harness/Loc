@@ -286,10 +286,13 @@ Under a `tenancy by user.<claim> of <Registry>` declaration the principal is
 exactly its declared `user { … }` claims; the tenancy claim is the caller's
 home org. There is no computed org-path member: `currentUser.orgPath` and
 `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`, naming the
-replacement (`organizationContext.org` for the org the request acts in). In a
-system that reads `organizationContext.org`, each backend's auth middleware
-also sets one server-side member, `currentUser.operatingOrg` — what
-`organizationContext.org` lowers to — through the `x-org-context` switch gate.
+replacement (`organizationContext.org` for the org the request acts in,
+`organizationContext.ancestors` for it and the orgs above it). In a system that
+reads the operating scope — every `tenantOwned` floor does — each backend's
+auth middleware also sets server-side members through the `x-org-context`
+switch gate: `currentUser.operatingOrg`, what `organizationContext.org` lowers
+to, and, where a hosted context reads it, `currentUser.operatingAncestors`, what
+`organizationContext.ancestors` lowers to. Neither is on the `/auth/me` wire.
 The stamp, the tenant floor and the gate live in [tenancy.md](tenancy.md).
 
 ### The system principal — `currentUser.isSystem`

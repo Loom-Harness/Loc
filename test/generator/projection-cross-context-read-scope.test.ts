@@ -65,7 +65,7 @@ describe("cross-context query-time projection — elixir", () => {
     }
     // The scoped schema those reads start from carries the tenant floor.
     const order = file(files, "lib/d/orders/order.ex");
-    expect(order).toContain("record.tenant_id == ^(current_user && current_user.tenant_id)");
+    expect(order).toContain("record.tenant_id == ^(current_user && current_user.operating_org)");
   });
 });
 
@@ -83,7 +83,7 @@ describe("cross-context query-time projection — java", () => {
     const files = await generate("java");
     const order = file(files, "features/orders/Order.java");
     expect(order).toContain(
-      '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+      '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuOperatingOrg")',
     );
     // `ignoring softDeletable` in `Reports` promotes the capability to a named,
     // disableable filter on the `Orders` entity.

@@ -59,7 +59,7 @@ import { indentJsx } from "../../_walker/shared/args.js";
 import { collidingDerivedNames } from "../../_walker/shared/store-reads.js";
 import type {
   ActionMutationState,
-  ApiHookUse,
+  DataBinding,
   FormOfState,
   ImportMap,
   OperationFormState,
@@ -418,7 +418,7 @@ export function renderSveltePage(
     usesCurrentUser,
     usesRouteId,
     usedUserComponents,
-    usedApiHooks,
+    dataBindings,
     formOfs,
     actionMutations,
     usedExternFunctions,
@@ -474,7 +474,7 @@ export function renderSveltePage(
     // lands the `ApiError` / union-type imports on THIS page.
     {
       imports,
-      usedApiHooks,
+      dataBindings,
       apiParams,
       aggregatesByName,
       bcByAggregate,
@@ -553,10 +553,10 @@ export function renderSveltePage(
     .sort()
     .map((name) => `  import { ${name} } from "$lib/${name}";\n`)
     .join("");
-  const apiHookImports = renderSvelteApiHookImports(usedApiHooks);
+  const apiHookImports = renderSvelteApiHookImports(dataBindings);
   const apiHookDecls = svelteTarget
-    .renderApiHoisting(
-      [...usedApiHooks.values()].map((h) => ({
+    .renderDataBindings(
+      [...dataBindings.values()].map((h) => ({
         apiHandle: "",
         aggregateName: "",
         operation: "",
@@ -767,7 +767,7 @@ export function renderSvelteComponentFile(
     usesCurrentUser,
     usedUserComponents,
     usesChildren,
-    usedApiHooks,
+    dataBindings,
     actionMutations,
     formOfs,
     usedExternFunctions,
@@ -843,10 +843,10 @@ export function renderSvelteComponentFile(
     tableHelperNames.length > 0
       ? `  import { ${tableHelperNames.join(", ")} } from "$lib/table-sort";\n`
       : "";
-  const apiHookImports = renderSvelteApiHookImports(usedApiHooks);
+  const apiHookImports = renderSvelteApiHookImports(dataBindings);
   const apiHookDecls = svelteTarget
-    .renderApiHoisting(
-      [...usedApiHooks.values()].map((h) => ({
+    .renderDataBindings(
+      [...dataBindings.values()].map((h) => ({
         apiHandle: "",
         aggregateName: "",
         operation: "",
@@ -1085,7 +1085,7 @@ function dummyCtx(
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
@@ -1157,11 +1157,11 @@ function buildDerivedLines(
  *  effects.md Stage 2) in an action body resolves + hoists into the SAME shell
  *  as the main body walk: the api-param handles (`apiParamNames`) let
  *  `tryDetectApiHook` recognise the mutation, and sharing `imports` +
- *  `usedApiHooks` by reference lands the `ApiError` / union-type imports and the
+ *  `dataBindings` by reference lands the `ApiError` / union-type imports and the
  *  hoisted `use<Op><Agg>(id)` on the page (not a throwaway ctx). */
 interface ActionWalkShared {
   imports: ImportMap;
-  usedApiHooks: Map<string, ApiHookUse>;
+  dataBindings: Map<string, DataBinding>;
   apiParams: ReadonlyArray<UiApiParamIR>;
   aggregatesByName: ReadonlyMap<string, AggregateIR>;
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
@@ -1202,7 +1202,7 @@ function buildActionLines(
   }
   if (shared) {
     ctx.imports = shared.imports;
-    ctx.usedApiHooks = shared.usedApiHooks;
+    ctx.dataBindings = shared.dataBindings;
     ctx.apiParamNames = new Map(shared.apiParams.map((p) => [p.name, p.apiName]));
     ctx.aggregatesByName = shared.aggregatesByName;
     ctx.bcByAggregate = shared.bcByAggregate;
