@@ -58,9 +58,11 @@ export function applyShareGates<A extends AggregateIR>(
     if (!target) return a;
     const gate = shareGateOf(target, gates ?? []);
     const source = `allow share on ${target}`;
+    // Idempotent: a re-enriched model already leads with this gate.
     const gated = (ops: readonly A["operations"][number][], pick: (n: string) => boolean) =>
       ops.map((op) =>
-        pick(op.name)
+        pick(op.name) &&
+        !(op.statements[0]?.kind === "requires" && op.statements[0].source === source)
           ? {
               ...op,
               statements: [{ kind: "requires", expr: gate, source } as StmtIR, ...op.statements],

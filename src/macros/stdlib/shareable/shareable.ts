@@ -2,7 +2,7 @@
 // as plain context members the expander splices into X's context:
 //
 //   enum ShareGranteeKind { Org, Subtree, User }        (once per context)
-//   aggregate XShare with tenantOwned { x, kind, org, user, write, revoked,
+//   aggregate XShare with tenantOwned { x, granteeKind, org, user, write, revoked,
 //     two grantee invariants, create (emits XShared), operation revoke()
 //     (emits XUnshared) }
 //   event XShared / XUnshared
@@ -79,7 +79,7 @@ export interface ShareableOptions {
 
 const kindIs = (row: string, kind: string): Expression =>
   binaryExpr(
-    memberAccess(nameRef(row), "kind"),
+    memberAccess(nameRef(row), "granteeKind"),
     "==",
     memberAccess(nameRef(SHARE_GRANTEE_KIND), kind),
   );
@@ -93,7 +93,7 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
 
   const createParams = [
     param(n.field, idRef(aggName)),
-    param("kind", namedType(SHARE_GRANTEE_KIND)),
+    param("granteeKind", namedType(SHARE_GRANTEE_KIND)),
     param("org", idRef(opts.registry, { optional: true })),
     param("user", userParamType),
     param("write", primType("bool")),
@@ -104,7 +104,7 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
   ];
   const shareMembers: AggregateMember[] = [
     field(n.field, idRef(aggName)),
-    field("kind", namedType(SHARE_GRANTEE_KIND)),
+    field("granteeKind", namedType(SHARE_GRANTEE_KIND)),
     field("org", idRef(opts.registry, { optional: true })),
     field("user", userType),
     field("write", primType("bool")),
@@ -112,7 +112,7 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
     invariant(
       "orgGrantee",
       binaryExpr(
-        binaryExpr(nameRef("kind"), "==", memberAccess(nameRef(SHARE_GRANTEE_KIND), "User")),
+        binaryExpr(nameRef("granteeKind"), "==", memberAccess(nameRef(SHARE_GRANTEE_KIND), "User")),
         "||",
         binaryExpr(nameRef("org"), "!=", nullLit()),
       ),
@@ -120,7 +120,7 @@ export function shareableMembers(aggName: string, opts: ShareableOptions): Conte
     invariant(
       "userGrantee",
       binaryExpr(
-        binaryExpr(nameRef("kind"), "!=", memberAccess(nameRef(SHARE_GRANTEE_KIND), "User")),
+        binaryExpr(nameRef("granteeKind"), "!=", memberAccess(nameRef(SHARE_GRANTEE_KIND), "User")),
         "||",
         binaryExpr(nameRef("user"), "!=", nullLit()),
       ),

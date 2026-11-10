@@ -2482,19 +2482,18 @@ context Catalog {
   aggregate Product with tenantOwned { name: string  category: Category id }
   aggregate Note with tenantOwned, auditable { body: string }
 
-  // what `with shareable` on Category unfolds to (the user grantee's type is
-  // the system's `user { id: … }` type):
+  // what `with shareable` on Category unfolds to:
   enum ShareGranteeKind { Org, Subtree, User }
   aggregate CategoryShare with tenantOwned {
     category: Category id
-    kind: ShareGranteeKind
+    granteeKind: ShareGranteeKind
     org: Organization id?
-    user: string?
+    user: guid?               // the system's `user { id: … }` type: the principal has no aggregate to name
     write: bool
     revoked: bool = false
-    invariant orgGrantee: kind == ShareGranteeKind.User || org != null
-    invariant userGrantee: kind != ShareGranteeKind.User || user != null
-    create(category: Category id, kind: ShareGranteeKind, org: Organization id?, user: string?, write: bool) {
+    invariant orgGrantee: granteeKind == ShareGranteeKind.User || org != null
+    invariant userGrantee: granteeKind != ShareGranteeKind.User || user != null
+    create(category: Category id, granteeKind: ShareGranteeKind, org: Organization id?, user: guid?, write: bool) {
       emit CategoryShared { share: id, category: category }
     }
     operation revoke() {
@@ -2505,9 +2504,9 @@ context Catalog {
   event CategoryShared { share: CategoryShare id  category: Category id }
   event CategoryUnshared { share: CategoryShare id  category: Category id }
   policy GranteeIsMe(s: CategoryShare): bool = !s.revoked && (
-       (s.kind == ShareGranteeKind.Org     && s.org == organizationContext.org)
-    || (s.kind == ShareGranteeKind.Subtree && organizationContext.ancestors.contains(s.org))
-    || (s.kind == ShareGranteeKind.User    && s.user == currentUser.id))
+       (s.granteeKind == ShareGranteeKind.Org     && s.org == organizationContext.org)
+    || (s.granteeKind == ShareGranteeKind.Subtree && organizationContext.ancestors.contains(s.org))
+    || (s.granteeKind == ShareGranteeKind.User    && s.user == currentUser.id))
   policy SharedWithMe(x: Category): bool =
     exists CategoryShare as s where s.category == x.id && s.tenantId == x.tenantId && GranteeIsMe(s)
   policy CategorySharing {
@@ -2530,8 +2529,8 @@ context Catalog {
 ```sql
 -- Product read for a caller in operating org $org, user $u, ancestors $anc.
 -- GranteeIsMe(s) inlines to:
---   NOT s.revoked AND ((s.kind = 'Org' AND s.org::text = $org)
---     OR (s.kind = 'Subtree' AND s.org = ANY($anc)) OR (s.kind = 'User' AND s.user = $u))
+--   NOT s.revoked AND ((s.grantee_kind = 'Org' AND s.org::text = $org)
+--     OR (s.grantee_kind = 'Subtree' AND s.org = ANY($anc)) OR (s.grantee_kind = 'User' AND s.user = $u))
 SELECT p.* FROM products p
 WHERE p.tenant_id = $org                                       -- Product's tenancy default
    OR EXISTS (SELECT 1 FROM categories c                       -- Category's own read scope applies

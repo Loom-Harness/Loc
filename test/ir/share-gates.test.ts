@@ -38,7 +38,7 @@ describe("allow share on X", () => {
     const s = await share("");
     expect(s.capabilities).toContain("tenantOwned");
     expect(s.fields.map((f) => f.name)).toEqual(
-      expect.arrayContaining(["doc", "kind", "org", "user", "write", "revoked"]),
+      expect.arrayContaining(["doc", "granteeKind", "org", "user", "write", "revoked"]),
     );
     expect(s.operations.map((o) => o.name)).toContain("revoke");
   });

@@ -738,7 +738,7 @@ export async function assertShareable(base: string): Promise<void> {
   }
   async function share(
     who: Record<string, string>,
-    grant: { category: string; kind: string; org?: string; user?: string; write?: boolean },
+    grant: { category: string; granteeKind: string; org?: string; user?: string; write?: boolean },
   ): Promise<string> {
     const r = await send(who, "POST", "/api/category_shares", { write: false, ...grant });
     expect(r.status, r.text).toBe(201);
@@ -765,14 +765,14 @@ export async function assertShareable(base: string): Promise<void> {
   // of the owning org may neither share nor revoke.
   const denied = await send(clerk(orgA), "POST", "/api/category_shares", {
     category: tools,
-    kind: "Org",
+    granteeKind: "Org",
     org: orgAB,
     write: false,
   });
   expect(denied.status, denied.text).toBe(403);
 
   // (1) Org grant: A.B and only A.B.
-  const toAB = await share(sharer, { category: tools, kind: "Org", org: orgAB });
+  const toAB = await share(sharer, { category: tools, granteeKind: "Org", org: orgAB });
   const clerkRevoke = await send(clerk(orgA), "POST", `/api/category_shares/${toAB}/revoke`, {});
   expect(clerkRevoke.status, clerkRevoke.text).toBe(403);
   expect(await names(mgr(orgAB))).toEqual(["tools"]);
@@ -780,6 +780,11 @@ export async function assertShareable(base: string): Promise<void> {
   // The grantee reads the share row addressed to it, and nothing else of A's.
   const abShares = await send(mgr(orgAB), "GET", "/api/category_shares");
   expect(rows<{ id: string }>(abShares.json).map((s) => s.id)).toEqual([toAB]);
+
+  // A home claim that is no registry id ("acme") is a legal tenancy claim:
+  // the Org arm compares the grantee column as text, so it matches nothing —
+  // a 200 with no rows, never a failed parameter cast.
+  expect(await names(principal("acme", "manager", uuid()))).toEqual([]);
 
   // (4) The grant opens the row, not its masked field.
   const asClerk = await send(clerk(orgAB), "GET", `/api/categories/${tools}`);
@@ -789,14 +794,14 @@ export async function assertShareable(base: string): Promise<void> {
   expect((asMgr.json as { secret?: string | null }).secret).toBe("s1");
 
   // (2) Subtree grant: A.X and A.X.Y, not the unrelated customer.
-  await share(sharer, { category: tools, kind: "Subtree", org: orgAX });
+  await share(sharer, { category: tools, granteeKind: "Subtree", org: orgAX });
   expect(await names(mgr(orgAX))).toEqual(["tools"]);
   expect(await names(mgr(orgAXY))).toEqual(["tools"]);
   expect(await names(mgr(orgW))).toEqual([]);
 
   // (3) User grant: that user, not a colleague in the same org.
   const zUser = uuid();
-  await share(sharer, { category: tools, kind: "User", user: zUser });
+  await share(sharer, { category: tools, granteeKind: "User", user: zUser });
   expect(await names(principal(orgZ, "clerk", zUser))).toEqual(["tools"]);
   expect(await names(clerk(orgZ))).toEqual([]);
 
@@ -804,7 +809,12 @@ export async function assertShareable(base: string): Promise<void> {
   const rename = (who: Record<string, string>, name: string) =>
     send(who, "POST", `/api/categories/${tools}/update`, { name, secret: "s1" });
   expect((await rename(mgr(orgAB), "gear")).status).toBe(404);
-  const writeAB = await share(sharer, { category: tools, kind: "Org", org: orgAB, write: true });
+  const writeAB = await share(sharer, {
+    category: tools,
+    granteeKind: "Org",
+    org: orgAB,
+    write: true,
+  });
   const renamed = await rename(mgr(orgAB), "gear");
   expect([200, 204], renamed.text).toContain(renamed.status);
   expect(await names(sharer)).toEqual(["gear"]);
@@ -812,7 +822,7 @@ export async function assertShareable(base: string): Promise<void> {
 
   // (7) No re-share: A.B's own share of the row sits in A.B, so it opens
   // nothing to W.
-  await share(mgr(orgAB), { category: tools, kind: "Org", org: orgW, write: true });
+  await share(mgr(orgAB), { category: tools, granteeKind: "Org", org: orgW, write: true });
   expect(await names(mgr(orgW))).toEqual([]);
 
   // (2b) An AUTHORED move of W under A.X re-targets the Subtree grant.

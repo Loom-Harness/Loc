@@ -1061,7 +1061,7 @@ function javaPrincipalFilterNames(
     const entity = javaEntityFile({ ...agg, name }, files);
     if (!entity) break;
     for (const m of entity.matchAll(
-      /@Filter\(name\s*=\s*"(\w+)",\s*condition\s*=\s*"([^"]*)"\)/g,
+      /@Filter\(name\s*=\s*"(\w+)",\s*condition\s*=\s*"((?:[^"\\]|\\.)*)"\)/g,
     )) {
       const cond = m[2] ?? "";
       if (
@@ -1612,7 +1612,9 @@ export function gateSites(variant: VariantId, files: ReadonlyMap<string, string>
  *  surface (and the owner, when the gate has one)? */
 export function siteAppliesGate(s: GateSite, g: GateFact): boolean {
   if (!g.details.includes(s.detail)) return false;
-  if (g.owner && !s.context.includes(norm(g.owner))) return false;
+  // The owner may be spelled singular or plural in the path (`Categories/`).
+  if (g.owner && !s.context.includes(norm(g.owner)) && !s.context.includes(norm(plural(g.owner))))
+    return false;
   return g.anchors.some((a) => s.context.includes(norm(a)));
 }
 
@@ -1785,6 +1787,9 @@ export function maskSweep(
   variant: VariantId,
   files: ReadonlyMap<string, string>,
   facts: readonly MaskFact[],
+  /** Every aggregate of the model: a file named for a LONGER aggregate name
+   *  (`categoryShare.routes.ts` beside `Category`) belongs to that one. */
+  aggregates: readonly string[] = [],
 ): MaskSweep {
   const loc = LOCATORS[variant];
   const m = MASK_LOCATORS[variant];
@@ -1799,10 +1804,15 @@ export function maskSweep(
     for (const fact of facts) {
       // Only files that are about this aggregate (its repository / routes /
       // handlers / controller / response record).
-      const owns =
-        norm(file).includes(norm(fact.aggregate)) ||
-        norm(file).includes(norm(plural(fact.aggregate)));
-      if (!owns) continue;
+      const names = (a: string) => [norm(a), norm(plural(a))];
+      const owns = names(fact.aggregate).some((n) => norm(file).includes(n));
+      const longer = aggregates.some(
+        (a) =>
+          a !== fact.aggregate &&
+          norm(a).startsWith(norm(fact.aggregate)) &&
+          names(a).some((n) => norm(file).includes(n)),
+      );
+      if (!owns || longer) continue;
       // M1 — every masked serializer carries every masked field's predicate.
       const maskedSpans: [number, number][] = [];
       for (const hit of text.matchAll(new RegExp(m.masked(fact.aggregate).source, "gm"))) {
