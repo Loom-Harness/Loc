@@ -38,11 +38,12 @@ export function canonicalSnapshot(snapshot: SchemaSnapshot): SchemaSnapshot {
  *  `ColumnShape.capability` (which built-in capability contributed the column
  *  — read only by the destructive gate's explanation) is a source stamp, and
  *  so is `ColumnShape.lineageOf` (the `provenanced` field a lineage column
- *  backs — read only by the add-column diff).  `ColumnShape.addColumnDefault` (the `.ddd` field default lent to an
+ *  backs — read only by the add-column diff), and so is `ColumnShape.enumOf` (the
+ *  enum a column stores — read only by an enum value rename).  `ColumnShape.addColumnDefault` (the `.ddd` field default lent to an
  *  add-column diff) is not part of that schema in any sense: no `CREATE TABLE`
  *  renders it, the diff never compares it, and the one step that consumes it
  *  drops the DEFAULT again in the same migration — so the column it describes
- *  provably has no default.  Every generation re-derives all three from source, so
+ *  provably has no default.  Every generation re-derives all four from source, so
  *  nothing reads the baseline's copy.
  *
  *  Contrast `savingShape` and `valueArrayChildTable`, which stay: both ARE
@@ -52,13 +53,18 @@ function stripDerivationOnlyFields(t: TableShape): TableShape {
   if (
     !t.columns.some(
       (c) =>
-        c.addColumnDefault !== undefined || c.capability !== undefined || c.lineageOf !== undefined,
+        c.addColumnDefault !== undefined ||
+        c.capability !== undefined ||
+        c.lineageOf !== undefined ||
+        c.enumOf !== undefined,
     )
   ) {
     return t;
   }
   return {
     ...t,
-    columns: t.columns.map(({ addColumnDefault: _d, capability: _c, lineageOf: _l, ...c }) => c),
+    columns: t.columns.map(
+      ({ addColumnDefault: _d, capability: _c, lineageOf: _l, enumOf: _e, ...c }) => c,
+    ),
   };
 }

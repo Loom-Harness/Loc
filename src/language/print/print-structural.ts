@@ -1247,10 +1247,11 @@ function printMigration(node: import("../generated/ast.js").Migration): string {
           : `${s.fromTable} -> ${s.to}`;
       if (s.$type === "SqlStep")
         return `sql ${s.placement ? `${s.placement} ` : ""}${JSON.stringify(s.sql)}`;
-      // ColumnStep — rename (`renamedTo`) or backfill (`value`), M-T2.3.
+      // ColumnStep — a rename (`renamedTo`; the owner an aggregate, or an enum for
+      // a value rename) or a backfill (`value`).
       return s.value !== undefined
-        ? `${s.aggregate.$refText}.${s.field} = ${printExpr(s.value)}`
-        : `${s.aggregate.$refText}.${s.field} -> ${s.renamedTo}`;
+        ? `${s.owner.$refText}.${s.field} = ${printExpr(s.value)}`
+        : `${s.owner.$refText}.${s.field} -> ${s.renamedTo}`;
     }),
   );
 }

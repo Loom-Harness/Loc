@@ -126,6 +126,7 @@ import type {
   DomainServiceIR,
   EntityPartIR,
   EnumIR,
+  EnumValueRenameIntentIR,
   EventIR,
   ExprIR,
   FieldIR,
@@ -459,6 +460,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   const tableRenameIntents: TableRenameIntentIR[] = [];
   const backfillIntents: BackfillIntentIR[] = [];
   const sqlMigrationSteps: SqlStepIR[] = [];
+  const enumValueRenameIntents: EnumValueRenameIntentIR[] = [];
   // Root-level VOs / enums have no enclosing context — pass an empty
   // env so `lowerValueObject`'s `inValueObject(env, vo)` still works.
   const rootEnv: Env = { locals: new Map() };
@@ -498,7 +500,25 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
-          const agg = step.aggregate.ref;
+          const owner = step.owner.ref;
+          if (isEnumDecl(owner)) {
+            // Enum value rename (`Status.Draft -> Pending`).  The `=` form on an
+            // enum is rejected by the AST validator, so it lowers to nothing.
+            if (step.renamedTo !== undefined) {
+              const ctx = AstUtils.getContainerOfType(owner, isBoundedContext)?.name;
+              enumValueRenameIntents.push({
+                migration: m.name,
+                index,
+                enum: owner.name,
+                ...(ctx !== undefined ? { context: ctx } : {}),
+                from: step.field,
+                to: step.renamedTo,
+                origin: originFor(step),
+              });
+            }
+            return;
+          }
+          const agg = owner;
           const context = AstUtils.getContainerOfType(agg, isBoundedContext)?.name ?? "";
           if (step.value !== undefined) {
             // Backfill (`Agg.field = <expr>`, M-T2.3).  The expression lowers
@@ -506,7 +526,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             // `this-prop` refs — the SQL renderer's column references.
             backfillIntents.push({
               migration: m.name,
-              aggregate: agg?.name ?? step.aggregate.$refText,
+              aggregate: agg?.name ?? step.owner.$refText,
               context,
               field: step.field,
               value: lowerExpr(step.value, {
@@ -521,7 +541,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             // now-absent column; `renamedTo` the live one.
             renameIntents.push({
               migration: m.name,
-              aggregate: agg?.name ?? step.aggregate.$refText,
+              aggregate: agg?.name ?? step.owner.$refText,
               context,
               from: step.field,
               to: step.renamedTo ?? step.field,
@@ -559,6 +579,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     tableRenameIntents,
     backfillIntents,
     sqlMigrationSteps,
+    enumValueRenameIntents,
   };
 }
 
@@ -587,6 +608,7 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     tableRenameIntents: models.flatMap((m) => m.tableRenameIntents),
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
+    enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
   };
 }
 

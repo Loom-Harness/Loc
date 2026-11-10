@@ -45,6 +45,18 @@ export const messages = {
     `Two table steps target '${p.to}' — a declaration can be renamed or moved TO only once (ambiguous destination).`,
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
+  "loom.rename-to-self#enum-value": (p: { enumName: unknown; value: unknown }) =>
+    `Rename of '${p.enumName}.${p.value}' names the same value on both sides — a rename must change the value.`,
+  "loom.rename-duplicate-source#enum-value": (p: { enumName: unknown; value: unknown }) =>
+    `Value '${p.enumName}.${p.value}' is renamed more than once — stored rows holding it can be remapped to only one value (ambiguous origin).`,
+  "loom.migration-enum-value-form": (p: { enumName: unknown; value: unknown }) =>
+    `'${p.enumName}' is an enum: a migration step on it renames a stored value (\`${p.enumName}.${p.value} -> <NewValue>\`); the \`=\` backfill form applies to aggregate fields only.`,
+  "loom.migration-enum-value-unknown": (p: {
+    enumName: unknown;
+    value: unknown;
+    values: unknown;
+  }) =>
+    `'${p.value}' is not a value of enum '${p.enumName}' (${p.values}) — an enum value rename maps stored rows onto a value the enum declares.`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
   "loom.migration-sql-placement": (p: { placement: unknown }) =>
     `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
@@ -225,20 +237,37 @@ export const messages = {
     `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
     `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
   /** An enum CHECK on an existing table lost a member (deleted or renamed in
-   *  the `enum`).  The constraint lands NOT VALID, so the deploy succeeds, but
-   *  rows still holding a removed value fail to load on every backend and
-   *  cannot be updated.  Silenced by declaring a `sql before` step for the
-   *  module in the same generation. */
+   *  the `enum`) and no migration step accounts for it.  The constraint lands
+   *  NOT VALID, so the deploy would succeed, but rows still holding a removed
+   *  value fail to load on every backend and cannot be updated — so `ddd
+   *  migrate add` refuses it (breaking-for-data) until a declared rename, a
+   *  `sql` step or `--allow-destructive` accounts for it. */
   "loom.migration-enum-narrowed": (p: {
     module: unknown;
+    enumName: unknown;
     table: unknown;
     column: unknown;
     check: unknown;
     removed: unknown;
     kept: unknown;
+    firstRemoved: unknown;
   }) =>
-    `migration for module "${p.module}": enum check ${p.check} on existing table ${p.table} no longer admits ${p.removed} in column ${p.column}. Rows already stored may still hold a removed value. The constraint lands NOT VALID, so the deploy succeeds, but such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), node serves it off-contract, and any UPDATE of it is refused by the new check. Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):\n` +
-    `    migration "remap-…" { sql before "UPDATE ${p.table} SET ${p.column} = <one of ${p.kept}> WHERE ${p.column} IN (${p.removed})" }`,
+    `migration for module "${p.module}": enum check ${p.check} on existing table ${p.table} no longer admits ${p.removed} in column ${p.column}. Rows already stored may still hold a removed value: such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), node serves it off-contract, and any UPDATE of it is refused by the new check. Declare what the stored values become — a value rename updates every column that stores the enum:\n` +
+    `    migration "rename-…" { ${p.enumName}.${p.firstRemoved} -> <one of ${p.kept}> }\n` +
+    `or remap them yourself with a \`sql\` step in the same generation, or — when no row can hold a removed value — record it with --allow-destructive.`,
+  /** A declared enum value rename whose enum is also stored where the
+   *  generated UPDATEs cannot reach — inside a JSON column (a document-shaped
+   *  aggregate's `data`, an embedded containment, a value object collapsed to
+   *  one column) or an event-sourced stream's event payloads.  The relational
+   *  columns are migrated; these are named so the author remaps them. */
+  "loom.migration-enum-value-unmigrated": (p: {
+    module: unknown;
+    enumName: unknown;
+    from: unknown;
+    to: unknown;
+    where: unknown;
+  }) =>
+    `migration for module "${p.module}": the rename ${p.enumName}.${p.from} -> ${p.to} updates every column that stores the enum, but ${p.enumName} is also stored inside JSON the generated UPDATEs do not rewrite:\n${p.where}\nA stored '${p.from}' there still fails to load. Remap it with a \`sql\` step in the same migration block (for example \`UPDATE … SET data = jsonb_set(data, '{<path>}', '"${p.to}"') WHERE data #>> '{<path>}' = '${p.from}'\`), or upcast the old value where the event is read.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/query-checks.ts

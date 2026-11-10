@@ -152,6 +152,12 @@ export async function extractProject(
       fromContext: t.fromContext,
       toContext: t.toContext,
     })),
+    enumValues: loom.enumValueRenameIntents.map((r) => ({
+      context: r.context,
+      enum: r.enum,
+      from: r.from,
+      to: r.to,
+    })),
   };
   return { catalog, names, uiNames, source, renames, locations };
 }
