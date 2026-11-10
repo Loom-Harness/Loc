@@ -9512,6 +9512,120 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                   },
                   "arguments": []
                 }
+              },
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": "when"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "when",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@211"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "?"
+              }
+            ]
+          },
+          {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "effect",
+                "operator": "=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "allow"
+                }
+              },
+              {
+                "$type": "Alternatives",
+                "elements": [
+                  {
+                    "$type": "Assignment",
+                    "feature": "verb",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@118"
+                      },
+                      "arguments": []
+                    }
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "verb",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@117"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "?"
+              },
+              {
+                "$type": "Keyword",
+                "value": "on"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "target",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@276"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "as"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "binding",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@276"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "where"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "row",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@211"
+                  },
+                  "arguments": []
+                }
               }
             ]
           },
@@ -9646,6 +9760,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "local"
+          },
+          {
+            "$type": "Keyword",
+            "value": "own"
           },
           {
             "$type": "Keyword",
@@ -15194,6 +15312,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "overlap"
+          },
+          {
+            "$type": "Keyword",
+            "value": "own"
           },
           {
             "$type": "Keyword",

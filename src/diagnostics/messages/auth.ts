@@ -443,7 +443,8 @@ export const messages = {
     source: unknown;
   }) =>
     `policy in context '${p.name}' selects a read level for '${p.aggregate}' more ` +
-    `than once (\`${p.source}\`); keep exactly one \`allow … on ${p.aggregate}\`.`,
+    `than once for the same callers (\`${p.source}\`); keep one \`allow <level> on ` +
+    `${p.aggregate}\` per \`when\` condition.`,
   "loom.policy-duplicate-target#read-gate": (p: { name: unknown; aggregate: unknown }) =>
     `policy in context '${p.name}' declares \`read ${p.aggregate} requires …\` more than ` +
     `once; keep exactly one read gate per aggregate (combine the conditions with \`||\` / \`&&\`).`,
@@ -453,18 +454,22 @@ export const messages = {
     source: unknown;
   }) =>
     `policy in context '${p.name}' selects a write level for '${p.aggregate}' more ` +
-    `than once (\`${p.source}\`); keep exactly one \`allow write … on ${p.aggregate}\`.`,
+    `than once for the same callers (\`${p.source}\`); keep one \`allow write <level> on ` +
+    `${p.aggregate}\` per \`when\` condition.`,
   "loom.policy-unknown-aggregate#read": (p: {
     name: unknown;
     source: unknown;
     aggregate: unknown;
   }) =>
     `policy in context '${p.name}': \`${p.source}\` names '${p.aggregate}', which ` +
-    `is not an aggregate in this context.  A read level scopes a tenant-owned aggregate ` +
+    `is not an aggregate in this context.  A read rule scopes a tenant-owned aggregate ` +
     `declared in the same context.`,
   "loom.policy-unknown-rule": (p: { word: unknown }) =>
     `'${p.word}' does not start a policy rule — a \`policy { }\` block holds \`allow …\`, ` +
     `\`deny …\` and \`read <Aggregate> requires <expr>\` rules.`,
+  "loom.policy-unknown-rule#verb": (p: { word: unknown }) =>
+    `'${p.word}' is not a policy verb — a row rule is \`allow [read|write] on <Aggregate> as ` +
+    `<row> where …\`.`,
   "loom.policy-unknown-aggregate#read-gate": (p: { name: unknown; aggregate: unknown }) =>
     `policy in context '${p.name}': \`read ${p.aggregate} requires …\` names ` +
     `'${p.aggregate}', which is not an aggregate in this context.  A read gate covers the ` +
@@ -475,7 +480,7 @@ export const messages = {
     aggregate: unknown;
   }) =>
     `policy in context '${p.name}': \`${p.source}\` names '${p.aggregate}', which ` +
-    `is not an aggregate in this context.  A write level scopes a tenant-owned aggregate ` +
+    `is not an aggregate in this context.  A write rule scopes a tenant-owned aggregate ` +
     `declared in the same context.`,
   "loom.policy-target-not-tenant-owned#read": (p: {
     name: unknown;
@@ -483,16 +488,49 @@ export const messages = {
     aggregate: unknown;
   }) =>
     `policy in context '${p.name}': \`${p.source}\` targets '${p.aggregate}', which ` +
-    `is not \`with tenantOwned\`.  A read level refines the tenant floor, so it applies only ` +
+    `is not \`with tenantOwned\`.  A read rule composes with the tenant floor, so it applies only ` +
     `to tenant-owned aggregates (crossTenant / unscoped / the registry have no tenant scope).`,
+  "loom.policy-target-not-tenant-owned#row": (p: {
+    name: unknown;
+    source: unknown;
+    aggregate: unknown;
+  }) =>
+    `policy in context '${p.name}': \`${p.source}\` targets '${p.aggregate}', which is neither ` +
+    `\`with tenantOwned\` nor the tenant registry.  Its default visibility is already every ` +
+    `row, so a row rule would add nothing; narrow it with \`deny\` or a \`filter\` instead.`,
   "loom.policy-target-not-tenant-owned#write": (p: {
     name: unknown;
     source: unknown;
     aggregate: unknown;
   }) =>
     `policy in context '${p.name}': \`${p.source}\` targets '${p.aggregate}', which ` +
-    `is not \`with tenantOwned\`.  A write level refines the tenant floor, so it applies only ` +
+    `is not \`with tenantOwned\`.  A write rule composes with the tenant floor, so it applies only ` +
     `to tenant-owned aggregates.`,
+  // Row rules, `when` and `own` (D-SHARING) — src/ir/validate/checks/policy-scope-checks.ts
+  "loom.policy-row-not-queryable": (p: { source: unknown; why: unknown }) =>
+    `\`${p.source}\`: the row predicate is compiled into every read of the aggregate, so it ` +
+    `must be queryable — ${p.why}.  Use field comparisons, \`exists <Aggregate> as s where …\` ` +
+    `and policy functions built from them.`,
+  "loom.policy-row-not-queryable#no-row": (p: { source: unknown }) =>
+    `\`${p.source}\`: the row predicate never reads the row, so it would open every row of every ` +
+    `tenant to the callers it admits.  Compare a field of the row (\`x.owner == currentUser.id\`) ` +
+    `or correlate an \`exists\` with it; a caller-only condition belongs in a level rule's \`when\`.`,
+  "loom.policy-when-not-caller-only": (p: { source: unknown; why: unknown }) =>
+    `\`${p.source}\`: a \`when\` condition is decided per caller before the query runs, so it ` +
+    `may only compare \`currentUser\` claims with each other, literals or enum values ` +
+    `(\`==\` / \`!=\`, combined with \`&&\` / \`||\` / \`!\`) — ${p.why}.  A condition on ` +
+    `the row is a row rule: \`allow on <Aggregate> as x where …\`.`,
+  "loom.policy-own-no-creator": (p: { source: unknown; aggregate: unknown }) =>
+    `\`${p.source}\`: 'own' admits the rows the caller created, but '${p.aggregate}' records no ` +
+    `creator.  Add \`with auditable\` (its \`createdBy\` is stamped from the principal).`,
+  "loom.policy-scope-inheritance-unsupported": (p: { source: unknown; aggregate: unknown }) =>
+    `\`${p.source}\`: '${p.aggregate}' is part of an inheritance hierarchy, whose read scope is ` +
+    `hosted on the hierarchy root; row rules, \`own\` and \`when\` are not composed there.  ` +
+    `Write the rule on a standalone aggregate.`,
+  "loom.policy-row-cycle": (p: { cycle: unknown }) =>
+    `the read scopes of ${p.cycle} reach each other through \`exists\` — each subquery carries ` +
+    `the quantified aggregate's own read scope, so the scopes never close.  Break the cycle by ` +
+    `dropping one of the \`exists\` row rules.`,
   // Hierarchical data visibility is gone (D-TENANCY-FLAT): a row is visible to
   // its own org only, and reach beyond it is an explicit share or row rule.
   "loom.policy-level-removed": (p: { source: unknown; level: unknown }) =>

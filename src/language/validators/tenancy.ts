@@ -131,7 +131,7 @@ export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor)
 export function checkRemovedPolicyLevels(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPolicyReadRule(node) || node.effect !== "allow") continue;
-    if (node.level === undefined || node.level === "local") continue;
+    if (node.level === undefined || node.level === "local" || node.level === "own") continue;
     const verb = node.verb ? `${node.verb} ` : "";
     accept(
       "error",

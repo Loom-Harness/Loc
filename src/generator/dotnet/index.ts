@@ -242,6 +242,7 @@ import { rewriteNamespacesForLayout } from "./layout-namespaces.js";
 import { emitProjectionDispatch, emitProjectionReads } from "./projection-emit.js";
 import { emitProjectionRowPersistence } from "./projection-state-emit.js";
 import { emitQueryProjections } from "./query-projection-emit.js";
+import { collectCsExprUsings } from "./render-expr.js";
 import { dotnetSchemaIdOverrides, valueObjectSchemaMerges } from "./schema-ids.js";
 import { emitRetrievalSpecs, renderPagingExtension } from "./spec-emit.js";
 import { hasAnyWireValidator, renderValidationBehavior } from "./validator-emit.js";
@@ -1555,6 +1556,9 @@ function emitAggregate(
   // predicates contribute the same way.
   const repoImplUsings = collectFindBodyUsings(repoWithViews, new Set<string>(), ns);
   collectRetrievalBodyUsings(aggRetrievals, repoImplUsings, ns);
+  // The command load renders the write scope too (`GetByIdForWriteAsync`), and
+  // an `exists` there names the quantified aggregate's type.
+  if (agg.writeScopeFilter) collectCsExprUsings(agg.writeScopeFilter, repoImplUsings, ns);
   // A retrieval/find whose `where` is a reified criterion consumes its
   // `Criterion` class's `ToExpression` → needs Domain.Criteria.
   const consumesCriterion =

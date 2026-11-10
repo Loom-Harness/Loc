@@ -118,6 +118,7 @@ import {
   isParenExpr,
   isPayloadDecl,
   isPolicyDecl,
+  isPolicyReadRule,
   isPostfixChain,
   isPreconditionStmt,
   isPrimitiveConversion,
@@ -447,6 +448,19 @@ export class Elaborator {
     if (isRepository(node)) {
       const agg = node.aggregate?.ref;
       return agg ? scope.child({ owner: agg }) : scope;
+    }
+    // A policy row rule (`allow on X as x where …`): `x` is the filtered row of
+    // X, which is also the owner bare names resolve against.
+    if (isPolicyReadRule(node) && node.binding) {
+      const agg = this.index.find("aggregate", node.target, node);
+      const s = scope.child({ owner: agg });
+      s.bind(
+        node.binding,
+        agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
+        node,
+        "row",
+      );
+      return s;
     }
     if (isCriterion(node) || isRetrieval(node)) {
       const target = this.resolveType(node.target, scope);

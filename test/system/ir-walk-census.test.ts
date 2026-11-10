@@ -751,6 +751,14 @@ const SELECTS_FROM_COMPLETE_SET = {
 } as const;
 
 const WAIVERS: Record<string, Waiver> = {
+  "src/ir/enrich/policy-scopes.ts#negate": {
+    standing:
+      "closed rewrite of a policy `when` (principal terms under && / || / !), the shape `loom.policy-when-not-caller-only` admits; any other kind keeps a plain `!` around it, which is still the right meaning — not a traversal",
+  },
+  "src/ir/validate/checks/policy-scope-checks.ts#notCallerOnly": {
+    standing:
+      "closed classifier of the caller-only `when` subset; its default answer REJECTS an unrecognised kind (a `loom.policy-when-not-caller-only` error), so a new ExprIR kind is refused until a renderer can decide it per request",
+  },
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
 

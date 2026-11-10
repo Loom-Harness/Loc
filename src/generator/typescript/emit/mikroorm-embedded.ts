@@ -340,7 +340,7 @@ export function renderMikroEmbeddedRepository(
     `    return loaded;`,
     `  }`,
     "",
-    ...mikroGetByIdLines(agg, idVar, row),
+    ...mikroGetByIdLines(agg, idVar, row, ctx.aggregates),
     "",
     `  async findManyByIds(ids: ${idVar}[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,

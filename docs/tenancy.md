@@ -587,12 +587,27 @@ target (`loom.tenancy-registry-not-target`). `parent`'s self-reference is
 structural (`Self`), so it needs no check. A reference to `dataKey` — on a row, the registry or `currentUser` — is
 `loom.tenancy-data-key-removed`: rows carry `tenantId` only.
 
-## The `policy {}` block — `local` and `deny`
+## The `policy {}` block — levels, row rules and `deny`
 
 A `policy {}` context member sets, per tenant-owned aggregate, what the caller
-may read and write beyond the tenant floor `with tenantOwned` installs. The read
-level is `local` — the caller's own org, `tenant_id = currentUser.<claim>`, and
-the default for an aggregate no rule names. `deny` narrows it.
+may read and write. Visibility composes per aggregate and per access (D-SHARING):
+
+```text
+scope   = (default ∨ row rule₁ ∨ row rule₂ ∨ …) ∧ ¬deny
+default = the level the caller's `when` selects, else `local`
+```
+
+- **`local`** — the caller's own org, `tenant_id = currentUser.<claim>`: the
+  default for an aggregate no level rule names.
+- **`own`** — the rows of the caller's org the caller created: `local` AND
+  `createdBy = currentUser.id`. It needs a creator column — `with auditable`.
+- **`allow <level> on X when <cond>`** replaces the default for the callers
+  `<cond>` admits. `<cond>` is decided per caller before the query: it compares
+  `currentUser` claims with each other, literals or enum values. Callers no
+  `when` admits keep `local`.
+- **`allow [read|write] on X as x where <predicate>`** — a **row rule** — adds
+  the rows its predicate admits. The predicate is compiled into the query.
+- **`deny`** removes access and always wins.
 
 ```ddd
 context Books {
@@ -609,8 +624,69 @@ context Books {
 | Rule | Effect |
 |---|---|
 | no rule / `allow local on X` | the tenant floor: `X` rows of the caller's own org, read and write. |
-| `deny write on X` | `X` stays readable at the floor; every mutation (update, delete, operation) answers the op route's 404. |
+| `allow own on X [when …]` | the callers `when` admits read only the `X` rows they created in their org. |
+| `allow write own on X [when …]` | the same for mutations. |
+| `allow [read] on X as x where …` | the rows the predicate admits are readable too. |
+| `allow write on X as x where …` | the rows the predicate admits are writable too, when they are also readable. |
+| `deny write on X` | `X` stays readable; every mutation (update, delete, operation) answers the op route's 404. |
 | `deny on X` | no read and no write of `X` at all. |
+
+A read rule never widens the write scope: every mutation loads its row through
+the read scope AND the write scope, so a shared row stays read-only until a
+write rule admits it.
+
+**Row rules.** `x` binds the candidate row. Relations are predicates: a field
+of the row, an `exists <Aggregate> as s where …` over another aggregate of the
+context (its own read scope applies inside the subquery), or a named policy
+function called on the row or on an `X id`, inlined into the predicate:
+
+```ddd
+context Catalog {
+  aggregate Category with tenantOwned, crudish { name: string }
+  aggregate CategoryShare with tenantOwned, crudish {
+    category: Category id
+    grantee: string
+    write: bool
+  }
+  aggregate Product with tenantOwned, crudish { name: string  category: Category id }
+  aggregate Note with tenantOwned, auditable, crudish { body: string }
+
+  policy GranteeIsMe(s: CategoryShare): bool = s.grantee == currentUser.tenantId
+  policy SharedWithMe(c: Category id): bool =
+    exists CategoryShare as s where s.category == c && GranteeIsMe(s)
+
+  policy {
+    allow read on CategoryShare as s where GranteeIsMe(s)
+    allow on Category as c where exists CategoryShare as s where s.category == c.id && s.grantee == currentUser.tenantId
+    allow write on Category as c where exists CategoryShare as s where s.category == c.id && s.grantee == currentUser.tenantId && s.write
+    allow on Product as p where SharedWithMe(p.category)   // products follow their category
+    allow local on Note when currentUser.role == "manager"
+    allow own on Note when currentUser.role == "clerk"
+  }
+}
+```
+
+The composite takes the tenant floor's place in the read scope, so
+`ignoring tenantOwned` still drops the whole tenant scope. On node:
+
+```ts
+// db/read-scopes.ts
+export function productScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : or(eq(schema.products.tenantId, requireCurrentUser().tenantId), sql`exists (select 1 from ${schema.categoryShares} where ${and(and(eq(schema.categoryShares.category, schema.products.category), eq(schema.categoryShares.grantee, requireCurrentUser().tenantId)), or(eq(schema.categoryShares.tenantId, requireCurrentUser().tenantId), eq(schema.categoryShares.grantee, requireCurrentUser().tenantId)))})`),
+  );
+}
+
+export function noteScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : or(or(and((requireCurrentUser().role === "manager" ? sql`true` : sql`false`), eq(schema.notes.tenantId, requireCurrentUser().tenantId)), and((requireCurrentUser().role === "clerk" ? sql`true` : sql`false`), and(eq(schema.notes.tenantId, requireCurrentUser().tenantId), eq(schema.notes.createdBy, requireCurrentUser().id)))), and(and((requireCurrentUser().role !== "manager" ? sql`true` : sql`false`), (requireCurrentUser().role !== "clerk" ? sql`true` : sql`false`)), eq(schema.notes.tenantId, requireCurrentUser().tenantId))),
+  );
+}
+```
+
+The `CategoryShare` arm inside the `EXISTS` is that aggregate's own read scope —
+its floor OR its `GranteeIsMe` row rule — so a grantee in another org finds the
+share rows addressed to it, and nothing else.
 
 The read scope rides the same per-backend query seam as the floor (Drizzle
 `.where`, EF `HasQueryFilter`, the SQLAlchemy `with_loader_criteria` hook, the
@@ -654,8 +730,14 @@ error: `allow deep on Account`: the 'deep' level no longer exists — data visib
 
 **Validation (fail closed).** The target must be a tenant-owned aggregate in
 the same context (`loom.policy-unknown-aggregate`,
-`loom.policy-target-not-tenant-owned`); one rule per aggregate
-(`loom.policy-duplicate-target`).
+`loom.policy-target-not-tenant-owned`) outside an inheritance hierarchy
+(`loom.policy-scope-inheritance-unsupported`); one level rule per aggregate and
+`when` condition (`loom.policy-duplicate-target`). A row predicate must be
+queryable and read the row (`loom.policy-row-not-queryable`); a `when` reads the
+caller only (`loom.policy-when-not-caller-only`); `own` needs a `createdBy`
+column (`loom.policy-own-no-creator`); read scopes that reach each other
+through `exists` are refused (`loom.policy-row-cycle`); and a policy function
+that calls itself is `loom.policy-fn-cycle`.
 
 ## `organizationContext` — the operating scope and its switch gate
 
