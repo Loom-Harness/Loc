@@ -73,10 +73,10 @@ describe("structural-conflict status — Hono route translation", () => {
   it("emits the hardcoded 409 for the unique + when arms with no override (byte-identical default)", async () => {
     const routes = await orderRoutes("");
     expect(routes).toContain(
-      'return problem(409, "Conflict", "A resource with these values already exists.", "problem.unique-conflict");',
+      'return problem(409, "Conflict", "A resource with these values already exists.", "problem.unique-conflict", {"type":"Shop.Order"});',
     );
     expect(routes).toContain(
-      'return problem(409, "Disallowed", err.message, "problem.state-gate");',
+      'return problem(409, "Disallowed", err.message, "problem.state-gate", {"type":"Shop.Order"});',
     );
     // The when-gated operation route declares 409 in OpenAPI (unchanged default).
     expect(routes).toMatch(/409: \{ description: "Conflict"/);
@@ -88,10 +88,10 @@ describe("structural-conflict status — Hono route translation", () => {
     );
     // Runtime arms move to the overridden status.
     expect(routes).toContain(
-      'return problem(422, "Conflict", "A resource with these values already exists.", "problem.unique-conflict");',
+      'return problem(422, "Conflict", "A resource with these values already exists.", "problem.unique-conflict", {"type":"Shop.Order"});',
     );
     expect(routes).toContain(
-      'return problem(423, "Disallowed", err.message, "problem.state-gate");',
+      'return problem(423, "Disallowed", err.message, "problem.state-gate", {"type":"Shop.Order"});',
     );
     // The `problem` helper's status union widens to exactly the emitted set.
     // Versioning is default-on (M-T3.4), so the update path's ConcurrencyConflict

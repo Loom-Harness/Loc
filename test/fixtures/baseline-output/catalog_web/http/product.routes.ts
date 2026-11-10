@@ -120,7 +120,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
         await repo.delete(Ids.ProductId(id));
       } catch (err) {
         if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
-          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Product is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use" }), 409, { "content-type": "application/problem+json" });
+          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Product is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use", params: {"type":"Products.Product"} }), 409, { "content-type": "application/problem+json" });
         }
         throw err;
       }
@@ -192,7 +192,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     if (err instanceof DisallowedError) {
       c.get("log").warn({ event: "disallowed", aggregate: "Product", message: err.message, status: 409 });
       recordDomainFault("disallowed");
-      return problem(409, "Disallowed", err.message, "problem.state-gate");
+      return problem(409, "Disallowed", err.message, "problem.state-gate", {"type":"Products.Product"});
     }
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Product", message: err.message, status: 422 });
@@ -202,12 +202,12 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Product", status: 404 });
       recordDomainFault("not_found");
-      return problem(404, "Not Found", err.message, "problem.not-found");
+      return problem(404, "Not Found", err.message, "problem.not-found", {"type":"Products.Product"});
     }
     if (err instanceof ConcurrencyError) {
       c.get("log").warn({ event: "conflict", aggregate: "Product", message: err.message, status: 409 });
       recordDomainFault("conflict");
-      return problem(409, "Conflict", err.message, "problem.version-conflict");
+      return problem(409, "Conflict", err.message, "problem.version-conflict", {"type":"Products.Product"});
     }
     if (err instanceof ExternHandlerError) {
       c.get("log").error({ event: "extern_handler_threw", aggregate: err.aggName, op: err.opName, error: err.message });

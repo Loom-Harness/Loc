@@ -64,9 +64,10 @@ export function csCodeInit(cls: WireRejectionClass, typeKey?: string): string {
  *  request addresses off its path (`/api/<segment>/…`) — the `[segment,
  *  params.type]` table (`aggregateRouteTypes`) and `TypeParams(context)`,
  *  which answers `{ ["type"] = … }` or null for a route of no aggregate. */
-export function csAggregateTypeParamsMembers(routeTypes: readonly (readonly [string, string])[]) {
-  return `
-    // The aggregate each \`/api/<segment>\` route serves: a refusal answered for
+export function csAggregateTypeParamsMembers(
+  routeTypes: readonly (readonly [string, string])[],
+): string {
+  return `    // The aggregate each \`/api/<segment>\` route serves: a refusal answered for
     // one carries its identity key as \`params.type\`.
     private static readonly System.Collections.Generic.Dictionary<string, string> AggregateTypes = new()
     {
