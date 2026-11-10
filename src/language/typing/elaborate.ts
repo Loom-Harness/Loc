@@ -14,6 +14,7 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
+import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
@@ -33,6 +34,7 @@ import {
   PRINCIPAL_OPERATING_ANCESTORS,
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
+import { PROVENANCE_LINEAGE_FIELD } from "../../util/provenance-carrier.js";
 import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
@@ -150,8 +152,9 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
+import { AUDIT_ENTRY, CALL_OPTIONS, LIST_QUERY, provenanceLineage } from "./e2e-wire.js";
 import { primitiveFieldType } from "./primitive-fields.js";
-import { astProjectionReadShape } from "./projection-shape.js";
+import { astProjectionReadShape, astProjectionWireShape } from "./projection-shape.js";
 import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
 import { isPrim, PAGED_META, type RecordShape, Ty, wireOf } from "./ty.js";
 
@@ -233,6 +236,13 @@ const isE2eClient = (name: string): name is E2eClient => name === "api" || name 
 
 /** The handle `ui.workflows.<wf>(…)` reserves for the workflow forms. */
 const UI_WORKFLOWS_HANDLE = "workflows";
+
+/** The create `POST /<aggs>` serves: the canonical (unnamed) `create`, or an
+ *  event-sourced aggregate's first (the backends' `emitsRestCreate`). */
+function restCreate(agg: Aggregate): Create | undefined {
+  const creates = agg.members.filter(isCreate);
+  return creates.find((c) => !c.name) ?? (agg.persistedAs === "eventLog" ? creates[0] : undefined);
+}
 
 /** The public operation `name` of `agg` or an ancestor: the verb the e2e
  *  clients call on a record. */
@@ -1167,7 +1177,7 @@ export class Elaborator {
       const p = named.projection;
       const row = Ty.record({ of: "projection", ref: p });
       if (verb === "byKey") return wireOf(row);
-      return wireOf(astProjectionReadShape(p) === "one" ? row : Ty.array(row));
+      return wireOf(astProjectionWireShape(p) === "one" ? row : Ty.array(row));
     }
     const target = named.aggregate;
     if (target) {
@@ -1182,10 +1192,14 @@ export class Elaborator {
         return wireOf(paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row));
       }
       if (verb === "destroy") return Ty.never;
+      if (verb === AUDIT_HISTORY_FIND) return Ty.array(AUDIT_ENTRY);
       // A public operation: no declared result answers 204 with no body.
       const op = publicOperation(target, verb);
-      if (!op) return Ty.unknown("no-rule");
-      return op.returnType ? this.e2eResult(this.resolveType(op.returnType, scope)) : Ty.never;
+      if (op)
+        return op.returnType ? this.e2eResult(this.resolveType(op.returnType, scope)) : Ty.never;
+      // Not a verb of the aggregate: a routed handler whose CONTEXT slugs the
+      // same way may answer it (the client's last resort).
+      return this.e2eRoutedHandler(handle, verb, scope);
     }
     const wf = named.workflow;
     if (wf) {
@@ -1196,17 +1210,22 @@ export class Elaborator {
         const result = wf.members.find(
           (m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m) && m.returnType !== undefined,
         )?.returnType;
-        return result ? this.e2eResult(this.resolveType(result, scope)) : Ty.unknown("no-rule");
+        // No declared result: the command answers 204 with no body.
+        return result ? this.e2eResult(this.resolveType(result, scope)) : Ty.never;
       }
       return undefined;
     }
+    return this.e2eRoutedHandler(handle, verb, scope);
+  }
+
+  /** `api.<contextSlug>.<handler>(…)`: the routed handler's declared result,
+   *  or nothing (204) when it declares none. */
+  private e2eRoutedHandler(handle: string, verb: string, scope: Scope): Ty | undefined {
     const handler = this.index.routedHandler(handle, verb);
-    if (handler) {
-      return handler.returnType
-        ? this.e2eResult(this.resolveType(handler.returnType, scope))
-        : Ty.never;
-    }
-    return undefined;
+    if (!handler) return undefined;
+    return handler.returnType
+      ? this.e2eResult(this.resolveType(handler.returnType, scope))
+      : Ty.never;
   }
 
   /** A `test e2e` `ui.<handle>.<verb>(…)` call: what the Playwright page
@@ -1230,21 +1249,24 @@ export class Elaborator {
     return t.kind === "union" ? Ty.record({ of: "tagged", ref: t }) : wireOf(t);
   }
 
-  /** The declaration whose params the body argument at `index` of
-   *  `api.<handle>.<verb>(…)` sends: the canonical `create` (argument 0), a
-   *  public operation (argument 1, after the id), a workflow's `create` behind
-   *  `run` (argument 0). */
-  private e2eRequestOf(
+  /** The value the argument at `index` of `<client>.<handle>.<verb>(…)`
+   *  sends, when the client defines it: a request body (the canonical
+   *  `create`, a public operation after the id, a workflow's `create`), a list
+   *  read's query, a write's options. */
+  private e2eArgType(
     client: E2eClient,
     handle: string,
     verb: string,
     index: number,
-  ): Create | Operation | WorkflowCreateDecl | undefined {
+    scope: Scope,
+  ): Ty | undefined {
+    const req = (d: Create | Operation | WorkflowCreateDecl | undefined) =>
+      d && Ty.record({ of: "request", ref: d });
     if (client === "ui") {
       // `ui.workflows.<wf>(…)` fills the workflow's form: its `create`.
       if (handle === UI_WORKFLOWS_HANDLE) {
         const wf = this.index.e2eHandle(verb).workflow;
-        return index === 0 ? wf?.members.find(isWorkflowCreateDecl) : undefined;
+        return index === 0 ? req(wf?.members.find(isWorkflowCreateDecl)) : undefined;
       }
       // The ui client reaches no projection; a workflow only through the
       // reserved handle above.
@@ -1254,16 +1276,21 @@ export class Elaborator {
     if (named.projection && (verb === "list" || verb === "byKey")) return undefined;
     const agg = named.aggregate;
     if (agg) {
-      if (verb === "create")
-        return index === 0
-          ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
-          : undefined;
-      return index === 1 ? publicOperation(agg, verb) : undefined;
+      if (verb === "create") return index === 0 ? req(restCreate(agg)) : undefined;
+      if (client === "api" && verb === "all") return index === 0 ? LIST_QUERY : undefined;
+      const op = publicOperation(agg, verb);
+      if (op) {
+        if (index === 1) return req(op);
+        return client === "api" && index === 2 ? CALL_OPTIONS : undefined;
+      }
+    } else if (client === "api" && named.workflow && verb === "run") {
+      if (index === 0) return req(named.workflow.members.find(isWorkflowCreateDecl));
+      return index === 1 ? CALL_OPTIONS : undefined;
     }
-    if (client === "api" && named.workflow && verb === "run" && index === 0) {
-      return named.workflow.members.find((m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m));
-    }
-    return undefined;
+    // A routed handler takes its params positionally, each as its JSON.
+    const handler = client === "api" ? this.index.routedHandler(handle, verb) : undefined;
+    const param = handler?.params[index];
+    return param ? wireOf(this.resolveType(param.type, scope)) : undefined;
   }
 
   /** Type the body arguments of an e2e api call against the request each
@@ -1277,8 +1304,8 @@ export class Elaborator {
     scope: Scope,
   ): void {
     args.forEach((a, i) => {
-      const req = this.e2eRequestOf(client, handle, verb, i);
-      if (req) this.synthAgainst(a, scope, Ty.record({ of: "request", ref: req }));
+      const want = this.e2eArgType(client, handle, verb, i, scope);
+      if (want) this.synthAgainst(a, scope, want);
     });
   }
 
@@ -1287,7 +1314,7 @@ export class Elaborator {
    *  literal's elements against the element. */
   private synthAgainst(e: Expression, scope: Scope, expected: Ty): void {
     const want = expected.kind === "optional" ? expected.inner : expected;
-    if (isObjectLit(e) && want.kind === "record") {
+    if (isObjectLit(e) && (want.kind === "record" || (want.kind === "valueobject" && want.ref))) {
       for (const f of e.fields) {
         const ft = this.e2eField(want, String(f.name), scope);
         if (ft) this.synthAgainst(f.value, scope, ft);
@@ -1303,10 +1330,16 @@ export class Elaborator {
     this.synth(e, scope);
   }
 
-  /** The JSON type of field `name` of a request body or a wire record. */
+  /** The type of field `name` of a request body, a wire record, or — written
+   *  as a record literal where one is expected — a value object. */
   private e2eField(t: Ty, name: string, scope: Scope): Ty | undefined {
+    if (t.kind === "valueobject") {
+      const p = t.ref?.members.find((m): m is Property => isProperty(m) && m.name === name);
+      return p ? this.resolveType(p.type, scope) : undefined;
+    }
     if (t.kind !== "record") return undefined;
     const shape = t.shape;
+    if (shape.of === "fields") return shape.fields[name];
     if (shape.of === "request") {
       const p = shape.ref.params.find((x) => x.name === name);
       return p ? wireOf(this.resolveType(p.type, scope)) : undefined;
@@ -1357,6 +1390,32 @@ export class Elaborator {
             if (opId === camelId(opOperation(agg.name, m.name)))
               return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
             if (opId === camelId(["can", m.name, agg.name])) return Ty.prim("bool");
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** The declaration whose params argument `index` of the api operation
+   *  `opId` sends: an aggregate's canonical `create` (argument 0), a public
+   *  operation (argument 1, after the id). */
+  private apiOperationRequest(
+    api: Api,
+    opId: string,
+    index: number,
+  ): Create | Operation | undefined {
+    for (const ctx of api.source?.ref?.contexts ?? []) {
+      for (const agg of ctx.members) {
+        if (!isAggregate(agg) || agg.isAbstract) continue;
+        if (opId === camelId(opCreate(agg.name)))
+          return index === 0
+            ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
+            : undefined;
+        for (const o of ownerChain(agg)) {
+          for (const m of o.members as AstNode[]) {
+            if (isOperation(m) && opId === camelId(opOperation(agg.name, m.name)))
+              return index === 1 ? m : undefined;
           }
         }
       }
@@ -1529,6 +1588,13 @@ export class Elaborator {
     if (ms.call && ms.member === "create") {
       const agg = this.index.find("aggregate", name, node);
       if (agg) {
+        // Each argument fills the create's param it names (or sits at).
+        const params = agg.members.find((m): m is Create => isCreate(m) && !m.name)?.params ?? [];
+        ms.args.forEach((a, i) => {
+          const p = a.name ? params.find((x) => x.name === a.name) : params[i];
+          if (p && !isLambda(a.value))
+            this.synthAgainst(a.value, scope, this.resolveType(p.type, scope));
+        });
         this.synthArgs(ms.args, scope);
         return { t: Ty.record({ of: "aggregate", ref: agg }), consumed: 1 };
       }
@@ -1703,6 +1769,10 @@ export class Elaborator {
       case "record":
         return this.recordMember(bare.shape, ms, scope);
       case "generic":
+        // The e2e client reads a lineage's interior (`…lineage.computedValue`);
+        // a frontend body only renders it whole.
+        if (bare.ctor === "provenanced" && name === PROVENANCE_LINEAGE_FIELD && scope.frame.e2e)
+          return Ty.opt(provenanceLineage(bare.arg));
         return genericMember(bare.ctor, bare.arg, name) ?? Ty.unknown("unresolved-member");
       case "valueobject": {
         if (!bare.ref) return Ty.unknown("unresolved-type");
@@ -1770,11 +1840,18 @@ export class Elaborator {
         return f ? this.resolveType(f.type, scope) : Ty.unknown("unresolved-member");
       }
       case "resource": {
-        this.synthArgs(ms.args, scope);
         const kind = shape.ref.kind;
         // A bound api's typed operation (`orders.getOrderById(id)`, M-T4.8)
         // answers its declared response; the verb registry is the untyped rest.
         const api = kind === "api" ? shape.ref.use?.ref : undefined;
+        if (api && isApi(api) && ms.call) {
+          // Its body argument fills the request of the operation it calls.
+          ms.args.forEach((a, i) => {
+            const req = this.apiOperationRequest(api, name, i);
+            if (req) this.synthAgainst(a.value, scope, Ty.record({ of: "request", ref: req }));
+          });
+        }
+        this.synthArgs(ms.args, scope);
         if (api && isApi(api) && ms.call) {
           const op = this.apiOperationType(api, name, scope);
           if (op) return op;
@@ -1804,6 +1881,12 @@ export class Elaborator {
             const f = d.fields.find((x) => x.name === name);
             if (f) return this.resolveType(f.type, scope);
           }
+          // A store action named as a handler (`onClick: Basket.clear`), typed
+          // like a page action of the same shape.
+          if (isActionDecl(d) && d.name === name) {
+            const p = d.params[0];
+            return { kind: "action", ...(p ? { arg: this.resolveType(p.type, scope) } : {}) };
+          }
         }
         return Ty.unknown("unresolved-member");
       }
@@ -1820,6 +1903,8 @@ export class Elaborator {
           (!ms.call && this.e2eField(Ty.record(shape), name, scope)) ||
           Ty.unknown("unresolved-member")
         );
+      case "fields":
+        return (!ms.call && shape.fields[name]) || Ty.unknown("unresolved-member");
       case "tagged": {
         if (ms.call) return Ty.unknown("unresolved-member");
         if (name === "type") return Ty.prim("string");
@@ -1855,10 +1940,11 @@ export class Elaborator {
         if ((m as { name?: string }).name !== name) continue;
         if (isProperty(m)) {
           const t = this.propertyType(m, scope);
-          // In a frontend body a `provenanced` field IS its wire carrier —
-          // `{ value, lineage }` (`src/util/provenance-carrier.ts`) — which
-          // the scaffold detail page reads as `<row>.<field>.value`.
-          return m.provenanced && inFrontendDecl(ms)
+          // In a frontend body and a `test e2e` body a `provenanced` field
+          // IS its wire carrier — `{ value, lineage }`
+          // (`src/util/provenance-carrier.ts`) — which the scaffold detail
+          // page reads as `<row>.<field>.value`.
+          return m.provenanced && (inFrontendDecl(ms) || inTestE2e(ms))
             ? { kind: "generic", ctor: "provenanced", arg: t }
             : t;
         }
@@ -1978,6 +2064,11 @@ function inFrontendDecl(node: AstNode): boolean {
     AstUtils.getContainerOfType(node, isUi) !== undefined ||
     AstUtils.getContainerOfType(node, isComponent) !== undefined
   );
+}
+
+/** True inside a `test e2e` body, which reads records as the wire sends them. */
+function inTestE2e(node: AstNode): boolean {
+  return AstUtils.getContainerOfType(node, isTestE2E) !== undefined;
 }
 
 /** A member of a blessed generic carrier (the field lists of
@@ -2116,7 +2207,8 @@ function joinEnums(a: Ty & { kind: "enum" }, b: Ty & { kind: "enum" }): Ty | und
 function declOf(t: Ty): unknown {
   switch (t.kind) {
     case "record":
-      return t.shape.of === "principal" ? "principal" : t.shape.ref;
+      if (t.shape.of === "principal") return "principal";
+      return t.shape.of === "fields" ? t.shape.name : t.shape.ref;
     case "enum":
     case "valueobject":
       return t.ref ?? t.name;

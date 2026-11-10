@@ -37,6 +37,7 @@ import {
 /** What a projection's `from` may name. */
 type ProjectionSourceDecl = Aggregate | Workflow | Projection;
 
+import { PROJECTION_AGGREGATE_OPS } from "../../util/projection-aggregate-ops.js";
 import type {
   ExprIR,
   FieldIR,
@@ -235,11 +236,7 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
   return query;
 }
 
-/** The five whole-table aggregation operators, by the name the author writes.
- *  Shared with `docs/stdlib.md`'s collection ops on purpose — same vocabulary,
- *  the difference being only that a `select` position has no collection
- *  receiver, so the source table itself is the receiver. */
-const AGGREGATE_OPS = new Set<string>(["count", "sum", "avg", "min", "max"]);
+const AGGREGATE_OPS = PROJECTION_AGGREGATE_OPS;
 
 /** Recognise a WHOLE-TABLE aggregation in a `select` position, or `undefined`
  *  for an ordinary per-row projection.
