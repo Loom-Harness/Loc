@@ -30,7 +30,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
-import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import { workflowBodyReadsOwnState } from "../../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -343,31 +343,6 @@ interface EsSub {
   statements: WorkflowStmtIR[];
 }
 
-/** Does any emit/guard/let in the body read the folded `state`? */
-function bodyUsesState(statements: WorkflowStmtIR[]): boolean {
-  // Rides the sanctioned walkers.  The hand-rolled twin this replaces was short
-  // on BOTH channels: its statement loop covered four of the fourteen
-  // `WorkflowStmtIR` kinds (no `assign`, `op-call`, `repo-*`, `resource-call`,
-  // `domain-service-call`, and — the one that bites — no `for-each` / `if-let`
-  // nesting), and its expression walk had no arm for `match`, `list`,
-  // `convert`, `duration`, `i18nFormat`, a `call`'s `style:` entries or a
-  // block-bodied lambda's statements.  The answer feeds `stateBind`: a false
-  // negative binds the fold snapshot as `_state` while the rendered body still
-  // names `state`, and `mix compile` fails with "undefined variable state".
-  let used = false;
-  for (const st of statements) {
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (
-        e.kind === "ref" &&
-        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
-      ) {
-        used = true;
-      }
-    });
-  }
-  return used;
-}
-
 /** Render an ES workflow handler module: fold-on-load, run the emit-only body
  *  against the folded snapshot, append the workflow's own events gap-free, then
  *  re-publish for choreography.  `emit` collects into the appended-then-
@@ -405,7 +380,7 @@ export function renderEsWorkflowHandler(
   };
 
   const keyExpr = sub.correlation ? renderExpr(sub.correlation, renderCtx) : `event.${snake(corr)}`;
-  const usesState = bodyUsesState(sub.statements);
+  const usesState = workflowBodyReadsOwnState(sub.statements);
   const stateBind = usesState ? "state" : "_state";
 
   // Body → guard clauses (with `ensure`), let bindings, emitted event structs.
