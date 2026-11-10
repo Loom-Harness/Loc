@@ -27,11 +27,16 @@ import {
   renderInTemplate,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
+import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
 
 export const heexTarget: WalkerTarget = {
-  // Rich text renders through the parallel HEEx engine (`heex-walker-core.ts`),
-  // never through this shim.
-  renderRichText: () => "",
+  /** A translated rich sentence: `loom_rich/2` formats the holes, escapes the
+   *  text and turns the `<b>`/`<i>`/`<code>` tags into elements, so a locale
+   *  can reorder the parts. */
+  renderRichText({ key, message, values }) {
+    const bindings = (values ?? []).map((v) => `${v.name}: ${v.expr}`).join(", ");
+    return `<%= loom_rich(${pgettextCall(key, message)}, [${bindings}]) %>`;
+  },
   framework: "phoenixLiveView",
 
   // --- Bridge seam ----------------------------------------------------------
@@ -94,11 +99,12 @@ export const heexTarget: WalkerTarget = {
     return `loom_icu(${call}, [${values.map((v) => `${v.name}: ${v.expr}`).join(", ")}])`;
   },
 
-  // Expression-syntax leaves — HEEx runs a PARALLEL walker
-  // (heex-walker-core.ts) and never calls the shared `emitExpr`, so these are
-  // unreachable; they throw (fail-loud) if the fork invariant ever regresses,
-  // rather than silently emitting JS into Elixir output.
+  // Expression-syntax leaves.  Every expression a shared emitter renders goes
+  // through `renderExprOverride` to the HEEx engine, so the JS-shaped leaves
+  // stay unreachable and throw if that ever regresses — except the literal,
+  // which the shared emitters also spell directly (a nav destination).
   ...unreachableExprLeaves,
+  exprLiteral: (lit, value) => ELIXIR_CTX_FREE_LEAVES.literal(lit, value),
 
   // --- State seam ---------------------------------------------------------
 

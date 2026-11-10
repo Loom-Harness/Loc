@@ -31,6 +31,12 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Card",
   "Divider",
   "Tabs",
+  "Heading",
+  "Text",
+  "Bold",
+  "Italic",
+  "InlineCode",
+  "Anchor",
 ]);
 
 type VM = Record<string, unknown>;
@@ -171,6 +177,60 @@ function renderTabs(vm: VM, sink: HeexWalkSink | undefined): string {
   return `<div class="tabs"${str(vm.testidAttr)}>\n${indent}<div role="tablist" class="tab-bar">\n${triggers}\n${indent}</div>\n${panels}\n${close}</div>`;
 }
 
+/** Indent every non-empty line after the first by `pad` — a fragment the HEEx
+ *  engine rendered relative to its own first column, placed at `pad`. */
+function indentTail(fragment: string, pad: string): string {
+  return fragment
+    .split("\n")
+    .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
+    .join("\n");
+}
+
+/** An inline text element (`<p>`, `<strong>`, `<em>`, `<code>`): each child on
+ *  its own line, the author's `style:` then the `testid:` on the tag, and the
+ *  self-closing tag when there is no content. */
+function textElement(tag: string, vm: VM, rest: readonly string[] = []): string {
+  const indent = str(vm.indent);
+  const text = str(vm.text);
+  const children = [...(text.length > 0 ? [indentTail(text, indent)] : []), ...rest];
+  const attrs = `${str(vm.styleAttr)}${str(vm.testidAttr)}`;
+  if (children.length === 0) return `<${tag}${attrs} />`;
+  return `<${tag}${attrs}>\n${indent}${children.join(`\n${indent}`)}\n${str(vm.closeIndent)}</${tag}>`;
+}
+
+/** `Text` — its first positional is the text (or the whole translated rich
+ *  sentence); the positionals after it are further children. */
+function renderText(vm: VM): string {
+  const rest = typeof vm.restChildren === "function" ? (vm.restChildren as () => string[])() : [];
+  return textElement("p", vm, rest);
+}
+
+/** `Heading` → a raw `<h{n}>` whose rank the shared emitter derives (explicit
+ *  `level:`, else from the enclosing `Section`/`Card` nesting).  The design
+ *  pack's `.header` component always renders an `<h1>`, so it is not used; the
+ *  class mirrors its typography. */
+function renderHeading(vm: VM): string {
+  const level = String(vm.level);
+  return `<h${level} class="text-lg font-semibold leading-8 text-zinc-800"${str(vm.testidAttr)}>${str(vm.text)}</h${level}>`;
+}
+
+/** `Anchor(label, to:)` — a literal internal route rides the verified-route
+ *  `~p` sigil on `<.link navigate>`, a literal external URL a plain `<a href>`,
+ *  a dynamic destination a `navigate={…}` expression attribute.  With no `to:`
+ *  the label renders as a `<span>`: an empty `navigate={}` would not parse. */
+function renderAnchor(vm: VM): string {
+  const testid = str(vm.testidAttr);
+  const label = str(vm.label);
+  const literal = vm.toLiteral;
+  if (typeof literal === "string") {
+    return literal.startsWith("/")
+      ? `<.link navigate={~p"${literal}"}${testid}>${label}</.link>`
+      : `<a href="${literal}"${testid}>${label}</a>`;
+  }
+  if (!vm.hasTo) return `<span${testid}>${label}</span>`;
+  return `<.link navigate={${str(vm.to)}}${testid}>${label}</.link>`;
+}
+
 function escapeAttr(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -188,6 +248,12 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-card": renderCard,
   "primitive-divider": renderDivider,
   "primitive-tabs": renderTabs,
+  "primitive-heading": renderHeading,
+  "primitive-text": renderText,
+  "primitive-bold": (vm) => textElement("strong", vm),
+  "primitive-italic": (vm) => textElement("em", vm),
+  "primitive-inline-code": (vm) => textElement("code", vm),
+  "primitive-anchor": renderAnchor,
 };
 
 /** The pack for one HEEx walk.  `sink` is that walk's HEEx state, for the
