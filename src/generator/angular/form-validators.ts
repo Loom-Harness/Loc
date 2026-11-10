@@ -121,6 +121,17 @@ function codePointLengthValidator(cmp: ">=" | "<=", n: number): string {
   return `((c: AbstractControl) => c.value == null || c.value === "" || ${len} ${cmp} ${n} ? null : { ${key}: { requiredLength: ${n} } })`;
 }
 
+/** An exclusive numeric bound as an inline `ValidatorFn`.  `Validators.min` /
+ *  `Validators.max` are inclusive, so they would accept the boundary value the
+ *  server (and zod, Feliz, Flutter) refuse.  Empty / absent values short-circuit
+ *  to `null` (emptiness is `Validators.required`'s job); the error key is the
+ *  limit's own reason, so it never collides with an inclusive `min`/`max`. */
+function exclusiveBoundValidator(cmp: ">" | "<", n: number): string {
+  const key = cmp === ">" ? "greater-than" : "less-than";
+  const bound = cmp === ">" ? "min" : "max";
+  return `((c: AbstractControl) => c.value == null || c.value === "" || Number(c.value) ${cmp} ${n} ? null : { "${key}": { ${bound}: ${n}, actual: c.value } })`;
+}
+
 /** The subset of a partitioned form's flat fields this helper reads/writes. */
 interface FlatFields {
   flatControls: AngularFormControlSpec[];
@@ -183,15 +194,13 @@ function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularV
     const n = limit.check.bound ?? 0;
     switch (limit.check.reason) {
       case "min":
-      case "greater-than":
-        // Angular has no exclusive numeric validator; an exclusive bound
-        // (`weight > 0.5` on a decimal) falls back to the inclusive `min`, the
-        // closest built-in, still under its own code.  The server floor
-        // enforces the strict bound.
         return [{ call: `Validators.min(${n})`, errorKey: "min", limit }];
+      case "greater-than":
+        return [{ call: exclusiveBoundValidator(">", n), errorKey: "greater-than", limit }];
       case "max":
-      case "less-than":
         return [{ call: `Validators.max(${n})`, errorKey: "max", limit }];
+      case "less-than":
+        return [{ call: exclusiveBoundValidator("<", n), errorKey: "less-than", limit }];
       case "min-length":
         return [{ call: codePointLengthValidator(">=", n), errorKey: "minlength", limit }];
       case "max-length":

@@ -74,6 +74,22 @@ function parse(key: string): Parsed | undefined {
   };
 }
 
+/** An unqualified `A -> B` migration step that more than one context could
+ *  satisfy: each of `contexts` lost an `A` and gained a `B`.  The step names no
+ *  context, so no translation is carried for it. */
+export interface AmbiguousRename {
+  from: string;
+  to: string;
+  contexts: string[];
+}
+
+/** The renames found between two catalogs, and the declared steps left
+ *  unresolved because they could apply to several contexts. */
+export interface RenameReport {
+  moves: KeyMove[];
+  ambiguous: AmbiguousRename[];
+}
+
 /** Pair the identity keys that changed identity between `base` (the lock) and
  *  `theirs` (the fresh extraction).  Both are flat runtime-key catalogs. */
 export function detectRenames(
@@ -81,6 +97,15 @@ export function detectRenames(
   theirs: Catalog,
   declared: DeclaredRenames = NO_DECLARED_RENAMES,
 ): KeyMove[] {
+  return detectRenamesReport(base, theirs, declared).moves;
+}
+
+/** {@link detectRenames} plus the declared steps it refused as ambiguous. */
+export function detectRenamesReport(
+  base: Catalog,
+  theirs: Catalog,
+  declared: DeclaredRenames = NO_DECLARED_RENAMES,
+): RenameReport {
   const vanished = Object.keys(base)
     .filter((k) => !(k in theirs) && parse(k))
     .sort();
@@ -97,6 +122,24 @@ export function detectRenames(
     takenTo.add(to);
   };
 
+  // 0. An unqualified step carries no context of its own: it is the same step
+  //    in every context that lost `from` and gained `to`.  When two contexts
+  //    both did, the step cannot be told which it meant.
+  const ambiguous: AmbiguousRename[] = [];
+  const ambiguousSteps = new Set<(typeof declared.tables)[number]>();
+  for (const t of declared.tables) {
+    if (t.fromContext !== undefined) continue;
+    const contexts = new Set<string>();
+    for (const from of vanished) {
+      const p = parse(from)!;
+      if (p.type === t.from && appearedSet.has(`${p.ctx}.${t.to}.${p.rest}`)) contexts.add(p.ctx);
+    }
+    if (contexts.size > 1) {
+      ambiguousSteps.add(t);
+      ambiguous.push({ from: t.from, to: t.to, contexts: [...contexts].sort() });
+    }
+  }
+
   // 1. Declared: the table step first, then a column step on the (new) type.
   for (const from of vanished) {
     const p = parse(from)!;
@@ -104,6 +147,7 @@ export function detectRenames(
     let type = p.type;
     let rest = p.rest;
     for (const t of declared.tables) {
+      if (ambiguousSteps.has(t)) continue;
       if (t.from !== type || (t.fromContext !== undefined && t.fromContext !== ctx)) continue;
       ctx = t.toContext ?? ctx;
       type = t.to;
@@ -149,7 +193,7 @@ export function detectRenames(
       if (base[from] === theirs[to]) take(from, to, "inferred");
     }
   }
-  return moves.sort((a, b) => a.from.localeCompare(b.from));
+  return { moves: moves.sort((a, b) => a.from.localeCompare(b.from)), ambiguous };
 }
 
 /** Re-key `files` (per-namespace file contents of any value type) by `moves`,

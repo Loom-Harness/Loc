@@ -27,7 +27,7 @@ import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { createDddServices } from "../../language/ddd-module.js";
 import type { Model } from "../../language/generated/ast.js";
 import { loadProject } from "../../language/project-loader.js";
-import { buildMessageCatalog } from "../../system/i18n-catalog.js";
+import { buildMessageCatalog, buildMessageSites } from "../../system/i18n-catalog.js";
 import { type DirOption, loadSourceOverrides } from "./tree.js";
 
 /** What extraction learns about a project. */
@@ -43,6 +43,35 @@ export interface ProjectCatalog {
   source: string;
   /** The renames and moves the project's `migration` blocks declare. */
   renames: DeclaredRenames;
+  /** Where each key was written, as `.ddd` paths (relative to the entry file's
+   *  directory) and 1-based lines.  A key no source construct wrote has none. */
+  locations: Map<string, SourceLocation[]>;
+}
+
+/** A `.ddd` file and line. */
+export interface SourceLocation {
+  file: string;
+  line: number;
+}
+
+/** 1-based line of a source offset; `undefined` when the file cannot be read. */
+function lineAt(
+  file: string,
+  offset: number,
+  cache: Map<string, string | undefined>,
+): number | undefined {
+  if (!cache.has(file)) {
+    try {
+      cache.set(file, fs.readFileSync(file, "utf8"));
+    } catch {
+      cache.set(file, undefined);
+    }
+  }
+  const text = cache.get(file);
+  if (text === undefined) return undefined;
+  let line = 1;
+  for (let i = 0; i < offset && i < text.length; i++) if (text.charCodeAt(i) === 10) line += 1;
+  return line;
 }
 
 /** Parse + lower + enrich the project rooted at `entryFile`, then merge every
@@ -64,17 +93,47 @@ export async function extractProject(
   const { all } = await loadProject(URI.file(absolute), services.shared);
   const loom = enrichLoomModel(lowerProject(all.map((doc) => doc.parseResult.value as Model)));
 
+  // One translator tree holds one source language: a project whose systems
+  // declare different `i18n { source }` values has no single answer, and filing
+  // the later system's keys under the first one's language would silently
+  // mislabel them.
+  const sources = new Map<string, string[]>();
+  for (const sys of loom.systems) {
+    const lang = sourceLocaleOf(sys);
+    sources.set(lang, [...(sources.get(lang) ?? []), sys.name]);
+  }
+  if (sources.size > 1) {
+    const detail = [...sources].map(([lang, systems]) => `${lang} (${systems.join(", ")})`);
+    throw new Error(
+      `Systems declare different i18n source languages: ${detail.join("; ")}. ` +
+        "A translator tree has one source language: give every system the same `i18n { source }`, or run `ddd i18n` over each system's own file.",
+    );
+  }
   const source = loom.systems[0] ? sourceLocaleOf(loom.systems[0]) : sourceLocaleOf({});
   const overrides = loadSourceOverrides(entryFile, { ...options, source });
   const names = new Set<string>();
   const uiNames = new Set<string>();
   const merged: Catalog = {};
+  const locations = new Map<string, SourceLocation[]>();
+  const baseDir = path.dirname(absolute);
+  const lineCache = new Map<string, string | undefined>();
   withSourceOverrides(overrides, () => {
     for (const sys of loom.systems) {
       for (const name of namespaceNamesOf(sys)) names.add(name);
       for (const ui of sys.uis) uiNames.add(ui.name);
       for (const [key, message] of Object.entries(buildMessageCatalog(sys))) {
         merged[key] = message;
+      }
+      for (const [key, refs] of buildMessageSites(sys)) {
+        for (const ref of refs) {
+          const file = path.resolve(ref.path);
+          const line = lineAt(file, ref.span.start, lineCache);
+          if (line === undefined) continue;
+          const list = locations.get(key) ?? [];
+          const loc = { file: path.relative(baseDir, file).split(path.sep).join("/"), line };
+          if (!list.some((l) => l.file === loc.file && l.line === loc.line)) list.push(loc);
+          locations.set(key, list);
+        }
       }
     }
   });
@@ -94,7 +153,7 @@ export async function extractProject(
       toContext: t.toContext,
     })),
   };
-  return { catalog, names, uiNames, source, renames };
+  return { catalog, names, uiNames, source, renames, locations };
 }
 
 /** The flat source catalog alone (see {@link extractProject}). */

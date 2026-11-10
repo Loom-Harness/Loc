@@ -2,6 +2,7 @@ import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import { frontendRequestNames } from "../_frontend/request-names.js";
 import { giveUp } from "../_walker/give-up.js";
+import { workflowRunModelText } from "../_walker/model-text-sites.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import {
@@ -124,7 +125,7 @@ export function renderAngularWorkflowForm(
   const submit = formButton(ctx, {
     type: "submit",
     emphasis: "primary",
-    label: "Run",
+    label: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",
     attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"`,
   });
 

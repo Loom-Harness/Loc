@@ -272,7 +272,7 @@ describe("elixir — extern commandHandler / queryHandler", () => {
     const impl = fileEndingWith(m, "lib/api/ordering/handlers/place_order_impl.ex");
     expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
     expect(impl).toContain("defmodule Api.Ordering.Handlers.PlaceOrderImpl do");
-    expect(impl).toContain("raise ");
+    expect(impl).toContain("raise Api.NotImplementedError,");
   });
 });
 

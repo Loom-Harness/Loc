@@ -1964,9 +1964,18 @@ function collectOpUnions(
   return out;
 }
 
-/** True when some aggregate declares an `extern` operation. */
-function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
-  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+/** True when some aggregate declares an `extern` operation or the context
+ *  declares an `extern` command/query handler — the seams whose scaffold-once
+ *  stub raises `ExternNotImplementedError` (answered 501). */
+function hasExternOperation(ctx: {
+  aggregates: readonly EnrichedAggregateIR[];
+  commandHandlers?: readonly { extern?: boolean }[];
+  queryHandlers?: readonly { extern?: boolean }[];
+}): boolean {
+  return (
+    ctx.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some((h) => h.extern)
+  );
 }
 
 // RFC 7807 problem responder + exception handlers — DomainError → 422

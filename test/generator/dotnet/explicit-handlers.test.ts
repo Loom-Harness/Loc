@@ -65,7 +65,15 @@ describe(".NET — extern commandHandler / queryHandler", () => {
     expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
     expect(impl).toContain("[ExternHandler]");
     expect(impl).toContain("public sealed class PlaceOrderExternHandler : IPlaceOrderHandler");
-    expect(impl).toContain("throw new NotImplementedException(");
+    expect(impl).toContain("throw new ExternNotImplementedException(");
+    // The filter answers that exception 501, so the stub is not a 500 fault.
+    const filter =
+      [...m.entries()].find(([k]) => k.endsWith("DomainExceptionFilter.cs"))?.[1] ?? "";
+    expect(filter).toContain("context.Exception is ExternNotImplementedException");
+    expect(filter).toContain("problem.not-implemented");
+    expect([...m.values()].some((c) => c.includes("class ExternNotImplementedException"))).toBe(
+      true,
+    );
     // Program.cs verifies the impl is registered at startup (Scrutor scan).
     const program = fileEndingWith(m, "Program.cs");
     expect(program).toContain("Api.Application.Handlers.IPlaceOrderHandler");

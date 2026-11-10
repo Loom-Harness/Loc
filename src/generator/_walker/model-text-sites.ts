@@ -33,7 +33,7 @@ import type {
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
-import { modelTextDefault, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
+import { modelTextDefaultOfKey, modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import { localizedModelText } from "./i18n-emit.js";
 import type { MessageEntry } from "./i18n-extract.js";
@@ -52,8 +52,7 @@ export function implicitModelTextOn(ctx: WalkContext): boolean {
  *  and renders as the empty string there.  `keys` parallels `values`. */
 function enumLabelFn(ctx: WalkContext, values: readonly string[], keys: readonly string[]): string {
   const entries = values.map((v, i) => {
-    const text = modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v });
-    return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, text)}`;
+    return `${JSON.stringify(v)}: ${localizedModelText(ctx, keys[i]!, modelTextDefaultOfKey(keys[i]!))}`;
   });
   return `((v: string | null | undefined): string => v == null ? "" : ({ ${entries.join(", ")} } as Record<string, string>)[v] ?? v)`;
 }
@@ -67,11 +66,7 @@ export function enumLabelEntries(
 ): Array<{ value: string; label: string }> {
   return values.map((v, i) => ({
     value: v,
-    label: localizedModelText(
-      ctx,
-      keys[i]!,
-      modelTextDefault({ ctx: undefined, type: "", facet: "value", member: v }),
-    ),
+    label: localizedModelText(ctx, keys[i]!, modelTextDefaultOfKey(keys[i]!)),
   }));
 }
 
@@ -125,6 +120,34 @@ export function opModelText(
   });
   const expr = localizedModelText(ctx, key, defaultText);
   return { markup: ctx.target.renderInterpolation(expr, STRING), expr };
+}
+
+/** The key and English default of a workflow's run button,
+ *  `<Ctx>.<Workflow>.op.run` → "Run" — the one spelling every target's
+ *  `WorkflowForm` submit reads. */
+export function workflowRunEntry(
+  wfName: string,
+  bc: BoundedContextIR,
+  contexts: Iterable<BoundedContextIR>,
+): { key: string; defaultText: string } {
+  return modelTextEntry({
+    ctx: modelTextContextOf(wfName, bc, contexts),
+    type: wfName,
+    facet: "op",
+    member: "run",
+  });
+}
+
+/** A workflow form's run button as a markup token; undefined when the site is
+ *  off (the target keeps its literal "Run"). */
+export function workflowRunModelText(
+  ctx: WalkContext,
+  bc: BoundedContextIR,
+  wfName: string,
+): string | undefined {
+  if (!implicitModelTextOn(ctx)) return undefined;
+  const { key, defaultText } = workflowRunEntry(wfName, bc, ctx.bcByAggregate.values());
+  return ctx.target.renderInterpolation(localizedModelText(ctx, key, defaultText), STRING);
 }
 
 /** The identity-keyed text of ONE form input, resolved off the model rather
@@ -364,6 +387,8 @@ export function implicitModelTextEntries(
       } else if (e.name === "WorkflowForm") {
         const hit = workflows.get(namedRef(e, "runs") ?? "");
         if (!hit) return;
+        const run = workflowRunEntry(hit.wf.name, hit.bc, contexts);
+        out.push({ key: run.key, message: run.defaultText });
         for (const p of hit.wf.params) fieldEntries(hit.wf.name, p, hit.bc, contexts, out);
       } else if (e.name === "EnumBadge") {
         rendersBadge = true;

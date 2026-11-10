@@ -13,9 +13,15 @@
 //     domain code (a `derived`, `function` or `operation` body).  Every
 //     backend renders an `i18nFormat` hole as its bare value, so the branch
 //     text is silently lost (ruling D8; rendering the branches is a mission).
+//   loom.interp-format-invalid — a `plural` / `select` / `selectordinal` body
+//     that is not ICU every runtime can render: a missing `other` branch, a
+//     plural selector that is no CLDR category or `=N`, unbalanced braces
+//     (`#syntax`), or a branch reading a value other than the hole's own
+//     (`#nested-arg`) — the call site hands the runtime only the hole's value.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { type IcuNode, IcuSyntaxError, parseIcu } from "../../i18n/icu.js";
 import {
   isDerivedProp,
   isDomainServiceOperation,
@@ -79,6 +85,42 @@ function domainCodeHost(node: AstNode): "derived" | "function" | "operation" | u
   return host;
 }
 
+/** The first placeholder a branch body reads — any `{name…}` nested inside a
+ *  branch, at any depth — or undefined when every branch is text and `#`. */
+function nestedArg(choice: IcuNode): string | undefined {
+  if (choice.kind !== "choice") return undefined;
+  const visit = (nodes: readonly IcuNode[]): string | undefined => {
+    for (const n of nodes) {
+      if (n.kind === "arg" || n.kind === "choice") return n.name;
+    }
+    return undefined;
+  };
+  for (const o of choice.options) {
+    const name = visit(o.body);
+    if (name !== undefined) return name;
+  }
+  return undefined;
+}
+
+/** Why a branch-format hole is not renderable ICU, or undefined when it is.
+ *  `label` names the hole in the parser's messages — the hole's source text
+ *  when that is a plain path (`order.count`), else a stand-in: the emitters
+ *  derive the real placeholder name, and only the body is the author's. */
+function branchFormatProblem(
+  label: string,
+  format: string,
+): { syntax: string } | { nestedArg: string } | undefined {
+  let nodes: IcuNode[];
+  try {
+    nodes = parseIcu(`{${label}${format}}`);
+  } catch (e) {
+    if (e instanceof IcuSyntaxError) return { syntax: e.message };
+    throw e;
+  }
+  const name = nodes.length === 1 ? nestedArg(nodes[0]!) : undefined;
+  return name === undefined ? undefined : { nestedArg: name };
+}
+
 function isNumericType(t: Ty): boolean {
   return (
     t.kind === "primitive" &&
@@ -94,6 +136,22 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
     for (let i = 0; i < node.holes.length; i++) {
       const hole = node.holes[i]!;
       if (hole.format !== undefined && BRANCH_FORMATS.has(icuArgType(hole.format))) {
+        const text = hole.value.$cstNode?.text.trim() ?? "";
+        const label = /^[^\s{},#<>'"]+$/.test(text) ? text : "value";
+        const problem = branchFormatProblem(label, hole.format);
+        if (problem) {
+          const format = icuArgType(hole.format);
+          accept(
+            "error",
+            "syntax" in problem
+              ? diagMessage("loom.interp-format-invalid#syntax", { format, detail: problem.syntax })
+              : diagMessage("loom.interp-format-invalid#nested-arg", {
+                  format,
+                  name: problem.nestedArg,
+                }),
+            { node, property: "holes", index: i, code: "loom.interp-format-invalid" },
+          );
+        }
         if (host === null) host = domainCodeHost(node);
         if (host) {
           accept(

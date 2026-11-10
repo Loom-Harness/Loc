@@ -19,6 +19,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
+  "loom.interp-format-invalid": "05-expressions.md#string-interpolation",
 
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
   "loom.matches-arity": "05-expressions.md#scalar-intrinsics",

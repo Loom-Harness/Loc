@@ -143,7 +143,12 @@ describe('i18n { source: "de" } — generated output', () => {
     expect([...files.keys()].some((p) => p.includes("priv/gettext/en/"))).toBe(false);
     expect(file(files, "config/config.exs")).toContain('config :gettext, :default_locale, "de"');
     expect(file(files, "layouts/root.html.heex")).toContain('<html lang="de"');
-    expect(file(files, "controllers/error_html.ex")).toContain('<html lang="de">');
+    // The error page renders the negotiated locale, falling back to the source
+    // language the locale module declares.
+    const errorHtml = file(files, "controllers/error_html.ex")!;
+    expect(errorHtml).toContain('<html lang="#{lang}" dir="#{dir}">');
+    expect(errorHtml).toContain("PhoenixAppWeb.Locale.source()");
+    expect(file(files, "_web/locale.ex")).toContain('@source "de"');
   });
 
   it("phoenix with an interpolated message points the CLDR backend at the source", async () => {
@@ -153,7 +158,11 @@ describe('i18n { source: "de" } — generated output', () => {
     );
     const files = await generateSystemFiles(source);
     const cldr = file(files, "/cldr.ex");
-    expect(cldr).toContain('locales: ["de"]');
+    expect(cldr).toContain('@source "de"');
+    expect(cldr).toContain('@shipped ["de"]');
+    // The source is always compiled in, even when CLDR filtering drops a tag.
+    expect(cldr).toContain("&(&1 == @source or ");
+    expect(cldr).toContain("locales: @known,");
     expect(cldr).toContain('default_locale: "de"');
   });
 });

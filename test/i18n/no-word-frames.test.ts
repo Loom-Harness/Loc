@@ -124,9 +124,14 @@ describe("i18n: no word-inserting frames", () => {
   });
 
   it("a pack declares a sentence base exactly when its templates read the token", () => {
-    const tokens: Record<string, string> = {
-      addItem: "{{{addItemLabel}}}",
-      operationSucceeded: "{{{successMessage}}}",
+    // base → [the template that reads it, its token].  `successMessage` is two
+    // sentences, one per template: the op dialog's `operationSucceeded`, and the
+    // inline create / run form's `created` / `completed`.
+    const tokens: Record<string, [file: string | undefined, token: string]> = {
+      addItem: [undefined, "{{{addItemLabel}}}"],
+      operationSucceeded: ["form-op-module.hbs", "{{{successMessage}}}"],
+      created: ["form-default-onsubmit.hbs", "{{{successMessage}}}"],
+      completed: ["form-default-onsubmit.hbs", "{{{successMessage}}}"],
     };
     for (const family of readdirSync(DESIGNS)) {
       for (const version of readdirSync(join(DESIGNS, family))) {
@@ -137,15 +142,16 @@ describe("i18n: no word-inserting frames", () => {
         } catch {
           continue;
         }
-        const templates = readdirSync(dir)
-          .filter((f) => f.endsWith(".hbs"))
-          .map((f) => readFileSync(join(dir, f), "utf8"))
-          .join("\n");
-        for (const [base, token] of Object.entries(tokens)) {
+        const templatesOf = (file: string | undefined): string =>
+          readdirSync(dir)
+            .filter((f) => (file === undefined ? f.endsWith(".hbs") : f === file))
+            .map((f) => readFileSync(join(dir, f), "utf8"))
+            .join("\n");
+        for (const [base, [file, token]] of Object.entries(tokens)) {
           expect(
             (manifest.sentenceChrome ?? []).includes(base),
             `${family}/${version} ${base}`,
-          ).toBe(templates.includes(token));
+          ).toBe(templatesOf(file).includes(token));
         }
       }
     }
