@@ -11,7 +11,7 @@ import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
-import { orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
@@ -481,7 +481,8 @@ function predicateEntry(
   // the whole point of giving the sentinel its own `ExprIR.kind`.
   if (inner.kind === "authz-filter") return authzFilterEntry(inner);
   if (inner.kind === "exists") return existsEntry(inner, acc, aggs);
-  if (orgAncestorsMembershipArg(inner)) return rawPredicateEntry(inner, acc, aggs);
+  if (orgAncestorsMembershipArg(inner) || idColumnVsOperatingOrg(inner))
+    return rawPredicateEntry(inner, acc, aggs);
   const selfScope = guidFromStringSelfScope(inner);
   if (selfScope) {
     const claim = `${acc}.${selfScope.claim}`;
@@ -825,6 +826,15 @@ function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
           ne: (l, r) => `${l} !== ${r}`,
         });
         return test === null ? null : `\${(${test}) ? "1 = 1" : "1 = 0"}`;
+      }
+      // An id column against the operating org compares as text (see
+      // `idColumnVsOperatingOrg`).
+      const orgCmp = idColumnVsOperatingOrg(e);
+      if (orgCmp) {
+        const col = rawColumnSql(orgCmp.column, sc);
+        if (col === null) return null;
+        sc.params.push(filterValue(orgCmp.org, sc.acc));
+        return `cast(${col} as text) ${orgCmp.negated ? "<>" : "="} ?`;
       }
       const op = RAW_COMPARE_OP[e.op];
       if (!op) return null;

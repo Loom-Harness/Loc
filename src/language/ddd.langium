@@ -1310,6 +1310,7 @@ PolicyDecl:
 // so it takes no level.
 PolicyReadRule:
       effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID ('when' when=Expression)?
+    | effect='allow' verb=PolicyShareVerb 'on' target=ID ('when' when=Expression)?
     | effect='allow' (verb=PolicyVerb | verb=PolicyGateVerb)? 'on' target=ID 'as' binding=ID 'where' row=Expression
     | effect='deny' (verb=PolicyVerb)? 'on' target=ID
     | effect=PolicyGateVerb target=ID 'requires' gate=Expression;
@@ -1317,6 +1318,13 @@ PolicyReadRule:
 // The head of a gate rule: `read` (pinned by the validator, see above).
 PolicyGateVerb returns string:
     ID;
+
+// `allow share on X [when <caller-only expr>]` — WHO MAY SHARE a `shareable`
+// aggregate's rows: creating or revoking a row of its share aggregate needs
+// this gate AND write access to the shared row (D-SHARING).  No rule, no
+// sharing.  `share` is a soft keyword (a field may still be named `share`).
+PolicyShareVerb returns string:
+    'share';
 
 // The optional policy verb.  Absent = read.  `write` is the only new keyword —
 // see the note above on why `read` is not one.
@@ -2179,7 +2187,7 @@ SoftKeywordsExceptSort returns string:
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
       | 'required' | 'requirement' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
-      | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
+      | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn' | 'share'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
       | 'solution' | 'source' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'

@@ -193,6 +193,7 @@ const DERIVED_FALLBACK = [
   "audit-history-guarded.ddd Staff.Employee",
   "audit-history-guarded.ddd Staff.Payslip",
   "field-mask.ddd Staff.Employee",
+  "shareable.ddd Catalog.Category",
 ];
 
 describe("wire shape vs. the declared response contract (M-T5.40 census)", () => {

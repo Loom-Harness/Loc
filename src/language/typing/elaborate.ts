@@ -749,7 +749,11 @@ export class Elaborator {
     if (isExistsExpr(e)) {
       // `exists <Agg> as s where p` — `s` is one row of `<Agg>`; the enclosing
       // row stays `this`, so the frame (owner, candidate alias) is unchanged.
-      const agg = e.aggregate?.ref;
+      // A macro-built quantifier carries an unlinked reference (its `$refText`
+      // only), so the name is looked up the way a projection source is.
+      const agg =
+        e.aggregate?.ref ??
+        (e.aggregate?.$refText ? this.index.find("aggregate", e.aggregate.$refText, e) : undefined);
       const rowScope = scope.child();
       rowScope.bind(
         e.binding,

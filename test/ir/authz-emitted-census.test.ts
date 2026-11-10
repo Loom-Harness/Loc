@@ -317,6 +317,12 @@ const SCOPE = new Map<string, Promise<SweepResult | null>>();
 const GATES = new Map<string, Promise<string[] | null>>();
 const MASKS = new Map<string, Promise<MaskSweep | null>>();
 
+/** Every aggregate name of a case's model. */
+const modelAggregateNames = (m: LoomModel): string[] =>
+  m.systems.flatMap((s) =>
+    s.subdomains.flatMap((d) => d.contexts.flatMap((c) => c.aggregates.map((a) => a.name))),
+  );
+
 const scopeResult = (c: Case, v: Variant): Promise<SweepResult | null> =>
   memo(SCOPE, `${c.key} ${v.id}`, async () => {
     const got = await cell(c, v);
@@ -330,7 +336,9 @@ const gateResult = (c: Case, v: Variant): Promise<string[] | null> =>
 const maskResult = (c: Case, v: Variant): Promise<MaskSweep | null> =>
   memo(MASKS, `${c.key} ${v.id}`, async () => {
     const got = await cell(c, v);
-    return "refused" in got ? null : maskSweep(v.id, got.files, c.masks);
+    return "refused" in got
+      ? null
+      : maskSweep(v.id, got.files, c.masks, modelAggregateNames(c.model));
   });
 
 /** The sites a sweep CHECKED (not write / helper / resolver). */

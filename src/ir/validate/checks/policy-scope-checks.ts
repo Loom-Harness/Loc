@@ -16,6 +16,10 @@
 //                                         a composing rule on a hierarchy member
 //   loom.policy-row-cycle                 aggregates whose read scopes reach each
 //                                         other through `exists`
+//   loom.policy-share-not-shareable       `allow share on X` where X is not
+//                                         `shareable`
+//   loom.shareable-not-tenant-owned       `shareable` on an aggregate whose rows
+//                                         every caller already reads
 //
 // Policy-function call cycles are refused at the AST (`loom.policy-fn-cycle`).
 
@@ -40,6 +44,7 @@ export function validatePolicyScopes(sys: SystemIR, diags: LoomDiagnostic[]): vo
       checkRowRules(ctx, diags);
       checkLevels(ctx, diags);
       checkScopeCycles(ctx, diags);
+      checkSharing(ctx, diags);
     }
   }
 }
@@ -184,6 +189,44 @@ function checkLevels(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
         }),
       );
     }
+  }
+}
+
+/** `shareable` and the `allow share` gate (D-SHARING): the gate needs a
+ *  shareable target and a caller-only `when`; a share opens a row beyond its
+ *  org, so the aggregate must be org-scoped to begin with. */
+function checkSharing(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const agg of ctx.aggregates) {
+    if (agg.capabilities.includes("shareable") && !hasTenantOwned(agg))
+      push(
+        diags,
+        ctx,
+        "loom.shareable-not-tenant-owned",
+        diagMessage("loom.shareable-not-tenant-owned", { name: agg.name }),
+      );
+  }
+  for (const rule of ctx.policyShareGates ?? []) {
+    const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
+    if (!agg?.capabilities.includes("shareable")) {
+      push(
+        diags,
+        ctx,
+        "loom.policy-share-not-shareable",
+        diagMessage("loom.policy-share-not-shareable", {
+          source: rule.source,
+          aggregate: rule.aggregate,
+        }),
+      );
+      continue;
+    }
+    const why = rule.when ? notCallerOnly(rule.when) : null;
+    if (why)
+      push(
+        diags,
+        ctx,
+        "loom.policy-when-not-caller-only",
+        diagMessage("loom.policy-when-not-caller-only", { source: rule.source, why }),
+      );
   }
 }
 

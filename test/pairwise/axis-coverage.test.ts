@@ -106,6 +106,12 @@ const WAIVERS: Record<string, Waiver> = {
     reviewUntil: "2027-02-28",
     issue: "#5119",
   },
+  "capability shareable": {
+    deferred:
+      "needs a `tenancy by` system and a `tenantOwned` host in the composed source before it can be crossed; its runtime is gated by the booted `assertShareable` tenancy-e2e leg",
+    reviewUntil: "2027-02-28",
+    issue: "#5119",
+  },
   "header crossTenant": {
     deferred: "needs a `tenancy by` system in the composed source before it can be crossed",
     reviewUntil: "2027-02-28",

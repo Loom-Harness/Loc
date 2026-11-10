@@ -94,6 +94,7 @@ import {
 } from "./mask-taint.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { applyPolicyScopes } from "./policy-scopes.js";
+import { applyShareGates } from "./share-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -771,8 +772,10 @@ export function enrichContext(
   });
   // A `mask unless` field's write sinks inherit its predicate as a hoisted
   // gate (`mask-taint.ts`).
-  const aggregates = withInheritance.map((a) =>
-    applyMaskWriteGates(enrichAggregate(a, valueObjects, urlStyle)),
+  // `allow share on X` gates the lifecycle of X's share (`share-gates.ts`).
+  const aggregates = applyShareGates(
+    withInheritance.map((a) => applyMaskWriteGates(enrichAggregate(a, valueObjects, urlStyle))),
+    ctx.policyShareGates,
   );
   // paged-run (paged-queryHandler): a paged `queryHandler` over
   // `Repo.all(<Criterion>)` needs the #1904 paged FIND repo-method synthesized

@@ -47,7 +47,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -824,6 +824,14 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         const other = isNull(e.right) ? e.left : isNull(e.left) ? e.right : undefined;
         if (other) {
           return `(${whereToSql(other, sqlCtx)} IS ${e.op === "==" ? "" : "NOT "}NULL)`;
+        }
+      }
+      // An id column against the operating org compares as text (see
+      // `idColumnVsOperatingOrg`): `uuid = text` is no Postgres operator.
+      {
+        const orgCmp = idColumnVsOperatingOrg(e);
+        if (orgCmp) {
+          return `(CAST(${whereToSql(orgCmp.column, sqlCtx)} AS text) ${orgCmp.negated ? "<>" : "="} ${whereToSql(orgCmp.org, sqlCtx)})`;
         }
       }
       const op = SQL_BINOP[e.op];

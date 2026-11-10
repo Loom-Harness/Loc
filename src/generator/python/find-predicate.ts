@@ -8,7 +8,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf } from "../../ir/util/inheritance.js";
-import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
@@ -372,6 +372,19 @@ function lower(
         if (selfScope) {
           const claim = JSON.stringify(snake(selfScope.claim));
           return `${row}.id == ${principalAccessor}.guid_claim(${claim})`;
+        }
+      }
+      // An id column against the operating org compares as text (see
+      // `idColumnVsOperatingOrg`): SQLAlchemy's uuid bind processor would
+      // raise on a claim that is no uuid.
+      {
+        const orgCmp = idColumnVsOperatingOrg(e);
+        if (orgCmp) {
+          const col = lower(orgCmp.column, row, associations, ops, principalAccessor, nullBools);
+          const org = lower(orgCmp.org, row, associations, ops, principalAccessor, nullBools);
+          if (col == null || org == null) return null;
+          ops.add("func");
+          return `(${FUNC}.text(${col}) ${orgCmp.negated ? "!=" : "=="} ${org})`;
         }
       }
       // A principal term (`currentUser.role == "agent"`) reads no column: its

@@ -950,8 +950,10 @@ ${body}
       extraChannels,
     );
     const durableCreateEmit = bodyEmits && opEmitsDurableEvent(emitAction, channels);
+    // The draft is bound whenever a clause reads it — a guard, or a create
+    // param an `emit` reads (bound off the draft above).
     const validateClause =
-      bodyReadsRecord && body.length > 0
+      (bodyReadsRecord && body.length > 0) || bodyClauses.length > 0
         ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
         : createValidateClause;
     const insertCall = `${repoMod}.insert(attrs${stampActorArg ? ", current_user" : ""})`;
@@ -1011,10 +1013,15 @@ ${renderEmitDispatchLines(emitAction, bodyRc, createHasDispatcher, "          ",
     // gate splits the seam, `create_<agg>_unguarded` (workflow steps and event
     // dispatch call that one, and run the body like every other backend's
     // domain factory does).
-    const bodyEntry = (name: string): string =>
+    // `doc` is the entry's one `@doc` (a second would redefine it, which
+    // `--warnings-as-errors` refuses).
+    const bodyEntry = (
+      name: string,
+      doc = `Create a ${aggPascal}: validate, run the canonical \`create\` body's guards over the draft, insert, then dispatch its events.`,
+    ): string =>
       body.length === 0
         ? `  defdelegate ${name}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
-        : `  @doc "Create a ${aggPascal}: validate, run the canonical \`create\` body's guards over the draft, insert, then dispatch its events."
+        : `  @doc "${doc}"
   def ${name}(attrs${stampActorArg}) do
     with ${[validateClause, ...bodyClauses].join(",\n         ")} do
 ${createDo}
@@ -1033,8 +1040,14 @@ ${createDo}
     end
   end
 
-  @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
-${bodyEntry(unguardedName("create", agg.name))}`;
+${
+  body.length === 0
+    ? `  @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."\n`
+    : ""
+}${bodyEntry(
+  unguardedName("create", agg.name),
+  `Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal; it validates, runs the canonical \`create\` body over the draft, inserts and dispatches its events.  Request-side callers use \`create_${aggSnake}/2\`.`,
+)}`;
     const deleteClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""

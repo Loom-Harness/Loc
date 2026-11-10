@@ -624,6 +624,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "The accessor lands only with its gate, so this fixture is what puts BOTH in front of all five compile tiers: the stamp (`tenantId := organizationContext.org`) and an operation body read lower to the derived principal member `currentUser.operatingOrg`, and every backend's auth layer emits the gate that sets it.  No `test e2e` block and no wire golden: no wire shape is new (the accessor never reaches the wire), and the runtime proof — an admitted switch stamps, a refused switch 403s with no write, a forged header on a claim-less token 403s, reads stay principal-anchored — is the booted `tenancy-org-context*` leg of tenancy-e2e.",
   },
+  {
+    id: "shareable",
+    title:
+      "`shareable` — a row shared beyond its org: org / subtree / user grantees, write shares, revoke, gated by `allow share on X`",
+    doc: "auth",
+    backends: ALL,
+    note: "`with shareable` unfolds to the share aggregate, its events, `GranteeIsMe` / `SharedWithMe` and the row rules.  No `test e2e` block and no wire golden: a grantee must be a REAL registry org id carried as the tenancy claim, which a literal `as { … }` claim cannot name.  The runtime proof — each grantee kind, a write share, revoke, no re-share, a Subtree grant re-targeted by an authored move, a mask still applying, the share gate's 403 — is the booted `tenancy-org-context*` leg of tenancy-e2e (`assertShareable`).",
+  },
   { id: "tenancy-claim-name", title: "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter", doc: "tenancy", backends: ALL },
   { id: "policy-deny", title: "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams", doc: "auth", backends: ALL },
   { id: "policy-document", title: "`policy { allow local / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },

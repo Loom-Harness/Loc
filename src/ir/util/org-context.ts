@@ -64,6 +64,38 @@ export function orgAncestorsMembershipArg(e: ExprIR): ExprIR | null {
   return null;
 }
 
+/** `<column> == organizationContext.org` (either side, `==` / `!=`) where the
+ *  column is an `X id` — a share's grantee org.  The operating org is the
+ *  tenancy CLAIM's text, which need not parse as an id (a claim of "acme" is
+ *  legal), so every query renderer compares the pair as TEXT
+ *  (`<column>::text = <org>`): a claim that is no id matches no row instead of
+ *  failing the statement's parameter cast. */
+export function idColumnVsOperatingOrg(
+  e: ExprIR,
+): { column: ExprIR; org: ExprIR; negated: boolean } | null {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (inner.kind !== "binary" || (inner.op !== "==" && inner.op !== "!=")) return null;
+  const isOrg = (x: ExprIR): boolean =>
+    x.kind === "member" &&
+    x.member === PRINCIPAL_OPERATING_ORG &&
+    x.receiver.kind === "ref" &&
+    x.receiver.refKind === "current-user";
+  const isIdColumn = (x: ExprIR): boolean => {
+    if (x.kind !== "member") return false;
+    const t = x.memberType.kind === "optional" ? x.memberType.inner : x.memberType;
+    return (
+      t.kind === "id" &&
+      (x.receiver.kind === "this" || (x.receiver.kind === "ref" && x.receiver.refKind === "row"))
+    );
+  };
+  const negated = inner.op === "!=";
+  if (isOrg(inner.right) && isIdColumn(inner.left))
+    return { column: inner.left, org: inner.right, negated };
+  if (isOrg(inner.left) && isIdColumn(inner.right))
+    return { column: inner.right, org: inner.left, negated };
+  return null;
+}
+
 /** Does any expression in `ctx` read `organizationContext.ancestors`?  The
  *  ancestors walk reads the registry's table, so only a deployable hosting the
  *  registry can serve such a context (`loom.tenancy-registry-remote-unsupported`),

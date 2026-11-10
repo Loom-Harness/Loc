@@ -80,12 +80,21 @@ export async function startPostgres(label: string): Promise<Postgres> {
   const override = process.env.LOOM_TENANCY_PG_URL;
   if (override) {
     const u = new URL(override);
+    // One database per boot: a CI job boots several fixtures against the one
+    // `services:` server, and two apps sharing a database share a migration
+    // history, so the second skips the migrations its tables need.
+    const db = `${u.pathname.replace(/^\//, "") || "app"}_${label.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
+    for (const sql of [`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`, `CREATE DATABASE "${db}"`]) {
+      execSync(`psql ${JSON.stringify(override)} -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`, {
+        stdio: "pipe",
+      });
+    }
     return {
       host: u.hostname,
       port: Number(u.port || "5432"),
       user: decodeURIComponent(u.username || "postgres"),
       password: decodeURIComponent(u.password || "postgres"),
-      db: u.pathname.replace(/^\//, "") || "app",
+      db,
       stop: () => {},
     };
   }
@@ -693,4 +702,169 @@ export async function assertOrgContextGate(
     bootLog().includes("org_context_denied"),
     "no `org_context_denied` catalog line in the server log",
   ).toBe(true);
+}
+
+// ---------------------------------------------------------------------------
+// `shareable` (D-SHARING) — the `shareable` fixture's share grants proven on a
+// booted app with real registry org ids as tenancy claims:
+//
+//   1. an `Org` grant opens the row to that org only;
+//   2. a `Subtree` grant opens it to the org and every org below it, and a
+//      MOVE under the granted org re-targets it on the next request;
+//   3. a `User` grant opens it to that user only;
+//   4. a grant opens the row, not its masked fields — `mask unless` still
+//      redacts by the grantee's own principal;
+//   5. only a WRITE share opens the grantee's writes;
+//   6. revoking a share closes the row again;
+//   7. a grantee cannot re-share: a share it creates sits in ITS org, not the
+//      row's, so it counts for nobody;
+//   0. `allow share on X when …` gates creating and revoking a share.
+// ---------------------------------------------------------------------------
+
+/** The dev-claims principal for `tenantId` with `role` and user `id`. */
+function principal(tenantId: string, role: string, id: string): Record<string, string> {
+  return {
+    "x-loom-dev-claims": Buffer.from(JSON.stringify({ tenantId, role, id })).toString("base64"),
+    "content-type": "application/json",
+  };
+}
+
+export async function assertShareable(base: string): Promise<void> {
+  const uuid = (): string => crypto.randomUUID();
+  async function send(
+    who: Record<string, string>,
+    method: string,
+    url: string,
+    body?: object,
+  ): Promise<{ status: number; json: unknown; text: string }> {
+    const r = await fetch(`${base}${url}`, {
+      method,
+      headers: who,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await r.text();
+    let json: unknown;
+    try {
+      json = text ? JSON.parse(text) : undefined;
+    } catch {
+      json = undefined;
+    }
+    return { status: r.status, json, text };
+  }
+  async function createOrg(name: string, parent?: string): Promise<string> {
+    const r = await send({ "content-type": "application/json" }, "POST", "/api/orgs", {
+      name,
+      ...(parent ? { parent } : {}),
+    });
+    expect(r.status, r.text).toBe(201);
+    return (r.json as { id: string }).id;
+  }
+  async function names(who: Record<string, string>): Promise<string[]> {
+    const r = await send(who, "GET", "/api/categories");
+    expect(r.status, r.text).toBe(200);
+    return rows<{ name: string }>(r.json)
+      .map((x) => x.name)
+      .sort();
+  }
+  async function share(
+    who: Record<string, string>,
+    grant: { category: string; granteeKind: string; org?: string; user?: string; write?: boolean },
+  ): Promise<string> {
+    const r = await send(who, "POST", "/api/category_shares", { write: false, ...grant });
+    expect(r.status, r.text).toBe(201);
+    return (r.json as { id: string }).id;
+  }
+
+  // A → { A.B, A.X → A.X.Y }, and two other customers W and Z.
+  const orgA = await createOrg("A");
+  const orgAB = await createOrg("A.B", orgA);
+  const orgAX = await createOrg("A.X", orgA);
+  const orgAXY = await createOrg("A.X.Y", orgAX);
+  const orgW = await createOrg("W");
+  const orgZ = await createOrg("Z");
+  const mgr = (org: string) => principal(org, "manager", uuid());
+  const clerk = (org: string) => principal(org, "clerk", uuid());
+  const sharer = mgr(orgA);
+
+  const made = await send(sharer, "POST", "/api/categories", { name: "tools", secret: "s1" });
+  expect(made.status, made.text).toBe(201);
+  const tools = (made.json as { id: string }).id;
+  expect(await names(mgr(orgAB))).toEqual([]);
+
+  // (0) `allow share on Category when currentUser.role == "manager"`: a clerk
+  // of the owning org may neither share nor revoke.
+  const denied = await send(clerk(orgA), "POST", "/api/category_shares", {
+    category: tools,
+    granteeKind: "Org",
+    org: orgAB,
+    write: false,
+  });
+  expect(denied.status, denied.text).toBe(403);
+
+  // (1) Org grant: A.B and only A.B.
+  const toAB = await share(sharer, { category: tools, granteeKind: "Org", org: orgAB });
+  const clerkRevoke = await send(clerk(orgA), "POST", `/api/category_shares/${toAB}/revoke`, {});
+  expect(clerkRevoke.status, clerkRevoke.text).toBe(403);
+  expect(await names(mgr(orgAB))).toEqual(["tools"]);
+  expect(await names(mgr(orgAX))).toEqual([]);
+  // The grantee reads the share row addressed to it, and nothing else of A's.
+  const abShares = await send(mgr(orgAB), "GET", "/api/category_shares");
+  expect(rows<{ id: string }>(abShares.json).map((s) => s.id)).toEqual([toAB]);
+
+  // A home claim that is no registry id ("acme") is a legal tenancy claim:
+  // the Org arm compares the grantee column as text, so it matches nothing —
+  // a 200 with no rows, never a failed parameter cast.
+  expect(await names(principal("acme", "manager", uuid()))).toEqual([]);
+
+  // (4) The grant opens the row, not its masked field.
+  const asClerk = await send(clerk(orgAB), "GET", `/api/categories/${tools}`);
+  expect(asClerk.status, asClerk.text).toBe(200);
+  expect((asClerk.json as { secret?: string | null }).secret ?? null).toBeNull();
+  const asMgr = await send(mgr(orgAB), "GET", `/api/categories/${tools}`);
+  expect((asMgr.json as { secret?: string | null }).secret).toBe("s1");
+
+  // (2) Subtree grant: A.X and A.X.Y, not the unrelated customer.
+  await share(sharer, { category: tools, granteeKind: "Subtree", org: orgAX });
+  expect(await names(mgr(orgAX))).toEqual(["tools"]);
+  expect(await names(mgr(orgAXY))).toEqual(["tools"]);
+  expect(await names(mgr(orgW))).toEqual([]);
+
+  // (3) User grant: that user, not a colleague in the same org.
+  const zUser = uuid();
+  await share(sharer, { category: tools, granteeKind: "User", user: zUser });
+  expect(await names(principal(orgZ, "clerk", zUser))).toEqual(["tools"]);
+  expect(await names(clerk(orgZ))).toEqual([]);
+
+  // (5) A read grant opens no write; a write grant does.
+  const rename = (who: Record<string, string>, name: string) =>
+    send(who, "POST", `/api/categories/${tools}/update`, { name, secret: "s1" });
+  expect((await rename(mgr(orgAB), "gear")).status).toBe(404);
+  const writeAB = await share(sharer, {
+    category: tools,
+    granteeKind: "Org",
+    org: orgAB,
+    write: true,
+  });
+  const renamed = await rename(mgr(orgAB), "gear");
+  expect([200, 204], renamed.text).toContain(renamed.status);
+  expect(await names(sharer)).toEqual(["gear"]);
+  expect((await rename(mgr(orgAX), "nope")).status).toBe(404);
+
+  // (7) No re-share: A.B's own share of the row sits in A.B, so it opens
+  // nothing to W.
+  await share(mgr(orgAB), { category: tools, granteeKind: "Org", org: orgW, write: true });
+  expect(await names(mgr(orgW))).toEqual([]);
+
+  // (2b) An AUTHORED move of W under A.X re-targets the Subtree grant.
+  const moved = await send(mgr(orgW), "POST", `/api/orgs/${orgW}/move`, { to: orgAX });
+  expect([200, 204], moved.text).toContain(moved.status);
+  expect(await names(mgr(orgW))).toEqual(["gear"]);
+
+  // (6) Revoking closes the row again: the write share first, then the read.
+  const revoke = (id: string) => send(sharer, "POST", `/api/category_shares/${id}/revoke`, {});
+  expect([200, 204]).toContain((await revoke(writeAB)).status);
+  expect((await rename(mgr(orgAB), "again")).status).toBe(404);
+  expect(await names(mgr(orgAB))).toEqual(["gear"]);
+  expect([200, 204]).toContain((await revoke(toAB)).status);
+  expect(await names(mgr(orgAB))).toEqual([]);
 }

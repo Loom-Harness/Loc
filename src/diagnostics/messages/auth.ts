@@ -25,6 +25,7 @@ export const segments = [
   "guard",
   "default",
   "field",
+  "shareable",
 ] as const;
 
 export const messages = {
@@ -498,6 +499,19 @@ export const messages = {
     `is not \`with tenantOwned\`.  A write rule composes with the tenant floor, so it applies only ` +
     `to tenant-owned aggregates.`,
   // Row rules, `when` and `own` (D-SHARING) — src/ir/validate/checks/policy-scope-checks.ts
+  // ----------------------------------------------------------------------
+  // src/macros/expander.ts / src/ir/validate/checks/share-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.shareable-no-tenancy": (p: { name: unknown }) =>
+    `aggregate '${p.name}' is \`shareable\`, but the system declares no \`tenancy by user.<claim> of <Registry>\`: ` +
+    `a share names its grantee by registry org, and visibility beyond one's org needs an org to start from.  ` +
+    `Declare the tenancy, or drop \`shareable\`.`,
+  "loom.shareable-not-tenant-owned": (p: { name: unknown }) =>
+    `aggregate '${p.name}' is \`shareable\` but not \`tenantOwned\`: its rows are already visible to every ` +
+    `caller, so a share opens nothing.  Add \`with tenantOwned\`, or drop \`shareable\`.`,
+  "loom.policy-share-not-shareable": (p: { source: unknown; aggregate: unknown }) =>
+    `\`${p.source}\`: '${p.aggregate}' is not \`shareable\` — there is no share to gate.  ` +
+    `Add \`with shareable\` to '${p.aggregate}', or drop the rule.`,
   "loom.policy-row-not-queryable": (p: { source: unknown; why: unknown }) =>
     `\`${p.source}\`: the row predicate is compiled into every read of the aggregate, so it ` +
     `must be queryable — ${p.why}.  Use field comparisons, \`exists <Aggregate> as s where …\` ` +

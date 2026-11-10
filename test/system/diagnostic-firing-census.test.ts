@@ -612,6 +612,36 @@ system S {
     }
   }
 }`,
+  // `allow share` on an aggregate that is not `shareable`.
+  "loom.policy-share-not-shareable": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow share on Doc }
+    }
+  }
+}`,
+  // `shareable` on an aggregate every caller already reads.
+  "loom.shareable-not-tenant-owned": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with shareable, crudish { title: string }
+    }
+  }
+}`,
+  // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
+  "loom.shareable-no-tenancy": `
+context C {
+  aggregate Doc with tenantOwned, shareable, crudish { title: string }
+}`,
   // `own` on an aggregate without `auditable`.
   "loom.policy-own-no-creator": `
 system S {
