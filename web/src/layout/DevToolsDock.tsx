@@ -5,7 +5,7 @@ import { TestsBody } from "./TestsPanel";
 import { HistoryBody } from "./HistoryPanel";
 import { MigrationsBody } from "./MigrationsPanel";
 import { OutputPanel, outputMark } from "./OutputPanel";
-import { devClaimsHeader, type DockTab, type LayoutCtx } from "./ctx";
+import { type DockTab, type LayoutCtx } from "./ctx";
 import {
   agentMark,
   authMark,
@@ -61,7 +61,7 @@ function DevToolsDockView({ ctx, tab, setTab }: Props): JSX.Element {
     { id: "tests", label: PANE.tests, mark: testsMark(ctx) },
     { id: "migrations", label: PANE.migrations, mark: migrationsMark(ctx) },
     { id: "history", label: PANE.history, mark: null },
-    { id: "auth", label: PANE.auth, mark: authMark(ctx, devClaimsHeader(ctx.authStub) != null) },
+    { id: "auth", label: PANE.auth, mark: authMark(ctx) },
   ];
 
   return (

@@ -8,9 +8,6 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
 
-  // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
-  "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
-
   // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
   "loom.mask-unless-not-bool":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",

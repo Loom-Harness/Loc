@@ -501,6 +501,18 @@ table-layout resolution.
 
 ## D1–D4, D14–D15 — type-system grammar names + ML syntax
 
+> **Superseded in part.** **D2:** the union discriminator field is **`type`**,
+> not `kind` — every backend's tagged wire carries `{ "type": "<Variant>", … }`
+> (`src/generator/_payload/union-wire.ts`, the one source of the tagged shape),
+> and the event frame keeps its own `kind`.  **D14 / D15:** the page carrier is
+> spelled `paged`, and `T option` is a deprecated spelling of `T?`
+> (D-ABSENCE-MODEL), so the `option` examples read as `T?`.  **D5–D37:** the
+> recommended answers in the implementation plan predate D-FAILURE-MODEL,
+> D-ABSENCE-MODEL and D-ENVELOPE-RATIFY, and are superseded by them; they are
+> not decisions to take.  Where a type form may appear is the generated table in
+> [04-type-system.md](language-reference/04-type-system.md#where-a-type-form-may-appear).
+> D1, D3, D4 and the postfix-ML / precedence rules of D14 / D15 stand.
+
 **Status:** PINNED (the six grammar-shaping tags). The remaining
 type-system decisions D5–D37 keep their **recommended** answers in
 [`proposals/implementation-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implementation-plan.md)
@@ -511,7 +523,7 @@ fix the grammar surface before P3.
 | Tag | Question | **Pinned answer** |
 |---|---|---|
 | D1 | Carrier bound name | **`carrier`** (over `value`/`data`) |
-| D2 | Union discriminator field name | **`kind`** (over `type`/`_type`) |
+| D2 | Union discriminator field name | ~~`kind`~~ — superseded: **`type`** (see the note above) |
 | D3 | Union identity | **Variant-name-tagged** (not structural) |
 | D4 | Aggregate-in-carrier semantics | **Handle-in-process, wire-at-boundary** |
 | D14 | Parameterised-payload use-site syntax | **Postfix ML** (`customer page`); consistent with `Customer id`; **no angle brackets anywhere** |
@@ -802,7 +814,7 @@ value** (single entity/payload/primitive), **`Paged<T>`** (lists),
 **ProblemDetails** (RFC 7807, all errors), **event-frame** (`{ kind,
 occurredAt, correlationId, data }`). The HTTP **status code is the
 success/error discriminator**; the success path is **never** wrapped in
-a `{ kind: "ok", value }` envelope (D16) — the payload `kind`
+a `{ kind: "ok", value }` envelope (D16) — the payload `type`
 discriminator (D2/D3) lives inside tagged-union bodies, not at the
 envelope level. A uniform `{ ok, value | error }` envelope is rejected
 (forces every client to unwrap; duplicates the status line).
@@ -4587,13 +4599,20 @@ masking. Not (a) inside a per-target drain packet, for the reason below.
   is not missing — it is a different surface, with a different meaning
   (`mask unless` is per-caller authorization; `sensitive` is a data-category
   classification).
-- **Phases 2–4 are three features, not one drain.** Phase 2 is a type-system
-  change (`authorized(<category>)` declassification, with the 2-lite warnings
-  becoming errors); phase 3 is a per-strategy masking arm in five DTO emitters
-  plus the OpenAPI schema that describes them; phase 4 is sink classification —
-  every log event, every emitted domain event's payload, every outbound resource
-  call. Phase 4 in particular has no chokepoint today: the `_obs/` catalog, the
-  channel envelope and the resource clients each build their own payload.
+- **Sensitivity is a field fact, not a type fact.** The tags live on
+  `FieldIR.sensitivity` only — no `TypeIR` and no typing-pass `Ty` carries
+  them, so no type relation, union key or type printer has to carry or ignore
+  them, and there is no information-flow tracking through expressions (and so
+  no "implicit conversion drops a tag" warning). The remaining work is
+  field-level: wire masking strategies, and sink classification, where a log /
+  emitted event / outbound resource call that receives a sensitive *field* is
+  classified at the call.
+- **The rest is two features, not one drain.** Wire masking is a per-strategy
+  arm in five DTO emitters plus the OpenAPI schema that describes them; sink
+  classification covers every log event, every emitted domain event's payload,
+  every outbound resource call. Sink classification in particular has no
+  chokepoint today: the `_obs/` catalog, the channel envelope and the resource
+  clients each build their own payload.
 - **Its failure mode is the one a sweep must not risk.** A masking arm applied
   at four of five response sites, or to the read DTO but not the audit snapshot
   (the exact asymmetry `mask unless` × `audited` hit on .NET, M-T3.9), is

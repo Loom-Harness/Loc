@@ -113,9 +113,10 @@ describe("handler contract scope — the admitted positions link", () => {
 
 describe("handler contract scope — the neighbouring positions still refuse", () => {
   // Each case names a transport record from a position that is NOT a transport
-  // boundary.  The widening must not reach any of them, so the reference stays
-  // unresolvable and the user gets "could not resolve" instead of a field/param
-  // silently typed as a transport record.
+  // boundary.  The record still resolves (behind the ordinary types), so the
+  // refusal is the type-position table's `loom.transport-type-position`, naming
+  // the record and the position — never a field/param silently typed as a
+  // transport record, and never "Unknown type" for a name that exists.
   const cases: Array<[string, string, string]> = [
     ["an aggregate field", "OrderResponse", `aggregate Bad { stray: OrderResponse }`],
     [
@@ -139,15 +140,12 @@ criterion OrdersByQ(q: GetOrderQuery) of Order = this.status == "x"`,
   for (const [where, name, member] of cases) {
     it(`does not resolve a transport record in ${where}`, async () => {
       const { errors } = await parseString(ctx(`${HANDLERS}\n${member}`));
-      // Named, so the assertion cannot be satisfied by SOME OTHER unresolved
-      // reference the fixture happens to carry.
-      // An unresolved TYPE position reports as "Unknown type '<name>'" (the
-      // Langium-internal `NamedDecl` wording it replaced named a grammar type
-      // and offered nothing to try — see `ddd-linker.ts`).
-      const unresolved = `Unknown type '${name}'.`;
+      // Named, so the assertion cannot be satisfied by SOME OTHER refusal the
+      // fixture happens to carry.
+      const refused = `'${name}' is a`;
       expect(
-        errors.some((e) => e.includes(unresolved)),
-        `expected "${unresolved}" from ${where}, got: ${JSON.stringify(errors)}`,
+        errors.some((e) => e.includes(refused) && e.includes("transport record")),
+        `expected "${refused} … transport record" from ${where}, got: ${JSON.stringify(errors)}`,
       ).toBe(true);
       // …and the handlers in the same context still link (the refusal is
       // positional, not "this whole fixture is broken").
@@ -162,6 +160,8 @@ criterion OrdersByQ(q: GetOrderQuery) of Order = this.status == "x"`,
 
   it("still refuses in those positions when the handlers are absent too", async () => {
     const { errors } = await parseString(ctx(`aggregate Bad { stray: OrderResponse }`));
-    expect(errors.some((e) => e.includes("Unknown type 'OrderResponse'."))).toBe(true);
+    expect(
+      errors.some((e) => e.includes("'OrderResponse' is a response, a transport record")),
+    ).toBe(true);
   });
 });

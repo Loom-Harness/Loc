@@ -40,6 +40,7 @@ import {
   type UiChannelParam,
   type UiNotification,
 } from "./generated/ast.js";
+import { namedTypePosition, positionAdmits } from "./type-positions.js";
 
 /**
  * Custom scope provider that enforces aggregate-local visibility for
@@ -73,7 +74,7 @@ export class DddScopeProvider extends DefaultScopeProvider {
       // enclosing ui's `api X: Y` handles bind to — the page can only match errors
       // from contexts it actually talks to.  Additive over `localScope`, so the
       // `else` form and the success arm keep resolving exactly as before.
-      if (inUnionVariant(context.container)) {
+      if (namedTypePosition(context.container) === "union-variant") {
         const ui = AstUtils.getContainerOfType(context.container, isUi);
         if (ui) {
           const payloads = uiBoundContextPayloads(ui);
@@ -205,22 +206,16 @@ export class DddScopeProvider extends DefaultScopeProvider {
   }
 
   private localTypeScope(context: ReferenceInfo): Scope | undefined {
-    // Transport types (`event` / `command` / `query` / `response` / `error`)
-    // are only offered as a type in a TRANSPORT-BOUNDARY position — a workflow
-    // `create` parameter (`create(e: PaymentReceived) by …`,
-    // `create(c: SettleOrder)`), a union variant, or an application-layer
-    // `commandHandler`/`queryHandler` contract (its record param and its
-    // response return — `queryHandler GetOrder(query: GetOrderQuery):
-    // OrderResponse`).  Everywhere else they stay out of scope, so a stray event
-    // name in an aggregate field / UI param / operation param position resolves
-    // to nothing (a clear error) rather than silently typing as a transport
-    // record.
+    // Transport types (`event` / `payload` / `command` / `query` / `response` /
+    // `error`) are offered in front of the ordinary types only in the positions
+    // the type-position table admits them (`type-positions.ts`: a workflow
+    // `create` parameter or result, a union variant, a `commandHandler` /
+    // `queryHandler` contract).  Everywhere else they resolve BEHIND the
+    // ordinary types — an enum / value object / aggregate of the same name wins
+    // — so a stray event name in an aggregate field still links, and the
+    // position check reports it with the table's code instead of "Unknown type".
     const createResult = workflowCreateResultOwner(context.container);
-    const allowTransport =
-      inWorkflowCreateParam(context.container) ||
-      inUnionVariant(context.container) ||
-      inHandlerContract(context.container) ||
-      createResult !== undefined;
+    const allowTransport = positionAdmits("transport-record", namedTypePosition(context.container));
     const aggregate = enclosingAggregate(context.container);
     const ownWorkflow = createResult
       ? AstUtils.getContainerOfType(createResult, isWorkflow)
@@ -260,6 +255,7 @@ export class DddScopeProvider extends DefaultScopeProvider {
           d.type === "Aggregate" ||
           (allowTransport && isTransportType(d.type)) ||
           (ownWorkflow !== undefined && d.type === "Workflow" && d.node === ownWorkflow),
+        allowTransport ? undefined : (d) => isTransportType(d.type),
       );
       // Only names the filtered scope can't already resolve — a same-document
       // event stays the winner; the widening adds the foreign ones.
@@ -268,23 +264,36 @@ export class DddScopeProvider extends DefaultScopeProvider {
     }
     // Inside an aggregate: filter out entity-parts owned by *other*
     // aggregates.  Same-aggregate parts and all enums/VOs/aggregates pass.
-    return this.filterScope(defaultScope, (d) => {
-      if (d.type === "EnumDecl" || d.type === "ValueObject" || d.type === "Aggregate") {
-        return true;
-      }
-      if (allowTransport && isTransportType(d.type)) return true;
-      if (d.type === "EntityPart") {
-        const node = d.node;
-        return !!node && AstUtils.getContainerOfType(node, isAggregate) === aggregate;
-      }
-      return false;
-    });
+    return this.filterScope(
+      defaultScope,
+      (d) => {
+        if (d.type === "EnumDecl" || d.type === "ValueObject" || d.type === "Aggregate") {
+          return true;
+        }
+        if (allowTransport && isTransportType(d.type)) return true;
+        if (d.type === "EntityPart") {
+          const node = d.node;
+          return !!node && AstUtils.getContainerOfType(node, isAggregate) === aggregate;
+        }
+        return false;
+      },
+      allowTransport ? undefined : (d) => isTransportType(d.type),
+    );
   }
 
-  private filterScope(scope: Scope, keep: (d: AstNodeDescription) => boolean): Scope {
+  /** `scope` narrowed to `keep`, with the elements `behind` selects reachable
+   *  only when no kept element has the name. */
+  private filterScope(
+    scope: Scope,
+    keep: (d: AstNodeDescription) => boolean,
+    behind?: (d: AstNodeDescription) => boolean,
+  ): Scope {
     const elems = Array.from(scope.getAllElements());
     const kept = elems.filter(keep);
-    return this.createScope(kept);
+    const outer = behind ? elems.filter((d) => !keep(d) && behind(d)) : [];
+    return outer.length > 0
+      ? this.createScope(kept, this.createScope(outer))
+      : this.createScope(kept);
   }
 }
 
@@ -444,33 +453,6 @@ function inWorkflowCreateParam(namedType: AstNode | undefined): boolean {
   return param.$container?.$type === "WorkflowCreateDecl";
 }
 
-/** True when `namedType` sits in an application-layer handler's CONTRACT — the
- *  declared type of a `commandHandler` / `queryHandler` parameter, or the
- *  handler's own `returnType`:
- *
- *      queryHandler GetOrder(query: GetOrderQuery): OrderResponse { … }
- *                                  ^^^^^^^^^^^^^    ^^^^^^^^^^^^^
- *
- *  Both are genuine transport boundaries — the request record the route body
- *  deserialises into, and the response record the route serialises out — which
- *  is exactly what `src/ir/util/handler-contracts.ts` (`requestRecordFor` /
- *  `normalizeHandlerReturn`) reads, and what `scaffoldHandlers` synthesises.
- *  Deliberately positional (the same shape as `inWorkflowCreateParam`), so the
- *  widening reaches these two slots and nothing else: an aggregate field, an
- *  operation / find / workflow-function param, and a UI page param all keep
- *  resolving a stray transport name to nothing.
- *
- *  Container chains: NamedType → TypeRef → Parameter → CommandHandler |
- *  QueryHandler (param), and NamedType → TypeRef(`returnType`) →
- *  CommandHandler | QueryHandler (return). */
-function inHandlerContract(namedType: AstNode | undefined): boolean {
-  const typeRef = namedType?.$container;
-  if (typeRef?.$type !== "TypeRef") return false;
-  const owner = typeRef.$container;
-  if (owner?.$type === "Parameter") return isHandlerDecl(owner.$container?.$type);
-  return typeRef.$containerProperty === "returnType" && isHandlerDecl(owner?.$type);
-}
-
 /** The workflow `create` whose declared result type `namedType` sits in — the
  *  head of `create(…): T` or one of its `or` alternatives — else undefined.  A
  *  create's result is a transport boundary like a handler's return, so payloads
@@ -481,26 +463,6 @@ function workflowCreateResultOwner(namedType: AstNode | undefined): AstNode | un
   if (typeRef?.$type !== "TypeRef" || typeRef.$containerProperty !== "returnType") return undefined;
   const owner = typeRef.$container;
   return owner?.$type === "WorkflowCreateDecl" ? owner : undefined;
-}
-
-function isHandlerDecl(type: string | undefined): boolean {
-  return type === "CommandHandler" || type === "QueryHandler";
-}
-
-/** True when `namedType` sits in a discriminated-union variant position
- *  (payload-transport-layer.md, P4) — so a variant naming an `event` /
- *  `payload` (`payload OrderEvent = OrderPlaced | OrderCancelled`,
- *  `find f(): OrderId or NotFound`) resolves to that transport type rather
- *  than falling out of scope.  A `TypeAtom` only ever appears as a union
- *  variant (a `|` arm of a named union or an `or`-alternative); the head of an
- *  anonymous `A or B` is a `TypeRef` carrying `alternatives`. */
-function inUnionVariant(namedType: AstNode | undefined): boolean {
-  const c = namedType?.$container;
-  if (!c) return false;
-  if (c.$type === "TypeAtom") return true;
-  return (
-    c.$type === "TypeRef" && ((c as { alternatives?: unknown[] }).alternatives?.length ?? 0) > 0
-  );
 }
 
 /** Every payload/error decl reachable through a UI's `api X: Y` handles — each

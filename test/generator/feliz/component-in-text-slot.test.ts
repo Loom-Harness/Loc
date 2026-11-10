@@ -65,7 +65,7 @@ describe("a user component in a text-or-markup slot — Feliz", () => {
       component Panel(heading: string) { body: Text { heading } }
       page Things {
         route: "/things"
-        state { rows: Thing[] = Api.Things.all }
+        state { rows: Thing[] = Sales.Thing.all }
         body: Table(Column("Panel", t => Panel(heading: "in-cell")), rows: rows)
       }`);
     // The assertion that fails on `main`: the call is emitted as visible text,
@@ -95,7 +95,7 @@ describe("a user component in a text-or-markup slot — Feliz", () => {
     const fs = await appFs(`
       page Things {
         route: "/things"
-        state { rows: Thing[] = Api.Things.all }
+        state { rows: Thing[] = Sales.Thing.all }
         body: Table(Column("Label", t => "Order total"), rows: rows)
       }`);
     expect(fs).toContain('Html.text "Order total"');

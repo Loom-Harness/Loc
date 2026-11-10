@@ -15,7 +15,7 @@ const SRC = `
     aggregate Cart {
       subtotal: money
       operation reprice() {
-        let total = Pricing.Quote(this, this)
+        let total = Pricing.quote(this, this)
       }
     }
     repository Customers for Customer { }

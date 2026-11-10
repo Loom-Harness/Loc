@@ -24,6 +24,11 @@
 //   - `Org` is the registry tree.  Its `parent` is an ordinary mutable field;
 //     `move(to)` is AUTHORED (the capability generates none), which is how the
 //     harness re-parents an org and closes a deliberate cycle.
+//   - A registry ROW RULE widens the registry's read scope: an org naming a
+//     `steward` org is readable by that steward — and so a caller from the
+//     steward org may switch into it, and its writes there are stamped with
+//     the switched org (D-SHARING; the switch admits any org the caller can
+//     read on the registry).
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system OrgContext {
@@ -66,11 +71,16 @@ system OrgContext {
       }
       aggregate Org with crudish {
         name: string
+        steward: string?
         implements tenantRegistry
         operation move(to: Org id) {
           parent := to
         }
       }
+      policy {
+        allow read on Org as o where o.steward == currentUser.tenantId
+      }
+
       repository Accounts for Account { }
       repository Orgs for Org { }
     }

@@ -101,6 +101,7 @@ import {
   checkTopLevelDomainComposition,
   checkTopLevelFunctions,
   checkTraceability,
+  checkTransportTypePositions,
   checkTypeReferences,
   checkUi,
   checkUnhandledResults,
@@ -322,10 +323,9 @@ export class DddValidator {
     // uniqueness within a context (and vs. value objects / events) and
     // distinct non-empty field names.
     guard("payloads", model, () => checkPayloads(model, accept));
-    // Generic-carrier instantiation (payload-transport-layer.md, P3):
-    // the single type argument of `paged` / `envelope` must be a carrier,
-    // v1 admits only single-level (non-nested) instantiation, and a carrier
-    // may appear only in a transport position (find return / payload field).
+    // Generic-carrier instantiation: the single type argument of `paged` must be
+    // a carrier, only single-level (non-nested) instantiation is admitted, and a
+    // carrier stands only where the type-position table admits it.
     guard("generic-carriers", model, () => checkGenericCarriers(model, accept));
 
     // loom.requires-not-bool / loom.policy-unknown-rule — the read-path gates.
@@ -339,6 +339,10 @@ export class DddValidator {
     // `A or B` and named `payload Foo = A | B` variant sets must be distinct
     // (unambiguous wire discriminator) and carrier-typed (no `slot` variant).
     guard("unions", model, () => checkUnions(model, accept));
+    // loom.transport-type-position / loom.union-position#named — an event or
+    // payload record, or a named union, written as a type where the
+    // type-position table does not admit it.
+    guard("transport-type-positions", model, () => checkTransportTypePositions(model, accept));
     // Seed datasets (database-seeding.md): a seed may only populate
     // aggregates of its own context, and a record may not repeat a field.
     guard("seeds", model, () => checkSeeds(model, accept));

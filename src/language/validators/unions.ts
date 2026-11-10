@@ -19,16 +19,13 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import {
   isCommandHandler,
-  isDomainServiceOperation,
   isNamedType,
-  isOperation,
   isPayloadDecl,
-  isProperty,
   isQueryHandler,
   isSlotType,
   isTypeRef,
-  isWorkflowCreateDecl,
 } from "../generated/ast.js";
+import { admittedPositionsText, positionRule, typeRefPosition } from "../type-positions.js";
 
 export function checkUnions(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
@@ -42,47 +39,36 @@ export function checkUnions(model: Model, accept: ValidationAcceptor): void {
   }
 }
 
-/** An inline `A or B` union is a transport shape (like a generic carrier) — it
- *  may only appear as an operation's return type (or, with an `error`
- *  variant, a routed command entry point's — see below), not
- *  as a stored property / parameter elsewhere.  This keeps the `union` TypeIR
+/** An inline `A or B` union is a transport shape: it stands only where the
+ *  type-position table admits it (`type-positions.ts`) — an operation return,
+ *  and, with at least one `error` variant, the result of a routed command entry
+ *  point (a workflow `create`, a non-`extern` `commandHandler` / `queryHandler`),
+ *  where the error answers its mapped status.  This keeps the `union` TypeIR
  *  out of the storage-side emitters (drizzle columns, migrations) that don't
- *  render it.  A *named* union (`payload Foo = A | B`) is referenced by name
- *  (an `entity` marker) and so is unaffected.
- *
- *  A payload FIELD is refused too: the tagged wire is emitted for a union at
- *  the top of a return, and no backend renders one NESTED inside a record —
- *  an `error` payload's union field, or a workflow `create` payload's, reached
- *  every backend's wire-DTO emitter with nothing to render it as. */
+ *  render it.  A payload field is refused with its own message: the tagged wire
+ *  is emitted for a union at the top of a return, and no backend renders one
+ *  nested inside a record. */
 function checkUnionPosition(t: TypeRef, accept: ValidationAcceptor): void {
-  const container = t.$container;
-  if (isProperty(container) && isPayloadDecl(container.$container)) {
+  const rule = positionRule("inline-union", typeRefPosition(t));
+  if (rule.verdict === "allowed" || rule.verdict === "unwritable") return;
+  if (rule.verdict === "with-error-variant") {
+    const container = t.$container;
+    const extern = (isCommandHandler(container) || isQueryHandler(container)) && container.extern;
+    if (!extern && [t, ...t.alternatives].some(isErrorAtom)) return;
+  }
+  const slug = rule.verdict === "refused" ? rule.slug : undefined;
+  if (slug === "payload-field") {
     accept("error", diagMessage("loom.union-position#payload-field"), {
       node: t,
       code: "loom.union-position",
     });
     return;
   }
-  // An operation's `or`-union return type (exception-less.md): a designed-in
-  // outcome (`operation place(): OrderId or NotFound`), not a stored value.
-  if (isOperation(container)) return;
-  // A domainService operation's `or`-union return (domain-services.md) — the
-  // same designed-in-outcome shape as an aggregate operation return.
-  if (isDomainServiceOperation(container)) return;
-  // The result of a routed command entry point — a workflow `create`, a
-  // `commandHandler`, a `queryHandler` — may be an expected failure: a union
-  // with at least one `error` variant answers the error at its mapped status.
-  // A union with no error variant, or one on an `extern` handler (whose user
-  // code owns the result), stays a transport shape out of place here.
-  if (
-    t.$containerProperty === "returnType" &&
-    (isWorkflowCreateDecl(container) ||
-      ((isCommandHandler(container) || isQueryHandler(container)) && !container.extern)) &&
-    [t, ...t.alternatives].some(isErrorAtom)
-  ) {
-    return;
-  }
-  accept("error", diagMessage("loom.union-position"), { node: t, code: "loom.union-position" });
+  accept(
+    "error",
+    diagMessage("loom.union-position", { positions: admittedPositionsText("inline-union") }),
+    { node: t, code: "loom.union-position" },
+  );
 }
 
 /** True when the union variant names an `error` payload.  A variant a macro

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
+import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.js";
 
 // ---------------------------------------------------------------------------
 // React/Vue ↔ Phoenix/HEEx walker PARITY TRACKER (architecture-review finding #5).
@@ -133,6 +134,7 @@ describe("HEEx walker parity (finding #5)", () => {
     const actualGap = Object.entries(WALKER_PRIMITIVES)
       .filter(([, def]) => def.tsx !== undefined && def.heex === undefined)
       .map(([name]) => name)
+      .filter((name) => !HEEX_SHARED_PRIMITIVES.has(name))
       .sort();
     expect(actualGap).toEqual(Object.keys(KNOWN_HEEX_GAPS).sort());
   });
@@ -143,8 +145,20 @@ describe("HEEx walker parity (finding #5)", () => {
     }
   });
 
+  it("a primitive the shared core renders for HEEx has no HEEx engine renderer", () => {
+    for (const name of HEEX_SHARED_PRIMITIVES) {
+      const def = WALKER_PRIMITIVES[name];
+      expect(def?.tsx, `'${name}' must have a shared renderer`).toBeDefined();
+      expect(def?.heex, `'${name}' renders through the shared core; drop its heex slot`).toBe(
+        undefined,
+      );
+    }
+  });
+
   it("HEEx covers a healthy share of the primitive table (guard against vacuous pass)", () => {
-    const heexCovered = Object.values(WALKER_PRIMITIVES).filter((d) => d.heex).length;
+    const heexCovered = Object.entries(WALKER_PRIMITIVES).filter(
+      ([name, d]) => d.heex || HEEX_SHARED_PRIMITIVES.has(name),
+    ).length;
     expect(heexCovered).toBeGreaterThan(15);
   });
 });

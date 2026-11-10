@@ -3,11 +3,10 @@
 //
 // The field's own doc comment calls it "Resolved `or`-union TypeIR of the
 // subject — the variant set", and the four type-grounded `match` gates in
-// `variant-match-shape.ts` are written against exactly that promise.  It used
-// not to hold: `lowerMatchStmt` filled it from `inferExprType`, whose catch-all
-// was `{ kind: "primitive", name: "string" }`, so an api-handle operation call
-// — the ONLY subject shape Stage 2 `match await` is for — typed as `string`,
-// and none of the gates could run on the statement form.
+// `variant-match-shape.ts` are written against exactly that promise: an
+// api-handle operation call — the ONLY subject shape Stage 2 `match await` is
+// for — must not type as a placeholder `string`, or none of the gates could
+// run on the statement form.
 //
 // The pass types an operation invoked through the api handle as its declared
 // return type and lowering copies it; `validateVariantMatch` (M-T5.43 V14) runs
@@ -69,7 +68,7 @@ async function matchDiags(arms: string) {
 }
 
 describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
-  it("is the awaited operation's resolved union, not the inferExprType string fallback", async () => {
+  it("is the awaited operation's resolved union, not a string placeholder", async () => {
     const loom = await lowered(CANONICAL_ARMS);
     const page = loom.systems[0]!.uis[0]!.pages[0]!;
     const stmt = page.actions[0]!.body[0] as Extract<StmtIR, { kind: "variant-match" }>;

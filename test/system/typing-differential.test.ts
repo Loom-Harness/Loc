@@ -1,10 +1,11 @@
 // The typing differential: the single typing pass against lowering.
 //
 // Validators and the LSP read the single typing pass (`src/language/typing/`)
-// directly. Lowering copies the pass's types too, but through `inferExprType`
-// over the lowering `Env`, and turns every type it cannot express into the
-// `string` placeholder. This differential asks both the same question for every
-// expression in the fleet and classifies each answer:
+// directly. Lowering copies the pass's types too, through `passType` over the
+// lowering `Env`; a node the pass left unknown carries the `string` placeholder
+// and is recorded, which fails the model (`loom.unresolved-type`). This
+// differential asks both the same question for every expression in the fleet
+// and classifies each answer:
 //
 //   - `agree`            the pass and lowering give the same type.
 //   - `nobody-knows`     the pass has no type and lowering falls back to its
@@ -35,8 +36,9 @@
 import * as fs from "node:fs";
 import { type AstNode, AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
+import { validate } from "../../src/api/index.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { inferExprType, setLowerExprObserver } from "../../src/ir/lower/lower-expr.js";
+import { passTypeUnrecorded, setLowerExprObserver } from "../../src/ir/lower/lower-expr.js";
 import type { TypeIR } from "../../src/ir/types/loom-ir.js";
 import {
   type Expression,
@@ -111,6 +113,10 @@ interface Tally {
   /** `container-type name` → count, for the pass's unresolved names. */
   unresolvedNames: Record<string, number>;
   samples: Record<string, string[]>;
+  /** Each document whose lowering read a value the pass has no RULE for
+   *  (`no-rule`, or a node it never reached) — a gap in the pass, as opposed
+   *  to an author error it reports as unresolved. */
+  untypedDocs: { name: string; text: string }[];
 }
 
 /** A key with declaration names erased, so samples aggregate by shape. */
@@ -122,6 +128,12 @@ function bump(m: Record<string, number>, k: string): void {
   m[k] = (m[k] ?? 0) + 1;
 }
 
+/** The unknown causes that mean the pass has no rule, not that the author
+ *  wrote something unresolvable.  (`contextual-lambda` — nothing gives a
+ *  lambda's parameter a type — is the author's to fix, and the backstop's
+ *  message says so.) */
+const PASS_GAPS: ReadonlySet<string> = new Set(["no-rule", "unreached"]);
+
 async function differential(): Promise<Tally> {
   const tally: Tally = {
     docs: 0,
@@ -132,6 +144,7 @@ async function differential(): Promise<Tally> {
     newUnknownByCause: {},
     unresolvedNames: {},
     samples: {},
+    untypedDocs: [],
   };
   const sources: { name: string; text: string }[] = [
     ...trackedDddFiles().map((f) => ({ name: f, text: dddSourceOf(f) })),
@@ -153,15 +166,16 @@ async function differential(): Promise<Tally> {
       if (inObserver || ir.has(expr)) return;
       inObserver = true;
       try {
-        ir.set(expr, irKey(inferExprType(expr, env)));
+        ir.set(expr, irKey(passTypeUnrecorded(expr, env)));
       } catch {
         ir.set(expr, "(throws)");
       } finally {
         inObserver = false;
       }
     });
+    let passGap = false;
     try {
-      lowerModel(model);
+      passGap = (lowerModel(model).unresolvedTypes ?? []).some((u) => PASS_GAPS.has(u.cause));
     } catch {
       // A model lowering cannot handle still has language + new answers.
     } finally {
@@ -214,6 +228,7 @@ async function differential(): Promise<Tally> {
           list.push(`${src.name}: ${(node.$cstNode?.text ?? "<synth>").slice(0, 100)}`);
       }
     }
+    if (passGap) tally.untypedDocs.push(src);
   }
   return tally;
 }
@@ -249,6 +264,22 @@ describe("typing differential: the pass against lowering (and the unknown ratche
     expect(tally.expressions).toBeGreaterThan(BASELINE.floors.expressions);
   }, 900_000);
 
+  // The hard zero: lowering never reads a value the pass has no rule for,
+  // unless the model is wrong for some other reason.  Each document in the
+  // bucket must carry an error OTHER than `loom.unresolved-type` — that one is
+  // the backstop, so a model refused only by it names a gap in the pass.
+  it("no valid model holds a value the pass has no rule for", async () => {
+    const valid: string[] = [];
+    for (const doc of tally.untypedDocs) {
+      const report = await validate(doc.text);
+      const own = report.diagnostics.filter(
+        (d) => d.severity === "error" && d.code !== "loom.unresolved-type",
+      );
+      if (own.length === 0) valid.push(doc.name);
+    }
+    expect(valid).toEqual([]);
+  }, 600_000);
+
   it("the pass reaches every expression", () => {
     expect(tally.byClass.unreached ?? 0).toBe(0);
   });
@@ -272,10 +303,6 @@ describe("typing differential: the pass against lowering (and the unknown ratche
   // validator that fails open on it).  Each carries its cause; per cause the
   // count may only SHRINK (same band as above, for fixtures other PRs add).
   // `not-a-value` is not a hole — it is the head name of `Orders.getById(…)`.
-  // `unresolved-member` grows with every fixture whose `test e2e` blocks call
-  // `api.<handle>` spellings the pass cannot resolve yet: snake-case and
-  // acronym handles and `api.<workflow>.instance` (#4325), and routed-handler
-  // calls (#4268).  Fixing those lowers its pin.
   it("the pass's unknowns do not grow, cause by cause", () => {
     for (const [cause, pinned] of Object.entries(BASELINE.unknownCauses)) {
       const allowed = Math.ceil(pinned * 1.02) + 25;

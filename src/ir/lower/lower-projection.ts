@@ -37,6 +37,7 @@ import {
 /** What a projection's `from` may name. */
 type ProjectionSourceDecl = Aggregate | Workflow | Projection;
 
+import { PROJECTION_AGGREGATE_OPS } from "../../util/projection-aggregate-ops.js";
 import type {
   ExprIR,
   FieldIR,
@@ -51,7 +52,7 @@ import type {
 } from "../types/loom-ir.js";
 import { joinRefPath, mapVarForPath } from "./id-follow.js";
 import { resolveBypass } from "./lower-capabilities.js";
-import { criterionRefOf, inferExprType, lowerExpr } from "./lower-expr.js";
+import { criterionRefOf, lowerExpr, passType } from "./lower-expr.js";
 import { lowerField } from "./lower-members.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
@@ -204,10 +205,10 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
       field: s.field,
       expr,
       // An aggregation's own type comes from the OPERATOR, not from the
-      // unresolved expression `inferExprType` sees (a bare `count` infers as
+      // unresolved expression `passType` sees (a bare `count` infers as
       // `string`, which is simply wrong).  Non-aggregation selects keep the
       // inferred type unchanged.
-      type: aggregate ? aggregateResultType(aggregate, scope) : inferExprType(s.expr, scope),
+      type: aggregate ? aggregateResultType(aggregate, scope) : passType(s.expr, scope),
       ...(aggregate ? { aggregate } : {}),
     };
   });
@@ -235,11 +236,7 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
   return query;
 }
 
-/** The five whole-table aggregation operators, by the name the author writes.
- *  Shared with `docs/stdlib.md`'s collection ops on purpose — same vocabulary,
- *  the difference being only that a `select` position has no collection
- *  receiver, so the source table itself is the receiver. */
-const AGGREGATE_OPS = new Set<string>(["count", "sum", "avg", "min", "max"]);
+const AGGREGATE_OPS = PROJECTION_AGGREGATE_OPS;
 
 /** Recognise a WHOLE-TABLE aggregation in a `select` position, or `undefined`
  *  for an ordinary per-row projection.

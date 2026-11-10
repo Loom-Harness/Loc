@@ -148,9 +148,10 @@ describe("function + method calls in walker bodies", () => {
       }
     `);
     const content = files.get("web/src/pages/x.tsx")!;
-    // The call hole gets a generated `arg0` placeholder in the ICU message.
+    // The call hole gets a generated `arg0` placeholder in the ICU message;
+    // `double` answers an `int`, coerced with `String(…)` like any int hole.
     expect(content).toMatch(
-      /<Text>\{t\("[^"]*", "doubled: \{arg0\}", \{ arg0: double\(count\) \}\)\}<\/Text>/,
+      /<Text>\{t\("[^"]*", "doubled: \{arg0\}", \{ arg0: String\(double\(count\)\) \}\)\}<\/Text>/,
     );
   });
 

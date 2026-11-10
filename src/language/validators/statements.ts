@@ -70,7 +70,6 @@ import {
   lookupRootMember,
   makeEnv,
   paramType,
-  propertySensitivity,
   resolveTypeRef,
   stepInto,
   stepIntoNode,
@@ -79,17 +78,10 @@ import {
   type Ty,
   typeOf,
   typeToString,
-  withTags,
 } from "../type-system.js";
 import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
-import {
-  canPromoteLiteralTo,
-  checkRuleNaming,
-  envForAggregate,
-  pathString,
-  warnSensitivityDrop,
-} from "./_shared.js";
+import { canPromoteLiteralTo, checkRuleNaming, envForAggregate, pathString } from "./_shared.js";
 import { recordFieldTypes, resolveRecordDecl } from "./builder-call.js";
 
 /** An aggregate action whose body reuses operation-body statement
@@ -351,7 +343,6 @@ export function checkAssignOrCall(
         { node: stmt, property: "value", code: "loom.assign-type-mismatch" },
       );
     }
-    warnSensitivityDrop(valueType, targetType, accept, { node: stmt, property: "value" });
   } else {
     // '+=' or '-='
     if (targetType.kind !== "array") {
@@ -381,10 +372,6 @@ export function checkAssignOrCall(
         { node: stmt, property: "value", code: "loom.collection-mutation-element-type" },
       );
     }
-    warnSensitivityDrop(valueType, targetType.element, accept, {
-      node: stmt,
-      property: "value",
-    });
   }
 }
 
@@ -441,7 +428,6 @@ export function checkConstructionArgTypes(
           { node: entry, property: "value", code: "loom.construction-field-type" },
         );
       }
-      warnSensitivityDrop(actual, expected, accept, { node: entry, property: "value" });
     }
   }
 }
@@ -876,15 +862,7 @@ export function checkWorkflowBodyCallStmts(member: AstNode, accept: ValidationAc
 export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor): void {
   const ev = stmt.event?.ref;
   if (!ev) return;
-  // Capture the event-field's declared sensitivity so PII flowing
-  // into a clean event-field surfaces as a narrowing warning — events
-  // fan out across consumers, so this is the highest-leverage place
-  // to flag PII fan-out.
-  const declared = new Map(
-    ev.fields.map(
-      (f) => [f.name, withTags(resolveTypeRef(f.type), propertySensitivity(f))] as const,
-    ),
-  );
+  const declared = new Map(ev.fields.map((f) => [f.name, resolveTypeRef(f.type)] as const));
   const seen = new Set<string>();
   for (const f of stmt.fields) {
     seen.add(f.name);
@@ -930,7 +908,6 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
         { node: f, property: "value", code: "loom.emit-field-type" },
       );
     }
-    warnSensitivityDrop(actual, expected, accept, { node: f, property: "value" });
   }
   for (const [name] of declared) {
     if (!seen.has(name)) {

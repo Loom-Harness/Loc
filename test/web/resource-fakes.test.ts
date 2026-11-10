@@ -210,6 +210,7 @@ describe("registry", () => {
       "disk",
       "httpMock",
       "mailbox",
+      "oidc",
       "s3",
       "ses",
     ]);

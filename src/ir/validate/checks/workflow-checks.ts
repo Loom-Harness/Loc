@@ -1707,7 +1707,7 @@ function validateWorkflowStatements(
     switch (st.kind) {
       case "precondition":
       case "requires":
-        // Type-check happens at lowering via `inferExprType`.  An unresolved
+        // Type-check happens at lowering via `passType`.  An unresolved
         // name anywhere in the guard — bare or as a receiver, at any depth — is
         // `validateWorkflowUnresolvedNames`'s (`loom.workflow-unknown-name`).
         break;

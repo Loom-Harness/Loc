@@ -14,7 +14,7 @@ import type { BrokerInspectResult } from "./infra/broker-protocol.js";
 import type { QueryResult, WipeResult } from "./protocol.js";
 
 /** The resource-fake services of `infra/services.ts`. */
-export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock";
+export type ResourceService = "s3" | "ses" | "mailbox" | "disk" | "httpMock" | "oidc";
 
 type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
 

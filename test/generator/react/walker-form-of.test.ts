@@ -26,7 +26,7 @@
 //      tweak in the scaffold path automatically applies here.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
 const buildAndGenerate = generateSystemFiles;
 
@@ -199,8 +199,10 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
   });
 
   it("explicit onSubmit: lambda overrides the default flow and skips the notify import", async () => {
-    const files = await buildAndGenerate(
+    const files = await generateSystemFilesUnchecked(
       baseOrderSystem(`CreateForm { of: Order, onSubmit: v => create.mutateAsync(v) }`),
+      "`create` is the emitted form hook's name, not a name the model declares, so the " +
+        "model is refused (`loom.unresolved-type`); the subject is the override's emission",
     );
     const tsx = files.get("web/src/pages/create_order.tsx")!;
     expect(tsx).toBeDefined();
