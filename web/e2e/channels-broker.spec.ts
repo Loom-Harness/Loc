@@ -15,10 +15,9 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 interface Dispatched {
@@ -109,17 +108,14 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
     (window as unknown as { __loomRenderCounts: Record<string, number> }).__loomRenderCounts = {};
   });
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Broker channels/);
+  await startFromExample(page, /Broker channels/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
   }
 
   await test.step("Generate, bundle, boot both backends", async () => {
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
     await page.getByTestId("btn-bundle").click();
     await waitForBundle(page);
     await page.getByTestId("devtools-tab-backend").click();

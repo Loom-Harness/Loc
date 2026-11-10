@@ -16,12 +16,10 @@
 import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
-  clickWorkspaceCreate,
   dumpPreviewDiagnostics,
-  fatalConsoleErrors,
-  recordInitialMigration,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 // #1242 (fixed): the bundle toast asserted "…KB…" but the Hono bundle is
@@ -47,15 +45,8 @@ test("mantine@v9 preview boots without runtime errors", async ({ page }) => {
   });
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-
-  // Pick the pinned mantine@v9 storybook.
-  await page.getByTestId("workspace-new").click();
-  await page.getByRole("textbox", { name: /Choose example/i }).click();
-  await page.getByRole("option", { name: /Mantine 9 · pinned storybook/ }).click();
-  await clickWorkspaceCreate(page);
-
-  // Wait for auto-Generate to populate the file tree.
+  await startFromExample(page, /Mantine 9 · pinned storybook/);
+// Wait for auto-Generate to populate the file tree.
   await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({
     timeout: 30_000,
   });
@@ -71,7 +62,7 @@ test("mantine@v9 preview boots without runtime errors", async ({ page }) => {
   // React 19 runtime and Mantine 9 — ~140 modules; first cold run ~30 s.
   // The database is created only from recorded migrations — record the
   // example's initial migration before the first Boot.
-  await recordInitialMigration(page);
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
 

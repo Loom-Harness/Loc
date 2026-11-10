@@ -7,10 +7,9 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 type InfraCall = (service: string, op: string, params?: unknown) => Promise<unknown>;
@@ -49,13 +48,10 @@ test("resource fakes: object round trip, mail, disk file, REST mock", async ({ p
   page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Resource fakes/);
+  await startFromExample(page, /Resource fakes/);
   if (!(await browserCanReachNetwork(page))) test.skip(true, "browser cannot reach the npm registry");
 
-  await recordInitialMigration(page);
-  await page.getByTestId("btn-generate").click();
-  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
   await page.getByTestId("devtools-tab-backend").click();
