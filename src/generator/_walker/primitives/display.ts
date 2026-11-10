@@ -64,7 +64,6 @@ export function emitBadge(
   // The badge label is a user-visible slot — translate a plain literal through
   // `t()` under i18n (both forms use the same call), else byte-identical.
   const raw = localizedRaw(call, ctx, "badge", '"Badge"');
-  void depth;
   return renderPrimitive(ctx, "primitive-badge", {
     // `label` is JSX-children-friendly text — quotes stripped from
     // literals (Mantine / shadcn / chakra render `<Badge>X</Badge>`).
@@ -73,6 +72,9 @@ export function emitBadge(
     // needs either `label="X"` or `label={expr}`).
     label: unwrapTextLiteral(raw, ctx.target.escapeText),
     labelAttr: unwrapAsAttr(raw),
+    hasLabel: positionalArgs(call).length > 0,
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

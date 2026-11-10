@@ -1492,8 +1492,8 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   }
   // A VALUE-OBJECT construction (`Money(9.99, "USD")`) — checked BEFORE the
   // primitive-name registry below, since a domain VO can share a name with a
-  // built-in walker primitive (`Money` is also a display primitive,
-  // `renderMoney`).  Without this the registry lookup won though first and
+  // built-in walker primitive (`Money` is also a display primitive).  Without
+  // this the registry lookup won though first and
   // rendered the primitive's MARKUP — `<span class="money">…</span>` — in
   // what was meant to be a value position, and a following `.currency`
   // member access then got appended as literal text after the closing
