@@ -1680,6 +1680,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every Ecto filter render context that can hold an `exists` (renderEctoRestriction, the retrieval module, the repository finds) threads the context's aggregates as `pool`, and `loom.exists-cross-context` refuses a quantifier whose aggregate is not in that context. (src/generator/elixir/vanilla/capability-filter.ts, retrieval-emit.ts, repository-emit.ts)",
   },
+  "src/generator/typescript/emit/mikroorm-filter.ts#rawPredicateEntry": {
+    guardedBy: ["loom.policy-row-not-queryable", "loom.criterion-not-selectable"],
+    note: "reached only for `organizationContext.ancestors.contains(<column>)`, which the predicate gate admits only with a row column — exactly what `lineageSql` renders",
+  },
   "src/generator/typescript/emit/mikroorm-filter.ts#existsEntry": {
     guardedBy: [
       "loom.exists-cross-context",

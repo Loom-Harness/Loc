@@ -5,6 +5,7 @@
 // gate's `permissions.<p>`, click-handler lambdas, a shorthand projection's
 // rows, and a `currentUser.<claim>` with no `user { }` block to declare it.
 
+import { readFileSync } from "node:fs";
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { isExpression, type Model } from "../../../src/language/generated/ast.js";
@@ -75,6 +76,12 @@ describe("ui expressions lowering reads are typed", () => {
     expect(await typeOfText(src, "permissions.read")).toBe("p:string");
   });
 
+  it("a store action named as a handler is an action", async () => {
+    const src = system(`store Basket { state { n: int = 0 } action clear() { n := 0 } }
+      page Home { route: "/" body: Button { "x", onClick: Basket.clear } }`);
+    expect(await typeOfText(src, "Basket.clear")).toBe("action");
+  });
+
   it("a click handler is an action", async () => {
     const src = system(
       `page Home { route: "/" body: Button { "x", onClick: e => { precondition 1 > 0 } } }`,
@@ -123,5 +130,26 @@ describe("a principal claim with no `user { }` block", () => {
     }`;
     const { diagnostics } = await parseString(src, { validate: true });
     expect(lspCodes(diagnostics)).not.toContain("loom.unknown-user-claim");
+  });
+});
+
+describe("domain expressions lowering reads are typed", () => {
+  it("a record literal for a value-object param of `Agg.create(…)` is that value object", async () => {
+    const src = system(
+      "",
+      `valueobject Price { amount: decimal  currency: string }
+      aggregate Item with crudish { price: Price }
+      repository Items for Item { }
+      test "made" { let i = Item.create(price: { amount: 1.0, currency: "EUR" })  expect(i.price.currency).toBe("EUR") }`,
+    );
+    expect(await typeOfText(src, `{ amount: 1.0, currency: "EUR" }`)).toBe("vo:Price");
+  });
+
+  it("a bound api call's body is the request of the operation it calls", async () => {
+    const src = readFileSync("test/fixtures/corpus/api-call.ddd", "utf8").replaceAll(
+      "__PLATFORM__",
+      "node",
+    );
+    expect(await typeOfText(src, `{ code: code, status: "Draft" }`)).toBe("rec:__Request__");
   });
 });

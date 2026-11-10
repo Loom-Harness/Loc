@@ -23,6 +23,9 @@ export interface SerializedResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /** Every `Set-Cookie` value (`headers` holds one value per name, and a
+   *  response may set several cookies). */
+  setCookies?: string[];
   /** Empty string when the upstream Response had no body, or when
    *  the status (204 / 205 / 304) forbids a body.  Consumers must
    *  pass `null` to `new Response()` for null-body statuses — the

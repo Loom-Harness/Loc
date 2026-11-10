@@ -11,6 +11,7 @@ import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
+import { orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
@@ -480,6 +481,7 @@ function predicateEntry(
   // the whole point of giving the sentinel its own `ExprIR.kind`.
   if (inner.kind === "authz-filter") return authzFilterEntry(inner);
   if (inner.kind === "exists") return existsEntry(inner, acc, aggs);
+  if (orgAncestorsMembershipArg(inner)) return rawPredicateEntry(inner, acc, aggs);
   const selfScope = guidFromStringSelfScope(inner);
   if (selfScope) {
     const claim = `${acc}.${selfScope.claim}`;
@@ -701,6 +703,33 @@ function existsEntry(
   return `[raw((a: string) => \`${body}\`, [${scope.params.join(", ")}])]: []`;
 }
 
+/** A predicate with no FilterQuery spelling, as one raw fragment over the
+ *  root alias (see `existsEntry`). */
+function rawPredicateEntry(e: ExprIR, acc: string, aggs: readonly EnrichedAggregateIR[]): string {
+  const scope: ExistsSqlScope = { outer: "${a}", rows: new Map(), acc, aggs, params: [] };
+  const sql = rawPredicateSql(e, scope);
+  if (sql === null) throw new Error(`mikroorm: unsupported '${e.kind}' predicate`);
+  const body = sql.replace(/`/g, "\\`");
+  return `[raw((a: string) => \`${body}\`, [${scope.params.join(", ")}])]: []`;
+}
+
+/** `organizationContext.ancestors.contains(<column>)` as raw SQL: the lineage
+ *  binds as ONE Postgres array literal (`{a,b}` — a uuid holds no comma or
+ *  brace), so an empty lineage is the empty array and matches no row, where a
+ *  bound JS array would expand to a `?, ?` list (and to `()` when empty). */
+function lineageSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  const arg = orgAncestorsMembershipArg(e);
+  if (!arg) return null;
+  const col = rawColumnSql(arg, sc);
+  if (col === null) return null;
+  const receiver = (e as Extract<ExprIR, { kind: "method-call" }>).receiver as Extract<
+    ExprIR,
+    { kind: "member" }
+  >;
+  sc.params.push(`\`{\${(${sc.acc}?.${receiver.member} ?? []).join(",")}}\``);
+  return `cast(${col} as text) = any(cast(? as text[]))`;
+}
+
 function existsSql(e: Extract<ExprIR, { kind: "exists" }>, sc: ExistsSqlScope): string | null {
   const inner = sc.aggs.find((a) => a.name === e.aggregate);
   if (!inner) return null;
@@ -820,6 +849,7 @@ function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
     case "literal":
       return e.lit === "bool" ? (e.value === "true" ? "1 = 1" : "1 = 0") : null;
     case "method-call":
+      return lineageSql(e, sc);
     case "this":
     case "id":
     case "call":

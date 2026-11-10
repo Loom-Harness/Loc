@@ -553,6 +553,7 @@ Visibility composes per aggregate and per access as `(default ∨ row rule₁ �
 - `own` is `local` AND `createdBy == currentUser.id`; the aggregate needs `with auditable`.
 - `allow [read|write] on X as x where <predicate>` adds the rows the predicate admits. `x` is the row; the predicate is compiled into the query, so it uses field comparisons, `exists <Aggregate> as s where …` and policy functions — which take the row's aggregate or an `X id` and are inlined.
 - A read rule never widens the write scope: a mutation loads its row through the read scope AND the write scope.
+- `organizationContext.ancestors.contains(<column>)` tests a row column (`x.<field>`, or an `exists` row's `s.<field>`) against the operating org and every org above it — `<column> = ANY(<lineage>)` in the query, the lineage bound from the request. A row opened to an org this way opens to its whole subtree, and an org moved under it sees the row on its next request. A value argument stays in operation bodies; the membership is not available in a `find` / retrieval `where`.
 
 ```ddd
 policy GranteeIsMe(s: CategoryShare): bool = s.grantee == currentUser.tenantId
@@ -578,6 +579,43 @@ modelBuilder.Entity<Note>().HasQueryFilter("Filter1", x => ((_currentUser.User.R
 ```csharp
 // Infrastructure/Repositories/CategoryRepository.cs — the write scope every mutation loads through
 var inScope = await _db.Categories.AnyAsync(x => x.Id == id && ((x.TenantId == RequestContext.Current!.CurrentUser!.TenantId) || (_db.Set<CategoryShare>().Any(q_s => q_s.Category == x.Id && q_s.Grantee == RequestContext.Current!.CurrentUser!.TenantId && q_s.Write))), cancellationToken);
+```
+::: end
+
+```ddd
+policy InLineage(o: Org id): bool = organizationContext.ancestors.contains(o)
+policy {
+  allow read on Memo as m where InLineage(m.reader)   // m.reader's org and every org below it
+}
+```
+
+::: tabs backend
+== node
+```ts
+// db/read-scopes.ts
+or(eq(schema.memos.tenantId, requireCurrentUser().operatingOrg), inArray(schema.memos.reader, requireCurrentUser().operatingAncestors))
+```
+== python
+```python
+# app/db/read_scope.py
+or_((MemoRow.tenant_id == user.operating_org), MemoRow.reader.in_(user.operating_ancestors))
+```
+== dotnet
+```csharp
+// EF Core: Infrastructure/Persistence/AppDbContext.cs
+x => (x.TenantId == _currentUser.User.OperatingOrg) || ((_currentUser.User.OperatingAncestors).Contains(x.Reader))
+// Dapper: the lineage binds as one uuid array
+"(reader = ANY(@__cu_operatingAncestors))"
+```
+== java
+```java
+// Memo.java — the lineage binds as one comma-joined Hibernate filter parameter
+@Filter(name = "Memo_tenantOwned", condition = "((tenant_id = :__cuOperatingOrg) or (text(reader) = any(string_to_array(:__cuCsvOperatingAncestors, ','))))")
+```
+== elixir
+```elixir
+# lib/<app>/books/memo.ex
+Ecto.Query.where(query, [record], (record.tenant_id == ^(current_user && current_user.operating_org)) or (record.reader in ^((current_user && current_user.operating_ancestors) || [])))
 ```
 ::: end
 

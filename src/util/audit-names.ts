@@ -19,3 +19,38 @@
  *  analog); an author-declared find of the same name wins, exactly as with
  *  `all`. */
 export const AUDIT_HISTORY_FIND = "history";
+
+/** Wire type name of one history entry — the DTO every backend emits. */
+export const AUDIT_ENTRY_TYPE = "AuditEntry";
+
+/** Wire type name of one field-level change inside an entry. */
+export const AUDIT_FIELD_CHANGE_TYPE = "AuditFieldChange";
+
+/** One member of a history wire record: a JSON scalar (`json` is any value),
+ *  or `changes`, the entry's list of `AuditFieldChange`s. */
+export interface AuditWireMember {
+  readonly name: string;
+  readonly type: "string" | "datetime" | "json" | "changes";
+  readonly optional: boolean;
+}
+
+/** One field-level change derived from an entry's two snapshots: `before` /
+ *  `after` hold whatever the aggregate's wire DTO held for that key. */
+export const AUDIT_FIELD_CHANGE_MEMBERS: readonly AuditWireMember[] = [
+  { name: "field", type: "string", optional: false },
+  { name: "before", type: "json", optional: true },
+  { name: "after", type: "json", optional: true },
+];
+
+/** One entry in an entity's history, in wire order. */
+export const AUDIT_ENTRY_MEMBERS: readonly AuditWireMember[] = [
+  { name: "auditId", type: "string", optional: false },
+  { name: "at", type: "datetime", optional: false },
+  { name: "action", type: "string", optional: false },
+  { name: "operationId", type: "string", optional: false },
+  // The principal as recorded at command time: a snapshot that need not still
+  // match the `user {}` block's claim set.
+  { name: "actor", type: "json", optional: true },
+  { name: "correlationId", type: "string", optional: true },
+  { name: "changes", type: "changes", optional: false },
+];

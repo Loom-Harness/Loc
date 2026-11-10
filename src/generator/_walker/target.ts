@@ -1401,6 +1401,12 @@ export interface WalkerTarget {
    *  own lookups. */
   renderTextContentOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
 
+  /** OPTIONAL — the TEXT an `EnumBadge` shows for `value`, for a target that
+   *  resolves an enum value's display label through its own lookup.  Read by
+   *  the target's own pack; a target that leaves it undefined renders the
+   *  badge from the shared `valueExpr`. */
+  renderEnumBadgeText?(value: ExprIR, ctx: WalkContext): string | undefined;
+
   /** OPTIONAL — whole-primitive override for `FileLink(<file-ref>)`.  The
    *  shared `emitFileLink` delegates here first; a non-null return is used
    *  verbatim and the inline JSX/markup anchor path is skipped.  The JSX/markup

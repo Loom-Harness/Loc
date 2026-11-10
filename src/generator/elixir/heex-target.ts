@@ -18,6 +18,7 @@ import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
 import { HEEX_SHARED_PRIMITIVES } from "./heex-pack.js";
+import { heexEnumBadgeText } from "./heex-primitives.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
@@ -28,11 +29,16 @@ import {
   renderInTemplate,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
+import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
 
 export const heexTarget: WalkerTarget = {
-  // Rich text renders through the parallel HEEx engine (`heex-walker-core.ts`),
-  // never through this shim.
-  renderRichText: () => "",
+  /** A translated rich sentence: `loom_rich/2` formats the holes, escapes the
+   *  text and turns the `<b>`/`<i>`/`<code>` tags into elements, so a locale
+   *  can reorder the parts. */
+  renderRichText({ key, message, values }) {
+    const bindings = (values ?? []).map((v) => `${v.name}: ${v.expr}`).join(", ");
+    return `<%= loom_rich(${pgettextCall(key, message)}, [${bindings}]) %>`;
+  },
   framework: "phoenixLiveView",
   axes: requireFrontendAxes("phoenixLiveView"),
 
@@ -48,7 +54,13 @@ export const heexTarget: WalkerTarget = {
   renderNodeOverride(expr, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
     if (!heex) return undefined;
-    if (expr.kind === "call" && HEEX_SHARED_PRIMITIVES.has(expr.name)) {
+    // A value object sharing a primitive's name (`Money`) is a construction,
+    // which the engine renders.
+    if (
+      expr.kind === "call" &&
+      HEEX_SHARED_PRIMITIVES.has(expr.name) &&
+      !heex.valueObjectsByName.has(expr.name)
+    ) {
       if (expr.name === "Tabs" && expr.args.some((_, i) => !expr.argNames?.[i])) {
         // Number the group on entry, before its panels walk, so a nested
         // group gets a later id than its parent (see `tabSeq`).
@@ -80,6 +92,13 @@ export const heexTarget: WalkerTarget = {
     return renderInTemplate(expr, engineContext(heex, ctx));
   },
 
+  /** An `EnumBadge`'s text, through the engine's enum-label lookup (which
+   *  also resolves a table row's field type). */
+  renderEnumBadgeText(value, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    return heex ? heexEnumBadgeText(value, engineContext(heex, ctx)) : undefined;
+  },
+
   /** A call into the Gettext runtime: `pgettext(<key>, <English>)`, wrapped in
    *  `loom_icu/2` with a keyword list of the holes for an interpolated message.
    *  The context is Loom's catalog key, so the `.po` entry and the other
@@ -90,11 +109,12 @@ export const heexTarget: WalkerTarget = {
     return `loom_icu(${call}, [${values.map((v) => `${v.name}: ${v.expr}`).join(", ")}])`;
   },
 
-  // Expression-syntax leaves — HEEx runs a PARALLEL walker
-  // (heex-walker-core.ts) and never calls the shared `emitExpr`, so these are
-  // unreachable; they throw (fail-loud) if the fork invariant ever regresses,
-  // rather than silently emitting JS into Elixir output.
+  // Expression-syntax leaves.  Every expression a shared emitter renders goes
+  // through `renderExprOverride` to the HEEx engine, so the JS-shaped leaves
+  // stay unreachable and throw if that ever regresses — except the literal,
+  // which the shared emitters also spell directly (a nav destination).
   ...unreachableExprLeaves,
+  exprLiteral: (lit, value) => ELIXIR_CTX_FREE_LEAVES.literal(lit, value),
 
   // --- State seam ---------------------------------------------------------
 

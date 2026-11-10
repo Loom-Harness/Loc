@@ -14,6 +14,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
+  "loom.transport-type-position": "04-type-system.md#where-a-type-form-may-appear",
   "loom.option-deprecated": "04-type-system.md#option",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",

@@ -20,11 +20,18 @@ import { join } from "node:path";
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import type { ProjectionIR } from "../../src/ir/types/loom-ir.js";
+import { isQueryTimeProjection, isSingletonProjection } from "../../src/ir/types/projection.js";
+import { wholeTableAggregates } from "../../src/ir/util/projection-aggregate.js";
 import {
   isFrontendReadableProjection,
   projectionReadShape,
 } from "../../src/ir/util/projection-read.js";
-import { astProjectionReadShape } from "../../src/language/typing/projection-shape.js";
+import type { Projection } from "../../src/language/generated/ast.js";
+import {
+  astProjectionReadShape,
+  astProjectionWireShape,
+} from "../../src/language/typing/projection-shape.js";
 import { parseString } from "../_helpers/index.js";
 
 const CORPUS = "test/fixtures/corpus";
@@ -103,6 +110,18 @@ const FLAVORS: { file: string; text: string }[] = [
     ),
   },
   {
+    // PER-ROW: no aggregate, no `group by`.  The frontend read shape and the
+    // backend route disagree on it (`projectionReadShape` says one row,
+    // `wholeTableAggregates` serves the array), so each mirror is pinned to
+    // its own side.
+    file: "<inline:per-row>",
+    text: model(`      projection Refs {
+        ref: string
+        from Claim as c
+        select ref = c.reference
+      }`),
+  },
+  {
     file: "<inline:singleton-aggregation>",
     text: model(`      projection Totals {
         gross: money
@@ -139,55 +158,73 @@ ${projection}
 }`;
 }
 
-describe("projection read shape — the AST mirror agrees with the IR predicates", () => {
-  it("answers identically for every projection in the shipped corpus", async () => {
-    const disagreements: string[] = [];
-    let compared = 0;
+type Shape = "one" | "many" | undefined;
 
-    for (const { file, text } of [...corpusSources(), ...FLAVORS]) {
-      let model: Awaited<ReturnType<typeof parseString>>["model"];
-      try {
-        ({ model } = await parseString(text, { validate: false }));
-      } catch {
-        continue;
-      }
-      let loom: ReturnType<typeof lowerModel>;
-      try {
-        loom = lowerModel(model);
-      } catch {
-        continue;
-      }
-
-      // Index the AST projections by name so each IR projection can be paired
-      // with the declaration it came from.
-      const astByName = new Map<string, ReturnType<typeof astProjectionReadShape>>();
-      // `streamAllContents`, not a hand-rolled object walk: an AST node carries
-      // a `$container` back-reference, so a naive recursion never terminates.
-      for (const n of AstUtils.streamAllContents(model)) {
-        if (n.$type !== "Projection") continue;
-        const proj = n as Parameters<typeof astProjectionReadShape>[0];
-        astByName.set(proj.name, astProjectionReadShape(proj));
-      }
-
-      const contexts = [
-        ...loom.systems.flatMap((s) => s.subdomains.flatMap((d) => d.contexts)),
-        ...loom.contexts,
-      ];
-      for (const ctx of contexts) {
-        for (const p of ctx.projections ?? []) {
-          if (!astByName.has(p.name)) continue;
-          compared++;
-          const ir = isFrontendReadableProjection(p) ? projectionReadShape(p) : undefined;
-          const ast = astByName.get(p.name);
-          if (ir !== ast) {
-            disagreements.push(`${file} ${p.name}: IR=${String(ir)} AST=${String(ast)}`);
-          }
-        }
+/** Every projection the corpus and the flavors declare, as the AST mirror and
+ *  the IR predicate each answer it. */
+async function compare(
+  astShape: (p: Projection) => Shape,
+  irShape: (p: ProjectionIR) => Shape,
+): Promise<{ compared: number; disagreements: string[] }> {
+  const disagreements: string[] = [];
+  let compared = 0;
+  for (const { file, text } of [...corpusSources(), ...FLAVORS]) {
+    let model: Awaited<ReturnType<typeof parseString>>["model"];
+    try {
+      ({ model } = await parseString(text, { validate: false }));
+    } catch {
+      continue;
+    }
+    let loom: ReturnType<typeof lowerModel>;
+    try {
+      loom = lowerModel(model);
+    } catch {
+      continue;
+    }
+    // Index the AST projections by name so each IR projection can be paired
+    // with the declaration it came from.  `streamAllContents`, not a
+    // hand-rolled object walk: an AST node carries a `$container`
+    // back-reference, so a naive recursion never terminates.
+    const astByName = new Map<string, Shape>();
+    for (const n of AstUtils.streamAllContents(model)) {
+      if (n.$type !== "Projection") continue;
+      const proj = n as Projection;
+      astByName.set(proj.name, astShape(proj));
+    }
+    const contexts = [
+      ...loom.systems.flatMap((s) => s.subdomains.flatMap((d) => d.contexts)),
+      ...loom.contexts,
+    ];
+    for (const ctx of contexts) {
+      for (const p of ctx.projections ?? []) {
+        if (!astByName.has(p.name)) continue;
+        compared++;
+        const ir = irShape(p);
+        const ast = astByName.get(p.name);
+        if (ir !== ast)
+          disagreements.push(`${file} ${p.name}: IR=${String(ir)} AST=${String(ast)}`);
       }
     }
+  }
+  return { compared, disagreements };
+}
 
+describe("projection read shape — the AST mirror agrees with the IR predicates", () => {
+  it("the frontend read shape answers identically for every projection", async () => {
+    const { compared, disagreements } = await compare(astProjectionReadShape, (p) =>
+      isFrontendReadableProjection(p) ? projectionReadShape(p) : undefined,
+    );
     // Non-vacuity: a corpus that stopped declaring projections would make the
     // agreement assertion pass by having nothing to compare.
+    expect(compared, "the corpus must still declare projections to compare").toBeGreaterThan(5);
+    expect(disagreements).toEqual([]);
+  });
+
+  it("the backend route's shape answers identically for every projection", async () => {
+    const { compared, disagreements } = await compare(astProjectionWireShape, (p) => {
+      if (!isQueryTimeProjection(p) || !isSingletonProjection(p)) return undefined;
+      return wholeTableAggregates(p) ? "one" : "many";
+    });
     expect(compared, "the corpus must still declare projections to compare").toBeGreaterThan(5);
     expect(disagreements).toEqual([]);
   });

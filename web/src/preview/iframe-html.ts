@@ -255,6 +255,77 @@ const RELOAD_CONTROLLER = `
 })();
 `.trim();
 
+// Sign-in / sign-out navigation.  The generated `auth: ui` app signs in by
+// navigating to the backend's `/api/auth/login` (and out via `/logout`); in the
+// preview that URL is under the runtime base, which no server serves.  The
+// Navigation API's `navigate` event names the destination of a
+// `location.href = …` before the document unloads, so the controller cancels
+// it and hands the backend path to the parent, which follows the redirect
+// chain (`auth-navigation.ts`).  The identity provider's login page is
+// rendered here, on the parent's `login` message: one button per persona of
+// the dev realm.  `route` points history at the app route the chain landed
+// on, before the parent's reload remounts the app.  Without the Navigation
+// API (a browser that lacks it) the navigation proceeds and fails like any
+// other request to an unserved URL.
+const AUTH_NAVIGATION_CONTROLLER = `
+(function () {
+  var port = window.__LOOM_PORT__;
+  if (!port) return;
+  var runtimeBase = window.__LOOM_RUNTIME_BASE__;
+  if (window.navigation && runtimeBase) {
+    window.navigation.addEventListener("navigate", function (e) {
+      var u;
+      try { u = new URL(e.destination.url); } catch (err) { return; }
+      if (u.origin !== location.origin || u.pathname.indexOf(runtimeBase + "/") !== 0) return;
+      if (!e.cancelable) return;
+      e.preventDefault();
+      port.postMessage({ kind: "navigate", url: u.pathname.slice(runtimeBase.length) + u.search });
+    });
+  }
+  var page = null;
+  function close() { if (page && page.parentNode) page.parentNode.removeChild(page); page = null; }
+  function pick(persona) { close(); port.postMessage({ kind: "login-pick", persona: persona }); }
+  function el(tag, style, text) {
+    var n = document.createElement(tag);
+    n.setAttribute("style", style);
+    if (text) n.textContent = text;
+    return n;
+  }
+  port.addEventListener("message", function (ev) {
+    var r = ev.data;
+    if (!r) return;
+    if (r.kind === "route") {
+      try { history.replaceState(null, "", (window.__LOOM_BASENAME__ || "") + r.path); } catch (err) {}
+      return;
+    }
+    if (r.kind !== "login") return;
+    close();
+    page = el("div", "position:fixed;inset:0;z-index:2147483647;background:#f4f5f7;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;");
+    page.setAttribute("data-testid", "loom-idp-login");
+    var card = el("div", "background:#fff;border:1px solid #d0d4d9;border-radius:8px;padding:24px;min-width:280px;box-shadow:0 2px 8px rgba(0,0,0,.08);");
+    card.appendChild(el("div", "font-size:12px;color:#6b7280;margin-bottom:4px;", "Playground identity provider"));
+    card.appendChild(el("h1", "font-size:20px;margin:0 0 4px;", "Sign in"));
+    card.appendChild(el("div", "font-size:12px;color:#6b7280;margin-bottom:16px;word-break:break-all;", r.issuer));
+    for (var i = 0; i < r.personas.length; i++) {
+      (function (name) {
+        var b = el("button", "display:block;width:100%;margin:0 0 8px;padding:8px 12px;border:1px solid #2563eb;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;cursor:pointer;text-align:left;", "Continue as " + name);
+        b.type = "button";
+        b.setAttribute("data-testid", "loom-idp-persona-" + name);
+        b.addEventListener("click", function () { pick(name); });
+        card.appendChild(b);
+      })(r.personas[i]);
+    }
+    var cancel = el("button", "display:block;width:100%;padding:8px 12px;border:1px solid #d0d4d9;border-radius:6px;background:#fff;font-size:14px;cursor:pointer;", "Cancel");
+    cancel.type = "button";
+    cancel.setAttribute("data-testid", "loom-idp-cancel");
+    cancel.addEventListener("click", function () { pick(null); });
+    card.appendChild(cancel);
+    page.appendChild(card);
+    document.body.appendChild(page);
+  });
+})();
+`.trim();
+
 // Element-select mode (M-T8.20 slice 4) — "click the running app, land on the
 // declaration that renders it".
 //
@@ -510,6 +581,7 @@ ${hostScript}
 <script type="module">${ESCAPE_END_SCRIPT(args.js)}</script>
 <script>${ESCAPE_END_SCRIPT(RELOAD_CONTROLLER)}</script>
 <script>${ESCAPE_END_SCRIPT(SELECT_CONTROLLER)}</script>
+<script>${ESCAPE_END_SCRIPT(AUTH_NAVIGATION_CONTROLLER)}</script>
 ${args.driverUrl ? `<script type="module" src="${args.driverUrl}"></script>` : ""}
 </body>
 </html>`;
