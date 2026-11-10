@@ -610,9 +610,7 @@ export function emitOperationCommandAndHandler(
     const errorTags = unionMembers(variants, ctx)
       .filter((_, i) => {
         const v = variants[i]!;
-        return (
-          v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error")
-        );
+        return v.kind === "entity" && v.declKind === "error";
       })
       .map((m) => m.tag);
     const errorGuard =

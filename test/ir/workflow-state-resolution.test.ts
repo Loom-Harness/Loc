@@ -49,7 +49,11 @@ describe("workflow-as-entity resolution (A2-S5a)", () => {
     expect(expr?.kind).toBe("member");
     if (expr?.kind === "member") {
       expect(expr.member).toBe("count");
-      expect(expr.receiverType).toEqual({ kind: "entity", name: "Fulfillment" });
+      expect(expr.receiverType).toEqual({
+        kind: "entity",
+        name: "Fulfillment",
+        declKind: "aggregate",
+      });
       expect(expr.memberType).toEqual({ kind: "primitive", name: "int" });
     }
   });

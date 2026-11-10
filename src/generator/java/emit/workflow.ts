@@ -1371,7 +1371,7 @@ export function renderJavaWorkflows(
     // (an id's raw `value()`), read inside the class-level `@Transactional`
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
-    const er = commandCreateEntryResult(wf, ctx);
+    const er = commandCreateEntryResult(wf);
     const selfResult = isWorkflowSelfType(wf, result?.type);
     const resultLines =
       er && result?.type.kind === "union"
@@ -1723,7 +1723,7 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
-    const er = commandCreateEntryResult(wf, ctx);
+    const er = commandCreateEntryResult(wf);
     if (er && result.type.kind === "union") {
       return [
         `    @PostMapping("/${snake(wf.name)}")`,

@@ -443,7 +443,7 @@ function renderHandlerModule(
   // a COLLECTION return maps each element). When projecting, the annotation becomes
   // `dict[str, object]` (or `list[dict[str, object]]`), NOT the aggregate class
   // (which would need a domain import the module never made).
-  const er = entryResult(h, ctx);
+  const er = entryResult(h);
   const normRet = er ? undefined : normalizeHandlerReturn(h.returnType, ctx);
   let projectRepoHandle: string | undefined;
   let projectIsCollection = false;
@@ -755,7 +755,7 @@ export function emitPyExplicitRouteRouter(
     const usesUser = handlerUsesUser(h, ctx);
     // An expected-failure result answers its error arms here, at their mapped
     // status (the 4xx rolls the request's transaction back).
-    const er = h.extern ? undefined : entryResult(h, ctx);
+    const er = h.extern ? undefined : entryResult(h);
     // Split params: those bound by a `{token}` in the route path stay URL path
     // params (wire type + call-site coercion); every other param rides in ONE
     // `body: <Handler>Body` request model. A bare Pydantic-model param would be

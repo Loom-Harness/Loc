@@ -164,7 +164,7 @@ function buildReturnUnionSpec(
   const members = unionMembers(variants, ctx);
   const isError = (i: number): boolean => {
     const v = variants[i]!;
-    return v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
+    return v.kind === "entity" && v.declKind === "error";
   };
   const arms: ReturnUnionArm[] = members.map((m, i) => {
     const variant = errorVariantResponse(m.tag, ctx.errorStatusOverrides);

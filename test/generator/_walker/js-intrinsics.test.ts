@@ -226,7 +226,12 @@ describe("what renderJsIntrinsic declines", () => {
   it("declines a non-intrinsic member so ordinary method-call emission still runs", () => {
     expect(renderJsIntrinsic(str, "somethingElse", "x", [])).toBeUndefined();
     expect(
-      renderJsIntrinsic({ kind: "entity", name: "Customer" } as never, "toUpper", "x", []),
+      renderJsIntrinsic(
+        { kind: "entity", name: "Customer", declKind: "aggregate" } as never,
+        "toUpper",
+        "x",
+        [],
+      ),
     ).toBeUndefined();
   });
 

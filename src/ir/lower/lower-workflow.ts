@@ -497,7 +497,11 @@ function lowerEntryBody(
       statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
       const bound = hoistAnswer(
         guard.ret.value,
-        withLocal(l.envAfter, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName }),
+        withLocal(l.envAfter, l.stmt.var, "let", {
+          kind: "entity",
+          name: l.stmt.aggName,
+          declKind: "aggregate",
+        }),
       );
       returnValue = lowerExpr(guard.ret.value, bound);
       const tag = tagOf(guard.ret.value, bound);
@@ -639,7 +643,7 @@ function lowerOn(
 ): OnIR {
   const eventName = o.event.ref?.name ?? o.event.$refText;
   const inner = withBodyNames(
-    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName }),
+    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName, declKind: "event" }),
     o.body,
   );
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
@@ -874,7 +878,11 @@ function lowerWorkflowStatementInner(
     // Bind the loop var to the element type so body op-calls resolve `o`'s
     // aggregate; fall back to the (possibly Unknown) entity type when the
     // iterable didn't infer to an array (the validator surfaces that).
-    const varType: TypeIR = elementType ?? { kind: "entity", name: varAggName };
+    const varType: TypeIR = elementType ?? {
+      kind: "entity",
+      name: varAggName,
+      declKind: "aggregate",
+    };
     const bodyEnv = withLocal(env, stmt.var, "let", varType);
     const { statements: body } = lowerWorkflowStatements(
       stmt.body,
@@ -937,7 +945,7 @@ function lowerWorkflowStatementInner(
     const aggName = repo?.aggregate?.ref?.name ?? boundLocal?.aggName ?? "Unknown";
     const repoName = repo?.name ?? (boundLocal ? (repoForAgg.get(aggName) ?? "") : "");
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
-    const varType: TypeIR = { kind: "entity", name: aggName };
+    const varType: TypeIR = { kind: "entity", name: aggName, declKind: "aggregate" };
     const { statements: thenBody } = lowerWorkflowStatements(
       stmt.thenBody,
       withLocal(env, stmt.var, "let", varType),
@@ -1141,7 +1149,7 @@ function lowerWorkflowStatementInner(
           value: target ? lowerExprInContext(f.value, target, env) : lowerExpr(f.value, env),
         };
       });
-      const aggType: TypeIR = { kind: "entity", name: factory.aggName };
+      const aggType: TypeIR = { kind: "entity", name: factory.aggName, declKind: "aggregate" };
       return {
         stmt: {
           kind: "factory-let",
@@ -1161,7 +1169,7 @@ function lowerWorkflowStatementInner(
     if (runCall) {
       const aggName = runCall.repo.aggregate?.ref?.name ?? "Unknown";
       const repoName = runCall.repo.name;
-      const elementType: TypeIR = { kind: "entity", name: aggName };
+      const elementType: TypeIR = { kind: "entity", name: aggName, declKind: "aggregate" };
       const arrayType: TypeIR = { kind: "array", element: elementType };
       const pageClause =
         runCall.pageOffset || runCall.pageLimit
@@ -1226,7 +1234,10 @@ function lowerWorkflowStatementInner(
     const findOneCall = matchFindCall(expr, reposByName, queryNames);
     if (findOneCall) {
       const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
-      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      const returnType: TypeIR = {
+        kind: "optional",
+        inner: { kind: "entity", name: aggName, declKind: "aggregate" },
+      };
       // A widened read (`… ignoring …`) calls its own method, exactly as the
       // `if let` over the same source does; the plain read runs the shared
       // retrieval.
@@ -1278,7 +1289,10 @@ function lowerWorkflowStatementInner(
     const byIdWidened = matchByIdBypassCall(expr, reposByName, queryNames);
     if (byIdWidened) {
       const aggName = byIdWidened.repo.aggregate?.ref?.name ?? "Unknown";
-      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      const returnType: TypeIR = {
+        kind: "optional",
+        inner: { kind: "entity", name: aggName, declKind: "aggregate" },
+      };
       return {
         stmt: {
           kind: "repo-let",

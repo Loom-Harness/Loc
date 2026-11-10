@@ -317,8 +317,16 @@ describe("renderWorkflowStmts — `variant-match` arms", () => {
         stmt("variant-match", {
           subject: EXPR,
           arms: [
-            { varType: { kind: "entity", name: "A" }, body: [stmt("emit")], savesInArm: [] },
-            { varType: { kind: "entity", name: "B" }, body: [], savesInArm: [] },
+            {
+              varType: { kind: "entity", name: "A", declKind: "aggregate" },
+              body: [stmt("emit")],
+              savesInArm: [],
+            },
+            {
+              varType: { kind: "entity", name: "B", declKind: "aggregate" },
+              body: [],
+              savesInArm: [],
+            },
           ],
           elseBody: [stmt("not-found")],
           savesInElse: [],

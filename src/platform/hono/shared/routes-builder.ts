@@ -825,7 +825,7 @@ export function buildRoutesFile(
     const prepareFields = serverSourcedDefaultFields(createInputFields(agg));
     if (prepareFields.length > 0) {
       const props = prepareFields
-        .map((f) => `${f.name}: ${zodForResponseField(f.type, false, ctx)}`)
+        .map((f) => `${f.name}: ${zodForResponseField(f.type, false)}`)
         .join(", ");
       lines.push(
         `const Prepare${agg.name}Response = z.object({ ${props} }).partial().openapi("Prepare${agg.name}Response");`,
@@ -2241,9 +2241,8 @@ function emitOperationRoute(
 /** True when a union variant is an `error` payload — the route maps it to an
  *  RFC-7807 ProblemDetails status instead of serializing it as a success body
  *  (exception-less.md). */
-function isErrorVariant(v: TypeIR, ctx: BoundedContextIR): boolean {
-  if (v.kind !== "entity") return false;
-  return ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
+function isErrorVariant(v: TypeIR): boolean {
+  return v.kind === "entity" && v.declKind === "error";
 }
 
 /** The exception-less operation route (`operation foo(): X or NotFound`).  Calls
@@ -2266,7 +2265,7 @@ function emitReturningOperationRoute(
   // operation route does not stamp.
   const aggSlug = routeSegmentFor(agg.name);
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
-  const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
+  const errorVariants = variants.filter((vv) => isErrorVariant(vv));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
   // An inline union's OpenAPI split (M-FT.24): the 200 declares the success
   // arms only; each error arm's status declares that arm's problem body.
@@ -2645,7 +2644,7 @@ function emitResponseDtoSchema(
       const t: TypeIR = provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
         : f.type;
-      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional, ctx)},`);
+      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional)},`);
     }
   } else {
     const fields = forApiRead(wireFieldsFor(ent));
@@ -2986,21 +2985,15 @@ export function zodForResponse(t: TypeIR, optional: boolean): string {
  *  TypeIR whose name is a declared `response` payload, which must be rendered
  *  DIRECTLY (`z.array(LabelResponse)`); running it through `zodForResponse` would
  *  append a second `Response` (`z.array(LabelResponseResponse)`). */
-function zodForResponseField(t: TypeIR, optional: boolean, ctx: BoundedContextIR): string {
+function zodForResponseField(t: TypeIR, optional: boolean): string {
   const info = wireTypeInfo(t, "response");
-  if (info.refKind === "entity" && isResponsePayloadName(ctx, info.base)) {
+  if (info.refKind === "entity" && info.declKind === "response") {
     let z = info.base;
     if (info.isCollection) z = `z.array(${z})`;
     if (info.isNullable || optional) z = `${z}.nullish()`;
     return z;
   }
   return zodForResponse(t, optional);
-}
-
-/** True iff `name` is a declared `response` payload in the context — i.e. a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
-  return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
 export function zodForResponseInner(t: TypeIR): string {

@@ -292,8 +292,8 @@ describe("renderStmtsWith — `if` branch recursion", () => {
 // `variant-match` — the statement `match`, the other nesting kind.
 // ---------------------------------------------------------------------------
 
-const RC = { kind: "entity", name: "Receipt" } as const;
-const REJ = { kind: "entity", name: "Rejected" } as const;
+const RC = { kind: "entity", name: "Receipt", declKind: "aggregate" } as const;
+const REJ = { kind: "entity", name: "Rejected", declKind: "aggregate" } as const;
 const STR = { kind: "primitive", name: "string" } as const;
 const readOf = (name: string) =>
   stmt("assign", {

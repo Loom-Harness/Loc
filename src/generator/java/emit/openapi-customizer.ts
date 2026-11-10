@@ -485,7 +485,7 @@ export function buildJavaOpenApiContract(
       const wfPath = `${routePrefix}/workflows/${snake(wf.name)}`;
       const wfResult = commandCreateResult(wf);
       const wfSplit =
-        wfResult?.type.kind === "union" && commandCreateEntryResult(wf, ctx)
+        wfResult?.type.kind === "union" && commandCreateEntryResult(wf)
           ? pinEntrySplit(wfResult.type.variants, ctx, "post", wfPath)
           : undefined;
       routes.push({
@@ -584,7 +584,7 @@ export function buildJavaOpenApiContract(
     let successRef: string | undefined;
     let listWrapper: string | undefined;
     const hSplit =
-      !h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)
+      !h.extern && h.returnType?.kind === "union" && entryResult(h)
         ? pinEntrySplit(h.returnType.variants, ctx, r.method.toLowerCase(), explicitRoutePath(r))
         : undefined;
     if (hSplit) {

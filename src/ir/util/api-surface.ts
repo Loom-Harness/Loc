@@ -147,12 +147,6 @@ export interface ApiOperationIR {
 export interface ApiStatusContext {
   readonly errorStatusOverrides?: Readonly<Record<string, number>>;
   readonly structuralErrorStatuses?: Readonly<Record<string, number>>;
-  /** Names of the context's `error`-kind payloads — how a union RETURN's error
-   *  arms are told apart from its success arms (both are `entity` variants in
-   *  `TypeIR`; only the payload catalogue knows which is which, the same
-   *  `ctx.payloads.some(p => p.name === v.name && p.kind === "error")` read
-   *  the .NET `buildReturnUnionSpec` performs). */
-  readonly errorPayloadNames?: ReadonlySet<string>;
   /** `BoundedContextIR.explicitRouteSlots` — the slots the derived surface
    *  yields to an explicit route. */
   readonly explicitRouteSlots?: ReadonlySet<string>;
@@ -413,7 +407,7 @@ function operationErrorStatuses(
   // `error`-kind payload.
   if (op.returnType?.kind === "union") {
     for (const v of op.returnType.variants) {
-      if (v.kind === "entity" && statuses?.errorPayloadNames?.has(v.name)) {
+      if (v.kind === "entity" && v.declKind === "error") {
         out.add(resolveErrorStatus(v.name, statuses?.errorStatusOverrides));
       }
     }
@@ -422,7 +416,7 @@ function operationErrorStatuses(
 }
 
 function entityType(aggName: string): TypeIR {
-  return { kind: "entity", name: aggName };
+  return { kind: "entity", name: aggName, declKind: "aggregate" };
 }
 
 /** The router-relative fragment of an operation's absolute `path` — what a
@@ -661,7 +655,6 @@ export function apiStatusContext(ctx: BoundedContextIR): ApiStatusContext {
   return {
     errorStatusOverrides: ctx.errorStatusOverrides,
     structuralErrorStatuses: ctx.structuralErrorStatuses,
-    errorPayloadNames: new Set(ctx.payloads.filter((p) => p.kind === "error").map((p) => p.name)),
     ...(ctx.explicitRouteSlots ? { explicitRouteSlots: new Set(ctx.explicitRouteSlots) } : {}),
   };
 }

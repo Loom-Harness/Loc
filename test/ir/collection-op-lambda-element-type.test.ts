@@ -58,7 +58,11 @@ describe("B9 — collection-op lambda params carry the element type", () => {
     expect(priceMember.member).toBe("price");
     // The receiver `l` resolves to the OrderLine element, and `.price` is money —
     // the whole point of threading the element type into the lambda env.
-    expect(priceMember.receiverType).toEqual({ kind: "entity", name: "OrderLine" });
+    expect(priceMember.receiverType).toEqual({
+      kind: "entity",
+      name: "OrderLine",
+      declKind: "aggregate",
+    });
     expect(priceMember.memberType).toEqual({ kind: "primitive", name: "money" });
   });
 

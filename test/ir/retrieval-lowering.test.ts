@@ -36,7 +36,7 @@ describe("lowering — retrieval", () => {
     expect(ctx.retrievals.map((r) => r.name)).toEqual(["AllActive", "ActiveInRegion"]);
 
     const all = ctx.retrievals.find((r) => r.name === "AllActive")!;
-    expect(all.targetType).toEqual({ kind: "entity", name: "Customer" });
+    expect(all.targetType).toEqual({ kind: "entity", name: "Customer", declKind: "aggregate" });
     expect(all.params).toEqual([]);
 
     const air = ctx.retrievals.find((r) => r.name === "ActiveInRegion")!;

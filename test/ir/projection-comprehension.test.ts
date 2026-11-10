@@ -91,7 +91,7 @@ describe("projection comprehension — lowering", () => {
       kind: "member",
       member: "name",
       receiver: { kind: "ref", name: "c", refKind: "let" },
-      receiverType: { kind: "entity", name: "Customer" },
+      receiverType: { kind: "entity", name: "Customer", declKind: "aggregate" },
     });
   });
 

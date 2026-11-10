@@ -1376,7 +1376,7 @@ export function computeWorkflowReturnType(wf: WorkflowIR): TypeIR | undefined {
 function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
   switch (stmt.kind) {
     case "factory-let":
-      return { kind: "entity", name: stmt.aggName };
+      return { kind: "entity", name: stmt.aggName, declKind: "aggregate" };
     case "repo-let":
       // The `{:ok, name} <-` clause unwraps the loaded aggregate; strip any
       // declared `optional` so the success arm is the non-nil value.
@@ -2058,8 +2058,12 @@ function ensureFindAll(
         name: "all",
         params: [],
         returnType: paged
-          ? { kind: "genericInstance", ctor: "paged", arg: { kind: "entity", name: agg.name } }
-          : { kind: "array", element: { kind: "entity", name: agg.name } },
+          ? {
+              kind: "genericInstance",
+              ctor: "paged",
+              arg: { kind: "entity", name: agg.name, declKind: "aggregate" },
+            }
+          : { kind: "array", element: { kind: "entity", name: agg.name, declKind: "aggregate" } },
       };
       repo.finds = [all, ...repo.finds];
     }

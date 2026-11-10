@@ -1506,15 +1506,9 @@ function renderAggregateResponseSchema(
   // Identical to the wireShape path for a scaffolded record.
   const declared = declaredResponseFor(payloads, agg);
   const props = declared
-    ? declaredResponseProps(agg, declared, payloads)
+    ? declaredResponseProps(agg, declared)
     : wireFieldsToProps(forApiRead(wireFieldsFor(agg)));
   return renderSchemaModule(moduleName, `${agg.name}Response`, props, `${webModule}.Api.Schemas`);
-}
-
-/** True iff `name` is a declared `response` payload — a containment field's
- *  already-wire type, which `openApiType` must not re-suffix. */
-function isResponsePayloadName(payloads: readonly PayloadIR[], name: string): boolean {
-  return payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
 /** A containment field's declared type is `<Part>Response` (an entity whose
@@ -1522,11 +1516,11 @@ function isResponsePayloadName(payloads: readonly PayloadIR[], name: string): bo
  *  ref, so peel the name back to the part so the shared renderer re-appends it —
  *  yielding `<Part>Response`, not `<Part>ResponseResponse`.  Scalars / VOs /
  *  enums pass through unchanged (their declared type IS the domain type). */
-function normalizeDeclaredType(t: TypeIR, payloads: readonly PayloadIR[]): TypeIR {
-  if (t.kind === "array") return { ...t, element: normalizeDeclaredType(t.element, payloads) };
-  if (t.kind === "optional") return { ...t, inner: normalizeDeclaredType(t.inner, payloads) };
-  if (t.kind === "entity" && isResponsePayloadName(payloads, t.name)) {
-    return { ...t, name: t.name.replace(/Response$/, "") };
+function normalizeDeclaredType(t: TypeIR): TypeIR {
+  if (t.kind === "array") return { ...t, element: normalizeDeclaredType(t.element) };
+  if (t.kind === "optional") return { ...t, inner: normalizeDeclaredType(t.inner) };
+  if (t.kind === "entity" && t.declKind === "response") {
+    return { ...t, name: t.name.replace(/Response$/, ""), declKind: "part" };
   }
   return t;
 }
@@ -1536,7 +1530,6 @@ function normalizeDeclaredType(t: TypeIR, payloads: readonly PayloadIR[]): TypeI
 function declaredResponseProps(
   agg: EnrichedAggregateIR,
   payload: PayloadIR,
-  payloads: readonly PayloadIR[],
 ): Array<{ name: string; type: TypeIR; optional: boolean }> {
   const props: Array<{ name: string; type: TypeIR; optional: boolean }> = [];
   const idField = forApiRead(wireFieldsFor(agg)).find((w) => w.source === "id");
@@ -1547,7 +1540,7 @@ function declaredResponseProps(
   // identical schema.
   const provenanced = new Set(agg.fields.filter((f) => f.provenanced).map((f) => f.name));
   for (const f of payload.fields) {
-    const declaredType = normalizeDeclaredType(f.type, payloads);
+    const declaredType = normalizeDeclaredType(f.type);
     props.push({
       name: f.name,
       type: provenanced.has(f.name)

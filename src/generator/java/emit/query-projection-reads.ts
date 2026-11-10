@@ -145,7 +145,7 @@ export function queryProjectionFindsFor(
 ): {
   name: string;
   params: ParamIR[];
-  returnType: { kind: "array"; element: { kind: "entity"; name: string } };
+  returnType: { kind: "array"; element: { kind: "entity"; name: string; declKind: "aggregate" } };
   filter?: ExprIR;
   bypassAll?: boolean;
   bypassCaps?: string[];
@@ -166,7 +166,10 @@ export function queryProjectionFindsFor(
       // parameterless read emitted `@Query("… = :o")` with no `@Param`, which
       // compiles and then fails at Spring context startup.
       params: p.params ?? [],
-      returnType: { kind: "array" as const, element: { kind: "entity" as const, name: aggName } },
+      returnType: {
+        kind: "array" as const,
+        element: { kind: "entity" as const, name: aggName, declKind: "aggregate" as const },
+      },
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),
       ...(p.query?.bypassCaps ? { bypassCaps: p.query.bypassCaps } : {}),

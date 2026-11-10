@@ -286,7 +286,10 @@ function auditDartField(w: WireField): DartField {
 export function dartAuditRecords(): DartRecord[] {
   const changes: DartField = {
     name: "changes",
-    type: { kind: "array", element: { kind: "entity", name: AUDIT_FIELD_CHANGE_TYPE } },
+    type: {
+      kind: "array",
+      element: { kind: "entity", name: AUDIT_FIELD_CHANGE_TYPE, declKind: "synthetic" },
+    },
     optional: false,
   };
   return [

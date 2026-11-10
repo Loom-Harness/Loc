@@ -172,7 +172,7 @@ describe("zodForRequest / zodForResponse — where the two wire sides diverge", 
   });
 
   it("entity: opaque on the request side, the named DTO on the response side", () => {
-    const ent: TypeIR = { kind: "entity", name: "Line" };
+    const ent: TypeIR = { kind: "entity", name: "Line", declKind: "part" };
     expect(zodForRequest(ent)).toBe("z.unknown()");
     expect(zodForResponse(ent, false)).toBe("LineResponse");
   });

@@ -118,7 +118,10 @@ const A4_SRC = `
 
 const INT_ARR = { kind: "array", element: { kind: "primitive", name: "int" } };
 const STR_ARR = { kind: "array", element: { kind: "primitive", name: "string" } };
-const ORDERLINE_ARR = { kind: "array", element: { kind: "entity", name: "OrderLine" } };
+const ORDERLINE_ARR = {
+  kind: "array",
+  element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+};
 
 describe("lowering — A4 collection-op result types", () => {
   async function derivedExpr(name: string): Promise<Extract<ExprIR, { kind: "member" }>> {

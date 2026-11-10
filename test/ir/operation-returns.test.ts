@@ -53,7 +53,7 @@ describe("operation returns — lowering (exception-less spike)", () => {
       kind: "union",
       variants: [
         { kind: "primitive", name: "string" },
-        { kind: "entity", name: "NotFound" },
+        { kind: "entity", name: "NotFound", declKind: "error" },
       ],
     });
     expect(op.statements.some((s) => s.kind === "return")).toBe(true);

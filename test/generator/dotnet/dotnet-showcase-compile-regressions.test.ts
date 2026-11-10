@@ -161,7 +161,7 @@ describe(".NET AuditableInterceptor — principal-member stamp values", () => {
                 kind: "member",
                 member: "role",
                 receiver: { kind: "ref", name: "currentUser", refKind: "current-user" },
-                receiverType: { kind: "entity", name: "User" },
+                receiverType: { kind: "entity", name: "User", declKind: "aggregate" },
                 memberType: { kind: "primitive", name: "string" },
               },
             },

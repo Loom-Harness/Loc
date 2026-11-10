@@ -287,15 +287,13 @@ export function validateUnmappedErrorStatuses(
   diags: LoomDiagnostic[],
 ): void {
   const overrides = ctx.errorStatusOverrides ?? {};
-  const errorNames = new Set(ctx.payloads.filter((p) => p.kind === "error").map((p) => p.name));
   for (const agg of ctx.aggregates) {
     for (const op of agg.operations) {
       if (op.returnType?.kind !== "union") continue;
       const flagged = new Set<string>();
       for (const v of op.returnType.variants) {
-        if (v.kind !== "entity") continue;
+        if (v.kind !== "entity" || v.declKind !== "error") continue; // only `error` payloads
         const name = v.name;
-        if (!errorNames.has(name)) continue; // only `error` payloads
         if (isStdlibError(name)) continue; // carries a stdlib default
         if (name in overrides) continue; // explicit api mapping
         if (flagged.has(name)) continue;

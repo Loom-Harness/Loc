@@ -335,7 +335,7 @@ export function buildWorkflowsFile(
       f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind !== "union" || !commandCreateEntryResult(wf, ctx)) continue;
+      if (r?.type.kind !== "union" || !commandCreateEntryResult(wf)) continue;
       const split = opUnionResponses(r.type.variants, ctx);
       if (!seen.has(split.successName)) {
         seen.add(split.successName);
@@ -1009,7 +1009,7 @@ function emitWorkflowRoute(
   const result = commandCreateResult(wf);
   // An expected-failure result (`T or E`): 200 declares the success arms and
   // each error arm's status its problem body, as on an operation route.
-  const er = commandCreateEntryResult(wf, ctx);
+  const er = commandCreateEntryResult(wf);
   const split =
     er && result?.type.kind === "union" ? opUnionResponses(result.type.variants, ctx) : null;
   const responsesAt = out.length;

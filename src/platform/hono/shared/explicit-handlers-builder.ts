@@ -460,7 +460,7 @@ function emitRouteHandler(
   }
   // An expected-failure result (`T or E`): 200 declares the success arms and
   // each error arm's status its problem body, as on an operation route.
-  const er = h.extern ? undefined : entryResult(h, ctx);
+  const er = h.extern ? undefined : entryResult(h);
   const split =
     er && h.returnType?.kind === "union" ? opUnionResponses(h.returnType.variants, ctx) : null;
   const responsesAt = out.length;
@@ -852,7 +852,7 @@ export function buildExplicitRoutesFile(
     if (h.extern) externImplImports.set(externImplFn(h.name), externImplModule(h.name));
     // An expected-failure result's OpenAPI split: the 200 success arms and each
     // error arm's problem body, declared once per file.
-    if (!h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)) {
+    if (!h.extern && h.returnType?.kind === "union" && entryResult(h)) {
       const split = opUnionResponses(h.returnType.variants, ctx);
       const fieldZod = (f: UnionMemberField): string =>
         f.isId ? "z.string()" : zodForResponse(f.type, f.optional);

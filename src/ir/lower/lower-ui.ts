@@ -275,7 +275,11 @@ export function lowerUi(
       // re-derive it (mirrors the mutation-success `["<tag>"]` key).
       const eventName = m.event?.$refText ?? "";
       const env: Env = { locals: new Map(), user: undefined, ui: true };
-      const inner = withLocal(env, m.bind, "param", { kind: "entity", name: eventName });
+      const inner = withLocal(env, m.bind, "param", {
+        kind: "entity",
+        name: eventName,
+        declKind: "event",
+      });
       const toasts: ExprIR[] = [];
       const refetches: RefetchTargetIR[] = [];
       for (const stmt of m.body) {

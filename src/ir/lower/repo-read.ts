@@ -440,7 +440,11 @@ export function matchRepoRead(
  *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
  *  shape), and `find` takes the `T?` its `if let` arm implies. */
 export function repoReadResultType(read: RepoReadMatch): TypeIR {
-  const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
+  const entity: TypeIR = {
+    kind: "entity",
+    name: read.repo.aggregate?.ref?.name ?? "Unknown",
+    declKind: "aggregate",
+  };
   // An unknown named read falls back to the bare aggregate, like the workflow
   // `repo-let` arm; its validator refuses it.
   if (read.op === "unknown-read") return entity;

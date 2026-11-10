@@ -14,7 +14,6 @@
 // platform-neutral, browser-safe.
 // -------------------------------------------------------------------------
 import {
-  type BoundedContextIR,
   type CreateIR,
   type EnrichedBoundedContextIR,
   type ExprIR,
@@ -57,13 +56,10 @@ export function commandCreateResult(
 
 /** The expected-failure result (`T or E`) of the workflow's command route, as
  *  the leaves every backend renders (`entry-result.ts`). */
-export function commandCreateEntryResult(
-  wf: WorkflowIR,
-  ctx: BoundedContextIR,
-): EntryResult | undefined {
+export function commandCreateEntryResult(wf: WorkflowIR): EntryResult | undefined {
   const r = commandCreateResult(wf);
   return r
-    ? entryResult({ returnType: r.type, returnValue: r.value, returnTags: r.returnTags }, ctx)
+    ? entryResult({ returnType: r.type, returnValue: r.value, returnTags: r.returnTags })
     : undefined;
 }
 

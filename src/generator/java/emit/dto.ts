@@ -599,14 +599,12 @@ function wireRecord(
           `${jsonProp(f.name, imports)}${JAVA_PROVENANCED_RECORD}<${wireJavaType(f.type, "Response", true)}> ${jid(f.name)}`,
         );
         args.push(
-          `new ${JAVA_PROVENANCED_RECORD}<>(${payloadFieldToWire(f, declared.payloads)}, value.${javaProvSibling(f.name)}())`,
+          `new ${JAVA_PROVENANCED_RECORD}<>(${payloadFieldToWire(f)}, value.${javaProvSibling(f.name)}())`,
         );
         continue;
       }
-      components.push(
-        `${jsonProp(f.name, imports)}${payloadFieldJavaType(f, declared.payloads)} ${jid(f.name)}`,
-      );
-      args.push(payloadFieldToWire(f, declared.payloads));
+      components.push(`${jsonProp(f.name, imports)}${payloadFieldJavaType(f)} ${jid(f.name)}`);
+      args.push(payloadFieldToWire(f));
     }
   } else {
     const shape = forApiRead(wireFieldsFor(entity));
@@ -718,12 +716,6 @@ function wireFieldType(w: WireField): TypeIR {
   return eff(w.type, w.optional);
 }
 
-/** True iff `name` is a declared `response` payload in the context — a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(payloads: readonly PayloadIR[], name: string): boolean {
-  return payloads.some((p) => p.kind === "response" && p.name === name);
-}
-
 /** Java component type for a field of a DECLARED `response` record.  A
  *  value-object / scalar / enum field carries its DOMAIN type, so `wireJavaType`
  *  maps it exactly as the wireShape path does; a CONTAINMENT field is ALREADY
@@ -732,25 +724,25 @@ function isResponsePayloadName(payloads: readonly PayloadIR[], name: string): bo
  *  lowers to an `entity` whose name is a declared `response`).  That name is
  *  rendered DIRECTLY (peel + re-wrap `List<...>`); running it through
  *  `wireJavaType` would append a second `Response` (`LineResponseResponse`). */
-function payloadFieldJavaType(f: FieldIR, payloads: readonly PayloadIR[]): string {
+function payloadFieldJavaType(f: FieldIR): string {
   const t = eff(f.type, f.optional);
   const base = t.kind === "array" ? t.element : t;
-  if (base.kind === "entity" && isResponsePayloadName(payloads, base.name)) {
+  if (base.kind === "entity" && base.declKind === "response") {
     if (t.kind === "array") return `${J.List}<${base.name}>`;
     return base.name;
   }
-  if (optionalResponsePart(t, payloads) && t.kind === "optional" && t.inner.kind === "entity")
+  if (optionalResponsePart(t) && t.kind === "optional" && t.inner.kind === "entity")
     return t.inner.name;
   return wireJavaType(t, "Response");
 }
 
 /** The contained PART behind an optional single containment of a declared
  *  record (`optional<MemoResponse>` → the `Memo` entity), or undefined. */
-function optionalResponsePart(t: TypeIR, payloads: readonly PayloadIR[]): TypeIR | undefined {
+function optionalResponsePart(t: TypeIR): TypeIR | undefined {
   if (t.kind !== "optional" || t.inner.kind !== "entity") return undefined;
   const name = t.inner.name;
-  if (!isResponsePayloadName(payloads, name) || !name.endsWith("Response")) return undefined;
-  return { ...t.inner, name: name.slice(0, -"Response".length) };
+  if (t.inner.declKind !== "response" || !name.endsWith("Response")) return undefined;
+  return { ...t.inner, name: name.slice(0, -"Response".length), declKind: "part" };
 }
 
 /** The `from(<domain>)` mapper argument for a DECLARED `response` field.  A
@@ -758,18 +750,18 @@ function optionalResponsePart(t: TypeIR, payloads: readonly PayloadIR[]): TypeIR
  *  field's declared type is the `<Part>Response` name, so the mapper is built
  *  from the domain accessor with that name's `::from` directly — NOT via
  *  `domainToWire`, which would double-suffix (`LineResponseResponse::from`). */
-function payloadFieldToWire(f: FieldIR, payloads: readonly PayloadIR[]): string {
+function payloadFieldToWire(f: FieldIR): string {
   const t = eff(f.type, f.optional);
   const accessorExpr = `value.${jid(f.name)}()`;
   const base = t.kind === "array" ? t.element : t;
-  if (base.kind === "entity" && isResponsePayloadName(payloads, base.name)) {
+  if (base.kind === "entity" && base.declKind === "response") {
     if (t.kind === "array") return `${accessorExpr}.stream().map(${base.name}::from).toList()`;
     return `${accessorExpr} == null ? null : ${base.name}.from(${accessorExpr})`;
   }
   // An OPTIONAL single containment (`note: MemoResponse?`) projects exactly as
   // the derived `Memo` + optional row does, so map it through the part's
   // domain type rather than re-suffixing the record name.
-  const part = optionalResponsePart(t, payloads);
+  const part = optionalResponsePart(t);
   if (part) return domainToWire({ kind: "optional", inner: part }, accessorExpr);
   return domainToWire(t, accessorExpr);
 }

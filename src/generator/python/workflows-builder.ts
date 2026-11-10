@@ -617,7 +617,7 @@ function workflowRoute(
   // currentUser-referencing one binds the actor off the request scope
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
-  const needsRequest = usesUser || commandCreateEntryResult(wf, ctx) !== undefined;
+  const needsRequest = usesUser || commandCreateEntryResult(wf) !== undefined;
   const sig = [
     pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
@@ -629,7 +629,7 @@ function workflowRoute(
   const result = commandCreateResult(wf);
   // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
   // is injected by `install_openapi`), each error arm at its mapped status.
-  const er = commandCreateEntryResult(wf, ctx);
+  const er = commandCreateEntryResult(wf);
   const selfResult = isWorkflowSelfType(wf, result?.type);
   const returnAnnotation = er
     ? `dict[str, object] | ${H.JSONResponse}`

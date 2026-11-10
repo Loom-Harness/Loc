@@ -86,12 +86,16 @@ describe("generics — lowering (P3a)", () => {
 
 describe("generics — stdlib shape registry (P3a)", () => {
   it("paged → items/page/pageSize/total/totalPages (1-based offset shape)", () => {
-    const fields = genericShape("paged").fields({ kind: "entity", name: "Customer" });
+    const fields = genericShape("paged").fields({
+      kind: "entity",
+      name: "Customer",
+      declKind: "aggregate",
+    });
     expect(fields.map((f) => f.name)).toEqual(["items", "page", "pageSize", "total", "totalPages"]);
     // `items` carries an array of the type argument; the rest are ints.
     expect(fields[0]!.type).toEqual({
       kind: "array",
-      element: { kind: "entity", name: "Customer" },
+      element: { kind: "entity", name: "Customer", declKind: "aggregate" },
     });
     for (const f of fields.slice(1)) expect(f.type).toEqual({ kind: "primitive", name: "int" });
   });
@@ -119,9 +123,9 @@ describe("generics — naming (P3b)", () => {
   it("names instances <ArgName><Ctor>", () => {
     expect(genericInstanceName("paged", { kind: "primitive", name: "string" })).toBe("StringPaged");
     expect(genericInstanceName("paged", { kind: "id", targetName: "Order" })).toBe("OrderIdPaged");
-    expect(genericInstanceName("paged", { kind: "entity", name: "OrderPlaced" })).toBe(
-      "OrderPlacedPaged",
-    );
+    expect(
+      genericInstanceName("paged", { kind: "entity", name: "OrderPlaced", declKind: "aggregate" }),
+    ).toBe("OrderPlacedPaged");
   });
 });
 
@@ -131,13 +135,21 @@ describe("generics — pagedReturn helper (P3b)", () => {
       pagedReturn({
         kind: "genericInstance",
         ctor: "paged",
-        arg: { kind: "entity", name: "Order" },
+        arg: { kind: "entity", name: "Order", declKind: "aggregate" },
       }),
-    ).toEqual({ arg: { kind: "entity", name: "Order" }, name: "OrderPaged" });
+    ).toEqual({
+      arg: { kind: "entity", name: "Order", declKind: "aggregate" },
+      name: "OrderPaged",
+    });
   });
 
   it("returns null for non-paged types", () => {
-    expect(pagedReturn({ kind: "array", element: { kind: "entity", name: "Order" } })).toBeNull();
+    expect(
+      pagedReturn({
+        kind: "array",
+        element: { kind: "entity", name: "Order", declKind: "aggregate" },
+      }),
+    ).toBeNull();
     expect(
       pagedReturn({
         kind: "genericInstance",

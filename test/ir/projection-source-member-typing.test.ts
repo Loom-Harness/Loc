@@ -2,7 +2,7 @@
 // projection (`from <Projection> as t`).
 //
 // A projection ROW is a state-bearing record like a workflow: a `this` /
-// source-alias reference types as `{ kind: "entity", name: <Proj> }`, and a
+// source-alias reference types as `{ kind: "entity", name: <Proj>, declKind: "aggregate" }`, and a
 // member off it must resolve against the SOURCE projection's declared row
 // fields.  The entity-branch lookup chain in `memberType` / `stepInto` ran
 // entities → events → payloads → workflows and then gave up, so every
@@ -87,7 +87,7 @@ describe("query-time projection over a projection source — member typing", () 
       kind: "member",
       member: "total",
       receiver: { kind: "this" },
-      receiverType: { kind: "entity", name: "OrderTotals" },
+      receiverType: { kind: "entity", name: "OrderTotals", declKind: "aggregate" },
       memberType: { kind: "primitive", name: "int" },
     });
   });
@@ -133,7 +133,7 @@ describe("query-time projection over a projection source — member typing", () 
     expect(hasStringConvert(total.expr)).toBe(false);
     const sum = total.expr as ExprIR & { left: ExprIR };
     expect(sum.left).toMatchObject({
-      receiverType: { kind: "entity", name: "Order" },
+      receiverType: { kind: "entity", name: "Order", declKind: "aggregate" },
       memberType: { kind: "primitive", name: "int" },
     });
   });

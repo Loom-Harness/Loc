@@ -45,7 +45,15 @@ import {
 import { printExpr } from "../../language/print/index.js";
 import { PRINCIPAL_TYPE_NAME } from "../../util/principal.js";
 import { canonicalUnion, OPTION_NONE } from "../stdlib/unions.js";
-import type { DataSourceKind, ExprIR, PermissionDeclIR, TypeIR, UserIR } from "../types/loom-ir.js";
+import type {
+  DataSourceKind,
+  EntityDeclKind,
+  ExprIR,
+  PayloadKind,
+  PermissionDeclIR,
+  TypeIR,
+  UserIR,
+} from "../types/loom-ir.js";
 import type { ApiOperationIR } from "../util/api-surface.js";
 
 /** Synthetic entity name used to type the `currentUser` magic
@@ -487,19 +495,21 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
     if (target) {
       if (isEnumDecl(target)) return { kind: "enum", name: target.name };
       if (isValueObject(target)) return { kind: "valueobject", name: target.name };
-      if (isAggregate(target)) return { kind: "entity", name: target.name };
-      if (isEntityPart(target)) return { kind: "entity", name: target.name };
-      // Transport types (`event` / payload) referenced as a workflow command
-      // param type — `create(e: PaymentReceived) by …`, `create(c: SettleOrder)`.
-      // Events aren't a distinct TypeIR kind; like `on`/`apply` event params
-      // they carry the name as an `entity` marker, and member access (`e.field`)
-      // type-resolves through `findEventByName`/`findPayloadByName` in lower-expr.
-      if (isEventDecl(target) || isPayloadDecl(target)) {
-        return { kind: "entity", name: target.name };
+      // Aggregates, parts, payload-family records (an event or payload as a
+      // workflow command param type — `create(e: PaymentReceived) by …`) and a
+      // workflow `create` naming its own workflow as its result
+      // (`create(…): Fulfillment`) are named records; member access
+      // (`e.field`) type-resolves through the `find*ByName` lookups in
+      // lower-expr.
+      if (
+        isAggregate(target) ||
+        isEntityPart(target) ||
+        isEventDecl(target) ||
+        isPayloadDecl(target) ||
+        isWorkflow(target)
+      ) {
+        return entityTypeOf(target);
       }
-      // A workflow `create` naming its own workflow as its result
-      // (`create(…): Fulfillment`) — the workflow's state record.
-      if (isWorkflow(target)) return { kind: "entity", name: target.name };
     }
     // Macro-emitted reference without a `$refNode` — Langium's default
     // Linker skips it silently (same hazard the IdType branch handles
@@ -516,13 +526,34 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
     if (refText && env) {
       if (findValueObjectByName(env, refText)) return { kind: "valueobject", name: refText };
       if (findEnumByName(env, refText)) return { kind: "enum", name: refText };
-      if (findEntityByName(env, refText)) return { kind: "entity", name: refText };
-      if (findEventByName(env, refText)) return { kind: "entity", name: refText };
-      if (findPayloadByName(env, refText)) return { kind: "entity", name: refText };
+      const record =
+        findEntityByName(env, refText) ??
+        findEventByName(env, refText) ??
+        findPayloadByName(env, refText);
+      if (record) return entityTypeOf(record);
     }
     return { kind: "primitive", name: "string" };
   }
   return { kind: "primitive", name: "string" };
+}
+
+/** The `entity` `TypeIR` naming a record declaration, with the declaration
+ *  kind resolved here so no consumer looks the name up again. */
+export function entityTypeOf(
+  decl: Aggregate | EntityPart | EventDecl | PayloadDecl | Workflow | Projection,
+): TypeIR {
+  return { kind: "entity", name: decl.name, declKind: entityDeclKindOf(decl) };
+}
+
+export function entityDeclKindOf(
+  decl: Aggregate | EntityPart | EventDecl | PayloadDecl | Workflow | Projection,
+): EntityDeclKind {
+  if (isAggregate(decl)) return "aggregate";
+  if (isEntityPart(decl)) return "part";
+  if (isEventDecl(decl)) return "event";
+  if (isPayloadDecl(decl)) return decl.kind as PayloadKind;
+  if (isWorkflow(decl)) return "workflow";
+  return "projection";
 }
 
 // ---------------------------------------------------------------------------
@@ -617,9 +648,8 @@ export function findAmbientEnumForValue(valueName: string): EnumDecl | undefined
 
 /** Look up a context-level `event` declaration by name.  Used to
  *  type-resolve member access on an applier's event parameter
- *  (`apply(e: OrderPlaced) { … e.field … }`) — the param carries the
- *  event name as an `entity`-shaped marker (events aren't a distinct
- *  TypeIR kind), and member typing falls back to this lookup when the
+ *  (`apply(e: OrderPlaced) { … e.field … }`) — the param is the event's
+ *  `entity` record, and member typing falls back to this lookup when the
  *  name isn't an aggregate / entity part. */
 export function findEventByName(env: Env, name: string): EventDecl | undefined {
   if (!env.ctx) return undefined;
