@@ -223,6 +223,25 @@ export class Scope {
 
 const ROOT_FRAME: Frame = { ui: false, e2e: false };
 
+/** The two generated `test e2e` clients: the HTTP client and the Playwright
+ *  page objects. */
+type E2eClient = "api" | "ui";
+const isE2eClient = (name: string): name is E2eClient => name === "api" || name === "ui";
+
+/** The handle `ui.workflows.<wf>(…)` reserves for the workflow forms. */
+const UI_WORKFLOWS_HANDLE = "workflows";
+
+/** The public operation `name` of `agg` or an ancestor: the verb the e2e
+ *  clients call on a record. */
+function publicOperation(agg: Aggregate, name: string): Operation | undefined {
+  for (const o of ownerChain(agg)) {
+    for (const m of o.members as AstNode[]) {
+      if (isOperation(m) && m.name === name && !m.private) return m;
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // The elaborator
 // ---------------------------------------------------------------------------
@@ -288,8 +307,8 @@ export class Elaborator {
       else {
         // `api.<handle>.<verb>(…)` as a statement: its body arguments fill
         // the request they are sent as.
-        if (inner.frame.e2e && lv.head === "api" && lv.tail.length === 2)
-          this.typeE2eArgs(String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
+        if (inner.frame.e2e && isE2eClient(lv.head) && lv.tail.length === 2)
+          this.typeE2eArgs(lv.head, String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
         const member = lv.tail.length > 0 ? lv.tail[lv.tail.length - 1]! : lv.head;
         const call = { $type: "MemberSuffix", member, call: true, args: [] } as never;
         this.lvalueCallResults.set(
@@ -742,10 +761,9 @@ export class Elaborator {
     // as lowering resolves it), ahead of the enclosing record's fields.
     const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
     if (res) return Ty.record({ of: "resource", ref: res });
-    // `test e2e` call roots are resolved at render time against the target
-    // deployable; typing them is cutover family 3f's (a pass gap, not an
-    // author error).
-    if (f.e2e && (name === "api" || name === "ui")) return Ty.unknown("no-rule");
+    // A `test e2e` client root is typed with its `<handle>.<verb>(…)` call
+    // (`e2eApiCall` / `e2eUiCall`); bare, it is no value.
+    if (f.e2e && isE2eClient(name)) return Ty.unknown("no-rule");
     const member = f.owner ? this.ownerMember(f.owner, name, scope) : undefined;
     if (member) return member;
     // A store named as a value (`Cart.lines` heads resolve here).
@@ -1153,13 +1171,9 @@ export class Elaborator {
       }
       if (verb === "destroy") return Ty.never;
       // A public operation: no declared result answers 204 with no body.
-      for (const o of ownerChain(target)) {
-        for (const m of o.members as AstNode[]) {
-          if (!isOperation(m) || m.name !== verb || m.private) continue;
-          return m.returnType ? this.e2eResult(this.resolveType(m.returnType, scope)) : Ty.never;
-        }
-      }
-      return Ty.unknown("no-rule");
+      const op = publicOperation(target, verb);
+      if (!op) return Ty.unknown("no-rule");
+      return op.returnType ? this.e2eResult(this.resolveType(op.returnType, scope)) : Ty.never;
     }
     const wf = named.workflow;
     if (wf) {
@@ -1183,6 +1197,21 @@ export class Elaborator {
     return undefined;
   }
 
+  /** A `test e2e` `ui.<handle>.<verb>(…)` call: what the Playwright page
+   *  objects hand back (`ui-e2e-render.ts`).  `create` fills and submits the
+   *  aggregate's create form and answers the `{ id }` of the record it made;
+   *  `getById` answers the navigated detail page, whose fields read as the
+   *  record's JSON; a public operation and `ui.workflows.<wf>(…)` drive a form
+   *  and answer nothing. */
+  private e2eUiCall(handle: string, verb: string): Ty | undefined {
+    if (handle === UI_WORKFLOWS_HANDLE) return this.index.e2eHandle(verb).workflow && Ty.never;
+    const target = this.index.e2eHandle(handle).aggregate;
+    if (!target) return undefined;
+    if (verb === "create") return Ty.record({ of: "created", ref: target });
+    if (verb === "getById") return wireOf(Ty.record({ of: "aggregate", ref: target }));
+    return publicOperation(target, verb) ? Ty.never : undefined;
+  }
+
   /** A declared result as the client receives it: an `or`-union tagged, any
    *  other value as its JSON. */
   private e2eResult(t: Ty): Ty {
@@ -1194,10 +1223,21 @@ export class Elaborator {
    *  public operation (argument 1, after the id), a workflow's `create` behind
    *  `run` (argument 0). */
   private e2eRequestOf(
+    client: E2eClient,
     handle: string,
     verb: string,
     index: number,
   ): Create | Operation | WorkflowCreateDecl | undefined {
+    if (client === "ui") {
+      // `ui.workflows.<wf>(…)` fills the workflow's form: its `create`.
+      if (handle === UI_WORKFLOWS_HANDLE) {
+        const wf = this.index.e2eHandle(verb).workflow;
+        return index === 0 ? wf?.members.find(isWorkflowCreateDecl) : undefined;
+      }
+      // The ui client reaches no projection; a workflow only through the
+      // reserved handle above.
+      if (!this.index.e2eHandle(handle).aggregate) return undefined;
+    }
     const named = this.index.e2eHandle(handle);
     if (named.projection && (verb === "list" || verb === "byKey")) return undefined;
     const agg = named.aggregate;
@@ -1206,15 +1246,9 @@ export class Elaborator {
         return index === 0
           ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
           : undefined;
-      if (index !== 1) return undefined;
-      for (const o of ownerChain(agg)) {
-        for (const m of o.members as AstNode[]) {
-          if (isOperation(m) && m.name === verb && !m.private) return m;
-        }
-      }
-      return undefined;
+      return index === 1 ? publicOperation(agg, verb) : undefined;
     }
-    if (named.workflow && verb === "run" && index === 0) {
+    if (client === "api" && named.workflow && verb === "run" && index === 0) {
       return named.workflow.members.find((m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m));
     }
     return undefined;
@@ -1224,13 +1258,14 @@ export class Elaborator {
    *  fills — before the arguments' own elaboration, which then reads the
    *  recorded types. */
   private typeE2eArgs(
+    client: E2eClient,
     handle: string,
     verb: string,
     args: readonly Expression[],
     scope: Scope,
   ): void {
     args.forEach((a, i) => {
-      const req = this.e2eRequestOf(handle, verb, i);
+      const req = this.e2eRequestOf(client, handle, verb, i);
       if (req) this.synthAgainst(a, scope, Ty.record({ of: "request", ref: req }));
     });
   }
@@ -1425,18 +1460,25 @@ export class Elaborator {
       return { t: Ty.prim("bool"), consumed: 1 };
     }
     // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
-    // generated test client (cutover family 3f).
-    if (scope.frame.e2e && name === "api") {
+    // generated test client, `ui.<handle>.<verb>(…)` its Playwright page
+    // objects (cutover family 3f).
+    if (scope.frame.e2e && isE2eClient(name)) {
       const call = e.suffixes[1];
       if (!ms.call && call && isMemberSuffix(call) && call.call) {
+        const handle = String(ms.member);
+        const verb = String(call.member);
         this.typeE2eArgs(
-          String(ms.member),
-          String(call.member),
+          name,
+          handle,
+          verb,
           call.args.map((a) => a.value),
           scope,
         );
         this.synthArgs(call.args, scope);
-        const t = this.e2eApiCall(String(ms.member), String(call.member), scope, node);
+        const t =
+          name === "api"
+            ? this.e2eApiCall(handle, verb, scope, node)
+            : this.e2eUiCall(handle, verb);
         return { t: t ?? Ty.unknown("unresolved-member"), consumed: 2 };
       }
     }

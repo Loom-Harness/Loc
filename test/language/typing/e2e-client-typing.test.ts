@@ -144,3 +144,42 @@ describe("the e2e api client's request bodies, typed as what the client sends", 
     expect(await typeOfText(src, `api.shop.getOrderByCode("C2").code`)).toBe("p:string");
   });
 });
+
+describe("the e2e ui client, typed from the page objects it drives", () => {
+  it("a create answers its { id }; a getById answers the record as its JSON", async () => {
+    const src = sys(`let c = ui.customers.create({ name: "x" })  let i = c.id
+      let rd = ui.orders.getById(c)  let t = rd.total  let code = rd.code`);
+    expect(await typeOfText(src, `ui.customers.create({ name: "x" })`)).toBe("rec:CustomerCreated");
+    expect(await typeOfText(src, "c.id")).toBe("p:string");
+    expect(await typeOfText(src, "rd.total")).toBe("p:string");
+    expect(await typeOfText(src, "rd.code")).toBe("p:string");
+  });
+
+  it("a body is the create's / operation's / workflow form's record", async () => {
+    const src = sys(`let o = ui.orders.create({ code: "A", shipTo: { city: "Oslo", zip: "0150" } })
+      ui.orders.retitle(o, { t: "renamed" })
+      ui.workflows.checkout({ o: "x" })`);
+    expect(await typeOfText(src, `{ city: "Oslo", zip: "0150" }`)).toBe("rec:Address");
+    expect(await typeOfText(src, `{ t: "renamed" }`)).toBe("rec:__Request__");
+    expect(await typeOfText(src, `{ o: "x" }`)).toBe("rec:__Request__");
+  });
+
+  it("an operation and a workflow form answer nothing", async () => {
+    const src = sys(`let o = ui.orders.create({ code: "A" })
+      let r = ui.orders.retitle(o, { t: "y" })  let w = ui.workflows.checkout({ o: "x" })`);
+    expect(await typeOfText(src, `ui.orders.retitle(o, { t: "y" })`)).toBe("never");
+    expect(await typeOfText(src, `ui.workflows.checkout({ o: "x" })`)).toBe("never");
+  });
+
+  it("the api-only surface and an invented verb do not resolve", async () => {
+    const src = sys(`let a = ui.totals.list()  let b = ui.checkout.run({ o: "x" })
+      let c = ui.orders.nope()  let d = ui.workflows.nope({})`);
+    for (const call of [
+      "ui.totals.list()",
+      `ui.checkout.run({ o: "x" })`,
+      "ui.orders.nope()",
+      "ui.workflows.nope({})",
+    ])
+      expect(await typeOfText(src, call), call).toBe("unknown:unresolved-member");
+  });
+});
