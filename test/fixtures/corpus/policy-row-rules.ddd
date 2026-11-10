@@ -1,0 +1,172 @@
+// Row rules, policy functions in row rules, per-role `when` and `own`
+// (D-SHARING, docs/auth.md).  Visibility composes per aggregate as
+//
+//     (level default OR row rule₁ OR row rule₂ …) AND NOT deny
+//
+// where the level default is `local` (the operating org's rows) unless a level
+// rule replaces it for the callers its `when` admits.
+//
+//   * `Category`      — `exists` row rules: a category is also readable by
+//                       the org a share names, and writable when the share
+//                       says so.  The share's own read scope applies inside
+//                       the EXISTS.
+//   * `CategoryShare` — a row rule through a policy function taking the
+//                       aggregate: a grantee org reads the shares addressed
+//                       to it (a share row belongs to the SHARER's tenant).
+//   * `Product`       — products follow their category: a row rule calling a
+//                       policy function on a `Category id` reference.
+//   * `Note`          — the role split: managers read the org's notes
+//                       (`local`), clerks only the ones they created (`own`);
+//                       a caller neither `when` admits keeps `local`.
+//
+// A read rule never widens the write scope: the grantee org reads the shared
+// product and still cannot update it.
+system PolicyRowRules {
+  user { id: string  tenantId: string  role: string }
+
+  tenancy by user.tenantId of Org
+
+  subdomain Core {
+    context Catalog {
+      aggregate Org with crudish {
+        name: string
+      }
+      aggregate Category with tenantOwned, crudish {
+        name: string
+      }
+      aggregate CategoryShare with tenantOwned, crudish {
+        category: Category id
+        grantee: string
+        write: bool
+      }
+      aggregate Product with tenantOwned, crudish {
+        name: string
+        category: Category id
+      }
+      aggregate Note with tenantOwned, auditable, crudish {
+        body: string
+      }
+
+      policy GranteeIsMe(s: CategoryShare): bool = s.grantee == currentUser.tenantId
+      policy SharedWithMe(c: Category id): bool =
+        exists CategoryShare as s where s.category == c && GranteeIsMe(s)
+
+      policy {
+        allow read on CategoryShare as s where GranteeIsMe(s)
+        allow on Category as c where exists CategoryShare as s where s.category == c.id && s.grantee == currentUser.tenantId
+        allow write on Category as c where exists CategoryShare as s where s.category == c.id && s.grantee == currentUser.tenantId && s.write
+        allow on Product as p where SharedWithMe(p.category)
+        allow local on Note when currentUser.role == "manager"
+        allow own on Note when currentUser.role == "clerk"
+        allow write own on Note when currentUser.role == "clerk"
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    port: 4000
+    auth: required
+  }
+
+  test e2e "row rules open shared categories and their products to the grantee org" against d {
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let tools = api.categories.create({ name: "Tools" })
+    let toys = api.categories.create({ name: "Toys" })
+    let hammer = api.products.create({ name: "Hammer", category: tools.id })
+    let ball = api.products.create({ name: "Ball", category: toys.id })
+
+    // Another org sees nothing of acme's before a share exists.
+    as { id: "bob", tenantId: "globex", role: "manager" }
+    expect(api.categories.all().total).toBe(0)
+    expect(api.categories.getById(tools)).toThrow(404)
+    expect(api.products.all().total).toBe(0)
+    expect(api.products.getById(hammer)).toThrow(404)
+
+    // acme shares Tools with globex, and Toys with a third org.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let toGlobex = api.category_shares.create({ category: tools.id, grantee: "globex", write: false })
+    let toInitech = api.category_shares.create({ category: toys.id, grantee: "initech", write: true })
+    expect(api.category_shares.all().total).toBe(2)
+
+    // globex reads the share addressed to it (GranteeIsMe), the shared
+    // category (the `exists` rule) and its product (SharedWithMe) — and only
+    // those: the correlation keeps Toys and Ball closed.
+    as { id: "bob", tenantId: "globex", role: "manager" }
+    expect(api.category_shares.all().total).toBe(1)
+    expect(api.category_shares.getById(toGlobex).grantee).toBe("globex")
+    expect(api.category_shares.getById(toInitech)).toThrow(404)
+    expect(api.categories.all().total).toBe(1)
+    expect(api.categories.getById(tools).name).toBe("Tools")
+    expect(api.categories.getById(toys)).toThrow(404)
+    expect(api.products.all().total).toBe(1)
+    expect(api.products.getById(hammer).name).toBe("Hammer")
+    expect(api.products.getById(ball)).toThrow(404)
+
+    // A read rule never widens the write scope, and a read-only share opens
+    // no write rule.
+    expect(api.products.update(hammer, { name: "Mallet", category: tools.id })).toThrow(404)
+    expect(api.categories.update(tools, { name: "Gear" })).toThrow(404)
+
+    // The owning org still reads and writes everything of its own; it makes
+    // the share writable.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    expect(api.products.all().total).toBe(2)
+    api.products.update(hammer, { name: "Mallet", category: tools.id })
+    expect(api.products.getById(hammer).name).toBe("Mallet")
+    api.category_shares.update(toGlobex, { category: tools.id, grantee: "globex", write: true })
+
+    // The write row rule opens the shared category to globex's writes — and
+    // only that one: the writable Toys share names another org.
+    as { id: "bob", tenantId: "globex", role: "manager" }
+    api.categories.update(tools, { name: "Gear" })
+    expect(api.categories.getById(tools).name).toBe("Gear")
+    expect(api.categories.update(toys, { name: "Games" })).toThrow(404)
+    expect(api.products.update(hammer, { name: "Saw", category: tools.id })).toThrow(404)
+    as { id: "alice", tenantId: "acme", role: "manager" }
+
+    // Revoking the share closes the category and its product again.
+    api.category_shares.destroy(toGlobex)
+    as { id: "bob", tenantId: "globex", role: "manager" }
+    expect(api.category_shares.all().total).toBe(0)
+    expect(api.categories.all().total).toBe(0)
+    expect(api.products.all().total).toBe(0)
+    expect(api.products.getById(hammer)).toThrow(404)
+  }
+
+  test e2e "managers read the org's notes, clerks only their own" against d {
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    let memo = api.notes.create({ body: "memo" })
+    as { id: "carol", tenantId: "acme", role: "clerk" }
+    let draft = api.notes.create({ body: "draft" })
+    as { id: "dave", tenantId: "acme", role: "clerk" }
+    let todo = api.notes.create({ body: "todo" })
+
+    // A clerk reads and writes only the notes they created.
+    as { id: "carol", tenantId: "acme", role: "clerk" }
+    expect(api.notes.all().total).toBe(1)
+    expect(api.notes.getById(draft).body).toBe("draft")
+    expect(api.notes.getById(memo)).toThrow(404)
+    expect(api.notes.getById(todo)).toThrow(404)
+    api.notes.update(draft, { body: "final" })
+    expect(api.notes.getById(draft).body).toBe("final")
+    expect(api.notes.update(todo, { body: "mine now" })).toThrow(404)
+
+    // A manager reads every note of the org.
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    expect(api.notes.all().total).toBe(3)
+    expect(api.notes.getById(todo).body).toBe("todo")
+
+    // A caller neither `when` admits keeps the `local` default.
+    as { id: "erin", tenantId: "acme", role: "agent" }
+    expect(api.notes.all().total).toBe(3)
+
+    // `own` stays inside the operating org: another org's clerk sees nothing.
+    as { id: "carol", tenantId: "globex", role: "clerk" }
+    expect(api.notes.all().total).toBe(0)
+    expect(api.notes.getById(draft)).toThrow(404)
+  }
+}

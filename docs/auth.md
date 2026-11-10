@@ -837,6 +837,37 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
 | `loom.policy-out-of-scope` | a policy reached from a context other than its declaring one, in any file of the project — a `PolicyName(args)` call, a `Ctx.PolicyName(args)` call, a bare `PolicyName` reference, or a call to a top-level function whose body names the policy (the function is inlined at the call site) — policies are context-local; redeclare it there |
 
+### Row rules, `when` and `own`
+
+Beside `local` and `deny`, the `policy {}` block takes row rules
+(`allow [read|write] on X as x where …`), per-caller level rules
+(`allow <level> on X when …`) and the `own` level. They compose onto the tenant
+default — `(default ∨ row rules) ∧ ¬deny` — and a named policy function called
+inside a `where` (on the row, or on an `X id` it dereferences with `exists`) is
+inlined into the query predicate:
+
+```ddd
+policy SharedWithMe(c: Category id): bool =
+  exists CategoryShare as s where s.category == c && s.grantee == currentUser.tenantId
+
+policy {
+  allow on Product as p where SharedWithMe(p.category)
+  allow own on Note when currentUser.role == "clerk"
+}
+```
+
+```sql
+-- Product read, every backend
+WHERE p.tenant_id = $tenant
+   OR EXISTS (SELECT 1 FROM category_shares s
+              WHERE s.category_id = p.category_id AND s.grantee = $tenant
+                AND <CategoryShare's own read scope>)
+```
+
+The composition rules, the generated output and the diagnostics are in
+[tenancy.md](tenancy.md#the-policy-block--levels-row-rules-and-deny) and the
+language reference ([§17](language-reference/17-auth.md#row-rules-when-and-own)).
+
 ### Deny carve-outs
 
 A **`deny` rule** is the negative twin of `allow`: a **deny-wins** carve-out that

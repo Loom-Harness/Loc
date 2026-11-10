@@ -1,7 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { foldProducersOf, foldTenancyVerdict } from "../../enrich/fold-tenancy.js";
-import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
+import type { AggregateIR, ExprIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../../util/tenant-stance.js";
 import { constructibleAggregates } from "./aggregate-constructible-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { validatePolicyScopes } from "./policy-scope-checks.js";
 
 // ---------------------------------------------------------------------------
 // Tenancy checks (tenancy.md).
@@ -123,9 +124,15 @@ function validateTenantRegistry(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
-/** Validate `policy { allow local on <Aggregate> }` read rules (tenancy.md).
- *  `local` is the only level (D-TENANCY-FLAT); a removed `deep`/`global` is
- *  refused at the AST (`loom.policy-level-removed`) and never lowered.
+/** A `when` condition's identity for the duplicate check: two level rules for
+ *  one aggregate are ambiguous only when they admit the same callers. */
+function whenKey(when: ExprIR | undefined): string {
+  return when ? JSON.stringify(when, (k, v) => (k === "origin" ? undefined : v)) : "";
+}
+
+/** Validate `policy { allow <level> on <Aggregate> [when …] }` read rules
+ *  (tenancy.md, D-SHARING).  A removed `deep`/`global` is refused at the AST
+ *  (`loom.policy-level-removed`) and never lowered.
  *  Fail-closed:
  *
  *   - `loom.policy-unknown-aggregate` — the target names no aggregate in the
@@ -146,7 +153,8 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
       const seen = new Set<string>();
       for (const rule of rules) {
         const src = `${ctx.name}/policy`;
-        if (seen.has(rule.aggregate)) {
+        const key = `${rule.aggregate}\u0000${whenKey(rule.when)}`;
+        if (seen.has(key)) {
           diags.push({
             severity: "error",
             code: "loom.policy-duplicate-target",
@@ -160,7 +168,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
           });
           continue;
         }
-        seen.add(rule.aggregate);
+        seen.add(key);
 
         const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
         if (!agg) {
@@ -208,7 +216,8 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
       const seen = new Set<string>();
       for (const rule of rules) {
         const src = `${ctx.name}/policy`;
-        if (seen.has(rule.aggregate)) {
+        const key = `${rule.aggregate}\u0000${whenKey(rule.when)}`;
+        if (seen.has(key)) {
           diags.push({
             severity: "error",
             code: "loom.policy-duplicate-target",
@@ -222,7 +231,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
           });
           continue;
         }
-        seen.add(rule.aggregate);
+        seen.add(key);
 
         const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
         if (!agg) {
@@ -278,8 +287,15 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
     for (const ctx of mod.contexts) {
       const rules = ctx.policyDenies ?? [];
       if (rules.length === 0) continue;
-      const readAllowed = new Set((ctx.policyReadLevels ?? []).map((r) => r.aggregate));
-      const writeAllowed = new Set((ctx.policyWriteLevels ?? []).map((r) => r.aggregate));
+      const rows = ctx.policyRowRules ?? [];
+      const readAllowed = new Set([
+        ...(ctx.policyReadLevels ?? []).map((r) => r.aggregate),
+        ...rows.filter((r) => r.access === "read").map((r) => r.aggregate),
+      ]);
+      const writeAllowed = new Set([
+        ...(ctx.policyWriteLevels ?? []).map((r) => r.aggregate),
+        ...rows.filter((r) => r.access === "write").map((r) => r.aggregate),
+      ]);
       const seen = new Set<string>();
       for (const rule of rules) {
         const src = `${ctx.name}/policy`;
@@ -450,6 +466,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validatePolicyReadLevels(sys, diags);
   validatePolicyWriteLevels(sys, diags);
   validatePolicyDenies(sys, diags);
+  validatePolicyScopes(sys, diags);
   validateFoldedProjectionTenancy(sys, diags);
   const tenancy = sys.tenancy;
 

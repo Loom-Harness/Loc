@@ -928,6 +928,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
+    id: "policy-row-rules",
+    title:
+      "`policy` row rules (`allow [write] on X as x where …`), policy functions called on a row and on an `X id`, per-role `when` and `own` — composed onto the tenant default (D-SHARING)",
+    doc: "auth",
+    backends: ALL,
+  },
+  {
     id: "criterion-filter",
     title: "reusable criterion (criterion.md) used as `filter <Criterion>`",
     doc: "criterion",

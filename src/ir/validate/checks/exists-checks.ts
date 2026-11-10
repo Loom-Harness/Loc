@@ -38,6 +38,7 @@ type ExistsIR = Extract<ExprIR, { kind: "exists" }>;
 const QUERY_SITES: ReadonlySet<string> = new Set([
   "AggregateIR.contextFilters",
   "AggregateIR.contextFilterRefs",
+  "AggregateIR.writeScopeFilter",
   "CriterionIR.body",
   "FindIR.filter",
   "FindIR.criterionRef",
@@ -144,6 +145,7 @@ function checkContext(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   };
   for (const agg of ctx.aggregates) {
     for (const f of agg.contextFilters ?? []) check(f, agg, `${ctx.name}/${agg.name}`);
+    check(agg.writeScopeFilter, agg, `${ctx.name}/${agg.name}`);
   }
   const hostOf = (t: { kind: string; name?: string }): AggregateIR | undefined =>
     t.kind === "entity" && t.name ? byName.get(t.name) : undefined;
