@@ -106,6 +106,10 @@ export const messages = {
   "loom.model-text-unresolved#ambiguous": (p: { call: unknown; path: unknown }) =>
     `'${p.call}(${p.path})' is ambiguous: the type is declared in more than one context. ` +
     "Qualify it with the context name, e.g. `label(Sales.Customer)`.",
+  "loom.model-text-implicit-ambiguous": (p: { type: unknown; ctxName: unknown; owners: unknown }) =>
+    `Context '${p.ctxName}' uses '${p.type}' without declaring it, and ${p.owners} each declare one, ` +
+    "so the label of its form fields, options and buttons has no single owner. " +
+    "Declare the type in this context, or move it to the system level to share one.",
   "loom.model-text-plural-member": (p: { path: unknown }) =>
     `'plural(${p.path})' has no plural form: only an aggregate, entity part, value object or workflow has one. ` +
     "Use `label(…)` for a field, operation, enum value or error.",

@@ -594,7 +594,7 @@ Text a user sees about a MODEL element is keyed by the element, not by the page 
 Heading { plural(Task) }    // React: {t("Projects.Task.name.other", "Tasks")}
 ```
 
-The calls are admitted only in page and component bodies (`loom.model-text-outside-ui`) and never inside a backtick template or a `+` chain (`loom.model-text-in-template`) — a placeholder carries data, never words. `plural()` takes a type, not a member, an enum or an error (`loom.model-text-plural-member`); a path naming nothing, or a type two contexts declare left unqualified, is `loom.model-text-unresolved`. `label` and `plural` are soft keywords: a field, parameter or containment may still be called `label`, but a `function` or `operation` may not.
+The calls are admitted only in page and component bodies (`loom.model-text-outside-ui`) and never inside a backtick template or a `+` chain (`loom.model-text-in-template`) — a placeholder carries data, never words. `plural()` takes a type, not a member, an enum or an error (`loom.model-text-plural-member`); a path naming nothing, or a type two contexts declare left unqualified, is `loom.model-text-unresolved`. The implicit sites (a form field's label, an enum option, a submit button) follow the same rule: a context that references a value object or enum it does not declare, while two other contexts each declare that name, is `loom.model-text-implicit-ambiguous` — declare the type in the referencing context or at the system level. `label` and `plural` are soft keywords: a field, parameter or containment may still be called `label`, but a `function` or `operation` may not.
 
 ## `tenancy by user.<claim> of <Registry>`
 

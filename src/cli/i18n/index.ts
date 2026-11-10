@@ -435,7 +435,10 @@ export async function runI18nCheck(
   const { catalog: source, tree, source: sourceLocale } = await openTree(file, options);
   const staleOverrides = Object.keys(joinCatalog(tree.overrides)).filter((k) => !(k in source));
 
-  if (tree.locales.length === 0 && staleOverrides.length === 0) {
+  const sourceHasIssues = Object.values(source).some(
+    (m) => validateTranslation(m, m, sourceLocale).length > 0,
+  );
+  if (tree.locales.length === 0 && staleOverrides.length === 0 && !sourceHasIssues) {
     console.log("No locale files to check.");
     // A tree with neither translations nor source overrides verifies nothing,
     // which a CI gate must not report as success.
@@ -455,6 +458,21 @@ export async function runI18nCheck(
     findings += staleOverrides.length;
     console.log(`  ${sourceLocale} (source): ${staleOverrides.length} stale override(s)`);
     for (const k of staleOverrides) console.log(`      stale override: ${k}`);
+  }
+  // The source catalog is judged against the source locale's own plural
+  // categories and tag balance (a message is its own reference).
+  const sourceInvalid: { key: string; issues: IcuIssue[] }[] = [];
+  for (const key of Object.keys(source).sort()) {
+    const issues = validateTranslation(source[key]!, source[key]!, sourceLocale);
+    if (issues.length > 0) sourceInvalid.push({ key, issues });
+  }
+  if (sourceInvalid.length > 0) {
+    findings += sourceInvalid.length;
+    console.log(`  ${sourceLocale} (source): ${sourceInvalid.length} invalid`);
+    for (const { key, issues } of sourceInvalid) {
+      for (const issue of issues)
+        console.log(`      invalid:      ${key}: ${describeIssue(issue)}`);
+    }
   }
   for (const entry of tree.locales) {
     const { locale } = entry;
