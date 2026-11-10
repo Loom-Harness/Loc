@@ -1,0 +1,75 @@
+{
+  "openapi": "3.0.3",
+  "paths": {
+    "/shapes/{id}": {
+      "get": {
+        "operationId": "op",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shape"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Circle": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Circle"
+            ]
+          },
+          "radius": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "radius"
+        ]
+      },
+      "Square": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Square"
+            ]
+          },
+          "side": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "side"
+        ]
+      },
+      "Shape": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Square"
+          },
+          {
+            "$ref": "#/components/schemas/Circle"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      }
+    }
+  }
+}
