@@ -32,26 +32,18 @@ system Mobile {
 `;
 
 describe("flutter intl formatting", () => {
-  it("formats Money/DateDisplay through intl, imports it, and declares the dep", async () => {
+  it("formats Money through LoomMoney and DateDisplay through intl, imports it, and declares the dep", async () => {
     const files = await generateSystemFiles(SRC);
     const page = [...files.entries()].find(([k]) => k.endsWith("pages/detail_page.dart"))?.[1];
     expect(page, "no detail_page.dart emitted").toBeDefined();
 
-    // Money → NumberFormat.currency (grouping + the currency's own fraction
-    // digits when `decimals` is omitted — NOT collapsed to decimalDigits: 0).
-    // Two things compose here, one from each side of this merge:
-    //  * the null guard (`nullSafe` in `flutter/pack.ts`): the formatted value
-    //    rides the closure param `v`, and the authored expression is what the
-    //    closure is APPLIED to — hence the `.format(v))(<expr>)` shape;
-    //  * M-T1.21: a money value IS the wire STRING, and `NumberFormat.format`
-    //    takes a `num`, so the parse happens at the display boundary only, via
-    //    the total `LoomMoney.toNum`.
-    // The applied expression is therefore the parse, not the bare literal.
-    expect(page).toContain(
-      `NumberFormat.currency(symbol: '\${"USD"} ').format(v))(LoomMoney.toNum(1234.5))`,
-    );
+    // Money → `LoomMoney.display` (the shared verbatim contract: the value's own
+    // digits, the caller's currency code as a prefix).  The null guard
+    // (`nullSafe` in `flutter/pack.ts`) rides the closure param `v`, and the
+    // authored expression is what the closure is APPLIED to.
+    expect(page).toContain(`LoomMoney.display(v, currency: "USD"))(1234.5)`);
     // Explicit `decimals` is honoured.
-    expect(page).toContain(`NumberFormat.currency(decimalDigits: 0, symbol: '\${"JPY"} ')`);
+    expect(page).toContain(`LoomMoney.display(v, currency: "JPY", decimals: 0)`);
     // DateDisplay → DateFormat, not DateTime.toString().
     expect(page).toContain("DateFormat.yMMMd().format(");
     // No bare `.toString()` money/date fallback survives.

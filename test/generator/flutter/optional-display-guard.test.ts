@@ -64,12 +64,10 @@ describe("flutter optional display primitives", () => {
     expect(models).toContain("final DateTime? at;");
     expect(models).toContain("final String? kind;");
 
-    // Pre-fix: `NumberFormat.decimalPattern().format(row.total)` — `double?` is
-    // not assignable to `num`.
+    // The nullable money string rides the null guard and the string-based
+    // `LoomMoney.display` — never a `double` handed to `NumberFormat`.
     expect(page).not.toMatch(/NumberFormat\.decimalPattern\(\)\.format\(row\.total\)/);
-    expect(page).toContain(
-      "((num? v) => v == null ? '—' : NumberFormat.decimalPattern().format(v))(LoomMoney.toNum(row.total))",
-    );
+    expect(page).toContain("((Object? v) => v == null ? '—' : LoomMoney.display(v))(row.total)");
 
     // Pre-fix: `DateFormat.yMMMd().format(row.at)` — `DateTime?` vs `DateTime`.
     expect(page).not.toMatch(/DateFormat\.yMMMd\(\)\.format\(row\.at\)/);
