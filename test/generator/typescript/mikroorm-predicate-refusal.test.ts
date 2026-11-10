@@ -33,7 +33,7 @@ const outOfSubset = gt({ kind: "list", elements: [paramRef("n", INT_T)] });
 const retrieval = (where: ExprIR): RetrievalIR => ({
   name: "findAllByBig",
   params: [{ name: "n", type: INT_T }],
-  targetType: { kind: "entity", name: "Item" },
+  targetType: { kind: "entity", name: "Item", declKind: "part" },
   where,
   sort: [],
   loadPlan: { kind: "whole" },

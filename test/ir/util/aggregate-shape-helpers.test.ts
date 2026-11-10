@@ -60,7 +60,7 @@ describe("typeIsFile — unwrapping the wrappers a File can wear", () => {
 
   it("is false for a non-primitive type", () => {
     expect(typeIsFile({ kind: "valueobject", name: "Money" })).toBe(false);
-    expect(typeIsFile({ kind: "entity", name: "Line" })).toBe(false);
+    expect(typeIsFile({ kind: "entity", name: "Line", declKind: "part" })).toBe(false);
   });
 });
 

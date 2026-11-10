@@ -76,8 +76,8 @@ describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
     expect(stmt.subjectType).toEqual({
       kind: "union",
       variants: [
-        { kind: "entity", name: "Order" },
-        { kind: "entity", name: "Failed" },
+        { kind: "entity", name: "Order", declKind: "aggregate" },
+        { kind: "entity", name: "Failed", declKind: "error" },
       ],
     });
   });

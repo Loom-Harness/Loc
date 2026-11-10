@@ -19,10 +19,9 @@ import type { BoundedContextIR, PayloadIR, TypeIR } from "../types/loom-ir.js";
  *  request body (command) / path+query-string (query) deserialises into this
  *  payload's already-emitted DTO, and the handler body reads `param.<field>`. */
 export function requestRecordFor(type: TypeIR, ctx: BoundedContextIR): PayloadIR | undefined {
-  if (type.kind !== "entity") return undefined;
-  return ctx.payloads.find(
-    (p) => p.name === type.name && (p.kind === "command" || p.kind === "query"),
-  );
+  if (type.kind !== "entity" || (type.declKind !== "command" && type.declKind !== "query"))
+    return undefined;
+  return ctx.payloads.find((p) => p.name === type.name);
 }
 
 /** Normalise a handler's declared return type to the domain entity the handler
@@ -40,25 +39,21 @@ export function normalizeHandlerReturn(
 ): TypeIR | undefined {
   if (!returnType) return returnType;
   const base = returnType.kind === "array" ? returnType.element : returnType;
-  if (base.kind !== "entity") return returnType;
-  const entity = entityForResponseName(base.name, ctx);
-  if (!entity || entity === base.name) return returnType;
-  const entityBase: TypeIR = { kind: "entity", name: entity };
-  return returnType.kind === "array" ? { kind: "array", element: entityBase } : entityBase;
+  if (base.kind !== "entity" || base.declKind !== "response") return returnType;
+  const entity = entityForResponse(base.name, ctx);
+  if (!entity) return returnType;
+  return returnType.kind === "array" ? { kind: "array", element: entity } : entity;
 }
 
-/** Map a `<X>Response` payload name back to the entity `X` (aggregate or
- *  containment part) it projects, or return the name unchanged when it already
- *  names an entity / isn't a response record. */
-function entityForResponseName(name: string, ctx: BoundedContextIR): string | undefined {
-  if (ctx.aggregates.some((a) => a.name === name)) return name;
-  if (ctx.aggregates.some((a) => a.parts.some((p) => p.name === name))) return name;
-  const isResponse = ctx.payloads.some((p) => p.kind === "response" && p.name === name);
-  if (!isResponse) return name;
+/** The aggregate or containment part a `<X>Response` record projects, or
+ *  `undefined` when `X` names neither. */
+function entityForResponse(name: string, ctx: BoundedContextIR): TypeIR | undefined {
   const stripped = name.replace(/Response$/, "");
-  if (ctx.aggregates.some((a) => a.name === stripped)) return stripped;
-  if (ctx.aggregates.some((a) => a.parts.some((p) => p.name === stripped))) return stripped;
-  return name;
+  if (ctx.aggregates.some((a) => a.name === stripped))
+    return { kind: "entity", name: stripped, declKind: "aggregate" };
+  if (ctx.aggregates.some((a) => a.parts.some((p) => p.name === stripped)))
+    return { kind: "entity", name: stripped, declKind: "part" };
+  return undefined;
 }
 
 /** True when a routed handler declares a single-row `T?` return over a domain
@@ -74,7 +69,5 @@ export function routedAbsenceAnswers404(
 ): boolean {
   if (h.extern || h.returnType?.kind !== "optional") return false;
   const inner = normalizeHandlerReturn(h.returnType.inner, ctx);
-  if (inner?.kind !== "entity") return false;
-  const name = inner.name;
-  return ctx.aggregates.some((a) => a.name === name || a.parts.some((p) => p.name === name));
+  return inner?.kind === "entity" && (inner.declKind === "aggregate" || inner.declKind === "part");
 }

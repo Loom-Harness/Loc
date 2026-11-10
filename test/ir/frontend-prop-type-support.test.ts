@@ -41,7 +41,7 @@ const DOMAIN: { label: string; type: TypeIR }[] = [
   { label: "duration (expression-only)", type: prim("duration") },
   { label: "enum", type: { kind: "enum", name: "Status" } },
   { label: "id", type: { kind: "id", targetName: "Order" } },
-  { label: "entity", type: { kind: "entity", name: "Order" } },
+  { label: "entity", type: { kind: "entity", name: "Order", declKind: "aggregate" } },
   { label: "valueobject", type: { kind: "valueobject", name: "Address" } },
   { label: "none", type: { kind: "none" } },
   { label: "array of money", type: { kind: "array", element: prim("money") } },

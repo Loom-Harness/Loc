@@ -380,7 +380,7 @@ export function passType(node: AstNode | undefined, env?: Env): TypeIR {
   if (!node) return UNRESOLVED_PLACEHOLDER;
   const t = passSynth(node, env);
   if (t?.kind === "slot") {
-    if (isBuilderCall(node)) return { kind: "entity", name: node.type };
+    if (isBuilderCall(node)) return { kind: "entity", name: node.type, declKind: "synthetic" };
     if (isMatchExpr(node)) {
       const first = node.arms[0]?.value ?? node.varArms[0]?.value ?? node.elseExpr;
       return first ? passType(first, env) : UNRESOLVED_PLACEHOLDER;
@@ -602,7 +602,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     (first.member === ORG_CONTEXT_ORG ||
       (first.member === ORG_CONTEXT_ANCESTORS && !!env.user?.registry))
   ) {
-    const userShape: TypeIR = { kind: "entity", name: USER_SHAPE_NAME };
+    const userShape: TypeIR = { kind: "entity", name: USER_SHAPE_NAME, declKind: "principal" };
     const ancestors = first.member === ORG_CONTEXT_ANCESTORS;
     const memberType: TypeIR = ancestors
       ? { kind: "array", element: { kind: "id", targetName: env.user!.registry! } }
@@ -1497,7 +1497,7 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     return lowerLambda(
       expr,
       env,
-      env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE },
+      env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE, declKind: "synthetic" },
     );
   }
   if (isExistsExpr(expr)) {
@@ -1505,7 +1505,11 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     // local, so `s.field` lowers to an ordinary typed `member`); the enclosing
     // row stays `this`, so bare names keep resolving against the owner.
     const aggregate = expr.aggregate?.ref?.name ?? expr.aggregate?.$refText ?? "";
-    const inner = withLocal(env, expr.binding, "row", { kind: "entity", name: aggregate });
+    const inner = withLocal(env, expr.binding, "row", {
+      kind: "entity",
+      name: aggregate,
+      declKind: "aggregate",
+    });
     return {
       kind: "exists",
       aggregate,
@@ -2382,8 +2386,8 @@ function dataMemberRef(m: AstNode, name: string, isVo: boolean): ExprIR | undefi
   if (isContainment(m) && m.name === name) {
     const partName = m.partType?.ref?.name ?? "Unknown";
     const t: TypeIR = m.collection
-      ? { kind: "array", element: { kind: "entity", name: partName } }
-      : { kind: "entity", name: partName };
+      ? { kind: "array", element: { kind: "entity", name: partName, declKind: "part" } }
+      : { kind: "entity", name: partName, declKind: "part" };
     return { kind: "ref", name, refKind: "this-prop", type: t };
   }
   if (isDerivedProp(m) && m.name === name) {
@@ -2424,7 +2428,7 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
       kind: "ref",
       name: "currentUser",
       refKind: "current-user",
-      type: { kind: "entity", name: USER_SHAPE_NAME },
+      type: { kind: "entity", name: USER_SHAPE_NAME, declKind: "principal" },
     };
   }
   // Absence-match binding alias (Env.refAliases) — the binding is the
@@ -2463,7 +2467,7 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
       resourceName: name,
       resourceKind,
       ...(boundApi ? { resourceApiName: boundApi } : {}),
-      type: { kind: "entity", name: RESOURCE_HANDLE_SHAPE },
+      type: { kind: "entity", name: RESOURCE_HANDLE_SHAPE, declKind: "synthetic" },
     };
   }
   // Property of enclosing entity / value object / workflow.  A workflow is a
@@ -2594,7 +2598,7 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
       kind: "ref",
       name: "currentUser",
       refKind: "current-user",
-      type: { kind: "entity", name: USER_SHAPE_NAME },
+      type: { kind: "entity", name: USER_SHAPE_NAME, declKind: "principal" },
     };
   }
   return { kind: "ref", name, refKind: "unknown" };

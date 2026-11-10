@@ -1916,7 +1916,7 @@ function collectOpUnions(
     const entries: { path: string; method: string; type: TypeIR }[] = [];
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf)) {
         entries.push({
           path: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
           method: "post",
@@ -1929,7 +1929,7 @@ function collectOpUnions(
       const h =
         (ctx.commandHandlers ?? []).find((x) => x.name === r.target.handler) ??
         (ctx.queryHandlers ?? []).find((x) => x.name === r.target.handler);
-      if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h, ctx)) continue;
+      if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h)) continue;
       entries.push({
         path: explicitRoutePath(r),
         method: r.method.toLowerCase(),

@@ -48,7 +48,7 @@ import { TENANCY_SELF_SCOPE_ORIGIN, TENANT_OWNED_CAPABILITY } from "../util/tena
 export const OWN_CREATOR_FIELD = "createdBy";
 
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
-const USER_SHAPE: TypeIR = { kind: "entity", name: "__User__" };
+const USER_SHAPE: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
 
 interface LevelArm {
   level: PolicyLevel;
@@ -149,7 +149,7 @@ function ownTerm(agg: AggregateIR, floor: ExprIR, userIdType: TypeIR): ExprIR | 
       kind: "member",
       receiver: { kind: "this" },
       member: OWN_CREATOR_FIELD,
-      receiverType: { kind: "entity", name: agg.name },
+      receiverType: { kind: "entity", name: agg.name, declKind: "aggregate" },
       memberType: creator.type,
     },
     right: {

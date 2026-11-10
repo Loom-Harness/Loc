@@ -143,7 +143,7 @@ function existsFind(
   };
   const filter = lift(x.where, undefined);
   if (!ok) return undefined;
-  const entity: TypeIR = { kind: "entity", name: target.name };
+  const entity: TypeIR = { kind: "entity", name: target.name, declKind: "aggregate" };
   return {
     find: {
       name,
@@ -218,7 +218,7 @@ function typeOf(e: ExprIR): TypeIR | undefined {
 
 /** `p` with its `this` (and bare fields) rebound to the quantified row. */
 function rebindThis(p: ExprIR, x: ExistsIR): ExprIR {
-  const rowType: TypeIR = { kind: "entity", name: x.aggregate };
+  const rowType: TypeIR = { kind: "entity", name: x.aggregate, declKind: "aggregate" };
   const row: ExprIR = { kind: "ref", name: x.binding, refKind: "row", type: rowType };
   const rowId: ExprIR = {
     kind: "member",

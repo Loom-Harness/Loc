@@ -126,7 +126,7 @@ describe("py renderPyExpr — member / method-call", () => {
         kind: "member",
         receiver: refParam("order"),
         member: "placedAt",
-        receiverType: { kind: "entity", name: "Order" },
+        receiverType: { kind: "entity", name: "Order", declKind: "aggregate" },
         memberType: { kind: "primitive", name: "datetime" },
       }),
     ).toBe("order.placed_at");
@@ -184,7 +184,10 @@ describe("py renderPyExpr — collection ops", () => {
     receiver: lines,
     member,
     args,
-    receiverType: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
+    receiverType: {
+      kind: "array",
+      element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+    },
     isCollectionOp: true,
   });
   const lam = (body: ExprIR): ExprOf<"lambda"> => ({ kind: "lambda", param: "l", body });
@@ -197,7 +200,7 @@ describe("py renderPyExpr — collection ops", () => {
             kind: "member",
             receiver: { kind: "ref", name: "l", refKind: "lambda" },
             member: "quantity",
-            receiverType: { kind: "entity", name: "OrderLine" },
+            receiverType: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
             memberType: INT,
           }),
         ]),
@@ -218,14 +221,14 @@ describe("py renderPyExpr — collection ops", () => {
         kind: "member",
         receiver: { kind: "ref", name: "l", refKind: "lambda" },
         member: "price",
-        receiverType: { kind: "entity", name: "OrderLine" },
+        receiverType: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
         memberType: MONEY,
       },
       right: {
         kind: "member",
         receiver: { kind: "ref", name: "l", refKind: "lambda" },
         member: "quantity",
-        receiverType: { kind: "entity", name: "OrderLine" },
+        receiverType: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
         memberType: INT,
       },
       leftType: MONEY,
@@ -280,8 +283,14 @@ describe("py renderPyExpr — collection ops", () => {
         kind: "member",
         receiver: lines,
         member: "distinct",
-        receiverType: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
-        memberType: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
+        receiverType: {
+          kind: "array",
+          element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+        },
+        memberType: {
+          kind: "array",
+          element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+        },
       }),
     ).toBe("list(dict.fromkeys(self._lines))");
   });
@@ -300,7 +309,7 @@ describe("py renderPyExpr — collection ops", () => {
       kind: "member",
       receiver: { kind: "ref", name: "l", refKind: "lambda" },
       member: "quantity",
-      receiverType: { kind: "entity", name: "OrderLine" },
+      receiverType: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
       memberType: INT,
     });
     expect(renderPyExpr(arr("min", [proj]))).toBe(

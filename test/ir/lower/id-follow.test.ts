@@ -32,7 +32,9 @@ const member = (receiver: ExprIR, m: string, receiverIsId = true): ExprIR =>
     kind: "member",
     receiver,
     member: m,
-    receiverType: receiverIsId ? { kind: "id", targetName: "X" } : { kind: "entity", name: "X" },
+    receiverType: receiverIsId
+      ? { kind: "id", targetName: "X" }
+      : { kind: "entity", name: "X", declKind: "aggregate" },
   }) as ExprIR;
 
 describe("mapVarForPath — the auxiliary's emitted variable name", () => {

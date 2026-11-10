@@ -112,7 +112,7 @@ describe("typed in-system api call — lowering", () => {
     const member = exprs.find((e) => e.kind === "member" && e.member === "code");
     expect(member).toBeDefined();
     if (member?.kind !== "member") throw new Error("expected a member expr");
-    expect(member.receiverType).toEqual({ kind: "entity", name: "Order" });
+    expect(member.receiverType).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
     expect(member.memberType).toEqual({ kind: "primitive", name: "string" });
   });
 

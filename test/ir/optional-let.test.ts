@@ -94,7 +94,10 @@ describe("lowering", () => {
       aggName: "Customer",
       retrievalName: "findAllByByEmail",
       synthCriterion: { name: "ByEmail" },
-      returnType: { kind: "optional", inner: { kind: "entity", name: "Customer" } },
+      returnType: {
+        kind: "optional",
+        inner: { kind: "entity", name: "Customer", declKind: "aggregate" },
+      },
     });
     // The criterion's argument, not the criterion's own body.
     expect(let_.args).toEqual([expect.objectContaining({ kind: "ref", name: "e" })]);

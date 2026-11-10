@@ -63,7 +63,7 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   if (find.returnType.kind !== "union") return find;
   const success = find.returnType.variants.find(
     (v) => v.kind === "entity" && v.name === aggName,
-  ) ?? { kind: "entity" as const, name: aggName };
+  ) ?? { kind: "entity" as const, name: aggName, declKind: "aggregate" as const };
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 

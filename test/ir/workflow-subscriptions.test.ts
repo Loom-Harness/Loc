@@ -64,7 +64,11 @@ describe("workflow on(...) reactors — surface + lowering", () => {
     expect(value?.kind).toBe("member");
     if (value?.kind === "member") {
       expect(value.memberType).toEqual({ kind: "primitive", name: "int" });
-      expect(value.receiverType).toEqual({ kind: "entity", name: "PaymentReceived" });
+      expect(value.receiverType).toEqual({
+        kind: "entity",
+        name: "PaymentReceived",
+        declKind: "event",
+      });
     }
   });
 

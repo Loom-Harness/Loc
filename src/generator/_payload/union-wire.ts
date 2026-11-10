@@ -23,7 +23,12 @@ import {
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
-import type { BoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
+import {
+  type BoundedContextIR,
+  isPayloadDeclKind,
+  type TypeIR,
+  type WireField,
+} from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 
@@ -58,28 +63,51 @@ export function unionMembers(variants: TypeIR[], ctx: BoundedContextIR): UnionMe
  *  variant is a scalar (primitive / id) that has no field list. */
 function recordFields(v: TypeIR, ctx: BoundedContextIR): UnionMemberField[] | null {
   if (v.kind === "entity") {
-    const agg = ctx.aggregates.find((a) => a.name === v.name);
-    if (agg) return wireToMembers(wireFieldsForAggregate(agg));
-    for (const a of ctx.aggregates) {
-      const part = a.parts.find((p) => p.name === v.name);
-      if (part) return wireToMembers(wireFieldsForPart(part));
+    switch (v.declKind) {
+      case "aggregate": {
+        const agg = ctx.aggregates.find((a) => a.name === v.name);
+        return agg ? wireToMembers(wireFieldsForAggregate(agg)) : null;
+      }
+      case "part": {
+        for (const a of ctx.aggregates) {
+          const part = a.parts.find((p) => p.name === v.name);
+          if (part) return wireToMembers(wireFieldsForPart(part));
+        }
+        return null;
+      }
+      case "payload":
+      case "event":
+      case "command":
+      case "query":
+      case "response":
+      case "error": {
+        // A payload / event variant (`payload Foo = OrderPlaced | …`).  Named-union
+        // variants are not re-expanded here (they reference their own schema).
+        const payload = ctx.payloads.find((p) => p.name === v.name && !p.variants);
+        return payload
+          ? payload.fields.map((f) => ({
+              name: f.name,
+              type: f.type,
+              optional: f.optional ?? false,
+              isId: false,
+            }))
+          : null;
+      }
+      case "workflow": {
+        // A workflow `create`'s own workflow (`return this`): its instance state,
+        // in the wire shape the instance-read route serves.
+        const wf = ctx.workflows.find((w) => w.name === v.name);
+        return wf?.instanceWireShape ? wireToMembers(wf.instanceWireShape) : null;
+      }
+      case "projection":
+      case "principal":
+      case "synthetic":
+        return null;
+      default: {
+        const unreachable: never = v.declKind;
+        return unreachable;
+      }
     }
-    // A payload / event variant (`payload Foo = OrderPlaced | …`).  Named-union
-    // variants are not re-expanded here (they reference their own schema in P4+).
-    const payload = ctx.payloads.find((p) => p.name === v.name && !p.variants);
-    if (payload) {
-      return payload.fields.map((f) => ({
-        name: f.name,
-        type: f.type,
-        optional: f.optional ?? false,
-        isId: false,
-      }));
-    }
-    // A workflow `create`'s own workflow (`return this`): its instance state,
-    // in the wire shape the instance-read route serves.
-    const wf = ctx.workflows.find((w) => w.name === v.name);
-    if (wf?.instanceWireShape) return wireToMembers(wf.instanceWireShape);
-    return null;
   }
   if (v.kind === "valueobject") {
     const vo = ctx.valueObjects.find((o) => o.name === v.name);
@@ -115,9 +143,7 @@ export function unionMoneyArms(variants: TypeIR[], ctx: BoundedContextIR): Union
   for (const m of unionMembers(variants, ctx)) {
     const isPayloadArm = (() => {
       const v = variants.find((x) => variantTag(x) === m.tag);
-      return (
-        v?.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind !== "error")
-      );
+      return v?.kind === "entity" && isPayloadDeclKind(v.declKind) && v.declKind !== "error";
     })();
     const moneyOf = (t: TypeIR): boolean => scalarCodecOf(t)?.wire.form === "fixed-scale-decimal";
     if (m.shape === "record" && isPayloadArm) {
@@ -304,8 +330,7 @@ export interface OpUnionResponses {
 export function opUnionResponses(variants: TypeIR[], ctx: BoundedContextIR): OpUnionResponses {
   const unionName = unionInstanceName(variants);
   const members = unionMembers(variants, ctx);
-  const isErrorArm = (v: TypeIR): boolean =>
-    v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
+  const isErrorArm = (v: TypeIR): boolean => v.kind === "entity" && v.declKind === "error";
   const success: UnionMember[] = [];
   const errors: OpUnionErrorArm[] = [];
   variants.forEach((v, i) => {

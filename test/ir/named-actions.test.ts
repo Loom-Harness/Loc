@@ -57,7 +57,11 @@ describe("named-action lowering", () => {
     // Nullary vs single-payload arity; the body is a StmtIR[].
     expect(page.actions[0]!.params).toHaveLength(0);
     expect(page.actions[0]!.body[0]!.kind).toBe("assign");
-    expect(page.actions[1]!.params[0]!.type).toEqual({ kind: "entity", name: "Customer" });
+    expect(page.actions[1]!.params[0]!.type).toEqual({
+      kind: "entity",
+      name: "Customer",
+      declKind: "aggregate",
+    });
 
     const comp = ui.components.find((c) => c.name === "Counter")!;
     expect(comp.actions.map((a) => a.name)).toEqual(["bump"]);
@@ -71,7 +75,7 @@ describe("named-action lowering", () => {
     expect(ref!.actionName).toBe("setName");
     // The action's declared payload type rides on the ref — backends + the
     // validator read it directly rather than re-resolving the name.
-    expect(ref!.paramType).toEqual({ kind: "entity", name: "Customer" });
+    expect(ref!.paramType).toEqual({ kind: "entity", name: "Customer", declKind: "aggregate" });
   });
 
   it("lowers a bare `onClick: bump` (nullary) to an action-ref with no param type", async () => {

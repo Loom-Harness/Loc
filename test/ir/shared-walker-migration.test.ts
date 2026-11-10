@@ -23,7 +23,7 @@ import { buildLoomModel } from "../_helpers/index.js";
 import { parseString } from "../_helpers/parse.js";
 
 describe("shared walker migration — currentUser inside a match arm", () => {
-  const USER: TypeIR = { kind: "entity", name: "User" };
+  const USER: TypeIR = { kind: "entity", name: "User", declKind: "aggregate" };
   const currentUser: ExprIR = { kind: "ref", name: "currentUser", refKind: "current-user" };
 
   it("detects `currentUser` used in a match-arm value (threads the auth param)", () => {

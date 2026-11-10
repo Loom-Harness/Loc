@@ -2148,7 +2148,7 @@ function mergeViewsAsFinds(
   if (matchingQp.length === 0) return repo;
   const arrayReturn: import("../../ir/types/loom-ir.js").TypeIR = {
     kind: "array",
-    element: { kind: "entity", name: agg.name },
+    element: { kind: "entity", name: agg.name, declKind: "aggregate" },
   };
   const synthesised = [
     ...matchingQp.map((p) => ({

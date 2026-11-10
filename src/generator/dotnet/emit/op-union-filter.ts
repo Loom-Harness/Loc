@@ -89,12 +89,12 @@ function planFor(contexts: readonly BoundedContextIR[]): OpUnionFilterPlan {
     const entries: { id: string; type: TypeIR }[] = [];
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf)) {
         entries.push({ id: camelId(opWorkflow(wf.name)), type: r.type });
       }
     }
     for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
-      if (!h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)) {
+      if (!h.extern && h.returnType?.kind === "union" && entryResult(h)) {
         entries.push({ id: lowerFirst(h.name), type: h.returnType });
       }
     }
