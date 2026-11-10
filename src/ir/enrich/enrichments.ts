@@ -81,6 +81,7 @@ import {
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { applyExistsDerivations } from "./exists-reads.js";
 import { foldTenancyVerdict } from "./fold-tenancy.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
@@ -291,7 +292,10 @@ function enrichSystem(
     .map((m) => applyDemoTenantSeed(m, sys))
     // M-T3.19: under denyByDefault the undeclared list / by-id reads of a
     // context served by an `auth: required` backend fail closed (403).
-    .map((m) => applyDefaultDenyReads(m, sys));
+    .map((m) => applyDefaultDenyReads(m, sys))
+    // `exists … for write` takes the write scope composed above, and an
+    // in-app `exists` its synthesized repository read (`exists-reads.ts`).
+    .map((m) => applyExistsDerivations(m));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.

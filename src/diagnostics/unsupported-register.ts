@@ -235,13 +235,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.exists-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/exists-checks.ts:119",
+    site: "src/ir/validate/checks/exists-checks.ts:173",
     what:
-      "an `exists <Agg> as … where …` quantifier over the filtered row's own aggregate (a " +
-      "self-correlated EXISTS needs a second alias of the same table), or with an event-sourced, " +
-      "document/embedded or inheritance-hierarchy aggregate on either side (no plain relational " +
-      "state table to subquery) — on every backend alike",
-    mission: "#5010",
+      "an `exists <Agg> as … where …` query predicate over the filtered row's own aggregate (a " +
+      "self-correlated EXISTS needs a second alias of the same table), or an `exists` with an " +
+      "event-sourced, document/embedded or inheritance-hierarchy aggregate on either side (no " +
+      "plain relational state table to subquery or read) — on every backend alike",
+    mission: "#5163",
   },
   {
     code: "loom.projection-cross-context-source-unsupported",

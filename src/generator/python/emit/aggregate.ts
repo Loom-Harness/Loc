@@ -25,6 +25,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -449,8 +450,11 @@ function renderEntity(
   // line is what makes the refusal a property of the DOMAIN rather than of one
   // transport, so the in-process workflow dispatcher, a saga cascade or an
   // extern handler calling `aggregate.<op>()` directly refuses too (M-T6.38).
+  // A `when` that reads a repository (an in-app `exists`) is the route's
+  // alone: the domain has no repository, and phase ⑦ refuses an in-app call
+  // to such an operation (`loom.exists-outside-query#guarded-call`).
   const whenGate = (op: (typeof e.operations)[number]): string[] =>
-    op.when
+    op.when && !readsRepository(op.when)
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
           `            raise ${PY.DisallowedError}(${JSON.stringify(

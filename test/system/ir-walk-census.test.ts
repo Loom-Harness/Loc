@@ -751,6 +751,10 @@ const SELECTS_FROM_COMPLETE_SET = {
 } as const;
 
 const WAIVERS: Record<string, Waiver> = {
+  "src/ir/enrich/exists-reads.ts#go": {
+    standing:
+      "a rewrite that replaces `this`, bare fields, the key and the deny sentinel and recurses into every other kind through `mapExprChildren`, which is exhaustive and never-checked — no child is skipped",
+  },
   "src/ir/enrich/policy-scopes.ts#negate": {
     standing:
       "closed rewrite of a policy `when` (principal terms under && / || / !), the shape `loom.policy-when-not-caller-only` admits; any other kind keeps a plain `!` around it, which is still the right meaning — not a traversal",

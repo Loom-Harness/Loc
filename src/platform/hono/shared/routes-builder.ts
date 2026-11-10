@@ -3,7 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { refType, tsImportSlot, tsNamed, tsNamespace } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -130,6 +130,7 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
@@ -529,6 +530,7 @@ export function buildRoutesFile(
   // Either feature pulls in the transactional handler + its db/events/
   // schema/randomUUID imports.
   const needsTx = fileHasAudit || fileHasProv;
+  const existsReads = existsReadAggregates(agg);
   // Entity history (docs/audit.md) — the read side of the trail those inserts
   // write.  Driven by the enrichment-derived `historyFind` rather than by
   // re-deriving "is this audited" here, so the read surface can never disagree
@@ -571,7 +573,7 @@ export function buildRoutesFile(
     // Audited / provenanced routes instantiate the repo inside a
     // transaction (`new ${agg.name}Repository(tx, events)`), so the class
     // must be a value import there; otherwise it's only a parameter type.
-    needsTx
+    needsTx || existsReads.includes(agg.name)
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
@@ -1038,9 +1040,22 @@ export function buildRoutesFile(
     lines.push("");
   }
 
-  const routerParams = needsTx
-    ? `repo: ${agg.name}Repository, db: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"}, events: DomainEventDispatcher`
-    : `repo: ${agg.name}Repository`;
+  // An in-app `exists` gate (no transaction of its own) reads the router's
+  // `db` + `events` too; its types are imported from the references here.
+  const dbType = needsTx
+    ? usingMikro
+      ? "EntityManager"
+      : "NodePgDatabase<typeof schema>"
+    : usingMikro
+      ? refType(tsNamed("@mikro-orm/postgresql", "EntityManager"))
+      : `${refType(tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"))}<typeof ${refType(tsNamespace("~/db/schema", "schema"))}>`;
+  const eventsType = needsTx
+    ? "DomainEventDispatcher"
+    : refType(tsNamed("~/domain/events", "DomainEventDispatcher"));
+  const routerParams =
+    needsTx || existsReads.length > 0
+      ? `repo: ${agg.name}Repository, db: ${dbType}, events: ${eventsType}`
+      : `repo: ${agg.name}Repository`;
   lines.push(`export function ${lowerFirst(agg.name)}Routes(${routerParams}): OpenAPIHono {`);
   // `newApp()` from `./problem-details` constructs OpenAPIHono with the
   // shared validation `defaultHook` pre-wired — Zod parse failures emit
@@ -1101,7 +1116,12 @@ export function buildRoutesFile(
     // The gate runs BEFORE the factory — a create guard has no `this` to read,
     // and denying after construction would already have run the invariants and
     // (on an audited create) staged a row.
-    lines.push(...lifecycleGateLines(canonicalCreate(agg), "      "));
+    lines.push(
+      ...lifecycleGateLines(canonicalCreate(agg), "      ", undefined, (name) => {
+        const f = requiredFields.find((q) => q.name === name);
+        return f ? wireToDomainExpr(`body.${f.name}`, f.type, ctx) : undefined;
+      }),
+    );
     // Wrap each wire-shape field into the typed factory argument (brand
     // ids, instantiate value objects).  Avoids `as never` and lets
     // strict tsc catch shape drift between Zod and the domain class.
@@ -1843,9 +1863,15 @@ function lifecycleGateLines(
   action: OperationIR | null | undefined,
   pad: string,
   thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
 ): string[] {
   return lifecycleGates(action).map((g) => {
-    const pred = renderTsExpr(g.expr, thisName ? { thisName } : undefined);
+    // A create gate's parameters are the create-input fields the body
+    // carries (`loom.lifecycle-guard-unreadable` admits no other).
+    const pred = renderTsExpr(g.expr, {
+      thisName: thisName ?? "this",
+      ...(paramExpr ? { paramExpr } : {}),
+    });
     return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
