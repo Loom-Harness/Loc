@@ -33,7 +33,7 @@ import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
-import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
+import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
 import { optInTestReset } from "./proc.mjs";
 
 // The generated reset seam is opt-in and token-gated (H-30, src/util/test-reset.ts);
@@ -52,7 +52,7 @@ const WORKER = join(HERE, "case-worker.mjs");
 // the full node leg: one case peaks at ≤ 0.85 GB (PGlite's WASM heap is most
 // of it), the runner stays under 0.1 GB.  In ONE process the same corpus keeps
 // a ~230 MB database alive per leaking case (module-level state in the bundle
-// — the recorder's dispatch, the generated auth module's `routeProbe` — reaches
+// — the recorder's dispatch, for one — reaches
 // the app), which the runner ceiling catches within a few dozen cases.
 const CASE_RSS_LIMIT_MB = Number(process.env.LOOM_BH_CASE_RSS_LIMIT_MB ?? 1536);
 const RUNNER_RSS_LIMIT_MB = Number(process.env.LOOM_BH_RUNNER_RSS_LIMIT_MB ?? 1024);
@@ -146,6 +146,7 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   return `
 ${recorderPreamble()}
 ${MIGRATOR_IMPORT}
+${SCHEMA_AGREEMENT_IMPORT}
 import { loadApiTests } from ${J(join(REPO, "web/src/testing/run-api-tests.ts"))};
 import { createHarness, runTests } from ${J(join(REPO, "web/src/testing/harness.ts"))};
 import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts"))};
@@ -176,6 +177,7 @@ export async function run() {
   try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
+  ${schemaAgreementStmt()}
   ${seedRun}
   ${authRegister}
   const app = createApp(db);

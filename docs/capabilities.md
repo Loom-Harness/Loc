@@ -506,7 +506,7 @@ lists, in order: the TPH `kind` discriminator, then every filter — inherited
 first, then the aggregate's own. Each filter is tagged with its kind
 (`tenancy` / `capability` / `deny` / bare `filter`), the capability that
 contributed it, whether `ignoring` can drop it, where it is declared, and, for
-`tenancy`, its stance (`tenant` / `deep` / `global` / `self`). For a TPH root, the
+`tenancy`, its stance (`tenant` — the flat `tenantId ==` floor — or `self`, the registry's own-row scope). For a TPH root, the
 fact also gives each concrete's own filters in root-hosted form, guarded by the
 discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
 by `id` (`readOrderFor`). Today the node/drizzle read paths take their
@@ -544,7 +544,8 @@ at the aggregate with `loom.target-unsupported`:
 |---|---|
 | `persistedAs: eventLog` with `versioned` | refused on every backend (`#feature-composition-broken`). The stream is the concurrency control, and nothing folds the spliced `version`. |
 | `persistedAs: eventLog` with `softDeletable` | refused on every backend (`#feature-composition-broken`). No event-sourced read filters `isDeleted`. |
-| `persistedAs: eventLog` with `auditable` / `tenantOwned` | refused by `loom.stamp-on-event-sourced-invalid`. |
+| `persistedAs: eventLog` with `auditable` | refused by `loom.stamp-on-event-sourced-invalid`. |
+| `persistedAs: eventLog` with `tenantOwned` | supported, except on node's `persistence: mikroorm`: the stream carries its tenant as stored-event metadata ([`tenancy.md`](tenancy.md#event-sourced-aggregates--the-tenant-lives-on-the-stream)). |
 | `shape: document` with `softDeletable` | supported, except on elixir (`#feature-composition-broken`): the declared create there demands `isDeleted`. |
 | `persistedAs: eventLog` / `shape: document` with a `provenanced` field; `shape: document` with `auditable`; `auditable` or a `provenanced` field anywhere in a hierarchy; `softDeletable` on an abstract base | refused on every backend (`#feature-composition-unwitnessed`): no behavioural fixture runs the pair yet. |
 
@@ -555,10 +556,8 @@ Pairs whose features meet at a deployable, a resource or a field, rather than on
 | pair | refused on |
 |---|---|
 | an event-sourced aggregate emitting an event a broker-bound channel carries | node, dotnet (the event append and the outbox row commit separately); python, java, elixir (unwitnessed) |
-| a `tenantOwned` aggregate on a deployable that does not host its `tenantRegistry` tree | every backend (the org-path resolver reads a table the deployable does not have) |
 | a typed `kind: api` resource calling an `auth: required` deployable | every backend (no credentials are forwarded) |
 | a `timerSource` whose event rides a broker-bound channel | node (the tick is dispatched in-process); the other four (unwitnessed) |
-| `allow deep` / `allow global` on a TPH subtype of a `tenantOwned` base | dotnet (the base filter pins the exact tenant); the other four (unwitnessed) |
 | a value object field whose type is a value object with an invariant | elixir (the inner invariant never runs) |
 | an event carrying a `mask unless` value on a channel | every backend (`loom.field-mask-event-channel`) |
 | a unique key over a `mask unless` field whose create is not gated on the mask | every backend (`loom.field-mask-unique-oracle`) |

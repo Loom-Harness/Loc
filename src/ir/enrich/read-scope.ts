@@ -31,6 +31,7 @@
 // Where ids are UUIDv7 (node), `id` order also tracks creation order.
 
 import type { AggregateIR, ExprIR, SortTermIR, TypeIR } from "../types/loom-ir.js";
+import { exprUsesCurrentUser } from "../types/loom-ir.js";
 import {
   type AggPool,
   baseOf,
@@ -42,22 +43,19 @@ import {
 } from "../util/inheritance.js";
 import { defaultSortOrder } from "../util/sortable-fields.js";
 import {
-  deepScopeAnchorClaim,
-  isDeepScopeFilter,
   isDenyFilter,
-  ROOT_ORG_CLAIM_FIELD,
   TENANCY_SELF_SCOPE_ORIGIN,
   TENANT_OWNED_CAPABILITY,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../util/tenant-stance.js";
+import { walkExprDeep } from "../util/walk.js";
 
 /** What a restriction is.
  *
  *   - `discriminator` — the TPH `kind = '<Concrete>'` scope over the shared
  *                       table.  Carries no predicate; each backend spells its
  *                       discriminator column.  Never bypassable.
- *   - `tenancy`       — the tenant boundary: `tenantOwned`'s floor (or its
- *                       `policy`-widened deep/global subtree sentinel), or the
+ *   - `tenancy`       — the tenant boundary: `tenantOwned`'s floor, or the
  *                       registry's derived self-scope.  See `tenancy`.
  *   - `capability`    — a filter a capability contributed (`softDeletable`).
  *   - `deny`          — a `policy { deny on X }` carve-out (always false).
@@ -66,11 +64,10 @@ import {
  *                       bypassable: `ignoring` names capabilities only. */
 export type ReadRestrictionKind = "discriminator" | "tenancy" | "capability" | "deny" | "filter";
 
-/** The tenancy stance a `tenancy` restriction enforces, read off its predicate:
- *  `tenant` the flat `tenantId ==` floor, `deep` the caller's org + descendants,
- *  `global` the caller's root-org subtree, `self` the registry's own-row scope
+/** The tenancy stance a `tenancy` restriction enforces, read off its origin:
+ *  `tenant` the flat `tenantId ==` floor, `self` the registry's own-row scope
  *  (`this.id == currentUser.<claim>`). */
-export type TenancyStance = "tenant" | "deep" | "global" | "self";
+export type TenancyStance = "tenant" | "self";
 
 /** One restriction a read applies. */
 export interface ReadRestriction {
@@ -144,11 +141,10 @@ function isBypassedBy(capability: string | undefined, ignoring?: ReadBypass): bo
   return (ignoring.bypassCaps ?? []).includes(capability);
 }
 
-function tenancyStanceOf(predicate: ExprIR, origin: string | undefined): TenancyStance | undefined {
+function tenancyStanceOf(origin: string | undefined): TenancyStance | undefined {
   if (origin === TENANCY_SELF_SCOPE_ORIGIN) return "self";
-  if (origin !== TENANT_OWNED_CAPABILITY) return undefined;
-  if (!isDeepScopeFilter(predicate)) return "tenant";
-  return deepScopeAnchorClaim(predicate) === ROOT_ORG_CLAIM_FIELD ? "global" : "deep";
+  if (origin === TENANT_OWNED_CAPABILITY) return "tenant";
+  return undefined;
 }
 
 /** `agg` and its ancestors, root-most first. */
@@ -173,7 +169,7 @@ function filterRestrictions(agg: AggregateIR, pool: AggPool): ReadRestriction[] 
   return (agg.contextFilters ?? []).map((predicate, i): ReadRestriction => {
     const origin = agg.contextFilterOrigins?.[i];
     const host = chain.find((a) => (a.contextFilters?.length ?? 0) > i) ?? agg;
-    const tenancy = tenancyStanceOf(predicate, origin);
+    const tenancy = tenancyStanceOf(origin);
     const kind: ReadRestrictionKind = isDenyFilter(predicate)
       ? "deny"
       : tenancy
@@ -236,9 +232,7 @@ export function readScopeFor(
 /** The read scope of a tenant-scoped FOLDED projection's rows
  *  (`fold-tenancy.ts`): the `tenantOwned` floor over the row's `tenantId`
  *  column — `this.tenantId == currentUser.<claim>`, the predicate a
- *  `tenantOwned` table read applies.  A fold row is written by the fold, never
- *  by a `policy`-widened command, so its scope is the floor alone: a producer's
- *  deep/global read level does not widen the read model. */
+ *  `tenantOwned` table read applies. */
 export function foldRowReadScope(
   projection: string,
   claim: string,
@@ -412,4 +406,59 @@ export function polymorphicReadFor(
     variants,
     order: readOrderFor(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// `exists <Agg> as s where …` — the quantified aggregate's read scope.
+//
+// Every backend renders the quantifier as an EXISTS subquery that carries the
+// quantified aggregate's own restrictions (tenant floor, capability filters,
+// deny), so an `exists` never sees a row its caller could not read.  These two
+// helpers are the one place that scope is read, and the one place a renderer
+// asks whether a predicate needs the request principal once those inner
+// restrictions are counted.
+// ---------------------------------------------------------------------------
+
+/** The read restrictions an `exists` over `aggregate` ANDs into its subquery:
+ *  every predicate a plain read of it applies.  Empty when `aggregate` is not
+ *  in `pool` (the validator has refused that quantifier). */
+export function existsScopePredicates(aggregate: string, pool: AggPool): ExprIR[] {
+  const agg = pool.find((a) => a.name === aggregate);
+  if (!agg) return [];
+  return readFilterRestrictions(readScopeFor(agg, pool)).map((r) => r.predicate);
+}
+
+/** `exprUsesCurrentUser`, counting the read scope every `exists` inside `e`
+ *  carries: a predicate that names no principal itself still needs one when it
+ *  quantifies over a tenant-scoped aggregate. */
+export function exprReadsPrincipal(e: ExprIR | undefined, pool: AggPool): boolean {
+  return readsPrincipal(e, pool, new Set());
+}
+
+function readsPrincipal(e: ExprIR | undefined, pool: AggPool, seen: Set<string>): boolean {
+  if (exprUsesCurrentUser(e)) return true;
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (found || x.kind !== "exists" || seen.has(x.aggregate)) return;
+    seen.add(x.aggregate);
+    found = existsScopePredicates(x.aggregate, pool).some((p) => readsPrincipal(p, pool, seen));
+  });
+  return found;
+}
+
+/** `exprs` plus the read scope of every `exists` inside them (transitively,
+ *  each quantified aggregate once) — for a renderer that collects what a
+ *  predicate BINDS (principal parameters) and must see the restrictions the
+ *  subqueries carry, which are not children of the predicate itself. */
+export function withExistsScopes(exprs: readonly ExprIR[], pool: AggPool): ExprIR[] {
+  const out = [...exprs];
+  const seen = new Set<string>();
+  for (let i = 0; i < out.length; i++) {
+    walkExprDeep(out[i], (x) => {
+      if (x.kind !== "exists" || seen.has(x.aggregate)) return;
+      seen.add(x.aggregate);
+      out.push(...existsScopePredicates(x.aggregate, pool));
+    });
+  }
+  return out;
 }

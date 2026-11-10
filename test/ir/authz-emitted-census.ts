@@ -38,7 +38,11 @@
 // over `generateSystems` output — no boot, no docker.
 
 import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
-import { forApiRead, wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
+import {
+  forApiRead,
+  wireFieldsForAggregate,
+  wireFieldsForPart,
+} from "../../src/ir/enrich/wire-projection.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -88,12 +92,12 @@ export const VARIANTS: readonly Variant[] = [
 
 /** One conjunct of an aggregate's read scope the census tracks.  Only the
  *  AUTHORIZATION conjuncts: a principal-referencing capability filter (the
- *  `tenantOwned` floor, a registry self-scope, a `filter` over `currentUser`),
- *  the `policy` subtree scope, and the `policy { deny }` carve-out.  A
+ *  `tenantOwned` floor, a registry self-scope, a `filter` over `currentUser`)
+ *  and the `policy { deny }` carve-out.  A
  *  principal-FREE capability filter (`softDeletable`) is not an authorization
  *  surface and is out of this census's scope. */
 export interface FilterFact {
-  readonly kind: "principal" | "scope" | "deny";
+  readonly kind: "principal" | "deny";
   /** The `currentUser.<claim>` names the conjunct reads — what its emitted
    *  rendering must reference.  Empty for `deny`. */
   readonly claims: readonly string[];
@@ -149,10 +153,7 @@ function claimsOf(e: ExprIR): string[] {
 }
 
 function filterFact(e: ExprIR, origin: string | undefined): FilterFact | undefined {
-  if (e.kind === "authz-filter") {
-    if (e.filter.kind === "deny") return { kind: "deny", claims: [], origin };
-    return { kind: "scope", claims: claimsOf(e), origin };
-  }
+  if (e.kind === "authz-filter") return { kind: "deny", claims: [], origin };
   if (exprUsesCurrentUser(e)) return { kind: "principal", claims: claimsOf(e), origin };
   return undefined;
 }
@@ -322,13 +323,7 @@ export type ReadKind =
   | "write"
   /** A private loader whose every caller is itself a site (java's document
    *  `rehydrateAll()` — the conjunct is applied by the caller). */
-  | "helper"
-  /** The tenant-registry `orgPath` resolver: the auth layer's lookup of the
-   *  CALLER'S OWN registry row, keyed on the tenancy claim itself, to derive
-   *  `currentUser.orgPath`.  Its key IS the self-scope conjunct and it runs to
-   *  BUILD the principal the conjunct would read, so it is recorded (counted in
-   *  the site total) but carries no conjunct to assert. */
-  | "resolver";
+  | "helper";
 
 /** A predicate a read window can delegate to: `ref` finds a reference in the
  *  window (capture 1 = its name), `def` finds that name's definition, looked up
@@ -385,11 +380,6 @@ const TS_ROUTE_PATH = /^\s*path:\s*"([^"]+)"/m;
 const TS_ROUTE_CALL = /\bapp\.(?:get|post|put|patch|delete)\(\s*"([^"]+)"/m;
 const TS_REGISTER = /^[ \t]*(register\w+)\(/m;
 
-/** The tenant-registry `orgPath` resolver's scope, in every backend's spelling
- *  (`registerOrgPathResolver`, `EfOrgPathResolver.ResolveAsync`,
- *  `OrgPathResolverConfig`, `resolve_org_path`, …). */
-const RESOLVER = /orgpathresolver|resolveorgpath/;
-
 /** The in-app spelling of the deny carve-out: an always-false conjunct inside a
  *  document read's predicate (`… && (false)`). */
 const INAPP_FALSE = /(?:&&|\band\b)\s*\(\s*false\s*\)|\(\s*false\s*\)\s*(?:&&|\band\b)/i;
@@ -418,6 +408,10 @@ function tsClassify(label: string): ReadKind | undefined {
       "findpage",
       "history",
       "auditrows",
+      // The `x-org-context` switch gate's admission read of the registry
+      // (boot.ts `registerOrgRegistry`): it must carry the registry's full
+      // read scope, exactly like a by-id read.
+      "canread",
     ].includes(l)
   )
     return "root";
@@ -912,7 +906,20 @@ function javaClassify(label: string): ReadKind | undefined {
 function pyClassify(label: string): ReadKind | undefined {
   const l = norm(label);
   if (["save", "delete", "insert", "update", "hydrate", "towire"].includes(l)) return "write";
-  if (["findbyid", "findmanybyids", "all", "findpage", "list", "history", "getbyid"].includes(l))
+  // `_can_read_org` is the `x-org-context` switch gate's admission read of the
+  // registry: it must carry the registry's full read scope, like a by-id read.
+  if (
+    [
+      "findbyid",
+      "findmanybyids",
+      "all",
+      "findpage",
+      "list",
+      "history",
+      "getbyid",
+      "canreadorg",
+    ].includes(l)
+  )
     return "root";
   if (["getbyidforwrite", "findbyidforwrite"].includes(l)) return "commandLoad";
   return undefined;
@@ -1249,9 +1256,6 @@ export function classifySite(variant: VariantId, site: ReadSite, agg: AggFacts):
       own: proj.own,
     };
   }
-  if (RESOLVER.test(label) || RESOLVER.test(fileLabel)) {
-    return { ...site, aggregate: agg.name, kind: "resolver", bypass: NO_BYPASS };
-  }
   const k = loc.classify(site.scope, site.fileLabel);
   if (k) return { ...site, aggregate: agg.name, kind: k, bypass: NO_BYPASS };
   return { ...site, aggregate: agg.name, kind: "unclassified", bypass: NO_BYPASS };
@@ -1345,7 +1349,7 @@ export function scopeFilterSweep(
       scope: c.scope,
       kind: c.kind,
     };
-    if (c.kind === "write" || c.kind === "helper" || c.kind === "resolver") continue;
+    if (c.kind === "write" || c.kind === "helper") continue;
     if (c.kind === "unclassified") {
       findings.push({ ...base, problem: "unclassified" });
       continue;
@@ -1602,6 +1606,10 @@ export interface MaskFact {
   readonly fields: readonly string[];
   /** The string constants every masked field's predicate renders. */
   readonly markers: readonly string[];
+  /** Each contained part carrying masked wire fields of its own.  Every
+   *  backend but java inlines the part's redaction into the root serializer;
+   *  java gives the part record its own `fromMasked`. */
+  readonly parts: readonly { readonly name: string; readonly fields: readonly string[] }[];
 }
 
 export function maskFacts(model: LoomModel): MaskFact[] {
@@ -1615,9 +1623,19 @@ export function maskFacts(model: LoomModel): MaskFact[] {
           const masks = maskedReadPredicates(agg);
           const wire = new Set(forApiRead(wireFieldsForAggregate(agg)).map((w) => w.name));
           const masked = [...masks].filter(([name]) => wire.has(name));
-          if (masked.length === 0) continue;
+          const parts = agg.parts
+            .map((p) => ({
+              name: p.name,
+              wire: forApiRead(wireFieldsForPart(p)).filter((w) => w.maskUnless !== undefined),
+            }))
+            .filter((p) => p.wire.length > 0);
+          if (masked.length === 0 && parts.length === 0) continue;
           const markers = new Set<string>();
-          for (const [, pred] of masked) {
+          const preds = [
+            ...masked.map(([, pred]) => pred),
+            ...parts.flatMap((p) => p.wire.map((w) => w.maskUnless!)),
+          ];
+          for (const pred of preds) {
             walkExprDeep(pred, (n) => {
               if (n.kind === "literal" && n.lit === "string")
                 markers.add(n.value.replace(/^"|"$/g, ""));
@@ -1627,6 +1645,7 @@ export function maskFacts(model: LoomModel): MaskFact[] {
             aggregate: agg.name,
             fields: masked.map(([name]) => name),
             markers: [...markers],
+            parts: parts.map((p) => ({ name: p.name, fields: p.wire.map((w) => w.name) })),
           });
         }
       }
@@ -1641,6 +1660,11 @@ interface MaskLocator {
   readonly masked: (agg: string) => RegExp;
   /** Inline constructions end at the statement, not the scope. */
   readonly maskedIsStatement?: boolean;
+  /** A backend whose contained part has its OWN redacting mapper: the call the
+   *  root's masked serializer must make into it… */
+  readonly partRecord?: (part: string) => RegExp;
+  /** …and where that mapper starts. */
+  readonly partMapper?: (part: string) => RegExp;
   /** A USE of the raw serializer for `agg`. */
   readonly rawUse: (agg: string) => RegExp;
   /** The line of a raw use that makes it an audit SNAPSHOT (allowed). */
@@ -1655,7 +1679,9 @@ const MASK_LOCATORS: Record<VariantId, MaskLocator> = {
   dotnet: csMask(),
   dapper: csMask(),
   java: {
-    masked: () => /\bstatic\s+\w+\s+fromMasked\(/,
+    masked: (agg) => new RegExp(`\\bstatic\\s+${esc(agg)}Response\\s+fromMasked\\(`),
+    partRecord: (part) => new RegExp(`\\b${esc(part)}Response(?:::|\\.)fromMasked\\b`),
+    partMapper: (part) => new RegExp(`\\bstatic\\s+${esc(part)}Response\\s+fromMasked\\(`),
     rawUse: (agg) => new RegExp(`\\b${esc(agg)}Response(?:\\.from|::from)\\b(?!Masked)`),
     snapshot: /\bvar\s+__(?:before|after)\s*=/,
     historyKey: (f) => new RegExp(`snapshotValue\\([^,]+,\\s*"${esc(f)}"\\)`),
@@ -1743,11 +1769,41 @@ export function maskSweep(
         const window = text.slice(at, end);
         maskedSpans.push([at, end]);
         masked++;
+        // Every masked field the window must redact: the root's, plus each
+        // contained part's where the backend inlines the part's redaction.
+        const expected =
+          fact.fields.length +
+          (m.partRecord ? 0 : fact.parts.reduce((n, p) => n + p.fields.length, 0));
         for (const marker of fact.markers) {
-          if (count(window, `"${marker}"`) < fact.fields.length) {
+          if (count(window, `"${marker}"`) < expected) {
             findings.push(
-              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${fact.fields.length} masked field(s)`,
+              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${expected} masked field(s)`,
             );
+          }
+        }
+        // A part with its own redacting mapper must be the one the root's
+        // redacting mapper projects through.
+        for (const p of m.partRecord ? fact.parts : []) {
+          if (!m.partRecord!(p.name).test(window)) {
+            findings.push(
+              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} projects part ${p.name} unmasked`,
+            );
+          }
+        }
+      }
+      // M1 (part records) — each part's own redacting mapper carries every
+      // masked field's predicate.
+      for (const p of m.partMapper ? fact.parts : []) {
+        for (const hit of text.matchAll(new RegExp(m.partMapper!(p.name).source, "gm"))) {
+          const at = hit.index ?? 0;
+          const window = text.slice(at, scopeAt(scopes, at + 1).end);
+          masked++;
+          for (const marker of fact.markers) {
+            if (count(window, `"${marker}"`) < p.fields.length) {
+              findings.push(
+                `M1 ${variant} ${fact.aggregate}.${p.name}: masked part mapper at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${p.fields.length} masked field(s)`,
+              );
+            }
           }
         }
       }

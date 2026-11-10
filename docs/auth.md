@@ -74,6 +74,11 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   tests the principal (`filter currentUser.role == "agent" || this.customer ==
   currentUser.customerId`); a filtered-out row reads 404 on the by-id route, like
   a foreign tenant's.  See [capabilities.md § Principal terms](capabilities.md#principal-terms).
+  A row `filter` may also follow a relation held by another aggregate with
+  `exists <Agg> as s where …` (`filter exists CategoryShare as s where s.category
+  == this.category && s.grantee == currentUser.id`), compiled into the query as a
+  correlated `EXISTS` that carries the quantified aggregate's own read scope; see
+  [the `exists` quantifier](language-reference/10-repositories-and-queries.md#exists--quantifying-over-another-aggregate).
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that
@@ -186,7 +191,7 @@ list now.
 
 A repository declares no reads of its own, so there is no per-read `requires`:
 who may read an aggregate is an access fact, not a property of one query, so it
-lives beside the `allow` / `deny` ladder and covers every read at once
+lives beside the `allow` / `deny` rules and covers every read at once
 ([D-READ-GATE-IN-POLICY](decisions.md)):
 
 ```ddd
@@ -275,20 +280,20 @@ system Acme {
 }
 ```
 
-### Computed principal members — `orgPath`, `rootOrg`
+### The principal under tenancy
 
-Beyond the declared `user { … }` claim fields, `currentUser` carries two
-computed members under multi-tenancy (Phase 2):
-
-| Member | Type | Meaning |
-| --- | --- | --- |
-| `currentUser.orgPath` | `string` | The caller org's materialized path in the tenant registry tree (`root.child.grandchild`). Under flat tenancy it equals the tenant claim; under a hierarchy (`implements tenantRegistry`) each backend resolves it from the registry per request, memoized. |
-| `currentUser.rootOrg` | `string` | The first segment of `orgPath` — a pure string derivation, no DB read. Anchors the `global` read level's subtree widening. |
-
-Both are fail-closed: referencing either without a `tenancy by`
-declaration is a validation error (`loom.orgpath-without-tenancy`).
-Full semantics, per-backend seams, and the `policy {}` read ladder they
-feed live in [tenancy.md](tenancy.md).
+Under a `tenancy by user.<claim> of <Registry>` declaration the principal is
+exactly its declared `user { … }` claims; the tenancy claim is the caller's
+home org. There is no computed org-path member: `currentUser.orgPath` and
+`currentUser.rootOrg` are `loom.tenancy-principal-member-removed`, naming the
+replacement (`organizationContext.org` for the org the request acts in,
+`organizationContext.ancestors` for it and the orgs above it). In a system that
+reads the operating scope — every `tenantOwned` floor does — each backend's
+auth middleware also sets server-side members through the `x-org-context`
+switch gate: `currentUser.operatingOrg`, what `organizationContext.org` lowers
+to, and, where a hosted context reads it, `currentUser.operatingAncestors`, what
+`organizationContext.ancestors` lowers to. Neither is on the `/auth/me` wire.
+The stamp, the tenant floor and the gate live in [tenancy.md](tenancy.md).
 
 ### The system principal — `currentUser.isSystem`
 
@@ -296,8 +301,8 @@ An event reactor (a workflow's event-triggered `create(e) by …` starter or
 `on(e)` subscription — including one a `timerSource` tick or a broker
 consumer drives) has no request principal. It runs as the **system
 principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is `true` (it is `false` on every
-request principal), every declared claim is EMPTY, the tenancy claim and
-`orgPath` are the triggering event's, and a runtime-only `causedBy` records the
+request principal), every declared claim is EMPTY, the tenancy claim is the
+triggering event's, and a runtime-only `causedBy` records the
 originating user's id for audit and logs. Gates are evaluated against it
 normally, so a gate that should admit a reactor says so —
 `requires currentUser.isSystem || currentUser.permissions.contains(…)` — and a
@@ -776,7 +781,7 @@ policy <Name>(<params>): bool ( = <expr> | { <expr> } )
 `permissions.<name>`, enum values, and sibling policy functions / criteria; it
 has **no candidate row** — pass row fields in as arguments).  Parentheses are
 **required** (even for zero parameters) so the parser distinguishes the
-function form from the `policy {}` read-ladder block ([tenancy](tenancy.md)).
+function form from the `policy {}` block ([tenancy](tenancy.md)).
 
 ```ddd
 subdomain Sales {
@@ -835,20 +840,16 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
 | `loom.policy-out-of-scope` | a policy reached from a context other than its declaring one, in any file of the project — a `PolicyName(args)` call, a `Ctx.PolicyName(args)` call, a bare `PolicyName` reference, or a call to a top-level function whose body names the policy (the function is inlined at the call site) — policies are context-local; redeclare it there |
 
-**Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
-gated row's fields directly instead of passing them as arguments), field
-masking, and hosting policy functions inside the `policy {}` block.
-
-### Deny carve-outs (Phase 4)
+### Deny carve-outs
 
 A **`deny` rule** is the negative twin of `allow`: a **deny-wins** carve-out that
 removes access to an aggregate. It sits in the same `policy {}` block as the
-`allow` read/write ladder, and — like the bare `allow` form — omits the `read`
-word (bare = read); the shipped `write` verb selects the write access:
+`allow local` floor, and — like the bare `allow` form — omits the `read` word
+(bare = read); the `write` verb selects the write access:
 
 ```ddd
 policy {
-  allow deep on Invoice   // widen the read scope …
+  allow local on Invoice  // the own-org floor (the default, spelled out) …
   deny on Secret          // … but Secret is invisible (total READ carve-out)
   deny write on Invoice   // … and Invoice is read-only (WRITE carve-out)
 }
@@ -865,8 +866,7 @@ command or `commandHandler` can hold a row no write-scope load produced — one
 `Repo.all(<criterion>)` returned, a `find`, a loop variable. Before such a body
 mutates (an operation call, a `mutating` domain-service call) or removes a row it
 holds, it re-loads that row through the same write-scope load the op route uses.
-A row outside the caller's write scope — `deny write`, or the own-org floor under
-`allow deep` — fails the **whole** body with the op route's 404, and the body runs
+A row outside the caller's write scope — `deny write` — fails the **whole** body with the op route's 404, and the body runs
 in one transaction, so the rows it already changed roll back. Rows are never
 filtered out silently. A row the body itself created is exempt (it is not stored
 yet). The requirement is derived from the body's `mutate` / `delete` effects
@@ -877,7 +877,7 @@ yet). The requirement is derived from the body's `mutate` / `delete` effects
 whose command raised the event, so a held-row mutation in a reactor body skips
 this re-check. That command already passed the caller's write scope, and a
 reaction may legitimately update rows outside that caller's write scope — a
-parent org's rollup, a counter another org owns. A reaction that must stay inside
+counter another org owns. A reaction that must stay inside
 the originating user's scope says so with an explicit gate on `causedBy` or the
 event's own fields.
 
@@ -903,8 +903,7 @@ await db.transaction(async (tx) => {
 });
 ```
 
-Deny is **all-or-nothing at the aggregate** — there is no level word (a partial
-deny is field-masking / row-clause territory, a later slice). It composes as an
+Deny is **all-or-nothing at the aggregate** — there is no level word. It composes as an
 **always-false predicate** through the *existing* filter seams — the read
 `contextFilters` (deny read) and the `writeScopeFilter` command load (deny write)
 — so no backend grows new render architecture; each just renders the deny sentinel
@@ -922,9 +921,8 @@ to its native always-false fragment:
 Optional<Invoice> findByIdForWrite(@Param("id") InvoiceId id);
 ```
 
-Deny wins: it is applied **after** the `allow` read/write-level passes, so an
-always-false carve-out dominates any widened allow scope on the same target.
-Unlike the allow ladder, deny is **not** restricted to `tenantOwned` aggregates —
+Deny wins: it is applied **after** the `allow` pass, so an always-false
+carve-out dominates any allow on the same target. Unlike `allow`, deny is **not** restricted to `tenantOwned` aggregates —
 `contextFilters` / `writeScopeFilter` exist on every aggregate.
 
 | Diagnostic | When |
@@ -1046,6 +1044,60 @@ defp serialize(record) do
 end
 ```
 
+#### Masks on a contained part's field
+
+A field of a contained `entity` part takes the same clause, and redacts on every
+element under the same principal read the root uses:
+
+```ddd
+aggregate Ticket {
+  subject: string
+  contains comments: Comment[]
+  entity Comment {
+    body: string
+    internal: bool mask unless currentUser.role == "agent"
+  }
+}
+```
+
+The root's response serializer is then the redacting one, even when no root field
+is masked, and it descends into the containment:
+
+```ts
+// generated (Hono) — `toWireMasked`
+for (const __m0 of (wire["comments"] ?? []) as Record<string, unknown>[]) {
+  if (!(currentUser !== null && (currentUser.role === "agent"))) __m0.internal = null;
+}
+```
+
+```elixir
+# generated (Phoenix) — `serialize/1`
+wire =
+  Map.replace_lazy(wire, "comments", fn items ->
+    Enum.map(items || [], fn masked_0 ->
+      masked_0 = if current_user != nil and (current_user.role == "agent"), do: masked_0, else: Map.put(masked_0, "internal", nil)
+      masked_0
+    end)
+  end)
+```
+
+Python walks the same plan in `to_wire_masked`; .NET wraps the part's argument
+inside the inlined `new CommentResponse(...)` projection; Java gives
+`CommentResponse` its own `fromMasked`, which the root's `fromMasked` maps the
+collection through.  The part's member is nullable in every response schema.
+
+The taint reaches part members too: a root `derived` that reads one
+(`comments.count(c => c.internal)`) and a part `derived` computed from its own
+masked field carry the mask; a read predicate over one gates the read; a write
+through a part-typed `let` (`let c = comments.first()  c.internal := v`) is
+gated; an event payload reading one is a laundering source; and the
+containment's audit-history change entry is dropped for a caller who fails any
+mask inside the part.  Two shapes are refused: a part `derived` reading ANOTHER
+part's masked member (`loom.field-mask-on-part` — the part's projection redacts
+only its own members; compute it on the root), and a mask on a value-object
+field (`loom.field-mask-on-value-object` — a value has no read boundary of its
+own; mask the field that holds it).
+
 #### Where a masked value flows — the visibility taint
 
 A mask protects the field only if every place its value reaches applies it.
@@ -1152,7 +1204,7 @@ on another field has the same shape:
 ### Read gates
 
 Who may read an aggregate is one line in its context's `policy` block, beside
-the `allow` / `deny` ladder:
+the `allow` / `deny` rules:
 
 ```ddd
 repository Tickets for Ticket
@@ -1824,8 +1876,8 @@ Every backend mounts its auth routes under the shared API base, i.e.
   always present under `auth: required`, and **not** bypassed (the
   middleware verifies the principal or returns 401 first). The body is the
   declared `user { … }` shape, **by declared name** — and nothing else: the
-  per-request derived tenancy members (`currentUser.orgPath` / `rootOrg`) are
-  server-side scoping state, so they stay off the wire. All five backends
+  per-request operating org (`currentUser.operatingOrg`) is server-side
+  scoping state, so it stays off the wire. All five backends
   answer byte-identically here (frozen by the `/api/auth/me` entry in the
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
@@ -1857,6 +1909,15 @@ The handshake is hardened by default (no knobs):
   `POST /api/auth/refresh` rotates it (the cookie is overwritten with the new
   token the IdP hands back — single-use). All access/refresh tokens ride
   HttpOnly cookies; the SPA never sees the raw tokens.
+- **`Secure` cookies, gated on the deploy flag** — the session, refresh and
+  PKCE cookies carry `Secure` (and `SameSite=Lax`, so the IdP's redirect back
+  to `/callback` still carries them) unless `LOOM_SECURE_TRANSPORT` is
+  `false` / `0` / `off` / `no`. Unset means on: a deployment is assumed to be
+  reached over TLS, directly or through a TLS-terminating proxy. The generated
+  `docker-compose.yml` serves plain http on localhost and sets it `false`; the
+  k8s chart keeps the default. The same flag gates the
+  `Strict-Transport-Security` header (see
+  [Security headers](tools.md#security-response-headers)).
 
 Emitted identically across all five backends (Hono, .NET, Java/Spring,
 Python/FastAPI, Phoenix).

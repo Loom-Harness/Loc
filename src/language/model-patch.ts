@@ -17,9 +17,9 @@
 // Pure language-layer: parses in-memory and walks the AST; no `ir/` edge.
 // ---------------------------------------------------------------------------
 
-import { type AstNode, AstUtils, EmptyFileSystem, type LangiumDocument, URI } from "langium";
+import { type AstNode, AstUtils, type LangiumDocument } from "langium";
 import type { ModelPatch } from "../diagnostics/contract.js";
-import { createDddServices } from "./ddd-module.js";
+import type { createDddServices } from "./ddd-module.js";
 import {
   isAggregate,
   isBoundedContext,
@@ -28,6 +28,7 @@ import {
   type Model,
 } from "./generated/ast.js";
 import { addressOf, isAddressable } from "./print/outline.js";
+import { withSharedDocument } from "./shared-services.js";
 
 export type { ModelPatch };
 
@@ -322,11 +323,17 @@ async function renameEdits(
  *  overlaps — the shared core of `applyPatches` (offset splice) and
  *  `resolvePatchEdits` (LSP ranges). */
 async function resolve(source: string, patches: ModelPatch[]): Promise<Resolved> {
-  const services = createDddServices(EmptyFileSystem);
-  const factory = services.shared.workspace.LangiumDocumentFactory;
-  const doc = factory.fromString<Model>(source, URI.parse("memory:///patch.ddd"));
-  await services.shared.workspace.DocumentBuilder.build([doc]);
+  return withSharedDocument(source, ({ services, doc }) =>
+    resolveIn(services, doc, source, patches),
+  );
+}
 
+async function resolveIn(
+  services: ReturnType<typeof createDddServices>,
+  doc: LangiumDocument<Model>,
+  source: string,
+  patches: ModelPatch[],
+): Promise<Resolved> {
   const { map, ambiguous } = indexTargets(doc.parseResult.value);
   const errors: PatchError[] = [];
   const edits: { edit: Edit; patch: ModelPatch }[] = [];

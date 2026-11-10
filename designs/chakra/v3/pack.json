@@ -79,7 +79,7 @@
     "field-input-file": "field-input-file.hbs",
     "primitive-file-upload": "primitive-file-upload.hbs"
   },
-  "sentenceChrome": ["addItem", "operationSucceeded"],
+  "sentenceChrome": ["addItem", "operationSucceeded", "created", "completed"],
   "chrome": {
     "signOut": "Sign out",
     "arrayUnsupported": "(arrays not yet supported in forms)",

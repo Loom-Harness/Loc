@@ -1,6 +1,7 @@
 import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { isWorkflowSelfType } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
   typeKey,
@@ -751,8 +752,7 @@ function publishDrainedLine(binding: string, publisher: string): string {
  *  tenant-scoped event stream's events carry the STREAM's tenant
  *  (`stream-tenancy.ts`): the outbox capture, the channel envelope and a fold
  *  read the ambient origin, so when the raising principal's tenant is not the
- *  stream's (a `policy`-widened subtree append) the publish runs in the stream
- *  tenant's event-origin frame — the twin of the aggregate service's
+ *  stream's the publish runs in the stream tenant's event-origin frame — the twin of the aggregate service's
  *  `publishEvents`.  Every other aggregate publishes in the caller's frame.
  *  `authPkg` is the generated `auth` package (`<base>.auth`). */
 export function javaPublishDrained(
@@ -766,7 +766,7 @@ export function javaPublishDrained(
     `{ var __s = ${binding}; var __o = ${authPkg}.User.currentEventOrigin(); ` +
     `Runnable __pub = () -> { for (var __e : __s.pullEvents()) ${publisher}.publishEvent(__e); }; ` +
     `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __s.tenantId())) __pub.run(); ` +
-    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __s.dataKey(), __o == null ? null : __o.causedBy()), __pub); }`
+    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __o == null ? null : __o.causedBy()), __pub); }`
   );
 }
 
@@ -1372,7 +1372,7 @@ export function renderJavaWorkflows(
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
     const er = commandCreateEntryResult(wf, ctx);
-    const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+    const selfResult = isWorkflowSelfType(wf, result?.type);
     const resultLines =
       er && result?.type.kind === "union"
         ? [
@@ -1739,7 +1739,7 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
-    if (result.type.kind === "entity" && result.type.name === wf.name) {
+    if (isWorkflowSelfType(wf, result.type)) {
       return [
         `    @PostMapping("/${snake(wf.name)}")`,
         `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,

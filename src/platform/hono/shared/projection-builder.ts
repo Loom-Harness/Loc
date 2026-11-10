@@ -345,9 +345,7 @@ function emitFoldHandler(
   // outside any principal) has no tenant's row to fold into.
   const tenancy = foldTenancyFor(p);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols
-    ? `${corr}: __key, ${cols.tenant.field}: __tenant, ${cols.dataKey.field}: __origin?.orgPath ?? __tenant`
-    : `${corr}: __key`;
+  const seed = cols ? `${corr}: __key, ${cols.tenant.field}: __tenant` : `${corr}: __key`;
   const allocate = usingMikro
     ? `Object.assign(new ${mikroProjectionRowClass(p)}(), { ${seed} })`
     : `{ ${seed} }`;

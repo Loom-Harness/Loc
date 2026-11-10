@@ -84,6 +84,16 @@ describe("Timeline — ordered-list markup on every JSX frontend", () => {
     expect(out).toContain("order-history");
   });
 
+  it("angular formats the timestamp through the locale-aware format helper", async () => {
+    const files = await generateSystemFiles(timelineSystem("angular"));
+    const page = [...files.values()].find((c) => c.includes("loom-timeline"))!;
+    // A raw `{{ __e.at }}` printed the ISO string; the helper formats in the
+    // active locale (`getLocale()` under i18n) like every other date cell.
+    expect(page).not.toContain("{{ __e.at }}");
+    expect(page).toContain("{{ formatDateTime(__e.at) }}");
+    expect(page).toContain("protected readonly formatDateTime = formatDateTime;");
+  });
+
   it("guards the in-flight list on react — the query has not resolved on first render", async () => {
     const out = allFiles(await generateSystemFiles(timelineSystem("react")));
     // An unguarded `.map` throws before the response lands.

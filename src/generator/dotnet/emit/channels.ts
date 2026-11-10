@@ -183,9 +183,9 @@ export function renderDotnetChannels(
 ): string {
   const vos: VoFields = new Map((opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const));
   // `carriesOrigin`: the deployable carries auth — every envelope carries the
-  // raising frame's EVENT ORIGIN (`tenantid` / `loomorgpath` /
-  // `loomcausedby`, ruling D1) and the consumer delivers each event inside the
-  // system principal of that origin (`Auth/EventOrigin.cs`).
+  // raising frame's EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1) and
+  // the consumer delivers each event inside the system principal of that
+  // origin (`Auth/EventOrigin.cs`).
   const carriesOrigin = opts.carriesOrigin ?? false;
   const authUser = `global::${ns}.Auth.User`;
   const unique = uniqueBindings(bindings);
@@ -885,10 +885,6 @@ public sealed record LoomEventEnvelope(
     [JsonPropertyName("tenantid"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TenantId { get; init; }
 
-    /// <summary>That tenant's materialized path (hierarchical tenancy).</summary>
-    [JsonPropertyName("loomorgpath"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? LoomOrgPath { get; init; }
-
     /// <summary>The originating user id — audit and logs only.</summary>
     [JsonPropertyName("loomcausedby"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LoomCausedBy { get; init; }
@@ -896,9 +892,9 @@ public sealed record LoomEventEnvelope(
     /// <summary>The event origin this envelope names, or null (a producer
     /// without auth, a timer-raised event).</summary>
     public global::${ns}.Auth.EventOrigin? ToOrigin()
-        => TenantId is null && LoomOrgPath is null && LoomCausedBy is null
+        => TenantId is null && LoomCausedBy is null
             ? null
-            : new global::${ns}.Auth.EventOrigin(TenantId, LoomOrgPath, LoomCausedBy);
+            : new global::${ns}.Auth.EventOrigin(TenantId, LoomCausedBy);
 }`
         : ";"
     }
@@ -1026,7 +1022,6 @@ public static class ChannelEnvelopes
                 ? `
         {
             TenantId = origin?.Tenant,
-            LoomOrgPath = origin?.OrgPath,
             LoomCausedBy = origin?.CausedBy,
         }`
                 : ""
@@ -1039,7 +1034,6 @@ public static class ChannelEnvelopes
                 ? `
         {
             TenantId = origin?.Tenant,
-            LoomOrgPath = origin?.OrgPath,
             LoomCausedBy = origin?.CausedBy,
         }`
                 : ""

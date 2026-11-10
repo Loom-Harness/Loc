@@ -12,17 +12,15 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation — JAVA/Spring Boot backend
-// (sibling of tenancy-hierarchy.test.ts).  Same corpus fixture + shared
-// `assertHierarchyIsolation`; boots via `gradle bootJar` → `java -jar`.  Proves
-// the deep/global/local JPQL `like concat(...)` scopes agree at RUNTIME on
-// Spring/JPA — the OrgPathResolver ThreadLocal reads the registry `data_key`,
-// the @PrePersist stamp copies it, and the specification scopes reads to the
-// subtree.
-//
-// Opt-in: LOOM_TENANCY_E2E_JAVA=1.  Needs `gradle` + JDK 21 on PATH + docker
-// (postgres sidecar) or LOOM_TENANCY_PG_URL.  The NULL-dataKey probe needs
-// `psql` too.
+// The registry tree beside flat data visibility, booted on the Java/Spring Boot
+// backend. Boots the `tenancy-hierarchy.ddd` corpus fixture (a registry
+// `implements tenantRegistry` + `tenantOwned` aggregates under the default
+// floor, `allow local` and `deny write`) against a throwaway postgres and runs
+// the shared `assertHierarchyIsolation` sequence: every org reads exactly its
+// own rows — a parent never its child's — no `data_key` column exists, and the
+// write scope is the same floor. Opt-in: LOOM_TENANCY_E2E_JAVA=1. Needs
+// `gradle` + JDK 21 on PATH + docker (postgres sidecar) or LOOM_TENANCY_PG_URL,
+// and `psql`.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -41,9 +39,9 @@ function hasGradle(): boolean {
 }
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated java backend (LOOM_TENANCY_E2E_JAVA=1)",
+  "registry-tree isolation over the generated java backend (LOOM_TENANCY_E2E_JAVA=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       if (!hasGradle()) throw new Error("LOOM_TENANCY_E2E_JAVA=1 set but `gradle` is not on PATH.");
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-java-"));
       let child: ReturnType<typeof spawn> | undefined;

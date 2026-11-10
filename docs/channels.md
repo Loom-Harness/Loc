@@ -266,12 +266,12 @@ A reactor runs as the **system principal of its triggering event's tenant**
 ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)).
 In-process that tenant is the raising request's; once the event crosses the
 outbox relay or a broker the request is gone, so on a deployable with
-`auth: required` the event carries its **origin** `{tenant, orgPath, causedBy}`:
+`auth: required` the event carries its **origin** `{tenant, causedBy}`:
 
 | Hop | Carrier |
 |---|---|
 | outbox row | reserved key `__loomOrigin` inside the JSON `payload` (no schema change; stripped before decode) |
-| envelope | CloudEvents extensions `tenantid`, `loomorgpath`, `loomcausedby` (omitted when absent) |
+| envelope | CloudEvents extensions `tenantid`, `loomcausedby` (omitted when absent) |
 
 The relay (per row) and the consumer (per envelope) deliver the event inside a
 frame whose ambient principal is the system principal of that origin, so the
@@ -291,7 +291,7 @@ workflow Fulfil {
 ```
 ```json
 { "specversion": "1.0", "type": "Orders.OrderPlaced", "loomchannel": "loom.Orders.Lifecycle",
-  "tenantid": "acme", "loomorgpath": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
+  "tenantid": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
 ```
 
 ## Not yet
@@ -313,11 +313,10 @@ workflow Fulfil {
   dispatcher decorator, and a HEEx/LiveView ui keeps consuming that topic
   in-process instead (`src/generator/elixir/realtime-liveview.ts`).
   **Tenant rooms ship on the four registry-based SSE backends** —
-  node/dotnet/java/python each key subscribers by the tenant DataKey from the
+  node/dotnet/java/python each key subscribers by the tenant from the
   shared `realtimeRoomPlan` derivation (`src/ir/util/realtime-rooms.ts`), so a
   tenant-scoped event reaches only the emitter's tenant room, never
-  cross-tenant (the former `loom.realtime-tenant-broadcast` honesty warning is
-  retired). Elixir has no emitter room hop — its shared PubSub broadcast
+  cross-tenant. Elixir has no emitter room hop — its shared PubSub broadcast
   carries the event struct alone, so the emitter's tenant is not observable at
   the subscriber — and therefore takes the *refetch-ticket* degrade the other
   four specify for a dispatch with no ambient tenant: a tenant-scoped event
@@ -325,7 +324,3 @@ workflow Fulfil {
   the authorized read re-gates on refetch. `loom.ui-realtime-unsupported` no
   longer names a shipped target on either half — it stays as the seam a new
   frontend (or an SSE ui whose serving deployable streams nothing) warns on.
-- **Elixir/java saga `last_event_id` dedup residual** — the column exists in
-  migrations but hosted-durable consumer dedup is wired only on
-  node/python/dotnet; elixir and java rely on broker ack semantics +
-  idempotent reactors.

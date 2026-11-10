@@ -132,7 +132,7 @@ describe("elixir read-scope census (#3964)", () => {
         ];
         for (const p of preds) {
           expect(hosted, `${path}: hosts ${agg.name}'s restriction`).toContain(
-            renderEctoRestriction(p, contextModule),
+            renderEctoRestriction(p, contextModule, pool),
           );
         }
       }

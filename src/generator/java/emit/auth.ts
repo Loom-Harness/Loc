@@ -1,6 +1,6 @@
 import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
+import type { OrgContextPlan } from "../../../ir/util/org-context.js";
 import {
   guidClaimAccessorName,
   guidFromStringTenancyClaim,
@@ -10,6 +10,10 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
 import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
@@ -25,21 +29,12 @@ import { claimFromOriginString } from "../../_auth/origin-claim.js";
 import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { registryAncestorsSql } from "../../_persistence/registry-walk.js";
 import { javaIntOutOfRange } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
-
-/** The tenant registry (`implements tenantRegistry`) facts the
- *  `currentUser.orgPath` resolver needs.  Present only under hierarchy — its
- * presence flips the `orgPath` accessor from claim-copy to a real,
- *  per-request memoized registry `data_key` read. */
-export interface OrgPathRegistry {
-  /** `plural(snake(registry.name))` — the registry's Flyway state table
-   *  (already schema-qualified when the datasource pins a schema). */
-  table: string;
-}
 
 // ---------------------------------------------------------------------------
 // Auth surface — emitted only when the deployable opts in via
@@ -220,11 +215,10 @@ export function renderAuthFiles(
   /** Fullstack mode: only guard routes under this prefix ("/api"), so
    *  the SPA bundle + client-side routes stay public. */
   guardPrefix?: string,
-  /** Hierarchy (multi-tenancy): when the tenant registry opts into
-   *  `tenantRegistry` (a `data_key` column exists) AND its table is reachable
-   *  from this deployable, `orgPath()` reads it per request.  `undefined` for
-   *  flat tenancy — the claim-copy accessor stands. */
-  orgPathRegistry?: OrgPathRegistry,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
+  /** The registry this deployable hosts: the switch gate's admission and the
+   *  ancestors walk read it. */
+  registry?: { name: string; repoPkg: string; tableSql: string },
 ): Map<string, string> {
   const out = emissionSink("generator/java/emit/auth");
   const fields = sys.user?.fields ?? [];
@@ -249,74 +243,48 @@ export function renderAuthFiles(
   // `<basePkg>.domain.enums`, not this package.
   if (claimEnumNames(fields).length > 0) imports.add(`${basePkg}.domain.enums.*`);
   const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
-  // Derived `currentUser.orgPath` — the caller's tenant materialized path
-  // (multi-tenancy).  An extra record accessor (not a component), so
-  // every `new User(...)` site is untouched; stringified null-safely.
-  // resolves it to the tenancy claim value (the root path); swaps the
-  // body for a memoized registry `dataKey` lookup.
-  const orgPathClaim = sys.tenancy?.claimField;
-  const claimAsString = orgPathClaim
-    ? `${orgPathClaim}() == null ? "" : String.valueOf(${orgPathClaim}())`
-    : `""`;
-  const orgPathAccessor = orgPathClaim
-    ? orgPathRegistry
+  // The operating-scope switch gate (`organizationContext`) — only where
+  // something reads the operating scope, under tenancy.  The home org is the
+  // tenancy claim's value; the gate admits only a switch to it, so the
+  // operating org (`currentUser.operatingOrg`, the one member the gate adds)
+  // is always the home org — for the system principal a reactor runs as, that
+  // is its event tenant, since the tenancy claim is copied from the origin.
+  const tenancyClaim = sys.tenancy?.claimField;
+  const tenancyField = tenancyClaim ? fields.find((f) => f.name === tenancyClaim) : undefined;
+  const orgContext = !!tenancyField && plan.gate;
+  const ancestors = orgContext && plan.ancestors && !!registry;
+  const ancestorsType = registry ? `java.util.List<${registry.name}Id>` : "";
+  if (ancestors) imports.add(`${basePkg}.domain.ids.*`);
+  // The operating org (and its ancestor set) are record components set ONCE,
+  // by UserFilter's fail-closed `x-org-context` gate, via `inOrg(…)`.  Every
+  // other construction — a verifier's claims-only `new User(…)`, the system
+  // principal — operates in the home org with no ancestors.
+  const operatingComponents = orgContext
+    ? `, String operatingOrg${ancestors ? `, ${ancestorsType} operatingAncestors` : ""}`
+    : "";
+  const operatingDefaults = (homeOrg: string): string[] =>
+    orgContext ? [homeOrg, ...(ancestors ? ["java.util.List.of()"] : [])] : [];
+  const operatingOrgAccessor =
+    tenancyField && orgContext
       ? [
           ``,
-          `    /** The caller's tenant materialized path (\`currentUser.orgPath\`) —`,
-          `     *  the tenant registry's \`data_key\`, resolved once per request and`,
-          `     *  memoized (multi-tenancy).  Falls back to the claim`,
-          `     *  (the root-segment path) when the row / dataKey is absent or the`,
-          `     *  lookup errors — fail-safe, never null / never throws. */`,
-          `    public String orgPath() {`,
-          `        return OrgPathResolver.resolve(${claimAsString});`,
+          `    /** This principal operating in \`org\` (\`organizationContext.org\`)${
+            ancestors ? " with its ancestor set" : ""
+          } —`,
+          `     *  UserFilter's fail-closed \`${ORG_CONTEXT_HEADER}\` gate is the one caller. */`,
+          `    public User inOrg(String org${ancestors ? `, ${ancestorsType} orgAncestors` : ""}) {`,
+          `        return new User(${[
+            ...fields.map((f) => `${f.name}()`),
+            "isSystem()",
+            "causedBy()",
+            "org",
+            ...(ancestors ? ["orgAncestors"] : []),
+          ].join(", ")});`,
           `    }`,
         ]
-      : [
-          ``,
-          `    /** The caller's tenant materialized path (\`currentUser.orgPath\`) —`,
-          `     *  derived per-request from the tenancy claim. */`,
-          `    public String orgPath() {`,
-          `        return ${claimAsString};`,
-          `    }`,
-        ]
-    : [];
-  // `currentUser.rootOrg`: the ROOT-org segment — the first segment of
-  // `orgPath()` (up to the first `.`).  A record accessor off `orgPath()`
-  // (pure, no extra read), correct under both flat and hierarchy tenancy;
-  // anchors the `global` read level's root-subtree widening.
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
-  // — only where something reads the operating scope; the phase-⑦
-  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.  The
-  // record cannot carry per-request state, so `orgContextPath()` reads the
-  // `OrgContext` holder UserFilter fills from a validated `x-org-context`,
-  // falling back to the principal's own `orgPath()` (no switch ⇒ own scope).
-  const orgContext = !!orgPathClaim && !!orgPathRegistry && systemReadsOrgContext(sys);
-  const orgContextAccessor = orgContext
-    ? [
-        ``,
-        `    /** The request's OPERATING scope (\`organizationContext.orgPath\`) — the`,
-        `     *  validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
-        `     *  descendant org, else \`orgPath()\`.  Set once per request by`,
-        `     *  UserFilter's fail-closed switch gate; never read off the token. */`,
-        `    public String orgContextPath() {`,
-        `        return OrgContext.currentOr(orgPath());`,
-        `    }`,
-      ]
-    : [];
-  const rootOrgAccessor = orgPathClaim
-    ? [
-        ``,
-        `    /** The caller's ROOT-org segment (\`currentUser.rootOrg\`) — the first`,
-        `     *  segment of \`orgPath()\` (multi-tenancy). */`,
-        `    public String rootOrg() {`,
-        `        String path = orgPath();`,
-        `        int i = path.indexOf('.');`,
-        `        return i < 0 ? path : path.substring(0, i);`,
-        `    }`,
-      ]
-    : [];
-  // The fail-closed claim→UUID coercion the registry self-scope binds through
-  // (M-T3.7(c)).  Emitted only under a `guid`-id registry keyed by a `string`
+      : [];
+  // The fail-closed claim→UUID coercion the registry self-scope binds through.
+  // Emitted only under a `guid`-id registry keyed by a `string`
   // claim — the one binding whose principal side can fail to parse.  Both read
   // paths call it: the @Query SpEL (`@currentUserAccessor.user()?.<name>()`)
   // and the Criteria `tenantScope` factory (`currentUser.<name>()`), so a
@@ -355,11 +323,9 @@ export function renderAuthFiles(
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
       ` *  \`currentUser\` references resolve against this. */`,
-      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy) {`,
-      ...systemPrincipalMembers(fields, orgPathClaim, actorIdField?.name),
-      ...orgPathAccessor,
-      ...rootOrgAccessor,
-      ...orgContextAccessor,
+      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy${operatingComponents}) {`,
+      ...systemPrincipalMembers(fields, tenancyClaim, actorIdField?.name, operatingDefaults),
+      ...operatingOrgAccessor,
       ...guidClaimAccessor,
       `}`,
       ``,
@@ -514,30 +480,48 @@ export function renderAuthFiles(
       ``,
       `    private final UserVerifier verifier;`,
       `    private final CurrentUserAccessor accessor;`,
+      ...(orgContext && registry ? [`    private final OrgRegistry orgRegistry;`] : []),
       ``,
-      `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor) {`,
+      orgContext && registry
+        ? `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor, OrgRegistry orgRegistry) {`
+        : `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor) {`,
       `        this.verifier = verifier;`,
       `        this.accessor = accessor;`,
+      ...(orgContext && registry ? [`        this.orgRegistry = orgRegistry;`] : []),
       `    }`,
       ``,
       `    @Override`,
       `    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)`,
       `            throws ServletException, IOException {`,
-      `        var path = request.getRequestURI();`,
+      // The decision runs on the path the container dispatches — the servlet
+      // path (+ path info): percent-decoded, `;` path parameters stripped,
+      // `.`/`..` segments and `//` resolved — never on the raw request URI, so
+      // `/%61pi/docs` or `/api;x/docs` cannot skip the gate while still
+      // reaching the controller.  Spring MVC matches the raw URI decoded
+      // per segment WITHOUT resolving dot segments, so when that reading
+      // disagrees with the container's the request is gated (fail closed).
+      `        var raw = request.getRequestURI().substring(request.getContextPath().length());`,
+      `        var path = request.getServletPath() + (request.getPathInfo() == null ? "" : request.getPathInfo());`,
+      `        boolean agreed = segmentDecoded(raw).equals(path);`,
       ...(guardPrefix
         ? [
             `        // Fullstack: only the API surface is guarded — the SPA`,
             `        // bundle and client-side routes stay public.`,
-            `        if (!path.startsWith("${guardPrefix}/")) {`,
+            `        if (agreed && !path.startsWith("${guardPrefix}/")) {`,
             `            chain.doFilter(request, response);`,
             `            return;`,
             `        }`,
           ]
         : []),
-      `        for (var prefix : BYPASS_PREFIXES) {`,
-      `            if (path.regionMatches(true, 0, prefix, 0, prefix.length())) {`,
-      `                chain.doFilter(request, response);`,
-      `                return;`,
+      // A bypass prefix matches only its canonical spelling: an encoded,
+      // parameterised or dot-segmented spelling of one is gated like any
+      // other route.
+      `        if (raw.equals(path)) {`,
+      `            for (var prefix : BYPASS_PREFIXES) {`,
+      `                if (path.startsWith(prefix)) {`,
+      `                    chain.doFilter(request, response);`,
+      `                    return;`,
+      `                }`,
       `            }`,
       `        }`,
       `        User user;`,
@@ -568,40 +552,64 @@ export function renderAuthFiles(
         : []),
       `        try {`,
       // The operating-scope switch gate — inside the try so the finally drops
-      // the principal, the switch and the orgPath memo on the refusal path too.
-      // A request whose `x-org-context` names an org outside the caller's
-      // `orgPath()` subtree (equal, or anchored under `orgPath() + "."`), or any
-      // org at all when the caller has no `orgPath()`, is a 403 before the chain
-      // runs — no handler, no write.  Absent / empty ⇒ the principal's own scope.
-      ...(orgContext
+      // the principal on the refusal path too.  A request whose `x-org-context`
+      // names any org other than the caller's home org (the tenancy claim), or
+      // any org at all when the caller has no home org, is a 403 before the
+      // chain runs — no handler, no write.  Absent / empty ⇒ the home org.
+      // A requested org other than the home org is admitted, on the
+      // deployable that hosts the registry, when the caller (the HOME
+      // principal, already on the accessor) can read that registry row
+      // through the registry's read scope.  Elsewhere only the home org is.
+      ...(tenancyField && orgContext
         ? [
             `            String requestedOrgContext = request.getHeader("${ORG_CONTEXT_HEADER}");`,
-            `            if (requestedOrgContext != null && !requestedOrgContext.isEmpty()) {`,
-            `                String scope = user.orgPath();`,
-            `                boolean inScope = !scope.isEmpty()`,
-            `                    && (requestedOrgContext.equals(scope) || requestedOrgContext.startsWith(scope + "."));`,
-            `                if (!inScope) {`,
+            `            String homeOrg = ${homeOrgExpr(tenancyField, "user.")};`,
+            `            String operatingOrg = homeOrg;`,
+            `            if (requestedOrgContext != null && !requestedOrgContext.isEmpty() && !requestedOrgContext.equals(homeOrg)) {`,
+            registry
+              ? `                if (homeOrg.isEmpty() || !orgRegistry.canRead(requestedOrgContext)) {`
+              : `                {`,
             `                    CatalogLog.event(${javaLogEvent("orgContextDenied")}, "org_context", requestedOrgContext,`,
-            `                        "reason", scope.isEmpty() ? "no_principal_scope" : "outside_scope", "status", 403);`,
+            `                        "reason", homeOrg.isEmpty() ? "no_principal_scope" : "outside_scope", "status", 403);`,
             `                    orgContextForbidden(request, response);`,
             `                    return;`,
             `                }`,
-            `                OrgContext.set(requestedOrgContext);`,
+            ...(registry ? [`                operatingOrg = requestedOrgContext;`] : []),
             `            }`,
+            ancestors
+              ? `            accessor.set(user.inOrg(operatingOrg, orgRegistry.ancestors(operatingOrg)));`
+              : `            accessor.set(user.inOrg(operatingOrg));`,
           ]
         : []),
       `            chain.doFilter(request, response);`,
       `        } finally {`,
       `            accessor.clear();`,
-      orgContext ? `            OrgContext.clear();` : null,
-      // Hierarchy: drop the per-request orgPath memo so a pooled thread
-      // never serves a stale tenant path to the next request.
-      orgPathRegistry ? `            OrgPathResolver.clearRequestCache();` : null,
       `        }`,
       `    }`,
       ``,
       // RFC 7807 body + the RFC 9110 §15.5.2 challenge, written straight onto
       // the servlet response because this filter runs before any @ControllerAdvice.
+      `    /** The raw path as Spring MVC's matcher reads it: each segment's \`;\``,
+      `     *  parameters stripped and its percent-encoding decoded, with no dot-segment`,
+      `     *  or \`//\` resolution.  Malformed encoding yields "", which no dispatch path equals. */`,
+      `    private static String segmentDecoded(String raw) {`,
+      `        var out = new StringBuilder();`,
+      `        var segments = raw.split("/", -1);`,
+      `        for (int i = 0; i < segments.length; i++) {`,
+      `            var segment = segments[i];`,
+      `            int semi = segment.indexOf(';');`,
+      `            if (semi >= 0) segment = segment.substring(0, semi);`,
+      `            try {`,
+      `                segment = org.springframework.web.util.UriUtils.decode(segment, java.nio.charset.StandardCharsets.UTF_8);`,
+      `            } catch (IllegalArgumentException e) {`,
+      `                return "";`,
+      `            }`,
+      `            if (i > 0) out.append('/');`,
+      `            out.append(segment);`,
+      `        }`,
+      `        return out.toString();`,
+      `    }`,
+      ``,
       `    private static void unauthorized(HttpServletRequest request, HttpServletResponse response)`,
       `            throws java.io.IOException {`,
       `        var detail = "no valid credentials for " + request.getMethod() + " " + request.getRequestURI();`,
@@ -655,7 +663,64 @@ export function renderAuthFiles(
       ``,
     ),
   );
-  if (orgContext) out.set("OrgContext.java", renderOrgContextHolder(pkg));
+
+  if (orgContext && registry) {
+    const idType = `${registry.name}Id`;
+    out.set(
+      "OrgRegistry.java",
+      lines(
+        `package ${pkg};`,
+        ``,
+        `import ${basePkg}.domain.ids.${idType};`,
+        `import ${registry.repoPkg}.${registry.name}Repository;`,
+        `import java.util.List;`,
+        `import java.util.UUID;`,
+        `import org.springframework.jdbc.core.JdbcTemplate;`,
+        `import org.springframework.stereotype.Component;`,
+        ``,
+        `/** The tenancy registry reads UserFilter's switch gate makes.  \`canRead\``,
+        ` *  loads the requested row through the registry's read scope under the`,
+        ` *  ambient (home) principal; \`ancestors\` walks \`parent\` upward with`,
+        ` *  \`UNION\`, so a cycle terminates.  A value that is not a uuid names no row. */`,
+        `@Component`,
+        `public class OrgRegistry {`,
+        `    private final ${registry.name}Repository repository;`,
+        `    private final JdbcTemplate jdbc;`,
+        ``,
+        `    public OrgRegistry(${registry.name}Repository repository, JdbcTemplate jdbc) {`,
+        `        this.repository = repository;`,
+        `        this.jdbc = jdbc;`,
+        `    }`,
+        ``,
+        `    public boolean canRead(String org) {`,
+        `        UUID id = parse(org);`,
+        `        return id != null && repository.findById(new ${idType}(id)).isPresent();`,
+        `    }`,
+        ...(ancestors
+          ? [
+              ``,
+              `    /** \`organizationContext.ancestors\` for \`org\`: the org and every org above it. */`,
+              `    public List<${idType}> ancestors(String org) {`,
+              `        UUID id = parse(org);`,
+              `        if (id == null) return List.of();`,
+              `        return jdbc.queryForList(${JSON.stringify(registryAncestorsSql(registry.tableSql, "?"))}, UUID.class, id)`,
+              `            .stream().map(${idType}::new).toList();`,
+              `    }`,
+            ]
+          : []),
+        ``,
+        `    private static UUID parse(String org) {`,
+        `        try {`,
+        `            return org == null ? null : UUID.fromString(org);`,
+        `        } catch (IllegalArgumentException e) {`,
+        `            return null;`,
+        `        }`,
+        `    }`,
+        `}`,
+        ``,
+      ),
+    );
+  }
 
   // The session probe (`/auth/me`) + — under an `auth { oidc }` block —
   // the redirect handshake (/auth/login|callback|logout).  Always emitted
@@ -669,181 +734,7 @@ export function renderAuthFiles(
     out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, basePkg));
   }
 
-  // Hierarchy (multi-tenancy): the registry-backed `orgPath` resolver.
-  // The `User` record can't inject beans, so `orgPath()` delegates to a static
-  // holder (`OrgPathResolver`) that memoizes the lookup per request; a boot
-  // @Component (`OrgPathResolverConfig`) registers a JdbcTemplate closure
-  // reading `SELECT data_key FROM <registry> WHERE id = <claim>`.
-  if (orgPathClaim && orgPathRegistry) {
-    out.set("OrgPathResolver.java", renderOrgPathResolver(pkg));
-    out.set("OrgPathResolverConfig.java", renderOrgPathResolverConfig(pkg, orgPathRegistry));
-  }
-
   return out;
-}
-
-// ---------------------------------------------------------------------------
-/** `OrgContext.java` — the request's OPERATING scope holder
- *  (`organizationContext.orgPath`, M-T3.6 items 3+5).  The `User` record
- *  cannot carry per-request state, so UserFilter's fail-closed switch gate
- *  writes the validated `x-org-context` path here and clears it at request end;
- *  `User.orgContextPath()` reads it, falling back to the principal's own
- *  `orgPath()` when the request did not switch. */
-function renderOrgContextHolder(pkg: string): string {
-  return lines(
-    `package ${pkg};`,
-    ``,
-    `/** The request's operating scope (\`organizationContext.orgPath\`) — set only by`,
-    ` *  UserFilter's fail-closed switch gate, from a validated \`${ORG_CONTEXT_HEADER}\`. */`,
-    `public final class OrgContext {`,
-    `    private OrgContext() {}`,
-    ``,
-    `    private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();`,
-    ``,
-    `    static void set(String path) {`,
-    `        CURRENT.set(path);`,
-    `    }`,
-    ``,
-    `    static void clear() {`,
-    `        CURRENT.remove();`,
-    `    }`,
-    ``,
-    `    /** The validated switched path, or \`fallback\` (the principal's own`,
-    `     *  \`orgPath()\`) when this request did not switch. */`,
-    `    public static String currentOr(String fallback) {`,
-    `        String path = CURRENT.get();`,
-    `        return path == null ? fallback : path;`,
-    `    }`,
-    `}`,
-    ``,
-  );
-}
-
-// currentUser.orgPath under hierarchy (multi-tenancy) — the registry
-// `data_key` read.  Two files:
-//
-//   OrgPathResolver       — a static holder the `User.orgPath()` accessor
-//                           delegates to.  Owns the per-request memo (a
-//                           ThreadLocal cache — servlet requests are thread-
-//                           bound) and the fail-safe fallback to the claim.
-//   OrgPathResolverConfig — a boot @Component that registers a JdbcTemplate
-//                           closure reading the registry's `data_key` column.
-//
-// The record stays the SpEL use-site (`@currentUserAccessor.user().orgPath()`
-// / `.orgPath()` in the JPQL/criteria filters) — resolution moves behind the
-// method, not off it, so render-jpql / render-criteria are untouched.
-// ---------------------------------------------------------------------------
-
-function renderOrgPathResolver(pkg: string): string {
-  return lines(
-    `package ${pkg};`,
-    ``,
-    `import java.util.HashMap;`,
-    `import java.util.Map;`,
-    ``,
-    `/** Resolves \`currentUser.orgPath\` — the caller org's materialized`,
-    ` *  \`data_key\` from the tenant registry table, memoized per request`,
-    ` *  (multi-tenancy).  A boot closure (OrgPathResolverConfig)`,
-    ` *  supplies the db-backed lookup; a missing row / null dataKey / any error`,
-    ` *  falls back to the claim (the root-segment path) — fail-safe, never`,
-    ` *  null / never throws.  Unregistered (flat tenancy), \`resolve\` is the`,
-    ` *  identity on the claim. */`,
-    `public final class OrgPathResolver {`,
-    `    private OrgPathResolver() {}`,
-    ``,
-    `    /** Registry lookup: the tenancy claim -> the caller org's materialized`,
-    `     *  \`data_key\` (null when the row is absent or its dataKey is null). */`,
-    `    public interface Lookup {`,
-    `        String dataKey(String claim);`,
-    `    }`,
-    ``,
-    `    private static volatile Lookup lookup;`,
-    `    // Per-request memo: servlet requests are thread-bound, so a ThreadLocal`,
-    `    // cache computes the lookup once per request; UserFilter clears it.`,
-    `    private static final ThreadLocal<Map<String, String>> CACHE =`,
-    `        ThreadLocal.withInitial(HashMap::new);`,
-    ``,
-    `    /** Registered once at boot (OrgPathResolverConfig) with a db-backed closure. */`,
-    `    public static void register(Lookup fn) {`,
-    `        lookup = fn;`,
-    `    }`,
-    ``,
-    `    /** The caller's materialized path for \`claim\`, computed once per request`,
-    `     *  and cached; falls back to the claim when unregistered / no row / error. */`,
-    `    public static String resolve(String claim) {`,
-    `        if (claim == null || claim.isEmpty()) {`,
-    `            return claim == null ? "" : claim;`,
-    `        }`,
-    `        Lookup fn = lookup;`,
-    `        if (fn == null) {`,
-    `            return claim;`,
-    `        }`,
-    `        Map<String, String> cache = CACHE.get();`,
-    `        String cached = cache.get(claim);`,
-    `        if (cached != null) {`,
-    `            return cached;`,
-    `        }`,
-    `        String resolved;`,
-    `        try {`,
-    `            String dataKey = fn.dataKey(claim);`,
-    `            resolved = dataKey == null ? claim : dataKey;`,
-    `        } catch (RuntimeException e) {`,
-    `            // Bad claim (e.g. non-UUID against a guid id) / db error -> claim.`,
-    `            resolved = claim;`,
-    `        }`,
-    `        cache.put(claim, resolved);`,
-    `        return resolved;`,
-    `    }`,
-    ``,
-    `    /** Drop the per-request memo — called by UserFilter at request end. */`,
-    `    public static void clearRequestCache() {`,
-    `        CACHE.remove();`,
-    `    }`,
-    `}`,
-    ``,
-  );
-}
-
-function renderOrgPathResolverConfig(pkg: string, registry: OrgPathRegistry): string {
-  // The tenancy claim binds as the registry's guid id at the lookup site: it
-  // parses to UUID (throwing on a non-UUID claim -> caught by OrgPathResolver
-  // -> claim fallback).
-  const bind = "java.util.UUID.fromString(claim)";
-  const sql = `SELECT data_key FROM ${registry.table} WHERE id = ?`;
-  return lines(
-    `package ${pkg};`,
-    ``,
-    `import java.util.List;`,
-    ``,
-    `import org.springframework.jdbc.core.JdbcTemplate;`,
-    `import org.springframework.stereotype.Component;`,
-    ``,
-    `import jakarta.annotation.PostConstruct;`,
-    ``,
-    `/** Wires the tenant-registry \`orgPath\` lookup at boot (multi-tenancy):`,
-    ` *  \`currentUser.orgPath\` = the caller org's materialized \`data_key\`, read`,
-    ` *  from the registry table keyed by the tenancy claim.`,
-    ` *  A missing row / null dataKey / bad claim falls back to the claim`,
-    ` *  (fail-safe — handled in OrgPathResolver). */`,
-    `@Component`,
-    `public class OrgPathResolverConfig {`,
-    `    private final JdbcTemplate jdbc;`,
-    ``,
-    `    public OrgPathResolverConfig(JdbcTemplate jdbc) {`,
-    `        this.jdbc = jdbc;`,
-    `    }`,
-    ``,
-    `    @PostConstruct`,
-    `    void register() {`,
-    `        OrgPathResolver.register(claim -> {`,
-    `            List<String> rows = jdbc.queryForList(`,
-    `                "${sql}", String.class, ${bind});`,
-    `            return rows.isEmpty() ? null : rows.get(0);`,
-    `        });`,
-    `    }`,
-    `}`,
-    ``,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,8 +1279,8 @@ import org.springframework.http.ResponseEntity;`,
     // (#2548) — spelled out rather than left to Jackson's record introspection,
     // so this backend's `/auth/me` body is decided here and agrees with the
     // other four by construction (they project explicitly too).  The derived
-    // tenancy members (`orgPath()` / `rootOrg()`) are per-request scoping
-    // state, not part of the declared principal, so they stay off the wire.
+    // `operatingOrg()` member is per-request scoping state, not part of the
+    // declared principal, so it stays off the wire.
     `        var body = new java.util.LinkedHashMap<String, Object>();`,
     ...userFields.map((f) => `        body.put("${f.name}", ${meClaimValue(f)});`),
     `        return ResponseEntity.ok(body);`,
@@ -1586,9 +1477,15 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        return MAPPER.readTree(resp.body());`,
     `    }`,
     ``,
+    `    // Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack serves`,
+    `    // plain http), so the tokens never ride cleartext in a TLS deployment.`,
+    `    private static final boolean SECURE_TRANSPORT = !java.util.Set.of(${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}).contains(`,
+    `        System.getenv().getOrDefault(${JSON.stringify(SECURE_TRANSPORT_ENV)}, "").trim().toLowerCase(java.util.Locale.ROOT));`,
+    ``,
     `    private static Cookie stateCookie(String name, String value) {`,
     `        Cookie c = new Cookie(name, value);`,
     `        c.setHttpOnly(true);`,
+    `        c.setSecure(SECURE_TRANSPORT);`,
     `        c.setPath("/");`,
     `        c.setAttribute("SameSite", "Lax");`,
     `        return c;`,
@@ -1630,12 +1527,16 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
  *  OIDC verifier, the generated tests — building a request principal
  *  (`isSystem = false`) unchanged.  `systemPrincipal(origin)` is the principal
  *  an event reactor runs as: every claim EMPTY (never the dev stub's
- *  `"admin"`), the tenancy claim copied from the dispatching principal, and
+ *  `"admin"`), the tenancy claim copied from the dispatching principal's
+ *  event tenant, and
  *  `causedBy` its id (or its own `causedBy` when it is itself a reactor). */
 function systemPrincipalMembers(
   fields: FieldIR[],
   tenantClaim: string | undefined,
   idField: string | undefined,
+  /** The trailing operating-org components' values for a principal whose home
+   *  org is `homeOrg` (none when the switch gate is not emitted). */
+  operatingDefaults: (homeOrg: string) => string[] = () => [],
 ): string[] {
   const names = fields.map((f) => f.name);
   const empty = (f: FieldIR): string => {
@@ -1657,8 +1558,13 @@ function systemPrincipalMembers(
       ? `user.${f.name}() == null ? null : String.valueOf(${v})`
       : `user.${f.name}() == null ? null : String.valueOf(${v})`;
   };
-  const tenantOf = tenantField ? `nullIfEmpty(${asString(tenantField)})` : "null";
-  const orgPathOf = tenantClaim ? "nullIfEmpty(user.orgPath())" : "null";
+  // The event's tenant is the OPERATING org of the raising request.
+  const tenantOf =
+    operatingDefaults('""').length > 0
+      ? "nullIfEmpty(user.operatingOrg())"
+      : tenantField
+        ? `nullIfEmpty(${asString(tenantField)})`
+        : "null";
   const idF = idField ? fields.find((f) => f.name === idField) : undefined;
   const causedByOf = idF
     ? `user.isSystem() ? user.causedBy() : ${asString(idF)}`
@@ -1667,18 +1573,27 @@ function systemPrincipalMembers(
     ``,
     `    /** A REQUEST principal — every verifier builds one of these. */`,
     `    public User(${fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ")}) {`,
-    `        this(${[...names, "false", "null"].join(", ")});`,
+    `        this(${[
+      ...names,
+      "false",
+      "null",
+      ...operatingDefaults(
+        tenantField
+          ? `${tenantField.name} == null ? "" : String.valueOf(${tenantField.type.kind === "id" ? `${tenantField.name}.value()` : tenantField.name})`
+          : '""',
+      ),
+    ].join(", ")});`,
     `    }`,
     ``,
-    `    /** The event origin of a principal (ruling D1): its tenant claim,`,
-    `     *  materialized path, and originating user id.  A system principal`,
+    `    /** The event origin of a principal (ruling D1): its tenant claim and`,
+    `     *  originating user id.  A system principal`,
     `     *  propagates its own origin, so an event a reactor raises keeps the first`,
     `     *  user as \`causedBy\`. */`,
     `    public static EventOrigin originOf(User user) {`,
     `        if (user == null) {`,
     `            return null;`,
     `        }`,
-    `        return new EventOrigin(${tenantOf}, ${orgPathOf},`,
+    `        return new EventOrigin(${tenantOf},`,
     `                ${causedByOf});`,
     `    }`,
     ``,
@@ -1701,7 +1616,7 @@ function systemPrincipalMembers(
     `    public static User systemPrincipalFor(EventOrigin origin) {`,
     `        String t = origin == null || origin.tenant() == null || origin.tenant().isEmpty()`,
     `                ? null : origin.tenant();`,
-    `        return new User(${[...args, "true", "origin == null ? null : origin.causedBy()"].join(", ")});`,
+    `        return new User(${[...args, "true", "origin == null ? null : origin.causedBy()", ...operatingDefaults('t == null ? "" : t')].join(", ")});`,
     `    }`,
     ``,
     `    private static String nullIfEmpty(String s) {`,
@@ -1720,11 +1635,11 @@ function renderJavaEventOrigin(pkg: string): string {
     `import java.util.Map;`,
     ``,
     `/** Where an event came from (ruling D1): the raising principal's tenant`,
-    ` *  claim and materialized path, and the originating user id (audit only).`,
-    ` *  Captured onto the outbox row and the channel envelope (\`tenantid\` /`,
-    ` *  \`loomorgpath\` / \`loomcausedby\`) so a reactor that runs after the`,
-    ` *  request is gone still runs as the system principal OF THAT TENANT. */`,
-    `public record EventOrigin(String tenant, String orgPath, String causedBy) {`,
+    ` *  claim and the originating user id (audit only).  Captured onto the`,
+    ` *  outbox row and the channel envelope (\`tenantid\` / \`loomcausedby\`)`,
+    ` *  so a reactor that runs after the request is gone still runs as the`,
+    ` *  system principal OF THAT TENANT. */`,
+    `public record EventOrigin(String tenant, String causedBy) {`,
     `    /** The reserved outbox-payload key the origin rides under. */`,
     `    public static final String KEY = "${LOOM_OUTBOX_ORIGIN_KEY}";`,
     ``,
@@ -1737,7 +1652,6 @@ function renderJavaEventOrigin(pkg: string): string {
     `        var out = new LinkedHashMap<String, Object>(data);`,
     `        var m = new LinkedHashMap<String, Object>();`,
     `        m.put("tenant", origin.tenant());`,
-    `        m.put("orgPath", origin.orgPath());`,
     `        m.put("causedBy", origin.causedBy());`,
     `        out.put(KEY, m);`,
     `        return out;`,
@@ -1748,7 +1662,7 @@ function renderJavaEventOrigin(pkg: string): string {
     `        if (!(payload.get(KEY) instanceof Map<?, ?> m)) {`,
     `            return null;`,
     `        }`,
-    `        return new EventOrigin(str(m.get("tenant")), str(m.get("orgPath")), str(m.get("causedBy")));`,
+    `        return new EventOrigin(str(m.get("tenant")), str(m.get("causedBy")));`,
     `    }`,
     ``,
     `    /** The payload without the origin — the event's own data. */`,
@@ -1767,6 +1681,15 @@ function renderJavaEventOrigin(pkg: string): string {
     `}`,
     ``,
   );
+}
+
+/** The tenancy claim `f` as the home-org string ("" when absent) — read off
+ *  `recv` (`""` inside the `User` record, `"user."` in UserFilter).  A strong
+ *  id is its wrapped value (the record's own toString is `XId[value=…]`). */
+function homeOrgExpr(f: FieldIR, recv: string): string {
+  const read = `${recv}${f.name}()`;
+  const v = f.type.kind === "id" ? `${read}.value()` : read;
+  return `${read} == null ? "" : String.valueOf(${v})`;
 }
 
 /** Dev-stub claim values — mirrors the .NET DevStubUserVerifier:

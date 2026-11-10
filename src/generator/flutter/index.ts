@@ -49,7 +49,7 @@ import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
-import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
+import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
@@ -275,7 +275,7 @@ export function generateFlutterForContexts(
   if (ui && i18nEnabled) {
     out.set(
       "lib/i18n.dart",
-      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations),
+      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations, authUi),
     );
   }
   if (forms.length > 0) {
@@ -370,7 +370,8 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient));
+  if (authUi && sys.user)
+    out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient, uiI18n));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -846,7 +847,7 @@ function renderPage(
   let usesState = false;
   let usesRouteId = false;
   const usedActions = new Set<string>();
-  let usedApiHooks = new Map<string, ApiHookUse>();
+  let dataBindings = new Map<string, DataBinding>();
   const usedComponents = new Set<string>();
   let usedStores = new Map<string, Set<string>>();
   // `derived` first — each is a pure function of the page's `state {}`, its
@@ -908,7 +909,7 @@ function renderPage(
     bodyWidget = result.tsx.trim() || bodyWidget;
     usesState = result.usesState;
     usesRouteId = result.usesRouteId;
-    usedApiHooks = result.usedApiHooks;
+    dataBindings = result.dataBindings;
     usedStores = result.usedStores ?? usedStores;
     usesCurrentUser = result.usesCurrentUser;
     for (const a of result.usedActions ?? []) usedActions.add(a);
@@ -961,7 +962,7 @@ function renderPage(
   // `WidgetRef` for the same reason a store-reading page does — a StatelessWidget
   // has no `ref` to bind `currentUser` against.
   const pageGate = authUi && (page.requires !== undefined || usesCurrentUser);
-  const consumer = stateful || usedApiHooks.size > 0 || usedStores.size > 0 || pageGate;
+  const consumer = stateful || dataBindings.size > 0 || usedStores.size > 0 || pageGate;
   const apiParamNames = new Map(ui.apiParams.map((p) => [p.name, p.apiName]));
   const usesComponent = usedComponents.size > 0;
   const source = consumer
@@ -971,7 +972,7 @@ function renderPage(
         {
           usesState,
           usedActions,
-          usedApiHooks,
+          dataBindings,
           usesRouteId,
           routeParams: [...paramNames],
           stateful,
@@ -1037,7 +1038,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
 interface ConsumerBindings {
   usesState: boolean;
   usedActions: ReadonlySet<string>;
-  usedApiHooks: ReadonlyMap<string, ApiHookUse>;
+  dataBindings: ReadonlyMap<string, DataBinding>;
   usesRouteId: boolean;
   /** Route params the page DECLARES (`route: "/products/:id"`), bound from the
    *  route arguments alongside the magic `id`. */
@@ -1070,6 +1071,13 @@ interface ConsumerBindings {
   navMenu: boolean;
   /** Two or more locales ship: the app bar carries the language picker. */
   localeSwitcher: boolean;
+}
+
+/** The app bar's title widget: the page's authored `title:` — the same
+ *  expression the document title uses, a catalog lookup under i18n — else the
+ *  page's name, which has no catalog entry to translate. */
+function appBarTitle(pageName: string, titleDart: string | undefined): string {
+  return titleDart === undefined ? `const Text('${escapeDart(pageName)}')` : `Text(${titleDart})`;
 }
 
 /** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
@@ -1201,7 +1209,7 @@ function renderStatelessPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart)}${appBarLocale(opts.localeSwitcher)}${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${indentContinuation(bodyWidget, 8)},`,
         "      ),",
@@ -1299,8 +1307,8 @@ function renderConsumerPage(
   // value.
   bindings.push(...b.derivedLines);
   // QueryView read hoists (`final <var> = ref.watch(<var>Provider…);`).
-  if (b.usedApiHooks.size > 0) {
-    const uses: ApiCallSite[] = [...b.usedApiHooks.values()].map((h) => ({
+  if (b.dataBindings.size > 0) {
+    const uses: ApiCallSite[] = [...b.dataBindings.values()].map((h) => ({
       apiHandle: "",
       aggregateName: "",
       operation: "",
@@ -1309,7 +1317,7 @@ function renderConsumerPage(
       varName: h.varName,
       argsRendered: h.argsRendered,
     }));
-    bindings.push(...flutterTarget.renderApiHoisting(uses));
+    bindings.push(...flutterTarget.renderDataBindings(uses));
   }
   if (b.stateful) {
     // Controlled-input setter tear-offs — each bound input dispatches a bare
@@ -1357,7 +1365,7 @@ function renderConsumerPage(
   ];
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.navMenu) imports.push("import '../nav_menu.dart';");
-  if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
+  if (b.dataBindings.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");
@@ -1429,7 +1437,7 @@ function renderConsumerPage(
     wrapPageTitle(
       [
         "    return Scaffold(",
-        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart)}${appBarLocale(b.localeSwitcher)}${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
         "      body: SingleChildScrollView(",
         `        child: ${guarded},`,
         "      ),",

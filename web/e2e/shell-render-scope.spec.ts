@@ -10,6 +10,11 @@
 //
 // The render-count probe (`window.__loomRenderCounts`) is off unless installed
 // before the page loads.
+//
+// A keystroke also must not buy a long main-thread task.  The compiler work a
+// keystroke triggers — validation, quick fixes — runs in the language-server
+// worker; answering Monaco's per-keystroke code-action request on the main
+// thread costs a fresh Langium parse + validate, a 250–350 ms task each time.
 
 import { expect, test, type Page } from "@playwright/test";
 import { waitForPlaygroundReady } from "./_helpers";
@@ -56,4 +61,42 @@ test("an editor keystroke does not re-render the shell", async ({ page }) => {
   for (const name of ["DesktopShell", "DevToolsDock", "PreviewPane", "DesktopHeader", "CommandPalette"]) {
     expect(grew(before, after, name), `${name} re-rendered on an editor keystroke`).toBe(0);
   }
+});
+
+/** Main-thread long tasks that START within `windowMs` after a keystroke. */
+test("steady-state typing leaves no main-thread long task over 100 ms", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __loomLongTasks: { start: number; duration: number }[] };
+    w.__loomLongTasks = [];
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__loomLongTasks.push({ start: e.startTime, duration: e.duration });
+    }).observe({ type: "longtask", buffered: true });
+  });
+  await page.goto("/");
+  await waitForPlaygroundReady(page);
+  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+
+  // Warm up on a fresh comment line: the first keystrokes pay one-off costs
+  // (lazy chunks, first completion) that are not the steady state.
+  await page.locator(".monaco-editor .view-lines").first().click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("// warm", { delay: 300 });
+  await page.waitForTimeout(1_500);
+
+  const windowMs = 300;
+  const strokes: number[] = [];
+  for (const ch of "steadystate") {
+    strokes.push(await page.evaluate(() => performance.now()));
+    await page.keyboard.type(ch);
+    await page.waitForTimeout(windowMs);
+  }
+  const tasks = await page.evaluate(
+    () => (window as unknown as { __loomLongTasks: { start: number; duration: number }[] }).__loomLongTasks,
+  );
+  const afterKeystroke = tasks.filter((t) => strokes.some((s) => t.start >= s && t.start < s + windowMs));
+  expect(
+    afterKeystroke.filter((t) => t.duration > 100).map((t) => Math.round(t.duration)),
+    "main-thread long tasks (ms) after a keystroke",
+  ).toEqual([]);
 });

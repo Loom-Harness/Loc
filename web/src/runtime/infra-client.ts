@@ -111,6 +111,17 @@ export class InfraClient {
     return this.send({ service: "infra", op: "reset", params: {} });
   }
 
+  /** Back the resource fakes with the durable store of `island` (null: memory
+   *  only).  `persistent` is false when OPFS was unavailable. */
+  configureResources(island: string | null, fresh?: boolean): Promise<{ ok: true; persistent: boolean }> {
+    return this.send({ service: "infra", op: "configure", params: { island, fresh } });
+  }
+
+  /** Empty the resource fakes, durable copy included. */
+  wipeResources(): Promise<{ ok: true }> {
+    return this.send({ service: "infra", op: "wipeResources", params: {} });
+  }
+
   /** Terminate the worker (and with it every storage host) and start a fresh
    *  one.  Pending calls are rejected. */
   respawn(): void {

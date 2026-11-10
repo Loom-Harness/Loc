@@ -12,10 +12,12 @@
 //     boot: if the previous boundary is > 60s old and later than the last
 //     recorded fire, we replay it exactly once.
 //
-//   • `every:` (sub-minute) timers stay **in-process** (`setInterval` + a
-//     transaction-scoped `pg_try_advisory_xact_lock` for single-fire).
-//     Durability is meaningless for a high-frequency poll — resume-at-next-tick
-//     is the correct behaviour — and pg-boss cron is minute-granularity.
+//   • `every:` (sub-minute) timers stay **in-process**: a `setInterval` poll at
+//     half the period, each poll claiming the current period's row in
+//     `__loom_timer` (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE).  One
+//     replica — or one deployable on a shared storage — wins each period.
+//     Durability is meaningless for a high-frequency poll — resume-at-next-
+//     period is the correct behaviour — and pg-boss cron is minute-granular.
 //
 // Every tick constructs its event struct and dispatches it through the SAME
 // in-process dispatcher the sagas route through, so an `on(t)` / `create(t) by`
@@ -27,6 +29,7 @@ import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spellin
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 
 /** The value expression a scheduler tick uses to fill one tick-event field.  A
  *  tick is infrastructure-emitted, so every field is synthesised: `at`-style
@@ -92,15 +95,15 @@ export function anyTimerUsesCron(timers: readonly TimerSourceIR[]): boolean {
   return timers.some((ts) => ts.cadence.kind === "cron");
 }
 
-/** The raw-SQL seam between the two node persistence adapters (M-T6.23).
+/** The raw-SQL seam between the two node persistence adapters.
  *
  *  `scheduler.ts` is the one emitted module whose database access is NOT domain
- *  persistence: a self-owned `loom_timer_runs` watermark table and a
- *  transaction-scoped advisory lock, both plain SQL.  Drizzle spells that
+ *  persistence: a self-owned `loom_timer_runs` watermark table and the
+ *  `__loom_timer` period claim, both plain SQL.  Drizzle spells that
  *  `db.execute(sql`…`)` returning `{ rows }`; MikroORM spells it
  *  `em.getConnection().execute(sql, params)` returning the rows directly (the
- *  same idiom `emitMikroSeeds` uses).  Only these five call sites diverge, so
- *  they are a leaf table rather than a duplicated builder. */
+ *  same idiom `emitMikroSeeds` uses).  Only these call sites diverge, so they
+ *  are a leaf table rather than a duplicated builder. */
 interface TimerStore {
   /** The `db` parameter's TypeScript type. */
   readonly dbType: string;
@@ -112,12 +115,10 @@ interface TimerStore {
   upsertWatermark(indent: string, conflict: "update" | "nothing"): readonly string[];
   /** Read the watermark into `const last: Date | undefined` for `queue`. */
   readWatermark(indent: string): readonly string[];
-  /** Run `body` inside a transaction whose ambient connection holds the
-   *  advisory lock, binding `const locked: boolean`.  The lock is
-   *  `pg_try_advisory_xact_lock`, so it MUST share the transaction's connection
-   *  — on a fresh connection it would be released immediately and every replica
-   *  would fire. */
-  lockedTransaction(indent: string, body: readonly string[]): readonly string[];
+  /** Run the period claim held in `claimSql` (one autocommitted statement),
+   *  binding `const claimed: boolean` — true only for the caller whose upsert
+   *  advanced the row. */
+  claim(indent: string): readonly string[];
 }
 
 const DRIZZLE_TIMER_STORE: TimerStore = {
@@ -147,12 +148,8 @@ const DRIZZLE_TIMER_STORE: TimerStore = {
     `${indent}const raw = (seen.rows[0] as { last_fired_at: string | Date } | undefined)?.last_fired_at;`,
     `${indent}const last = raw != null ? new Date(raw) : undefined;`,
   ],
-  lockedTransaction: (indent, body) => [
-    `${indent}await db.transaction(async (tx) => {`,
-    `${indent}  const lock = await tx.execute(sql\`SELECT pg_try_advisory_xact_lock(\${lockKey}) AS locked\`);`,
-    `${indent}  const locked = (lock.rows[0] as { locked: boolean } | undefined)?.locked ?? false;`,
-    ...body,
-    `${indent}});`,
+  claim: (indent) => [
+    `${indent}const claimed = (await db.execute(sql.raw(claimSql))).rows.length > 0;`,
   ],
 };
 
@@ -183,21 +180,8 @@ const MIKRO_TIMER_STORE: TimerStore = {
     `${indent}const raw = seen[0]?.last_fired_at;`,
     `${indent}const last = raw != null ? new Date(raw) : undefined;`,
   ],
-  lockedTransaction: (indent, body) => [
-    // `em.transactional` opens the transaction; the raw lock query is bound to
-    // it explicitly through `getTransactionContext()` — without that context
-    // the driver would take a pooled connection, the xact lock would end with
-    // that statement, and single-fire across replicas would silently be lost.
-    `${indent}await db.transactional(async (tem) => {`,
-    `${indent}  const lock = (await tem.getConnection().execute(`,
-    `${indent}    "SELECT pg_try_advisory_xact_lock(?) AS locked",`,
-    `${indent}    [lockKey],`,
-    `${indent}    "all",`,
-    `${indent}    tem.getTransactionContext(),`,
-    `${indent}  )) as { locked: boolean }[];`,
-    `${indent}  const locked = lock[0]?.locked ?? false;`,
-    ...body,
-    `${indent}});`,
+  claim: (indent) => [
+    `${indent}const claimed = ((await db.getConnection().execute(claimSql)) as unknown[]).length > 0;`,
   ],
 };
 
@@ -276,8 +260,8 @@ function cronBlock(
   ];
 }
 
-/** The in-process block for the `every:` timers (setInterval + a
- *  transaction-scoped advisory lock for single-fire). */
+/** The in-process block for the `every:` timers: a poll at half the period,
+ *  each poll claiming the current period in `__loom_timer`. */
 function intervalBlock(
   timers: readonly TimerSourceIR[],
   eventByName: Map<string, EventIR>,
@@ -287,12 +271,17 @@ function intervalBlock(
     if (ts.cadence.kind !== "every") return [];
     const event = eventByName.get(ts.event);
     const struct = event ? tickStruct(event) : `{ type: "${ts.event}" }`;
+    const claimSql = timerClaimSql(ts.name, ts.cadence.everyMs);
     return [
       lines(
         `  // timerSource ${ts.name} { for: ${ts.event}, every: ${ts.cadence.everyMs}ms } — in-process`,
         `  {`,
-        `    const tick = makeIntervalTick(${JSON.stringify(ts.name)}, () => (${struct}));`,
-        `    const handle = setInterval(() => void tick(), ${ts.cadence.everyMs});`,
+        `    const tick = makeIntervalTick(`,
+        `      ${JSON.stringify(ts.name)},`,
+        `      ${JSON.stringify(claimSql)},`,
+        `      () => (${struct}),`,
+        `    );`,
+        `    const handle = setInterval(() => void tick(), ${timerPollMs(ts.cadence.everyMs)});`,
         `    disposers.push(() => clearInterval(handle));`,
         `  }`,
       ),
@@ -300,9 +289,15 @@ function intervalBlock(
   });
 
   return [
-    "  // ── every: timers — in-process (setInterval + tx-scoped advisory lock) ──",
-    "  const makeIntervalTick = (name: string, build: () => Events.DomainEvent) => {",
-    "    const lockKey = timerLockKey(name);",
+    "  // ── every: timers — in-process poll + per-period claim row ──",
+    "  // Each poll claims the current period (database clock) in __loom_timer;",
+    "  // only the poll whose upsert advanced the row fires, so the tick fires once",
+    "  // per period across replicas and across deployables sharing the storage.",
+    "  const makeIntervalTick = (",
+    "    name: string,",
+    "    claimSql: string,",
+    "    build: () => Events.DomainEvent,",
+    "  ) => {",
     "    let running = false;",
     "    return async (): Promise<void> => {",
     "      if (running) {",
@@ -311,23 +306,13 @@ function intervalBlock(
     "      }",
     "      running = true;",
     "      try {",
-    "        // One process and no replicas: nothing to contend with, and a host",
-    "        // with a single database connection (the browser playground's",
-    "        // PGlite) would deadlock running the tick's own writes inside the",
-    "        // lock's transaction.",
-    '        if (opts.infra === "in-process") {',
-    "          await events.dispatch(build());",
-    '          baseLogger.info({ event: "timer_fired", timer: name });',
+    ...store.claim("        "),
+    "        if (!claimed) {",
+    '          baseLogger.debug({ event: "timer_lock_contended", timer: name });',
     "          return;",
     "        }",
-    ...store.lockedTransaction("        ", [
-      "          if (!locked) {",
-      '            baseLogger.debug({ event: "timer_lock_contended", timer: name });',
-      "            return;",
-      "          }",
-      "          await events.dispatch(build());",
-      '          baseLogger.info({ event: "timer_fired", timer: name });',
-    ]),
+    "        await events.dispatch(build());",
+    '        baseLogger.info({ event: "timer_fired", timer: name });',
     "      } catch (err) {",
     "        baseLogger.error({",
     '          event: "timer_emit_failed",',
@@ -419,9 +404,8 @@ const IN_PROCESS_CRON_BOSS = lines(
 export function renderTimerScheduler(
   timers: readonly TimerSourceIR[],
   eventByName: Map<string, EventIR>,
-  /** `persistence: mikroorm` — run the watermark + advisory lock on the
-   *  EntityManager instead of Drizzle (M-T6.23).  Default false keeps
-   *  the Drizzle output byte-identical. */
+  /** `persistence: mikroorm` — run the watermark + period claim on the
+   *  EntityManager instead of Drizzle. */
   usingMikro = false,
 ): string {
   const { cron, interval } = partitionByCadence(timers);
@@ -444,21 +428,6 @@ export function renderTimerScheduler(
     ...store.imports.filter((i) => i.includes("./db/schema")),
     `import { baseLogger } from "./obs/log";`,
     "",
-    interval.length > 0
-      ? lines(
-          "// Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource",
-          "// name into a signed 32-bit int, so two replicas contend on the SAME key.",
-          "function timerLockKey(name: string): number {",
-          "  let h = 0x811c9dc5;",
-          "  for (let i = 0; i < name.length; i++) {",
-          "    h ^= name.charCodeAt(i);",
-          "    h = Math.imul(h, 0x01000193);",
-          "  }",
-          "  return h | 0;",
-          "}",
-          "",
-        )
-      : false,
     cron.length > 0 ? IN_PROCESS_CRON_BOSS : false,
     "// Starts every owned timer.  Async: pg-boss boot is async, and the returned",
     "// disposer awaits a clean pg-boss shutdown.",

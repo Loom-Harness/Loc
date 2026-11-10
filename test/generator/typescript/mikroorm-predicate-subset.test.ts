@@ -217,7 +217,9 @@ describe("a principal-referencing criterion read agrees with its caller", () => 
         repository Docs for Doc { }
         repository Orgs for Org { }
       `).replace("subdomain D {", "tenancy by user.tenantId of Org\n    subdomain D {");
-    expect(await file(src, "db/entities.ts")).toContain("tenantId: requireCurrentUser().tenantId");
+    expect(await file(src, "db/entities.ts")).toContain(
+      "tenantId: requireCurrentUser().operatingOrg",
+    );
     expect(await file(src, "db/repositories/doc-repository.ts")).not.toContain("currentUser: User");
   });
 });

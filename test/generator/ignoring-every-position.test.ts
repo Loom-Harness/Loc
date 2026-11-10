@@ -318,10 +318,10 @@ describe("Dapper — `all(C) ignoring *` binds no tenant claim it does not read"
     );
     const widened = block(repo, "RunFindAllByByCodeIgnoringAllAsync(", "\n    }\n");
     expect(widened).toContain("OrderScope.Runtime(bypass)");
-    expect(widened).not.toContain("__cu_tenantId");
+    expect(widened).not.toContain("__cu_operatingOrg");
     expect(widened).not.toContain("CurrentUser!");
     expect(block(repo, "RunFindAllByByCodeAsync(", "\n    }\n")).toContain(
-      'p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId);',
+      'p.Add("__cu_operatingOrg", RequestContext.Current!.CurrentUser!.OperatingOrg);',
     );
   });
 });

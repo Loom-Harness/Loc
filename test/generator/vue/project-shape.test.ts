@@ -73,7 +73,7 @@ describe("vue generator — project shape", () => {
     const api = files.get("src/api/customer.ts")!;
     expect(api).toContain(`from "@tanstack/vue-query"`);
     expect(api).not.toContain("react-query");
-    // Same composable surface the vueTarget's buildHookUse expects.
+    // Same composable surface the vueTarget's bindDataAccess expects.
     expect(api).toContain(
       "export function useAllCustomers(query: MaybeRefOrGetter<AllQueryInput> = () => ({}))",
     );
@@ -121,7 +121,11 @@ describe("vue generator — project shape", () => {
     const html = files.get("index.html")!;
     expect(html).toContain('<div id="app">');
     expect(html).toContain("/src/main.ts");
-    expect(html).toContain("<title>Customers home</title>");
+    // The static title carries its catalog key, so the runtime re-spells it
+    // in the active locale at boot and on a switch.
+    expect(html).toMatch(
+      /<title data-loom-title="WebApp\.page\.CustomerHome\.title\.\w+">Customers home<\/title>/,
+    );
   });
 
   it("compose service exposes the vite preview port with the api url env", async () => {

@@ -8,11 +8,11 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
+  pgliteStarts,
   readEditorSource,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 async function pick(page: Page, testid: string, option: string): Promise<void> {
@@ -28,8 +28,7 @@ async function sql(page: Page, statement: string): Promise<void> {
 
 test("two deployables, two storages: pickers, status rows and tagged logs", async ({ page }) => {
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Shared storage/);
+  await startFromExample(page, /Shared storage/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
@@ -54,9 +53,7 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
   });
 
   await test.step("Generate, bundle", async () => {
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
     await page.getByTestId("btn-bundle").click();
     await waitForBundle(page);
   });
@@ -127,12 +124,22 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
     await expect(page.getByTestId("sql-result")).toBeVisible({ timeout: 30_000 });
   });
 
+  await test.step("Both storages started from the seeded PGlite snapshot", async () => {
+    expect((await pgliteStarts(page)).sort()).toEqual(["primary: snapshot", "replica: snapshot"]);
+  });
+
   await test.step("Reset acts on the picked storage only", async () => {
     await pick(page, "db-target", "replica");
+    // An ad-hoc table in the snapshot-started replica, which Reset must drop.
+    await sql(page, "CREATE TABLE only_in_replica (id int)");
+    await expect(page.getByTestId("sql-error")).toHaveCount(0);
     await expect(page.getByText("Reset acts on storage replica only.")).toBeVisible();
     await page.getByTestId("btn-wipe").click();
     await page.getByRole("button", { name: "Yes, clear all rows" }).click();
-    // primary's ad-hoc table survives a Reset of replica.
+    // Reset leaves replica with the recorded schema only…
+    await sql(page, "SELECT * FROM only_in_replica");
+    await expect(page.getByTestId("sql-error")).toContainText(/only_in_replica/, { timeout: 30_000 });
+    // …while primary's ad-hoc table survives a Reset of replica.
     await pick(page, "db-target", "primary");
     await sql(page, "SELECT * FROM only_in_primary");
     await expect(page.getByTestId("sql-result")).toBeVisible({ timeout: 30_000 });

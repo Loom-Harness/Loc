@@ -125,15 +125,15 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
     return fieldColumn({ ...f, type: optionalType }, accBase);
   });
-  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
-  // key) and its org path.
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
+  // key.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
     const prop = upperFirst(m.field);
     cols.push({
       col: m.column,
       sql: csSqlType("string"),
-      nullable: !m.required,
-      rowCs: m.required ? "string" : "string?",
+      nullable: false,
+      rowCs: "string",
       cast: "",
       save: `${accBase}.${prop}`,
       stateProp: prop,
@@ -148,7 +148,7 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
 function dapperProjectionKeyColumns(proj: ProjectionIR): string[] {
   const tenancy = foldTenancyFor(proj);
   return [
-    ...(tenancy?.metadata ?? []).filter((m) => m.required).map((m) => m.column),
+    ...(tenancy?.metadata ?? []).map((m) => m.column),
     snake(proj.correlationField as string),
   ];
 }

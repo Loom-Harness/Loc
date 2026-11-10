@@ -33,6 +33,7 @@ import {
   isDerivedProp,
   isEntityPart,
   isEnumDecl,
+  isExistsExpr,
   isFunctionDecl,
   isIdRef,
   isIntLit,
@@ -73,8 +74,10 @@ import { intrinsicFor } from "../../util/intrinsics.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
 import {
   ORG_CONTEXT_ACCESSOR,
-  ORG_CONTEXT_ORG_PATH,
-  PRINCIPAL_ORG_CONTEXT_PATH,
+  ORG_CONTEXT_ANCESTORS,
+  ORG_CONTEXT_ORG,
+  PRINCIPAL_OPERATING_ANCESTORS,
+  PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
@@ -83,6 +86,7 @@ import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
 import type {
   BinOp,
+  CallTarget,
   DataSourceKind,
   ExprIR,
   PathIR,
@@ -500,10 +504,11 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     }
     return recv;
   }
-  // Probe: `organizationContext.orgPath` — the OPERATING-scope accessor
-  // (organization-context.md; M-T3.6 items 3+5).  Two flat accessors on the
-  // surface, one execution-context frame underneath: it lowers to the derived
-  // principal member `currentUser.orgContextPath`, so every backend's existing
+  // Probe: `organizationContext.org` / `.ancestors` — the OPERATING-scope
+  // accessor.  Two flat accessors on the surface, one execution-context frame
+  // underneath: `.org` lowers to the derived principal member
+  // `currentUser.operatingOrg` and `.ancestors` to
+  // `currentUser.operatingAncestors` (`<Registry> id[]`), so every backend's existing
   // principal threading (the `current-user` ref — auth params, ambient
   // accessors, `usesUser` detection) carries it with no new plumbing, and the
   // value itself is set in exactly one place per backend — the auth
@@ -516,18 +521,22 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     !first.call &&
     isNameRef(chain.head) &&
     chain.head.name === ORG_CONTEXT_ACCESSOR &&
-    first.member === ORG_CONTEXT_ORG_PATH
+    (first.member === ORG_CONTEXT_ORG ||
+      (first.member === ORG_CONTEXT_ANCESTORS && !!env.user?.registry))
   ) {
     const userShape: TypeIR = { kind: "entity", name: USER_SHAPE_NAME };
-    const pathType: TypeIR = { kind: "primitive", name: "string" };
+    const ancestors = first.member === ORG_CONTEXT_ANCESTORS;
+    const memberType: TypeIR = ancestors
+      ? { kind: "array", element: { kind: "id", targetName: env.user!.registry! } }
+      : { kind: "primitive", name: "string" };
     let recv: ExprIR = {
       kind: "member",
       receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
-      member: PRINCIPAL_ORG_CONTEXT_PATH,
+      member: ancestors ? PRINCIPAL_OPERATING_ANCESTORS : PRINCIPAL_OPERATING_ORG,
       receiverType: userShape,
-      memberType: pathType,
+      memberType,
     };
-    let recvType: TypeIR = pathType;
+    let recvType: TypeIR = memberType;
     for (let i = 1; i < chain.suffixes.length; i++) {
       const out = applySuffixToRecv(recv, recvType, chain.suffixes[i]!, env);
       recv = out.recv;
@@ -706,7 +715,7 @@ function applySuffixToRecv(
       }
       const callIR: ExprIR = {
         kind: "call",
-        callKind,
+        ...localCallTarget(callKind, recv.name, env),
         name: recv.name,
         // An argument's expected type is the PARAMETER's, so a bare enum value
         // passed to `setStatus(Draft)` is as contextually typed as a field
@@ -715,17 +724,6 @@ function applySuffixToRecv(
         args: retargetCallArgs(recv.name, args, named ? argNames : undefined, env),
         ...(named ? { argNames } : {}),
         ...(styleHoist.style ? { style: styleHoist.style } : {}),
-        // A workflow `function` is emitted as a per-workflow-scoped helper (not
-        // a `this`-method — a workflow body is not a class), so the call carries
-        // the enclosing workflow name; each backend renders `<wf><fn>(args)`.
-        ...(callKind === "workflow-fn" && env.workflow ? { wfScope: env.workflow.name } : {}),
-        // An operation self-call lowers to `private-operation` regardless of the
-        // target's `private` modifier; carry the resolved privacy so backends
-        // that name public vs private operations differently render the call
-        // against the right def-site name (Python `self.reserve` vs `self._reserve`).
-        ...(callKind === "private-operation"
-          ? { targetPrivate: findOperationInEnv(env, recv.name)?.private ?? false }
-          : {}),
       };
       // Result type best-effort — a function returns its declared type, an
       // operation returns its declared return type (an `or`-union for an
@@ -1077,13 +1075,10 @@ function applySuffixToRecv(
       if (selfKind === "function" || selfKind === "private-operation") {
         const callIR: ExprIR = {
           kind: "call",
-          callKind: selfKind,
+          ...localCallTarget(selfKind, ms.member, env),
           name: ms.member,
           args,
           ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
-          ...(selfKind === "private-operation"
-            ? { targetPrivate: findOperationInEnv(env, ms.member)?.private ?? false }
-            : {}),
         };
         const fn = findFunctionInEnv(env, ms.member);
         const op = fn ? undefined : findOperationInEnv(env, ms.member);
@@ -1427,6 +1422,19 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       env,
       env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE },
     );
+  }
+  if (isExistsExpr(expr)) {
+    // `exists <Agg> as s where p` — `s` binds one row of `<Agg>` (a `row`
+    // local, so `s.field` lowers to an ordinary typed `member`); the enclosing
+    // row stays `this`, so bare names keep resolving against the owner.
+    const aggregate = expr.aggregate?.ref?.name ?? expr.aggregate?.$refText ?? "";
+    const inner = withLocal(env, expr.binding, "row", { kind: "entity", name: aggregate });
+    return {
+      kind: "exists",
+      aggregate,
+      binding: expr.binding,
+      where: lowerExpr(expr.where, inner),
+    };
   }
   if (isMatchExpr(expr)) {
     // Variant form (`match SUBJECT { VariantType binding => value }`,
@@ -2512,6 +2520,30 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
     };
   }
   return { kind: "ref", name, refKind: "unknown" };
+}
+
+/** The target of a call `resolveCallKind` classified, with the payload its
+ *  kind carries.  A workflow `function` is emitted as a per-workflow-scoped
+ *  helper (a workflow body is not a class), so the call carries the enclosing
+ *  workflow's name; each backend renders `<wf><fn>(args)`.  An operation
+ *  self-call lowers to `private-operation` regardless of the target's
+ *  `private` modifier, so the call carries the resolved privacy: backends that
+ *  name public and private operations differently render it against the right
+ *  def-site name (Python `self.reserve` vs `self._reserve`). */
+function localCallTarget(
+  callKind: ReturnType<typeof resolveCallKind>,
+  name: string,
+  env: Env,
+): CallTarget {
+  switch (callKind) {
+    case "workflow-fn":
+      // `resolveCallKind` answers `workflow-fn` only inside a workflow.
+      return { callKind, wfScope: env.workflow?.name ?? "" };
+    case "private-operation":
+      return { callKind, targetPrivate: findOperationInEnv(env, name)?.private ?? false };
+    default:
+      return { callKind };
+  }
 }
 
 function resolveCallKind(

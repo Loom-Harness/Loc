@@ -40,7 +40,7 @@
 // hoisting, LiveView reads inline.
 // ---------------------------------------------------------------------------
 
-import { maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
+import { carriesFieldMask, maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -60,6 +60,7 @@ import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/lo
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
+import { richTextMessage } from "../../ir/util/icu-message.js";
 import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
@@ -76,7 +77,12 @@ import { floorRuleText } from "../_i18n/rule-text.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
-import { icuFromConcat, inlineComponentKeyPrefix, messageKey } from "../_walker/i18n-extract.js";
+import {
+  icuFromConcat,
+  inlineComponentKeyPrefix,
+  messageKey,
+  RICH_TEXT_ROLE,
+} from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { modelTextExpr } from "./heex-model-text.js";
@@ -169,6 +175,11 @@ export interface WalkResult {
    *  emitter hoists the matching sort/page `handle_event` clauses.  Empty when
    *  no Table asked for sorting or paging. */
   tableControls: TableControlBinding[];
+  /** The page `title:` as an Elixir expression over `socket.assigns`, when it
+   *  is NOT a plain literal (an interpolated title reads route params and
+   *  loaded records, which exist only once `handle_params/3` has run).  A
+   *  literal title is set in `mount/3` instead. */
+  titleExpr?: string;
 }
 
 /** `Action(<instance>.<operation>)` → a `<.button phx-click=…>` plus a
@@ -694,8 +705,9 @@ export function walkBodyToHeex(
         sink,
       ).tsx
     : `<!-- empty body -->`;
+  const titleExpr = pageTitleExpr(page, ctx);
 
-  return walkResultFromSink(heex, sink);
+  return walkResultFromSink(heex, sink, titleExpr);
 }
 
 /** The HEEx walk state the shared core carries in `ctx.sink` for this target. */
@@ -710,10 +722,15 @@ export function heexContextOf(sink: unknown): WalkContext | undefined {
 
 /** Rebuild the `WalkResult` the LiveView emitters consume from the sink's
  *  accumulators. */
-function walkResultFromSink(heex: string, sink: HeexWalkSink): WalkResult {
+function walkResultFromSink(
+  heex: string,
+  sink: HeexWalkSink,
+  titleExpr: string | undefined,
+): WalkResult {
   const ctx = sink.heex;
   return {
     heex,
+    ...(titleExpr === undefined ? {} : { titleExpr }),
     handlers: ctx.handlers,
     formBindings: ctx.formBindings,
     queryBindings: ctx.queryBindings,
@@ -729,6 +746,17 @@ function walkResultFromSink(heex: string, sink: HeexWalkSink): WalkResult {
     uploadBindings: ctx.uploadBindings,
     tableControls: ctx.tableControls,
   };
+}
+
+/** The Elixir expression of a non-literal page `title:`, rendered in handler
+ *  position (`socket.assigns.<x>`) because `handle_params/3` is what assigns it.
+ *  An interpolated title is the ICU message under i18n, so a translator may
+ *  reorder its holes; with i18n off it is the raw expression. */
+function pageTitleExpr(page: PageIR, ctx: WalkContext): string | undefined {
+  const title = page.title;
+  if (!title || (title.kind === "literal" && title.lit === "string")) return undefined;
+  const handlerCtx: WalkContext = { ...ctx, position: "handler" };
+  return heexTranslateCall(title, handlerCtx, "title", "handler") ?? renderExpr(title, handlerCtx);
 }
 
 /** Pre-hoist the handlers a body's markup refers to by name: its declared
@@ -1020,9 +1048,16 @@ function maskOfMember(
   let t = expr.receiverType;
   while (t?.kind === "optional") t = t.inner;
   if (t?.kind !== "entity") return undefined;
-  const agg = ctx.aggregatesByName.get(t.name);
-  if (!agg?.fields.some((f) => f.maskUnless)) return undefined;
-  return maskedReadPredicates(agg).get(expr.member);
+  const name = t.name;
+  const agg = ctx.aggregatesByName.get(name);
+  if (agg) return carriesFieldMask(agg) ? maskedReadPredicates(agg).get(expr.member) : undefined;
+  // A member read off a contained part (`row.note` in a table over
+  // `@data.reviews`) redacts under the part member's own predicate.
+  for (const owner of ctx.aggregatesByName.values()) {
+    const part = owner.parts.find((p) => p.name === name);
+    if (part) return maskedReadPredicates(part).get(expr.member);
+  }
+  return undefined;
 }
 
 function renderMemberValue(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContext): string {
@@ -2118,12 +2153,16 @@ export function renderPrimitive(
   // rendered with its catalog role; `childrenExprs` are nested markup and never
   // carry one.  The role table is the shared `USER_VISIBLE_SLOTS`, so the key
   // the walker emits equals the key the extraction pass put in the catalog.
-  const renderedChildren = [
-    ...childrenExprs.map((c) => renderChild(c, ctx)),
-    ...(spec.takesChildren
-      ? positional.map((c, i) => renderChild(c, ctx, positionalRole(expr.name, i)))
-      : []),
-  ];
+  const richChild = spec.takesChildren ? heexRichText(expr, ctx) : undefined;
+  const renderedChildren =
+    richChild !== undefined
+      ? [richChild]
+      : [
+          ...childrenExprs.map((c) => renderChild(c, ctx)),
+          ...(spec.takesChildren
+            ? positional.map((c, i) => renderChild(c, ctx, positionalRole(expr.name, i)))
+            : []),
+        ];
   const childrenHeex = [
     ...(spec.leadingChildHeex ? [spec.leadingChildHeex] : []),
     ...(spec.childWrapper
@@ -2259,6 +2298,9 @@ function heexTranslateCall(
   arg: ExprIR,
   ctx: WalkContext,
   role: string | undefined,
+  /** Where the hole expressions render: a template slot reads `@x`, the
+   *  `handle_params/3` title reads `socket.assigns.x`. */
+  holePosition: RenderPosition = "template",
 ): string | undefined {
   if (!ctx.i18nPrefix || !role) return undefined;
   if (arg.kind === "literal" && arg.lit === "string") {
@@ -2274,9 +2316,24 @@ function heexTranslateCall(
   // (a Decimal, a Date), not their stringified form, so the formatter can
   // locale-format rather than re-parse text.
   const bindings = icu.holes
-    .map((h) => `${h.name}: ${renderExpr(h.expr, { ...ctx, position: "template" })}`)
+    .map((h) => `${h.name}: ${renderExpr(h.expr, { ...ctx, position: holePosition })}`)
     .join(", ");
   return `loom_icu(${message}, [${bindings}])`;
+}
+
+/** A rich `Text { "Read the ", Bold { "terms" }, " first" }` as ONE message —
+ *  `loom_rich(pgettext(<key>, "Read the <b>terms</b> first"), [])`, which formats
+ *  the holes, escapes the text and turns the `<b>` / `<i>` / `<code>` tags into
+ *  `<strong>` / `<em>` / `<code>` — so a locale can reorder the parts.  Undefined
+ *  when the call is not rich text, or the body has no translation runtime. */
+function heexRichText(call: ExprIR & { kind: "call" }, ctx: WalkContext): string | undefined {
+  const rich = richTextMessage(call);
+  if (!rich || !ctx.i18nPrefix) return undefined;
+  const key = messageKey(ctx.i18nPrefix, RICH_TEXT_ROLE, rich.positional);
+  const bindings = rich.holes
+    .map((h) => `${h.name}: ${renderExpr(h.expr, { ...ctx, position: "template" })}`)
+    .join(", ");
+  return `<%= loom_rich(${pgettextCall(key, rich.display)}, [${bindings}]) %>`;
 }
 
 /** A user-visible slot in ATTRIBUTE position — a `role="img"` icon's accessible

@@ -144,7 +144,7 @@ function storeActionCtx(
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),

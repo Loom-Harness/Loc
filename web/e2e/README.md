@@ -32,26 +32,26 @@ Runs cleanly on a developer laptop and on GitHub Actions.
 
 ## Running these locally in the agent sandbox
 
-The sandbox ships a Chromium build older than the one this Playwright version
-expects, so a bare `npx playwright test` dies with *"Executable doesn't exist
-at …/chromium_headless_shell-<n>"*. Point it at what is installed instead
-of downloading (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set for a reason):
+The sandbox pre-installs Chromium and Playwright; try a bare `npx playwright test` first.
+Only when `web/` pins a Playwright version whose expected browser build isn't installed
+(*"Executable doesn't exist at …"*) point it at the stable `/opt/pw-browsers/chromium`
+path with an untracked override (`web/playwright.local.config.ts` is gitignored; never
+commit it):
 
 ```ts
-// web/playwright.local.config.ts — local only, do not commit
+// web/playwright.local.config.ts — local only, gitignored
 import { defineConfig } from "@playwright/test";
 import base from "./playwright.config";
 export default defineConfig({
   ...base,
   use: {
     ...base.use,
-    launchOptions: { executablePath: "/opt/pw-browsers/chromium-<build>/chrome-linux/chrome" },
+    launchOptions: { executablePath: "/opt/pw-browsers/chromium" },
   },
 });
 ```
 
 then `npx playwright test -c playwright.local.config.ts --project=chromium <spec>`.
-`ls /opt/pw-browsers` gives the build number.
 
 **One known local-only failure:** `editor.spec.ts` → *"playground loads with
 Monaco editor and Langium LSP"* reports a bare `404 (Not Found)` console error

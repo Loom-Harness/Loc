@@ -1,8 +1,4 @@
-import {
-  forwardsCallerCredential,
-  hostedHierarchyRegistry,
-} from "../../ir/enrich/hosting-facts.js";
-import { registryTableName } from "../../ir/enrich/storage-names.js";
+import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import {
   fieldCode,
   fieldFixedMessage,
@@ -55,7 +51,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
@@ -91,6 +87,7 @@ import {
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -150,6 +147,7 @@ import {
 import { emitPyResourceFiles } from "./resource-clients.js";
 import { buildPyRoutesFile } from "./routes-builder.js";
 import { anyPyTimerUsesCron, renderPyTimerScheduler } from "./scheduler-builder.js";
+import { renderPySecurityHeaders } from "./security-headers.js";
 import { pySentence } from "./wire-policy-py.js";
 import { buildPyWorkflowsFile, commandWorkflowsOf } from "./workflows-builder.js";
 // ---------------------------------------------------------------------------
@@ -500,35 +498,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // An `auth { oidc }` block drives the generated OIDC verifier + handshake;
   // absent it, the dev stub keeps a fresh stack callable out of the box.
   const oidc = authRequired ? args.sys.auth : undefined;
-  // Hierarchy (multi-tenancy): when the tenant registry opts into
-  // `tenantRegistry` (a `data_key` column exists), `currentUser.orgPath`
-  // resolves from that registry's table.  Pass the schema-qualified table so
-  // the auth middleware can `SELECT data_key … WHERE id = <claim>`; `undefined`
-  // for flat tenancy keeps the claim-copy.
-  const orgPathRegistryTable = authRequired
-    ? (() => {
-        // Only a deployable hosting the registry's context has its table.
-        const reg = hostedHierarchyRegistry(
-          args.sys,
-          args.contexts.map((c) => c.name),
-        );
-        if (!reg) return undefined;
-        const owning = args.contexts.find((c) => c.aggregates.some((a) => a.name === reg.name));
-        const ds = owning
-          ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
-          : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${registryTableName(args.sys)}`;
-        return ds?.schema ? `${ds.schema}.${table}` : table;
-      })()
-    : undefined;
   if (authRequired && args.sys.user)
     emitPyAuthFiles(
       args.sys.user,
       out,
       oidc,
       args.sys.tenancy?.claimField,
-      orgPathRegistryTable,
-      systemReadsOrgContext(args.sys),
+      orgContextPlan(args.sys, args.deployable.contextNames),
+      registryTableSql(args.sys),
     );
   // First-boot seeding (database-seeding.md): emitted only when a
   // dataset survives filtering (rows on concrete aggregates); the
@@ -746,6 +723,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // The server never translates a response: every refusal carries the catalog
   // `code` a client localizes it by, so there is no backend message catalog.
   out.set("app/http/__init__.py", "");
+  out.set("app/http/security_headers.py", renderPySecurityHeaders());
   out.set(
     "app/http/problem.py",
     renderProblemPy(
@@ -1405,6 +1383,7 @@ function renderMain(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
     `from app.http.problem import JsonBodyMiddleware, install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
+    "from app.http.security_headers import SecurityHeadersMiddleware",
     ...explicitRouteApis.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
@@ -1578,6 +1557,9 @@ function renderMain(
     "# Added last so it runs first (Starlette: later-added is outermost) —",
     "# every request is bracketed, including 401s from the auth middleware.",
     "app.add_middleware(ObservabilityMiddleware)",
+    "# Outermost of all: the baseline security headers ride every response the",
+    "# middlewares above and the routes produce.",
+    "app.add_middleware(SecurityHeadersMiddleware)",
     // Explicit routes first: FastAPI answers with the first registered match,
     // so an aggregate's `GET /api/orders/{id}` would otherwise take a routed
     // handler's `GET /api/orders/order_by_code` (`id = "order_by_code"`).
@@ -1707,7 +1689,19 @@ function renderMain(
 // project venv, uvicorn serves.  `uv sync` (not `pip install`): the
 // pyproject is the manifest, and uv resolves fast enough that a
 // lockfile-less build stays deterministic via the within-major pins.
-const DOCKERFILE_PY = `# syntax=docker/dockerfile:1
+/** The runtime image's switch to an unprivileged user, by number so a k8s
+ *  `runAsNonRoot` check can verify it.  The app tree and the venv stay
+ *  root-owned and read-only to it; data/ is the one directory the process
+ *  writes (local object-store resources default there). */
+const PY_NON_ROOT_BLOCK = `# Run unprivileged, by number.  data/ is the one directory the process
+# writes (local object-store resources default there).
+RUN groupadd --system --gid 10001 app \\
+    && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /app app \\
+    && mkdir -p /app/data && chown 10001:10001 /app/data
+USER 10001:10001
+`;
+
+export const DOCKERFILE_PY = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM python:3.13-slim
@@ -1730,7 +1724,7 @@ RUN uv sync --no-dev
 COPY app/ ./app/
 COPY migrations/ ./migrations/
 ENV PATH="/app/.venv/bin:$PATH"
-EXPOSE 8000
+${PY_NON_ROOT_BLOCK}EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 `;
 
@@ -1744,7 +1738,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 // but Feliz compiles F#→JS via `dotnet fable` first, so its stage needs a
 // .NET-SDK+Node base + `dotnet tool restore` (mirrors the feliz standalone
 // Dockerfile) — hence the `spaBuildKind` parameter.
-function renderPyFullstackDockerfile(
+export function renderPyFullstackDockerfile(
   spaOutDir: string,
   spaBuildKind: "vite" | "feliz" = "vite",
 ): string {
@@ -1787,7 +1781,7 @@ COPY app/ ./app/
 COPY migrations/ ./migrations/
 COPY --from=spa-build /spa/${spaOutDir} ./wwwroot
 ENV PATH="/app/.venv/bin:$PATH"
-EXPOSE 8000
+${PY_NON_ROOT_BLOCK}EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 `;
 }
@@ -1969,9 +1963,18 @@ function collectOpUnions(
   return out;
 }
 
-/** True when some aggregate declares an `extern` operation. */
-function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
-  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+/** True when some aggregate declares an `extern` operation or the context
+ *  declares an `extern` command/query handler — the seams whose scaffold-once
+ *  stub raises `ExternNotImplementedError` (answered 501). */
+function hasExternOperation(ctx: {
+  aggregates: readonly EnrichedAggregateIR[];
+  commandHandlers?: readonly { extern?: boolean }[];
+  queryHandlers?: readonly { extern?: boolean }[];
+}): boolean {
+  return (
+    ctx.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some((h) => h.extern)
+  );
 }
 
 // RFC 7807 problem responder + exception handlers — DomainError → 422
@@ -2221,6 +2224,7 @@ ${versionedImport}    DisallowedError,
     DomainError,
 ${externImport}    ForbiddenError,
 ${voImport})
+from app.http.security_headers import with_security_headers
 from app.obs.log import correlation_id, log, new_id
 from app.obs.metrics import record_domain_fault
 
@@ -2636,13 +2640,18 @@ ${voHandler}${externHandler}${integrityHandler}${versionedHandler}    @app.excep
         log("error", "internal_error", error=str(err), status=${wireStatus("internal")})
         # The id the fault was logged under: what a user quotes to support.
         request_id = correlation_id() or request.headers.get("x-request-id") or new_id()
-        return problem(
-            request,
-            ${wireStatus("internal")},
-            ${title("internal")},
-            ${JSON.stringify(wireFixedDetail("internal"))},
-            code=${code("internal")},
-            params={"requestId": request_id},
+        # Starlette answers an unhandled exception from ServerErrorMiddleware,
+        # which wraps every user middleware, so SecurityHeadersMiddleware never
+        # sees this response; the handler stamps the headers itself.
+        return with_security_headers(
+            problem(
+                request,
+                ${wireStatus("internal")},
+                ${title("internal")},
+                ${JSON.stringify(wireFixedDetail("internal"))},
+                code=${code("internal")},
+                params={"requestId": request_id},
+            )
         )
 `;
 }

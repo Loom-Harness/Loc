@@ -37,6 +37,7 @@ export type RefKind =
   | "resource" // ambient resource handle — `files`, `jobs`, …
   | "store-field" // a `<Store>.<field>` read from a page/component/store body (Stage 5)
   | "match-binding" // the narrowed variant binding of a variant-`match` arm (variant-match.md)
+  | "row" // the quantified row of an `exists <Agg> as <row> where …` (typed `entity{<Agg>}`)
   | "unknown";
 
 export type CallKind =
@@ -69,12 +70,9 @@ export type BinOp =
 
 /**
  * The discriminated policy decision carried by an `authz-filter` `ExprIR`
- * node (M-T9.9).  Each backend's filter translator switches over `kind` with
+ * node.  Each backend's filter translator switches over `kind` with
  * TypeScript exhaustiveness, so adding a variant is a `tsc` error at every
- * render site — the compile-time replacement for the pre-M-T9.9 chain of
- * `isDenyFilter` / `isDeepScopeFilter` runtime probes on a `method-call`
- * marker (where a forgotten arm was a SILENT authorization bypass, not a
- * build break).
+ * render site rather than a silent authorization bypass.
  *
  *  - `deny` — the always-false carve-out (`deny [write] on <Agg>`,
  *    deny-wins).  Principal-FREE: it routes to each
@@ -83,30 +81,8 @@ export type BinOp =
  *    trap.  Every backend renders it to its native always-false fragment
  *    (Drizzle `and(isNull, isNotNull)` / EF `false` / JPQL `1 = 0` /
  *    `cb.disjunction()` / SQLAlchemy contradiction / Ecto `fragment("false")`).
- *  - `scope` — the descendant-or-self materialized-path subtree scope
- *    (`deep`/`global` read levels).  PRINCIPAL-referencing
- *    (carries `currentUser.<anchor>` + `currentUser.tenantId` as resolved
- *    member sub-expressions), so it routes to the ambient-principal filter
- *    path and `exprUsesCurrentUser` classifies it by walking those children.
- *    Renders to the compound scope predicate with the NULL-dataKey fallback
- *    to the tenant floor (`DEEP_SCOPE_SEMANTICS`).  `anchorClaim` is
- *    `currentUser.orgPath` for `deep` (caller's node + descendants) or
- *    `currentUser.rootOrg` for `global` (caller's ROOT subtree).
  */
-export type AuthzFilterKind =
-  | { kind: "deny" }
-  | {
-      kind: "scope";
-      /** `currentUser.<anchor>` as a resolved `member` sub-expression — the
-       *  descendant-prefix anchor (`orgPath` for `deep`, `rootOrg` for
-       *  `global`).  Kept as ExprIR so a backend that renders the claim through
-       *  its own expression path (Java's null-safe SpEL accessor) reuses it
-       *  verbatim, and `exprUsesCurrentUser` sees the principal reference. */
-      anchorClaim: ExprIR;
-      /** `currentUser.tenantId` as a resolved `member` sub-expression — the
-       *  floor the NULL-dataKey fallback compares against. */
-      tenantClaim: ExprIR;
-    };
+export type AuthzFilterKind = { kind: "deny" };
 
 export type ExprIR = (
   | { kind: "literal"; lit: LiteralKind; value: string }
@@ -196,9 +172,8 @@ export type ExprIR = (
        *  aggregate's repository from this source and stance. */
       bypassRead?: BypassReadIR;
     }
-  | {
+  | ({
       kind: "call";
-      callKind: CallKind;
       name: string;
       args: ExprIR[];
       /** Same shape as `method-call.argNames` — see above. */
@@ -207,110 +182,6 @@ export type ExprIR = (
        *  `method-call` node's `awaited`.  Set when the call was the subject of a
        *  `match await <call>()`; drives the frontend async-await envelope. */
       awaited?: boolean;
-      /** Populated when `callKind === "workflow-fn"` — the enclosing workflow's
-       *  name.  A workflow `function` is emitted as a per-workflow-scoped module
-       *  helper (a workflow body is not a class), so backends render the call as
-       *  the scoped, per-backend-cased name `<wf><fn>(args)`. */
-      wfScope?: string;
-      /** Populated when `callKind === "resource-op"` — the
-       *  resolved resource binding, verb, the capability it requires,
-       *  and the access interface (default from
-       *  `EnrichedSystemIR.resourceInterfaces`, with per-verb override).
-       *  The bound `ResourceAdapter.emitOperation` renders the call. */
-      resourceOp?: {
-        resourceName: string;
-        resourceKind: DataSourceKind;
-        verb: string;
-        capability: string;
-        interface?: LoomInterface;
-        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
-         *  Such a resource has no raw-verb vocabulary — its calls lower to
-         *  `remote-api-op` — so a resource-op carrying this is always refused
-         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
-        boundApi?: string;
-      };
-      /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
-       *  on a resource that binds an in-system `api`.  Fully resolved at
-       *  lowering: the caller's emitter needs no knowledge of how the CALLEE
-       *  mounts its routers, because `path` is already absolute and the
-       *  parameter locations are decided.  `errorStatuses` is what lets a
-       *  client type its failure union instead of collapsing every non-2xx
-       *  into a throw. */
-      remoteApiOp?: {
-        /** The binding resource — names the `<RESOURCE>_URL` env seam. */
-        resourceName: string;
-        apiName: string;
-        /** `ApiOperationIR.id` — the cross-backend operation identity. */
-        operationId: string;
-        method: string;
-        /** Absolute wire path, `API_BASE_PATH` included (`/api/orders/{id}`). */
-        path: string;
-        /** The callee's declared parameters, in call-argument order.  `type` is
-         *  carried, not just the name/location, because a backend whose id
-         *  representation is not a string (.NET's `readonly record struct`)
-         *  has to coerce an id argument at the CALL SITE, and it must decide
-         *  that from the same source the client's parameter type is derived
-         *  from — otherwise the two can disagree silently. */
-        params: readonly {
-          name: string;
-          location: "path" | "query" | "body";
-          type: TypeIR;
-        }[];
-        errorStatuses: readonly number[];
-      };
-      /** Populated when `callKind === "domain-service"` (domain-services.md)
-       *  — the resolved `domainService` name and the operation invoked.
-       *  Structured (not overloaded onto flat `name`) so backends render
-       *  the call without re-resolving the receiver. */
-      serviceRef?: { service: string; op: string };
-      /** Populated when `callKind === "repo-read"` (domain-services.md rev. 4,
-       *  the `reading` tier) — a read-only repository query in a domain-service
-       *  operation body (`Accounts.byHolder(h)` / `Repo.find/findAll/run`).
-       *  Fully resolved at lowering time: `repo` is the repository name,
-       *  `aggregate` its target aggregate, `method` the find / retrieval method
-       *  to render against the generated repository, and `op` what the read
-       *  does.  Backends render a real call into the generated repository
-       *  without re-recognising the AST.  Its `ignoring` stance is set on a
-       *  widened list read (`all(<Ref>) ignoring …`): `retrievalName` then
-       *  names the read's own retrieval (`widenedRetrievalName`), which
-       *  enrichment derives with this stance on it. */
-      repoRead?: {
-        repo: string;
-        aggregate: string;
-        method: string;
-        /** What the read does (`util/repository-contract.ts`): `load` /
-         *  `load-optional` by id, `select-one` / `select-many` over a criterion
-         *  or retrieval (or the whole collection), or an `unknown-read`
-         *  (a name no verb spells — refused).
-         *  Backends dispatch on it, never on `method`. */
-        op: Exclude<RepoOp, "remove">;
-        /** The retrieval a criterion / retrieval read runs against — mirrors the
-         *  workflow `repo-run` path.  For `find`/`findAll` it is the synthesized
-         *  `findAllBy<Criterion>` (materialised by `synthesizeFindAllRetrievals`
-         *  from the criterion); for `run` it is the referenced retrieval name.
-         *  Absent for a read called by name (a declared find, a by-id load,
-         *  the whole collection).  Backends
-         *  render their retrieval-method name (`run<Name>`) from it so the
-         *  emitted call hits a real method that APPLIES the criterion, rather
-         *  than dropping it and calling the whole-table `findAll`/`all`. */
-        retrievalName?: string;
-        /** The criterion a `find`/`findAll` read filters by — drives the enrich
-         *  pass's synthesis of the `retrievalName` retrieval (same criterion the
-         *  workflow `synthCriterion` names).  Absent for a retrieval run and a
-         *  read called by name. */
-        synthCriterion?: { name: string };
-        /** A natural-key read's tuple + `ignoring` stance (see `repo-let`). */
-        key?: KeyLookupIR;
-        /** A `find(<Criterion>)` / `findById` read that widens its capability
-         *  filters (`ignoring …`): `method` names the read's own method and
-         *  there is no `retrievalName`. */
-        bypassRead?: BypassReadIR;
-      } & Bypassing;
-      /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
-       *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
-       *  (not overloaded onto flat `name`) so backends bind the store action
-       *  without re-resolving the receiver.  `name` mirrors `storeAction.action`. */
-      storeAction?: { store: string; action: string };
       /** Per-primitive `style:` escape hatch.  Populated by lowering
        *  when the source supplied a `style: { … }` named arg on a
        *  walker-primitive call (`Container { style: { background: "red" }, ... }`).
@@ -319,16 +190,7 @@ export type ExprIR = (
        *  Use the ordered `entries` shape (not a `Record`) so entry order
        *  survives the IR pipeline. */
       style?: StyleIR;
-      /** Populated when `callKind === "private-operation"` — the resolved
-       *  privacy of the target sibling operation.  An operation self-call
-       *  lowers to `private-operation` regardless of the operation's actual
-       *  `private` modifier, so backends that name public vs private
-       *  operations differently (Python: `def reserve` vs `def _reserve`)
-       *  must know which one the def-site emitted.  Absent (⇒ public) for
-       *  `function` calls (functions are always private) and every other
-       *  `callKind`. */
-      targetPrivate?: boolean;
-    }
+    } & CallTarget)
   | {
       /** A bare reference to a named page/component `action` in
        *  handler-arg position (`onSubmit: next`, `rowAction: add`) — the
@@ -410,8 +272,7 @@ export type ExprIR = (
    * Never reaches a domain-logic expression position — it lives ONLY in an
    * aggregate's `contextFilters` / `writeScopeFilter`, special-cased by the
    * filter translators BEFORE the generic dispatch.  Build/inspect it through
-   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `buildDeepScopeFilter`
-   * / `buildGlobalScopeFilter`, `isDenyFilter` / `isDeepScopeFilter`).
+   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `isDenyFilter`).
    */
   | {
       kind: "authz-filter";
@@ -421,6 +282,30 @@ export type ExprIR = (
        *  table/alias off their render context, not this — it is carried for
        *  provenance / debugging. */
       aggregate: string;
+    }
+  /**
+   * Existential quantifier over another aggregate's rows —
+   * `exists CategoryShare as s where s.category == this.id`.  Typed `bool`.
+   *
+   * `aggregate` names an aggregate of the SAME bounded context (it shares the
+   * enclosing row's database; `loom.exists-cross-context` refuses another
+   * context's).  Inside `where`, `binding` resolves to a `ref` with
+   * `refKind: "row"` typed `entity{<aggregate>}`, so `s.category` is an
+   * ordinary `member`; `this` / bare fields still name the ENCLOSING row, and
+   * params / `currentUser` stay in scope.
+   *
+   * A query predicate only: every backend renders it as a correlated
+   * `EXISTS (SELECT 1 FROM <aggregate's table> WHERE <where> AND <the
+   * aggregate's own read scope>)`.  The quantified aggregate's read scope —
+   * tenant floor, capability filters, deny — always applies inside the
+   * subquery, so an `exists` never sees a row its caller could not read.
+   * `loom.exists-outside-query` keeps it out of in-memory positions.
+   */
+  | {
+      kind: "exists";
+      aggregate: string;
+      binding: string;
+      where: ExprIR;
     }
   | { kind: "paren"; inner: ExprIR }
   | { kind: "unary"; op: "-" | "!"; operand: ExprIR }
@@ -600,6 +485,133 @@ export type ExprIR = (
   Sourced;
 
 // Convenience constructors used by the lowering layer.
+
+/** What a `call` expression resolves to, keyed on `callKind`: each kind
+ *  carries exactly the resolved payload its backends render from, and a
+ *  payload exists only on its own kind. */
+export type CallTarget =
+  | { callKind: "function" | "value-object-ctor" | "action" | "free" }
+  | {
+      callKind: "workflow-fn";
+      /** The enclosing workflow's name. A workflow `function` is emitted as a per-workflow-scoped
+       *  module helper (a workflow body is not a class), so backends render the call as the scoped,
+       *  per-backend-cased name `<wf><fn>(args)`. */
+      wfScope: string;
+    }
+  | {
+      callKind: "private-operation";
+      /** The resolved privacy of the target sibling operation. An operation self-call lowers to
+       *  `private-operation` regardless of the operation's actual `private` modifier, so backends
+       *  that name public vs private operations differently (Python: `def reserve` vs `def
+       *  _reserve`) must know which one the def-site emitted. A `function` call carries none:
+       *  functions are always private. */
+      targetPrivate: boolean;
+    }
+  | {
+      callKind: "resource-op";
+      /** The resolved resource binding, verb, the capability it requires, and the access interface
+       *  (default from `EnrichedSystemIR.resourceInterfaces`, with per-verb override). The bound
+       *  `ResourceAdapter.emitOperation` renders the call. */
+      resourceOp: {
+        resourceName: string;
+        resourceKind: DataSourceKind;
+        verb: string;
+        capability: string;
+        interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
+      };
+    }
+  | {
+      callKind: "remote-api-op";
+      /** A typed call on a resource that binds an in-system `api`. Fully resolved at lowering: the
+       *  caller's emitter needs no knowledge of how the CALLEE mounts its routers, because `path`
+       *  is already absolute and the parameter locations are decided. `errorStatuses` is what lets
+       *  a client type its failure union instead of collapsing every non-2xx into a throw. */
+      remoteApiOp: {
+        /** The binding resource — names the `<RESOURCE>_URL` env seam. */
+        resourceName: string;
+        apiName: string;
+        /** `ApiOperationIR.id` — the cross-backend operation identity. */
+        operationId: string;
+        method: string;
+        /** Absolute wire path, `API_BASE_PATH` included (`/api/orders/{id}`). */
+        path: string;
+        /** The callee's declared parameters, in call-argument order.  `type` is
+         *  carried, not just the name/location, because a backend whose id
+         *  representation is not a string (.NET's `readonly record struct`)
+         *  has to coerce an id argument at the CALL SITE, and it must decide
+         *  that from the same source the client's parameter type is derived
+         *  from — otherwise the two can disagree silently. */
+        params: readonly {
+          name: string;
+          location: "path" | "query" | "body";
+          type: TypeIR;
+        }[];
+        errorStatuses: readonly number[];
+      };
+    }
+  | {
+      callKind: "domain-service";
+      /** The resolved `domainService` name (domain-services.md) and the operation invoked.
+       *  Structured (not overloaded onto flat `name`) so backends render the call without
+       *  re-resolving the receiver. */
+      serviceRef: { service: string; op: string };
+    }
+  | {
+      callKind: "repo-read";
+      /** A read-only repository query (domain-services.md rev. 4, the `reading` tier) in a
+       *  domain-service operation body (`Accounts.byHolder(h)` / `Repo.find/findAll/run`). Fully
+       *  resolved at lowering time: `repo` is the repository name, `aggregate` its target
+       *  aggregate, `method` the find / retrieval method to render against the generated
+       *  repository, and `op` what the read does. Backends render a real call into the generated
+       *  repository without re-recognising the AST. Its `ignoring` stance is set on a widened list
+       *  read (`all(<Ref>) ignoring …`): `retrievalName` then names the read's own retrieval
+       *  (`widenedRetrievalName`), which enrichment derives with this stance on it. */
+      repoRead: {
+        repo: string;
+        aggregate: string;
+        method: string;
+        /** What the read does (`util/repository-contract.ts`): `load` /
+         *  `load-optional` by id, `select-one` / `select-many` over a criterion
+         *  or retrieval (or the whole collection), or an `unknown-read`
+         *  (a name no verb spells — refused).
+         *  Backends dispatch on it, never on `method`. */
+        op: Exclude<RepoOp, "remove">;
+        /** The retrieval a criterion / retrieval read runs against — mirrors the
+         *  workflow `repo-run` path.  For `find`/`findAll` it is the synthesized
+         *  `findAllBy<Criterion>` (materialised by `synthesizeFindAllRetrievals`
+         *  from the criterion); for `run` it is the referenced retrieval name.
+         *  Absent for a read called by name (a declared find, a by-id load,
+         *  the whole collection).  Backends
+         *  render their retrieval-method name (`run<Name>`) from it so the
+         *  emitted call hits a real method that APPLIES the criterion, rather
+         *  than dropping it and calling the whole-table `findAll`/`all`. */
+        retrievalName?: string;
+        /** The criterion a `find`/`findAll` read filters by — drives the enrich
+         *  pass's synthesis of the `retrievalName` retrieval (same criterion the
+         *  workflow `synthCriterion` names).  Absent for a retrieval run and a
+         *  read called by name. */
+        synthCriterion?: { name: string };
+        /** A natural-key read's tuple + `ignoring` stance (see `repo-let`). */
+        key?: KeyLookupIR;
+        /** A `find(<Criterion>)` / `findById` read that widens its capability
+         *  filters (`ignoring …`): `method` names the read's own method and
+         *  there is no `retrievalName`. */
+        bypassRead?: BypassReadIR;
+      } & Bypassing;
+    }
+  | {
+      callKind: "store-action";
+      /** The resolved store + action a `<Store>.<action>(…)` call dispatches to. Structured (not
+       *  overloaded onto flat `name`) so backends bind the store action without re-resolving the
+       *  receiver. `name` mirrors `storeAction.action`. */
+      storeAction: { store: string; action: string };
+    };
+
 export const lit = (kind: LiteralKind, value: string): ExprIR => ({
   kind: "literal",
   lit: kind,

@@ -5,7 +5,7 @@
 // `generateSystems` (no docker, no LOOM_* env). Asserts that `cron:` timers run
 // on Hangfire (a recurring job class + Hangfire.PostgreSql DI + IRecurringJobManager
 // registration with the standard cron, verbatim), `every:` timers keep the
-// in-process BackgroundService (PeriodicTimer + advisory lock), the Program.cs
+// in-process BackgroundService (PeriodicTimer poll + period claim), the Program.cs
 // wiring, the Hangfire deps (Cronos gone) — and that a timer-free deployable is
 // byte-identical.
 
@@ -67,10 +67,10 @@ describe("timerSource → .NET durable TimerScheduler", () => {
     expect(scheduler).toContain("public async Task ExecuteAsync()");
     expect(scheduler).toContain("await _events.DispatchAsync(");
     expect(scheduler).toContain("throw; // let Hangfire's automatic retry engage");
-    // every: → the Phase-1 BackgroundService (PeriodicTimer + tx-scoped advisory lock).
+    // every: → a BackgroundService polling at half the period + the period claim.
     expect(scheduler).toContain("public sealed class HealthzTimerService : BackgroundService");
-    expect(scheduler).toContain("pg_try_advisory_xact_lock");
-    expect(scheduler).toContain("new PeriodicTimer(TimeSpan.FromMilliseconds(15000))");
+    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).toContain("new PeriodicTimer(TimeSpan.FromMilliseconds(7500))");
 
     // The tick struct: mint an id per tick, stamp the fire time.
     expect(scheduler).toContain("new SweepTick(SweepId.New(), DateTime.UtcNow)");
@@ -111,7 +111,7 @@ describe("timerSource → .NET durable TimerScheduler", () => {
     expect(csproj).not.toContain("Cronos");
   });
 
-  it("emits the scheduler on persistence: dapper, locking over NpgsqlDataSource", async () => {
+  it("emits the scheduler on persistence: dapper, claiming over NpgsqlDataSource", async () => {
     const g = get(
       await generateSystemFiles(
         WITH_TIMERS.replace("platform: dotnet,", "platform: dotnet { persistence: dapper },"),
@@ -122,9 +122,9 @@ describe("timerSource → .NET durable TimerScheduler", () => {
     expect(scheduler).not.toBe("");
     expect(scheduler).toContain("public sealed class SweepTimerJob");
     expect(scheduler).toContain("public sealed class HealthzTimerService : BackgroundService");
-    // The advisory lock rides the Dapper path's data source, not a DbContext.
+    // The claim rides the Dapper path's data source, not a DbContext.
     expect(scheduler).toContain("GetRequiredService<NpgsqlDataSource>()");
-    expect(scheduler).toContain('new NpgsqlCommand("SELECT pg_try_advisory_xact_lock(');
+    expect(scheduler).toContain("await using (var claimCmd = db.CreateCommand(ClaimSql))");
     expect(scheduler).toContain("using Npgsql;");
     expect(scheduler).not.toContain("AppDbContext");
     expect(scheduler).not.toContain("Microsoft.EntityFrameworkCore");

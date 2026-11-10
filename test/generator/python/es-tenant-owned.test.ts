@@ -1,6 +1,6 @@
 // A `tenantOwned` event-sourced aggregate on python (`stream-tenancy.ts`): the
 // stream carries its tenant as stored-event metadata.  The event-log row model
-// gains `tenant_id` / `data_key`, a new stream is stamped from the principal,
+// gains `tenant_id`, a new stream is stamped from the principal,
 // every stream load and list is scoped by the repository's `_stream_scope`, an
 // append carries the loaded stream's tenant forward, and the dispatch runs in
 // the stream tenant's event-origin frame.  A `crossTenant` stream stays unscoped.
@@ -48,26 +48,28 @@ describe("python: a tenantOwned event-sourced stream carries and scopes its tena
   const ledgerRepo = file(files, "app/db/repositories/ledger_repository.py");
   const bookRepo = file(files, "app/db/repositories/book_repository.py");
 
-  it("the event-log row model maps the tenant metadata columns", () => {
+  it("the event-log row model maps the tenant metadata column", () => {
     const schema = file(files, "app/db/schema.py");
     expect(schema).toContain("tenant_id: Mapped[str | None] = mapped_column(Text)");
-    expect(schema).toContain("data_key: Mapped[str | None] = mapped_column(Text)");
+    // Absence check: tenancy is flat, the row model carries no hierarchy-path column.
+    expect(schema).not.toContain("data_key");
   });
 
-  it("the stream scope renders the tenancy restriction over the metadata columns", () => {
+  it("the stream scope renders the tenancy restriction over the metadata column", () => {
     expect(ledgerRepo).toContain("def _stream_scope(");
     expect(ledgerRepo).toContain(
-      "out.append(false() if user is None else (MainEventRow.tenant_id == user.tenant_id))",
+      "out.append(false() if user is None else (MainEventRow.tenant_id == user.operating_org))",
     );
-    // `allow deep` widens Book's to the subtree over `data_key`.
-    expect(bookRepo).toContain("MainEventRow.data_key.like(");
+    expect(bookRepo).toContain(
+      "out.append(false() if user is None else (MainEventRow.tenant_id == user.operating_org))",
+    );
   });
 
   it("the by-id load is scoped, and adopts the stream's tenant", () => {
     expect(ledgerRepo).toContain(
       'MainEventRow.stream_type == "Ledger", MainEventRow.stream_id == id, *_stream_scope())',
     );
-    expect(ledgerRepo).toContain("inst._adopt_stream_tenant(rows[0].tenant_id, rows[0].data_key)");
+    expect(ledgerRepo).toContain("inst._adopt_stream_tenant(rows[0].tenant_id)");
     // get_by_id — the command (append) load — rides find_by_id.
     expect(ledgerRepo).toMatch(/async def get_by_id[\s\S]*?await self\.find_by_id\(id\)/);
   });
@@ -76,7 +78,7 @@ describe("python: a tenantOwned event-sourced stream carries and scopes its tena
     expect(ledgerRepo).toContain(
       '.where(MainEventRow.stream_type == "Ledger", *_stream_scope(ignoring))',
     );
-    expect(ledgerRepo).toContain("inst._adopt_stream_tenant(first_row[sid].tenant_id");
+    expect(ledgerRepo).toContain("inst._adopt_stream_tenant(first_row[sid].tenant_id)");
   });
 
   it("an `ignoring tenantOwned` read loads unscoped, and only that read", () => {
@@ -89,19 +91,19 @@ describe("python: a tenantOwned event-sourced stream carries and scopes its tena
     expect(ledgerRepo).toContain("if version == 0:");
     expect(ledgerRepo).toContain("aggregate._stamp_on_create(require_current_user())");
     expect(ledgerRepo).toContain("tenant_id=aggregate.tenant_id,");
-    expect(ledgerRepo).toContain("data_key=aggregate.data_key,");
   });
 
   it("the events dispatch in the stream tenant's origin (channel envelope tenantid)", () => {
     expect(ledgerRepo).toContain("with self._origin_frame(aggregate):");
     expect(ledgerRepo).toContain('origin.get("tenant") == aggregate.tenant_id');
     expect(ledgerRepo).toContain('"tenant": aggregate.tenant_id,');
-    expect(ledgerRepo).toContain('"orgPath": aggregate.data_key,');
+    // Absence check: the event origin is `{tenant, causedBy}` only.
+    expect(ledgerRepo).not.toContain('"orgPath"');
   });
 
   it("the domain class adopts the metadata onto its tenantOwned fields", () => {
     expect(file(files, "app/domain/ledger.py")).toContain(
-      "def _adopt_stream_tenant(self, tenant_id: str | None, data_key: str | None) -> None:",
+      "def _adopt_stream_tenant(self, tenant_id: str | None) -> None:",
     );
   });
 });

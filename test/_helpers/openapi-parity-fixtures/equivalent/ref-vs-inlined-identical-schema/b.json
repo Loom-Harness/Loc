@@ -1,0 +1,55 @@
+{
+  "openapi": "3.0.3",
+  "paths": {
+    "/docs/{id}": {
+      "get": {
+        "operationId": "op",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DocResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "key",
+              "size"
+            ],
+            "description": "stored file"
+          }
+        },
+        "required": [
+          "id",
+          "file"
+        ]
+      }
+    }
+  }
+}

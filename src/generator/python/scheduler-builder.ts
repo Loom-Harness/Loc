@@ -11,11 +11,11 @@
 //     was down) are STORE-COORDINATED by procrastinate's `periodic_defers`
 //     table — no advisory lock, no per-replica bookkeeping.  Retries ride on
 //     procrastinate's `RetryStrategy`.
-//   * `every:` (sub-minute) timers stay IN-PROCESS — an asyncio interval loop
-//     taking a transaction-scoped Postgres advisory lock (single-fire across
-//     replicas — the SAME `pg_try_advisory_xact_lock` primitive keyed by the
-//     SAME FNV-1a hash the other backends use).  procrastinate's cron is
-//     minute-granular, so sub-minute cadences can't be durable jobs.
+//   * `every:` (sub-minute) timers stay IN-PROCESS — an asyncio loop polling at
+//     half the period, each poll claiming the current period's `__loom_timer`
+//     row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE; the same statement
+//     every backend runs), so one replica fires per period.  procrastinate's
+//     cron is minute-granular, so sub-minute cadences can't be durable jobs.
 //
 // Both paths build the tick event struct and dispatch it through the SAME
 // in-process dispatcher the sagas already route through — so an `on(t: Tick)` /
@@ -29,6 +29,7 @@
 import type { EventIR, FieldIR, TimerSourceIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { timerClaimSql, timerPollMs } from "../../util/timer.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { PY, pyNewId } from "./py-symbols.js";
@@ -47,7 +48,7 @@ function cronTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "cron");
 }
 
-/** The `every:` timers — in-process asyncio interval loops + advisory lock. */
+/** The `every:` timers — in-process asyncio poll loops + the period claim. */
 function everyTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
   return timers.filter((ts) => ts.cadence.kind === "every");
 }
@@ -164,18 +165,25 @@ export function renderPyTimerScheduler(
     ];
   });
 
-  // ── In-process `every:` timers: asyncio interval loop + advisory lock ─────
+  // ── In-process `every:` timers: asyncio poll loop + period claim ─────
   const everyJobs = everies.flatMap((ts) => {
     const event = eventByName.get(ts.event);
     const build = event ? tickBuild(event) : `${ts.event}()`;
-    const seconds = ts.cadence.kind === "every" ? ts.cadence.everyMs / 1000 : 0;
+    const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
+    const seconds = timerPollMs(everyMs) / 1000;
+    const claimSql = JSON.stringify(timerClaimSql(ts.name, everyMs));
     return [
       `        # timerSource ${ts.name} { for: ${ts.event}, every: ${
         ts.cadence.kind === "every" ? ts.cadence.everyMs : 0
       }ms }`,
       "        self._tasks.append(",
       "            asyncio.create_task(",
-      `                _interval_loop(${JSON.stringify(ts.name)}, ${seconds}, lambda: ${build})`,
+      "                _interval_loop(",
+      `                    ${JSON.stringify(ts.name)},`,
+      `                    ${claimSql},`,
+      `                    ${seconds},`,
+      `                    lambda: ${build},`,
+      "                )",
       "            )",
       "        )",
     ];
@@ -191,9 +199,10 @@ export function renderPyTimerScheduler(
     hasCron ? "coalesced replay of a boundary missed while every replica was down) are" : null,
     hasCron ? "store-coordinated by the `periodic_defers` table." : null,
     hasEvery
-      ? "`every:` (sub-minute) timers run in-process: an asyncio interval loop taking"
+      ? "`every:` (sub-minute) timers run in-process: an asyncio loop polling at half"
       : null,
-    hasEvery ? "a transaction-scoped Postgres advisory lock (single-fire across replicas)." : null,
+    hasEvery ? "the period, each poll claiming the period's `__loom_timer` row (once per" : null,
+    hasEvery ? "period across replicas)." : null,
     "Ticks dispatch through the SAME in-process dispatcher the sagas use, so an",
     "`on(t: Tick)` / `create(t: Tick) by …` reactor fires with no new dispatch",
     "machinery.",
@@ -229,50 +238,36 @@ export function renderPyTimerScheduler(
     ...(hasEvery
       ? [
           "",
-          "def _timer_lock_key(name: str) -> int:",
-          `    """Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource`,
-          "    name into a signed 32-bit int, so two replicas (any backend) contend on the",
-          "    SAME key.  `pg_try_advisory_xact_lock` is non-blocking: the loser skips this",
-          `    tick, and the lock auto-releases when the tick's transaction commits."""`,
-          "    h = 0x811C9DC5",
-          "    for ch in name:",
-          "        h = (h ^ ord(ch)) & 0xFFFFFFFF",
-          "        h = (h * 0x01000193) & 0xFFFFFFFF",
-          "    return h - 0x100000000 if h & 0x80000000 else h",
-          "",
-          "",
-          "async def _tick_once(name: str, build: Callable[[], DomainEvent]) -> None:",
-          `    """One in-process tick: a TRANSACTION-SCOPED advisory lock (single-fire`,
-          "    across replicas) → build the event → dispatch, all inside one transaction",
-          "    whose commit releases the lock (no manual unlock to leak onto a pooled",
-          `    connection)."""`,
-          "    lock_key = _timer_lock_key(name)",
+          "async def _tick_once(",
+          "    name: str, claim_sql: str, build: Callable[[], DomainEvent]",
+          ") -> None:",
+          `    """One poll: claim the current period (one autocommitted statement that`,
+          "    returns a row only to the poll that advanced it, on any replica), then",
+          `    build the event and dispatch it in a transaction of its own."""`,
           "    try:",
-          "        async with session_factory() as session, session.begin():",
-          "            locked = (",
-          "                await session.execute(",
-          `                    ${pyRef("sqlalchemy", "text")}("SELECT pg_try_advisory_xact_lock(:key) AS locked"),`,
-          '                    {"key": lock_key},',
-          "                )",
-          "            ).scalar()",
-          "            if not locked:",
+          "        async with session_factory() as session:",
+          "            async with session.begin():",
+          `                result = await session.execute(${pyRef("sqlalchemy", "text")}(claim_sql))`,
+          "                claimed = result.first()",
+          "            if claimed is None:",
           '                log("debug", "timer_lock_contended", timer=name)',
           "                return",
-          `            await ${dispatchExpr}.dispatch(build())`,
-          '            log("info", "timer_fired", timer=name)',
+          "            async with session.begin():",
+          `                await ${dispatchExpr}.dispatch(build())`,
+          '        log("info", "timer_fired", timer=name)',
           "    except Exception as err:  # noqa: BLE001 — one tick's failure is isolated",
           '        log("error", "timer_emit_failed", timer=name, error=str(err))',
           "",
           "",
           "async def _interval_loop(",
-          "    name: str, seconds: float, build: Callable[[], DomainEvent]",
+          "    name: str, claim_sql: str, seconds: float, build: Callable[[], DomainEvent]",
           ") -> None:",
-          `    """Fire \`name\` every \`seconds\`.  The in-process \`running\` guard is`,
+          `    """Poll \`name\`'s claim every \`seconds\`.  The in-process \`running\` guard is`,
           "    unnecessary here — each iteration awaits its own tick before sleeping, so",
           `    a slow body just delays the next iteration (it never overlaps itself)."""`,
           "    while True:",
           "        await asyncio.sleep(seconds)",
-          "        await _tick_once(name, build)",
+          "        await _tick_once(name, claim_sql, build)",
           "",
         ]
       : []),

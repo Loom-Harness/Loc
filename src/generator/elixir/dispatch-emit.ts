@@ -19,7 +19,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { operationUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
@@ -235,10 +234,13 @@ export function emitWorkflowStateSchemas(
   /** The context's schema for the saga-state `@schema_prefix`; undefined ⇒
    *  unqualified. */
   schema?: string,
+  /** Any context this deployable hosts declares a durable channel — the saga
+   *  row maps `last_event_id` whenever it can receive a durable envelope, even
+   *  one whose channel is declared in another hosted context. */
+  durable = false,
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
-  const durable = durableEventTypes(ctx).size > 0;
   for (const wf of ctx.workflows) {
     if (!hasStateRow(wf)) continue;
     out.set(
@@ -271,6 +273,8 @@ export function emitDispatch(
    *  re-emits through the `<App>.Channels` tee. */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  /** See `emitWorkflowStateSchemas`' `durable`. */
+  durable = false,
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
@@ -291,7 +295,6 @@ export function emitDispatch(
     if (hasStateRow(sub.workflow)) correlationWfs.set(sub.workflow.name, sub.workflow);
   }
   const dispatchSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-  const durable = durableEventTypes(ctx).size > 0;
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
@@ -306,7 +309,7 @@ export function emitDispatch(
     // its own emitted events (the saga analogue of the ES aggregate).
     const { content, regions }: HandlerResult = sub.workflow.eventSourced
       ? renderEsWorkflowHandler(contextModule, sub, channels)
-      : renderHandler(appModule, contextModule, ctx, sub, sys, channels);
+      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
@@ -504,6 +507,7 @@ function renderHandler(
   sub: Subscription,
   sys?: SystemIR,
   channels?: ElixirChannelsCfg,
+  durable = false,
 ): HandlerResult {
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
@@ -536,7 +540,6 @@ function renderHandler(
   // durable channel, the ChannelConsumer parks the envelope id (= the outbox
   // row id) in the process dictionary; the saga handler no-ops on a redelivery
   // of the recorded id and stamps it before the state save.
-  const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
     ? renderPersistedBody(
@@ -826,9 +829,7 @@ function renderProjectionFoldHandler(
   const lookup = cols
     ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
     : `${appModule}.Repo.get(${rowMod}, key)`;
-  const seed = cols
-    ? `${snake(corr)}: key, ${tenantCol}: tenant, ${snake(cols.dataKey.field)}: Map.get(origin, "orgPath") || tenant`
-    : `${snake(corr)}: key`;
+  const seed = cols ? `${snake(corr)}: key, ${tenantCol}: tenant` : `${snake(corr)}: key`;
   const body = [
     `    key = ${keyExpr}`,
     "",
@@ -849,11 +850,11 @@ function renderProjectionFoldHandler(
 
     case Map.get(origin, "tenant") do
       nil -> :ok
-      tenant -> fold(event, tenant, origin)
+      tenant -> fold(event, tenant)
     end
   end
 
-  defp fold(event, tenant, origin) do
+  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
     : `  def handle(${event}) do

@@ -27,8 +27,10 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const FIXTURE = path.join(repoRoot, "test/fixtures/heex-showcase.ddd");
 
 /** Compile-time: `ACCUMULATORS` keys are exactly `WalkResult`'s fields other
- *  than the rendered `heex` string. */
-type AccumulatorField = Exclude<keyof WalkResult, "heex">;
+ *  than its two rendered outputs — the `heex` string and the page's
+ *  `titleExpr`, which is rendered from the page declaration after the walk
+ *  rather than accumulated while walking the body. */
+type AccumulatorField = Exclude<keyof WalkResult, "heex" | "titleExpr">;
 const EVERY_ACCUMULATOR: Record<AccumulatorField, true> = {
   handlers: true,
   formBindings: true,

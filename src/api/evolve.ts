@@ -19,7 +19,7 @@
 // `loom_diff` classify by one core.
 // ---------------------------------------------------------------------------
 
-import { EmptyFileSystem, type LangiumDocument, URI } from "langium";
+import type { LangiumDocument } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
 import type { JsonDiagnostic } from "../diagnostics/contract.js";
 import { diagMessage } from "../diagnostics/messages.js";
@@ -29,8 +29,8 @@ import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import { allContexts, type EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import { resolveTableStepTarget, tableStepFromContext } from "../ir/util/table-step-target.js";
 import { validateLoomModel } from "../ir/validate/validate.js";
-import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
+import { withSharedDocument } from "../language/shared-services.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import { headSnapshots, MigrationChainError, parseChain } from "../system/migration-chain.js";
 import { evolveSystem, wireChangeEntity } from "../system/migration-diff.js";
@@ -145,18 +145,20 @@ interface ParsedSource {
   diagnostics: Diagnostic[];
 }
 
-/** Parse a `.ddd` source in-memory on a fresh, isolated service instance —
- *  browser-safe (EmptyFileSystem), mirroring `src/api/index.ts`'s parseSource. */
-async function parseSource(source: string): Promise<ParsedSource> {
-  const services = createDddServices(EmptyFileSystem);
-  const factory = services.shared.workspace.LangiumDocumentFactory;
-  const doc = factory.fromString<Model>(source, URI.parse("memory:///source.ddd"));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return {
-    doc,
-    model: doc.parseResult.value as Model | undefined,
-    diagnostics: [...(doc.diagnostics ?? [])],
-  };
+/** Parse a `.ddd` source in-memory on the shared service set and run `fn`
+ *  while the document is live (it is removed afterwards, so `fn` must finish
+ *  all AST/IR work before returning).  Browser-safe (EmptyFileSystem). */
+function withParsed<T>(source: string, fn: (parsed: ParsedSource) => Promise<T> | T): Promise<T> {
+  return withSharedDocument(
+    source,
+    ({ doc }) =>
+      fn({
+        doc,
+        model: doc.parseResult.value as Model | undefined,
+        diagnostics: [...(doc.diagnostics ?? [])],
+      }),
+    { validation: true },
+  );
 }
 
 function hasParseError(diagnostics: Diagnostic[]): boolean {
@@ -204,24 +206,25 @@ export async function snapshot(
   source: string,
   options: { commitHash?: string } = {},
 ): Promise<SnapshotReport> {
-  const { doc, model, diagnostics } = await parseSource(source);
-  const json = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
-  if (!model || hasParseError(diagnostics)) {
-    return { ok: false, files: [], diagnostics: json };
-  }
-  const loom = lowerEnriched(model);
-  if (!loom) {
-    return {
-      ok: false,
-      files: [],
-      diagnostics: [...json, loweringDiag(diagMessage("loom.ir-internal#snapshot-lowering"))],
-    };
-  }
-  const files = [...captureSnapshots(loom, options)].map(([path, content]) => ({
-    path,
-    content,
-  }));
-  return { ok: true, files, diagnostics: json };
+  return withParsed(source, ({ doc, model, diagnostics }) => {
+    const json = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
+    if (!model || hasParseError(diagnostics)) {
+      return { ok: false, files: [], diagnostics: json };
+    }
+    const loom = lowerEnriched(model);
+    if (!loom) {
+      return {
+        ok: false,
+        files: [],
+        diagnostics: [...json, loweringDiag(diagMessage("loom.ir-internal#snapshot-lowering"))],
+      };
+    }
+    const files = [...captureSnapshots(loom, options)].map(([path, content]) => ({
+      path,
+      content,
+    }));
+    return { ok: true, files, diagnostics: json };
+  });
 }
 
 /** Fold each declared rename (a `migration` block's `Agg.old -> new` or
@@ -346,16 +349,17 @@ export async function loadMigratableSource(
 ): Promise<
   { loom: EnrichedLoomModel; diagnostics: JsonDiagnostic[] } | { error: JsonDiagnostic[] }
 > {
-  const cur = await parseSource(source);
-  const json = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
-  if (!cur.model || hasErrors(cur.diagnostics)) return { error: json };
-  const loom = lowerEnriched(cur.model);
-  if (!loom) {
-    return { error: [...json, loweringDiag(diagMessage("loom.ir-internal#evolve-lowering"))] };
-  }
-  const ir = validateLoomModel(loom).map((d) => irDiagnosticToJson(d, cur.doc));
-  if (ir.some((d) => d.severity === "error")) return { error: [...json, ...ir] };
-  return { loom, diagnostics: json };
+  return withParsed(source, (cur) => {
+    const json = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
+    if (!cur.model || hasErrors(cur.diagnostics)) return { error: json };
+    const loom = lowerEnriched(cur.model);
+    if (!loom) {
+      return { error: [...json, loweringDiag(diagMessage("loom.ir-internal#evolve-lowering"))] };
+    }
+    const ir = validateLoomModel(loom).map((d) => irDiagnosticToJson(d, cur.doc));
+    if (ir.some((d) => d.severity === "error")) return { error: [...json, ...ir] };
+    return { loom, diagnostics: json };
+  });
 }
 
 /**
@@ -387,15 +391,20 @@ export async function diff(
   // "no baseline": the diff against nothing reads every change as additive.
   let baseLoom: EnrichedLoomModel | null = null;
   if (baseline && baseline.trim().length > 0) {
-    const base = await parseSource(baseline);
-    baseLoom = base.model && !hasErrors(base.diagnostics) ? lowerEnriched(base.model) : null;
-    if (!baseLoom) {
-      const errors = base.diagnostics
+    const base = await withParsed(baseline, (b) => {
+      const loom = b.model && !hasErrors(b.diagnostics) ? lowerEnriched(b.model) : null;
+      const errors = b.diagnostics
         .filter((d) => d.severity === 1)
-        .map((d) => langiumDiagnosticToJson(d, base.doc).message);
+        .map((d) => langiumDiagnosticToJson(d, b.doc).message);
+      return { loom, errors };
+    });
+    baseLoom = base.loom;
+    if (!baseLoom) {
       return emptyReport(false, true, [
         ...curJson,
-        baselineInvalid(errors.length > 0 ? errors.slice(0, 3).join(" | ") : "it does not lower"),
+        baselineInvalid(
+          base.errors.length > 0 ? base.errors.slice(0, 3).join(" | ") : "it does not lower",
+        ),
       ]);
     }
   }

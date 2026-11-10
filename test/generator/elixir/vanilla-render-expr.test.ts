@@ -155,6 +155,7 @@ describe("render-expr vanilla leaves", () => {
     const noArg: ExprIR = {
       kind: "call",
       callKind: "private-operation",
+      targetPrivate: false,
       name: "reserve",
       args: [],
     };
@@ -163,6 +164,7 @@ describe("render-expr vanilla leaves", () => {
     const withArgs: ExprIR = {
       kind: "call",
       callKind: "private-operation",
+      targetPrivate: false,
       name: "adjust",
       args: [{ kind: "literal", lit: "int", value: "5" }],
       argNames: ["delta"],

@@ -9,7 +9,7 @@
 // What the port actually costs, and why it is this small: the detector
 // (Pattern H), the readable-projection set, and the singleton-before-`autoPaged`
 // binding in `_walker/primitives/controls.ts` were already framework-agnostic
-// on `main`.  Vue supplies two things — the `buildHookUse` arm and the
+// on `main`.  Vue supplies two things — the `bindDataAccess` arm and the
 // `src/api/projections.ts` emit — and reuses the SHARED
 // `_frontend/projections-module.ts` through its existing `queryPackage` option,
 // because `@tanstack/vue-query`'s `useQuery` is API-compatible with the React

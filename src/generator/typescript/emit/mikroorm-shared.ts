@@ -29,10 +29,9 @@ import { TT } from "../ts-symbols.js";
  *
  * Body-scanned exactly like the `requireCurrentUser()` accessor, and for the
  * same reason: a repository that emits no raw fragment must keep a
- * byte-identical import list.  The only emitter that produces one today is the
- * hierarchical (`deep`/`global`) tenancy subtree predicate in
- * {@link authzFilterEntry} — a FilterQuery *key* built from raw SQL, since the
- * operator vocabulary has no prefix test.
+ * byte-identical import list.  The raw fragments are FilterQuery *keys* built
+ * from SQL the operator vocabulary cannot spell — intrinsics, temporal
+ * comparisons, reference-collection membership and principal tests.
  *
  * The negative lookbehind excludes a METHOD named `raw` (`x.raw(...)`), which
  * is not the imported helper.  The scan runs over the string-blanked body, so

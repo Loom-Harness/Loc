@@ -10,7 +10,7 @@
 //   • READ-BEARING (a `QueryView { of: … }` body, no own state) → a Riverpod
 //     `ConsumerWidget`, exactly as a read-bearing PAGE is: `build` receives the
 //     `WidgetRef` and hoists `ref.watch(<var>Provider…)` through the same
-//     `renderApiHoisting` seam, and `collectFlutterReads` scans component bodies
+//     `renderDataBindings` seam, and `collectFlutterReads` scans component bodies
 //     so the provider it watches exists in `reads.dart`.
 //   • STATEFUL (`state {}` + named `action`s) → a `StatefulWidget` whose `State`
 //     holds an immutable `<Comp>Model` (the same data-class shape a Riverpod page
@@ -62,7 +62,7 @@ import { lines } from "../../util/code-builder.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import type { ApiCallSite } from "../_walker/target.js";
-import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
+import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
 import { dartComponentMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
@@ -96,11 +96,11 @@ export interface ComponentWalkCtx {
 
 interface ComponentWalkResult {
   widget: string;
-  /** The api reads the body issued, in walk order — the same `ApiHookUse`
-   *  entries a page's `renderConsumerPage` feeds to `renderApiHoisting`.  A
+  /** The api reads the body issued, in walk order — the same `DataBinding`
+   *  entries a page's `renderConsumerPage` feeds to `renderDataBindings`.  A
    *  non-empty map turns the widget into a `ConsumerWidget` whose `build`
    *  hoists `final <var> = ref.watch(<var>Provider…)`. */
-  apiHooks: ReadonlyMap<string, ApiHookUse>;
+  apiHooks: ReadonlyMap<string, DataBinding>;
   /** True when the body's read is keyed by the ROUTE id (`byId(id)`) — the
    *  walker renders that as the bare local `id`, which only a page shell binds
    *  from its route arguments.  A component has no route, so such a body stays
@@ -158,7 +158,7 @@ function walkComponent(
   );
   return {
     widget: r.tsx.trim(),
-    apiHooks: r.usedApiHooks,
+    apiHooks: r.dataBindings,
     usesRouteId: r.usesRouteId,
     usesStores: (r.usedStores?.size ?? 0) > 0,
     usesCurrentUser: r.usesCurrentUser,
@@ -318,7 +318,7 @@ function needsModels(components: readonly ComponentIR[]): boolean {
 /** Emit a READ-BEARING component as a Riverpod `ConsumerWidget` — the exact
  *  shape a read-bearing PAGE takes (`renderConsumerPage`): `build` receives the
  *  `WidgetRef`, hoists one `final <var> = ref.watch(<var>Provider…)` per
- *  distinct read through the SAME `renderApiHoisting` seam, and returns the
+ *  distinct read through the SAME `renderDataBindings` seam, and returns the
  *  walked body (whose `QueryView` dispatches on that `AsyncValue` via `.when`).
  *  The providers themselves come from `reads.dart` — `collectFlutterReads` now
  *  scans component bodies alongside page bodies, so the watch and the provider
@@ -328,7 +328,7 @@ function renderConsumerComponent(
   widget: string,
   ctorArgs: string,
   fields: string[],
-  apiHooks: ReadonlyMap<string, ApiHookUse>,
+  apiHooks: ReadonlyMap<string, DataBinding>,
 ): string {
   const uses: ApiCallSite[] = [...apiHooks.values()].map((h) => ({
     apiHandle: "",
@@ -346,7 +346,7 @@ function renderConsumerComponent(
     "",
     "  @override",
     "  Widget build(BuildContext context, WidgetRef ref) {",
-    ...flutterTarget.renderApiHoisting(uses),
+    ...flutterTarget.renderDataBindings(uses),
     `    return ${widget || "const SizedBox.shrink()"};`,
     "  }",
     "}",

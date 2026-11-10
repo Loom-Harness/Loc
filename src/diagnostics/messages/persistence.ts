@@ -21,6 +21,7 @@ export const segments = [
   "index",
   "saving",
   "persisted",
+  "exists",
 ] as const;
 
 export const messages = {
@@ -185,6 +186,30 @@ export const messages = {
     `repository '${p.name}' find '${p.findName}': ` +
     `where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.` +
     didYouMean(p.suggestion),
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/exists-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.exists-outside-query": (p: { aggregate: unknown; source: unknown }) =>
+    `${p.source}: 'exists ${p.aggregate} as … where …' is a query predicate — it compiles to a SQL ` +
+    "EXISTS subquery, so it is admitted only where a predicate is compiled into a query: a " +
+    "'criterion' read through 'Repo.all' / 'Repo.find', a 'retrieval' 'where', or a row 'filter'. " +
+    "Move the test into a criterion and read through the repository instead.",
+  "loom.exists-outside-query#projection": (p: { aggregate: unknown; source: unknown }) =>
+    `${p.source}: 'exists ${p.aggregate} as … where …' is not supported in a projection 'where' — ` +
+    "a projection query has its own renderers, which have no EXISTS arm. Filter the source rows " +
+    "with a criterion on a 'Repo.all' read, or join the aggregate ('join … as … on …').",
+  "loom.exists-cross-context": (p: { aggregate: unknown; context: unknown; source: unknown }) =>
+    `${p.source}: 'exists ${p.aggregate}' quantifies over an aggregate that is not declared in ` +
+    `context '${p.context}'. An EXISTS subquery reads the same database as the enclosing row, so ` +
+    "the quantified aggregate must be declared in the same context.",
+  "loom.exists-unsupported#self": (p: { aggregate: unknown; source: unknown }) =>
+    `${p.source}: 'exists ${p.aggregate}' quantifies over the row's own aggregate. A self-` +
+    "correlated EXISTS needs a second alias of the same table, which no query renderer emits; " +
+    "compare the row's own fields directly, or quantify over a different aggregate.",
+  "loom.exists-unsupported#storage": (p: { aggregate: unknown; source: unknown; why: unknown }) =>
+    `${p.source}: 'exists ${p.aggregate}' — ${p.why}. An EXISTS subquery reads a relational ` +
+    "state table, so both the quantified aggregate and the row it filters must be stored as " +
+    "plain relational state rows.",
   "loom.find-where-column-column": (p: { name: unknown; findName: unknown; bothCols: unknown }) =>
     `repository '${p.name}' find '${p.findName}': ` +
     `comparison between two columns (${p.bothCols}) is not queryable. ` +

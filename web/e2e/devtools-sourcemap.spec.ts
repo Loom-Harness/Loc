@@ -64,7 +64,12 @@
 // stays out of scope, per the design brief, and is the natural pickup point
 // once either escape hatch above exists.
 import { expect, test } from "./_test";
-import { browserCanReachNetwork, selectExample, waitForBundle, waitForPlaygroundReady } from "./_helpers";
+import {
+  browserCanReachNetwork,
+  recordAndGenerate,
+  startFromExample,
+  waitForBundle,
+} from "./_helpers";
 
 interface DecodedMap {
   version: number;
@@ -154,16 +159,15 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
   });
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Sales System/);
+  await startFromExample(page, /Sales System/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
   }
 
   await test.step("Generate", async () => {
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    // Boot is blocked until the initial migration is recorded.
+    await recordAndGenerate(page);
   });
 
   await test.step("Bundle", async () => {

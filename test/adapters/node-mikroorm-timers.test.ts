@@ -2,7 +2,7 @@
 //
 // A `timerSource` fires a plain domain event on a wall-clock cadence: `cron:`
 // timers run on pg-boss (durable, retried), `every:` timers in-process
-// (setInterval + a transaction-scoped advisory lock).  The deployable that OWNS
+// (a setInterval poll + the `__loom_timer` period claim).  The deployable that OWNS
 // the timer (its subdomain's `migrationsOwner`) emits `scheduler.ts`.
 //
 // On the MikroORM adapter it emitted NOTHING — `hasTimers` was `&& !usingMikro`
@@ -12,8 +12,8 @@
 //
 // Unlike the broker slice, this one is a REAL port: `scheduler.ts` is the one
 // emitted module whose database access is not domain persistence — a self-owned
-// `loom_timer_runs` watermark and a `pg_try_advisory_xact_lock`, both raw SQL.
-// The five diverging call sites live behind the `TimerStore` seam in
+// `loom_timer_runs` watermark and the `__loom_timer` period claim, both raw SQL.
+// The diverging call sites live behind the `TimerStore` seam in
 // `scheduler-builder.ts`.  Runtime proof: booted against a real Postgres (see
 // the PR body); compile proof: `tsc --noEmit` on the generated tree.
 
@@ -32,7 +32,7 @@ async function emit(src: string): Promise<Map<string, string>> {
 }
 
 /** One owned timer, cadence supplied by the caller (`cron:` → pg-boss +
- *  watermark; `every:` → setInterval + advisory lock). */
+ *  watermark; `every:` → setInterval poll + period claim). */
 const sys = (persistence: string, cadence: string) => `
 system M {
   api A from Ops
@@ -98,21 +98,16 @@ describe("MikroORM timerSource scheduling", () => {
     );
   });
 
-  it("binds the advisory lock to the transaction's own connection", async () => {
-    // THE load-bearing detail of this port: `pg_try_advisory_xact_lock` is
-    // released when its transaction ends, so the raw query must run on the
-    // transaction's connection.  `em.transactional` opens it; the context has to
-    // be threaded explicitly, or the driver takes a pooled connection and the
-    // lock is gone before the dispatch.
-    const src = (await emit(sys("mikroorm", "every: 30s"))).get("d/scheduler.ts") as string;
-    expect(src).toContain("await db.transactional(async (tem) => {");
-    expect(src).toContain('"SELECT pg_try_advisory_xact_lock(?) AS locked",');
-    expect(src).toContain("tem.getTransactionContext(),");
-    expect(src).toContain("const locked = lock[0]?.locked ?? false;");
-    expect(src).not.toContain("db.transaction(async (tx)");
-    // …and the dispatch + the contention log stay inside the transaction.
-    expect(src).toContain('baseLogger.debug({ event: "timer_lock_contended", timer: name });');
-    expect(src).toContain("await events.dispatch(build());");
+  it("claims the period on the EntityManager connection and maps the claim table", async () => {
+    // Spelling: the claim is the mikro raw-SQL idiom (no drizzle import on this
+    // adapter), and `__loom_timer` must be an entity or `schema.update()` never
+    // creates it.  Behaviour (one fire per period) is the booted leg's.
+    const files = await emit(sys("mikroorm", "every: 30s"));
+    const src = files.get("d/scheduler.ts") as string;
+    expect(src).toContain(
+      "const claimed = ((await db.getConnection().execute(claimSql)) as unknown[]).length > 0;",
+    );
+    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "__loom_timer",');
   });
 
   it("wires the scheduler at boot on the mikro connection", async () => {
@@ -163,9 +158,8 @@ describe("MikroORM timerSource scheduling", () => {
   });
 
   it("emits the watermark entity ONLY for a deployable that owns a timer", async () => {
-    // Same condition as `scheduler.ts` (the subdomain's `migrationsOwner`), so a
-    // timer-free deployable pays nothing.  `emit.ts` throws if the two rules ever
-    // disagree, which is the invariant this case documents.
+    // Same condition as `scheduler.ts` (the subdomain's `migrationsOwner`, one
+    // shared filter in `emit.ts`), so a timer-free deployable pays nothing.
     const noTimers = await emit(
       sys("mikroorm", 'cron: "*/5 * * * *"').replace(/\n {2}timerSource[^\n]*\n/, "\n"),
     );
@@ -189,10 +183,7 @@ describe("MikroORM timerSource scheduling", () => {
       expect(src).not.toContain("getConnection()");
     }
     const drz = (await emit(sys("drizzle", "every: 30s"))).get("d/scheduler.ts") as string;
-    expect(drz).toContain("await db.transaction(async (tx) => {");
-    expect(drz).toContain(
-      "const locked = (lock.rows[0] as { locked: boolean } | undefined)?.locked ?? false;",
-    );
+    expect(drz).toContain("const claimed = (await db.execute(sql.raw(claimSql))).rows.length > 0;");
   });
 
   it("no longer refuses to generate (the honest gate it replaced)", async () => {

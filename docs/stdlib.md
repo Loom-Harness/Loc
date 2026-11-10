@@ -23,7 +23,7 @@ on a repository find, `loom.criterion-not-selectable` on a criterion or
 capability `filter` — rather than silently degrading.
 
 `startsWith` is the one BOOL-returning queryable op, so it stands alone as a
-whole predicate (`filter this.dataKey.startsWith(p)`) instead of feeding a
+whole predicate (`filter this.code.startsWith(p)`) instead of feeding a
 comparison.  It lowers to an ANCHORED position test on every backend
 (`strpos(col, $p) = 1`, JPQL `locate(:p, col) = 1`, EF Core's one-argument
 `StartsWith`) rather than `col LIKE $p || '%'`: the argument is a value, so a

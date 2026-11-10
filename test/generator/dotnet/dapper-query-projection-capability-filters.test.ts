@@ -85,7 +85,7 @@ async function dapper(): Promise<Map<string, string>> {
 
 // The two predicates the source aggregate contributes, as `whereToSql` renders
 // them (each already parenthesised).
-const SQL_CAPS = "(tenant_id = @__cu_tenantId) AND (NOT is_deleted)";
+const SQL_CAPS = "(tenant_id = @__cu_operatingOrg) AND (NOT is_deleted)";
 
 describe("Dapper query-projection aggregations apply the source capability filters", () => {
   it("the WHOLE-TABLE aggregation ANDs them into the same SELECT as its `where`", async () => {
@@ -113,13 +113,13 @@ describe("Dapper query-projection aggregations apply the source capability filte
     const src = (await dapper()).get(UNFILTERED)!;
     expect(src).toContain("private readonly ICurrentUserAccessor _currentUser;");
     expect(src).toContain("var currentUser = _currentUser.User;");
-    expect(src).toContain("new { __cu_tenantId = currentUser.TenantId }");
+    expect(src).toContain("new { __cu_operatingOrg = currentUser.OperatingOrg }");
   });
 
   it("`ignoring softDeletable` drops that conjunct and KEEPS the tenant one", async () => {
     const src = (await dapper()).get(IGNORING)!;
     expect(src).toContain(
-      "SELECT count(*)::int AS total FROM orders WHERE (tenant_id = @__cu_tenantId)",
+      "SELECT count(*)::int AS total FROM orders WHERE (tenant_id = @__cu_operatingOrg)",
     );
     expect(src).not.toContain("is_deleted");
   });

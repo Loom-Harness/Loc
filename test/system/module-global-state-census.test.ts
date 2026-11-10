@@ -54,7 +54,9 @@ type Discipline =
   /** Restored by an exported hook, named in `hook`. */
   | "test-reset-hook"
   /** Holds only an ordering promise whose value is discarded; carries no data between calls. */
-  | "ordering-chain";
+  | "ordering-chain"
+  /** Only ever incremented to mint a unique id; never read for control flow. */
+  | "monotonic-counter";
 
 interface Pin {
   discipline: Discipline;
@@ -138,9 +140,26 @@ const PINNED: Record<string, Pin> = {
     reason:
       "`withSourceOverrides` saves the previous override set and restores it in a `finally`; `sourceText` only reads it.",
   },
+  "src/generator/python/find-predicate.ts:existsScope": {
+    discipline: "scoped-restore",
+    reason: "`lowerOver` saves the prior scope and restores it in a `finally`.",
+  },
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",
+  },
+  "src/language/shared-services.ts:sharedServices": {
+    discipline: "build-once-cache",
+    reason:
+      "Lazily-built Langium service set; calls are serialised and each removes its document from the index in `finally`, so no declarations survive a call.",
+  },
+  "src/language/shared-services.ts:queue": {
+    discipline: "ordering-chain",
+    reason: "Serialises calls on the shared services; the chained value is always `undefined`.",
+  },
+  "src/language/shared-services.ts:uriSeq": {
+    discipline: "monotonic-counter",
+    reason: "Gives every call a fresh document URI; only ever incremented.",
   },
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",

@@ -49,12 +49,10 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
   const bookRepo = file(files, "BookRepositoryImpl.java");
 
   it("the by-id load reads the tenant metadata, adopts it, and answers empty out of scope", () => {
-    expect(ledgerRepo).toContain("select type, data, tenant_id, data_key from");
+    expect(ledgerRepo).toContain("select type, data, tenant_id from");
+    expect(ledgerRepo).toContain(`inst._adoptStreamTenant((String) rows.get(0).get("tenant_id"));`);
     expect(ledgerRepo).toContain(
-      `inst._adoptStreamTenant((String) rows.get(0).get("tenant_id"), (String) rows.get(0).get("data_key"));`,
-    );
-    expect(ledgerRepo).toContain(
-      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.tenantId())));",
+      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.operatingOrg())));",
     );
     // `getById` (the command / append load) rides `findById`.
     expect(ledgerRepo).toMatch(/public Ledger getById[\s\S]*?var found = findById\(id\);/);
@@ -70,9 +68,10 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
     );
   });
 
-  it("`allow deep` widens a stream's scope to the subtree over data_key", () => {
-    expect(bookRepo).toContain("startsWith");
-    expect(bookRepo).toContain("dataKey()");
+  it("every tenantOwned stream is scoped by the flat tenant floor", () => {
+    expect(bookRepo).toContain(
+      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.operatingOrg())));",
+    );
   });
 
   it("an `ignoring tenantOwned` read loads unscoped, and only that read", () => {
@@ -84,15 +83,13 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
 
   it("a new stream is stamped from the principal; every row carries the stream's tenant", () => {
     expect(ledgerRepo).toMatch(/if \(version == 0\) \{\s*aggregate\._stampOnCreate\(\);/);
-    expect(ledgerRepo).toContain(
-      "(stream_type, stream_id, version, type, data, tenant_id, data_key) values",
-    );
-    expect(ledgerRepo).toContain("aggregate.tenantId(), aggregate.dataKey());");
+    expect(ledgerRepo).toContain("(stream_type, stream_id, version, type, data, tenant_id) values");
+    expect(ledgerRepo).toContain("JSON.writeValueAsString(ev), aggregate.tenantId());");
   });
 
   it("the domain class adopts the metadata and stamps from the principal", () => {
     const domain = file(files, "features/ledgers/Ledger.java");
-    expect(domain).toContain("public void _adoptStreamTenant(String tenantId, String dataKey) {");
+    expect(domain).toContain("public void _adoptStreamTenant(String tenantId) {");
     expect(domain).toContain("public void _stampOnCreate() {");
   });
 
@@ -102,7 +99,9 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
       "java.util.Objects.equals(__origin == null ? null : __origin.tenant(), aggregate.tenantId())",
     );
     expect(svc).toContain("CurrentUserAccessor.runAsEventOrigin(");
-    expect(svc).toContain("new EventOrigin(aggregate.tenantId(), aggregate.dataKey(),");
+    expect(svc).toContain(
+      "new EventOrigin(aggregate.tenantId(), __origin == null ? null : __origin.causedBy()),",
+    );
   });
 });
 

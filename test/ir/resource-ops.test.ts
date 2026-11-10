@@ -5,6 +5,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR, WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { expectCallKind } from "../_helpers/call-kind.js";
 import { parseString } from "../_helpers/parse.js";
 
 function mk(workflowBody: string, opts: { transactional?: boolean } = {}): string {
@@ -48,7 +49,7 @@ describe("resource-op lowering", () => {
   it("lowers a bare `files.put(...)` to a resource-call statement", async () => {
     const stmts = await lowerWf(`salesFiles.put("k/" + name, name)`);
     const call = asCall(stmts.find((s) => s.kind === "resource-call"));
-    expect(call.callKind).toBe("resource-op");
+    expectCallKind(call, "resource-op");
     expect(call.resourceOp).toMatchObject({
       resourceName: "salesFiles",
       resourceKind: "objectStore",
@@ -60,7 +61,7 @@ describe("resource-op lowering", () => {
   it("lowers `let x = files.get(k)` to an expr-let holding a resource-op", async () => {
     const stmts = await lowerWf(`let blob = salesFiles.get("k/" + name)`);
     const call = asCall(stmts.find((s) => s.kind === "expr-let"));
-    expect(call.callKind).toBe("resource-op");
+    expectCallKind(call, "resource-op");
     expect(call.resourceOp?.verb).toBe("get");
   });
 });
@@ -160,7 +161,7 @@ describe("mailer resource-op", () => {
         .find((w) => w.name === "Notify")!
         .statements.find((s) => s.kind === "resource-call"),
     );
-    expect(call.callKind).toBe("resource-op");
+    expectCallKind(call, "resource-op");
     expect(call.resourceOp).toMatchObject({
       resourceName: "mail",
       resourceKind: "mailer",

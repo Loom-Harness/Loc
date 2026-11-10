@@ -185,9 +185,8 @@ em.findOne(CarRow, { plate: p }, { filters: { "softDeletable": false } })   // i
   *stamped* on an insert/upsert payload (a native insert does not set it).
 - **QueryBuilder reads** (query-time projection aggregations) are not filtered by
   themselves: they call `await qb.applyFilters({ … })` (the same `ignoring` map).
-- **Not filtered:** the tenant-registry `orgPath` lookup that *builds* the principal
-  (`{ filters: false }`), and `shape: document` / event-sourced aggregates, which
-  have no queryable columns and evaluate their scope in the app.
+- **Not filtered:** `shape: document` / event-sourced aggregates, which have no
+  queryable columns and evaluate their scope in the app.
 
 ## Backend gating
 

@@ -97,7 +97,7 @@ describe("lifecycle-stamp backend support gate", () => {
   });
 
   // `with tenantOwned` on an event-sourced aggregate: the capability's
-  // `tenantId` / `dataKey` stamp lands on the stream's metadata, not on folded
+  // `tenantId` stamp lands on the stream's metadata, not on folded
   // state, so the stamp gate stays silent on every backend (the backends that
   // do not yet carry a stream tenant refuse it under their own code).
   const esTenant = (platform: string, extra = "") => `

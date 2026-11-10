@@ -4,8 +4,6 @@ import {
   type EditorRange,
   type EditorTextEdit,
   loomQuickFixes,
-  overlapsLines,
-  quickFixesAt,
   toEditorRange,
   toQuickFixes,
 } from "../../web/src/editor/fix-hint-actions.js";
@@ -102,7 +100,7 @@ describe("playground fix-hint quick fixes", () => {
 
   it("converts the real validate → fixHintCodeActions output into an applyable fix", async () => {
     const uri = "inmemory:///workspace/main.ddd";
-    const fixes = await loomQuickFixes(BARE, uri);
+    const fixes = await loomQuickFixes(BARE, uri, null);
 
     const fix = fixes.find((f) => f.title.includes("aggregate by id"));
     expect(fix).toBeDefined();
@@ -172,13 +170,28 @@ describe("playground fix-hint quick fixes", () => {
     expect(fix?.anchor).toEqual(range(6, 1, 6, 4));
   });
 
-  it("offers a fix only for a request that touches its line", () => {
-    const fix = { title: "t", edits: [], anchor: range(4, 3, 4, 9), preferred: false };
-    expect(quickFixesAt([fix], range(4, 1, 4, 1))).toHaveLength(1);
-    expect(quickFixesAt([fix], range(3, 1, 5, 1))).toHaveLength(1);
-    expect(quickFixesAt([fix], range(5, 1, 5, 1))).toHaveLength(0);
-    expect(overlapsLines(range(1, 1, 2, 1), range(2, 4, 9, 1))).toBe(true);
-    expect(overlapsLines(range(1, 1, 1, 9), range(2, 1, 2, 9))).toBe(false);
+  // With a language client the worker answers and the main thread validates
+  // nothing: a validate here is a fresh Loom service per keystroke (#5011).
+  // Proven by handing it a source whose text has NO hinted diagnostic — any
+  // fix that comes back can only have come from the client.
+  it("asks the language client, not the toolkit, when one is running", async () => {
+    const uri = "inmemory:///workspace/main.ddd";
+    const actions = await fixHintCodeActions(await validate(BARE), BARE, uri);
+    const asked: string[] = [];
+    const lsp = {
+      quickFixes: async (u: string) => {
+        asked.push(u);
+        return actions;
+      },
+    };
+    const fixes = await loomQuickFixes("context Clean {}\n", uri, lsp);
+    expect(asked).toEqual([uri]);
+    expect(fixes.map((f) => f.edits[0]?.text)).toEqual(["customer: Customer id"]);
+  });
+
+  it("answers no fixes, rather than throwing, when the client request fails", async () => {
+    const lsp = { quickFixes: () => Promise.reject(new Error("worker gone")) };
+    expect(await loomQuickFixes(BARE, "inmemory:///workspace/main.ddd", lsp)).toEqual([]);
   });
 
   // The `preferred` flag is the one field the editor turns into BEHAVIOUR: a

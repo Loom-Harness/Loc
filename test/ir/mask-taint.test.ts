@@ -3,10 +3,19 @@
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { applyMaskWriteGates, maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
-import { wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
+import {
+  applyMaskWriteGates,
+  carriesFieldMask,
+  maskedReadPredicates,
+} from "../../src/ir/enrich/mask-taint.js";
+import {
+  wireFieldsForAggregate,
+  wireFieldsForPart,
+  wireMaskPlan,
+} from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR } from "../../src/ir/types/loom-ir.js";
+import { historyDiffFields } from "../../src/ir/util/audit-history.js";
 import { walkExprDeep } from "../../src/ir/util/walk.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
@@ -275,5 +284,124 @@ describe("visibility taint — log, event and uniqueness sinks", () => {
       'aggregate P with crudish(updateOnly: true) {\n      create(name: string, ssn: string) { requires currentUser.role == "hr"  name := name  ssn := ssn }',
     );
     expect(await codes(gated)).not.toContain("loom.field-mask-unique-oracle");
+  });
+});
+
+// A contained part's `mask unless` field: the same taint, keyed `<Part>.<field>`
+// on the aggregate it belongs to.
+const partSys = (partBody: string, aggBody = "", ctxExtra = "") => `system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate T with crudish {
+      subject: string
+      contains comments: Comment[]
+      entity Comment {
+        body: string
+        internal: bool mask unless currentUser.role == "agent"
+        ${partBody}
+      }
+      ${aggBody}
+    }
+    repository Ts for T
+    ${ctxExtra}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
+}`;
+
+async function partEnriched(src: string) {
+  const { ir, ctx } = await enriched(src);
+  return { ir, ctx, agg: ctx.aggregates.find((a) => a.name === "T")! };
+}
+
+describe("visibility taint — contained part fields", () => {
+  it("the part's wire carries the mask, and a part derived reading it inherits it", async () => {
+    const { agg } = await partEnriched(partSys(`derived label: string = body + string(internal)`));
+    const part = agg.parts.find((p) => p.name === "Comment")!;
+    const wire = wireFieldsForPart(part);
+    expect(wire.find((w) => w.name === "internal")!.maskUnless).toBeDefined();
+    expect(wire.find((w) => w.name === "label")!.maskUnless).toBeDefined();
+    expect(wire.find((w) => w.name === "body")!.maskUnless).toBeUndefined();
+    // The root's redaction plan reaches the part through its containment.
+    const plan = wireMaskPlan(agg, agg.parts)!;
+    expect(plan.fields).toEqual([]);
+    expect(
+      plan.nested.map((n) => [n.name, n.collection, n.plan.fields.map((f) => f.name)]),
+    ).toEqual([["comments", true, ["internal", "label"]]]);
+    expect(carriesFieldMask(agg)).toBe(true);
+  });
+
+  it("a root derived reading a part's masked member inherits its mask", async () => {
+    const { agg } = await partEnriched(
+      partSys("", `derived internalCount: int = comments.where(c => c.internal).count`),
+    );
+    expect(maskedReadPredicates(agg).get("internalCount")).toBeDefined();
+  });
+
+  it("a write into a part's masked field through a part-typed let is gated", async () => {
+    const { agg } = await partEnriched(
+      partSys(
+        "",
+        `operation flag(v: bool) {
+          let c = comments.first()
+          c.internal := v
+        }`,
+      ),
+    );
+    const op = agg.operations.find((o) => o.name === "flag")!;
+    expect(op.statements[0]).toMatchObject({ kind: "requires", maskWriteOf: "Comment.internal" });
+  });
+
+  it("a criterion filtering on a part's masked member gates the read", async () => {
+    const { ctx } = await partEnriched(
+      partSys(
+        "",
+        "",
+        `criterion HasInternal() of T = this.comments.any(c => c.internal)
+      queryHandler Flagged(): T {
+        if let t = Ts.find(HasInternal()) { return t } else { notFound }
+      }`,
+      ),
+    );
+    const h = ctx.queryHandlers!.find((x) => x.name === "Flagged")!;
+    expect(h.statements[0]).toMatchObject({ kind: "requires", readGateOf: "T" });
+  });
+
+  it("the audit-history change entry of the containment carries the part's mask", async () => {
+    const { agg } = await partEnriched(partSys(""));
+    const reviews = historyDiffFields(agg).find((w) => w.name === "comments")!;
+    expect(reviews.maskUnless).toBeDefined();
+  });
+
+  it("a part mask must read only currentUser", async () => {
+    const src = partSys("").replace(
+      `internal: bool mask unless currentUser.role == "agent"`,
+      `internal: bool mask unless body == "x"`,
+    );
+    expect(await codes(src)).toContain("loom.field-mask-not-current-user");
+  });
+
+  it("a part derived reading a NESTED part's masked member is refused", async () => {
+    const src = partSys(`contains notes: Note[]
+        derived anySecret: bool = notes.any(n => n.secret)`).replace(
+      "entity Comment {",
+      `entity Note { text: string  secret: bool mask unless currentUser.role == "agent" }
+      entity Comment {`,
+    );
+    expect(await codes(src)).toContain("loom.field-mask-on-part");
+    expect(await codes(partSys(`derived b: string = body`))).not.toContain(
+      "loom.field-mask-on-part",
+    );
+  });
+
+  it("a value-object field mask is refused at the AST layer", async () => {
+    const src = partSys(
+      "",
+      "",
+      `valueobject Addr { city: string mask unless currentUser.role == "agent" }`,
+    );
+    const { diagnostics } = await parseString(src);
+    expect(diagnostics.map((d) => d.code)).toContain("loom.field-mask-on-value-object");
   });
 });

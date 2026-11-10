@@ -80,9 +80,10 @@ describe("validateTranslation", () => {
     const source = "{count, plural, one {# task} other {# tasks}}";
     const incomplete = "{count, plural, one {# zadanie} other {# zadania}}";
     const issues = validateTranslation(source, incomplete, "pl");
+    const valid = ["one", "few", "many", "other"];
     expect(issues).toEqual([
-      { kind: "plural-missing-form", arg: "count", form: "few" },
-      { kind: "plural-missing-form", arg: "count", form: "many" },
+      { kind: "plural-missing-form", arg: "count", form: "few", valid },
+      { kind: "plural-missing-form", arg: "count", form: "many", valid },
     ]);
     const complete =
       "{count, plural, one {# zadanie} few {# zadania} many {# zadań} other {# zadania}}";
@@ -92,8 +93,49 @@ describe("validateTranslation", () => {
   it("rejects a plural form the locale lacks (English has no 'few')", () => {
     const msg = "{count, plural, one {#} few {#} other {#}}";
     expect(validateTranslation(msg, msg, "en")).toEqual([
-      { kind: "plural-extra-form", arg: "count", form: "few" },
+      { kind: "plural-extra-form", arg: "count", form: "few", valid: ["one", "other"] },
     ]);
+  });
+
+  it("names the locale's valid set when a form is wrong (Russian: one few many other)", () => {
+    const source = "{count, plural, one {# task} other {# tasks}}";
+    const [issue, ...rest] = validateTranslation(
+      source,
+      "{count, plural, one {# задача} two {# задачи} few {# задачи} many {# задач} other {# задачи}}",
+      "ru",
+    );
+    expect(rest).toEqual([]);
+    expect(describeIssue(issue!)).toBe(
+      'plural {count} has a "two" form this locale does not use (it uses one, few, many, other)',
+    );
+    expect(
+      validateTranslation(
+        source,
+        "{count, plural, one {# задача} few {# задачи} many {# задач} other {# задачи}}",
+        "ru",
+      ),
+    ).toEqual([]);
+  });
+
+  it("judges selectordinal by the locale's ORDINAL categories", () => {
+    const source = "{n, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}";
+    expect(validateTranslation(source, source, "en")).toEqual([]);
+    // Russian ordinals have one category; its cardinal one/few/many are wrong here.
+    expect(
+      validateTranslation(source, "{n, selectordinal, one {#-й} other {#-й}}", "ru").map(
+        describeIssue,
+      ),
+    ).toEqual(['plural {n} has a "one" form this locale does not use (it uses other)']);
+  });
+
+  it("a translation without `other` is an error", () => {
+    const [issue] = validateTranslation(
+      "{count, plural, one {# task} other {# tasks}}",
+      "{count, plural, one {# zadanie} few {# zadania} many {# zadań}}",
+      "pl",
+    );
+    expect(issue?.kind).toBe("syntax");
+    expect(describeIssue(issue!)).toContain('missing the required "other" branch');
   });
 
   it("a language with a single form needs only 'other' (Japanese)", () => {

@@ -196,7 +196,7 @@ export function renderCustomLayoutPage(
     usesRouterLink,
     usesRouteId,
     usedUserComponents,
-    usedApiHooks,
+    dataBindings,
     formOfs,
     actionMutations,
     usedExternFunctions,
@@ -275,7 +275,7 @@ export function renderCustomLayoutPage(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: new Map(),
-      usedApiHooks: new Map(),
+      dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
@@ -338,7 +338,7 @@ export function renderCustomLayoutPage(
       // async-actions-and-effects.md Stage 2), so the api-param handles must be
       // in scope for `tryDetectApiHook` to recognise the mutation + hoist it.
       apiParamNames: new Map(apiParams.map((p) => [p.name, p.apiName])),
-      usedApiHooks,
+      dataBindings,
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName,
@@ -400,7 +400,7 @@ export function renderCustomLayoutPage(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: new Map(),
-      usedApiHooks: new Map(),
+      dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
@@ -475,12 +475,12 @@ export function renderCustomLayoutPage(
   // Api hook imports, grouped per `from` path so
   // multiple ops on the same aggregate dedupe to one import line
   // (matching the existing scaffold output's per-aggregate api file).
-  const apiHookImports = renderApiHookImports(usedApiHooks, srcImportPrefix);
+  const apiHookImports = renderApiHookImports(dataBindings, srcImportPrefix);
   // Api hook declarations, emitted at page-top right before the
   // JSX return.  Each unique `<param>.<aggregate>.<op>` becomes
   // one `const <var> = use<Op><Aggregate>(args?);` line.
-  // Delegated to `tsxTarget.renderApiHoisting` — see
-  // `src/generator/_walker/target.ts`.  Walker passes ApiHookUse
+  // Delegated to `tsxTarget.renderDataBindings` — see
+  // `src/generator/_walker/target.ts`.  Walker passes DataBinding
   // fields through as pre-resolved varName/hookName/argsRendered
   // overrides on ApiCallSite, sidestepping the formula-based
   // recomputation (View hooks like `useXxxView` don't follow the
@@ -488,8 +488,8 @@ export function renderCustomLayoutPage(
   // stays at the call site for splice into the function-shell
   // template.
   const apiHookDecls = tsxTarget
-    .renderApiHoisting(
-      [...usedApiHooks.values()].map((h) => ({
+    .renderDataBindings(
+      [...dataBindings.values()].map((h) => ({
         apiHandle: "",
         aggregateName: "",
         operation: "",
@@ -1004,7 +1004,7 @@ export function renderUserComponentFile(
     usedStores,
     usesFragment,
     hoistedModuleDecls,
-    usedApiHooks,
+    dataBindings,
   } = walkBodyToTsx(
     body,
     pack,
@@ -1058,7 +1058,7 @@ export function renderUserComponentFile(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: new Map(),
-      usedApiHooks: new Map(),
+      dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
@@ -1112,7 +1112,7 @@ export function renderUserComponentFile(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: new Map(),
-      usedApiHooks: new Map(),
+      dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName,
@@ -1147,13 +1147,13 @@ export function renderUserComponentFile(
   const actionWiring = renderActionMutations(actionMutations, "../");
   // Api-read hoisting — the component twin of the page shell's block above.
   // A read in a component body (`QueryView { of: Sales.Order.all }`) records
-  // the same `ApiHookUse`, so it gets the same `use<Op><Agg>()` import + the
+  // the same `DataBinding`, so it gets the same `use<Op><Agg>()` import + the
   // same `const <var> = use…()` declaration.  One hop to `src/`, so the
   // default `"../"` prefix is already right.
-  const apiHookImports = renderApiHookImports(usedApiHooks, "../");
+  const apiHookImports = renderApiHookImports(dataBindings, "../");
   const apiHookDecls = tsxTarget
-    .renderApiHoisting(
-      [...usedApiHooks.values()].map((h) => ({
+    .renderDataBindings(
+      [...dataBindings.values()].map((h) => ({
         apiHandle: "",
         aggregateName: "",
         operation: "",
@@ -1518,7 +1518,7 @@ function renderInitExpr(expr: ExprIR, pack: LoadedPack): string {
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),

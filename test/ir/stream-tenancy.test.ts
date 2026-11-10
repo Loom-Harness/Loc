@@ -27,17 +27,17 @@ async function mainCtx(src = FIXTURE) {
 }
 
 describe("stream-tenancy fact", () => {
-  it("a tenantOwned stream carries tenant_id / data_key metadata, stamped on create", async () => {
+  it("a tenantOwned stream carries tenant_id metadata, stamped on create", async () => {
     const ctx = await mainCtx();
     const ledger = ctx.aggregates.find((a) => a.name === "Ledger")!;
     const fact = streamTenancyFor(ledger, ctx.aggregates)!;
-    expect(fact.metadata.map((m) => m.column)).toEqual(["tenant_id", "data_key"]);
+    expect(fact.metadata.map((m) => m.column)).toEqual(["tenant_id"]);
     expect(fact.metadata).toBe(STREAM_TENANT_METADATA);
-    expect(fact.stamp.map((a) => a.field)).toEqual(["tenantId", "dataKey"]);
+    expect(fact.stamp.map((a) => a.field)).toEqual(["tenantId"]);
     expect(fact.stamp.every((a) => isTenancyStampAssignment(ledger, a))).toBe(true);
   });
 
-  it("stream loads apply the read scope's tenancy restrictions — the floor, or the policy-widened subtree", async () => {
+  it("stream loads apply the read scope's tenancy restriction — the flat tenant floor", async () => {
     const ctx = await mainCtx();
     const ledger = ctx.aggregates.find((a) => a.name === "Ledger")!;
     const book = ctx.aggregates.find((a) => a.name === "Book")!;
@@ -45,7 +45,7 @@ describe("stream-tenancy fact", () => {
       "tenant",
     ]);
     expect(streamTenancyFor(book, ctx.aggregates)!.restrictions.map((r) => r.tenancy)).toEqual([
-      "deep",
+      "tenant",
     ]);
   });
 
@@ -81,7 +81,6 @@ describe("stream-tenancy fact", () => {
           "aggregate Book persistedAs: eventLog with tenantOwned",
           "aggregate Book persistedAs: eventLog crossTenant",
         )
-        .replace("allow deep on Book", "")
         .replace("ignoring tenantOwned", ""),
     );
     const ledger = ctx.aggregates.find((a) => a.name === "Ledger")!;

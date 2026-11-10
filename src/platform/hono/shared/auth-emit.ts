@@ -9,7 +9,6 @@ import {
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
-import { hostedHierarchyRegistry } from "../../../ir/enrich/hosting-facts.js";
 import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
@@ -19,10 +18,14 @@ import type {
   TypeIR,
   UserIR,
 } from "../../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
+import { type OrgContextPlan, orgContextPlan } from "../../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 // ---------------------------------------------------------------------------
@@ -49,33 +52,21 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 export function emitAuthFiles(
   sys: SystemIR,
-  hostedContextNames: readonly string[],
   out: Map<string, string>,
+  hostedContextNames: readonly string[] = [],
 ): void {
   if (!sys.user) return;
   const oidc = sys.auth;
-  // The tenancy claim field, when the system declares `tenancy by …` — drives
-  // the derived `currentUser.orgPath` principal member (multi-tenancy).
-  const orgPathClaim = sys.tenancy?.claimField;
-  // Hierarchy: when the registry opts into `tenantRegistry` (a `dataKey`
-  // column exists), `orgPath` becomes a per-request memoized registry read via
-  // a registered resolver (falling back to the claim when the row/dataKey is
-  // absent).  Only a deployable that hosts the registry has its table; one
-  // that does not keeps the claim-copy, and phase ⑦ refuses it if anything it
-  // hosts reads the path (`loom.tenancy-registry-remote-unsupported`).
-  const orgPathReadsRegistry = hostedHierarchyRegistry(sys, hostedContextNames) !== undefined;
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5):
-  // emitted only when something in the system reads the operating scope — the
-  // phase-⑦ `loom.org-context-gate-unmet` guarantees that also means a
-  // hierarchy registry and auth.  Otherwise the header is never consulted and
-  // the emission is byte-identical to before.
-  const orgContext = !!orgPathClaim && systemReadsOrgContext(sys);
-  out.set("auth/user-types.ts", renderUserTypes(sys.user, orgPathClaim, orgContext));
+  // The tenancy claim field, when the system declares `tenancy by …`.
+  const tenantClaim = sys.tenancy?.claimField;
+  // The operating-scope facts (`organizationContext`): the switch gate is
+  // emitted only when the system declares tenancy and something in it reads
+  // the operating scope (a `tenantOwned` floor does).  Otherwise the header is
+  // never consulted and the principal is exactly the declared claims.
+  const plan = orgContextPlan(sys, hostedContextNames);
+  out.set("auth/user-types.ts", renderUserTypes(sys.user, plan));
   out.set("auth/verifier.ts", renderVerifier());
-  out.set(
-    "auth/middleware.ts",
-    renderMiddleware(sys.user, !!oidc, orgPathClaim, orgPathReadsRegistry, orgContext),
-  );
+  out.set("auth/middleware.ts", renderMiddleware(sys.user, !!oidc, tenantClaim, plan));
   // The session routes (always `/auth/me`, plus the OIDC redirect handshake
   // when an `auth { oidc }` block is present) are emitted whenever a
   // backend has auth — the frontend `auth: ui` guard probes `/auth/me`,
@@ -220,8 +211,10 @@ function envOverridableExpr(envVar: string, v: AuthValueIR | undefined): string 
  *  this the generated project fails `tsc` with
  *  `TS2503: Cannot find namespace 'Ids'` (D6/P2).  Empty when no claim is
  *  id-typed, so the common shape keeps its current byte-for-byte output. */
-function idsImport(user: UserIR): string[] {
-  return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
+function idsImport(user: UserIR, ancestors = false): string[] {
+  return claimsReferenceIds(user.fields) || ancestors
+    ? ['import * as Ids from "../domain/ids";', ""]
+    : [];
 }
 
 /** The enum types a claim shape names live in `domain/value-objects.ts`;
@@ -232,7 +225,8 @@ function enumsImport(user: UserIR): string[] {
   return [`import type { ${names.join(", ")} } from "../domain/value-objects";`, ""];
 }
 
-function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false): string {
+function renderUserTypes(user: UserIR, plan: OrgContextPlan): string {
+  const orgContext = plan.gate;
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
   // pulling the verifier registry alongside.
@@ -245,9 +239,9 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
   });
   // `UserClaims` is the raw token→field projection the verifier returns; the
   // request principal `User` extends it with the derived, per-request
-  // `orgPath` (multi-tenancy) when the system declares tenancy.  The
-  // split keeps the verifier free of the derived member (it can't know the
-  // path from the token) while every domain-code `import { User }` sees it.
+  // `operatingOrg` when the operating-scope switch gate is emitted.  The split
+  // keeps the verifier free of the derived member (the token does not carry
+  // it) while every domain-code `import { User }` sees it.
   // The system principal's two built-in slots (ruling D1): OPTIONAL, so a
   // request principal is built and serialized exactly as before (`/auth/me`
   // is unchanged) — only `systemPrincipal()` (auth/middleware.ts) sets them.
@@ -259,39 +253,36 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
     "   *  only, never read by a gate. */",
     "  causedBy?: string | null;",
   ];
-  const userDecl = orgPathClaim
-    ? [
-        "export interface User extends UserClaims {",
-        ...systemSlots,
-        "  /** The caller's tenant materialized path (`currentUser.orgPath`) —",
-        "   *  derived per-request from the tenancy claim, memoized on this",
-        "   *  request-scoped principal (multi-tenancy). */",
-        "  orgPath: string;",
-        "  /** The caller's ROOT-org segment (`currentUser.rootOrg`) — the first",
-        "   *  segment of `orgPath` (multi-tenancy).  Anchors the",
-        "   *  `global` read level's root-subtree widening. */",
-        "  rootOrg: string;",
-        ...(orgContext
-          ? [
-              "  /** The request's OPERATING scope (`organizationContext.orgPath`) — the",
-              `   *  validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
-              "   *  descendant org, else `orgPath`.  Set once, by the auth middleware's",
-              "   *  fail-closed switch gate; never read off the token. */",
-              "  orgContextPath: string;",
-            ]
-          : []),
-        "}",
-      ]
-    : ["export interface User extends UserClaims {", ...systemSlots, "}"];
+  const userDecl = [
+    "export interface User extends UserClaims {",
+    ...systemSlots,
+    ...(orgContext
+      ? [
+          "  /** The request's OPERATING org (`organizationContext.org`) — the",
+          `   *  caller's home org (the tenancy claim), or the org a \`${ORG_CONTEXT_HEADER}\``,
+          "   *  header names when the caller can read that registry row.  Set once,",
+          "   *  by the auth middleware's fail-closed switch gate; never read off the token. */",
+          "  operatingOrg: string;",
+        ]
+      : []),
+    ...(plan.ancestors && user.registry
+      ? [
+          "  /** `organizationContext.ancestors` — the operating org and every org",
+          "   *  above it on the registry tree, resolved once per request. */",
+          `  operatingAncestors: ${renderTsType({ kind: "array", element: { kind: "id", targetName: user.registry } })};`,
+        ]
+      : []),
+    "}",
+  ];
   return (
     lines(
       "// Auto-generated.",
       "// User-claim shape decoded from the inbound JWT.  The verifier",
       "// hook (auth/verifier.ts) returns `UserClaims`; the auth middleware",
-      "// derives the request principal `User` from it (adding `orgPath` under",
-      "// tenancy).  Downstream route handlers / workflow handlers",
-      "// reference `User` via the magic `currentUser` identifier.",
-      ...idsImport(user),
+      "// derives the request principal `User` from it.  Downstream route",
+      "// handlers / workflow handlers reference `User` via the magic",
+      "// `currentUser` identifier.",
+      ...idsImport(user, plan.ancestors),
       ...enumsImport(user),
       "export interface UserClaims {",
       ...fields,
@@ -310,8 +301,7 @@ import type { UserClaims } from "./user-types";
  *  JWT, return the populated claim shape on success, return null (or
  *  throw) to reject with a 401.  Register your implementation at app
  *  startup, BEFORE calling \`serve(...)\`.  The auth middleware derives
- *  the request principal (\`User\`, incl. \`orgPath\` under tenancy) from
- *  the returned claims. */
+ *  the request principal (\`User\`) from the returned claims. */
 export type UserVerifier = (req: Request) => Promise<UserClaims | null> | UserClaims | null;
 
 let registered: UserVerifier | null = null;
@@ -354,28 +344,17 @@ export function assertUserVerifierRegistered(): void {
 function renderMiddleware(
   user: UserIR,
   oidc: boolean,
-  orgPathClaim?: string,
-  orgPathReadsRegistry = false,
-  orgContext = false,
+  tenantClaim: string | undefined,
+  plan: OrgContextPlan,
 ): string {
+  const orgContext = plan.gate;
+  const host = !!plan.registry;
+  const ancestors = plan.ancestors;
   const idField = actorIdField(user);
   const stampActorId = idField ? `\n  if (ctx) ctx.actorId = String(user.${idField});` : "";
-  // Derive the request principal from the verifier's claims.  Under tenancy,
-  // add the per-request `orgPath` — the caller's tenant materialized path.
-  // Computed once here (post-verify, so it reflects any dev-claims override)
-  // and memoized on the request-scoped principal.
-  //
-  //  - flat tenancy: `orgPath` is the claim itself (the root-segment
-  //    path — no registry `dataKey` column to read).
-  //  - hierarchy: resolve the caller's registry `dataKey` once per
-  //    request via the registered resolver; fall back to the claim when the
-  //    row is missing or has no `dataKey` (pre-tree data) — never null/crash.
-  const claimExpr = orgPathClaim ? `String(claims.${orgPathClaim} ?? "")` : `""`;
-  // The per-request `orgPath` expression (claim itself under flat tenancy, the
-  // memoized registry read under hierarchy).  `rootOrg` is its first
-  // segment — a pure string derivation, no extra read.  Build both onto the
-  // principal: compute `orgPath` once into a const, then derive `rootOrg`.
-  const orgPathExpr = orgPathReadsRegistry ? `await resolveOrgPath(${claimExpr})` : claimExpr;
+  // The caller's home org: the tenancy claim value, "" when absent.  Read only
+  // by the operating-scope switch gate.
+  const homeOrgExpr = tenantClaim ? `String(claims.${tenantClaim} ?? "")` : `""`;
   // A declared NON-OPTIONAL array claim absent from the token is the EMPTY SET,
   // not `undefined`.  The verifier projects claims with a bare cast
   // (`permissions: claim(payload, "permissions") as string[]`), so a token that
@@ -394,91 +373,97 @@ function renderMiddleware(
     .map((f) => `${f.name}: claims.${f.name} ?? []`);
   const claimsSpread =
     arrayClaimDefaults.length > 0 ? `...claims, ${arrayClaimDefaults.join(", ")}` : "...claims";
-  // The operating-scope switch gate runs BETWEEN resolving the principal's
-  // `orgPath` and building the principal: a refused switch answers 403 before
-  // the principal is attached, so no handler — and no write — ever runs.
-  const orgContextGate = orgContext
-    ? `\n  const requestedOrgContext = c.req.header("${ORG_CONTEXT_HEADER}");\n  const orgContextPath = orgContextFor(orgPath, requestedOrgContext);\n  if (orgContextPath === null) return orgContextForbidden(c, requestedOrgContext ?? "", orgPath);`
-    : "";
-  const buildUser = orgPathClaim
-    ? `const orgPath = ${orgPathExpr};${orgContextGate}\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath)${orgContext ? ", orgContextPath" : ""} };`
+  // The operating-scope switch gate runs BEFORE the principal is attached: a
+  // refused switch answers 403 before any handler — and no write — runs.  The
+  // admission check reads the registry under the HOME principal (the caller's
+  // own read scope), so it is bound to the ambient frame first.
+  const ancestorsSlot = ancestors ? ", operatingAncestors: [] " : " ";
+  const buildUser = orgContext
+    ? [
+        `const homeOrg = ${homeOrgExpr};`,
+        `  const requestedOrgContext = c.req.header("${ORG_CONTEXT_HEADER}");`,
+        `  const homeUser: User = { ${claimsSpread}, operatingOrg: homeOrg${ancestorsSlot}};`,
+        "  const frame = requestContext();",
+        "  if (frame) frame.currentUser = homeUser;",
+        "  const operatingOrg = await orgContextFor(homeOrg, requestedOrgContext);",
+        '  if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);',
+        ancestors
+          ? "  const user: User = { ...homeUser, operatingOrg, operatingAncestors: await operatingAncestorsOf(operatingOrg) };"
+          : "  const user: User = { ...homeUser, operatingOrg };",
+      ].join("\n")
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
   // The same derivation for a principal built OUTSIDE a request (a context
-  // integration test): no header, so the operating scope is the principal's
-  // own \`orgPath\`.
-  const buildPrincipal = orgPathClaim
-    ? `const orgPath = ${orgPathExpr};\n  const user: User = { ${claimsSpread}, orgPath, rootOrg: rootOrgOf(orgPath)${orgContext ? ", orgContextPath: orgPath" : ""} };`
+  // integration test): no header, so the operating org is the home org.
+  const buildPrincipal = orgContext
+    ? `const user: User = { ${claimsSpread}, operatingOrg: ${homeOrgExpr}${ancestorsSlot}};${
+        ancestors
+          ? "\n  user.operatingAncestors = await operatingAncestorsOf(user.operatingOrg);"
+          : ""
+      }`
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
-  // The registry-lookup seam.  The auth layer can't reach the db (it is
-  // constructed at boot and injected into repositories), so — like the verifier
-  // — the resolver is REGISTERED at boot (index.ts) with a closure that reads
-  // `SELECT data_key FROM <registry> WHERE id = <claim>`.  Unregistered (or a
-  // missing/dataKey-less row), it yields the claim: the documented root-segment
-  // fallback that keeps every non-hierarchy stack (and pre-tree data) working.
-  const resolverSeam = orgPathReadsRegistry
+  // The operating-scope switch gate (`organizationContext`).  A request-level
+  // fact: the `x-org-context` header names the org the request operates
+  // in.  Absent (or empty) ⇒ the caller's home org (the tenancy claim).
+  // Present ⇒ admitted when it names the home org, or — on the deployable
+  // that hosts the registry — a registry row the caller can read through the
+  // registry's own read scope.  Refused outright when the principal has no
+  // home org.  Refusal is a pre-body 403, logged through the neutral catalog
+  // (`org_context_denied`).
+  const registrySeam = host
     ? `
-/** Resolves the caller's tenant materialized path (\`currentUser.orgPath\`) from
- *  the registry's \`dataKey\` column, keyed by the tenancy claim.  Registered at
- *  boot (see index.ts) with a db-backed closure; returns \`null\` for a missing
- *  row / \`dataKey\`, in which case the middleware falls back to the claim. */
-export type OrgPathResolver = (claim: string) => Promise<string | null>;
-let orgPathResolver: OrgPathResolver | null = null;
-export function registerOrgPathResolver(fn: OrgPathResolver): void {
-  orgPathResolver = fn;
+/** The registry reads the switch gate needs, bound to the database at boot
+ *  (boot.ts).  \`canRead\` loads the requested registry row through the
+ *  registry's read scope under the ambient (home) principal; \`ancestors\` walks
+ *  \`parent\` upward with set semantics, so it terminates on a cycle. */
+export interface OrgRegistry {
+  canRead(org: string): Promise<boolean>;
+  ancestors(org: string): Promise<string[]>;
 }
-/** Per-request \`orgPath\`: the registry \`dataKey\`, else the claim (fail-safe). */
-async function resolveOrgPath(claim: string): Promise<string> {
-  if (!orgPathResolver || claim === "") return claim;
-  try {
-    const dataKey = await orgPathResolver(claim);
-    return dataKey ?? claim;
-  } catch {
-    return claim;
-  }
+
+let orgRegistry: OrgRegistry | null = null;
+
+/** Bind the registry reads (boot.ts).  Unbound, only the home org is admitted
+ *  and the ancestor set is empty — fail-closed. */
+export function registerOrgRegistry(registry: OrgRegistry): void {
+  orgRegistry = registry;
+}
+${
+  ancestors
+    ? `
+/** \`organizationContext.ancestors\` for \`org\` — the org and every org above
+ *  it.  Called once per request; the principal carries the result. */
+async function operatingAncestorsOf(org: string): Promise<User["operatingAncestors"]> {
+  if (orgRegistry === null || org === "") return [];
+  return (await orgRegistry.ancestors(org)) as User["operatingAncestors"];
 }
 `
+    : ""
+}`
     : "";
-  // `rootOrg`: the first segment of the caller's `orgPath` (up to the
-  // first `.`), the anchor for the `global` read level's root-subtree widening.
-  // Pure string derivation — emitted whenever tenancy is declared.
-  const rootOrgSeam = orgPathClaim
-    ? `
-/** The caller's ROOT-org segment (\`currentUser.rootOrg\`): the first segment of
- *  the materialized \`orgPath\` (multi-tenancy). */
-function rootOrgOf(orgPath: string): string {
-  const i = orgPath.indexOf(".");
-  return i === -1 ? orgPath : orgPath.slice(0, i);
-}
-`
-    : "";
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5).
-  // A request-level fact: the `x-org-context` header names the org the request
-  // operates in.  Absent (or empty) ⇒ the principal's own `orgPath`, never a
-  // widening.  Present ⇒ admitted only inside the caller's `orgPath` subtree —
-  // equal to it, or anchored under `orgPath + "."` (the delimiter keeps `org_a`
-  // from admitting `org_ab`) — and refused outright when the principal has no
-  // `orgPath` to anchor on.  Refusal is a pre-body 403, logged through the
-  // neutral catalog (`org_context_denied`).
   const orgContextSeam = orgContext
-    ? `
-/** The request's operating scope (\`organizationContext.orgPath\`): the
- *  requested path when it lies inside the caller's \`orgPath\` subtree, the
- *  caller's own \`orgPath\` when none is requested, and \`null\` (refuse) when
- *  the request asks for anything else — fail-closed. */
-function orgContextFor(orgPath: string, requested: string | undefined): string | null {
-  if (requested === undefined || requested === "") return orgPath;
-  if (orgPath === "") return null;
-  return requested === orgPath || requested.startsWith(\`\${orgPath}.\`) ? requested : null;
+    ? `${registrySeam}
+/** The request's operating org (\`organizationContext.org\`): the caller's
+ *  home org when none is requested or the request names it, ${
+   host
+     ? "the requested org when the caller can read that registry row,"
+     : "no other org (this deployable does not host the registry),"
+}
+ *  and \`null\` (refuse) otherwise — fail-closed. */
+async function orgContextFor(homeOrg: string, requested: string | undefined): Promise<string | null> {
+  if (requested === undefined || requested === "") return homeOrg;
+  if (homeOrg === "") return null;
+  if (requested === homeOrg) return requested;
+  ${host ? "return orgRegistry !== null && (await orgRegistry.canRead(requested)) ? requested : null;" : "return null;"}
 }
 
 /** RFC 7807 403 for a refused operating-scope switch — answered before the
  *  principal is attached, so no handler runs and nothing is written. */
-function orgContextForbidden(c: Context, requested: string, orgPath: string) {
-  ${renderHonoStoreLogCall("orgContextDenied", 'org_context: requested, reason: orgPath === "" ? "no_principal_scope" : "outside_scope", status: 403')}
+function orgContextForbidden(c: Context, requested: string, homeOrg: string) {
+  ${renderHonoStoreLogCall("orgContextDenied", 'org_context: requested, reason: homeOrg === "" ? "no_principal_scope" : "outside_scope", status: 403')}
   return c.body(
     JSON.stringify({
       type: "about:blank",
@@ -540,6 +525,7 @@ function malformedDevClaims(c: Context, detail: string) {
 import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
+import { matchedRoutes } from "hono/route";
 import { ${orgContext ? "requestContext, requestContextStore, requestLog" : "requestContext, requestContextStore"} } from "../obs/als";
 import { baseLogger } from "../obs/log";
 ${oidc ? "" : 'import { MalformedDevClaimsError } from "./dev-stub";\n'}import type { User, UserClaims } from "./user-types";
@@ -547,9 +533,12 @@ import { verifyUserOrThrow } from "./verifier";
 
 const BYPASS_PREFIXES = ${bypass} as const;
 
-/** Whether ANY route serves this path.  Installed by http/index.ts once every
- *  router is mounted (it owns the router that can answer), so it is null until
- *  then and the middleware simply authenticates as before.
+${orgContextSeam}
+/** Whether a ROUTE (not just middleware) answers this request, read off the
+ *  router's own match for it — the exact match the dispatcher runs, so the
+ *  gate and the handler can never disagree about which route a spelling of
+ *  the path reaches.  Middleware registers under \`ALL\`, which matches every
+ *  path; a handler route carries its verb.
  *
  *  The RFC puts ROUTING before authentication.  §15.5.4 names 404 as the code
  *  for an origin server that wishes to hide a resource's existence — 404 is the
@@ -558,20 +547,16 @@ const BYPASS_PREFIXES = ${bypass} as const;
  *  succeed when there is no such resource.  So a path nothing serves falls
  *  through to the 404 handler rather than being challenged.
  *
- *  Keyed on (METHOD, path), because that is what a router resolves.  Keying on
- *  the path alone answers 401 for a wrong VERB on a path that exists, which
- *  contradicts the same ladder: a method mismatch is a ROUTING outcome, so it
- *  belongs to the 405 handler, ahead of authentication.  Phoenix was already
- *  right here and node was not — the cross-backend recording is what said so.
- *  Disclosing the served methods to an anonymous caller is consistent with
- *  answering 404 honestly for an unknown path: concealment has its own
- *  sanctioned tool (§15.5.4) and this API does not use it. */
-export type RouteProbe = (method: string, path: string) => boolean;
-let routeProbe: RouteProbe | null = null;
-export function registerRouteProbe(fn: RouteProbe): void {
-  routeProbe = fn;
+ *  Keyed on (METHOD, path), because that is what a router resolves: a wrong
+ *  VERB on a path that exists is a ROUTING outcome, answered by the 405
+ *  handler ahead of authentication.  Disclosing the served methods to an
+ *  anonymous caller is consistent with answering 404 honestly for an unknown
+ *  path: concealment has its own sanctioned tool (§15.5.4) and this API does
+ *  not use it. */
+function routeMatched(c: Context): boolean {
+  return matchedRoutes(c).some((r) => r.method !== "ALL");
 }
-${resolverSeam}${rootOrgSeam}${orgContextSeam}
+
 /** Hono middleware that decodes the request's JWT into a User, attaches it
  *  to the ambient RequestContext (the one source of truth, readable by
  *  non-HTTP code via \`requireCurrentUser()\`), and also stashes it on the
@@ -608,15 +593,20 @@ ${oidc ? "" : malformedDevClaimsFn}
 export const authMiddleware = createMiddleware<{
   Variables: { currentUser: User };
 }>(async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  for (const prefix of BYPASS_PREFIXES) {
-    if (path.startsWith(prefix)) {
-      await next();
-      return;
+  // \`c.req.path\` is the path the router dispatched on (percent-decoded);
+  // the raw pathname is how the client spelled it.  A bypass prefix matches
+  // only its canonical spelling — an encoded spelling of one is gated like
+  // any other route.
+  const path = c.req.path;
+  if (path === new URL(c.req.url).pathname) {
+    for (const prefix of BYPASS_PREFIXES) {
+      if (path.startsWith(prefix)) {
+        await next();
+        return;
+      }
     }
   }
-  // Route before authenticate — see registerRouteProbe above.
-  if (routeProbe && !routeProbe(c.req.method, path)) {
+  if (!routeMatched(c)) {
     await next();
     return;
   }
@@ -688,19 +678,26 @@ export async function actAsUser(claims: UserClaims): Promise<void> {
       : ""
   }
 }
-${renderSystemPrincipal(user, orgPathClaim, orgContext)}`;
+${renderSystemPrincipal(user, tenantClaim, plan)}`;
 }
 
 /** `systemPrincipal()` — the principal an event reactor runs as (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim is EMPTY (so
  *  a claims gate cannot pass by accident — the dev stub's `"admin"` strings
- *  are deliberately not reused), `isSystem` is true, the tenant claim and the
- *  materialized path are the triggering event's (read off the dispatching
- *  request's principal — the event was raised inside it), and `causedBy` is
+ *  are deliberately not reused), `isSystem` is true, the tenant claim (and the
+ *  operating org, when the switch gate is emitted) is the triggering event's
+ *  tenant (read off the dispatching request's principal — the event was raised
+ *  inside it), and `causedBy` is
  *  that request's user id (or its own `causedBy` when the dispatcher is itself
  *  a reactor).  With no dispatching principal (a timer tick) the tenant is
  *  empty, which matches no tenant-owned row. */
-function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = false): string {
+function renderSystemPrincipal(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  plan: OrgContextPlan,
+): string {
+  const orgContext = plan.gate;
+  const ancestors = plan.ancestors;
   const idField = actorIdField(user);
   const entries = user.fields.map((f) => {
     const v =
@@ -709,31 +706,32 @@ function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = 
         : systemValueFor(f);
     return `    ${snakeToCamel(f.name)}: ${v},`;
   });
-  const tenantSlots = tenantClaim
-    ? [
-        "    orgPath,",
-        "    rootOrg: rootOrgOf(orgPath),",
-        ...(orgContext ? ["    orgContextPath: orgPath,"] : []),
-      ]
-    : [];
-  const tenantOf = tenantClaim
-    ? `user.${tenantClaim} == null || String(user.${tenantClaim}) === "" ? null : String(user.${tenantClaim})`
-    : "null";
-  const orgPathOf = tenantClaim ? `user.orgPath === "" ? null : user.orgPath` : "null";
+  const tenantSlots = [
+    ...(orgContext ? ['    operatingOrg: origin?.tenant ?? "",'] : []),
+    // A reactor reading the ancestors is refused at phase ⑦
+    // (`loom.org-context-ancestors-in-reactor`): the system principal has none.
+    ...(ancestors ? ["    operatingAncestors: [],"] : []),
+  ];
+  // The event's tenant is the OPERATING org of the raising request: a reactor
+  // runs in the org the triggering write happened in, switched or not.
+  const tenantOf = orgContext
+    ? `user.operatingOrg === "" ? null : user.operatingOrg`
+    : tenantClaim
+      ? `user.${tenantClaim} == null || String(user.${tenantClaim}) === "" ? null : String(user.${tenantClaim})`
+      : "null";
   const causedByOf = idField
     ? `user.isSystem ? (user.causedBy ?? null) : String(user.${idField})`
     : "user.causedBy ?? null";
   return lines(
     "",
     "/** Where an event came from (ruling D1): the raising principal's tenant",
-    " *  claim and materialized path, and the originating user id (`causedBy`,",
-    " *  audit only).  Captured onto the outbox row and the channel envelope",
-    " *  (`tenantid` / `loomorgpath` / `loomcausedby`) so a reactor that runs",
+    " *  claim and the originating user id (`causedBy`, audit only).  Captured",
+    " *  onto the outbox row and the channel envelope (`tenantid` /",
+    " *  `loomcausedby`) so a reactor that runs",
     " *  after the request is gone — on the outbox relay, or in another",
     " *  deployable — still runs as the system principal OF THAT TENANT. */",
     "export interface EventOrigin {",
     "  tenant: string | null;",
-    "  orgPath: string | null;",
     "  causedBy: string | null;",
     "}",
     "",
@@ -745,7 +743,6 @@ function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = 
     "  if (user === null) return null;",
     "  return {",
     `    tenant: ${tenantOf},`,
-    `    orgPath: ${orgPathOf},`,
     `    causedBy: ${causedByOf},`,
     "  };",
     "}",
@@ -756,7 +753,6 @@ function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = 
     " *  origin (a timer tick) ⇒ an empty tenant, which matches no tenant-owned",
     " *  row. */",
     "export function systemPrincipalFor(origin: EventOrigin | null): User {",
-    ...(tenantClaim ? ['  const orgPath = origin?.orgPath ?? origin?.tenant ?? "";'] : []),
     "  return {",
     ...entries,
     ...tenantSlots,
@@ -1027,8 +1023,7 @@ const REQUIRED_CLAIMS: ${requiredType} = [${requiredClaims.join(", ")}];
 /** Project verified claims onto the typed claim shape, or null when a required
  *  claim is absent or malformed.  An absent OPTIONAL claim is \`null\`, never
  *  \`undefined\`: gates compare with \`!== null\`, which \`undefined\` would
- *  pass.  The auth middleware derives the request principal (incl. \`orgPath\`
- *  under tenancy) from this. */
+ *  pass.  The auth middleware derives the request principal from this. */
 function toUser(payload: JWTPayload): UserClaims | null {
   if (REQUIRED_CLAIMS.some(([path, format]) => ${requiredCheck})) return null;
   return {
@@ -1083,13 +1078,11 @@ function renderHandshake(user: UserIR, auth?: AuthIR): string {
   // is added only when an `auth { oidc }` block is present; the dev-stub
   // path (e.g. the in-browser playground, where no IdP is reachable) has
   // no IdP to redirect to.
-  // The DECLARED `user { … }` shape, by declared name — nothing else (#2548).
-  // Echoing the principal object leaked the per-request DERIVED members
-  // (`orgPath` / `rootOrg`, the tenancy scoping devices) onto the wire, which
-  // python already excluded and phoenix spelled `org_path`: three answers to
-  // "what is /auth/me?" on one endpoint.  The projection is the same rule the
-  // dev-stub identity follows — the declared shape is the contract, and a
-  // derived member is not part of it.
+  // The DECLARED `user { … }` shape, by declared name — nothing else.  The
+  // principal object also carries server-side members (the derived
+  // `operatingOrg`, the system principal's slots) that are not part of the
+  // contract.  The projection is the same rule the dev-stub identity follows —
+  // the declared shape is the contract, and a derived member is not part of it.
   // Field names are grammar identifiers, so dot access + a bare key keep the
   // emitted object Biome-clean (useLiteralKeys / complexity.useLiteralKeys).
   const meProjection = user.fields
@@ -1098,8 +1091,8 @@ function renderHandshake(user: UserIR, auth?: AuthIR): string {
   const meRoute = `  // Session probe for the frontend guard — NOT bypassed, so the auth
   // middleware has already verified the principal (or returned 401) by
   // the time this runs.  Answers the declared \`user { … }\` shape as plain
-  // JSON — the per-request derived members (orgPath / rootOrg) are server-side
-  // scoping state, not part of the declared principal.
+  // JSON — a per-request derived member (operatingOrg) is server-side scoping
+  // state, not part of the declared principal.
   app.get("/me", (c) => {
     const user = (c as unknown as { get(k: "currentUser"): Record<string, unknown> | undefined }).get(
       "currentUser",
@@ -1159,8 +1152,13 @@ const POST_LOGIN = process.env.OIDC_POST_LOGIN_REDIRECT ?? "/";
 
 // HttpOnly cookie options shared by the session + refresh + transient PKCE
 // cookies.  SameSite=Lax so the IdP's cross-site redirect back to /callback
-// still carries them.
-const COOKIE = { httpOnly: true, sameSite: "Lax", path: "/" } as const;
+// still carries them.  Secure unless ${SECURE_TRANSPORT_ENV} is off (the local
+// compose stack serves plain http), so the tokens never ride cleartext in a
+// TLS deployment.
+const SECURE_TRANSPORT = ![${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}].includes(
+  (process.env.${SECURE_TRANSPORT_ENV} ?? "").trim().toLowerCase(),
+);
+const COOKIE = { httpOnly: true, secure: SECURE_TRANSPORT, sameSite: "Lax", path: "/" } as const;
 
 interface Endpoints {
   authorization_endpoint: string;

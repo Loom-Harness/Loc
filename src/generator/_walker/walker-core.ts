@@ -51,7 +51,7 @@
 //   - `isWalkableLayoutBody(body)` — predicate the page emitter
 //     uses to decide whether to dispatch to the walker.
 
-import { PAGED_META_MEMBERS, pagedReturn } from "../../ir/stdlib/generics.js";
+import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   ActionIR,
@@ -83,8 +83,15 @@ import {
   provenancedFieldNames,
 } from "../_payload/provenanced-wire.js";
 import { escapeHtmlAttr } from "./a11y-emit.js";
-import { tryDetectApiHook } from "./api-hook-detector.js";
-import { registerApiHook } from "./api-hook-register.js";
+import {
+  type ActionMutationState,
+  bindAccess,
+  detectDataAccess,
+  noteAccessErrorType,
+  type OpGateState,
+  renderAccessSite,
+  renderBoundMethodCall,
+} from "./data-access.js";
 import { giveUp, giveUpText, wrapLoneRootComment } from "./give-up.js";
 import { localizedModelText } from "./i18n-emit.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
@@ -92,7 +99,15 @@ import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
-import type { ChildSlot, RenderPosition, WalkerTarget } from "./target.js";
+import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget } from "./target.js";
+
+export {
+  type ActionMutationState,
+  type OpGateState,
+  renderActionMutationArg,
+  STANDARD_AGG_OPS,
+} from "./data-access.js";
+export type { DataBinding } from "./target.js";
 
 /** A MODEL-DERIVED identifier (a page/component param, a shell local, a `let`
  *  binding), spelled the way the active target's embedded language needs it.
@@ -230,12 +245,10 @@ export interface WalkResult {
    *  set add a `children?: React.ReactNode` prop to their typed
    *  Props interface. */
   usesChildren: boolean;
-  /** Collected api-hook usages.  Each unique
-   *  `<paramName>.<aggregate>.<op>` reference in the body becomes
-   *  one entry — the shell emits a `const <varName> = use<Op>()`
-   *  declaration at page-top + an import.  Body refs are
-   *  rewritten to use the local var. */
-  usedApiHooks: Map<string, ApiHookUse>;
+  /** The body's data bindings (`data-access.ts`), one per distinct read or
+   *  call, keyed by the name the body's access sites read.  The target's shell
+   *  declares them through `renderDataBindings`. */
+  dataBindings: Map<string, DataBinding>;
   /** Non-null when the body contained a `CreateForm(of: <Agg>)`
    *  primitive.  Shell consumes this to emit `useForm` / `Controller`
    *  imports, mutation hook, `defaultValues`, and the `onSubmit`
@@ -302,92 +315,6 @@ export interface WalkResult {
   usesFileUpload: boolean;
 }
 
-/** `Action(<instance>.<op>, then?)` — a button bound to an aggregate
- *  operation invoked on an in-scope instance.  `emitAction` records
- *  the mutation hook here; both page and component shells declare it
- *  at function top (the hook must be called at component scope, not
- *  inside the onClick handler). */
-export interface ActionMutationState {
-  /** Local variable bound to the mutation hook (e.g. `confirmOrder`),
-   *  referenced by the button's onClick. */
-  localVar: string;
-  /** Mutation hook name (e.g. `useConfirmOrder`). */
-  hookName: string;
-  /** camelCase aggregate name — the api module to import from
-   *  (`<prefix>api/<aggCamel>`). */
-  aggCamel: string;
-  /** JS expression for the instance id to mutate (e.g. `order.id`).
-   *
-   *  ABSENT (`undefined`) means the hook takes NO hook-time argument at
-   *  all — `DestroyForm` hoists `useDelete<Agg>()`, whose id goes to
-   *  `mutateAsync` instead, unlike `use<Op><Agg>(<id>)`.  That is a
-   *  different thing from an id that renders to the empty string, and it
-   *  must stay a distinct value rather than `""`: a shell that decorates
-   *  a PRESENT id (svelte wraps it in an accessor thunk) turns `""` into
-   *  `useDeleteOrder(() => )`, a syntax error.  Render the argument with
-   *  `renderActionMutationArg` rather than interpolating this field. */
-  idExpr?: string;
-  /** A ROW-scoped `Action` (inside a `Table` column / `For` lambda): one hook
-   *  serves every row, so its id is read from this holder, which the row's
-   *  click sets just before it mutates.  The shell declares the holder (a
-   *  plain `{ current: "" }` box — nothing renders from it, so it needs no
-   *  reactivity) and passes the hook a getter over it; `idExpr` is unused. */
-  rowIdHolder?: string;
-  /** The hook is called somewhere other than the shell's function top — React's
-   *  row-scoped `Action` calls it inside a per-row child component — so the
-   *  shell imports it and declares nothing. */
-  importOnly?: boolean;
-}
-
-/** Render an action-mutation hook's hook-time ARGUMENT LIST.
- *
- *  The one place that knows what an absent `idExpr` means, shared by every
- *  shell that declares `const <localVar> = <hookName>(<arg>)`.  An absent id
- *  renders as the EMPTY argument list (`useDelete<Agg>()`); a present one is
- *  shaped by the framework's `wrap` — svelte's api factories take the id as an
- *  accessor, so it wraps in a thunk, while react passes it straight through.
- *
- *  Frameworks differ only in how they decorate a present id, never in whether
- *  an absent one may be decorated — which is why the check lives here and not
- *  in each shell.
- *
- *  `wrap` is REQUIRED, with no identity default: a shell that silently got the
- *  identity because it forgot the argument would emit an UNDECORATED id and
- *  compile clean, which is the same silent-degradation shape this helper exists
- *  to close (and what `test/platform/optional-context-param-sweep.test.ts`
- *  guards).  A shell that genuinely passes the id through spells that out as
- *  `(id) => id`. */
-export function renderActionMutationArg(
-  m: ActionMutationState,
-  wrap: (idExpr: string) => string,
-): string {
-  return m.idExpr === undefined ? "" : wrap(m.idExpr);
-}
-
-/** A single auto-injected React Query hook call.  Generated when
- *  the walker detects `<param>.<aggregate>.<op>(args?)` in body
- *  position; consumed by `renderCustomLayoutPage` / `renderUserComponentFile`
- *  to emit the per-page hook plumbing. */
-export interface ApiHookUse {
-  /** Local variable name in the generated React file
-   *  (e.g. `customerAll`, `customerById`). */
-  varName: string;
-  /** React Query hook function name to import + call
-   *  (e.g. `useAllCustomers`, `useCustomerById`). */
-  hookName: string;
-  /** Module-relative import path (e.g. `../api/customer`). */
-  importFrom: string;
-  /** Pre-rendered args to pass to the hook call (only set for
-   *  parameterized queries like `byId(id)` — emitted at
-   *  hook-decl time at page-top).  Rendered eagerly via the main
-   *  WalkContext so any param/state refs in the args propagate
-   *  to `usedParams` / `usesState` for the shell. */
-  argsRendered: readonly string[];
-  /** True for a parameterised `find` query — the Vue shell wraps the
-   *  arg in a getter so a bound filter input live-refetches. */
-  reactiveQuery?: boolean;
-}
-
 /** Component names the React walker accepts as the TOP-LEVEL `body:`
  *  of a page or component.  Used by `isWalkableLayoutBody` to fast-
  *  fail dispatch when a body is neither a scaffold archetype nor a
@@ -451,6 +378,7 @@ export function isWalkableLayoutBody(
         (body.variantArms ?? []).some((a) => walkable(a.value)) ||
         walkable(body.otherwise)
       );
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":
@@ -581,7 +509,7 @@ export function walkBody(
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames,
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName,
@@ -638,7 +566,7 @@ export function walkBody(
     usesRouteId: ctx.usesRouteId,
     usedUserComponents: ctx.usedUserComponents,
     usesChildren: ctx.usesChildren,
-    usedApiHooks: ctx.usedApiHooks,
+    dataBindings: ctx.dataBindings,
     formOfs: ctx.formOfs,
     sink: ctx.sink,
     actionMutations: ctx.actionMutations,
@@ -840,7 +768,7 @@ export interface Sink {
   usesRouteId: boolean;
   usedUserComponents: Set<string>;
   usesChildren: boolean;
-  usedApiHooks: Map<string, ApiHookUse>;
+  dataBindings: Map<string, DataBinding>;
   /** When `CreateForm(of: <Agg>)` or `WorkflowForm(runs: <wf>)`
    *  is walked, the emitter records the metadata the shell needs
    *  (aggregate or workflow, BC, optional user-supplied
@@ -1066,77 +994,6 @@ export interface OperationFormState extends FormStateBase {
   gate?: OpGateState;
 }
 
-/** The `can_<op>` probe wiring of a `when`-gated operation trigger. */
-export interface OpGateState {
-  /** Page-scope local bound to the probe query (`canComplete`). */
-  local: string;
-  /** The api-client hook/function that issues the probe
-   *  (`useCanCompleteTask`), keyed under the record's own query key so every
-   *  mutation that invalidates the record re-queries it. */
-  hook: string;
-  /** Target-native boolean expression — true while the trigger is disabled
-   *  (`canComplete.data?.allowed === false`). */
-  disabledExpr: string;
-  /** Target-native string expression for the disabled trigger's accessible
-   *  reason (`chrome.opNotAllowed`, translated when the UI is). */
-  reasonExpr: string;
-}
-
-/** Rewrite a detected user-FIND hook's rendered args from positional to
- *  the object shape the emitted hook signature takes
- *  (`use<Find><Agg>(query: <Find>Query)` — see _frontend/api-module.ts).
- *  The find's param names come from the owning context's repository via
- *  `bcByAggregate`; paged finds gain the backend's page/pageSize
- *  defaults (P3b) — pagination controls on filtered lists are future
- *  work.  Standard ops (`all`/`byId`/`create`/`update`/`delete`) and
- *  unknown names pass through untouched. */
-function adjustFindHookArgs(
-  detected: import("./api-hook-detector.js").DetectedApiCall,
-  hookUse: import("./target.js").TargetHookUse,
-  ctx: WalkContext,
-): import("./target.js").TargetHookUse {
-  if (detected.kind !== "aggregate") return hookUse;
-  const bc = ctx.bcByAggregate.get(detected.aggregateName);
-  const repo = bc?.repositories.find((r) => r.aggregateName === detected.aggregateName);
-  const find = repo?.finds.find((f) => f.name === detected.operation);
-  const isPaged = find ? pagedReturn(find.returnType) : null;
-  // Standard ops (`byId`/`create`/…) pass through — EXCEPT a paged `all`
-  // (paged-by-default, M-T2.6), which takes the same object-shaped query arg a
-  // user find does (`useAll<Plural>({ page, pageSize, sort, dir })`).
-  if (STANDARD_AGG_OPS.has(detected.operation) && !isPaged) return hookUse;
-  // A PAGED read still needs its query bag when the call site passed nothing
-  // (a hand-written `QueryView { of: Shop.Product.all }` — the scaffold threads
-  // its page state, but this shape does not), because a target whose provider
-  // is KEYED by that bag has no zero-arg form to fall back on: Flutter's
-  // `.family` provider would be referenced bare and fail to compile.  Gated on
-  // the target declaring `renderQueryArgsBag`, so the JSX frontends — whose
-  // hooks do have a zero-arg form — stay byte-identical.
-  const needsExplicitBag = isPaged && !!ctx.target.renderQueryArgsBag;
-  if (!find || (hookUse.argsRendered.length === 0 && !needsExplicitBag)) return hookUse;
-  const pairs = find.params.map((p, i) => ({
-    name: p.name,
-    value: hookUse.argsRendered[i] ?? "undefined",
-  }));
-  if (isPaged) {
-    // The paged controls follow the user params in the call's args (the scaffold
-    // list threads its `pageNum`/`sortKey`/`sortDir` state here); any omitted →
-    // the shared 1-based / default-order defaults.
-    const extra = hookUse.argsRendered.slice(find.params.length);
-    pairs.push(
-      { name: "page", value: extra[0] ?? "1" },
-      { name: "pageSize", value: extra[1] ?? "20" },
-      { name: "sort", value: extra[2] ?? '"id"' },
-      { name: "dir", value: extra[3] ?? '"asc"' },
-    );
-  }
-  // The BAG's spelling is the target's — a JS object literal for the JSX
-  // frontends, a Dart named record for Flutter (see `renderQueryArgsBag`).
-  const bag =
-    ctx.target.renderQueryArgsBag?.(pairs) ??
-    `{ ${pairs.map((p) => `${p.name}: ${p.value}`).join(", ")} }`;
-  return { ...hookUse, argsRendered: [bag], reactiveQuery: true };
-}
-
 /** Resolve a `navigate(<Page>[, <state>])` CALL — in `then:` position (where
  *  `emitActionThen` has always handled it) or as a bare STATEMENT in a page
  *  `action` body (where nothing did, so it fell through to the generic
@@ -1174,18 +1031,6 @@ export function tryRenderNavigateCall(
   return ctx.target.renderNavigate(route, [], stateExpr);
 }
 
-/** The compiler-owned repository verbs a `<handle>.<Agg>.<verb>` read can name.
- *  Exported because a caller resolving the AGGREGATE out of such a read has to
- *  recognise the verb to look past it: `Ops.Item.all` is a MEMBER chain whose
- *  last hop is the verb, not the aggregate (`primitives/controls.ts`). */
-export const STANDARD_AGG_OPS: ReadonlySet<string> = new Set([
-  "all",
-  "byId",
-  "create",
-  "update",
-  "delete",
-]);
-
 export function walk(
   expr: ExprIR,
   ctx: WalkContext,
@@ -1208,35 +1053,11 @@ export function walk(
   // previous renderer (see `WalkerTarget.renderNodeOverride`).
   const overridden = ctx.target.renderNodeOverride?.(expr, ctx, depth, slot);
   if (overridden !== undefined) return overridden;
-  // Api hook injection (JSX-child position).  Detect
-  // `<param>.<aggregate>.<op>` rooted at a UiApiParam; register
-  // the hook for hoisting (renderApiHoisting consumes
-  // ctx.usedApiHooks); delegate the call-site emission shape to
-  // tsxTarget.renderApiCall (cross-framework contract — see
-  // src/generator/_walker/target.ts).  TSX's contract semantics
-  // is var-only — the surrounding member / method-call IR walk
-  // emits any chained `.data` / `.mutate(args)` / `.isPending`.
-  // JSX-child position wraps the result in braces.
-  const detected = tryDetectApiHook(expr, ctx);
-  if (detected) {
-    const hookUse = adjustFindHookArgs(
-      detected,
-      ctx.target.buildHookUse(detected, (e) => emitExpr(e, ctx)),
-      ctx,
-    );
-    registerApiHook(hookUse, ctx);
-    const rendered = ctx.target.renderApiCall(
-      {
-        apiHandle: "",
-        aggregateName: "",
-        operation: "",
-        kind: "query",
-        args: [],
-        varName: hookUse.varName,
-      },
-      "",
-    );
-    return ctx.target.renderInterpolation(rendered);
+  // A data read in child position renders as its access site, interpolated.
+  const access = detectDataAccess(expr, ctx);
+  if (access) {
+    const binding = bindAccess(access, ctx, (e) => emitExpr(e, ctx));
+    return ctx.target.renderInterpolation(renderAccessSite(access, binding, ctx));
   }
   switch (expr.kind) {
     case "call":
@@ -1358,6 +1179,7 @@ export function walk(
     // They are enumerated rather than swept into a bare `default` so a NEW
     // `ExprIR.kind` is a compile error here (the `never` below), on all six
     // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "exists":
     case "this":
     case "id":
     case "lambda":
@@ -1769,10 +1591,9 @@ function emitMemberAccess(
     const envelope = ctx.pagedEnvelopeBindings.get(expr.receiver.name);
     if (envelope !== undefined) return `${envelope}.${expr.member}`;
   }
-  // Plain JS member access: `<recv>.<member>`.  Recursive
-  // emit on the receiver — if it was a hook-eligible chain
-  //, tryDetectApiHook at the top has already
-  // returned the hook var; we just append `.<member>`.
+  // Plain JS member access: `<recv>.<member>`.  Recursive emit on the
+  // receiver — a data read there has already rendered as its access site;
+  // this appends `.<member>`.
   const recv = emitExpr(expr.receiver, ctx);
   // A target whose embedded language is not JavaScript spells some members
   // differently (F#'s `.Length`); returning undefined keeps the JS form.
@@ -1851,31 +1672,13 @@ const EMPTY_ROW_SET: ReadonlySet<string> = new Set<string>();
  *  refs render as bare identifiers (they're in scope via
  *  `useState` / `useParams` destructure). */
 export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
-  // Api hook injection.  Detect `<param>.<aggregate>.<op>`
-  // (with optional method-call args) rooted at a UiApiParam ref.
-  // When matched, register a hook usage on the context and
-  // delegate the call-site emission shape to tsxTarget.renderApiCall.
-  // The shell emits the `const <var> = use<Op><Aggregate>(args)`
-  // declaration at page-top via renderApiHoisting (delegated in #625).
-  // Expression position — no JSX brace wrap.
-  const detected = tryDetectApiHook(expr, ctx);
-  if (detected) {
-    const hookUse = adjustFindHookArgs(
-      detected,
-      ctx.target.buildHookUse(detected, (e) => emitExpr(e, ctx)),
+  // A data read in expression position renders as its access site.
+  const access = detectDataAccess(expr, ctx);
+  if (access) {
+    return renderAccessSite(
+      access,
+      bindAccess(access, ctx, (e) => emitExpr(e, ctx)),
       ctx,
-    );
-    registerApiHook(hookUse, ctx);
-    return ctx.target.renderApiCall(
-      {
-        apiHandle: "",
-        aggregateName: "",
-        operation: "",
-        kind: "query",
-        args: [],
-        varName: hookUse.varName,
-      },
-      "",
     );
   }
   switch (expr.kind) {
@@ -2204,16 +2007,15 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         const rendered = tryCollectionOp(expr, ctx);
         if (rendered !== undefined) return rendered;
       }
-      // When the method-call's receiver is a hook
-      // (detected by tryDetectApiHook on the receiver), emit
-      // `<hookVar>.<method>(<args>)` (e.g.
-      // `customerCreate.mutate({...})`).
-      const recvDetected = tryDetectApiHook(expr.receiver, ctx);
-      if (recvDetected) {
-        const recvHookUse = ctx.target.buildHookUse(recvDetected, (e) => emitExpr(e, ctx));
-        registerApiHook(recvHookUse, ctx);
+      // A method invoked on a data read (`Sales.Customer.create.mutate(…)`)
+      // invokes it on the read's binding.
+      const recvAccess = detectDataAccess(expr.receiver, ctx);
+      if (recvAccess) {
+        const recvBinding = bindAccess(recvAccess, ctx, (e) => emitExpr(e, ctx), {
+          shapeFindArgs: false,
+        });
         const args = expr.args.map((a) => emitExpr(a, ctx)).join(", ");
-        return `${recvHookUse.varName}.${expr.member}(${args})`;
+        return renderBoundMethodCall(recvBinding, expr.member, args);
       }
       // Method calls on plain JS receivers (e.g. a
       // local `create` mutation hook inside a `CreateForm(of:)` page's
@@ -2354,6 +2156,13 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         `walker: authorization filter for '${expr.aggregate}' reached a page/component body. ` +
           "Record-level policy is enforced server-side; a UI gate belongs in `requires`.",
       );
+    case "exists":
+      // A query predicate (`loom.exists-outside-query` keeps it out of every
+      // page / component body) — the backends compile it into SQL.
+      throw new Error(
+        `walker: 'exists ${expr.aggregate} …' reached a page/component body; it is a ` +
+          "query predicate — read the rows through a criterion on the server.",
+      );
     default: {
       // EXHAUSTIVENESS — the frontend twin of `_expr/target.ts`'s `never`
       // check.  Every `ExprIR.kind` must have an arm above; a new kind is a
@@ -2393,31 +2202,6 @@ function declaredValueObject(
   }
   return undefined;
 }
-
-/** Best-effort description of an unresolved method-call receiver
- *  for the placeholder comment (so the user can see WHICH
- *  call landed as the placeholder).  Avoids invoking emitExpr
- *  on the receiver since that path emits a noisy
- *  `unresolved` comment for free identifiers — bad inside the
- *  outer placeholder. */
-/** Detect `<param>.<aggregate>.<op>(args?)` rooted
- *  at a UiApiParam ref.  Returns an ApiHookUse on match, or null
- *  to fall through to generic expression handling.
- *
- *  Two patterns:
- *    A. `<param>.<aggregate>.<op>` — non-parameterized hook
- *       (e.g. `Sales.Customer.all`, `Sales.Customer.create`)
- *    B. `<param>.<aggregate>.<op>(args)` — parameterized hook
- *       (e.g. `Sales.Customer.byId(id)`)
- *
- *  Both emit one hook call at page-top.  Anything stacked on top
- *  (`.data`, `.isLoading`, `.mutate(args)`, etc.) is plain JS
- *  member access on the local hook variable — handled by the
- *  default member-access / method-call paths after this helper
- *  has rewritten the deepest 3-segment chain. */
-// Api-hook detection/registration (tryDetectApiHook, registerApiHook,
-// buildHookUse/buildViewHookUse) and renderApiHookImports live in
-// walker/api-hooks.ts; emitExpr/walk call into them.
 
 /** Render a `StmtIR` as a TS statement string (with a trailing
  *  semicolon).  Supports the subset that matters for click handlers:
@@ -2598,7 +2382,7 @@ function emitVariantMatch(
   }
   // Detect the awaited remote op in the subject position (Pattern B/E:
   // `Sales.Order.placeOrder(…)` / `Order.placeOrder(…)`).
-  const detected = tryDetectApiHook(stmt.subject, ctx);
+  const detected = detectDataAccess(stmt.subject, ctx);
   let mutationVar = "";
   let mutateArgs = "{}";
   let bc: BoundedContextIR | undefined;
@@ -2607,11 +2391,11 @@ function emitVariantMatch(
     bc = ctx.bcByAggregate.get(detected.aggregateName);
     const agg = ctx.aggregatesByName.get(detected.aggregateName);
     const op = agg?.operations.find((o) => o.name === detected.operation);
-    // An aggregate `operation` is an INSTANCE command — its hook takes the
-    // route `id` at hook time and the request payload at `mutateAsync` time.
-    // Hoist the hook with the route id (the shell binds `id` from the route
-    // params), and map the awaited call's positional args onto the op's params
-    // to build the request object.
+    // An aggregate `operation` is an INSTANCE command — its binding takes the
+    // route `id` and the invocation takes the request payload.  Bind it with
+    // the route id (the shell binds `id` from the route params), and map the
+    // awaited call's positional args onto the op's params to build the request
+    // object.
     const routeId = ctx.target.renderRouteId?.() ?? "id";
     ctx.usesRouteId = true;
     // The route id is `string | undefined` at the shell (React's
@@ -2619,12 +2403,10 @@ function emitVariantMatch(
     // definite `string`.  Coerce with the same `id ?? ""` idiom the
     // delete-button confirm handler uses — on a detail page the id is
     // always present at runtime, so the fallback never fires.
-    const hookUse = {
-      ...ctx.target.buildHookUse(detected, (e) => emitExpr(e, ctx)),
-      argsRendered: [`${routeId} ?? ""`],
-    };
-    registerApiHook(hookUse, ctx);
-    mutationVar = hookUse.varName;
+    const binding = bindAccess(detected, ctx, (e) => emitExpr(e, ctx), {
+      bindingArgs: [`${routeId} ?? ""`],
+    });
+    mutationVar = binding.varName;
     const params = op?.params ?? [];
     mutateArgs =
       params.length === 0
@@ -2638,9 +2420,9 @@ function emitVariantMatch(
     if (agg && op) {
       // The op's `or`-union response type — the discriminated union the
       // api-module emits.  The action's `result` narrows on it, and the
-      // page-shell imports it alongside the hook.
+      // page-shell imports it alongside the binding.
       resultType = `${upperFirstName(op.name)}${agg.name}Response`;
-      addPageImport(ctx, `${hookUse.importFrom}`, resultType);
+      addPageImport(ctx, `${binding.importFrom}`, resultType);
     }
   }
   // Classify the error variant (v1: at most one) via the owning context's
@@ -2654,7 +2436,7 @@ function emitVariantMatch(
     const tag = variantTag(arm.varType);
     // Bind the narrowed variant local so `o.code` resolves inside the arm.  The
     // spread copies the parent Sink's BOOLEAN flags by value (object sinks —
-    // imports / usedApiHooks / usedParams — stay shared by reference), so any
+    // imports / dataBindings / usedParams — stay shared by reference), so any
     // `usesState` / `usesNavigate` a body write flips must be OR'd back into the
     // parent afterwards (else the shell skips the `useState` the setter needs).
     const armCtx: WalkContext = arm.binding
@@ -2680,7 +2462,7 @@ function emitVariantMatch(
   const errorVariants = arms
     .filter((a) => a.isError)
     .map((a) => ({ tag: a.tag, uri: errorTypeUri(a.tag) }));
-  if (errorVariants.length > 0) addPageImport(ctx, "../api/client", "ApiError");
+  if (errorVariants.length > 0) noteAccessErrorType(ctx, addPageImport);
   const elseBody = stmt.elseBody?.map((s) => emitStmt(s, ctx));
 
   return ctx.target.renderVariantMatch({

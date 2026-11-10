@@ -2,11 +2,17 @@ import { sourceText } from "../generator/_i18n/source-text.js";
 import { collectWireValidationMessages } from "../generator/_i18n/validation-catalog.js";
 import { loadPack, resolvePackDir } from "../generator/_packs/loader-fs.js";
 import { packChromeCatalog } from "../generator/_packs/pack-chrome.js";
-import { chromeMergedWhenEnabled } from "../generator/_walker/i18n-chrome.js";
+import {
+  chromeMergedWhenEnabled,
+  HAND_BUILT_FORM_SENTENCES,
+} from "../generator/_walker/i18n-chrome.js";
 import { collectUiMessages } from "../generator/_walker/i18n-extract.js";
-import type { EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
+import type { BoundedContextIR, EnrichedSystemIR, UiIR } from "../ir/types/loom-ir.js";
+import { isMacroEmitted, type OriginRef, type SourceRef } from "../ir/types/origin.js";
 import { factsFor } from "../platform/metadata.js";
+import { frameworkFacts, frameworkFactsForPackFormat } from "../platform/target-facts.js";
 import { packFormatForBuiltin } from "../util/builtin-formats.js";
+import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
 
 // ---------------------------------------------------------------------------
 // `<system>/.loom/messages.<source>.json` artifact (M-T1.11, i18n.md).
@@ -64,7 +70,19 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
     const design = dep.design;
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    if (factsFor(dep.platform)?.selfRenderedUiFormat !== undefined) continue;
+    // Some frameworks (Feliz, Angular) build their dynamic-row and form
+    // sentences by hand, not from a pack's `sentenceChrome`.
+    const facts = factsFor(dep.platform);
+    const selfRendered = facts?.selfRenderedUiFormat;
+    const framework =
+      selfRendered !== undefined
+        ? frameworkFacts(facts?.defaultUiFramework)
+        : frameworkFactsForPackFormat(packFormatForBuiltin(design));
+    if (framework?.handBuiltFormSentences) {
+      for (const base of HAND_BUILT_FORM_SENTENCES) out.add(base);
+      continue;
+    }
+    if (selfRendered !== undefined) continue;
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
@@ -110,11 +128,24 @@ function implicitModelTextFormats(sys: EnrichedSystemIR, ui: UiIR): Set<string> 
   return out;
 }
 
+/** Whether a Feliz or Flutter deployable rendering `ui` draws the generated
+ *  session gate: it opts in with `auth: ui`, its target backend enforces auth,
+ *  and the system declares a `user { }` claim shape — the conjunction those two
+ *  generators call `authUi`. */
+function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return sys.deployables.some((dep) => {
+    if (factsFor(dep.platform)?.selfRenderedUiFormat === undefined) return false;
+    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
+    const target = sys.deployables.find((d) => d.name === dep.targetName);
+    return !!(dep.auth?.ui && target?.auth?.required && sys.user);
+  });
+}
+
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
 export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, string> {
   const byKey = new Map<string, string>();
   for (const ui of sys.uis) {
-    for (const { key, message } of collectUiMessages(ui)) {
+    for (const { key, message } of collectUiMessages(ui, sys.layouts)) {
       // Same key ⇒ same content hash ⇒ same message; last-writer-wins is a
       // no-op that also collapses the same string used at many call sites.
       byKey.set(key, message);
@@ -138,6 +169,8 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // The HEEx create form renders optional inputs too (it has no update
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
+        authGate: uiDrawsAuthGate(sys, ui),
+        fallbackLabels: formats.has("heex"),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
         byKey.set(key, message);
@@ -162,4 +195,84 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
 /** Render the `.loom/messages.en.json` artifact for a system. */
 export function renderMessageCatalog(sys: EnrichedSystemIR): string {
   return JSON.stringify(buildMessageCatalog(sys), null, 2) + "\n";
+}
+
+/** The `.ddd` span a catalog entry points at: a written span as is, a macro
+ *  expansion at its `with <macro>(…)` call. */
+function sourceRefOf(origin: OriginRef | undefined): SourceRef | undefined {
+  if (origin?.kind === "source") return origin;
+  if (origin?.kind === "macro" && isMacroEmitted(origin)) return origin.call;
+  return undefined;
+}
+
+/** The declaration of the type a model-identity key names, and the member
+ *  within it when the facet names one — the most specific origin the IR holds. */
+function modelTextDeclaration(
+  contexts: readonly BoundedContextIR[],
+  key: string,
+): OriginRef | undefined {
+  const ns = key.split(".")[0]!;
+  // A system-level type is folded into every context, so any of them carries it.
+  const homes = ns === SYSTEM_TEXT_NS ? contexts : contexts.filter((c) => c.name === ns);
+  for (const bc of homes) {
+    const origin = declarationIn(bc, key);
+    if (origin) return origin;
+  }
+  return undefined;
+}
+
+function declarationIn(bc: BoundedContextIR, key: string): OriginRef | undefined {
+  const [, type, facet, member] = key.split(".") as [string, string, string, string | undefined];
+  const agg = bc.aggregates.find((a) => a.name === type || a.parts?.some((p) => p.name === type));
+  if (agg) {
+    if (type === agg.name && member !== undefined) {
+      if (facet === "field") return agg.fields.find((f) => f.name === member)?.origin ?? agg.origin;
+      if (facet === "op") {
+        return [...agg.operations, ...agg.creates].find((o) => o.name === member)?.origin;
+      }
+    }
+    return agg.origin;
+  }
+  const vo = bc.valueObjects.find((v) => v.name === type);
+  if (vo) {
+    if (facet === "field" && member !== undefined) {
+      return vo.fields.find((f) => f.name === member)?.origin ?? vo.origin;
+    }
+    return vo.origin;
+  }
+  const en = bc.enums.find((e) => e.name === type);
+  if (en) return en.origin;
+  return bc.workflows.find((w) => w.name === type)?.origin;
+}
+
+/** Where each catalog key was written in the `.ddd` source: `key → spans`.
+ *
+ *  A page literal sits where it is written.  A model-identity key
+ *  (`<Ctx>.<Type>.field.<f>`) is the fact's declaration when the IR holds one —
+ *  the translator reads the model element, not a page that happens to show it —
+ *  and otherwise the `label(…)` call that names it.  Text no source wrote
+ *  (design-pack chrome, app-shell chrome) has no entry. */
+export function buildMessageSites(sys: EnrichedSystemIR): Map<string, SourceRef[]> {
+  const contexts = sys.subdomains.flatMap((sub) => sub.contexts);
+  const sites = new Map<string, SourceRef[]>();
+  const add = (key: string, ref: SourceRef | undefined): void => {
+    if (!ref) return;
+    const list = sites.get(key) ?? [];
+    if (!list.some((r) => r.path === ref.path && r.span.start === ref.span.start)) list.push(ref);
+    sites.set(key, list);
+  };
+  for (const ui of sys.uis) {
+    for (const entry of collectUiMessages(ui)) {
+      if (isModelTextKey(entry.key)) {
+        add(entry.key, sourceRefOf(modelTextDeclaration(contexts, entry.key)));
+      }
+      add(entry.key, sourceRefOf(entry.origin));
+    }
+  }
+  for (const { code } of sys.subdomains.flatMap((sub) =>
+    collectWireValidationMessages(sub.contexts),
+  )) {
+    add(code, sourceRefOf(modelTextDeclaration(contexts, code)));
+  }
+  return sites;
 }

@@ -38,6 +38,7 @@
 
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -312,6 +313,7 @@ function columnOf(parts: readonly string[]): string {
 
 export const flutterTarget: WalkerTarget = {
   framework: "flutter",
+  axes: requireFrontendAxes("flutter"),
 
   // Dart `<Widget>[ … ]` list literals are comma-separated — the shared walker
   // joins container children with `\n<indent>` and no token, so without this the
@@ -384,7 +386,7 @@ export const flutterTarget: WalkerTarget = {
   // --- API seam — thin Riverpod projection ---------------------------------
   // A detected api call resolves to a provider-local (`customerAll`); the args
   // render through the walker context so param/state refs propagate.
-  buildHookUse: (detected, renderArg) => {
+  bindDataAccess: (detected, renderArg) => {
     const varName = apiVarName(detected.aggregateName, detected.operation);
     return {
       varName,
@@ -406,7 +408,7 @@ export const flutterTarget: WalkerTarget = {
   // rendered args (`ref.watch(orderByIdProvider(id))`); a paramless list read
   // watches the bare provider.  The provider itself (fetch + `fromJson`) is
   // emitted by `reads-emit.ts`.
-  renderApiHoisting: (uses: ApiCallSite[]) => {
+  renderDataBindings: (uses: ApiCallSite[]) => {
     const seen = new Set<string>();
     const lines: string[] = [];
     for (const u of uses) {
@@ -1161,6 +1163,16 @@ export const flutterTarget: WalkerTarget = {
       args.push(`<String, Object>{${pairs}}`);
     }
     return `t(${args.join(", ")})`;
+  },
+  // A rich-text sentence → the runtime's `tRich`, a `Text.rich` of styled spans.
+  // Paren-wrapped so the pack's text slot takes it as an already-built widget.
+  renderRichText: ({ key, message, values }) => {
+    const args = [dartStringLit(key), dartStringLit(message)];
+    if (values && values.length > 0) {
+      const pairs = values.map((v) => `${dartStringLit(v.name)}: ${v.expr}`).join(", ");
+      args.push(`<String, Object>{${pairs}}`);
+    }
+    return `(tRich(${args.join(", ")}))`;
   },
   // Implicit model-text sites (form labels, enum options, submit buttons, the
   // `EnumBadge` value) are keyed by identity through `renderTranslate`.

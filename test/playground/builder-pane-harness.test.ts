@@ -154,3 +154,40 @@ describe("builder panes — the rails come from the harness, not a local copy", 
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Seed revision — typing changes `initialSource` (it follows the store) but
+// must not advance the revision the panes' external-reseed tick keys on.
+// ---------------------------------------------------------------------------
+import { nextSeedRevision, type SeedRevision } from "../../web/src/builder/live-source-tick.js";
+
+describe("nextSeedRevision", () => {
+  it("does not bump on typing echoes, one per keystroke", () => {
+    let st: SeedRevision = { seen: "a", rev: 0 };
+    let typed = "a";
+    for (const ch of "hello") {
+      typed += ch; // editor emits, then the store echoes it back as initialSource
+      st = nextSeedRevision(st, typed, typed);
+    }
+    expect(st.rev).toBe(0);
+    expect(st.seen).toBe(typed);
+  });
+
+  it("bumps on a tab switch / import / restore (text the editor did not write)", () => {
+    let st: SeedRevision = { seen: "abc", rev: 0 };
+    st = nextSeedRevision(st, "other file", "abc");
+    expect(st.rev).toBe(1);
+    st = nextSeedRevision(st, "other file", "abc"); // same value: idempotent re-render
+    expect(st.rev).toBe(1);
+    st = nextSeedRevision(st, "imported", null);
+    expect(st.rev).toBe(2);
+  });
+
+  it("wires App to the seed revision, not the live text", () => {
+    const app = fs.readFileSync(path.join(repoRoot, "web", "src", "App.tsx"), "utf8");
+    expect(app).toMatch(/nextSeedRevision\(/);
+    const harness = fs.readFileSync(path.join(builderDir, "pane-harness.ts"), "utf8");
+    expect(harness).toContain("external.seedRevision");
+    expect(harness).not.toContain("external.initialSource");
+  });
+});

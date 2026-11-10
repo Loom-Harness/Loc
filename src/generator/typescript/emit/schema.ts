@@ -408,10 +408,9 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
     lines.push(`});`);
     return lines.join("\n");
   }
-  for (const m of tenancy.metadata)
-    lines.push(`  ${m.field}: text("${m.column}")${m.required ? ".notNull()" : ""},`);
+  for (const m of tenancy.metadata) lines.push(`  ${m.field}: text("${m.column}").notNull(),`);
   const keyCols = [
-    ...tenancy.metadata.filter((m) => m.required).map((m) => `table.${m.field}`),
+    ...tenancy.metadata.map((m) => `table.${m.field}`),
     `table.${proj.correlationField}`,
   ];
   lines.push(`}, (table) => ({`);

@@ -137,6 +137,50 @@ describe("validation — A6 interpolation format suffix", () => {
     expect(diagnostics.some((d) => d.code === "loom.interp-hole-type")).toBe(true);
   });
 
+  // A branch body every runtime can render: `intl-messageformat`, Dart
+  // `MessageFormat` and `Cldr.Message` all refuse a choice without `other`, and
+  // the call site hands the runtime only the hole's own value.
+  describe("loom.interp-format-invalid", () => {
+    const CODE = "loom.interp-format-invalid";
+    const invalid = async (body: string) =>
+      (await parseString(wrap(body))).diagnostics
+        .filter((d) => d.code === CODE)
+        .map((d) => String(d.message));
+
+    it("rejects a choice with no `other` branch", async () => {
+      const [msg, ...rest] = await invalid(
+        `derived a: string = \`p {quantity, plural, one {# item}}\``,
+      );
+      expect(rest).toEqual([]);
+      expect(msg).toContain(`{quantity, plural} is missing the required "other" branch`);
+    });
+
+    it("rejects a plural selector that is no CLDR category", async () => {
+      const [msg] = await invalid(
+        `derived a: string = \`p {quantity, selectordinal, first {#st} other {#th}}\``,
+      );
+      expect(msg).toContain(`"first" is not a plural selector`);
+    });
+
+    it("rejects a branch that reads another value", async () => {
+      const [msg] = await invalid(
+        `derived a: string = \`p {quantity, plural, one {# for {customerName}} other {#}}\``,
+      );
+      expect(msg).toContain("cannot read another value ('{customerName}')");
+    });
+
+    it("accepts every well-formed plural / select / selectordinal body", async () => {
+      expect(
+        await invalid(`
+          derived a: string = \`p {quantity, plural, =0 {none} one {# item} other {# items}}\`
+          derived b: string = \`o {quantity, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}\`
+          derived c: string = \`s {customerName, select, vip {VIP} other {someone}}\`
+          derived d: string = \`q {quantity, plural, offset:1 one {just you} other {you and # more}}\`
+        `),
+      ).toEqual([]);
+    });
+  });
+
   // Item 38 / ruling D8: every backend renders an `i18nFormat` hole as its
   // bare value, so a plural/select branch in domain code silently loses its
   // text (`{qty, plural, …}` → "3").  Warn where it happens; stay silent where

@@ -379,14 +379,14 @@ export function renderDisallowedException(basePkg: string): string {
   );
 }
 
-/** An `extern` operation's unfilled stub — answered 501 `problem.not-implemented`
- *  (distinct from a handler stub, which stays an internal fault). */
+/** An `extern` operation's or `extern` handler's unfilled stub — answered 501
+ *  `problem.not-implemented`. */
 export function renderNotImplementedException(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,
     ``,
     `/**`,
-    ` * An {@code extern} operation whose hand-written body was never filled in.`,
+    ` * An {@code extern} operation or handler whose hand-written body was never filled in.`,
     ` * Maps to HTTP 501.`,
     ` */`,
     `public class NotImplementedException extends RuntimeException {`,

@@ -88,101 +88,58 @@ function buildSoftDeletable(): Capability {
   ] as CapabilityMember[]);
 }
 
-/** `capability tenantOwned { tenantId (internal) + dataKey (internal) +
- * onCreate stamp from the principal's claim + orgPath + filter this.tenantId
- * == currentUser.tenantId }` — the tenant-data marker of multi-tenancy Phase
- * 1a (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md), extended by
- * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md) with the
- * materialized `dataKey` path.  Combines `auditable`'s principal-stamp shape
- * with `softDeletable`'s filter shape: every read is scoped to the caller's
- * tenant, every create is stamped with it, and `internal` keeps both
- * `tenantId` and `dataKey` out of client create/update inputs.
+/** `capability tenantOwned { tenantId (internal) + onCreate stamp from the
+ * operating org + filter this.tenantId == organizationContext.org }` — the
+ * tenant-data marker.  Combines `auditable`'s principal-stamp shape with
+ * `softDeletable`'s filter shape: every read is scoped to the org the request
+ * operates in, every create is stamped with it, and `internal` keeps `tenantId`
+ * out of client create/update inputs.  Rows carry `tenantId` only
+ * (D-TENANCY-FLAT).
  *
- * NOTE: the stamp/filter claim is spelled `currentUser.tenantId` here because a
- * capability is a PRELUDE definition — built once at language-module init,
- * with no system in scope — so it cannot read the system's `tenancy by
- * user.<claim>` declaration.  The expander binds it when it splices the
- * capability (`resolveTenancyClaim` in `src/macros/expander.ts`): the spliced
- * stamp and filter read the DECLARED claim, and `tenantId` survives only when
- * the workspace declares no tenancy.  Edit the two in step.
+ * Both sides anchor on `organizationContext.org` — the operating org: the
+ * caller's home org (the `tenancy by user.<claim>` claim) unless the request's
+ * `x-org-context` switch was admitted.  `currentUser` is never rewritten by a
+ * switch, so a read of the claim itself still names the home org.
  *
- * The `tenantId` on the LEFT of the filter (and the stamp's target field) is a
- * different thing and stays put: that is the ROW column this capability
- * provides.  Only the `currentUser.` side is claim-dependent.
+ * A capability is a PRELUDE definition — built once at language-module init,
+ * with no system in scope.  When the workspace declares no `tenancy by`, there
+ * is no operating org to anchor on, and the expander rebinds both sides to
+ * `currentUser.tenantId` (`resolveTenancyAnchor` in `src/macros/expander.ts`).
  *
- * (The tenancy validators do NOT check that the declared claim is literally
- * named `tenantId` — they check the claim EXISTS on the principal and that its
- * TYPE binds.  So the claim name has to be bound HERE: hardcoding `tenantId`
- * emits a backend referencing a claim the principal does not have — a compile
- * error on node/.NET/Java, a per-request 500 on Python/Elixir.  See
- * `test/fixtures/corpus/tenancy-claim-name.ddd`.)
- *
- * `dataKey := currentUser.orgPath` is a pure claim-copy stamp exactly like
- * `tenantId`'s — it rides the same `contextStamp` pipeline, no per-backend
- * code needed (every backend already renders `currentUser.orgPath` for the
- * filter use-site; a stamp assignment is the same expression
- * renderer, different call site).  It is stamped **unconditionally** — not
- * gated on the system having opted the registry into `implements
- * tenantRegistry` — because `currentUser.orgPath` is never a
- * placeholder: under flat tenancy (no registry hierarchy) it resolves to the
- * tenancy claim itself (defined fallback, the correct *root-only*
- * path), and once a hierarchy exists it resolves to the real materialized
- * path with no code here needing to change. `authorization.md §2` calls
- * `dataKey` a persistence column only — it is dropped from `wireShape`
- * entirely by `wireFieldsForAggregate` (`src/ir/enrich/enrichments.ts`),
- * never just access-gated like `tenantId`. */
+ * The `tenantId` on the LEFT of the filter (and the stamp's target field) is
+ * the ROW column this capability provides; it never changes. */
 function buildTenantOwned(): Capability {
   return capability("tenantOwned", [
     field("tenantId", primType("string"), { access: "internal" }),
-    field("dataKey", primType("string", { optional: true }), { access: "internal" }),
     ...contextStamp({
-      onCreate: [
-        { field: "tenantId", value: memberAccess(nameRef("currentUser"), "tenantId") },
-        { field: "dataKey", value: memberAccess(nameRef("currentUser"), "orgPath") },
-      ],
+      onCreate: [{ field: "tenantId", value: memberAccess(nameRef("organizationContext"), "org") }],
     }),
     contextFilter(
       binaryExpr(
         memberAccess(thisRef(), "tenantId"),
         "==",
-        memberAccess(nameRef("currentUser"), "tenantId"),
+        memberAccess(nameRef("organizationContext"), "org"),
       ),
     ),
   ] as CapabilityMember[]);
 }
 
-/** `capability tenantRegistry { parent: Self id? (immutable) + dataKey: string?
- * (managed) }` — the tenant-registry TREE capability of multi-tenancy
- * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md, slice).  The registry aggregate —
- * the `of <Registry>` target of `tenancy by user.<claim> of <Registry>` — opts
- * into hierarchy by carrying `implements tenantRegistry`, which PROVIDES:
- *
- *   - `parent: Self id?` — an immutable self-FK to another registry row
- *     (`Self` resolves to the host aggregate at expansion; null = root org).
- *     `immutable` keeps it settable at create (the signup bootstrap passes it)
- *     but frozen after — reparent is out of scope (immutable paths are what
- *     make `deep` a cheap prefix scan).
- *   - `dataKey: string?` — the managed materialized path (`root` → `<id>`,
- *     `child` → `<parent.dataKey>.<id>`).  `managed` keeps it off client
- *     create/update inputs; the value is computed server-side in the `signUp`
- *     create factory via a workflow-tier `repo-let` on the parent (the
- *     mechanism already exists — a capability is a pure mixin and cannot inject
- *     a repo-reading create body, so the author writes the factory; the
- *     capability only carries the fields).  Nullable so pre-tree registry rows
- *     (no path yet) and the non-destructive column ADD stay valid; the derived
- *     `currentUser.orgPath` accessor falls back to the tenancy claim when a
- *     row has no `dataKey`.
+/** `capability tenantRegistry { parent: Self id? }` — the
+ * tenant-registry TREE capability.  The registry aggregate — the `of
+ * <Registry>` target of `tenancy by user.<claim> of <Registry>` — carries
+ * `implements tenantRegistry` to manage sub-tenants: `parent: Self id?` is a
+ * self-FK to another registry row (`Self` resolves to the host aggregate at
+ * expansion; null = top-level org).  The tree takes no part in data
+ * visibility (D-TENANCY-FLAT).
  *
  * The registry is self-keyed (stance `"registry"`, never `tenantOwned`), so it
  * carries no `tenantId` column and receives no tenant stamp/filter — only the
- * derived self-scope read filter (enrichments.ts).  `tenantRegistry` adds the
- * tree fields on top of that, and is verified structurally by the phase-⑦
- * tenancy checks (exactly one, on the `of` target, only under a `tenancy by`
- * system). */
+ * derived self-scope read filter (enrichments.ts).  `tenantRegistry` is
+ * verified structurally by the phase-⑦ tenancy checks (exactly one, on the
+ * `of` target, only under a `tenancy by` system). */
 function buildTenantRegistry(): Capability {
   return capability("tenantRegistry", [
-    field("parent", selfRef({ optional: true }), { access: "immutable" }),
-    field("dataKey", primType("string", { optional: true }), { access: "managed" }),
+    field("parent", selfRef({ optional: true })),
   ] as CapabilityMember[]);
 }
 

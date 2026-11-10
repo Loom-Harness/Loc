@@ -11,6 +11,7 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
+import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -404,7 +405,7 @@ function renderFieldArray(
   const rows = `model.${formField}.${fa.fieldName} |> List.mapi (fun i row -> ${row})`;
   const labelText = felizInputText(ctx, src, [], fa.jsonKey);
   const label = `Html.label [ prop.className "font-semibold"; prop.text ${labelText?.label ?? `"${fa.label}"`} ]`;
-  const add = `Html.button [ prop.className "btn btn-sm"; prop.onClick (fun _ -> dispatch ${fa.addMsg}); prop.text "Add ${fa.elementLabel}" ]`;
+  const add = `Html.button [ prop.className "btn btn-sm"; prop.onClick (fun _ -> dispatch ${fa.addMsg}); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("addItem", fa.elementName))} ]`;
   return `Html.div [ prop.className "flex flex-col gap-2"; prop.children [ ${label}; yield! (${rows}); ${add} ] ]`;
 }
 
@@ -466,6 +467,7 @@ function renderFsMatch(
 
 export const felizTarget: WalkerTarget = {
   framework: "feliz",
+  axes: requireFrontendAxes("feliz"),
 
   // --- State seam — MVU model reads --------------------------------------
   renderStateRead: (ref: StateRef, _pos: RenderPosition) => `model.${upperFirst(ref.name)}`,
@@ -505,10 +507,10 @@ export const felizTarget: WalkerTarget = {
   // An Elmish read is NOT a per-component hook: the `<param>.<agg>.all` site
   // resolves to the Model field holding its `Remote<'T>`, the shell wires the
   // init `Cmd` + `Loaded` `Msg` + `update` arm (see index.ts's read wiring).
-  // So `buildHookUse` names the Model field, `renderApiCall` returns it as the
-  // value QueryView matches on, and `renderApiHoisting` emits nothing (there is
+  // So `bindDataAccess` names the Model field, `renderApiCall` returns it as the
+  // value QueryView matches on, and `renderDataBindings` emits nothing (there is
   // no page-top hoist to make).
-  buildHookUse: (detected) => {
+  bindDataAccess: (detected) => {
     // A query-time PROJECTION read (M-T1.3) resolves to its own Model
     // field, filled by the init Cmd.  Its Remote payload — and so which
     // `View.*` matcher renders it — follows the projection's RESPONSE SHAPE:
@@ -539,7 +541,7 @@ export const felizTarget: WalkerTarget = {
   // The magic route `id` (`byId(id)`) resolves to the local `id` the page view
   // function binds from its `Page` case (`| ProductDetail id -> …View … id`).
   renderRouteId: () => "id",
-  renderApiHoisting: () => [],
+  renderDataBindings: () => [],
   // The `data:` lambda param binds to the match arm the QueryView pack emits
   // (`| Loaded <binding> -> …`), so a read handle's data dereferences to that
   // binding directly (no `.data` — the arm already unwrapped the `Remote`).
@@ -1219,6 +1221,12 @@ export const felizTarget: WalkerTarget = {
           .map((v) => `${fsString(v.name)}, box (${v.expr})`)
           .join("; ")} ])`
       : `(I18n.t ${fsString(key)} ${fsString(message)})`,
+  // A rich-text sentence → the runtime's `I18n.rich`, a `span` of styled
+  // elements.  Parenthesised, like `renderTranslate`, for the child slot.
+  renderRichText: ({ key, message, values }) =>
+    `(I18n.rich ${fsString(key)} ${fsString(message)} [ ${(values ?? [])
+      .map((v) => `${fsString(v.name)}, box (${v.expr})`)
+      .join("; ")} ])`,
   renderStyleAttr: () => "",
   // Implicit model-text sites (form labels, enum options, submit buttons, the
   // `EnumBadge` value) are keyed by identity through `renderTranslate`.
@@ -1350,7 +1358,7 @@ export const felizTarget: WalkerTarget = {
    *  are JavaScript, and the per-row projection it does for the JS chart
    *  libraries buys nothing here — F# reads the record's fields directly. */
   renderChartData({ queryExpr }) {
-    // `queryExpr` is the Model FIELD name — `buildHookUse` returns it bare
+    // `queryExpr` is the Model FIELD name — `bindDataAccess` returns it bare
     // because Elmish has no hook to hoist, and each consumer names the record
     // it reads from.  The QueryView pack renderer prefixes `model.` for exactly
     // the same reason.

@@ -90,10 +90,10 @@ export function ectoReadScope(
       addBase(`record.kind == ${JSON.stringify(r.discriminator)}`);
       continue;
     }
-    place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule));
+    place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule, pool));
   }
   for (const g of scope.subtypeRestrictions) {
-    const pred = renderEctoRestriction(g.restriction.predicate as ExprIR, contextModule);
+    const pred = renderEctoRestriction(g.restriction.predicate as ExprIR, contextModule, pool);
     place(g.restriction, `record.kind != ${JSON.stringify(g.discriminator)} or (${pred})`);
   }
   return finish();
@@ -132,7 +132,7 @@ function scopeCollector(): {
 
 /** The read scope of a tenant-scoped event stream (`stream-tenancy.ts`): its
  *  tenancy restrictions, rendered over the event-log schema's tenant metadata
- *  columns (`tenant_id` / `data_key` carry the `tenantOwned` field names, so
+ *  column (`tenant_id` carries the `tenantOwned` field name, so
  *  the predicate is the one a `tenantOwned` table applies).  Hosted on the
  *  stream's event-log schema, where `Repo.prepare_query/3` applies it to every
  *  read of the stream. */
@@ -143,16 +143,23 @@ export function ectoStreamReadScope(
 ): EctoReadScope {
   const { place, finish } = scopeCollector();
   for (const r of streamTenancyFor(agg, pool)?.restrictions ?? []) {
-    place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule));
+    place(r, renderEctoRestriction(r.predicate as ExprIR, contextModule, pool));
   }
   return finish();
 }
 
 /** The read-scope functions appended to an aggregate's schema module. */
-export function renderSchemaReadScope(scope: EctoReadScope): string {
+export function renderSchemaReadScope(
+  scope: EctoReadScope,
+  /** Name the root binding `:record` — set when a read predicate over the
+   *  aggregate holds an `exists`, whose subquery reaches the row through
+   *  `parent_as(:record)`. */
+  recordAlias = false,
+): string {
+  const as = recordAlias ? "as: :record, " : "";
   const baseQuery = scope.baseWhere
-    ? `Ecto.Query.from(record in __MODULE__, where: ${scope.baseWhere})`
-    : "Ecto.Query.from(record in __MODULE__)";
+    ? `Ecto.Query.from(record in __MODULE__, ${as}where: ${scope.baseWhere})`
+    : `Ecto.Query.from(record in __MODULE__${recordAlias ? ", as: :record" : ""})`;
   const filters = scope.clauses.map((c) => `{:${c.key}, ${c.principal}}`).join(", ");
   const clauseFns = scope.clauses.map(
     (c) =>

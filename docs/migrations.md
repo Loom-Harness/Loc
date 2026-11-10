@@ -334,7 +334,7 @@ such flag.
   | `tenantOwned` | `tenant_id` | unknown: which tenant owns a pre-tenancy row is a business fact, and a wrong guess leaks it | **refused**, with a line naming the capability and why |
   | `auditable` | `created_at`/`updated_at`/`created_by`/`updated_by` | unknown: the real creation time and author are lost | **refused**, same |
 
-  The nullable ones (`deleted_at`, `data_key`) need nothing. A declared
+  The nullable one (`deleted_at`) needs nothing. A declared
   `migration "…" { Agg.field = <value> }` block still wins over the automatic
   `softDeletable` fill, and is the remedy for the two refused ones:
 
@@ -1385,7 +1385,11 @@ triple; `shape: embedded` → a queryable root row with one JSONB column per
 containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-only
 `<name>_events` stream keyed by `(stream_id, version)`. Correlation-bearing
 workflows get a state table; a durable channel adds the shared `__loom_outbox`
-table.
+table. A durable channel anywhere in the system also adds the nullable
+`last_event_id` idempotent-consumer column to every saga table, because the
+backend emitters map it whenever the deployable hosts the channel, which may
+be declared by a different context than the workflow's. The Node behavioral
+harness proves every ORM-mapped column is migrated on each case.
 
 **Optimistic concurrency (`versioned`).** Every aggregate is versioned by
 default — the macro layer splices the `versioned` capability into each one that

@@ -10,21 +10,12 @@ import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf } from "../../ir/util/inheritance.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
-import { pySubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { pyRef } from "../_imports/python.js";
 import { columnsForFields, joinRowClassName, rowClassName } from "./py-columns.js";
@@ -159,6 +150,7 @@ export function lowerToSqlAlchemy(
     agg.associations ?? [],
     opts?.principalAccessor ?? "current_user",
     tphNullableBoolColumns(agg, ctx),
+    ctx,
   );
 }
 
@@ -179,6 +171,7 @@ export function lowerRestrictionToSqlAlchemy(
     agg.associations ?? [],
     principalAccessor,
     tphNullableBoolColumns(agg, ctx),
+    ctx,
   );
 }
 
@@ -245,15 +238,30 @@ export function lowerProjectionFilterToSqlAlchemy(
   return lowerOver(e, rowClassName(sourceProjName), [], "current_user", NO_NULLABLE_BOOLS);
 }
 
+/** The context an `exists <Agg> …` quantifier resolves against while one
+ *  predicate lowers: the quantified aggregates, and the row class each in-scope
+ *  `as <row>` binding reads.  Set by `lowerOver` for the duration of one
+ *  lowering (the recursive `lower` walk threads the rest positionally);
+ *  undefined for a projection / workflow source, where `exists` is refused. */
+let existsScope: { ctx: EnrichedBoundedContextIR; rows: Map<string, string> } | undefined;
+
 function lowerOver(
   e: ExprIR,
   row: string,
   associations: AssociationIR[],
   principalAccessor: string,
   nullBools: ReadonlySet<string>,
+  ctx?: EnrichedBoundedContextIR,
 ): PyPredicate | null {
   const ops = new Set<string>();
-  const expr = lower(e, row, associations, ops, principalAccessor, nullBools);
+  const saved = existsScope;
+  existsScope = ctx ? { ctx, rows: new Map(saved?.rows ?? []) } : undefined;
+  let expr: string | null;
+  try {
+    expr = lower(e, row, associations, ops, principalAccessor, nullBools);
+  } finally {
+    existsScope = saved;
+  }
   if (expr == null) return null;
   // Top-level boolean position: a filter that IS a bare boolean column
   // (`filter this.active`) lands straight in `.where(...)`, which wants the same
@@ -288,6 +296,40 @@ const MAKE_INTERVAL_ZEROS: Record<DurationUnit, number> = {
   minutes: 5,
 };
 
+/** `exists <Agg> as s where p` — a correlated `select(<AggRow>).where(p)
+ *  .exists()`.  SQLAlchemy correlates the enclosing row class automatically, so
+ *  `this.<col>` inside `p` stays the outer row's column.  The quantified
+ *  aggregate's read scope is not spelled here: the `read_scope` hook's
+ *  `with_loader_criteria` reaches every occurrence of `<AggRow>` in a
+ *  statement, subqueries included, so the `exists` sees only rows its caller
+ *  could read. */
+function lowerExists(
+  e: Extract<ExprIR, { kind: "exists" }>,
+  row: string,
+  associations: AssociationIR[],
+  ops: Set<string>,
+  principalAccessor: string,
+  nullBools: ReadonlySet<string>,
+): string | null {
+  const scope = existsScope;
+  if (!scope) return null;
+  const inner = scope.ctx.aggregates.find((a) => a.name === e.aggregate);
+  if (!inner) return null;
+  const innerRow = schemaRow(rowClassName(inner.name));
+  const shadowed = scope.rows.get(e.binding);
+  scope.rows.set(e.binding, innerRow);
+  let pred: string | null;
+  try {
+    pred = lower(e.where, row, associations, ops, principalAccessor, nullBools);
+  } finally {
+    if (shadowed === undefined) scope.rows.delete(e.binding);
+    else scope.rows.set(e.binding, shadowed);
+  }
+  if (pred == null) return null;
+  ops.add("select");
+  return `${SELECT}(${innerRow}).where(${boolOperand(pred, row, nullBools)}).exists()`;
+}
+
 function lower(
   e: ExprIR,
   row: string,
@@ -298,9 +340,8 @@ function lower(
 ): string | null {
   switch (e.kind) {
     case "authz-filter": {
-      // Authorization/tenancy filter sentinels (M-T9.9) — a discriminated node
-      // so a missing arm is a `tsc` error here, not a silent authorization
-      // bypass.
+      // Authorization filter sentinels — a discriminated node so a missing
+      // arm is a `tsc` error here, not a silent authorization bypass.
       switch (e.filter.kind) {
         // DENY carve-out (authorization — deny-wins).  An always-false
         // predicate: a column can't be both NULL and NOT NULL.  Self-contained
@@ -311,45 +352,9 @@ function lower(
           const idCol = `${row}.id`;
           return `${AND_}(${idCol}.is_(None), ${idCol}.isnot(None))`;
         }
-        // `deep`/`global` read level (multi-tenancy) —
-        // descendant-or-self materialized-path scope with the NULL-dataKey
-        // fallback to the tenant floor (see `DEEP_SCOPE_SEMANTICS`).
-        // Descendant test as an ANCHORED POSITION, not `Column.startswith`.
-        // SQLAlchemy's `startswith(v)` does NOT auto-escape by default — it
-        // compiles to `col LIKE v || '%'` verbatim (escaping needs
-        // `autoescape=True`, which rewrites to `'a/_c.' … ESCAPE '/'`).  The
-        // anchor here is a principal CLAIM, so `_`/`%` inside it are live
-        // wildcards: an org named `acme_corp` yields `acme_corp.%`, matching
-        // `acmeXcorp.…` — a cross-tenant read with no attacker, just an
-        // underscore in a name.  `strpos(col, needle) = 1` has no pattern
-        // language, matching how `string.startsWith` lowers above.
-        case "scope": {
-          const col = `${row}.${snake(TENANT_OWNED_DATA_KEY_FIELD)}`;
-          const tenantCol = `${row}.${snake(TENANT_OWNED_TENANT_ID_FIELD)}`;
-          // Anchor claim: `orgPath` for `deep`, `rootOrg` for `global`.
-          const org = `${principalAccessor}.${snake(deepScopeAnchorClaim(e))}`;
-          const tenant = `${principalAccessor}.${snake(deepScopeTenantClaim(e))}`;
-          ops.add("or_");
-          ops.add("and_");
-          ops.add("func");
-          // SARGABLE PREFILTER (M-T3.17): `func.strpos(col, …) == 1` is a
-          // function of the column, so the planner cannot use the
-          // `data_key text_pattern_ops` index and every deep/global read
-          // seq-scans.  `Column.like(pattern, escape="!")` emits a real
-          // `LIKE … ESCAPE '!'` whose fixed prefix becomes an index range; the
-          // `strpos` anchored test stays as the RECHECK, so an escaping slip
-          // (which can only WIDEN a LIKE) still cannot leak a foreign subtree.
-          const needle = `${org} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`;
-          const prefilter = `${col}.like(${pySubtreeLikePattern(org)}, escape=${JSON.stringify(DATA_KEY_LIKE_ESCAPE)})`;
-          return (
-            `${OR_}(${AND_}(${col}.isnot(None), ${OR_}(${col} == ${org}, ` +
-            `${AND_}(${prefilter}, ${FUNC}.strpos(${col}, ${needle}) == 1))), ` +
-            `${AND_}(${col}.is_(None), ${tenantCol} == ${tenant}))`
-          );
-        }
         default: {
-          const _exhaustive: never = e.filter;
-          throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+          const _exhaustive: never = e.filter.kind;
+          throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
         }
       }
     }
@@ -481,6 +486,8 @@ function lower(
     }
     case "paren":
       return lower(e.inner, row, associations, ops, principalAccessor, nullBools);
+    case "exists":
+      return lowerExists(e, row, associations, ops, principalAccessor, nullBools);
     case "ref":
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
@@ -496,6 +503,20 @@ function lower(
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this") {
         return `${row}.${pythonIdent(`${e.receiver.member}_${e.member}`)}`;
       }
+      // `s.<col>` / `s.<vo>.<sub>` on an `exists … as s` row — the quantified
+      // row class's column.
+      if (e.receiver.kind === "ref" && e.receiver.refKind === "row") {
+        const r = existsScope?.rows.get(e.receiver.name);
+        return r ? `${r}.${pythonIdent(e.member)}` : null;
+      }
+      if (
+        e.receiver.kind === "member" &&
+        e.receiver.receiver.kind === "ref" &&
+        e.receiver.receiver.refKind === "row"
+      ) {
+        const r = existsScope?.rows.get(e.receiver.receiver.name);
+        return r ? `${r}.${pythonIdent(`${e.receiver.member}_${e.member}`)}` : null;
+      }
       // `currentUser.<claim>` — bind the principal's claim as a plain value.
       // The accessor is the source: a per-find `where` passes the threaded
       // `current_user` param; an always-on principal capability filter passes
@@ -508,9 +529,6 @@ function lower(
       return renderPyExpr(e);
     }
     case "method-call": {
-      // (The `deep` / DENY authorization filter sentinels moved to the
-      // discriminated `authz-filter` kind in M-T9.9 — handled in its own case
-      // above, not a `method-call` marker here.)
       // `this.<refColl>.contains(x)` → correlated EXISTS against the
       // field's join table.
       if (
@@ -656,6 +674,7 @@ function isColumnRooted(e: ExprIR): boolean {
     // renderer) rather than interpolating a column that is not there, so a
     // missing arm narrows a lowering, never widens one.  Named rather than
     // left to a `default:` so a new `ExprIR` kind is a decision.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":

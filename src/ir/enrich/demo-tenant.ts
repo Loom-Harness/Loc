@@ -57,12 +57,6 @@ function demoTenantSeed(registry: EnrichedAggregateIR): SeedIR | undefined {
     { name: "id", value: lit("string", DEMO_TENANT_ID) },
   ];
   for (const f of registry.fields) {
-    // The tree capability's materialised path: a root row's `dataKey` is its
-    // own id (`tenantRegistry` — `root` → `<id>`).
-    if (f.name === "dataKey") {
-      fields.push({ name: f.name, value: lit("string", DEMO_TENANT_ID) });
-      continue;
-    }
     if (f.optional || f.type.kind === "optional") continue;
     const value = demoValue(f, registry.name);
     if (!value) return undefined;

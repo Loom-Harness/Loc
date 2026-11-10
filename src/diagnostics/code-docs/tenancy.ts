@@ -8,8 +8,12 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.tenancy-registry-remote-unsupported":
-    "02-systems-and-topology.md#a-registry-and-the-deployables-that-read-it",
+    "02-systems-and-topology.md#organizationcontext--the-operating-scope",
+  "loom.org-context-ancestors-in-reactor":
+    "02-systems-and-topology.md#organizationcontext--the-operating-scope",
   "loom.org-context-surface": "02-systems-and-topology.md#organizationcontext--the-operating-scope",
+  "loom.tenancy-principal-member-removed": "17-auth.md#user--the-principal-claim-shape",
+  "loom.tenancy-data-key-removed": "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.org-context-gate-unmet":
     "02-systems-and-topology.md#organizationcontext--the-operating-scope",
 

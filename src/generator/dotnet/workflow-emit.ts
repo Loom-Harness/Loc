@@ -1,6 +1,6 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
-import { observableWorkflows } from "../../ir/plan/index.js";
+import { isWorkflowSelfType, observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -1665,7 +1665,7 @@ function renderHandler(
     stmtLines.push(
       ...entryResultCsLines(er, result.type, renderArg, ctx, ns, INDENT, "workflowResult", wfThis),
     );
-  } else if (result && result.type.kind === "entity" && result.type.name === wf.name) {
+  } else if (result && isWorkflowSelfType(wf, result.type)) {
     // `create(…): <Wf> { …; return this }` — the saved instance state.
     stmtLines.push(
       `        workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
@@ -1825,9 +1825,9 @@ function renderCsOmission(
  * Walk a workflow body (recursing into `for-each` bodies) and collect the
  * names that are dereferenced — every `op-call` target, every aggregate arg
  * to a domain-service call, and every name whose MEMBERS are read inside any
- * body expression (`loaded.dataKey + "." + seg` in an op-call arg or
+ * body expression (`loaded.code + "-" + seg` in an op-call arg or
  * factory-let seed).  A `getById` load bound to such a name is load-or-throw:
- * the deref (`b.Promote(...)`, `loaded.DataKey`) would be a CS8602 under
+ * the deref (`b.Promote(...)`, `loaded.Code`) would be a CS8602 under
  * nullable-reference types unless the `Task<T?>` result is guarded.  Loads
  * that are never dereferenced (e.g. a load passed whole into a `create`
  * field) stay unguarded and byte-identical.
@@ -1836,7 +1836,7 @@ function collectDereferencedLoads(stmts: readonly WorkflowStmtIR[]): Set<string>
   const names = new Set<string>();
   const visitExpr = (e: ExprIR): void => {
     // Member/method reads on a plain ref dereference that name —
-    // `loaded.DataKey` on an unguarded `Task<T?>` result is the same CS8602
+    // `loaded.Code` on an unguarded `Task<T?>` result is the same CS8602
     // an op-call deref is.
     if ((e.kind === "member" || e.kind === "method-call") && e.receiver.kind === "ref") {
       names.add(e.receiver.name);
@@ -2449,11 +2449,6 @@ export function renderExprWithEventParam(
   return renderCsExpr(rewritten, { thisName, resourceClasses });
 }
 
-/** True when a create's declared result is its own workflow (`return this`). */
-function workflowSelf(wf: WorkflowIR, t: import("../../ir/types/loom-ir.js").TypeIR): boolean {
-  return t.kind === "entity" && t.name === wf.name;
-}
-
 /** The C# type a workflow command answers: the entry-result union for `T or
  *  E`, the instance response for the workflow itself, else the domain type. */
 function workflowResultCs(
@@ -2462,7 +2457,7 @@ function workflowResultCs(
   ns: string,
 ): string {
   if (t.kind === "union") return `global::${entryResultNs(ns)}.${entryUnionName(t)}`;
-  if (workflowSelf(wf, t))
+  if (isWorkflowSelfType(wf, t))
     return `global::${ns}.Application.Workflows.${upperFirst(wf.name)}InstanceResponse`;
   return renderCsType(t);
 }
@@ -2520,7 +2515,7 @@ function renderController(
     const result = commandCreateResult(wf);
     const er = commandCreateEntryResult(wf, ctx);
     const success = result
-      ? `    [ProducesResponseType(typeof(${er || workflowSelf(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
+      ? `    [ProducesResponseType(typeof(${er || isWorkflowSelfType(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
       : // Explicit success (NoContent → 204) so the added error
         // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
         `    [ProducesResponseType(204)]\n`;

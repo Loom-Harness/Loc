@@ -175,6 +175,7 @@ function constructionEvaluable(
       // UI-only forms — never appear in a construction-evaluable invariant
       // body.
       return false;
+    case "exists":
     case "authz-filter":
       // Authorization/tenancy query-filter sentinel (M-T9.9) — never appears in
       // an invariant body (it lives only in an aggregate's context/write-scope
@@ -329,6 +330,7 @@ function exprIsTranslatable(
     case "action-ref":
       // UI-handler-arg form — never wire-translatable.
       return false;
+    case "exists":
     case "authz-filter":
       // Authorization/tenancy query-filter sentinel (M-T9.9) — never appears in
       // an invariant body, so never wire-translatable.
@@ -660,6 +662,7 @@ function firstFieldRef(e: ExprIR): string | null {
     case "action-ref":
       // UI-handler-arg form — carries no field reference.
       return null;
+    case "exists":
     case "authz-filter":
       // Authorization/tenancy query-filter sentinel (M-T9.9) — never appears in
       // an invariant body, so carries no wire-field reference.

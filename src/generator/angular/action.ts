@@ -120,7 +120,7 @@ export function renderAngularAction(
   // class-field reads.
   const fieldNames = new Set<string>([
     "router",
-    ...[...ctx.usedApiHooks.values()].map((h) => h.varName),
+    ...[...ctx.dataBindings.values()].map((h) => h.varName),
     ...ctx.stateNames,
     ...ctx.paramNames,
   ]);

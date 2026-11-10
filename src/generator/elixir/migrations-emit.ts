@@ -7,6 +7,7 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { TIMER_CLAIM_TABLE } from "../../util/timer.js";
 import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
   renderAlterColumnDefaultSql,
@@ -128,17 +129,9 @@ function ectoIndexes(table: TableShape): readonly IndexShape[] {
   return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
 }
 
-/** The bracketed column list for a `create index(...)` call.  A column with a
- *  per-column opclass (materialized-path prefix index) uses Ecto's raw
- *  fragment string form (`"data_key text_pattern_ops"`) so the opclass reaches
- *  the DDL; plain columns stay `:atom`s. */
+/** The bracketed column list for a `create index(...)` call. */
 function ectoIndexColumns(i: IndexShape): string {
-  return i.columns
-    .map((n) => {
-      const oc = i.opclasses?.[n];
-      return oc ? JSON.stringify(`${n} ${oc}`) : `:${n}`;
-    })
-    .join(", ");
+  return i.columns.map((n) => `:${n}`).join(", ");
 }
 
 /** The `execute "CREATE SCHEMA …"` line that precedes a create-table when
@@ -179,6 +172,9 @@ function timestampsMacro(table: TableShape): string | null {
   // because the flush rides the save transaction, it would roll the aggregate
   // write back with it.
   if (table.name === "provenance_records") return null;
+  // And for the `every:` timer claim row: its one time column is the explicit
+  // `fired_at`, and the claim is a raw upsert that never fills Ecto timestamps.
+  if (table.name === TIMER_CLAIM_TABLE) return null;
   // A declared `inserted_at` / `insertedAt` field owns the other bundled
   // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
   // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`

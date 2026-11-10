@@ -239,7 +239,7 @@ fails the fast suite.
 | `pairwise.yml` | `npm run test:pairwise-corpus` (per-PR leg) · `test:pairwise-corpus-tsc` · `test:pairwise-corpus-schema-load` (or `LOOM_MIGRATION_PG_URL`); shard the compile leg with `LOOM_PAIRWISE_COMPILE_CASE=<case-id>`, dump the composed sources with `LOOM_PAIRWISE_DUMP=<dir>`, get the verdict census with `LOOM_PAIRWISE_REPORT=<file>` | docker (schema-load leg) |
 | `schemathesis.yml` | `npm run test:schemathesis{,-python,-java,-dotnet,-elixir}` (needs `uv tool install schemathesis==4.24.3 -c test/behavioral/schemathesis-constraints.txt` (the workflow's pins — an unpinned `jsonschema-rs` ≥ 0.56 or `hypothesis` ≥ 6.170 crashes the fuzzer on every parameterised operation) + `cd test/behavioral && npm ci`; the four booted legs need a pg and must run ONE AT A TIME against it — each resets the schemas per case) | docker (all but node) |
 | `migration-evolution-e2e.yml` | `npm run test:migration-evolution{,-python,-java,-dotnet,-elixir}` | docker |
-| `tenancy-e2e.yml` | `npm run test:tenancy{,-python,-java,-dotnet,-elixir}` + `test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir,-mikroorm,-dapper}` + `test:tenancy-org-context{,-python,-java,-dotnet,-elixir}` + `test:tenancy-subtree-explain` (or `LOOM_TENANCY_PG_URL`) | docker |
+| `tenancy-e2e.yml` | `npm run test:tenancy{,-python,-java,-dotnet,-elixir}` + `test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir,-mikroorm,-dapper}` + `test:tenancy-org-context{,-python,-java,-dotnet,-elixir}` (or `LOOM_TENANCY_PG_URL`) | docker |
 | `hono-obs-e2e.yml` | `npm run test:obs` | — |
 | `dotnet-obs-e2e.yml` | `npm run test:obs-dotnet` | docker |
 | `java-obs-e2e.yml` | `npm run test:obs-java` (or `LOOM_OBS_PG_URL`) | docker |
@@ -256,6 +256,7 @@ fails the fast suite.
 | `api-call-e2e.yml` | `LOOM_API_CALL_CALLER=<node\|python\|dotnet\|java\|elixir> npm run test:api-call` (pg via `LOOM_API_CALL_PG_URL`; elixir caller adds mirror) | pg |
 | `channels-e2e.yml` | `npm run test:channels` family — `test:channels{,-mikroorm,-python,-dotnet,-java,-elixir}`, `-rabbit*` (incl. `-rabbit-mikroorm`), `-kafka*`, `-auth` (pg via `LOOM_CHANNELS_PG_URL`; redis/rabbit/kafka via docker; the two `*-mikroorm` legs are the redis/rabbit suites with `LOOM_CHANNELS_PERSISTENCE=mikroorm` and shifted ports, so they run beside the default ones — the RABBIT one is the durable/outbox-relay leg) | docker, pg |
 | `email-e2e.yml` | `npm run test:email{,-python,-dotnet,-java,-elixir}` (pg + a Mailpit container: `LOOM_MAILPIT_SMTP`/`LOOM_MAILPIT_API`) | docker, pg |
+| `timer-e2e.yml` | `npm run test:timer` (all five backends; `LOOM_TIMER_E2E_BACKENDS=node,…` narrows; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `context-integration-e2e.yml` | `bash scripts/context-integration-e2e.sh <node\|python\|dotnet\|java\|elixir>` | pg |
 | `k8s-build.yml` | `npm run test:k8s` (helm + kubeconform on PATH) | — |
 | `k8s-e2e.yml` | `kind create cluster` then `npm run test:k8s-e2e` (kind + kubectl + helm) | docker |
