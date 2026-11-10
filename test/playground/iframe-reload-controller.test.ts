@@ -39,7 +39,9 @@ describe("iframe-html — in-place reload controller", () => {
     const reload = scripts.filter((s) => s.includes('r.kind !== "reload"'));
     expect(reload).toHaveLength(1);
     expect(reload[0]).not.toContain("replaceState");
-    const others = scripts.filter((s) => s.includes("history.replaceState") && !s.includes('r.kind === "route"'));
+    const others = scripts.filter(
+      (s) => s.includes("history.replaceState") && !s.includes('r.kind === "route"'),
+    );
     expect(others).toHaveLength(1);
   });
 });
