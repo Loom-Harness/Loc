@@ -6,6 +6,10 @@
 // opens it to the grantee's writes; a `mask unless` field still redacts by the
 // grantee's own principal.  Revoking a share closes the row again, and so
 // does soft-deleting the row: its shares open nothing once it is hidden.
+// Sharing or revoking needs write access to the row in the sharer's own org
+// (`exists Category for write`): a manager writes only the categories they
+// created (`own`), so a colleague cannot share them, and a grantee cannot
+// re-share a row of another org, even with a write share.
 //
 // Driven by the `tenancy-org-context` boot harness (`assertShareable`) on
 // every backend, with real registry org ids as tenancy claims.  The deployable
@@ -24,7 +28,7 @@ system Sharing {
           parent := to
         }
       }
-      aggregate Category with tenantOwned, shareable, softDeletable, softDelete, crudish {
+      aggregate Category with tenantOwned, auditable, shareable, softDeletable, softDelete, crudish {
         name: string
         secret: string? mask unless currentUser.role == "manager"
       }
@@ -34,6 +38,7 @@ system Sharing {
       // CategorySharing read/write rules; who may share is this rule.
       policy {
         allow share on Category when currentUser.role == "manager"
+        allow write own on Category when currentUser.role == "manager"
       }
       repository Categories for Category { }
       repository Orgs for Org { }

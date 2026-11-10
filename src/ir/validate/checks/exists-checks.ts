@@ -84,10 +84,21 @@ function existsNodes(e: ExprIR | undefined): ExistsIR[] {
 }
 
 export function validateExistsQuantifiers(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
+  // An `exists` nested in an in-app read's `where` (a write scope's share
+  // rule) renders inside that read's query, so its position is the read's.
+  const inRead = new Set<ExprIR>();
+  forEachModelExpr(loom, ({ expr }) => {
+    if (expr.kind === "exists" && expr.read) {
+      walkExprDeep(expr.where, (x) => {
+        if (x.kind === "exists") inRead.add(x);
+      });
+    }
+  });
+
   // 1. Position — every reachable expression, with the site it hangs off.
   forEachModelExpr(loom, ({ expr, source, site }) => {
     if (expr.kind !== "exists") return;
-    if (QUERY_SITES.has(site) || expr.read) return;
+    if (QUERY_SITES.has(site) || expr.read || inRead.has(expr)) return;
     const projection = PROJECTION_SITES.has(site);
     diags.push({
       severity: "error",

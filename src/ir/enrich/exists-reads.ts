@@ -40,6 +40,7 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../types/loom-ir.js";
+import { findUsesCurrentUser } from "../types/queries.js";
 import { inAppExists } from "../util/in-app-exists.js";
 import { forEachContextExpr } from "../util/model-exprs.js";
 import { isDenyFilter } from "../util/tenant-stance.js";
@@ -48,6 +49,13 @@ import { mapExprChildren, walkExprDeep } from "../util/walk.js";
 type ExistsIR = Extract<ExprIR, { kind: "exists" }>;
 
 const BOOL: TypeIR = { kind: "primitive", name: "bool" };
+
+const CURRENT_USER: ExprIR = {
+  kind: "ref",
+  name: "currentUser",
+  refKind: "current-user",
+  type: { kind: "entity", name: "__User__" },
+};
 
 /** Nodes whose write scope has been ANDed in. */
 const DERIVED = new WeakSet<ExistsIR>();
@@ -81,7 +89,12 @@ function deriveContext(ctx: EnrichedBoundedContextIR): EnrichedBoundedContextIR 
         const name = `existsFor${host.name}${pascal(op.name)}${i}`;
         const derived = existsFind(name, x, target);
         if (!derived) return;
-        x.read = { repository: repo.name, find: name, args: derived.args } satisfies ExistsReadIR;
+        // A find whose filter keeps a principal term takes the request
+        // principal as its last parameter, like every principal-reading find.
+        const args = findUsesCurrentUser(derived.find)
+          ? [...derived.args, CURRENT_USER]
+          : derived.args;
+        x.read = { repository: repo.name, find: name, args } satisfies ExistsReadIR;
         const list = additions.get(repo.name) ?? [];
         if (!list.some((f) => f.name === name)) list.push(derived.find);
         additions.set(repo.name, list);
@@ -119,8 +132,13 @@ function existsFind(
   const args: ExprIR[] = [];
   let ok = true;
   const lift = (e: ExprIR, hint: TypeIR | undefined): ExprIR => {
-    if (!readsRow(e, x.binding)) {
-      if (isInline(e)) return e;
+    if (!readsAnyRow(e)) {
+      // A term that reads only the request principal (`currentUser.role ==
+      // "manager"`, `organizationContext.org`) stays in the find: every find
+      // renderer binds it from the principal exactly as a read scope does,
+      // including the operating-org-vs-id-column text comparison an argument
+      // of type `string` would lose.
+      if (isInline(e) || readsOnlyPrincipal(e)) return e;
       const type = typeOf(e) ?? hint;
       if (!type) {
         ok = false;
@@ -168,10 +186,28 @@ function isInline(e: ExprIR): boolean {
   return !reads;
 }
 
-function readsRow(e: ExprIR, binding: string): boolean {
+/** True when `e` reads a quantified row — the outer one or one bound by an
+ *  `exists` nested in it (a write scope's share rule).  Such a subterm stays in
+ *  the find's filter: only the gate's own scope can be lifted into an argument. */
+/** True when `e` reads the request principal and nothing else of the gate's
+ *  scope (constants aside). */
+function readsOnlyPrincipal(e: ExprIR): boolean {
+  let principal = false;
+  let other = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "this" || x.kind === "id") other = true;
+    if (x.kind === "ref") {
+      if (x.refKind === "current-user") principal = true;
+      else if (x.refKind !== "enum-value") other = true;
+    }
+  });
+  return principal && !other;
+}
+
+function readsAnyRow(e: ExprIR): boolean {
   let found = false;
   walkExprDeep(e, (x) => {
-    if (x.kind === "ref" && x.refKind === "row" && x.name === binding) found = true;
+    if (x.kind === "ref" && x.refKind === "row") found = true;
   });
   return found;
 }

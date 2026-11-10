@@ -442,10 +442,18 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   absenceCheck: (subject) => `${subject} != null`,
   list: (elements) => `${J.List}.of(${elements.join(", ")})`,
   // An in-app `exists`: the service holding the gate has the quantified
-  // aggregate's repository injected (`javaExistsReadField`).
+  // aggregate's repository injected (`javaExistsReadField`).  A Java find
+  // binds the request principal through SpEL, never as a parameter, so the
+  // read's trailing principal argument is not passed.
   existsRead: (e, args) =>
-    `(${javaExistsReadField(e.aggregate)}.${e.read.find}(${args.join(", ")}) != null)`,
+    `(${javaExistsReadField(e.aggregate)}.${e.read.find}(${args
+      .filter((_, i) => !isPrincipalArg(e.read.args[i]))
+      .join(", ")}) != null)`,
 };
+
+function isPrincipalArg(a: ExprIR | undefined): boolean {
+  return a?.kind === "ref" && a.refKind === "current-user";
+}
 
 /** The service field an in-app `exists` over `aggregate` reads through. */
 export function javaExistsReadField(aggregate: string): string {

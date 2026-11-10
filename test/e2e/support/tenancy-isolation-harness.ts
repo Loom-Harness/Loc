@@ -707,8 +707,10 @@ export async function assertOrgContextGate(
 //      redacts by the grantee's own principal;
 //   5. only a WRITE share opens the grantee's writes;
 //   6. revoking a share closes the row again;
-//   7. a grantee cannot re-share: a share it creates sits in ITS org, not the
-//      row's, so it counts for nobody;
+//   7. a grantee cannot re-share: sharing needs write access to the row in
+//      the sharer's OWN org, which a write share of another org's row is not;
+//   9. a sharer whose write scope excludes the row (`own`: a colleague's row)
+//      may neither share it nor revoke its shares;
 //   8. a soft-deleted row is hidden from its grantees with it;
 //   0. `allow share on X when …` gates creating and revoking a share.
 // ---------------------------------------------------------------------------
@@ -842,9 +844,30 @@ export async function assertShareable(base: string): Promise<void> {
   expect(await names(sharer)).toEqual(["gear"]);
   expect((await rename(mgr(orgAX), "nope")).status).toBe(404);
 
-  // (7) No re-share: A.B's own share of the row sits in A.B, so it opens
-  // nothing to W.
-  await share(mgr(orgAB), { category: tools, granteeKind: "Org", org: orgW, write: true });
+  // (7) No re-share: A.B writes the row through its write share, but the row
+  // is not in A.B's org, so A.B may not share it.
+  const reshare = await send(mgr(orgAB), "POST", "/api/category_shares", {
+    category: tools,
+    granteeKind: "Org",
+    org: orgW,
+    write: true,
+  });
+  expect(reshare.status, reshare.text).toBe(403);
+  expect(await names(mgr(orgW))).toEqual([]);
+
+  // (9) `allow write own on Category when manager`: a colleague of the sharer
+  // reads the row but cannot write it, so may neither share it nor revoke.
+  const colleague = mgr(orgA);
+  expect(await names(colleague)).toEqual(["gear"]);
+  const colleagueShare = await send(colleague, "POST", "/api/category_shares", {
+    category: tools,
+    granteeKind: "Org",
+    org: orgW,
+    write: false,
+  });
+  expect(colleagueShare.status, colleagueShare.text).toBe(403);
+  const colleagueRevoke = await send(colleague, "POST", `/api/category_shares/${toAB}/revoke`, {});
+  expect(colleagueRevoke.status, colleagueRevoke.text).toBe(403);
   expect(await names(mgr(orgW))).toEqual([]);
 
   // (2b) An AUTHORED move of W under A.X re-targets the Subtree grant.

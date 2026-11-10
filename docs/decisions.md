@@ -2506,9 +2506,11 @@ context Catalog {
     invariant orgGrantee: granteeKind == ShareGranteeKind.User || org != null
     invariant userGrantee: granteeKind != ShareGranteeKind.User || user != null
     create(category: Category id, granteeKind: ShareGranteeKind, org: Organization id?, user: guid?, write: bool) {
+      requires exists Category for write as x where x.id == category && x.tenantId == organizationContext.org
       emit CategoryShared { share: id, category: category }
     }
     operation revoke() {
+      requires exists Category for write as x where x.id == category && x.tenantId == organizationContext.org
       revoked := true
       emit CategoryUnshared { share: id, category: category }
     }
