@@ -224,7 +224,7 @@ function felizDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
   const stores = new Set<string>();
   walkExprDeep(c.body, (e) => {
     if (e.kind === "ref" && e.refKind === "store-field" && e.storeName) stores.add(e.storeName);
-    if (e.kind === "call" && e.storeAction) stores.add(e.storeAction.store);
+    if (e.kind === "call" && e.callKind === "store-action") stores.add(e.storeAction.store);
     if (e.kind === "action-ref" && e.storeName) stores.add(e.storeName);
   });
   for (const store of [...stores].sort()) {
@@ -356,7 +356,7 @@ function flutterDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
   const stores = new Set<string>();
   walkExprDeep(c.body, (e) => {
     if (e.kind === "ref" && e.refKind === "store-field" && e.storeName) stores.add(e.storeName);
-    if (e.kind === "call" && e.storeAction) stores.add(e.storeAction.store);
+    if (e.kind === "call" && e.callKind === "store-action") stores.add(e.storeAction.store);
     if (e.kind === "action-ref" && e.storeName) stores.add(e.storeName);
   });
   for (const store of [...stores].sort()) {

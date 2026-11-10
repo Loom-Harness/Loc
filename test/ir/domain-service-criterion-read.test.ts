@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts, type ExprIR, type StmtIR } from "../../src/ir/types/loom-ir.js";
+import { type CallOf, expectCallKind } from "../_helpers/call-kind.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -48,11 +49,11 @@ function opBody(m: Awaited<ReturnType<typeof enriched>>): StmtIR[] {
 }
 
 /** The `repo-read` Call inside a `return <expr>` body statement. */
-function repoReadCall(body: StmtIR[]): Extract<ExprIR, { kind: "call" }> {
+function repoReadCall(body: StmtIR[]): CallOf<"repo-read"> {
   const ret = body.find((s) => s.kind === "return") as Extract<StmtIR, { kind: "return" }>;
   expect(ret, "return statement").toBeDefined();
-  const call = ret.value as Extract<ExprIR, { kind: "call" }>;
-  expect(call.kind).toBe("call");
+  const call = ret.value;
+  expectCallKind(call, "repo-read");
   return call;
 }
 
@@ -60,7 +61,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
   it("lowers findAll(<Criterion>) to a repo-read marked synthCriterion + retrievalName", async () => {
     const m = await enriched(`operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`);
     const call = repoReadCall(opBody(m));
-    expect(call.callKind).toBe("repo-read");
+    expectCallKind(call, "repo-read");
     expect(call.repoRead?.op).toBe("select-many");
     expect(call.repoRead?.synthCriterion).toEqual({ name: "Rich" });
     expect(call.repoRead?.retrievalName).toBe("findAllByRich");

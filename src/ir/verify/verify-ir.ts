@@ -81,7 +81,8 @@ export function verifyLoomModel(model: LoomModel): IrViolation[] {
     if (e.kind === "method-call" && !e.receiverType) {
       at(source, site, `method call '.${e.member}' is missing its receiverType`);
     }
-    if (e.kind === "call" && !e.callKind) {
+    // Typed as always present; hand-built IR can still omit it.
+    if (e.kind === "call" && !(e.callKind as string | undefined)) {
       at(source, site, `call '${e.name}' has no callKind`);
     }
   });
