@@ -5,6 +5,7 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
+  runEventFieldEvolutionGate,
   runMigrationEvolutionGate,
   runUniqueIndexEvolutionGate,
 } from "./support/migration-evolution-harness.js";
@@ -69,5 +70,13 @@ describe.skipIf(!ENABLED)(
 describe.skipIf(!ENABLED)("unique-index evolution gate over the generated python backend", () => {
   it("rebuilds the index across a softDeletable flip; inherited keys enforce per table / hierarchy", async () => {
     await runUniqueIndexEvolutionGate(pythonDriver);
+  }, 600_000);
+});
+
+// A stream written before an event gained fields must still replay and accept
+// commands: the missing keys read back as null (optional) or the zero value.
+describe.skipIf(!ENABLED)("event-field evolution gate over the generated python backend", () => {
+  it("replays a v1 event stream under a v2 event that gained fields", async () => {
+    await runEventFieldEvolutionGate(pythonDriver);
   }, 600_000);
 });

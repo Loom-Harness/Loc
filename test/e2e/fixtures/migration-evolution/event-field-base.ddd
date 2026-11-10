@@ -1,0 +1,29 @@
+// Event-sourced evolution: v1 of an `eventLog` aggregate whose `Paid` event
+// gains a field in event-field-evolved.ddd.  Streams written under v1 must
+// still replay under v2.
+system E {
+  subdomain S {
+    context C {
+      event Opened { ledger: Ledger id }
+      event Paid { ledger: Ledger id, amount: int }
+      aggregate Ledger persistedAs: eventLog {
+        paid: int
+        create open() { emit Opened { ledger: id } }
+        operation pay(amount: int) { emit Paid { ledger: id, amount: amount } }
+        apply(e: Opened) { paid := 0 }
+        apply(e: Paid) { paid := paid + e.amount }
+      }
+      repository Ledgers for Ledger { }
+    }
+  }
+  api A from S
+  storage pg { type: postgres }
+  resource st { for: C, kind: eventLog, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [C]
+    dataSources: [st]
+    serves: A
+    port: 4000
+  }
+}

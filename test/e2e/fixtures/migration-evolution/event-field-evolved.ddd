@@ -1,0 +1,37 @@
+// Event-sourced evolution, v2: `Paid` gains a required string, an optional
+// string and a required int.  Streams written under event-field-base.ddd
+// must still replay and accept new commands.
+system E {
+  subdomain S {
+    context C {
+      event Opened { ledger: Ledger id }
+      event Paid { ledger: Ledger id, amount: int, method: string, note: string?, count: int }
+      aggregate Ledger persistedAs: eventLog {
+        paid: int
+        lastMethod: string
+        payments: int
+        lastNote: string?
+        create open() { emit Opened { ledger: id } }
+        operation pay(amount: int, method: string) { emit Paid { ledger: id, amount: amount, method: method, note: null, count: 1 } }
+        apply(e: Opened) { paid := 0
+          lastMethod := ""
+          payments := 0 }
+        apply(e: Paid) { paid := paid + e.amount
+          lastMethod := e.method
+          payments := payments + e.count
+          lastNote := e.note }
+      }
+      repository Ledgers for Ledger { }
+    }
+  }
+  api A from S
+  storage pg { type: postgres }
+  resource st { for: C, kind: eventLog, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [C]
+    dataSources: [st]
+    serves: A
+    port: 4000
+  }
+}

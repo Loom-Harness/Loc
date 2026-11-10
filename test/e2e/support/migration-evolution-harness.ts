@@ -55,6 +55,8 @@ export function readFixture(
     | "journal-order-base"
     | "journal-order-evolved"
     | "unique-evo-base"
+    | "event-field-base"
+    | "event-field-evolved"
     | "move-base"
     | "move-evolved",
 ): string {
@@ -1637,5 +1639,79 @@ export async function runCrossContextMoveGate(driver?: BackendDriver): Promise<v
         /* best-effort */
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Event-field evolution — a stream written before an event gained fields
+//
+// event-field-base.ddd opens a ledger and pays into it; event-field-evolved.ddd
+// adds a required string, an optional string and a required int to `Paid`.
+// The stored v1 event JSON lacks all three keys.  Replaying it under v2 must
+// fill them (optional -> null, required -> the type's zero value) and the
+// stream must still accept a new command, instead of failing the read and the
+// write with a server error.
+// ---------------------------------------------------------------------------
+
+export async function runEventFieldEvolutionGate(driver: BackendDriver): Promise<void> {
+  if (!driver.toolchain.check()) {
+    throw new Error(
+      `event-field evolution ${driver.platform}: \`${driver.toolchain.name}\` not on PATH.`,
+    );
+  }
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), `loom-evfield-${driver.platform}-`));
+  const appDir = path.join(tree, "d");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    driver.migrate?.(appDir, pg);
+    const h = driver.boot(appDir, pg, await freePort());
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+  const send = async (url: string, body?: object): Promise<{ status: number; text: string }> => {
+    const r = await fetch(url, {
+      method: body ? "POST" : "GET",
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: r.status, text: await r.text() };
+  };
+  const DB = "evfield";
+  try {
+    server = await startPgServer();
+    resetDatabase(server, DB);
+    const pg = connFor(server, DB);
+
+    generate(readFixture("event-field-base"), driver.platform, tree);
+    driver.install(appDir);
+    const v1 = await boot(pg);
+    const created = await send(`${v1.base}/api/ledgers`, {});
+    expect(created.status, `v1 create: ${created.text}`).toBe(201);
+    const id = (JSON.parse(created.text) as { id: string }).id;
+    const paid1 = await send(`${v1.base}/api/ledgers/${id}/pay`, { amount: 5 });
+    expect(paid1.status, `v1 pay: ${paid1.text}`).toBe(204);
+    v1.stop();
+
+    generate(readFixture("event-field-evolved"), driver.platform, tree);
+    driver.rebuild?.(appDir);
+    const v2 = await boot(pg);
+    const read = await send(`${v2.base}/api/ledgers/${id}`);
+    expect(read.status, `v2 read of the v1 stream: ${read.text}`).toBe(200);
+    const old = JSON.parse(read.text) as Record<string, unknown>;
+    expect(old.paid).toBe(5);
+    expect([null, ""], "required string fills null or empty").toContain(old.lastMethod);
+    expect([null, 0], "required int fills null or zero").toContain(old.payments);
+    expect(old.lastNote ?? null, "optional string fills null").toBeNull();
+    const paid2 = await send(`${v2.base}/api/ledgers/${id}/pay`, { amount: 1, method: "card" });
+    expect(paid2.status, `v2 pay on the v1 stream: ${paid2.text}`).toBe(204);
+    const after = await send(`${v2.base}/api/ledgers/${id}`);
+    expect(after.status, after.text).toBe(200);
+    expect(JSON.parse(after.text)).toMatchObject({ paid: 6, lastMethod: "card" });
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    fs.rmSync(tree, { recursive: true, force: true });
   }
 }

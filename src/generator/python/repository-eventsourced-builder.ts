@@ -452,9 +452,50 @@ function rowToEvent(
   );
 }
 
-/** Decode the event field `name` from the JSONB payload `data`. */
+/** Decode the event field `name` from the JSONB payload `data`.  A stream
+ *  written before the field existed has no such key: an optional field reads
+ *  back `None`, a required one the type's zero value ({@link jsonZero}) — the
+ *  same null-fill the other backends' replay gives, never a `KeyError`. */
 export function fromData(name: string, t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  return decodeValue(`data["${name}"]`, t, ctx);
+  if (t.kind === "optional") return decodeValue(`data.get("${name}")`, t, ctx);
+  return decodeValue(`data.get("${name}", ${jsonZero(t, ctx)})`, t, ctx);
+}
+
+/** The JSON-shaped zero of `t` as a Python literal — the payload value
+ *  {@link decodeValue} turns into the type's zero domain value. */
+function jsonZero(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
+  switch (t.kind) {
+    case "optional":
+      return "None";
+    case "primitive":
+      switch (t.name) {
+        case "int":
+        case "long":
+        case "decimal":
+          return "0";
+        case "money":
+          return '"0"';
+        case "bool":
+          return "False";
+        case "datetime":
+          return '"1970-01-01T00:00:00+00:00"';
+        case "date":
+          return '"1970-01-01"';
+        default:
+          return '""';
+      }
+    case "array":
+      return "[]";
+    case "enum":
+      return JSON.stringify(ctx.enums.find((e) => e.name === t.name)?.values[0] ?? "");
+    case "valueobject": {
+      const vo = findValueObjectInScope(ctx, t.name);
+      if (!vo) return '""';
+      return `{${vo.fields.map((vf) => `${JSON.stringify(vf.name)}: ${jsonZero(vf.type, ctx)}`).join(", ")}}`;
+    }
+    default:
+      return '""';
+  }
 }
 
 /** Decode the JSON value `access` to its domain type.  A value object is
