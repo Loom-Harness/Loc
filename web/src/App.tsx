@@ -101,6 +101,8 @@ import {
   type OpenApiDoc,
 } from "./backend/openapi";
 import { aggregateRequestTraces } from "./backend/route-match";
+import { jwtPayload, oidcSetup } from "./backend/oidc-personas";
+import type { TokenSet } from "./runtime/infra/oidc";
 import { buildTree } from "./preview/file-tree";
 import { useWorkspace } from "./workspace/use-workspace";
 import { useWorkspaceSources } from "./workspace/use-workspace-sources";
@@ -168,8 +170,10 @@ import { countRender, useCtxStore } from "./layout/ctx-store";
 import { FooterBar } from "./layout/FooterBar";
 import {
   type AuthStubConfig,
+  authHeaders,
   DEFAULT_AUTH_STUB,
-  devClaimsHeader,
+  NO_OIDC,
+  type OidcState,
   EXPLORER_MODES,
   formatUnsupportedDeployables,
   type DockTab,
@@ -554,6 +558,12 @@ export default function App(): JSX.Element {
   );
   const authStubRef = useRef(authStub);
   authStubRef.current = authStub;
+  // The fake identity provider as the last boot set it up, and the token the
+  // Auth panel minted (sent as `Authorization: Bearer` while the booted
+  // backends verify OIDC tokens).
+  const [oidc, setOidc] = useState<OidcState>(NO_OIDC);
+  const oidcRef = useRef(oidc);
+  oidcRef.current = oidc;
 
   // Live console streams for the Output panel — the backend (Hono
   // runtime worker) console + stack traces, and the preview app's
@@ -611,20 +621,26 @@ export default function App(): JSX.Element {
     // Stop / start one deployable, and send a request to one, for the same
     // tests (no UI for the first two yet).
     const w = window as unknown as {
-      __loomDispatch?: (target: string, method: string, path: string, body?: unknown) => Promise<unknown>;
+      __loomDispatch?: (
+        target: string,
+        method: string,
+        path: string,
+        body?: unknown,
+        headers?: Record<string, string>,
+      ) => Promise<unknown>;
       __loomInspectBroker?: () => Promise<unknown>;
       __loomStopDeployable?: (slug: string) => Promise<unknown>;
       __loomStartDeployable?: (slug: string) => Promise<unknown>;
     };
     const unsupported = Promise.resolve({ ok: false, message: "engine cannot stop a single deployable" });
-    w.__loomDispatch = (target, method, path, body) => {
+    w.__loomDispatch = (target, method, path, body, headers) => {
       const engine = engineRef.current;
       if (!engine) return Promise.resolve({ ok: false, message: "runtime not ready" });
       return engine.dispatch(
         {
           url: `http://localhost${path}`,
           method,
-          headers: body === undefined ? {} : { "content-type": "application/json" },
+          headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
           body: body === undefined ? null : JSON.stringify(body),
         },
         target,
@@ -641,18 +657,15 @@ export default function App(): JSX.Element {
     };
   }, []);
   // Stable dispatcher handed to the preview: forwards to the live engine,
-  // injecting the auth-stub claims header when enabled.  Memoised with no
-  // deps (reads engine + stub via refs) so the preview iframe is not
-  // re-mounted when the stub config changes.
+  // injecting the Auth panel's identity (`authHeaders`).  Memoised with no
+  // deps (reads engine + auth state via refs) so the preview iframe is not
+  // re-mounted when the identity changes.
   const authedRuntime = useMemo<RuntimeDispatcher>(
     () => ({
       dispatch: (req) => {
         const engine = engineRef.current;
         if (!engine) return Promise.reject(new Error("runtime not ready"));
-        const claims = devClaimsHeader(authStubRef.current);
-        const headers = claims
-          ? { ...req.headers, "x-loom-dev-claims": claims }
-          : req.headers;
+        const headers = { ...req.headers, ...authHeaders(authStubRef.current, oidcRef.current) };
         return engine.dispatch({ ...req, headers });
       },
       serveInfraHttp: (req) => {
@@ -1725,6 +1738,15 @@ export default function App(): JSX.Element {
       //
       // One database per storage.  A system with one storage keeps the
       // island key it always had, so its stored rows survive this layout.
+      const envOf = (slug: string): Record<string, string> => {
+        const compose = lastGeneratedFilesRef.current.find((f) => f.path === "docker-compose.yml");
+        return compose ? composeServiceEnv(compose.content, slug) : {};
+      };
+      // Under `auth { oidc }` the backends boot their generated OIDC verifier
+      // against the infra worker's identity provider, unless the Auth panel
+      // asks for the dev stub.
+      const idp = oidcSetup(lastGeneratedFilesRef.current, backends.map((b) => b.slug), envOf);
+      const realVerifier = idp !== null && authStubRef.current.verifier !== "stub";
       const plan = bootPlan(backends, planned.plan, planned.storages, (storageKey) => {
         if (!isDesktop) return { dataDir: ":memory:", island: null };
         const island =
@@ -1732,12 +1754,17 @@ export default function App(): JSX.Element {
             ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)
             : islandKey;
         return { dataDir: `opfs-ahp://loom-${island}`, island };
-      }, (slug) => {
-        const compose = lastGeneratedFilesRef.current.find((f) => f.path === "docker-compose.yml");
-        return compose ? composeServiceEnv(compose.content, slug) : {};
-      }, planned.restSpecs);
+      }, envOf, planned.restSpecs, realVerifier ? idp : null);
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
+        // A token minted against the same realm still verifies (the signing
+        // key outlives a boot); one for another realm, or a stub boot, drops it.
+        setOidc((prev) => ({
+          setup: idp,
+          active: realVerifier,
+          token:
+            realVerifier && prev.token && prev.setup?.realms[0]?.issuer === idp?.realms[0]?.issuer ? prev.token : null,
+        }));
         // A boot that starts the app has brought the database to the
         // chain's head.
         const head =
@@ -2054,10 +2081,9 @@ export default function App(): JSX.Element {
       if (body !== null && body.length > 0) {
         headers["content-type"] = "application/json";
       }
-      // Playground auth stub — inject the configured identity so a
-      // `requires`-gated route can be exercised as different users.
-      const claims = devClaimsHeader(authStub);
-      if (claims) headers["x-loom-dev-claims"] = claims;
+      // The Auth panel's identity — a minted bearer token or the dev-stub
+      // claims — so a `requires`-gated route can be exercised as different users.
+      Object.assign(headers, authHeaders(authStub, oidc));
       const target = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : undefined;
       const result = await engine.dispatch({ url, method: reqMethod, headers, body }, target);
       dispatch({ type: "DISPATCH_DONE", result });
@@ -3017,6 +3043,23 @@ export default function App(): JSX.Element {
     deleteEmptySourceFolder: sources.deleteEmptyFolder,
     clearSourceError: sources.clearError,
     setAuthStub,
+    mintOidcToken: async (persona: string, claims: Record<string, unknown>): Promise<void> => {
+      const engine = engineRef.current;
+      if (!engine?.infraService || !oidcRef.current.active) {
+        throw new Error("Boot a system with auth { oidc } first.");
+      }
+      const set = await engine.infraService<TokenSet>("oidc", "mint", { persona, claims });
+      setOidc((prev) => ({
+        ...prev,
+        token: {
+          persona,
+          accessToken: set.access_token,
+          expiresAt: Date.now() + set.expires_in * 1000,
+          claims: jwtPayload(set.access_token) ?? {},
+        },
+      }));
+    },
+    clearOidcToken: (): void => setOidc((prev) => ({ ...prev, token: null })),
     onSourceChange: (text: string, origin?: "editor" | "builder", label?: string): void => {
       sourceRef.current = text;
       lastWrittenRef.current = text;
@@ -3148,6 +3191,7 @@ export default function App(): JSX.Element {
       engine,
       authedRuntime,
       authStub,
+      oidc,
       editorSourceTick,
       editorHandleRef,
       diagnostics,
@@ -3259,6 +3303,7 @@ export default function App(): JSX.Element {
       engine,
       authedRuntime,
       authStub,
+      oidc,
       editorSourceTick,
       diagnostics,
       errorCount,

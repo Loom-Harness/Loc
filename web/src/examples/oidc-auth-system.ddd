@@ -1,0 +1,71 @@
+// OIDC auth in the playground — the generated backend runs its REAL OIDC
+// verifier against the playground's in-browser identity provider: signature
+// checked against the provider's JWKS, `iss` / `aud` / `exp` checked, claims
+// projected onto `currentUser`.  The Auth tab lists the personas of the
+// generated dev Keycloak realm (`keycloak/realm.json`) and mints a token for
+// the one you pick; the API console and the preview send it as
+// `Authorization: Bearer …`.
+//
+// Try it: as `demo` `close` is refused with 403; `demo-admin` holds the
+// `support.closeNotes` permission (a realm role) and goes through.  Each
+// persona sees only the notes of its own tenant (the `tenantId` claim).
+
+system Desk {
+  user {
+    id: guid
+    role: string
+    permissions: string[]
+    tenantId: string
+  }
+
+  auth {
+    enforcement: opt
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+      audience: "desk-api"
+    }
+    claims: { permissions: "realm_access.roles" }
+  }
+
+  // Every note belongs to the tenant of the user who wrote it (the
+  // `tenantId` claim), and a reader sees only its own tenant's notes.
+  tenancy by user.tenantId of Org
+
+  subdomain Support {
+    permissions { closeNotes }
+
+    context Notes {
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+      }
+      repository Orgs for Org { }
+
+      aggregate Note with tenantOwned, crudish {
+        body: string
+        open: bool immutable
+
+        operation close() {
+          requires currentUser.permissions.contains(permissions.closeNotes)
+          open := false
+        }
+      }
+      repository Notes for Note { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource noteState { for: Notes, kind: state, use: primary }
+  api DeskApi from Support
+
+  deployable api {
+    platform: node
+    contexts: [Notes]
+    serves: DeskApi
+    dataSources: [noteState]
+    port: 3000
+    auth: required
+  }
+}

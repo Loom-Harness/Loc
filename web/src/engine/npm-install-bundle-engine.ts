@@ -310,6 +310,8 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       .map((s) => /^opfs-ahp:\/\/loom-(.+)$/.exec(s.dataDir ?? "")?.[1])
       .find((i) => i !== undefined);
     await infra.configureResources(island ?? null, opts?.fresh);
+    // The identity provider serves the realm the generated config names.
+    if (plan.oidc) await infra.service("oidc", "configure", plan.oidc);
     // The external-API mocks answer from the specs the storages declare.
     for (const { origin, spec } of plan.restSpecs ?? []) await infra.service("httpMock", "registerSpec", { origin, spec });
     // A deployable that left the system takes its worker with it.
@@ -340,6 +342,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
         synthDdl: wantsDdl,
         env: b.env,
         serviceHosts: plan.backends.map((o) => o.slug).filter((h) => h !== b.slug),
+        ...(b.verifier ? { verifier: b.verifier } : {}),
       });
       if (!res.ok) return this.failed(res, b.slug);
       if (wantsDdl) synthDdl.set(st.key, res.ddl ?? "");
@@ -408,6 +411,7 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       synthDdl: false,
       env: b.env,
       serviceHosts: (this.booted?.backends ?? []).map((o) => o.slug).filter((h) => h !== slug),
+      ...(b.verifier ? { verifier: b.verifier } : {}),
     });
     if (!loaded.ok) return loaded;
     return rt.start(await this.infra.attachStorage(b.storage, slug), await this.infra.connect(slug));
@@ -429,6 +433,11 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
   private target(target?: string): LoomRuntimeClient | null {
     const slug = target ?? this.booted?.backends[0]?.slug;
     return slug === undefined ? null : (this.runtimes.get(slug) ?? null);
+  }
+
+  infraService<T = unknown>(service: "oidc", op: string, params: unknown = {}): Promise<T> {
+    if (!this.infra) return Promise.reject(new Error("Runtime not booted — boot first."));
+    return this.infra.service<T>(service, op, params);
   }
 
   serveInfraHttp: NonNullable<RuntimeEngine["serveInfraHttp"]> = async ({ service, ...http }) => {

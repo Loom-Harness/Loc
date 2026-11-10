@@ -13,7 +13,7 @@ import { OutputPanel, outputMark } from "./OutputPanel";
 import { PaneErrorBoundary } from "../PaneErrorBoundary";
 import { ExamplesSheet } from "./ExamplesPane";
 import { FirstRunCard } from "./FirstRunCard";
-import { devClaimsHeader, type LayoutCtx, type MobileCodeView, type MobileTab } from "./ctx";
+import { type LayoutCtx, type MobileCodeView, type MobileTab } from "./ctx";
 import {
   agentMark,
   authMark,
@@ -90,7 +90,7 @@ function MobileShellView({ ctx }: Props): JSX.Element {
     migrations: migrationsMark(ctx),
     history: null,
     agent: agentMark(ctx),
-    auth: authMark(ctx, devClaimsHeader(ctx.authStub) != null),
+    auth: authMark(ctx),
   };
   const secondaryActive = SECONDARY.find((s) => s.id === activeTab) ?? null;
   const moreMark = worstMark(SECONDARY.map((s) => marks[s.id]));

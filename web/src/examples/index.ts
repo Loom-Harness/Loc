@@ -9,6 +9,7 @@ import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
 import resourceFakesSystemSource from "./resource-fakes-system.ddd?raw";
+import oidcAuthSystemSource from "./oidc-auth-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
 import inventorySystemSource from "./inventory-system.ddd?raw";
 import provenanceSystemSource from "./provenance-system.ddd?raw";
@@ -309,6 +310,13 @@ export const examples: LoomExample[] = [
     source: resourceFakesSystemSource,
     blurb:
       "One Node backend wired to every emulated resource kind: S3 objects and a presigned URL, localDisk files, mail captured from smtp / SES / SendGrid, and a mocked external REST API — all answered inside the browser.",
+  },
+  {
+    id: "oidc-auth-system",
+    label: "OIDC auth (real verifier, in-browser IdP)",
+    source: oidcAuthSystemSource,
+    blurb:
+      "`auth { oidc }` with a `requires` permission gate and `tenancy by user.tenantId`: the backend runs its generated OIDC verifier against the playground's identity provider, and the Auth tab mints tokens for the dev realm's personas.",
   },
   {
     id: "banking-system",
