@@ -33,7 +33,7 @@ import { localesBeside, writeCaseSource } from "./case-source.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
-import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
+import { MIGRATOR_IMPORT, SCHEMA_AGREEMENT_IMPORT, applyMigrationsStmt, schemaAgreementStmt } from "./emitted-schema.mjs";
 import { optInTestReset } from "./proc.mjs";
 
 // The generated reset seam is opt-in and token-gated (H-30, src/util/test-reset.ts);
@@ -146,6 +146,7 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   return `
 ${recorderPreamble()}
 ${MIGRATOR_IMPORT}
+${SCHEMA_AGREEMENT_IMPORT}
 import { loadApiTests } from ${J(join(REPO, "web/src/testing/run-api-tests.ts"))};
 import { createHarness, runTests } from ${J(join(REPO, "web/src/testing/harness.ts"))};
 import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts"))};
@@ -176,6 +177,7 @@ export async function run() {
   try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
+  ${schemaAgreementStmt()}
   ${seedRun}
   ${authRegister}
   const app = createApp(db);

@@ -25,6 +25,7 @@ import {
   escapeJsFamilyText,
   hookFnName,
   hookVarName,
+  jsRichTranslateCall,
   lowerFirstName,
   referencesIdent,
   renderJsMatch,
@@ -476,6 +477,11 @@ export const vueTarget: WalkerTarget = {
 
   renderAttrBinding(name: string, jsExpr: string): string {
     return ` :${name}=${quoteAttrExpr(jsExpr)}`;
+  },
+
+  /** A rich-text sentence: the runtime's escaped HTML bound as `v-html`. */
+  renderRichText(spec): string {
+    return `<span v-html=${quoteAttrExpr(jsRichTranslateCall(spec))}></span>`;
   },
 
   /** `<template v-if>` / `<template v-else>` block pair.  Vue

@@ -9,6 +9,7 @@ import { migratesAtBoot } from "../../../ir/util/databases.js";
 // zod-refine) in core.
 
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
+import { UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
@@ -17,6 +18,10 @@ import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imp
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
+import {
+  registryAncestorsSql,
+  registryTableSql,
+} from "../../../generator/_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   buildBaseReaderFile,
@@ -82,7 +87,10 @@ import { buildRepositoryFile } from "../../../generator/typescript/repository-bu
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
 import { buildEventSourcedRepositoryFile } from "../../../generator/typescript/repository-eventsourced-builder.js";
-import { aggregateHasStreamScope } from "../../../generator/typescript/repository-find-predicate.js";
+import {
+  aggregateHasStreamScope,
+  drizzleScopeFnName,
+} from "../../../generator/typescript/repository-find-predicate.js";
 import {
   PORT_POOL_PATH,
   portMembersFromSource,
@@ -95,7 +103,6 @@ import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import {
   brokerBoundChannelsCarrying,
   forwardsCallerCredential,
-  hostedHierarchyRegistry,
 } from "../../../ir/enrich/hosting-facts.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
@@ -154,6 +161,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../../ir/util/org-context.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -333,7 +341,7 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
  *  repository save's guarded write have anything to throw, so a
  *  concurrency-free project's `domain/errors.ts` stays byte-identical.
  *  `emitNotImplemented` is the same kind of gate for `NotImplementedError`:
- *  only an `extern` OPERATION's scaffold-once stub raises it.
+ *  only an `extern` operation's or `extern` handler's scaffold-once stub raises it.
  *  `emitValueObjectInvariant` gates `ValueObjectInvariantError` the same way. */
 function errorsTs(
   emitConcurrency: boolean,
@@ -998,10 +1006,12 @@ export function generateTypeScriptForContexts(
   // `ConcurrencyError` on a `(stream_id, version)` 23505 collision, so it needs
   // the same error class + 409 arm the `versioned` guarded write does.
   const emitConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // The 501 arm + its error class ride on the presence of an `extern` OPERATION
-  // — the only seam whose generated stub throws it.  A project with none stays
+  // The 501 arm + its error class ride on the presence of an `extern` operation or
+  // handler — the only seams whose generated stub throws it.  A project with none stays
   // byte-identical.
-  const emitNotImplemented = merged.aggregates.some((a) => a.operations.some((o) => o.extern));
+  const emitNotImplemented =
+    merged.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(merged.commandHandlers ?? []), ...(merged.queryHandlers ?? [])].some((h) => h.extern);
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
@@ -1513,7 +1523,7 @@ export function generateTypeScriptForContexts(
   }
 
   if (authRequired) {
-    emitAuthFiles(system.sys, system.deployable.contextNames, out);
+    emitAuthFiles(system.sys, out, system.deployable.contextNames);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
@@ -1746,18 +1756,6 @@ export function generateTypeScriptForContexts(
     // OIDC turnkey auth: register the generated verifier instead of the
     // dev stub.
     oidc: !!oidcAuth,
-    // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
-    // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
-    // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
-    // per request, on both persistence adapters.  `undefined` for flat
-    // tenancy.  The aggregate name (not the drizzle table var) is what
-    // crosses the seam: each branch needs a different spelling of it (the
-    // `orgs` schema var vs the `OrgRow` entity class).
-    // Only a deployable hosting the registry's context has its table; phase ⑦
-    // refuses any other that reads the path.
-    orgPathRegistryAgg: authRequired
-      ? hostedHierarchyRegistry(system.sys, system.deployable.contextNames)?.name
-      : undefined,
     // Timer scheduler (scheduling.md): boot wires startTimerScheduler
     // into the same in-process dispatcher the outbox relay uses.
     hasTimers,
@@ -1777,6 +1775,7 @@ export function generateTypeScriptForContexts(
     inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
       out.get("http/workflows.ts") ?? "",
     ),
+    orgRegistry: authRequired ? hostedOrgRegistry(system.sys, system.deployable) : undefined,
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));
   out.set("index.ts", renderProjectIndexTs(entryConfig));
@@ -2226,7 +2225,6 @@ interface ProjectEntryConfig {
   readonly outboxRelay: boolean;
   readonly hasRealtime: boolean;
   readonly oidc: boolean;
-  readonly orgPathRegistryAgg?: string;
   readonly hasTimers: boolean;
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
@@ -2238,6 +2236,23 @@ interface ProjectEntryConfig {
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
   readonly inProcessDispatcherEmitted: boolean;
+  /** The tenancy registry this deployable hosts, when the operating-scope
+   *  switch gate is emitted: boot binds the gate's registry reads to the db. */
+  readonly orgRegistry?: {
+    /** The registry aggregate's name. */
+    readonly name: string;
+    /** The quoted, schema-qualified registry table. */
+    readonly tableSql: string;
+  };
+}
+
+/** The registry the switch gate reads on this deployable — present only when
+ *  the gate is emitted and the deployable hosts the registry's context. */
+function hostedOrgRegistry(sys: SystemIR, dep: DeployableIR): ProjectEntryConfig["orgRegistry"] {
+  const plan = orgContextPlan(sys, dep.contextNames);
+  const tableSql = registryTableSql(sys);
+  if (!plan.registry || !tableSql) return undefined;
+  return { name: plan.registry.name, tableSql };
 }
 
 /** Indent every non-empty line of `text` by two spaces. */
@@ -2248,9 +2263,8 @@ function indentBlock(text: string): string {
 /**
  * `boot.ts` — the deployable's whole start-up sequence as one function,
  * `bootApp(db, opts) → { app, stop }`: first-boot seeds, the user verifier,
- * the tenant-registry `orgPath` resolver, the event dispatchers, the channel
- * transports + publish tee + consumer loop, the outbox relay and the timer
- * scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
+ * the event dispatchers, the channel transports + publish tee + consumer loop,
+ * the outbox relay and the timer scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
  * `serve`, shutdown around it) and the browser playground's runtime worker
  * (PGlite, no `serve`).  One function is what keeps the two from drifting —
  * `test/generator/typescript/boot-entry-census.test.ts` fails when `index.ts`
@@ -2264,13 +2278,12 @@ function indentBlock(text: string): string {
  */
 function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   const {
+    usingMikro,
     userShape,
     runSeedsAtBoot,
-    usingMikro,
     outboxRelay,
     hasRealtime,
     oidc,
-    orgPathRegistryAgg,
     hasTimers,
     hasChannels,
     hasChannelConsumers,
@@ -2308,33 +2321,44 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     : oidc
       ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
       : `\n${devStubDoc}${devStubGated}`;
-  // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
-  // persistence paths.  The auth middleware calls it per request; here we bind
-  // it to the db with a `SELECT data_key … WHERE id = <claim>`.
-  //
-  // NOT drizzle-only.  Letting mikroorm fall back to the claim via the
-  // unregistered-resolver path is fail-SAFE only in the flat sense: `orgPath`
-  // degrades to the bare claim, so a child org reads as its own root and the
-  // whole subtree ladder collapses — a silent wrong answer on an adapter that
-  // renders the subtree predicate.  The mikro branch reads the registry Row
-  // through the EntityManager instead
-  // (`findOne(<Reg>Row, { id: claim }, { filters: false })`), the same one-row
-  // lookup.  The registry Row carries the tenancy self-scope as a default
-  // filter that reads the principal — and this lookup runs to BUILD that
-  // principal, so it is the one read the filter must not scope.
-  // The drizzle schema-table var (`orgs`) and the MikroORM Row entity class
-  // (`OrgRow`) for the same registry aggregate — one name in, both spellings
-  // derived here rather than at the call site, so the two persistence branches
-  // cannot drift apart.
-  const orgPathRegistryTable = orgPathRegistryAgg && lowerFirst(plural(orgPathRegistryAgg));
-  const orgPathRegistryRow = orgPathRegistryAgg && `${orgPathRegistryAgg}Row`;
-  const orgPathRow = orgPathRegistryRow && ref(tsNamed("~/db/entities", orgPathRegistryRow));
-  const orgPathDoc = `\n// Register the tenant-registry \`orgPath\` resolver (multi-tenancy):\n// currentUser.orgPath = the caller org's materialized \`data_key\`, memoized\n// per request in the auth middleware; a missing row / dataKey falls back to\n// the claim (root-segment path) — fail-safe, never null/crash.\n`;
-  const orgPathRegistration = !orgPathRegistryAgg
+  // The operating-scope switch gate's registry reads (`organizationContext`).
+  // `canRead` loads the requested row through the registry's read scope —
+  // the ambient frame holds the caller's HOME principal while the gate runs —
+  // so the registry's own read rules decide which orgs a caller may switch
+  // into.  `ancestors` is the shared recursive walk (`registry-walk.ts`).  A
+  // value that is not a uuid names no registry row; it never reaches the db.
+  const orgRegistryRegistration = !cfg.orgRegistry
     ? ""
-    : usingMikro
-      ? `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
-      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: ${T.schema}.${orgPathRegistryTable}.dataKey })\n    .from(${T.schema}.${orgPathRegistryTable})\n    .where(${T.eq}(${T.schema}.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
+    : (() => {
+        const reg = cfg.orgRegistry;
+        const table = lowerFirst(plural(reg.name));
+        const walk = registryAncestorsSql(reg.tableSql, "${org}");
+        const canRead = usingMikro
+          ? `(await db.fork().findOne(${ref(tsNamed("~/db/entities", `${reg.name}Row`))}, { id: org })) !== null`
+          : `(await db.select({ id: ${T.schema}.${table}.id }).from(${T.schema}.${table}).where(${T.and}(${T.eq}(${T.schema}.${table}.id, org), ${ref(tsNamed("~/db/read-scopes", drizzleScopeFnName({ name: reg.name })))}())).limit(1)).length > 0`;
+        const walkCall = usingMikro
+          ? `((await db.fork().getConnection().execute(${JSON.stringify(registryAncestorsSql(reg.tableSql, "?"))}, [org])) as { id: string }[]).map((r) => r.id)`
+          : `((await db.execute(${T.sql}\`${walk}\`)) as unknown as { rows: { id: string }[] }).rows.map((r) => r.id)`;
+        return [
+          "",
+          "// The operating-scope switch gate reads the tenancy registry: `canRead`",
+          "// loads the requested row through the registry's own read scope (the",
+          "// ambient frame holds the caller's HOME principal), and `ancestors` walks",
+          "// `parent` upward — `UNION`, so a cycle terminates.",
+          `const ORG_ID = /${UUID_PATTERN}/i;`,
+          `${ref(tsNamed("~/auth/middleware", "registerOrgRegistry"))}({`,
+          "  async canRead(org) {",
+          "    if (!ORG_ID.test(org)) return false;",
+          `    return ${canRead};`,
+          "  },",
+          "  async ancestors(org) {",
+          "    if (!ORG_ID.test(org)) return [];",
+          `    return ${walkCall};`,
+          "  },",
+          "});",
+          "",
+        ].join("\n");
+      })();
   // The in-process dispatcher is constructed once and shared by the outbox
   // relay and/or the timer scheduler (scheduling.md).
   const needsDispatcher = outboxRelay || hasTimers || hasChannels;
@@ -2457,7 +2481,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
     stopLines.length === 0
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
-  const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
+  const preamble = `${seedCall}${authStubCall}${orgRegistryRegistration}`.replace(/^\n/, "");
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.

@@ -1,7 +1,4 @@
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
-import { registryTableName } from "../../ir/enrich/storage-names.js";
 import type {
-  AggregateIR,
   AuthIR,
   AuthValueIR,
   FieldIR,
@@ -9,11 +6,10 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
-import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
+import type { OrgContextPlan } from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -28,6 +24,7 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
+import { registryAncestorsSql } from "../_persistence/registry-walk.js";
 import { renderCsType } from "./render-expr.js";
 import { csCodeInit } from "./wire-policy-cs.js";
 
@@ -54,60 +51,43 @@ export function emitAuthFiles(
   sys: SystemIR,
   ns: string,
   out: Map<string, string>,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
+  /** The quoted registry table the ancestors walk reads (`registryTableSql`). */
+  registryTable?: string,
   usingDapper = false,
-  hostedContextNames?: readonly string[],
 ): void {
   if (!sys.user) return;
-  const orgPathClaim = sys.tenancy?.claimField;
-  // Hierarchy (multi-tenancy): when the registry opts into
-  // `tenantRegistry` (a `dataKey` column exists), `currentUser.orgPath` becomes
-  // a per-request memoized read of the caller org's materialized `data_key`,
-  // resolved by UserMiddleware via a scoped `IOrgPathResolver` and memoized on
-  // the request principal.  Without it (flat tenancy), the claim-copy
-  // computed property stands.  `registry` (undefined ⇒ flat) is the single
-  // signal both the User record and the middleware branch on.
-  // Only a deployable that hosts the registry's context has its table.
-  // `hostedContextNames` is absent in legacy single-project mode, where every
-  // context is hosted.
-  const registry = !orgPathClaim
-    ? undefined
-    : hostedContextNames
-      ? hostedHierarchyRegistry(sys, hostedContextNames)
-      : hierarchyRegistry(sys);
-  const orgPathClaimExpr =
-    registry && orgPathClaim ? userClaimExpr(sys.user, orgPathClaim) : undefined;
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
-  // — only where something reads the operating scope; the phase-⑦
-  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
-  const orgContext = !!orgPathClaimExpr && systemReadsOrgContext(sys);
-  out.set("Auth/User.cs", renderUserRecord(sys.user, ns, orgPathClaim, !!registry, orgContext));
+  const tenantClaim = sys.tenancy?.claimField;
+  // The operating-scope switch gate (`organizationContext`) exists only where
+  // the system declares tenancy and something reads the operating org.
+  const orgContext = !!tenantClaim && plan.gate;
+  const registry =
+    orgContext && plan.registry && registryTable
+      ? {
+          name: plan.registry.name,
+          table: registryTable,
+          ancestors: plan.ancestors,
+          usingDapper,
+        }
+      : undefined;
+  out.set(
+    "Auth/User.cs",
+    renderUserRecord(
+      sys.user,
+      ns,
+      tenantClaim,
+      orgContext,
+      registry?.ancestors ? registry.name : undefined,
+    ),
+  );
   out.set("Auth/EventOrigin.cs", renderEventOrigin(ns));
   out.set("Auth/IUserVerifier.cs", renderVerifierInterface(ns));
   out.set("Auth/ICurrentUserAccessor.cs", renderAccessorInterface(ns));
   out.set("Auth/HttpContextCurrentUserAccessor.cs", renderAccessorImpl(ns));
-  out.set("Auth/UserMiddleware.cs", renderMiddleware(ns, !!sys.auth, orgPathClaimExpr, orgContext));
-  // The registry-lookup seam: the interface lives in Auth (where the
-  // middleware calls it); the IMPLEMENTATION lives in Infrastructure/Persistence
-  // (where the registry's storage is known).  Registered in Program.cs
-  // (AddScoped) under hierarchy only.
-  //
-  // ONE implementation per persistence adapter.  The EF file was emitted
-  // unconditionally until #2599 pinned the fallout: it opens
-  // `using Microsoft.EntityFrameworkCore;` and takes an `AppDbContext`, so a
-  // `persistence: dapper` deployable with a `tenantRegistry` TREE failed to
-  // compile (CS0234 + 2x CS0246) — generation and the IR validator both clean.
-  // The Dapper twin reads the same `data_key` with one raw Npgsql statement.
-  if (registry) {
-    out.set("Auth/IOrgPathResolver.cs", renderOrgPathResolverInterface(ns));
-    out.set(
-      usingDapper
-        ? "Infrastructure/Persistence/DapperOrgPathResolver.cs"
-        : "Infrastructure/Persistence/EfOrgPathResolver.cs",
-      usingDapper
-        ? renderDapperOrgPathResolver(ns, registryTableName(sys) as string)
-        : renderEfOrgPathResolver(ns, registry),
-    );
-  }
+  out.set(
+    "Auth/UserMiddleware.cs",
+    renderMiddleware(ns, !!sys.auth, orgContext ? tenantClaim : undefined, registry),
+  );
   // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
   // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
   // verifier, and the header-trusting stub is not emitted at all — so no DI
@@ -1048,13 +1028,12 @@ function stubCsharpValueForType(t: TypeIR): string {
  *  defaults — so a request principal's `/auth/me` body is unchanged), plus the
  *  `SystemPrincipal(origin)` factory an event reactor binds `currentUser` to.
  *  Every claim is EMPTY — never the dev stub's `"admin"` — so a claims gate
- *  cannot pass by accident; the tenancy claim and the materialized path are the
- *  dispatching principal's (the event was raised inside its request), and
+ *  cannot pass by accident; the tenancy claim (and, under the switch gate, the
+ *  operating org) is the dispatching principal's event tenant, and
  *  `CausedBy` is its id (or its own `CausedBy` when it is itself a reactor). */
 function renderSystemPrincipalMembers(
   user: UserIR,
   tenantClaim: string | undefined,
-  readsRegistry: boolean,
   orgContext: boolean,
 ): string {
   const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
@@ -1078,20 +1057,19 @@ function renderSystemPrincipalMembers(
       ? `${value}?.ToString()`
       : `${value}.ToString()`;
   };
-  const tenantOf = tenantField ? `NullIfEmpty(${asString(tenantField)})` : "null";
-  const orgPathOf = tenantClaim ? "NullIfEmpty(user.OrgPath)" : "null";
+  // The event's tenant is the OPERATING org of the raising request.
+  const tenantOf = orgContext
+    ? "NullIfEmpty(user.OperatingOrg)"
+    : tenantField
+      ? `NullIfEmpty(${asString(tenantField)})`
+      : "null";
   const causedByOf = idField
     ? `user.IsSystem ? user.CausedBy : ${asString(idField)}`
     : "user.CausedBy";
   const inits = [
     "IsSystem = true",
     "CausedBy = origin?.CausedBy",
-    ...(tenantClaim && readsRegistry
-      ? ["OrgPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
-      : []),
-    ...(tenantClaim && orgContext
-      ? ["OrgContextPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
-      : []),
+    ...(orgContext ? ["OperatingOrg = origin?.Tenant ?? string.Empty"] : []),
   ];
   return `
     /// <summary><c>currentUser.isSystem</c> — true only on the system principal
@@ -1104,13 +1082,13 @@ function renderSystemPrincipalMembers(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CausedBy { get; init; }
 
-    /// <summary>The event origin of a principal (ruling D1): its tenant claim,
-    /// materialized path, and originating user id.  A system principal
+    /// <summary>The event origin of a principal (ruling D1): its tenant claim
+    /// and originating user id.  A system principal
     /// propagates its own origin, so an event a reactor raises keeps the first
     /// user as <c>CausedBy</c>.</summary>
     public static EventOrigin? OriginOf(User? user) => user is null
         ? null
-        : new EventOrigin(${tenantOf}, ${orgPathOf}, ${causedByOf});
+        : new EventOrigin(${tenantOf}, ${causedByOf});
 
     /// <summary>The ambient frame's event origin — captured onto the outbox row
     /// and the channel envelope.  Null outside any principal (a timer tick).</summary>
@@ -1163,14 +1141,13 @@ using System.Text.Json.Serialization;
 namespace ${ns}.Auth;
 
 /// <summary>Where an event came from (ruling D1): the raising principal's
-/// tenant claim and materialized path, and the originating user id (audit
-/// only).  Captured onto the outbox row and the channel envelope
-/// (<c>tenantid</c> / <c>loomorgpath</c> / <c>loomcausedby</c>) so a reactor
+/// tenant claim and the originating user id (audit only).  Captured onto the
+/// outbox row and the channel envelope (<c>tenantid</c> /
+/// <c>loomcausedby</c>) so a reactor
 /// that runs after the request is gone still runs as the system principal OF
 /// THAT TENANT.</summary>
 public sealed record EventOrigin(
     [property: JsonPropertyName("tenant")] string? Tenant,
-    [property: JsonPropertyName("orgPath")] string? OrgPath,
     [property: JsonPropertyName("causedBy")] string? CausedBy);
 
 /// <summary>The outbox row payload: the event's JSON plus its origin under the
@@ -1210,9 +1187,11 @@ function systemCsharpValueFor(f: { type: TypeIR; optional: boolean }): string {
 function renderUserRecord(
   user: UserIR,
   ns: string,
-  orgPathClaim?: string,
-  readsRegistry = false,
+  tenantClaim?: string,
   orgContext = false,
+  /** The registry whose id the ancestor set holds, when a hosted context reads
+   *  `organizationContext.ancestors`. */
+  ancestorsOf?: string,
 ): string {
   const params = user.fields
     .map((f) => {
@@ -1222,79 +1201,40 @@ function renderUserRecord(
       return `${t} ${upperFirst(f.name)}`;
     })
     .join(", ");
-  // Derived `currentUser.orgPath` — the caller's tenant materialized path
-  // (multi-tenancy).  A member (not a positional param), so every
-  // construction site (dev stub / OIDC verifier) is untouched.
-  //
-  //  - flat tenancy: a computed property whose interpolation
-  //    stringifies the tenancy claim null-safely (the root-segment path).
-  //  - hierarchy: a settable slot backed by `_orgPath`, defaulting to
-  //    the claim (so a use site is never null) — UserMiddleware resolves the
-  //    caller org's registry `data_key` once per request and memoizes it here.
-  //    On a missing row / dataKey the slot stays unset ⇒ the claim fallback,
-  //    fail-safe (never null/crash).
-  // `currentUser.rootOrg`: the ROOT-org segment — the first segment of
-  // `OrgPath` (up to the first `.`).  A computed property off `OrgPath` (pure,
-  // no extra read), so it is correct under both flat and hierarchy tenancy and
-  // anchors the `global` read level's root-subtree widening.
-  const rootOrgProp = `
-    /// <summary>The caller's ROOT-org segment (<c>currentUser.rootOrg</c>) —
-    /// the first segment of <c>OrgPath</c> (multi-tenancy).</summary>
-    public string RootOrg
-    {
-        get
-        {
-            var i = OrgPath.IndexOf('.');
-            return i < 0 ? OrgPath : OrgPath.Substring(0, i);
-        }
-    }`;
-  // `organizationContext.orgPath` — the request's OPERATING scope.  Defaults
-  // to `OrgPath` (no switch ⇒ the principal's own scope); UserMiddleware's
-  // fail-closed switch gate sets it once, to a validated `x-org-context` path.
-  const orgContextProp = `
-
-    private string? _orgContextPath;
-
-    /// <summary>The request's OPERATING scope
-    /// (<c>organizationContext.orgPath</c>) — the validated
-    /// <c>${ORG_CONTEXT_HEADER}</c> path when the request switches into a
-    /// descendant org, else <c>OrgPath</c>.  Set once by UserMiddleware's
-    /// fail-closed switch gate; never read off the token.</summary>
-    public string OrgContextPath
-    {
-        get => _orgContextPath ?? OrgPath;
-        set => _orgContextPath = value;
-    }`;
-  const systemMembers = renderSystemPrincipalMembers(user, orgPathClaim, readsRegistry, orgContext);
-  const orgPathMember = !orgPathClaim
-    ? `
-{${systemMembers}
-}`
-    : readsRegistry
+  // `organizationContext.org` — the request's OPERATING org id.  A member (not
+  // a positional param), so every construction site (dev stub / OIDC
+  // verifier) is untouched.  Defaults to the home org (the tenancy claim,
+  // stringified null-safely); UserMiddleware's fail-closed switch gate sets it
+  // once per request.
+  const operatingOrgProp =
+    orgContext && tenantClaim
       ? `
-{${systemMembers}
-    private string? _orgPath;
 
-    /// <summary>The caller's tenant materialized path
-    /// (<c>currentUser.orgPath</c>) — the caller org's registry <c>data_key</c>,
-    /// resolved once per request by UserMiddleware and memoized here
-    /// (multi-tenancy).  Falls back to the tenancy claim (the
-    /// root-segment path) until the resolver sets it, or when the caller's row
-    /// has no <c>data_key</c> — never null.</summary>
-    public string OrgPath
+    private string? _operatingOrg;
+
+    /// <summary>The request's OPERATING org id (<c>organizationContext.org</c>)
+    /// — the home org (the tenancy claim) unless a <c>${ORG_CONTEXT_HEADER}</c>
+    /// the switch gate admits names it.  Set once by UserMiddleware's
+    /// fail-closed switch gate; never read off the token.</summary>
+    public string OperatingOrg
     {
-        get => _orgPath ?? $"{${upperFirst(orgPathClaim)}}";
-        set => _orgPath = value;
-    }
-${rootOrgProp}${orgContext ? orgContextProp : ""}
-}`
-      : `
-{
-    /// <summary>The caller's tenant materialized path
-    /// (<c>currentUser.orgPath</c>) — derived per-request from the tenancy
-    /// claim (multi-tenancy).</summary>
-    public string OrgPath => $"{${upperFirst(orgPathClaim)}}";
-${rootOrgProp}${systemMembers}
+        get => _operatingOrg ?? $"{${upperFirst(tenantClaim)}}";
+        set => _operatingOrg = value;
+    }${
+      ancestorsOf
+        ? `
+
+    /// <summary><c>organizationContext.ancestors</c> — the operating org and
+    /// every org above it on the registry tree, resolved once per request by
+    /// UserMiddleware.  Empty on the system principal.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = Array.Empty<${ancestorsOf}Id>();`
+        : ""
+    }`
+      : "";
+  const systemMembers = renderSystemPrincipalMembers(user, tenantClaim, orgContext);
+  const body = `
+{${systemMembers}${operatingOrgProp}
 }`;
   return `// Auto-generated.
 using ${ns}.Domain.Common;
@@ -1307,7 +1247,7 @@ namespace ${ns}.Auth;
 /// <summary>Strongly-typed claim shape decoded from the inbound
 /// JWT.  Populated per request by <see cref="IUserVerifier"/> and
 /// exposed to handlers via <see cref="ICurrentUserAccessor"/>.</summary>
-public sealed record User(${params})${orgPathMember}
+public sealed record User(${params})${body}
 `;
 }
 
@@ -1382,8 +1322,10 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
 function renderMiddleware(
   ns: string,
   oidc: boolean,
-  orgPathClaimExpr?: string,
-  orgContext = false,
+  tenantClaim: string | undefined,
+  /** The registry this deployable hosts: a requested org is admitted when the
+   *  caller can read that row through the registry's read scope. */
+  registry?: { name: string; table: string; ancestors: boolean; usingDapper: boolean },
 ): string {
   // Bypass list — framework endpoints that should NEVER require auth.
   // Liveness / OpenAPI / Swagger UI all read freely.  Path-prefix
@@ -1430,30 +1372,31 @@ function renderMiddleware(
         "${AUTH_BASE_PATH}/logout",
         "${AUTH_BASE_PATH}/refresh",`
     : "";
-  // Hierarchy (multi-tenancy): method-inject the scoped `IOrgPathResolver`
-  // and, once the principal is attached, resolve the caller org's materialized
-  // `data_key` and memoize it on the request principal.  `null` (missing row /
-  // dataKey / parse failure) leaves OrgPath at its claim fallback — fail-safe.
-  const resolverParam = orgPathClaimExpr ? ", IOrgPathResolver orgPathResolver" : "";
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5),
-  // AFTER the principal's `OrgPath` is resolved and BEFORE `_next`: a request
-  // whose `x-org-context` names an org outside the caller's `OrgPath` subtree
-  // (equal, or anchored under `OrgPath + "."`), or any org at all when the
-  // caller has no `OrgPath`, is a 403 — no handler runs, nothing is written.
-  // Absent / empty ⇒ the principal's own scope, never a widening.
-  const orgContextGate = `
-        // Operating-scope switch gate (organizationContext): fail-closed.
+  // The operating-scope switch gate (`organizationContext`), once the
+  // principal is attached and BEFORE `_next`: the home org is the tenancy
+  // claim ("" when absent).  An absent / empty `x-org-context` operates in the
+  // home org; one equal to the home org is admitted; any other value — or any
+  // value at all when the caller has no home org — is a 403, so no handler
+  // runs and nothing is written.
+  const orgContext = tenantClaim !== undefined;
+  const idClass = registry ? `${registry.name}Id` : "";
+  const admitted = registry
+    ? `homeOrg.Length == 0 || !await CanReadOrgAsync(orgs, requestedOrgContext, ctx.RequestAborted)`
+    : "true";
+  const orgContextGate = orgContext
+    ? `
+        // Operating-scope switch gate (organizationContext): fail-closed.  The
+        // home principal is already attached, so the registry read below runs
+        // under the caller's own read scope.
+        var homeOrg = $"{user.${upperFirst(tenantClaim)}}";
+        var operatingOrg = homeOrg;
         var requestedOrgContext = ctx.Request.Headers["${ORG_CONTEXT_HEADER}"].ToString();
-        if (requestedOrgContext.Length > 0)
+        if (requestedOrgContext.Length > 0 && requestedOrgContext != homeOrg)
         {
-            var scope = user.OrgPath;
-            var inScope = scope.Length > 0
-                && (requestedOrgContext == scope
-                    || requestedOrgContext.StartsWith(scope + ".", StringComparison.Ordinal));
-            if (!inScope)
+            if (${admitted})
             {
                 var orgLog = ctx.RequestServices.GetRequiredService<ILogger<UserMiddleware>>();
-                var reason = scope.Length == 0 ? "no_principal_scope" : "outside_scope";
+                var reason = homeOrg.Length == 0 ? "no_principal_scope" : "outside_scope";
                 ${renderDotnetLogCall("orgContextDenied", [
                   { name: "org_context", valueExpr: "requestedOrgContext" },
                   { name: "reason", valueExpr: "reason" },
@@ -1461,9 +1404,56 @@ function renderMiddleware(
                 ]).replace(/^_log\./, "orgLog.")}
                 await OrgContextForbiddenAsync(ctx);
                 return;
-            }
-            user.OrgContextPath = requestedOrgContext;
-        }`;
+            }${registry ? "\n            operatingOrg = requestedOrgContext;" : ""}
+        }
+        user.OperatingOrg = operatingOrg;${
+          registry?.ancestors
+            ? `
+        user.OperatingAncestors = await OperatingAncestorsAsync(${registry.usingDapper ? "dataSource" : "db"}, operatingOrg, ctx.RequestAborted);`
+            : ""
+        }`
+    : "";
+  const walkSql = registry
+    ? registryAncestorsSql(registry.table, registry.usingDapper ? "@org" : "{0}")
+    : "";
+  const registryHelpers = registry
+    ? `
+
+    /// <summary>True when the caller (the HOME principal, attached to the
+    /// ambient frame) can read the registry row <paramref name="org"/> through
+    /// the registry's read scope — the switch gate's admission rule.  A value
+    /// that is not a uuid names no registry row.</summary>
+    private static async Task<bool> CanReadOrgAsync(I${registry.name}Repository orgs, string org, CancellationToken ct)
+    {
+        if (!Guid.TryParse(org, out var raw)) return false;
+        return await orgs.GetByIdAsync(new ${idClass}(raw), ct) is not null;
+    }${
+      registry.ancestors
+        ? `
+
+    /// <summary><c>organizationContext.ancestors</c> for <paramref name="org"/>:
+    /// the org and every org above it, walked over <c>parent</c> with
+    /// <c>UNION</c> so a cycle terminates.  Called once per request.</summary>
+    private static async Task<IReadOnlyList<${idClass}>> OperatingAncestorsAsync(${
+      registry.usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
+    }, string org, CancellationToken ct)
+    {
+        if (!Guid.TryParse(org, out var raw)) return Array.Empty<${idClass}>();${
+          registry.usingDapper
+            ? `
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var ids = await conn.QueryAsync<Guid>(new CommandDefinition(${JSON.stringify(walkSql)}, new { org = raw }, cancellationToken: ct));
+        return ids.Select(id => new ${idClass}(id)).ToList();`
+            : `
+        var ids = await db.Database
+            .SqlQueryRaw<Guid>(${JSON.stringify(`SELECT a.id AS "Value" FROM (${walkSql}) a`)}, raw)
+            .ToListAsync(ct);
+        return ids.Select(id => new ${idClass}(id)).ToList();`
+        }
+    }`
+        : ""
+    }`
+    : "";
   const orgContextForbidden = orgContext
     ? `
 
@@ -1487,19 +1477,26 @@ function renderMiddleware(
   const orgContextUsings = orgContext
     ? `
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;`
-    : "";
-  const orgPathResolve = orgPathClaimExpr
-    ? `
-        // Hierarchy (multi-tenancy): resolve the caller org's materialized
-        // \`data_key\` once per request and memoize it on the principal; a
-        // missing row / dataKey (or any failure) leaves OrgPath at its claim
-        // fallback — fail-safe, never null/crash.
-        var orgPath = await orgPathResolver.ResolveAsync(${orgPathClaimExpr}, ctx.RequestAborted);
-        if (orgPath is not null)
-        {
-            user.OrgPath = orgPath;
-        }${orgContext ? orgContextGate : ""}`
+using Microsoft.Extensions.Logging;${
+        registry
+          ? `
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using ${ns}.Domain.Ids;
+using ${ns}.Domain.${plural(registry.name)};${
+              registry.ancestors
+                ? registry.usingDapper
+                  ? `
+using Dapper;
+using Npgsql;`
+                  : `
+using Microsoft.EntityFrameworkCore;
+using ${ns}.Infrastructure.Persistence;`
+                : ""
+            }`
+          : ""
+      }`
     : "";
   return `// Auto-generated.
 using System.Text.Json;
@@ -1534,7 +1531,17 @@ public sealed class UserMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext ctx, IUserVerifier verifier${resolverParam})
+    public async Task InvokeAsync(HttpContext ctx, IUserVerifier verifier${
+      registry
+        ? `, I${registry.name}Repository orgs${
+            registry.ancestors
+              ? registry.usingDapper
+                ? ", NpgsqlDataSource dataSource"
+                : ", AppDbContext db"
+              : ""
+          }`
+        : ""
+    })
     {
         var path = ctx.Request.Path.HasValue ? ctx.Request.Path.Value : "/";
         foreach (var prefix in BypassPrefixes)
@@ -1563,7 +1570,7 @@ ${malformedCatch}        catch
         // Attach the verified principal to the ambient frame opened by
         // RequestContextMiddleware — the single source of truth read by
         // ICurrentUserAccessor and every currentUser-aware handler.
-        if (RequestContext.Current is { } rc) rc.CurrentUser = user;${orgPathResolve}
+        if (RequestContext.Current is { } rc) rc.CurrentUser = user;${orgContextGate}
         await _next(ctx);
     }
 
@@ -1587,184 +1594,7 @@ ${malformedCatch}        catch
             ${csCodeInit("unauthenticated")},
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }
-${malformedHelper}${orgContextForbidden}
+${malformedHelper}${orgContextForbidden}${registryHelpers}
 }
 `;
-}
-
-/** The C# expression reading the tenancy claim off the resolved principal, as
- *  a `string` argument to `IOrgPathResolver.ResolveAsync` (multi-tenancy).
- *  A `string` claim reads directly (`user.TenantId`); any other declared claim
- *  type stringifies (`user.TenantId.ToString()`) so the resolver's id-wrapping
- *  parses it uniformly. */
-function userClaimExpr(user: UserIR, claimField: string): string {
-  const prop = `user.${upperFirst(claimField)}`;
-  const field = user.fields.find((f) => f.name === claimField);
-  const isString = field?.type.kind === "primitive" && field.type.name === "string";
-  return isString ? prop : `${prop}.ToString()`;
-}
-
-/** `Auth/IOrgPathResolver.cs` — the registry-lookup seam (multi-tenancy).
- *  The interface lives beside the middleware that calls it; the EF
- *  implementation (which knows the DbContext + registry entity) lives in
- *  Infrastructure/Persistence. */
-function renderOrgPathResolverInterface(ns: string): string {
-  return `// Auto-generated.
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace ${ns}.Auth;
-
-/// <summary>Resolves the caller's tenant materialized path
-/// (<c>currentUser.orgPath</c>) from the registry's <c>data_key</c> column,
-/// keyed by the tenancy claim (multi-tenancy).  UserMiddleware
-/// calls it once per request and memoizes the result on the principal;
-/// <c>null</c> (missing row / <c>data_key</c> / unparseable claim) means "fall
-/// back to the claim" — the fail-safe root-segment path.</summary>
-public interface IOrgPathResolver
-{
-    Task<string?> ResolveAsync(string claim, CancellationToken cancellationToken);
-}
-`;
-}
-
-/** `Infrastructure/Persistence/EfOrgPathResolver.cs` — the EF-backed
- *  `IOrgPathResolver` (multi-tenancy).  Reads the caller org's
- *  materialized `data_key` (`SELECT data_key FROM <registry> WHERE id =
- *  @claim`) via the request-scoped `AppDbContext`, ignoring the registry's
- *  own self-scope query filter (an explicit id lookup).  Every failure path —
- *  an unparseable claim, a missing row, a null `data_key`, or any DB
- *  exception — yields `null`, so the middleware falls back to the claim. */
-function renderEfOrgPathResolver(ns: string, registry: AggregateIR): string {
-  const dbSet = plural(registry.name);
-  const idClass = `${registry.name}Id`;
-  // Wrap the string claim to the registry's id value type (mirrors the derived
-  // self-scope's `Guid.Parse` binding), guarded so a bad claim fails safe.
-  const wrap = idWrapForClaim(idClass);
-  return `// Auto-generated.
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using ${ns}.Auth;
-using ${ns}.Domain.Ids;
-
-namespace ${ns}.Infrastructure.Persistence;
-
-/// <summary>EF-backed <see cref="IOrgPathResolver"/> (multi-tenancy).  Reads
-/// the caller org's materialized <c>data_key</c> from the registry table
-/// keyed by the tenancy claim, memoized per request by
-/// UserMiddleware.  Ignores the registry's own self-scope query filter (an
-/// explicit id lookup) and returns <c>null</c> on any failure — an unparseable
-/// claim, a missing row, a null <c>data_key</c>, or a DB error — so the caller
-/// falls back to the claim (the fail-safe root-segment path).</summary>
-public sealed class EfOrgPathResolver : IOrgPathResolver
-{
-    private readonly AppDbContext _db;
-
-    public EfOrgPathResolver(AppDbContext db) => _db = db;
-
-    public async Task<string?> ResolveAsync(string claim, CancellationToken cancellationToken)
-    {
-${wrap}
-        try
-        {
-            return await _db.${dbSet}
-                .IgnoreQueryFilters()
-                .Where(o => o.Id == id)
-                .Select(o => o.DataKey)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-#pragma warning disable CA1031 // a lookup failure falls back to the claim, never 500
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return null;
-        }
-    }
-}
-`;
-}
-
-/** `Infrastructure/Persistence/DapperOrgPathResolver.cs` — the raw-Npgsql
- *  `IOrgPathResolver` (multi-tenancy), the `persistence: dapper` twin of
- *  `renderEfOrgPathResolver`.  Identical CONTRACT — read the caller org's
- *  materialized `data_key` keyed by the tenancy claim, ignore the registry's
- *  own self-scope filter (this is an explicit id lookup, and the Dapper
- *  adapter's filters live in the repositories, not here), and yield `null` on
- *  every failure path so the middleware falls back to the claim.  Emitting the
- *  EF file regardless of adapter does not compile on a Dapper deployable: no
- *  `Microsoft.EntityFrameworkCore`, no `AppDbContext`. */
-function renderDapperOrgPathResolver(ns: string, table: string): string {
-  const dataKeyColumn = snake("dataKey");
-  // The claim is bound as the RAW scalar (Dapper has no id-value-type handler),
-  // guarded so a malformed claim fails safe — the raw-parameter mirror of the
-  // EF path's `idWrapForClaim` strong-id wrap.
-  const wrap = rawIdWrapForClaim();
-  return `// Auto-generated.  Dapper \`IOrgPathResolver\` (persistence: dapper).
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Dapper;
-using Npgsql;
-using ${ns}.Auth;
-
-namespace ${ns}.Infrastructure.Persistence;
-
-/// <summary>Dapper-backed <see cref="IOrgPathResolver"/> (multi-tenancy).
-/// Reads the caller org's materialized <c>${dataKeyColumn}</c> from the
-/// registry table keyed by the tenancy claim, memoized per request by
-/// UserMiddleware.  Returns <c>null</c> on any failure — an unparseable claim, a
-/// missing row, a null <c>${dataKeyColumn}</c>, or a DB error — so the caller
-/// falls back to the claim (the fail-safe root-segment path).</summary>
-public sealed class DapperOrgPathResolver : IOrgPathResolver
-{
-    private readonly NpgsqlDataSource _db;
-
-    public DapperOrgPathResolver(NpgsqlDataSource db) => _db = db;
-
-    public async Task<string?> ResolveAsync(string claim, CancellationToken cancellationToken)
-    {
-${wrap}
-        try
-        {
-            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
-            return await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
-                "SELECT ${dataKeyColumn} FROM ${table} WHERE id = @id",
-                new { id },
-                cancellationToken: cancellationToken));
-        }
-#pragma warning disable CA1031 // a lookup failure falls back to the claim, never 500
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return null;
-        }
-    }
-}
-`;
-}
-
-/** The C# guard + `var id = …` binding the string tenancy claim to the RAW
- *  guid Dapper parameterizes with (the Dapper twin of `idWrapForClaim`, which
- *  wraps into the strongly-typed id class EF's LINQ comparison needs).  The
- *  guarded parse short-circuits to `null` on a bad claim. */
-function rawIdWrapForClaim(): string {
-  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var id))
-        {
-            return null;
-        }`;
-}
-
-/** The C# guard + `var id = …` that wraps the string tenancy claim to the
- *  registry's strongly-typed id (multi-tenancy).  The guarded parse
- *  short-circuits to `null` on a bad claim.  Mirrors the derived self-scope's
- *  binding (`Guid.Parse`), fail-safe. */
-function idWrapForClaim(idClass: string): string {
-  return `        if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var raw))
-        {
-            return null;
-        }
-        var id = new ${idClass}(raw);`;
 }

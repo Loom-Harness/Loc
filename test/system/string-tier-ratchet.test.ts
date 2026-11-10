@@ -91,7 +91,7 @@ const CEILINGS: Record<string, number> = {
   // records carry inherited / provenanced fields.
   // main: cross-backend pins for unsorted-read id order, hoisted handler
   // reads, widened domain-service reads and document nested VO collections.
-  "(cross-target)": 3900, // cross-backend pins for the dev-login gate, mask read gates, handler event sinks and part value-object collections
+  "(cross-target)": 3700, // cross-backend pins for the dev-login gate, mask read gates, handler event sinks and part value-object collections
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -126,7 +126,7 @@ const CEILINGS: Record<string, number> = {
   python: 1800,
   react: 1600,
   svelte: 600,
-  typescript: 1700, // the node pins for numeric criterion binding, run-method local renames and post-save version advance assert the emitted TS (the generated-project tsc leg is their runtime proof)
+  typescript: 1600, // the node pins for numeric criterion binding, run-method local renames and post-save version advance assert the emitted TS (the generated-project tsc leg is their runtime proof)
   vue: 700,
   walker: 200,
 };

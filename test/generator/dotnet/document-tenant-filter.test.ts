@@ -1,35 +1,26 @@
 // A `shape: document` aggregate on the .NET backend gets NO EF
 // `HasQueryFilter` — its persistence record is `(Id, Data jsonb, Version)`, so
-// the filtered fields (`tenantId`, `dataKey`, `isDeleted`) live INSIDE the blob
-// and there is no mapped column for EF to attach a predicate to.  Before the
-// fix this meant a `tenantOwned` document aggregate read UNFILTERED across
-// tenants while `validateContextFilterSupport` claimed .NET filters every shape
-// — a SILENT cross-tenant read, not a crash (#2527's follow-up 1; the bug was
-// found by the F1 pairwise sweep and documented there without being fixed).
+// the filtered fields (`tenantId`, `isDeleted`) live INSIDE the blob and there
+// is no mapped column for EF to attach a predicate to.  Without another seam a
+// `tenantOwned` document aggregate would read UNFILTERED across tenants while
+// `validateContextFilterSupport` claims .NET filters every shape — a SILENT
+// cross-tenant read, not a crash.
 //
-// The fix mirrors node/java/python: apply the capability predicate IN-APP over
-// the rehydrated aggregate, at every read seam.  These pins therefore assert
-// three separable things, because each failed independently during development:
+// So, as on node/java/python, the capability predicate is applied IN-APP over
+// the rehydrated aggregate, at every read seam.  These pins assert three
+// separable things, because each can fail independently:
 //
 //   1. the document path FILTERS at every read seam (findById /
 //      findManyByIds / the collection read `All`),
 //   2. the RELATIONAL twin still filters through EF `HasQueryFilter` — the
-//      fix must not have migrated the relational path to in-app filtering,
+//      relational path is not migrated to in-app filtering,
 //   3. a document aggregate with NO capability filter emits NO predicate
 //      (the unchanged-emission floor).
 //
-// Plus the two traps a real `dotnet build /warnaserror` caught and a
-// string-level pin would not have:
-//
-//   - `policy { allow … }` × document was CS0535 (the interface declares
-//     `GetByIdForWriteAsync`, the document repository never implemented it) —
-//     #2527's follow-up 2, fixed here because it is the same seam.
-//   - the `deep` scope ladder's `.StartsWith` is EXECUTED on the in-app path
-//     (it is only an un-run expression tree on the EF path), so it needs
-//     `StringComparison.Ordinal` or CA1310 fails the build.  The overload is
-//     therefore position-dependent: bare inside an EF query filter (the
-//     `StringComparison` overload has no SQL translation), ordinal when
-//     executed.
+// Plus the trap a real `dotnet build /warnaserror` catches and a string-level
+// pin would not: `policy { deny write … }` × document needs the document
+// repository to implement `GetByIdForWriteAsync`, which the interface
+// declares, or the build fails CS0535.
 //
 // The `dotnet build /warnaserror` gate over the same crossings lives in
 // test/e2e/generated-dotnet-build.test.ts (fixture:
@@ -99,9 +90,9 @@ const plainSystem = `
   }
 `;
 
-/** A read ladder WIDER than the write ladder, so the aggregate carries both a
- *  `deep` read scope (the `.StartsWith` path predicate) and a narrower
- *  `writeScopeFilter` (which is what makes `GetByIdForWriteAsync` exist). */
+/** A `deny write` ladder, so the aggregate carries a `writeScopeFilter`
+ *  narrower than its read floor (which is what makes `GetByIdForWriteAsync`
+ *  exist). */
 const policySystem = `
   system PolicyDoc {
     user { id: guid  tenantId: string }
@@ -109,10 +100,8 @@ const policySystem = `
     subdomain S {
       context C {
         policy {
-          allow deep on Note
-          allow write local on Note
-          allow deep on Ledger
-          allow write local on Ledger
+          deny write on Note
+          deny write on Ledger
         }
         aggregate Note shape: document, with tenantOwned, crudish {
           title: string
@@ -182,14 +171,14 @@ describe("dotnet: shape: document × tenantOwned — the in-app tenant read filt
   it("resolves the principal through the ambient accessor, re-read per call", async () => {
     const repo = await fileNamed(tenantSystem, "NoteRepository.cs");
     expect(repo).toContain(
-      "private static bool _CapabilityVisible(Note x) => (x.TenantId == RequestContext.Current!.CurrentUser!.TenantId);",
+      "private static bool _CapabilityVisible(Note x) => (x.TenantId == RequestContext.Current!.CurrentUser!.OperatingOrg);",
     );
   });
 
   it("leaves the RELATIONAL twin on EF HasQueryFilter (the fix did not migrate it)", async () => {
     const ctx = await fileNamed(tenantSystem, "AppDbContext.cs");
     expect(ctx).toContain(
-      'modelBuilder.Entity<Ledger>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);',
+      'modelBuilder.Entity<Ledger>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.OperatingOrg);',
     );
     // The document aggregate is NOT given a query filter — it cannot have one
     // (its columns are inside the blob); the in-app predicate above is its
@@ -207,12 +196,12 @@ describe("dotnet: shape: document × tenantOwned — the in-app tenant read filt
   });
 });
 
-describe("dotnet: shape: document × policy — the write-scope seam and the executed StartsWith", () => {
-  it("implements GetByIdForWriteAsync on the document repository (was CS0535)", async () => {
+describe("dotnet: shape: document × policy — the write-scope seam", () => {
+  it("implements GetByIdForWriteAsync on the document repository (CS0535 without it)", async () => {
     const iface = await fileNamed(policySystem, "INoteRepository.cs");
     const repo = await fileNamed(policySystem, "NoteRepository.cs");
     // The interface declares it whenever the write scope is narrower than the
-    // read scope; before the fix the document impl provided nothing → CS0535.
+    // read scope; a document impl without it fails CS0535.
     expect(iface).toContain("Task<Note?> GetByIdForWriteAsync(");
     expect(repo).toContain("public async Task<Note?> GetByIdForWriteAsync(");
     // Loads through GetByIdAsync (which already applies the READ filter, the
@@ -220,20 +209,5 @@ describe("dotnet: shape: document × policy — the write-scope seam and the exe
     // to the write scope — write scope ∩ read scope, same as relational.
     expect(repo).toContain("var __found = await GetByIdAsync(id, cancellationToken);");
     expect(repo).toContain("return _WriteScopeAllows(__found) ? __found : null;");
-  });
-
-  it("uses StringComparison.Ordinal for the EXECUTED scope ladder (CA1310 under /warnaserror)", async () => {
-    const repo = await fileNamed(policySystem, "NoteRepository.cs");
-    expect(repo).toContain("x.DataKey.StartsWith(");
-    expect(repo).toContain('+ ".", StringComparison.Ordinal)');
-  });
-
-  it("keeps the EF query filter's StartsWith BARE (the overload has no SQL translation)", async () => {
-    const ctx = await fileNamed(policySystem, "AppDbContext.cs");
-    // The relational twin's ladder rides an Expression<Func<>> EF rewrites into
-    // SQL LIKE — it is never executed, so CA1310 does not fire, and adding the
-    // StringComparison overload would break the translation instead.
-    expect(ctx).toContain("x.DataKey.StartsWith(");
-    expect(ctx).not.toContain("StringComparison.Ordinal");
   });
 });

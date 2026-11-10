@@ -31,7 +31,15 @@
 //     renders the literal text `Undefined parameter - total, number,
 //     ::currency/USD` into the widget.  The `catch` still guards a message
 //     `MessageFormat` genuinely rejects — degrading beats crashing a `build()`,
-//     the same trade PR #2437 made on HEEx.
+//     the same trade the HEEx runtime makes.
+//
+//   * `{n, selectordinal, …}` is resolved before `MessageFormat` too.
+//     `package:intl` picks a selectordinal branch with the CARDINAL rules
+//     (English `2` → `other`, "2th") and ships no ordinal rules, so the
+//     generator tabulates each shipped locale's CLDR ordinal categories
+//     (`_i18n/ordinal-rules.ts`) and `_resolveOrdinals` splices the selected
+//     branch, its `#` already locale-formatted, into the message.  Emitted only
+//     when a catalog carries a selectordinal message.
 //
 // Emitted only when the ui has extractable user-visible strings; a string-less
 // app is byte-identical to pre-i18n.
@@ -46,6 +54,7 @@ import {
 } from "../_frontend/i18n-runtime.js";
 import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { ordinalTable } from "../_i18n/ordinal-rules.js";
 
 /** A Dart single-quoted string literal.  Escapes the backslash, the quote and
  *  `$` (Dart interpolates `$name` / `${…}` inside a plain string), plus real
@@ -140,8 +149,11 @@ export function renderFlutterI18nModule(
   contexts: readonly BoundedContextIR[] = [],
   /** Translated catalogs from the `ddd i18n` translator tree. */
   translations?: TranslationCatalogs,
+  /** The app draws the generated session gate, so its sign-in / forbidden
+   *  chrome joins the runtime catalog. */
+  authGate = false,
 ): string {
-  const scope = { contexts, sentences: [], implicitModelText: true };
+  const scope = { contexts, sentences: [], implicitModelText: true, authGate };
   const catalog = buildUiCatalog(ui, {}, scope);
   // Each translated catalog is SCOPED to this ui's keys, exactly as the source
   // catalog is, and returned as one JSON document per locale tag.
@@ -155,6 +167,9 @@ export function renderFlutterI18nModule(
   const aliases = baseAliases(source, extra);
   const switchable = extra.length > 0;
   const sourceIdent = catalogIdent(source, source);
+  const ordinals = [catalog, ...translated.values()].some((map) =>
+    Object.values(map).some((message) => message.includes("selectordinal")),
+  );
   // `buildUiCatalog` returns key-sorted entries, so the emitted map is stable
   // across runs (a reordered page must not churn the file).
   const catalogConst = (ident: string, map: Readonly<Record<string, string>>): string[] => [
@@ -268,11 +283,59 @@ export function renderFlutterI18nModule(
     "",
     "/// Translate a message key in the ACTIVE locale, falling back to the",
     "/// source-language default, then ICU-format its placeholders from [values].",
-    "String t(String key, String defaultMessage, [Map<String, Object>? values]) {",
-    "  final String message = _catalogs[locale]?[key] ?? defaultMessage;",
+    "String t(String key, String defaultMessage, [Map<String, Object>? values]) =>",
+    "    _format(_catalogs[locale]?[key] ?? defaultMessage, values);",
+    "",
+    "/// Translate a RICH-TEXT message — one sentence whose emphasis is carried as",
+    "/// `<b>` / `<i>` / `<code>` tags, so a locale can reorder the parts — into a",
+    "/// [Text.rich].  The tags become private marker characters before the ICU step,",
+    "/// so they never reach `MessageFormat` and a hole VALUE can never forge one.",
+    "Widget tRich(String key, String defaultMessage, [Map<String, Object>? values]) {",
+    "  final String message = (_catalogs[locale]?[key] ?? defaultMessage).replaceAllMapped(",
+    "      RegExp(r'<(/?)(b|i|code)>'), (Match m) => '\\uE000${m[1]}${m[2]}\\uE001');",
+    "  final Map<String, Object>? safe = values?.map((String k, Object v) => MapEntry<String, Object>(",
+    "      k, v is String ? v.replaceAll(RegExp('[\\uE000\\uE001]'), '') : v));",
+    "  final String text = _format(message, safe);",
+    "  final List<InlineSpan> spans = <InlineSpan>[];",
+    "  bool bold = false;",
+    "  bool italic = false;",
+    "  bool code = false;",
+    "  void emit(String s) {",
+    "    if (s.isEmpty) return;",
+    "    spans.add(TextSpan(",
+    "      text: s,",
+    "      style: TextStyle(",
+    "        fontWeight: bold ? FontWeight.bold : null,",
+    "        fontStyle: italic ? FontStyle.italic : null,",
+    "        fontFamily: code ? 'monospace' : null,",
+    "      ),",
+    "    ));",
+    "  }",
+    "  int last = 0;",
+    "  for (final Match m in RegExp('\\uE000(/?)(b|i|code)\\uE001').allMatches(text)) {",
+    "    emit(text.substring(last, m.start));",
+    "    final bool on = m[1] != '/';",
+    "    switch (m[2]) {",
+    "      case 'b':",
+    "        bold = on;",
+    "      case 'i':",
+    "        italic = on;",
+    "      default:",
+    "        code = on;",
+    "    }",
+    "    last = m.end;",
+    "  }",
+    "  emit(text.substring(last));",
+    "  return Text.rich(TextSpan(children: spans));",
+    "}",
+    "",
+    "/// ICU-format [message] against [values]; a value-less message returns verbatim.",
+    "String _format(String message, Map<String, Object>? values) {",
     "  if (values == null || values.isEmpty) return message;",
     "  try {",
-    "    final _Icu icu = _resolveFormats(message, values);",
+    ordinals
+      ? "    final _Icu icu = _resolveFormats(_resolveOrdinals(message, values), values);"
+      : "    final _Icu icu = _resolveFormats(message, values);",
     "    return MessageFormat(icu.message, locale: locale).format(icu.values);",
     "  } catch (_) {",
     "    // A message `MessageFormat` genuinely rejects degrades rather than",
@@ -283,6 +346,7 @@ export function renderFlutterI18nModule(
     "  }",
     "}",
     "",
+    ...(ordinals ? ordinalRuntime(entries.map((e) => e.tag)) : []),
     "/// A message rewritten into what `MessageFormat` can render, plus the values",
     "/// to render it with — the originals plus one entry per pre-formatted hole.",
     "class _Icu {",
@@ -459,6 +523,196 @@ export function renderFlutterI18nModule(
     "  return out;",
     "}",
   );
+}
+
+/** The `{n, selectordinal, …}` pre-pass: each shipped locale's CLDR ordinal
+ *  table (computed here, on Node, which has the rules) and the brace-aware
+ *  splice that resolves an ordinal block before `MessageFormat` — which would
+ *  otherwise select its branch by the cardinal rules. */
+function ordinalRuntime(tags: readonly string[]): string[] {
+  const tables = tags.flatMap((tag) => {
+    const table = ordinalTable(tag);
+    return table ? [[tag, table] as const] : [];
+  });
+  return [
+    "/// Each shipped locale's CLDR ORDINAL categories, tabulated when the app was",
+    "/// generated — `package:intl` has no ordinal rules.  One letter per integer",
+    "/// (z zero, o one, t two, f few, m many, x other): `prefix[n]` below the",
+    "/// prefix's length, else `cycle[(n - prefix.length) % cycle.length]`.",
+    "const Map<String, List<String>> _ordinalTables = <String, List<String>>{",
+    ...tables.map(
+      ([tag, t]) =>
+        `  ${dartStringLit(tag)}: <String>[${dartStringLit(t.prefix)}, ${dartStringLit(t.cycle)}],`,
+    ),
+    "};",
+    "",
+    "const Map<String, String> _ordinalCategories = <String, String>{",
+    "  'z': 'zero',",
+    "  'o': 'one',",
+    "  't': 'two',",
+    "  'f': 'few',",
+    "  'm': 'many',",
+    "  'x': 'other',",
+    "};",
+    "",
+    "/// The active locale's ordinal category for [value].",
+    "String _ordinalCategory(num value) {",
+    "  final List<String>? table = _ordinalTables[locale];",
+    "  if (table == null) {",
+    "    return 'other';",
+    "  }",
+    "  final int n = value.abs().truncate();",
+    "  final String prefix = table[0];",
+    "  final String cycle = table[1];",
+    "  final String letter =",
+    "      n < prefix.length ? prefix[n] : cycle[(n - prefix.length) % cycle.length];",
+    "  return _ordinalCategories[letter] ?? 'other';",
+    "}",
+    "",
+    "final RegExp _ordinalHead =",
+    "    RegExp(r'\\{\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*,\\s*selectordinal\\s*,');",
+    "",
+    "/// Resolve every `{name, selectordinal, …}` block before `MessageFormat` sees",
+    "/// the message: pick the branch (`=N`, then the locale's ordinal category,",
+    "/// then `other`), put the locale-formatted number in place of the branch's own",
+    "/// `#`, and splice the branch text in.  A block whose value is missing or not",
+    "/// a number, or whose body does not parse, is left for `MessageFormat`.",
+    "String _resolveOrdinals(String message, Map<String, Object> values) {",
+    "  if (!message.contains('selectordinal')) {",
+    "    return message;",
+    "  }",
+    "  final StringBuffer out = StringBuffer();",
+    "  int i = 0;",
+    "  while (i < message.length) {",
+    '    if (message[i] == "\'") {',
+    "      final int end = _quoteEnd(message, i);",
+    "      out.write(message.substring(i, end));",
+    "      i = end;",
+    "      continue;",
+    "    }",
+    "    final Match? head =",
+    "        message[i] == '{' ? _ordinalHead.matchAsPrefix(message, i) : null;",
+    "    final Object? raw = head == null ? null : values[head[1]!];",
+    "    final num? n = raw is num ? raw : num.tryParse(raw?.toString() ?? '');",
+    "    final _Branches? block = head == null || n == null ? null : _branches(message, head.end);",
+    "    if (block == null || n == null) {",
+    "      out.write(message[i]);",
+    "      i += 1;",
+    "      continue;",
+    "    }",
+    "    final String? exact = n == n.truncate() ? block.options['=${n.truncate()}'] : null;",
+    "    final String body = exact ?? block.options[_ordinalCategory(n)] ?? block.options['other']!;",
+    "    out.write(_replacePound(body, NumberFormat.decimalPattern(locale).format(n)));",
+    "    i = block.end;",
+    "  }",
+    "  return out.toString();",
+    "}",
+    "",
+    "/// The branches of a choice block whose selectors start at [start], and the",
+    "/// index just past its closing brace; null when the body does not parse or has",
+    "/// no `other` branch.",
+    "class _Branches {",
+    "  const _Branches(this.options, this.end);",
+    "  final Map<String, String> options;",
+    "  final int end;",
+    "}",
+    "",
+    "final RegExp _selector = RegExp(r'\\s*(=?[A-Za-z0-9_]+)\\s*\\{');",
+    "",
+    "_Branches? _branches(String s, int start) {",
+    "  final Map<String, String> options = <String, String>{};",
+    "  int i = start;",
+    "  while (true) {",
+    "    while (i < s.length && s[i].trim().isEmpty) {",
+    "      i += 1;",
+    "    }",
+    "    if (i >= s.length) {",
+    "      return null;",
+    "    }",
+    "    if (s[i] == '}') {",
+    "      break;",
+    "    }",
+    "    final Match? m = _selector.matchAsPrefix(s, i);",
+    "    if (m == null) {",
+    "      return null;",
+    "    }",
+    "    int depth = 1;",
+    "    int j = m.end;",
+    "    while (j < s.length && depth > 0) {",
+    '      if (s[j] == "\'") {',
+    "        j = _quoteEnd(s, j);",
+    "        continue;",
+    "      }",
+    "      if (s[j] == '{') {",
+    "        depth += 1;",
+    "      } else if (s[j] == '}') {",
+    "        depth -= 1;",
+    "      }",
+    "      j += 1;",
+    "    }",
+    "    if (depth != 0) {",
+    "      return null;",
+    "    }",
+    "    options[m[1]!] = s.substring(m.end, j - 1);",
+    "    i = j;",
+    "  }",
+    "  return options.containsKey('other') ? _Branches(options, i + 1) : null;",
+    "}",
+    "",
+    "/// The index just past an ICU apostrophe at [i]: `''` is one literal quote, a",
+    "/// quote before `{`, `}` or `#` opens a literal run up to the next lone quote,",
+    "/// and any other quote is itself literal.",
+    "int _quoteEnd(String s, int i) {",
+    "  if (i + 1 >= s.length) {",
+    "    return i + 1;",
+    "  }",
+    "  final String next = s[i + 1];",
+    '  if (next == "\'") {',
+    "    return i + 2;",
+    "  }",
+    "  if (next != '{' && next != '}' && next != '#') {",
+    "    return i + 1;",
+    "  }",
+    "  int j = i + 1;",
+    "  while (j < s.length) {",
+    '    if (s[j] == "\'") {',
+    '      if (j + 1 < s.length && s[j + 1] == "\'") {',
+    "        j += 2;",
+    "        continue;",
+    "      }",
+    "      return j + 1;",
+    "    }",
+    "    j += 1;",
+    "  }",
+    "  return j;",
+    "}",
+    "",
+    "/// [body] with each `#` of ITS OWN level (not one inside a nested block or a",
+    "/// quoted run) replaced by [number].",
+    "String _replacePound(String body, String number) {",
+    "  final StringBuffer out = StringBuffer();",
+    "  int depth = 0;",
+    "  int i = 0;",
+    "  while (i < body.length) {",
+    "    final String c = body[i];",
+    '    if (c == "\'") {',
+    "      final int end = _quoteEnd(body, i);",
+    "      out.write(body.substring(i, end));",
+    "      i = end;",
+    "      continue;",
+    "    }",
+    "    if (c == '{') {",
+    "      depth += 1;",
+    "    } else if (c == '}') {",
+    "      depth -= 1;",
+    "    }",
+    "    out.write(c == '#' && depth == 0 ? number : c);",
+    "    i += 1;",
+    "  }",
+    "  return out.toString();",
+    "}",
+    "",
+  ];
 }
 
 /** A single-language app has nothing to negotiate, store or switch between: the

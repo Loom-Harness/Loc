@@ -24,6 +24,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
+import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { renderSvelteImportLines } from "./walker/import-lines.js";
@@ -51,6 +52,7 @@ function walkSlot(
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>,
+  i18nPrefix: string | undefined,
 ): SlotEmit {
   const r = walkBody(
     body,
@@ -62,6 +64,14 @@ function walkSlot(
     [],
     aggregatesByName,
     bcByAggregate,
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Set(),
+    new Set(),
+    false,
+    i18nPrefix,
   );
   return { markup: r.tsx, imports: r.imports, usedUserComponents: r.usedUserComponents };
 }
@@ -73,6 +83,8 @@ export interface SvelteLayoutContext {
   aggregatesByName: ReadonlyMap<string, AggregateIR>;
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
   topLevelComponents: readonly ComponentIR[];
+  /** The ui ships the translation runtime: slot text renders through `t()`. */
+  i18nEnabled: boolean;
 }
 
 /** Emit `src/routes/(<group>)/+layout.svelte` for every named layout a
@@ -103,7 +115,14 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
     const usedComponents = new Set<string>();
     const rendered = new Map<"header" | "nav" | "footer", string>();
     for (const { tag, body } of slots) {
-      const s = walkSlot(body, ctx.pack, userComponents, ctx.aggregatesByName, ctx.bcByAggregate);
+      const s = walkSlot(
+        body,
+        ctx.pack,
+        userComponents,
+        ctx.aggregatesByName,
+        ctx.bcByAggregate,
+        ctx.i18nEnabled ? layoutKeyPrefix(ctx.ui, layout) : undefined,
+      );
       rendered.set(tag, s.markup);
       for (const [from, names] of s.imports) {
         const set = importMap.get(from) ?? new Set<string>();

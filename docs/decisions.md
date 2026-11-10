@@ -2270,8 +2270,7 @@ consequence of where an org sits in the tree.
      positional is stamped on rows;
    - guarding against cycles and cross-customer moves is the author's
      operation's job; the generated code stays correct regardless: the
-     ancestors walk (item 4) terminates on a cycle, and the non-host copy
-     (item 6) follows any operation that assigns `parent`;
+     ancestors walk (item 4) terminates on a cycle;
    - a generated, fully checked `move(to)` was considered and dropped: its
      cycle and same-top-level-org checks are a registry walk no operation body
      can express, so it needed a dedicated macro plus a generated precondition
@@ -2285,8 +2284,9 @@ consequence of where an org sits in the tree.
    - `organizationContext.ancestors` — the operating org **and** every org above
      it, resolved **once per request** and memoized, by a recursive walk over
      `parent` that **terminates on a cycle** (set semantics, so an author-written
-     move that creates a loop cannot hang a request). Its one consumer here is
-     the `subtree` share grantee.
+     move that creates a loop cannot hang a request). It is typed
+     `<Registry> id[]` and read with `.contains(x)` in policy functions and row
+     predicates; the `subtree` share grantee is built on it.
    - Reads, writes and the write stamp anchor on `organizationContext.org`.
      `currentUser` is never rewritten by a switch: it is always the real
      principal with its home-org claim.
@@ -2303,16 +2303,13 @@ consequence of where an org sits in the tree.
    | the `x-org-context` path value | an org id |
    | `loomorgpath` envelope attribute, `orgPath` in the event origin | the event origin is `{tenant, causedBy}`; `tenant` is the operating org of the raising request |
 
-6. **A deployable that does not host the registry** resolves
-   `organizationContext.ancestors` and admits the switch from a generated,
-   internal folded projection of the registry — one `(org, parent)` row per
-   org, fed over the outbox and a channel derived on the system's broker by two
-   generated registry events: `<Registry>Placed { org, parent }` on create, and
-   `<Registry>ParentChanged { org, parent }` emitted by **every** operation whose
-   body assigns `parent` (read off its write effects, so an author-written move
-   is covered without naming it). A system that needs the
-   copy and declares no broker is refused at compile time. No closure table and
-   no bespoke replication path.
+6. **A deployable that does not host the registry** has no registry table,
+   so it is **refused** what needs one, and nothing is copied to it: a context
+   it hosts that reads `organizationContext.ancestors` is a compile-time
+   `loom.tenancy-registry-remote-unsupported` (host the registry's context
+   there too), and its switch gate admits the home org only.  A registry copy
+   (a per-request call to the hosting deployable, or a folded `(org, parent)`
+   projection) is deferred until a model needs it.
 
 7. **Data locality.** A tenant (the owning org) is the unit of data locality:
    tenant-owned data references another tenant's data only through
@@ -2365,8 +2362,12 @@ SELECT id FROM up;
   NULL-`dataKey` OR-fallback have no remaining purpose.
 - Event-sourced streams stop carrying `dataKey`; a fold over a tenant-owned
   producer stamps `tenant_id` only.
-- `loom.policy-level-requires-hierarchy` and `loom.tenancy-registry-remote-unsupported`
-  lose their reason to exist (the second is lifted by item 6).
+- `loom.policy-level-requires-hierarchy` loses its reason to exist;
+  `loom.tenancy-registry-remote-unsupported` narrows to the uses that need the
+  registry's table (item 6).
+- A reactor runs as the system principal, which carries no ancestor set: a
+  reactor reading `organizationContext.ancestors` is
+  `loom.org-context-ancestors-in-reactor`.
 - D-REACTOR-SYSTEM-PRINCIPAL's event origin drops `orgPath`.
 - D-CROSSTENANT-ACK is unaffected: `allow global` is gone altogether.
 
@@ -6588,3 +6589,56 @@ watermark row fixes both: a single autocommitted statement holds nothing
 across the dispatch, and the conditional update is the only arbiter needed.
 A lease row was rejected — it needs an expiry tuned against the period and a
 renewal loop, and the per-period watermark already gives the guarantee.
+
+---
+
+## D-OPENAPI-FRAMEWORK-NATIVE — each backend's OpenAPI document comes from its framework's own generator
+
+**Status:** owner ruling, 2026-11-08.
+
+**Decision.** A backend's served OpenAPI document is produced by its
+framework's OpenAPI generator (`@hono/zod-openapi`, Swashbuckle, FastAPI,
+OpenApiSpex, springdoc). Two inputs shape it:
+
+- **Generator configuration** — settings, options and conventions the library
+  provides (`springdoc.default-produces-media-type`, `UseOneOfForPolymorphism()`,
+  `SupportNonNullableReferenceTypes()`).
+- **Source metadata the generator reads** — route definitions, annotations and
+  attributes, response models and typed results, library schema declarations
+  (`@ApiResponse`, `[ProducesResponseType]`, `responses=`, OpenApiSpex
+  `operation` specs and schema modules, sealed or `[JsonPolymorphic]` unions).
+
+Nothing else edits the document. A backend does not post-process it — no
+springdoc `OpenApiCustomizer`, no Swashbuckle document/operation/schema filter,
+no ASP.NET OpenAPI transformer, no FastAPI `custom_openapi` that rewrites the
+schema dict — and does not build it by hand apart from its routes (an
+OpenApiSpex `paths` map written out instead of `Paths.from_router`). A
+framework limitation is not an exception: change the source representation so
+the generator can express the contract, or accept the framework's native
+spelling in the parity check.
+
+**The parity check stays, and compares structure.** The conformance-parity
+gate diffs the five booted documents pairwise. Its normalizer
+(`test/_helpers/openapi-normalize.ts`) first rewrites both documents into one
+canonical spelling, so framework-native spellings of one contract compare
+equal: an inline array and a named array component with the same `items`;
+`$ref` and an inlined identical schema; `oneOf` and `anyOf` over arms a
+discriminator separates; explicit, implicit and inferred discriminator
+mappings; a polymorphic base whose subtypes `allOf` it and a `oneOf` over the
+subtypes. Real contract differences still fail — operations, success and error
+statuses, media types, required sets, field schemas, enum values, union arms
+and tags. Every accepted equivalence and its nearest rejected difference is a
+fixture pair under `test/_helpers/openapi-parity-fixtures/`.
+
+**Enforcement.** `test/system/openapi-native-census.test.ts` scans the
+generator and platform trees for emitted post-processing and hand-built paths.
+A backend that still does either carries a dated `deferred` waiver naming the
+work that removes it, and a waiver whose backend is clean fails.
+
+**Rejected: one Loom-generated document.** Loom could render a single OpenAPI
+document from the IR and serve it from every backend. That document would
+describe what Loom intends, not what each framework actually routes and
+validates, so it could drift from the running service without any check
+noticing — the parity gate would compare one document with itself. A
+framework-generated document is evidence about the running backend; that
+evidence is the point of the gate.

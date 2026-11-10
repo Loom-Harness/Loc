@@ -1,12 +1,12 @@
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
-import {
-  aggregateTableName,
-  partTableName,
-  registryTableName,
-} from "../../ir/enrich/storage-names.js";
+import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import {
+  eventSourcedWorkflows,
+  observableWorkflows,
+  stateRowWorkflows,
+} from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -55,6 +55,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import {
   enumPool,
   valueObjectFieldLookup,
@@ -79,6 +80,7 @@ import {
   requestComponentNamerFor,
 } from "../_openapi/request-component-names.js";
 import { unionMembers } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -248,17 +250,9 @@ import {
 import { renderJavaCommandValidators, renderJavaVoValidators } from "./emit/validator.js";
 import { referencedValueObjects } from "./emit/wire.js";
 import { renderJavaWorkflows } from "./emit/workflow.js";
+import { esWorkflowStateClass, renderEsWorkflowFoldClass } from "./emit/workflow-eventsourced.js";
+import { renderJavaWorkflowInstanceReads } from "./emit/workflow-instances.js";
 import {
-  esWorkflowStateClass,
-  eventSourcedWorkflows,
-  renderEsWorkflowFoldClass,
-} from "./emit/workflow-eventsourced.js";
-import {
-  observableWorkflowsOf,
-  renderJavaWorkflowInstanceReads,
-} from "./emit/workflow-instances.js";
-import {
-  correlationWorkflows,
   renderWorkflowStateEntity,
   renderWorkflowStateRepository,
   workflowStateClass,
@@ -978,13 +972,12 @@ function emitProjectFromContexts(
         );
       }
     };
-    for (const wf of correlationWorkflows(ctx.workflows)) {
-      // An `eventSourced` workflow persists as an append-only `<wf>_events`
-      // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
-      // mutable JPA state row — emit the in-memory fold class instead, into the
-      // dispatcher's package so the handler body reaches its package-private
-      // state fields (workflow-and-applier.md A2-S5b).
-      if (wf.eventSourced) continue;
+    // An `eventSourced` workflow persists as an append-only `<wf>_events`
+    // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
+    // mutable JPA state row — it gets the in-memory fold class below instead,
+    // in the dispatcher's package so the handler body reaches its
+    // package-private state fields (workflow-and-applier.md A2-S5b).
+    for (const wf of stateRowWorkflows(ctx.workflows)) {
       const wfConstruct = `${ctx.name}.${wf.name}`;
       place(
         `${workflowStateClass(wf)}.java`,
@@ -1125,7 +1118,10 @@ function emitProjectFromContexts(
       // the combined `<Ctx>WorkflowInstancesController` merges every
       // observable saga's routes, so it stays unmapped.
       const instanceResponseOrigin = new Map<string, WorkflowIR>(
-        observableWorkflowsOf(ctx).map((wf) => [`${upperFirst(wf.name)}InstanceResponse.java`, wf]),
+        observableWorkflows(ctx.workflows).map((wf) => [
+          `${upperFirst(wf.name)}InstanceResponse.java`,
+          wf,
+        ]),
       );
       for (const [name, f] of instanceReads) {
         const wf = instanceResponseOrigin.get(name);
@@ -1458,32 +1454,20 @@ function emitProjectFromContexts(
   // Auth surface — only when the deployable opts in via auth: required
   // and the system declares a user block.
   if (authRequired && system?.sys) {
-    // Hierarchy (multi-tenancy): when the tenant registry opts into
-    // `tenantRegistry` (a `data_key` column exists) AND its state table is
-    // among THIS deployable's contexts (so the boot JdbcTemplate reaches it),
-    // `currentUser.orgPath` reads the registry's `data_key` per request;
-    // otherwise the claim-copy accessor stands.
-    let orgPathRegistry: { table: string } | undefined;
-    const reg = hostedHierarchyRegistry(
-      system.sys,
-      contexts.map((c) => c.name),
-    );
-    if (reg) {
-      for (const ctx of contexts) {
-        const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
-        if (regAgg) {
-          const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
-          const table = registryTableName(system.sys) as string;
-          orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
-          break;
+    const plan = orgContextPlan(system.sys, system.deployable.contextNames);
+    const registry = plan.registry
+      ? {
+          name: plan.registry.name,
+          repoPkg: pkgFor("repository-interface", plan.registry.name),
+          tableSql: registryTableSql(system.sys)!,
         }
-      }
-    }
+      : undefined;
     for (const [name, content] of renderAuthFiles(
       system.sys,
       basePkg,
       routePrefix,
-      orgPathRegistry,
+      plan,
+      registry,
     )) {
       out.set(mainSourcePath(`${basePkg}.auth`, name), content);
     }

@@ -9,7 +9,7 @@
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = ["tenancy", "tenant", "org", "orgpath", "cross"] as const;
+export const segments = ["tenancy", "tenant", "org", "cross"] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
@@ -46,14 +46,18 @@ export const messages = {
   // ----------------------------------------------------------------------
   "loom.tenancy-duplicate": (p: { name: unknown }) =>
     `system '${p.name}' declares more than one 'tenancy by' line; keep just the first.`,
-  "loom.orgpath-without-tenancy": (p: { member: unknown }) =>
-    `'currentUser.${p.member}' requires a 'tenancy by user.<claim> of <Registry>' ` +
-    `declaration — it is derived from the caller's tenant materialized path, resolved from ` +
-    `the tenancy claim and registry.  Add the tenancy line, or drop the '${p.member}' reference.`,
+  // The materialized org path is gone (D-TENANCY-FLAT): rows carry `tenantId`
+  // only, and the caller carries no path.
+  "loom.tenancy-principal-member-removed": (p: { shape: unknown; replacement: unknown }) =>
+    `'${p.shape}' no longer exists — data visibility is flat and no org carries a ` +
+    `materialized path any more.  Use ${p.replacement}.`,
+  "loom.tenancy-data-key-removed": (p: { where: unknown }) =>
+    `${p.where} uses 'dataKey', which no longer exists — rows carry 'tenantId' only, and ` +
+    `the registry tree is its 'parent' field.  Drop the 'dataKey' reference.`,
   "loom.org-context-surface#member": (p: { shape: unknown }) =>
     `'${p.shape}' is not an operating-scope read — 'organizationContext' exposes exactly one ` +
-    `member, 'organizationContext.orgPath' (the materialized path of the org this request ` +
-    `operates in).  The principal's own claims stay on 'currentUser'.`,
+    `member, 'organizationContext.org' (the id of the org this request operates in).  The ` +
+    `principal's own claims stay on 'currentUser'.`,
   "loom.org-context-surface#frontend":
     `'organizationContext' is read inside a 'ui' — the operating scope exists only in backend ` +
     `code, where each backend's auth middleware resolves it through the fail-closed ` +
@@ -119,21 +123,15 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/tenancy-checks.ts
   // ----------------------------------------------------------------------
-  "loom.org-context-gate-unmet#no-hierarchy": (p: { ctx: unknown; name: unknown }) =>
-    `context '${p.ctx}' reads 'organizationContext.orgPath', but system '${p.name}' has no ` +
-    `tenant hierarchy to switch within — the operating-scope switch gate admits a requested org ` +
-    `only inside the caller's 'orgPath' subtree, which needs 'tenancy by user.<claim> of ` +
-    `<Registry>' AND the registry 'implements tenantRegistry'.  Add both, or read ` +
-    `'currentUser.orgPath' instead.`,
   "loom.org-context-gate-unmet#no-auth": (p: { ctx: unknown; dep: unknown }) =>
-    `context '${p.ctx}' reads 'organizationContext.orgPath', but deployable '${p.dep}' hosts it ` +
+    `context '${p.ctx}' reads 'organizationContext.org', but deployable '${p.dep}' hosts it ` +
     `without 'auth: required' (and a 'user { … }' block) — the operating scope is resolved by ` +
     `the auth middleware's fail-closed 'x-org-context' switch gate, and a deployable with no ` +
     `auth has no gate: the read would be an unvalidated caller-submitted value.  Add ` +
     `'auth: required' to '${p.dep}'.`,
   "loom.tenant-registry-without-tenancy": (p: { agg: unknown; name: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but system '${p.name}' declares no ` +
-    `'tenancy by user.<claim> of <Registry>' line.  The registry tree (parent + dataKey) is ` +
+    `'tenancy by user.<claim> of <Registry>' line.  The registry tree ('parent') is ` +
     `only meaningful under a tenancy declaration — add it, or drop 'implements tenantRegistry'.`,
   "loom.tenancy-registry-duplicate": (p: {
     name: unknown;
@@ -144,18 +142,22 @@ export const messages = {
     `system '${p.name}' has ${p.length} aggregates implementing 'tenantRegistry' ` +
     `(${p.registries}); the tenant registry is singular — ` +
     `keep it on exactly one aggregate (the '${p.registryName}' named in 'tenancy by … of').`,
+  "loom.org-context-ancestors-in-reactor": (p: { reactor: unknown; ctx: unknown }) =>
+    `reactor '${p.reactor}' in context '${p.ctx}' reads 'organizationContext.ancestors' ` +
+    `(directly or through an operation it calls).  A reactor runs as the system principal, ` +
+    `scoped to the triggering event's tenant, and carries no ancestor set.  Read the ancestors ` +
+    `in the request that raises the event and pass what the reactor needs on the event.`,
   "loom.tenancy-registry-remote-unsupported": (p: {
     name: unknown;
     context: unknown;
     registry: unknown;
     registryContext: unknown;
   }) =>
-    `deployable '${p.name}' hosts context '${p.context}', which reads the tenant hierarchy ` +
-    `(a 'tenantOwned' aggregate stamps 'dataKey' from 'currentUser.orgPath', or an ` +
-    `'orgPath' / 'rootOrg' / 'organizationContext' read), but the registry '${p.registry}' ` +
-    `lives in context '${p.registryContext}', which '${p.name}' does not host.  Its database ` +
-    `has no registry table, and resolving the path from another deployable is not supported ` +
-    `yet.  Host '${p.context}' and '${p.registryContext}' on one deployable.`,
+    `deployable '${p.name}' hosts context '${p.context}', which reads ` +
+    `'organizationContext.ancestors', but the registry '${p.registry}' lives in context ` +
+    `'${p.registryContext}', which '${p.name}' does not host.  The ancestors walk reads the ` +
+    `registry's table, which '${p.name}'s database does not have, and no registry copy is ` +
+    `generated for another deployable.  Host '${p.registryContext}' on '${p.name}' as well.`,
   "loom.tenancy-registry-not-target": (p: { agg: unknown; registryName: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but the tenancy registry is ` +
     `'${p.registryName}' ('tenancy by … of ${p.registryName}').  The tree ` +

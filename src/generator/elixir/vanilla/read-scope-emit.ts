@@ -132,7 +132,7 @@ function scopeCollector(): {
 
 /** The read scope of a tenant-scoped event stream (`stream-tenancy.ts`): its
  *  tenancy restrictions, rendered over the event-log schema's tenant metadata
- *  columns (`tenant_id` / `data_key` carry the `tenantOwned` field names, so
+ *  column (`tenant_id` carries the `tenantOwned` field name, so
  *  the predicate is the one a `tenantOwned` table applies).  Hosted on the
  *  stream's event-log schema, where `Repo.prepare_query/3` applies it to every
  *  read of the stream. */

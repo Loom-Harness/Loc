@@ -62,6 +62,7 @@ import {
 } from "../language/generated/ast.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../util/capability-tag.js";
 import { snake } from "../util/naming.js";
+import { ORG_CONTEXT_ACCESSOR, ORG_CONTEXT_ORG } from "../util/principal.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../util/row-version.js";
 import { readArgBool, readArgInt, readArgRef, readArgRefs, readArgString } from "./api/_read.js";
 import type { MacroDefinition, OriginToken, ParamSpec, ParamType, RefKinds } from "./api/define.js";
@@ -173,7 +174,7 @@ interface Inventory {
   Retrieval: Map<string, AstNode>;
   /** FUNCTION-form authorization predicates (`policy X(...): bool = …`) keyed
    * by name — the `requires:` target of `crudish`.  The read-ladder form
-   * (`policy { allow deep on X }`) is deliberately excluded: it has no name
+   * (`policy { allow local on X }`) is deliberately excluded: it has no name
    * to call and is not a boolean gate, so a macro that splices
    * `requires <Name>()` must never resolve one. */
   Policy: Map<string, AstNode>;
@@ -794,8 +795,7 @@ function expandCapability(
     const cloned: unknown[] = (cap.members ?? []).map((m) => AstUtils.copyAstNode(m, buildRef));
     for (const m of cloned) {
       resolveSelfTypes(m as AstNode, agg.name, buildRef);
-      if (cap.name === "tenantOwned" && inv.tenancyClaim)
-        resolveTenancyClaim(m as AstNode, inv.tenancyClaim);
+      if (cap.name === "tenantOwned") resolveTenancyAnchor(m as AstNode, inv.tenancyClaim);
       // Tag a spliced `filter` member with the capability that contributed it,
       // so lowering can populate `contextFilterOrigins` — the provenance the
       // `ignoring <Cap>` bypass surface resolves against.  Transient ($-key),
@@ -832,18 +832,28 @@ function resolveSelfTypes(root: AstNode, hostName: string, buildRef: BuildRef): 
   }
 }
 
-/** Point `tenantOwned`'s principal reads at the claim the system's
- *  `tenancy by user.<claim>` declares.  The prelude writes them as
- *  `currentUser.tenantId` (the capability cannot know the system); after this
- *  the stamp and filter read a member the principal really has, so they type
- *  and lower like any other claim read.  The ROW column stays `tenantId`:
- *  the capability owns that name. */
-function resolveTenancyClaim(root: AstNode, claim: string): void {
+/** Bind `tenantOwned`'s anchor to the system.  Under `tenancy by
+ *  user.<claim>`, the prelude's `organizationContext.org` stays (the operating
+ *  org), and an author-declared `tenantOwned` that spells
+ *  `currentUser.tenantId` reads the declared claim instead — a member the
+ *  principal really has.  With no `tenancy by` there is no operating org, so
+ *  `organizationContext.org` falls back to `currentUser.tenantId`.  The ROW
+ *  column stays `tenantId`: the capability owns that name. */
+function resolveTenancyAnchor(root: AstNode, claim: string | undefined): void {
   for (const node of [root, ...AstUtils.streamAllContents(root)]) {
-    if (!isPostfixChain(node) || !isNameRef(node.head) || node.head.name !== "currentUser")
-      continue;
+    if (!isPostfixChain(node) || !isNameRef(node.head)) continue;
     const first = node.suffixes[0];
-    if (first && isMemberSuffix(first) && first.member === "tenantId") first.member = claim;
+    if (!first || !isMemberSuffix(first)) continue;
+    if (claim && node.head.name === "currentUser" && first.member === "tenantId") {
+      first.member = claim;
+    } else if (
+      !claim &&
+      node.head.name === ORG_CONTEXT_ACCESSOR &&
+      first.member === ORG_CONTEXT_ORG
+    ) {
+      node.head.name = "currentUser";
+      first.member = "tenantId";
+    }
   }
 }
 

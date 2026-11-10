@@ -9,19 +9,11 @@ import type {
   LiteralKind,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { isOrgAncestorsRead } from "../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  ORG_PATH_CLAIM_FIELD,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
 import type { WriteScopeContext } from "../../ir/util/write-scope-guards.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
@@ -43,7 +35,6 @@ import {
 } from "../_expr/checked-int.js";
 import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
-import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
   type CallExpr,
@@ -444,24 +435,19 @@ const ELIXIR_DOC_TARGET: ExprTarget<RenderCtx> = {
 };
 
 export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
-  // Authorization/tenancy filter sentinels (M-T9.9) — a discriminated node,
+  // Authorization filter sentinels — a discriminated node,
   // intercepted before the shared expr dispatcher (which throws on the
   // `authz-filter` kind).  A missing arm is a `tsc` error here, not a silent
-  // authorization bypass.  (The vanilla capability-filter path intercepts the
-  // `scope` sentinel first — this arm keeps `renderExpr` total for it too.)
+  // authorization bypass.
   if (e.kind === "authz-filter") {
     switch (e.filter.kind) {
       // DENY carve-out (authorization — deny-wins).  Ecto's always-false
       // query fragment; no row satisfies it.
       case "deny":
         return 'fragment("false")';
-      // `deep`/`global` read level (multi-tenancy) — the pinned
-      // fail-closed materialized-path scope fragment.
-      case "scope":
-        return renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(e), deepScopeTenantClaim(e));
       default: {
-        const _exhaustive: never = e.filter;
-        throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+        const _exhaustive: never = e.filter.kind;
+        throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
       }
     }
   }
@@ -983,6 +969,9 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    // `organizationContext.ancestors` is a plain id list on the principal,
+    // not a preloaded relationship.
+    if (isOrgAncestorsRead(e.receiver)) return `Enum.member?(${recv}, ${args[0]})`;
     const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
     if (field && ctx.refCollOwnerModule) {
       return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;
@@ -1042,88 +1031,6 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
   return `${recv}.${snake(e.member)}(${args.join(", ")})`;
 }
 
-/** The `deep` read-level sentinel (multi-tenancy) as a raw Ecto
- *  `fragment` inside a `where:` — descendant-or-self materialized-path scope
- *  with the NULL-dataKey fallback to the tenant floor (see
- *  `DEEP_SCOPE_SEMANTICS`).  A SQL `fragment` sidesteps Ecto's `is_nil`/`like`
- *  helper composition and the `nil <> "…"` raise: `^`-pinned principal claims
- *  bind fail-closed (a nil actor binds NULL → every comparison is false → no
- *  rows).  The caller (the capability-filter, which owns actor gating) routes
- *  the sentinel here directly, so the principal pins are ALREADY fail-closed —
- *  it must NOT run this through `pinPrincipal` again.  `thisName` is the query
- *  binding (`record`). */
-export function renderDeepScopeEcto(
-  thisName: string,
-  anchorClaim = ORG_PATH_CLAIM_FIELD,
-  tenantClaim = TENANT_OWNED_TENANT_ID_FIELD,
-): string {
-  const dk = `${thisName}.${snake(TENANT_OWNED_DATA_KEY_FIELD)}`;
-  const tid = `${thisName}.${snake(TENANT_OWNED_TENANT_ID_FIELD)}`;
-  // Anchor claim: `orgPath` for `deep`, `rootOrg` for `global`.
-  const org = `^(current_user && current_user.${snake(anchorClaim)})`;
-  // Tenant claim: the system's declared `tenancy by user.<claim>` — NOT the
-  // `tid` row column above, which only coincides when the author happened to
-  // name the claim `tenantId`.
-  const tenant = `^(current_user && current_user.${snake(tenantClaim)})`;
-  // Descendant test = SARGABLE PREFILTER **and** ANCHORED RECHECK (M-T3.17).
-  // The row is DECIDED by `strpos(col, needle) = 1`, which has no pattern
-  // language: the anchor is a principal CLAIM, so `_`/`%` inside it would be
-  // LIKE wildcards — an org named `acme_corp` yields `acme_corp.%`, which
-  // matches `acmeXcorp.…`, a cross-tenant read with no attacker, just an
-  // underscore in a name.  Ecto pins the value (`^`), which stops injection but
-  // not wildcard semantics.  The escaped `LIKE ? ESCAPE '!'` in front is a pure
-  // prefilter so the planner can ride the `data_key text_pattern_ops` index
-  // instead of seq-scanning; an escaping slip could only widen it, and the
-  // recheck still gates.  The pattern is built through the nil-safe
-  // INTERPOLATION the in-app twin uses (`"#{nil}"` is `""`, while
-  // `String.replace(nil, …)` raises) — a nil actor then yields the pattern
-  // `".%"`, which no materialized path matches, and the recheck's NULL needle
-  // keeps the branch false regardless.
-  const anchorStr = `"#{current_user && current_user.${snake(anchorClaim)}}"`;
-  const pattern = `^(${exSubtreeLikePattern(anchorStr)})`;
-  const sql =
-    `(? IS NOT NULL AND (? = ? OR (? LIKE ? ESCAPE '${DATA_KEY_LIKE_ESCAPE}' ` +
-    `AND strpos(?, ? || '${DATA_KEY_PATH_DELIMITER}') = 1))) OR (? IS NULL AND ? = ?)`;
-  return (
-    `fragment(${JSON.stringify(sql)}, ${dk}, ${dk}, ${org}, ${dk}, ${pattern}, ` +
-    `${dk}, ${org}, ${dk}, ${tid}, ${tenant})`
-  );
-}
-
-/** The `deep`/`global` read-level sentinel as an IN-MEMORY Elixir predicate —
- *  the document-shape twin of {@link renderDeepScopeEcto}.  Same
- *  `DEEP_SCOPE_SEMANTICS`, evaluated over the rehydrated `%<Agg>.Data{}` embed
- *  (`recordVar`) because a jsonb blob has no column to hang a `where:` on.
- *
- *  Two differences from the SQL fragment, both about a NIL claim:
- *
- *    * Nothing is `^`-pinned (there is no query), so each claim reads through
- *      the nil-safe `(current_user && current_user.<claim>)`.
- *    * The descendant prefix is built by INTERPOLATION, not `<>`.  Elixir's
- *      `nil <> "."` RAISES (an ArgumentError → a 500 for an ordinary token
- *      missing the `orgPath` claim), while `"#{nil}."` is `"."`, which no
- *      materialized path starts with — so a nil anchor makes the descendant
- *      branch false and the read degrades to the tenant floor, exactly as
- *      `strpos(?, NULL || '.')` does in SQL.
- *
- *  Already fail-closed on the principal side, so the caller must NOT run this
- *  through the in-app principal guard again. */
-export function renderDeepScopeInApp(
-  recordVar: string,
-  anchorClaim = ORG_PATH_CLAIM_FIELD,
-  tenantClaim = TENANT_OWNED_TENANT_ID_FIELD,
-): string {
-  const dk = `${recordVar}.${snake(TENANT_OWNED_DATA_KEY_FIELD)}`;
-  const tid = `${recordVar}.${snake(TENANT_OWNED_TENANT_ID_FIELD)}`;
-  const org = `(current_user && current_user.${snake(anchorClaim)})`;
-  const tenant = `(current_user && current_user.${snake(tenantClaim)})`;
-  const descendant = `String.starts_with?(${dk}, "#{${org}}${DATA_KEY_PATH_DELIMITER}")`;
-  return (
-    `((${dk} != nil and (${dk} == ${org} or ${descendant})) or ` +
-    `(${dk} == nil and ${tid} == ${tenant}))`
-  );
-}
-
 /** The `"guid-from-string"` registry self-scope (`this.id ==
  *  currentUser.<claim>` — a `guid` id keyed by a `string` claim) as an Ecto
  *  `where:` predicate that survives a MALFORMED claim (M-T3.7(c)).
@@ -1134,7 +1041,7 @@ export function renderDeepScopeInApp(
  *  `Ecto.Query.CastError` — a 500 for an ordinary bad token.  (The same cast is
  *  why a nil actor raised rather than reading empty, despite the fail-closed
  *  intent.)  Cast in ELIXIR instead, to nil on failure, and compare through a
- *  `fragment` — the same escape `renderDeepScopeEcto` uses, because a fragment
+ *  `fragment`, because a fragment
  *  param binds as-is: nil is NULL, so `id = NULL` is false for every row and
  *  the read is the EMPTY result a foreign-but-well-formed claim already gives.
  *  A fragment keeps the comparison on the uuid column itself, so the primary-key
@@ -1147,8 +1054,7 @@ export function renderDeepScopeInApp(
  *  broken every WELL-FORMED claim while fixing the malformed one.  Both are
  *  `{:ok, _} | :error`, so the failure arm is unchanged.
  *
- *  Already pinned — the caller must NOT run this through `pinPrincipal`, exactly
- *  as for the deep-scope sentinel. */
+ *  Already pinned — the caller must NOT run this through `pinPrincipal`. */
 export function renderGuidClaimSelfScopeEcto(thisName: string, claimField: string): string {
   const claim = `current_user && current_user.${snake(claimField)}`;
   const casted = `^(case Ecto.UUID.dump(${claim}) do {:ok, uuid} -> uuid; :error -> nil end)`;

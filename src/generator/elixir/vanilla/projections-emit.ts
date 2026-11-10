@@ -100,18 +100,13 @@ function renderProjectionRowSchema(
     });
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
   // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
-  // `(tenant_id, <key>)` — a composite primary key — and carries its org path.
+  // `(tenant_id, <key>)` — a composite primary key.
   const tenancy = foldTenancyFor(proj);
   if (tenancy) {
     const keyLines = [
-      ...tenancy.metadata
-        .filter((m) => m.required)
-        .map((m) => `    field :${m.column}, :string, primary_key: true`),
+      ...tenancy.metadata.map((m) => `    field :${m.column}, :string, primary_key: true`),
       `    field :${snake(corr)}, ${pkType}, primary_key: true`,
     ];
-    const extra = tenancy.metadata
-      .filter((m) => !m.required)
-      .map((m) => `    field :${m.column}, :string`);
     return `# Auto-generated.
 defmodule ${projectionRowModule(contextModule, proj)} do
   @moduledoc "Read model folded from foreign events for the ${upperFirst(proj.name)} projection."
@@ -120,7 +115,7 @@ defmodule ${projectionRowModule(contextModule, proj)} do
 
 ${prefixLine}  @primary_key false
   schema "${table}" do
-${[...keyLines, ...fieldLines, ...extra].join("\n")}
+${[...keyLines, ...fieldLines].join("\n")}
     timestamps()
   end
 end

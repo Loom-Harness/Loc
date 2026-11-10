@@ -910,6 +910,18 @@ export interface WalkerTarget {
    *  type means "coerce". */
   renderInterpolation(jsExpr: string, exprType?: TypeIR): string;
 
+  /** A RICH-TEXT sentence in child position — `Text { "Read the ", Bold { "terms" },
+   *  " first" }`.  The message is ONE catalog entry whose emphasis is carried as
+   *  `<b>` / `<i>` / `<code>` tags, so the translated sentence can reorder its
+   *  parts; the target renders the runtime's answer as styled inline markup.
+   *
+   *  The four JS frontends call the runtime's `tRich` (which returns escaped
+   *  HTML restricted to `<strong>` / `<em>` / `<code>`) and bind it as inner HTML
+   *  (`jsRichTranslateCall`); Feliz and Flutter parse the translated sentence
+   *  into styled spans natively.  `spec.values` are already rendered in the
+   *  target's expression language.  HEEx renders through its own walker. */
+  renderRichText(spec: TranslateSpec): string;
+
   /** Render a DYNAMIC attribute bound to a JS expression, leading
    *  space included (` name={expr}` on TSX/Svelte; ` :name="expr"`
    *  on Vue — Vue quotes the expression, so the target picks a

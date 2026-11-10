@@ -31,11 +31,13 @@ import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
+  LayoutIR,
   TypeIR,
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
@@ -147,7 +149,10 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
  *  "undefined" — the emitted default MUST equal the catalog entry, so the two
  *  read the same table instead of repeating the English by hand. */
 export function chromeMessage(name: string): string {
-  const message = CHROME_MESSAGES[chromeKey(name)] ?? sentenceChromeMessage(name);
+  const message =
+    CHROME_MESSAGES[chromeKey(name)] ??
+    FALLBACK_LABEL_CHROME[chromeKey(name)] ??
+    sentenceChromeMessage(name);
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
   return sourceText(chromeKey(name), message);
 }
@@ -170,19 +175,41 @@ export function chromeMessage(name: string): string {
 
 /** The sentence builders, by base name.  The subject is the DSL identifier the
  *  sentence is about: an aggregate (`deleteEntity`, `deleteConfirm`), a value
- *  object that is an array element (`addItem`), or an operation
- *  (`operationSucceeded`). */
+ *  object that is an array element (`addItem`), an operation
+ *  (`operationSucceeded`), or a workflow (`completed`); `created` is about the
+ *  aggregate a `CreateForm` makes. */
 export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   deleteEntity: (aggregate) => `Delete ${humanize(aggregate)}`,
   deleteConfirm: (aggregate) => `Delete this ${humanize(aggregate).toLowerCase()}?`,
   addItem: (element) => `Add ${humanize(element)}`,
   operationSucceeded: (operation) => `${humanize(operation)} succeeded`,
+  // The header of a table / grid column whose header is neither a literal nor
+  // `label(…)`.  The subject is the column's 1-based position, known at
+  // generate time, so each position is its own whole message.
+  column: (position) => `Column ${position}`,
+  created: (aggregate) => `${humanize(aggregate)} created`,
+  completed: (workflow) => `${humanize(workflow)} completed`,
 };
+
+/** The sentence bases a HAND-BUILT form (Angular, Feliz: no design-pack form
+ *  templates) renders itself — its dynamic-row "Add <item>" button.  A pack's
+ *  own `sentenceChrome` names the rest for the pack-rendered frontends. */
+export const HAND_BUILT_FORM_SENTENCES: readonly string[] = ["addItem"];
 
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
   return `${base}.${subject}`;
 }
+
+/** Placeholder text a target renders where the model gives it nothing to show:
+ *  an empty form's single input label, a column-less table's only header.
+ *  Merged when the scope says the target renders them
+ *  ({@link FormSentenceScope.fallbackLabels}). */
+const FALLBACK_LABEL_CHROME: Record<string, string> = {
+  [chromeKey("fieldFallback")]: "Field",
+  [chromeKey("dataFallback")]: "Data",
+  [chromeKey("submitFallback")]: "Submit",
+};
 
 function sentenceChromeMessage(name: string): string | undefined {
   const dot = name.indexOf(".");
@@ -218,6 +245,78 @@ function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void
   else arrayElementValueObjects(el, out);
 }
 
+/** The `column.<n>` sentences a `Table` / `DataGrid` renders: one for every
+ *  `Column` whose header is neither a string literal nor `label(…)`, numbered by
+ *  its position among the `Column` calls, and one for every positional child
+ *  that is not a `Column`, numbered by its position among all positionals. */
+export function fallbackColumnNames(call: ExprIR & { kind: "call" }): string[] {
+  const names: string[] = [];
+  let column = 0;
+  let position = 0;
+  call.args.forEach((arg, i) => {
+    if (call.argNames?.[i]) return;
+    position++;
+    if (arg.kind === "call" && arg.name === "Column") {
+      column++;
+      const header = arg.args.find((_, j) => !arg.argNames?.[j]);
+      const hasText =
+        header?.kind === "modelText" || (header?.kind === "literal" && header.lit === "string");
+      if (!hasText) names.push(sentenceChromeName("column", String(column)));
+    } else {
+      names.push(sentenceChromeName("column", String(position)));
+    }
+  });
+  return names;
+}
+
+/** A form call's named arg when it is a bare reference (`of: Order`). */
+function refArgName(call: ExprIR & { kind: "call" }, argName: string): string | undefined {
+  const idx = (call.argNames ?? []).indexOf(argName);
+  const arg = idx >= 0 ? call.args[idx] : undefined;
+  return arg?.kind === "ref" ? arg.name : undefined;
+}
+
+/** The {@link FALLBACK_LABEL_CHROME} names a UI renders, one per site where the
+ *  HEEx emitter has no model text to show: a form with no input to label
+ *  (`fieldFallback`), a form whose `of:` / `runs:` is not a resolvable
+ *  reference (`submitFallback`), a `Table` with no column (`dataFallback`), a
+ *  `KeyValueRow` with no label (`fieldFallback`).  Exact per call, so the
+ *  catalog never carries a message nothing reads. */
+function fallbackLabelNamesForUi(ui: UiIR, contexts: readonly BoundedContextIR[]): string[] {
+  const names = new Set<string>();
+  const aggregates = new Map<string, AggregateIR>();
+  const workflows = new Map<string, WorkflowIR>();
+  for (const bc of contexts) {
+    for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
+    for (const wf of bc.workflows) workflows.set(wf.name, wf);
+  }
+  const visit = (body: ExprIR | undefined) =>
+    walkExprDeep(body, (e) => {
+      if (e.kind !== "call") return;
+      const positionals = e.args.filter((_, i) => !e.argNames?.[i]);
+      if (e.name === "Table" && positionals.length === 0) names.add("dataFallback");
+      else if (e.name === "KeyValueRow" && positionals.length === 0) names.add("fieldFallback");
+      else if (e.name === "CreateForm" || e.name === "WorkflowForm") {
+        const of = refArgName(e, "of");
+        const runs = refArgName(e, "runs");
+        const wf = runs ? workflows.get(runs) : undefined;
+        // An event-triggered workflow has no command surface: no form at all.
+        if (wf && !emitsCommandRoute(wf)) return;
+        const agg = of ? aggregates.get(of) : undefined;
+        const inputs = wf
+          ? wf.params.length
+          : agg
+            ? createInputFields(agg).filter((f) => f.name !== "id").length
+            : 0;
+        if (inputs === 0) names.add("fieldFallback");
+        if (!agg && !wf) names.add("submitFallback");
+      }
+    });
+  for (const page of ui.pages) visit(page.body);
+  for (const component of ui.components) visit(component.body);
+  return [...names].sort();
+}
+
 /** What the model-dependent sentences of a UI's FORMS are enumerated against.
  *
  *  `contexts` resolve the aggregates, operations and workflows a form call
@@ -226,6 +325,9 @@ function arrayElementValueObjects(t: TypeIR | undefined, out: Set<string>): void
  *  A pack that renders neither contributes no such key, so no catalog carries a
  *  sentence nothing reads. */
 export interface FormSentenceScope {
+  /** The system's named layouts: the slot text of those a page selects is part
+   *  of the ui's catalog. */
+  readonly layouts?: readonly LayoutIR[];
   readonly contexts: readonly BoundedContextIR[];
   readonly sentences: readonly string[];
   /** The rendering target keys its IMPLICIT model-text sites by identity
@@ -235,6 +337,11 @@ export interface FormSentenceScope {
   /** The rendering target's create form also shows OPTIONAL inputs (HEEx has
    *  no update flow to defer them to), so their labels are catalogued too. */
   readonly optionalCreateInputs?: boolean;
+  /** The rendering frontend draws its own session gate (sign-in prompt,
+   *  forbidden view), so {@link AUTH_GATE_CHROME} belongs in the catalog. */
+  readonly authGate?: boolean;
+  /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
+  readonly fallbackLabels?: boolean;
 }
 
 /** The `X[]`-of-value-object field types a form over `params` repeats. */
@@ -250,6 +357,12 @@ function ofName(call: ExprIR & { kind: "call" }, argName: string): string | unde
   if (arg?.kind === "ref") return arg.name;
   if (arg?.kind === "literal" && arg.lit === "string") return arg.value;
   return undefined;
+}
+
+/** A form call that supplies its own `onSubmit:` handler renders no default
+ *  success toast, so it reads no `created` / `completed` sentence. */
+function hasCustomSubmit(call: ExprIR & { kind: "call" }): boolean {
+  return (call.argNames ?? []).includes("onSubmit");
 }
 
 /** The model-derived sentences a UI renders, as chrome names, read off the form
@@ -298,16 +411,24 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
             }
           }
         }
-      } else if (e.name === "CreateForm" && wants("addItem")) {
-        const agg = aggregates.get(ofName(e, "of") ?? "");
-        if (agg)
+      } else if (e.name === "Table" || e.name === "DataGrid") {
+        for (const n of fallbackColumnNames(e)) names.add(n);
+      } else if (e.name === "CreateForm") {
+        const owner = ofName(e, "of");
+        const agg = aggregates.get(owner ?? "");
+        if (agg && wants("addItem"))
           arrayElements(
             createInputFields(agg).filter((f) => !f.optional),
             elements,
           );
-      } else if (e.name === "WorkflowForm" && wants("addItem")) {
-        const wf = workflows.get(ofName(e, "runs") ?? "");
-        if (wf) arrayElements(wf.params, elements);
+        if (owner && wants("created") && !hasCustomSubmit(e))
+          names.add(sentenceChromeName("created", owner));
+      } else if (e.name === "WorkflowForm") {
+        const runs = ofName(e, "runs");
+        const wf = workflows.get(runs ?? "");
+        if (wf && wants("addItem")) arrayElements(wf.params, elements);
+        if (runs && wants("completed") && !hasCustomSubmit(e))
+          names.add(sentenceChromeName("completed", runs));
       }
     });
   for (const page of ui.pages) visit(page.body);
@@ -446,6 +567,28 @@ export const FORM_CHROME: Record<string, string> = {
   [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
 
+/** Chrome the generated session gate renders — the sign-in prompt and its
+ *  button, and the forbidden view a `requires`-gated page falls back to.
+ *  Merged only for a frontend that draws that gate itself
+ *  (`FormSentenceScope.authGate`) and, like the other tables, only when the UI
+ *  is already i18n-enabled.  The Feliz prompt sentence is the server's
+ *  `problem.unauthenticated` text, so it reads that key rather than a copy. */
+export const AUTH_GATE_CHROME: Record<string, string> = {
+  [chromeKey("signIn")]: "Sign in",
+  [chromeKey("notSignedIn")]: "You are not signed in.",
+  [chromeKey("forbiddenTitle")]: "Forbidden",
+  [chromeKey("forbiddenBody")]: "You do not have access to this page.",
+};
+
+/** The source-language text of a session-gate chrome string, as the emitted
+ *  `t(key, default)` carries it (the translator's source override applies). */
+export function authGateMessage(name: string): string {
+  const key = chromeKey(name);
+  const message = AUTH_GATE_CHROME[key];
+  if (message === undefined) throw new Error(`i18n-chrome: unknown auth-gate string "${name}"`);
+  return sourceText(key, message);
+}
+
 /** Chrome a `Table`'s CONTROLS render — the pager's "Prev" / "Next" / position
  *  counter,
  *
@@ -485,9 +628,15 @@ export function chromeMergedWhenEnabled(
     // them, and none is the reason a UI turns translatable.
     ...WIRE_ERROR_MESSAGES,
   };
+  if (scope?.authGate) Object.assign(out, AUTH_GATE_CHROME);
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
+    }
+    if (scope?.fallbackLabels) {
+      for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {
+        out[chromeKey(name)] = chromeMessage(name);
+      }
     }
     // The implicit model-text sites (form labels, enum options, submit
     // buttons) — identity-keyed, and like the form chrome above never the

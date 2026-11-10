@@ -3,7 +3,7 @@
 // both .NET persistence adapters (EF and Dapper).
 //
 // A document aggregate persists as one jsonb blob, so its filter columns
-// (`tenantId`, `dataKey`, `isDeleted`) have no mapped column to put a
+// (`tenantId`, `isDeleted`) have no mapped column to put a
 // predicate on: the filter runs over the rehydrated instance instead.  Each
 // adapter hoists the full conjunction into a private static
 // `_CapabilityVisible`; a read carrying an `ignoring` clause keeps only the

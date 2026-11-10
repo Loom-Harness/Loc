@@ -9,7 +9,17 @@
 
 import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { plural } from "../../util/naming.js";
-import type { VariantMatchSpec } from "./target.js";
+import type { TranslateSpec, VariantMatchSpec } from "./target.js";
+
+/** The JS frontends' call into the generated runtime for a rich-text sentence:
+ *  `tRich(key, default, { hole: expr })`, which returns the sentence as HTML. */
+export function jsRichTranslateCall(spec: TranslateSpec): string {
+  const args = [JSON.stringify(spec.key), JSON.stringify(spec.message)];
+  if (spec.values && spec.values.length > 0) {
+    args.push(`{ ${spec.values.map((v) => `${v.name}: ${v.expr}`).join(", ")} }`);
+  }
+  return `tRich(${args.join(", ")})`;
+}
 
 /** Hook local-variable name: `customerAll`, `orderCreate`. */
 export function hookVarName(aggregate: string, op: string): string {

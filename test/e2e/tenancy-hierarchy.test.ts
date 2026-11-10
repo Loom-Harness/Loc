@@ -13,21 +13,13 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation — the runtime proof of
-// multi-tenancy Phase 2 (docs/tenancy.md → "Hierarchy" + "The policy {} read
-// ladder"), NODE/Hono backend.  Sibling of tenancy-isolation.test.ts (which
-// proves the FLAT tenant floor); this boots the `tenancy-hierarchy.ddd` corpus
-// fixture (a registry `implements tenantRegistry` + deep/global/local `policy`
-// aggregates) against a throwaway postgres and asserts SUBTREE isolation over
-// the wire via the shared `assertHierarchyIsolation` sequence.
-//
-// The structural tiers pin the emitted deep/global filters per backend
-// (policy-deep-scope.test.ts) and the orgPath resolver seam; only a boot proves
-// the whole chain AGREES end-to-end: setPath writes the materialized path, the
-// orgPath resolver reads it back per request, the stamp copies it onto rows,
-// and the descendant-or-self predicate then scopes reads to exactly the subtree.
-//
-// Slow (npm install + docker pg + boot), so opt-in: LOOM_TENANCY_E2E=1.
+// The registry tree beside flat data visibility, booted on the node/Hono
+// backend. Boots the `tenancy-hierarchy.ddd` corpus fixture (a registry
+// `implements tenantRegistry` + `tenantOwned` aggregates under the default
+// floor, `allow local` and `deny write`) against a throwaway postgres and runs
+// the shared `assertHierarchyIsolation` sequence: every org reads exactly its
+// own rows — a parent never its child's — no `data_key` column exists, and the
+// write scope is the same floor. Opt-in: LOOM_TENANCY_E2E=1.
 // LOOM_TENANCY_PG_URL=postgres://… skips the docker sidecar (docker-less dev).
 // ---------------------------------------------------------------------------
 
@@ -38,9 +30,9 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const ENABLED = process.env.LOOM_TENANCY_E2E === "1";
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated node backend (LOOM_TENANCY_E2E=1)",
+  "registry-tree isolation over the generated node backend (LOOM_TENANCY_E2E=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-node-"));
       let child: ReturnType<typeof spawn> | undefined;
       let pg: Awaited<ReturnType<typeof startPostgres>> | undefined;

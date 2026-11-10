@@ -1,20 +1,19 @@
-// F2-ADP-8 — the P3.1 WRITE-scope guard on the NON-RELATIONAL saving shapes.
+// The WRITE-scope guard on the NON-RELATIONAL saving shapes.
 //
 // The relational (and, on python, the embedded) shape pushes the write scope
 // into a SQL/JPQL pre-guard: a row the caller may READ but not WRITE reads as
 // empty → 404.  The blob shapes (`shape: document`, `persistedAs: eventLog`)
-// have no queryable columns to build that query over, and until this test they
-// had NO guard at all:
+// have no queryable columns to build that query over, so they check the scope
+// IN-APP over the loaded aggregate, the same place those shapes evaluate their
+// capability READ filters:
 //
-//   - python emitted `get_by_id_for_write` as a documented ALIAS of the
-//     read-scoped `get_by_id` ("the non-relational command load falls back to
-//     the read-scoped load"), so `deny write on X` returned 200;
-//   - java emitted no write-scoped load whatsoever on those two shapes —
-//     `getById` (which IS the command load there: the read route calls
-//     `findById`, every mutation calls `getById`) loaded read-scoped.
+//   - python's `get_by_id_for_write` refuses rather than aliasing the
+//     read-scoped `get_by_id` (an alias would let `deny write on X` return 200);
+//   - java's `getById` — the command load on those shapes (the read route calls
+//     `findById`, every mutation calls `getById`) — refuses rather than loading
+//     read-scoped.
 //
-// Both now check the scope IN-APP over the loaded aggregate, the same place
-// those shapes already evaluate their capability READ filters.  This is an
+// `deny write` is the one narrowing write scope (D-TENANCY-FLAT).  This is an
 // authorization control, so each case asserts the REFUSAL is emitted, not
 // merely that some method exists.
 
@@ -69,39 +68,6 @@ const denySystem = (platform: string) => `
   }
 `;
 
-/** A NARROWING (non-sentinel) write scope on a document root: read `deep`
- *  (orgPath subtree) with the fail-closed `local` write floor, so the guard is
- *  a real predicate over the rehydrated aggregate rather than the `false`
- *  constant. */
-const narrowSystem = (platform: string) => `
-  system WriteScopeNarrow {
-    user { id: guid  tenantId: string }
-    tenancy by user.tenantId of Org
-    subdomain S {
-      context C {
-        aggregate Doc shape: document, with tenantOwned, crudish { balance: int }
-        aggregate Org with tenantRegistry, crudish { name: string }
-        repository Docs for Doc { }
-        repository Orgs for Org { }
-        policy {
-          allow deep on Doc
-        }
-      }
-    }
-    api NarrowApi from S
-    storage primarySql { type: postgres }
-    resource narrowState { for: C, kind: state, use: primarySql }
-    deployable d {
-      platform: ${platform}
-      contexts: [C]
-      dataSources: [narrowState]
-      serves: NarrowApi
-      port: 4000
-      auth: required
-    }
-  }
-`;
-
 async function fileEndingWith(source: string, suffix: string): Promise<string> {
   const files = await generateSystemFiles(source);
   const hit = [...files.entries()].find(([p]) => p.endsWith(suffix));
@@ -143,19 +109,8 @@ describe("F2-ADP-8 — python write-scope guard on the non-relational shapes", (
     expect(text).not.toContain("the non-relational command load falls back");
   });
 
-  it("a NARROWING document write scope checks the predicate in-app over the loaded aggregate", async () => {
-    const text = await fileEndingWith(
-      narrowSystem("python"),
-      "app/db/repositories/doc_repository.py",
-    );
-    expect(text).toContain("async def get_by_id_for_write");
-    expect(text).toContain("current_user = require_current_user()");
-    expect(text).toContain("if not (found.tenant_id == current_user.tenant_id):");
-    expect(text).toContain('raise AggregateNotFoundError(f"Doc {id} not found")');
-  });
-
-  it("no write-scope narrowing leaves the blob command loads byte-identical (no guard)", async () => {
-    const files = await generateSystemFiles(narrowSystem("python"));
+  it("an aggregate with no write rule keeps the bare command load (no guard)", async () => {
+    const files = await generateSystemFiles(denySystem("python"));
     const orgRepo = [...files.entries()].find(([p]) =>
       p.endsWith("app/db/repositories/org_repository.py"),
     );
@@ -180,24 +135,8 @@ describe("F2-ADP-8 — java write-scope guard on the non-relational shapes", () 
     expect(text).toContain("public Optional<Es> findById(EsId id) {");
   });
 
-  it("a NARROWING document write scope checks the predicate in-app, fail-closed on a null principal", async () => {
-    const text = await fileEndingWith(narrowSystem("java"), "features/docs/DocRepositoryImpl.java");
-    expect(text).toContain("public Doc getById(DocId id) {");
-    expect(text).toContain("var currentUser = currentUserAccessor.user();");
-    expect(text).toContain(
-      "if (currentUser == null || !(Objects.equals(rec.tenantId(), currentUser.tenantId())))",
-    );
-    // The in-app predicate renders `Objects.equals`, so the import must be
-    // collected from the DESUGARED tree — a sentinel carries no expression
-    // nodes, so collecting from the raw filter emitted uncompilable java.
-    expect(text).toContain("import java.util.Objects;");
-    // …and the accessor bean is injected even though no READ filter is the
-    // reason for it here.
-    expect(text).toContain("private final CurrentUserAccessor currentUserAccessor;");
-  });
-
-  it("no write-scope narrowing leaves the blob command load byte-identical (no guard)", async () => {
-    const files = await generateSystemFiles(narrowSystem("java"));
+  it("an aggregate with no write rule keeps the bare command load (no guard)", async () => {
+    const files = await generateSystemFiles(denySystem("java"));
     const orgRepo = [...files.entries()].find(([p]) =>
       p.endsWith("features/orgs/OrgRepositoryImpl.java"),
     );

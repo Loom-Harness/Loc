@@ -1,0 +1,44 @@
+// A named layout whose header / footer carry text: the route group's
+// `+layout.svelte` renders the slots through the translation runtime
+// (`t("<Ui>.layout.<Layout>.…", "<english>")`), and svelte-check types the
+// `$lib/locale.svelte` import and the call.
+system S {
+  subdomain Shop {
+    context Cart {
+      aggregate Item { name: string  derived display: string = name }
+      repository Items for Item { }
+    }
+  }
+  api ShopApi from Shop
+  storage primary { type: postgres }
+  resource cartState { for: Cart, kind: state, use: primary }
+
+  layout Marketing {
+    header { Heading { "Acme", level: 3 } }
+    main
+    footer { Text { "© Acme" } }
+  }
+
+  ui Web {
+    api Cart: ShopApi
+    page Landing {
+      route: "/"
+      layout: Marketing
+      body: Stack { Heading { "Welcome" } }
+    }
+    page Dash { route: "/dash" body: Heading { "Dashboard" } }
+  }
+  deployable api {
+    platform: node
+    contexts: [Cart]
+    dataSources: [cartState]
+    serves: ShopApi
+    port: 3000
+  }
+  deployable web {
+    platform: svelte
+    targets: api
+    ui: Web { Cart: api }
+    port: 3001
+  }
+}

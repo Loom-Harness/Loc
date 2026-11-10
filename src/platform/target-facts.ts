@@ -65,6 +65,10 @@ export interface FrameworkFacts {
   readonly staticBundlePack?: BuiltinPackFamily;
   /** What a `design:` value selects: a pack, a daisyUI theme, or nothing. */
   readonly designSlot: "pack" | "daisyui-theme" | "inert";
+  /** The framework's forms build their dynamic-row and submit sentences by
+   *  hand (`HAND_BUILT_FORM_SENTENCES`) instead of reading a pack's
+   *  `sentenceChrome`. */
+  readonly handBuiltFormSentences?: boolean;
 }
 
 const NO_UI_BACKEND: TargetFacts = {
@@ -137,9 +141,14 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
   react: { packFormat: "tsx", staticBundlePack: "mantine", designSlot: "pack" },
   svelte: { packFormat: "svelte", staticBundlePack: "shadcnSvelte", designSlot: "pack" },
   vue: { packFormat: "vue", staticBundlePack: "vuetify", designSlot: "pack" },
-  angular: { packFormat: "angular", staticBundlePack: "angularMaterial", designSlot: "pack" },
+  angular: {
+    packFormat: "angular",
+    staticBundlePack: "angularMaterial",
+    designSlot: "pack",
+    handBuiltFormSentences: true,
+  },
   phoenixLiveView: { packFormat: "heex", designSlot: "pack" },
-  feliz: { designSlot: "daisyui-theme" },
+  feliz: { designSlot: "daisyui-theme", handBuiltFormSentences: true },
   flutter: { designSlot: "inert" },
 };
 
@@ -148,4 +157,12 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
 export function frameworkFacts(framework: string | undefined): FrameworkFacts | undefined {
   if (framework === undefined || !Object.hasOwn(FRAMEWORK_FACTS, framework)) return undefined;
   return FRAMEWORK_FACTS[framework];
+}
+
+/** The facts of the ui framework whose design packs declare `format`. */
+export function frameworkFactsForPackFormat(
+  format: string | undefined,
+): FrameworkFacts | undefined {
+  if (format === undefined) return undefined;
+  return Object.values(FRAMEWORK_FACTS).find((f) => f.packFormat === format);
 }

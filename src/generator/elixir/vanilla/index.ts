@@ -351,12 +351,18 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       }
     : standaloneOutbox
       ? // Route the emit seams through the standalone `<App>.Channels` tee (no
-        // broker widening / foreign structs — every durable event is hosted).
+        // broker widening — every durable event is hosted).  A reactor may
+        // consume an event a SIBLING hosted context declares, so structs
+        // qualify with the declaring context's module.
         {
           appModule,
           brokerEvents: new Set(),
           durableEvents: hostedDurable,
-          foreignEventModules: new Map(),
+          foreignEventModules: new Map(
+            contexts.flatMap((c) =>
+              c.events.map((ev) => [ev.name, `${appModule}.${upperFirst(c.name)}`] as const),
+            ),
+          ),
         }
       : undefined;
 

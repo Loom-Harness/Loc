@@ -1,3 +1,4 @@
+import { eventSourcedWorkflows, observableWorkflows } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
@@ -52,12 +53,6 @@ export interface WorkflowInstancesCtx {
   contextSchema?: string;
 }
 
-/** Observable workflows — correlation-bearing sagas the enricher gave an
- *  `instanceWireShape`.  Each gets the read-only instance endpoints. */
-export function observableWorkflowsOf(ctx: EnrichedBoundedContextIR): WorkflowIR[] {
-  return ctx.workflows.filter((wf) => !!wf.instanceWireShape);
-}
-
 /** The saga-state repository field name (`orderFulfillmentStateRepository`). */
 function stateRepoField(wf: WorkflowIR): string {
   return `${lowerFirst(wf.name)}StateRepository`;
@@ -72,7 +67,7 @@ export function renderJavaWorkflowInstanceReads(
   ctx: EnrichedBoundedContextIR,
   wctx: WorkflowInstancesCtx,
 ): Map<string, { category: "workflow-service" | "api-common"; content: string }> | null {
-  const observable = observableWorkflowsOf(ctx);
+  const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return null;
   const out = new Map<string, { category: "workflow-service" | "api-common"; content: string }>();
 
@@ -126,7 +121,7 @@ function renderInstancesController(
   const forbidden = javaRef(`${wctx.basePkg}.domain.common`, "ForbiddenException");
   const accessor = javaRef(`${wctx.basePkg}.auth`, "CurrentUserAccessor");
   const stateWfs = workflows.filter((wf) => !wf.eventSourced);
-  const esWfs = workflows.filter((wf) => wf.eventSourced);
+  const esWfs = eventSourcedWorkflows(workflows);
   // ES instance reads fold the `<wf>_events` stream over a shared JdbcTemplate
   // (no mutable state repo); needs `ArrayList` for the fold accumulator.
   const esPresent = esWfs.length > 0;

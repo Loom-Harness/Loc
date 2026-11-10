@@ -132,8 +132,7 @@ playground surfaces this explicitly instead of failing silently.
 
 The runtime worker boots the generated backend through its own start-up
 sequence — `bootApp` in the deployable's `boot.ts`, the same function the
-generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
-tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the channel consumers, the outbox relay
 and the timers all run in the preview as they do deployed. The worker passes
 the browser's answers, each announced at warn level in the runtime log:
 
@@ -186,7 +185,7 @@ facades that forward there over the deployable's `InfraPort` (`src/runtime/resou
 | `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one tree, shared by every deployable, written through to OPFS |
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
-| `restApi` | the generated `fetch` → the `httpMock` service | echo response, or sample data from a registered OpenAPI document (`openapi-sampler`) |
+| `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,

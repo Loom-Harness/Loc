@@ -743,10 +743,8 @@ function renderEntity(
         ? [
             "",
             `    def _adopt_stream_tenant(self, ${STREAM_TENANT_METADATA.map((m) => `${m.column}: str | None`).join(", ")}) -> None:`,
-            ...STREAM_TENANT_METADATA.map((m) =>
-              m.required
-                ? `        self._${m.column} = ${PY.cast}(str, ${m.column})`
-                : `        self._${m.column} = ${m.column}`,
+            ...STREAM_TENANT_METADATA.map(
+              (m) => `        self._${m.column} = ${PY.cast}(str, ${m.column})`,
             ),
           ]
         : []),

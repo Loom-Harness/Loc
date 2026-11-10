@@ -1,24 +1,20 @@
-// Multi-tenancy Phase 2 — the HIERARCHY / `policy {}` read ladder, driven at
-// RUNTIME over a booted backend (docs/tenancy.md → "Hierarchy" + "The policy {}
-// read ladder").  Sibling of tenancy-owned.ddd (which proves the FLAT tenant
-// floor); this fixture proves the tree-scoped reads.
+// Multi-tenancy — the REGISTRY TREE beside flat data visibility, driven at
+// RUNTIME over a booted backend (docs/tenancy.md → "The registry tree" + "The
+// policy {} block").  Sibling of tenancy-owned.ddd (which proves the tenant
+// floor on its own); this fixture proves the tree takes no part in a data read.
 //
-//   - `Org implements tenantRegistry` → the registry tree (`parent` self-FK +
-//     managed `dataKey` materialized path).  `setPath` sets the managed path
-//     deterministically so the harness controls the exact path strings it seeds
-//     (`org_a`, `org_a.b`, `org_a.b.c`, the delimiter-trap `org_ab`, the
-//     unrelated `org_z`); `signUpChild` is the signUp-style create factory
-//     (load parent via repo-let → create child with the immutable `parent` FK
-//     → set the child path off a parent field), compiled + exercised through
-//     every backend's workflow emitter.
-//   - `Account` carries `policy allow deep`   → descendant-or-self subtree.
-//   - `Entry`   carries `policy allow global` → the caller's ROOT-org subtree.
-//   - `Memo`    carries `policy allow local`  → the flat own-org floor (default).
-//   - `Note`    carries `policy deny write`   → read-only (every mutation 404s).
+//   - `Org implements tenantRegistry` → the registry tree (`parent` self-FK).
+//     `signUpChild` is the signUp-style create factory (load the parent via
+//     repo-let → create the child with its `parent` FK), compiled + exercised
+//     through every backend's workflow emitter.
+//   - `Account` and `Entry` carry no rule → the own-org floor (the default):
+//     a parent org does NOT see its child orgs' rows, and a child does not see
+//     its parent's.
+//   - `Memo`    carries `policy allow local` → the same floor, spelled out.
+//   - `Note`    carries `policy deny write`  → read-only (every mutation 404s).
 //   - `touchAccounts` / `touchNotes` mutate every row a criterion read returns:
-//     a row outside the caller's WRITE scope (the own-org write floor under
-//     `allow deep`, or `deny write`) fails the whole workflow with the op
-//     route's 404 and rolls back, whatever loaded it.
+//     a row outside the caller's write scope (`deny write`) fails the whole
+//     workflow with the op route's 404 and rolls back, whatever loaded it.
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system TenantHierarchy {
@@ -28,17 +24,17 @@ system TenantHierarchy {
 
   subdomain Core {
     context Books {
-      // deep — caller's own org node + every org beneath it (materialized path).
+      // The own-org floor (no rule) — a parent org never sees a child's rows.
       aggregate Account with tenantOwned, crudish {
         label: string
         amount: int
         operation touch() { amount := amount + 1 }
       }
-      // global — the caller's ROOT-org subtree (root-org widening, P2.5).
+      // The own-org floor (no rule).
       aggregate Entry with tenantOwned, crudish {
         label: string
       }
-      // local (the default) — only own-org rows (the flat tenant floor).
+      // `allow local` — the floor, spelled out.
       aggregate Memo with tenantOwned, crudish {
         label: string
       }
@@ -48,13 +44,11 @@ system TenantHierarchy {
         hits: int
         operation touch() { hits := hits + 1 }
       }
-      // The tenant registry, opted into the tree.  `setPath` writes the managed
-      // materialized path (harness seeds deterministic path strings); the plain
-      // create takes `name` + the immutable `parent` self-FK.
+      // The tenant registry, opted into the tree: the plain create takes
+      // `name` + the `parent` self-FK.
       aggregate Org with crudish {
         name: string
         implements tenantRegistry
-        operation setPath(p: string) { dataKey := p }
       }
       repository Accounts for Account { }
       repository Entries for Entry { }
@@ -76,25 +70,17 @@ system TenantHierarchy {
         }
       }
       repository Orgs for Org { }
-      // The child-signup create factory: load the parent via repo-let, create
-      // the child with the immutable `parent` FK, set the child's managed path
-      // off a parent field.  Compiled + emitted on every backend (structural
-      // leg of the signUp-style create factory).  NOTE: deliberately reads
-      // `loaded.name` (non-nullable), not `loaded.dataKey` — the capability's
-      // `dataKey` is `string?` and the DSL has no null-coalescing operator, so
-      // the docs-canonical `parent.dataKey + "." + seg` form is `str | None +
-      // str` under mypy --strict on the python backend (it only typechecks
-      // where the parent path is provably non-null).
+      // The child-signup create factory: load the parent via repo-let, then
+      // create the child with its `parent` FK and a name derived off the
+      // parent's.  Compiled + emitted on every backend (structural leg of the
+      // signUp-style create factory).
       workflow signUpChild {
         create(nm: string, seg: string, par: Org id) {
           let loaded = Orgs.get(par)
-          let org = Org.create(name: nm, parent: par)
-          org.setPath(loaded.name + "." + seg)
+          let child = Org.create(name: loaded.name + "." + seg + "." + nm, parent: par)
         }
       }
       policy {
-        allow deep on Account
-        allow global on Entry
         allow local on Memo
         deny write on Note
       }

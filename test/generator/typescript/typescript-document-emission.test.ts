@@ -205,9 +205,9 @@ describe("document save() applies the onCreate stamps", () => {
   it("does NOT stamp the UPDATE branch — it writes the whole blob", () => {
     // `stampUpdate` STRIPS the create-only fields so a relational partial `set`
     // cannot overwrite them.  A document update replaces the entire jsonb, so
-    // stripping `tenantId`/`dataKey` would DELETE them from the row.  The
-    // rehydrated aggregate already carries both, so the update is correct
-    // writing `data` unchanged.
+    // stripping `tenantId` would DELETE it from the row.  The rehydrated
+    // aggregate already carries it, so the update is correct writing `data`
+    // unchanged.
     const src = thingRepo();
     expect(src).not.toContain("stampUpdate");
     expect(src).toMatch(/\.update\(schema\.things\)\.set\(\{ data,/);

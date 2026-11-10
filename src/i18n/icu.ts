@@ -224,6 +224,8 @@ function collectPlurals(nodes: readonly IcuNode[], into: IcuChoice[] = []): IcuC
   return into;
 }
 
+const CLDR_ORDER: readonly string[] = ["zero", "one", "two", "few", "many", "other"];
+
 /** The CLDR plural categories `locale` uses, or undefined for a locale the
  *  runtime does not know. */
 function categoriesFor(locale: string, type: "cardinal" | "ordinal"): string[] | undefined {
@@ -239,8 +241,8 @@ export type IcuIssue =
   | { kind: "syntax"; detail: string }
   | { kind: "missing-placeholder"; name: string }
   | { kind: "unexpected-placeholder"; name: string }
-  | { kind: "plural-missing-form"; arg: string; form: string }
-  | { kind: "plural-extra-form"; arg: string; form: string };
+  | { kind: "plural-missing-form"; arg: string; form: string; valid: readonly string[] }
+  | { kind: "plural-extra-form"; arg: string; form: string; valid: readonly string[] };
 
 /** Human-readable one-liner for an issue. */
 export function describeIssue(issue: IcuIssue): string {
@@ -252,9 +254,9 @@ export function describeIssue(issue: IcuIssue): string {
     case "unexpected-placeholder":
       return `placeholder {${issue.name}} is not in the source`;
     case "plural-missing-form":
-      return `plural {${issue.arg}} lacks the "${issue.form}" form this locale requires`;
+      return `plural {${issue.arg}} lacks the "${issue.form}" form this locale requires (it uses ${issue.valid.join(", ")})`;
     case "plural-extra-form":
-      return `plural {${issue.arg}} has a "${issue.form}" form this locale does not use`;
+      return `plural {${issue.arg}} has a "${issue.form}" form this locale does not use (it uses ${issue.valid.join(", ")})`;
     default: {
       const never: never = issue;
       return never;
@@ -298,11 +300,16 @@ export function validateTranslation(
     const required = categoriesFor(locale, p.type === "plural" ? "cardinal" : "ordinal");
     if (!required) continue;
     const forms = new Set(p.options.map((o) => o.selector).filter((s) => !s.startsWith("=")));
-    for (const form of required) {
-      if (!forms.has(form)) issues.push({ kind: "plural-missing-form", arg: p.name, form });
+    // CLDR order (zero one two few many other), so the valid set reads the
+    // way plural rules are written.
+    const valid = CLDR_ORDER.filter((c) => required.includes(c));
+    for (const form of valid) {
+      if (!forms.has(form)) issues.push({ kind: "plural-missing-form", arg: p.name, form, valid });
     }
     for (const form of forms) {
-      if (!required.includes(form)) issues.push({ kind: "plural-extra-form", arg: p.name, form });
+      if (!valid.includes(form)) {
+        issues.push({ kind: "plural-extra-form", arg: p.name, form, valid });
+      }
     }
   }
   return issues;

@@ -1,5 +1,5 @@
-// `policy { allow deep / deny }` on a `shape: document` aggregate — the authz
-// ladder where it CANNOT be a column predicate (pairwise finding F1).
+// `policy { allow local / deny }` on a `shape: document` aggregate — the authz
+// ladder where it CANNOT be a column predicate.
 //
 // The authorization filters are `authz-filter` SENTINELS: nodes each backend's
 // QUERY-filter translator intercepts and renders as its native column fragment
@@ -20,21 +20,18 @@
 // `schema-load`) keeps proving it.
 //
 // The crossing is not exotic: a tenant-owned, document-shaped aggregate under a
-// subtree read ladder is an ordinary thing to write.
+// policy block is an ordinary thing to write.
 //
-//   - `Thing` carries `allow deep`  → the descendant-or-self subtree scope.
-//     This is the `scope` sentinel, and the PRINCIPAL-referencing one: the
-//     in-app predicate must bind the request actor and compare the row's
-//     materialized `dataKey` path against the caller's `orgPath`, falling back
-//     to the flat tenant floor for a NULL-`dataKey` row (DEEP_SCOPE_SEMANTICS).
+//   - `Thing` carries `allow local` → the tenant floor, PRINCIPAL-referencing:
+//     the in-app predicate must bind the request actor and compare the row's
+//     `tenantId` against the caller's claim.
 //   - `Note` carries `deny`         → the always-false carve-out.  Principal-FREE,
 //     so it rides the static filter path; in-app it is a plain `false` conjunct.
-//     Kept beside `Thing` because the two sentinel decisions render through
-//     different seams and a fix for one can miss the other.
-//   - `Thing` also declares a find, so the ladder is proven to narrow the
+//     Kept beside `Thing` because the two render through different seams and a
+//     fix for one can miss the other.
+//   - `Thing` also declares a find, so the floor is proven to narrow the
 //     author's own `where` — not just the auto-`findAll`.
-//   - `Org` is the hierarchy registry (`tenancy by … of Org` +
-//     `tenantRegistry`), which the `deep` rung's materialized path needs.
+//   - `Org` is the tenant registry (`tenancy by … of Org`).
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet) —
 // the four backends that filter a document aggregate IN-APP.  ELIXIR is the ONE
@@ -51,13 +48,9 @@
 // three document read paths, and emits the write-scope member.  The fixture now
 // compiles clean on dotnet under `/warnaserror`.
 //
-// The DAPPER adapter of that same backend was a different story: this fixture
-// is the first witness for two EF leaks it carried — `EfOrgPathResolver.cs`
-// emitted whatever the adapter (CS0234/CS0246) and no `GetByIdForWriteAsync` on
-// the document repository (CS0535) — plus a silent third, the in-app capability
-// read filter that repository never applied at all.  All three are closed, the
-// DAPPER_COMPILE_SKIP entry is gone, and the fixture compiles clean on the
-// dapper leg too (`test:dapper-corpus`, /warnaserror).
+// The DAPPER adapter of that same backend compiles it clean too
+// (`test:dapper-corpus`, /warnaserror), with the in-app capability read filter
+// applied on its document repository.
 system PolicyDocument {
   user { id: guid  role: string  tenantId: string }
 
@@ -65,7 +58,7 @@ system PolicyDocument {
 
   subdomain Core {
     context Main {
-      // The subtree read ladder on a document-shaped aggregate.
+      // The tenant floor on a document-shaped aggregate.
       aggregate Thing shape: document, with crudish, tenantOwned {
         label: string
         amount: int = 0
@@ -77,7 +70,7 @@ system PolicyDocument {
       }
 
       repository Things for Thing { }
-      // The ladder must be AND-ed into the author's own `where`, not only
+      // The floor must be AND-ed into the author's own `where`, not only
       // into the auto-`findAll`.
       criterion ThingsByLabel(l: string) of Thing = this.label == l
       // PAGED: a non-relational repository serves a criterion read through the
@@ -89,7 +82,7 @@ system PolicyDocument {
       repository Notes for Note { }
 
       policy {
-        allow deep on Thing
+        allow local on Thing
         deny on Note
       }
     }
@@ -129,7 +122,7 @@ system PolicyDocument {
   // The relational path stamps in `db/audit-stamp.ts`; the document repository
   // never imported it.
   //
-  // Read as a matrix: `Thing` (`allow deep`) must round-trip COMPLETELY for the
+  // Read as a matrix: `Thing` (`allow local`) must round-trip COMPLETELY for the
   // in-tenant principal through every read route including the author's own
   // `where`; `Note` (`deny`) must answer NOTHING and refuse every mutation.  A
   // backend that renders the sentinel into too few sites leaks on `Note`; one
@@ -138,17 +131,17 @@ system PolicyDocument {
   //
   // NO ladder entry accompanies this (unlike `read-gates`): both stances are
   // principal-free with respect to the arms a ladder varies — `deny` is
-  // always-false for every caller, and `allow deep` scopes by tenant, which
+  // always-false for every caller, and `allow local` scopes by tenant, which
   // `DEV_CLAIMS_UNAUTHORIZED` shares with `DEV_CLAIMS` by design.  There is no
   // 403 arm to assert; the e2e is the whole proof, exactly as in `policy-deny`.
   //
-  // STILL NOT PROVEN, stated rather than hidden: that the deep rung HIDES an
-  // out-of-subtree row.  Every write here is made by the one authenticated
+  // STILL NOT PROVEN, stated rather than hidden: that the floor HIDES an
+  // out-of-tenant row.  Every write here is made by the one authenticated
   // principal, and the behavioural tier has a single tenancy identity, so no
   // out-of-tenant row can be minted through the api.  That half needs a second
   // tenancy identity in the harness and belongs to `tenancy-e2e`.
-  test e2e "the deep ladder admits the in-tenant document row, and deny hides the carve-out" against d {
-    // ── `allow deep` on a document-shaped, tenant-owned aggregate ────────────
+  test e2e "the tenant floor admits the in-tenant document row, and deny hides the carve-out" against d {
+    // ── `allow local` on a document-shaped, tenant-owned aggregate ───────────
     // The create must STAMP the row with the caller's tenant; a row written with
     // an empty tenant is invisible to the very principal that made it, so this
     // first read is the stamp's regression test as much as the filter's.
@@ -157,7 +150,7 @@ system PolicyDocument {
     expect(read.label).toBe("T-1")
     let listed = api.things.all()
     expect(listed.length).toBe(1)
-    // The DECLARED find — the site where the scope term has to be AND-ed into
+    // The DECLARED find — the site where the floor term has to be AND-ed into
     // the author's own `where this.label == l` rather than replacing it.
     let found = api.main.listThingsByLabel("T-1")
     expect(found.items.length).toBe(1)

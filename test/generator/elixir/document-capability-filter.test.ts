@@ -6,30 +6,23 @@
 // flattened column for an Ecto `where:` to narrow.  Every document read
 // therefore evaluates the capability predicate IN-APP over the rehydrated
 // `%<Agg>.Data{}` embed (`record = row.data`), exactly as node / java / python /
-// dotnet do over their rehydrated instances.  Until this landed, elixir +
-// `document` was the ONE unwired (family, shape) cell in
-// `supportsNonRelationalFilter`'s whole inventory: the emitter routed document
-// aggregates to a filter-less `renderDocRepository`, so the validator refused
-// the crossing (`loom.context-filter-no-principal`).
+// dotnet do over their rehydrated instances.
 //
-// The four things this pins, each of which was a distinct way to get it wrong:
+// The three things this pins, each a distinct way to get it wrong:
 //
 //   1. EVERY read is scoped — `list`, `find_by_id`, each criterion find, and the
 //      write-scope `find_by_id_for_write` the context facade delegates to
 //      whenever `writeScopeFilter` is set (its absence was an undefined-function
 //      break, not just a missing filter).
 //   2. The `authz-filter` SENTINELS are desugared, not rendered.  `deny` is the
-//      literal `false`; `allow deep` is DEEP_SCOPE_SEMANTICS over the row's own
-//      `dataKey`/`tenantId`.  Left alone they would emit an Ecto
-//      `fragment(...)`, which is not valid Elixir outside a query.
+//      literal `false`; the `local` floor compares the row's own `tenantId`
+//      against the claim.  Left alone they would emit an Ecto `fragment(...)`,
+//      which is not valid Elixir outside a query.
 //   3. A NIL principal is fail-CLOSED: `current_user != nil and (…)` guards the
 //      conjunction, and each claim reads through `(current_user && …)`.  Without
 //      the outer guard a nil claim compares EQUAL to a nil field in Elixir
 //      (SQL's `= NULL` never matches) — a cross-tenant read for an actor-less
 //      caller.
-//   4. The descendant prefix is INTERPOLATED (`"#{claim}."`), never `<>`.
-//      Elixir's `nil <> "."` raises ArgumentError — a 500 for an ordinary token
-//      that carries no `orgPath` claim.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -38,9 +31,10 @@ import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helper
 const REFUSED_ON_ELIXIR =
   "the capability table refuses `shape: document` with `softDeletable` on elixir; this pins the emitter for the day a fixture lifts the pair";
 
-/** Tenant-owned document aggregates under a `deep` read ladder + a `deny`
- *  carve-out — the `policy-document` corpus fixture's shape. */
-const DEEP_AND_DENY = `system PD {
+/** Tenant-owned document aggregates under the tenant floor with a `deny write`
+ *  (the write-scope load) + a `deny` carve-out — the `policy-document` corpus
+ *  fixture's shape. */
+const FLOOR_AND_DENY = `system PD {
   user { id: guid  role: string  tenantId: string }
 
   tenancy by user.tenantId of Org
@@ -61,7 +55,7 @@ const DEEP_AND_DENY = `system PD {
       }
       repository Notes for Note { }
       policy {
-        allow deep on Thing
+        deny write on Thing
         deny on Note
       }
     }
@@ -177,7 +171,7 @@ const CONTEXT = "d/lib/d/main.ex";
 
 describe("elixir/vanilla — capability filter on a shape: document aggregate", () => {
   it("scopes every document read: list, find_by_id, the criterion find, and the write-scope load", async () => {
-    const files = await generateSystemFiles(DEEP_AND_DENY);
+    const files = await generateSystemFiles(FLOOR_AND_DENY);
     const repo = files.get(THING_REPO)!;
 
     // Each read rehydrates the embed and filters in memory.  `Repo.all/1` with
@@ -190,9 +184,10 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
     expect(repo).toContain("else: {:error, :not_found}");
 
-    // The write-scope command-load member the context facade delegates to.
+    // The write-scope command-load member the context facade delegates to
+    // (`deny write` reads no principal, so the parameter is unused).
     expect(repo).toContain(
-      "def find_by_id_for_write(id, current_user \\\\ nil) when is_binary(id) do",
+      "def find_by_id_for_write(id, _current_user \\\\ nil) when is_binary(id) do",
     );
     expect(files.get(CONTEXT)!).toContain(
       "defdelegate get_thing_for_write(id, current_user \\\\ nil), to: D.Main.ThingRepository, as: :find_by_id_for_write",
@@ -209,35 +204,28 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     );
   });
 
-  it("renders `allow deep` as the in-memory subtree scope, never an Ecto fragment", async () => {
-    const repo = (await generateSystemFiles(DEEP_AND_DENY)).get(THING_REPO)!;
+  it("renders the tenant floor as an in-memory comparison, never an Ecto fragment", async () => {
+    const repo = (await generateSystemFiles(FLOOR_AND_DENY)).get(THING_REPO)!;
     // The sentinel must not reach the query renderer: `fragment(...)` is only
     // legal inside an Ecto query, and a document read has none.  Asserted over
     // CODE, not comments — the emitted `__denied?/1` doc comment cites
     // `fragment("false")` when explaining why the SQL path needs no equivalent.
     expect(codeOf(repo)).not.toContain("fragment(");
-    // Descendant-or-self over the materialized path, with the NULL-dataKey
-    // fallback to the flat tenant floor (DEEP_SCOPE_SEMANTICS).
-    expect(repo).toContain("record.data_key != nil");
-    expect(repo).toContain("record.data_key == (current_user && current_user.org_path)");
-    expect(repo).toContain(
-      'String.starts_with?(record.data_key, "#{(current_user && current_user.org_path)}.")',
-    );
-    expect(repo).toContain(
-      "record.data_key == nil and record.tenant_id == (current_user && current_user.tenant_id)",
-    );
-    // The prefix is INTERPOLATED, not concatenated — `nil <> "."` raises.
-    expect(repo).not.toContain('current_user.org_path) <> "."');
+    expect(repo).toContain("record.tenant_id == (current_user && current_user.operating_org)");
+    // Visibility is flat: no org path is read (D-TENANCY-FLAT).
+    expect(repo).not.toContain("data_key");
   });
 
   it("is fail-closed for an actor-less read (a nil principal matches no rows)", async () => {
-    const repo = (await generateSystemFiles(DEEP_AND_DENY)).get(THING_REPO)!;
+    const repo = (await generateSystemFiles(FLOOR_AND_DENY)).get(THING_REPO)!;
     // Every principal-referencing conjunction is guarded.  Without this, an
     // in-process caller (`current_user` defaulting to nil) would compare nil to
-    // a nil `dataKey`/claim and read ACROSS tenants — Elixir's `nil == nil` is
+    // a nil `tenantId`/claim and read ACROSS tenants — Elixir's `nil == nil` is
     // true where SQL's `= NULL` is not.
     const guards = repo.match(/current_user != nil and \(/g) ?? [];
-    expect(guards.length).toBe(4); // list, find_by_id, find_by_id_for_write, find_all_by_things_by_label
+    // list, find_by_id, find_all_by_things_by_label — the `deny write` load is
+    // principal-free (`__denied?/1`).
+    expect(guards.length).toBe(3);
   });
 
   it("keeps a NON-principal document filter actor-free (no current_user seam)", async () => {

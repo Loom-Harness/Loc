@@ -1,14 +1,14 @@
-// `organizationContext` — the OPERATING-scope accessor (organization-context.md;
-// M-T3.6 items 3+5).  The accessor lands ONLY with its fail-closed switch gate,
-// so this file pins both halves of the compile-time contract:
+// `organizationContext` — the OPERATING-scope accessor.  The accessor lands
+// ONLY with its fail-closed switch gate, so this file pins both halves of the
+// compile-time contract:
 //
-//   - the SURFACE (`loom.org-context-surface`, AST): `.orgPath` is the one
-//     member, and never inside a `ui` — a frontend has no switch gate;
-//   - the GATE's preconditions (`loom.org-context-gate-unmet`, phase ⑦): a
-//     tenant hierarchy to switch within, and `auth: required` on every backend
-//     deployable that hosts a read — the gate lives in the auth middleware;
-//   - LOWERING: `organizationContext.orgPath` is the derived principal member
-//     `currentUser.orgContextPath`, so it rides every backend's principal
+//   - the SURFACE (`loom.org-context-surface`, AST): `.org` is the one member,
+//     and never inside a `ui` — a frontend has no switch gate;
+//   - the GATE's precondition (`loom.org-context-gate-unmet`, phase ⑦):
+//     `auth: required` on every backend deployable that hosts a read — the
+//     gate lives in the auth middleware;
+//   - LOWERING: `organizationContext.org` is the derived principal member
+//     `currentUser.operatingOrg`, so it rides every backend's principal
 //     threading instead of growing a second one.
 //
 // The per-backend emitted gate is pinned by
@@ -53,9 +53,9 @@ describe("organizationContext — the accepted model", () => {
 });
 
 describe("organizationContext — surface (loom.org-context-surface)", () => {
-  it("refuses a member other than orgPath", async () => {
+  it("refuses a member other than org", async () => {
     const src = on("node").replace(
-      "scope := organizationContext.orgPath",
+      "scope := organizationContext.org",
       "scope := organizationContext.tenantId",
     );
     const raised = await codes(src);
@@ -66,7 +66,7 @@ describe("organizationContext — surface (loom.org-context-surface)", () => {
 
   it("refuses an unknown member without double-reporting it as a claim", async () => {
     const src = on("node").replace(
-      "scope := organizationContext.orgPath",
+      "scope := organizationContext.org",
       "scope := organizationContext.orgId",
     );
     const raised = await codes(src);
@@ -76,7 +76,7 @@ describe("organizationContext — surface (loom.org-context-surface)", () => {
 
   it("refuses a bare organizationContext (the frame is not a value)", async () => {
     const src = on("node").replace(
-      "scope := organizationContext.orgPath",
+      "scope := organizationContext.org",
       "scope := organizationContext",
     );
     expect(await codes(src)).toContain("loom.org-context-surface");
@@ -87,7 +87,7 @@ describe("organizationContext — surface (loom.org-context-surface)", () => {
       "  api BooksApi from Core",
       `  ui Web {
     page Home {
-      body: Text(organizationContext.orgPath)
+      body: Text(organizationContext.org)
     }
   }
   api BooksApi from Core`,
@@ -106,14 +106,9 @@ describe("organizationContext — gate preconditions (loom.org-context-gate-unme
     expect(gate.map((d) => d.message).join("\n")).toMatch(/deployable 'd' hosts it without/);
   });
 
-  it("refuses a read with no tenant hierarchy to switch within", async () => {
-    const flat = on("node")
-      .replace("        implements tenantRegistry\n", "")
-      .replace("        operation setPath(p: string) { dataKey := p }\n", "")
-      .replace("allow deep on Account", "allow local on Account");
-    const { diagnostics } = await validate(flat);
-    const gate = diagnostics.filter((d) => d.code === "loom.org-context-gate-unmet");
-    expect(gate.map((d) => d.message).join("\n")).toMatch(/no tenant hierarchy/);
+  it("needs no registry tree — a flat registry admits the read", async () => {
+    const flat = on("node").replace("        implements tenantRegistry\n", "");
+    expect(await codes(flat)).not.toContain("loom.org-context-gate-unmet");
   });
 
   for (const platform of ["dotnet", "java", "python", "elixir"]) {
@@ -125,7 +120,7 @@ describe("organizationContext — gate preconditions (loom.org-context-gate-unme
 });
 
 describe("organizationContext — lowering (one frame underneath)", () => {
-  it("lowers organizationContext.orgPath to the derived principal member", async () => {
+  it("lowers organizationContext.org to the derived principal member", async () => {
     const model = await parseValid(on("node"));
     const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
     const reads: string[] = [];
@@ -141,9 +136,19 @@ describe("organizationContext — lowering (one frame underneath)", () => {
     expect(contextReadsOrgContext(books)).toBe(true);
   });
 
-  it("a system that never reads it derives false (the gate is not emitted)", async () => {
+  it("a `tenantOwned` floor reads it: the prelude anchors on the operating org", async () => {
     const plain = fs.readFileSync(
       path.resolve(here, "../../fixtures/corpus/tenancy-hierarchy.ddd"),
+      "utf8",
+    );
+    const model = await parseValid(plain.replace("__PLATFORM__", "node"));
+    const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
+    expect(systemReadsOrgContext(loom.systems[0]!)).toBe(true);
+  });
+
+  it("a system without tenancy derives false (the gate is not emitted)", async () => {
+    const plain = fs.readFileSync(
+      path.resolve(here, "../../fixtures/corpus/auth-simple.ddd"),
       "utf8",
     );
     const model = await parseValid(plain.replace("__PLATFORM__", "node"));

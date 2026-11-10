@@ -166,8 +166,8 @@ function checkSeed(seed: Seed, accept: ValidationAcceptor): void {
       }
 
       // Rule 8 — the domain seed path on a `tenantOwned` aggregate.  The
-      // capability keeps `tenantId`/`dataKey` `internal` (out of every create
-      // input) and stamps them FROM THE PRINCIPAL; a first-boot seeder has no
+      // capability keeps `tenantId` `internal` (out of every create
+      // input) and stamps it FROM THE PRINCIPAL; a first-boot seeder has no
       // principal, so the row lands with a NULL/empty tenant against a
       // `NOT NULL` column and is invisible to the capability's own read filter
       // (`tenant_id = NULL` matches nothing).  Five backends, five spellings of

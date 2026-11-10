@@ -40,6 +40,7 @@
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
 import { giveUp } from "../give-up.js";
+import { sentenceChromeName } from "../i18n-chrome.js";
 import {
   localizedChromeAriaAttr,
   localizedChromeAttr,
@@ -331,9 +332,13 @@ function resolveColumn(
   // (byte-identical).  A dynamic header has no source string to translate.
   const headerValue = headerIsLiteral
     ? localizedPositionalTranslation(call, ctx, "columnHeader")
-    : headerText && ctx.i18nPrefix
-      ? localizedModelText(ctx, headerText.key, headerText.defaultText)
-      : undefined;
+    : headerText
+      ? ctx.i18nPrefix
+        ? localizedModelText(ctx, headerText.key, headerText.defaultText)
+        : undefined
+      : ctx.i18nPrefix
+        ? localizedChromeValue(ctx, sentenceChromeName("column", String(index + 1)))
+        : undefined;
 
   // Read through the shared shape leaf, which the i18n extractor also consults
   // — `chrome.filter` must be in the catalog exactly when a filter input is

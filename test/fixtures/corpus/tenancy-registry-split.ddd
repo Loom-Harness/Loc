@@ -1,13 +1,9 @@
-// A hierarchy registry on one deployable, and an `auth: required` deployable
-// beside it that hosts only shared (`crossTenant`) data.
+// A registry tree on one deployable, and an `auth: required` deployable beside
+// it that hosts only shared (`crossTenant`) data.
 //
-// `currentUser.orgPath` is the caller org's materialized `dataKey`, read from
-// the registry's table — which only the deployable hosting the registry's
-// context has.  The `catalog` deployable must therefore keep the claim-copy
-// `orgPath` and emit no registry lookup: a lookup there names a table (and on
-// node / .NET / elixir a schema symbol) its project does not have.  A
-// tenant-owned context on `catalog` would be refused instead
-// (`loom.tenancy-registry-remote-unsupported`).
+// Rows carry `tenantId` only and the principal carries only its claims, so a
+// deployable that does not host the registry reads nothing from it: `catalog`
+// emits no registry symbol, table or query.
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system TenancyRegistrySplit {

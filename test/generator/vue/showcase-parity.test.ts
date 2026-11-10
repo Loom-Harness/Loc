@@ -41,7 +41,7 @@ describe("vue showcase — workflows parity", () => {
     expect(page).toContain(`import { pushToast } from "../../lib/toast";`);
     // Default submit: run + success toast + redirect to the workflows index.
     expect(page).toContain(
-      `@submit.prevent='form.handleSubmit(async (vals) => { await run.mutateAsync(vals); pushToast("Place Order completed"); navigate("/workflows"); })($event)'`,
+      `@submit.prevent='form.handleSubmit(async (vals) => { await run.mutateAsync(vals); pushToast(t("chrome.completed.placeOrder", "Place Order completed")); navigate("/workflows"); })($event)'`,
     );
     // `X id` workflow param renders as a select fed by the
     // idTargetHookVar-named useAll lookup.

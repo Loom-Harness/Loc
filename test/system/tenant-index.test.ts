@@ -74,51 +74,15 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
     expect(exs).toMatch(/create index\(:invoices, \[:tenant_id\]/);
   });
 
-  it("derives a `<table>_data_key_idx` with `text_pattern_ops` on a tenantOwned aggregate (P2.5)", async () => {
-    const files = await generateSystemFiles(
-      tenancySystem(`aggregate Invoice with tenantOwned { number: string }`),
-    );
-    const sql = sqlOf(files);
-    // The materialized-path prefix index — `text_pattern_ops` is the opclass a
-    // prefix scan needs under any locale.  The deep/global descendant test
-    // rides it again (M-T3.17): the row is decided by the anchored
-    // `strpos(data_key, anchor || '.') = 1` that #2562 introduced, but an
-    // escaped `data_key LIKE <escaped-anchor>.% ESCAPE '!'` prefilter sits in
-    // front of it, and THAT is what the planner turns into a
-    // `~>=~`/`~<~` range over this index (proven by
-    // `test/e2e/tenancy-subtree-explain.test.ts`).  Without the opclass the
-    // prefix LIKE would only be indexable under the C collation.
-    expect(sql).toMatch(
-      /CREATE INDEX "?invoices_data_key_idx"? ON \S+ \("?data_key"? text_pattern_ops\)/,
-    );
-  });
-
-  it("derives no data_key index for the registry / a crossTenant aggregate", async () => {
+  // Absence: rows carry `tenantId` only, so no materialized-path index exists.
+  it("derives no `data_key` index on any table", async () => {
     const files = await generateSystemFiles(
       tenancySystem(
         `aggregate Invoice with tenantOwned { number: string }
          aggregate Plan crossTenant { code: string }`,
       ),
     );
-    const sql = sqlOf(files);
-    // Only the tenantOwned aggregate carries a data_key column; the id-keyed
-    // registry (read by id) and crossTenant shared data get none.
-    expect(sql).not.toMatch(/organizations_data_key_idx/);
-    expect(sql).not.toMatch(/plans_data_key_idx/);
-  });
-
-  it("rides the data_key `text_pattern_ops` index into the Ecto migration (fragment column form)", async () => {
-    const files = await generateSystemFiles(
-      tenancySystem(`aggregate Invoice with tenantOwned { number: string }`).replace(
-        "platform: node",
-        "platform: elixir",
-      ),
-    );
-    const exs = [...files.entries()]
-      .filter(([p]) => p.endsWith(".exs"))
-      .map(([, c]) => c)
-      .join("\n");
-    expect(exs).toMatch(/create index\(:invoices, \["data_key text_pattern_ops"\]/);
+    expect(sqlOf(files)).not.toMatch(/data_key/);
   });
 
   it("does not duplicate a hand-declared single-column unique (tenantId) index", async () => {
@@ -129,5 +93,15 @@ describe("tenantOwned → derived tenant_id index DDL", () => {
     // The unique index covers the prefix; no extra plain index derived.
     expect(sql).toMatch(/invoices_tenant_id_uq/);
     expect(sql).not.toMatch(/invoices_tenant_id_idx/);
+  });
+
+  it("derives the index on a TPH shared table whose tenantOwned stance is only on a subtype", async () => {
+    const files = await generateSystemFiles(
+      tenancySystem(
+        `abstract aggregate Asset inheritanceUsing: sharedTable { label: string }
+         aggregate Car extends Asset with tenantOwned { wheels: int }`,
+      ),
+    );
+    expect(sqlOf(files)).toMatch(/CREATE INDEX "?assets_tenant_id_idx"? ON \S+ \("?tenant_id"?\)/);
   });
 });

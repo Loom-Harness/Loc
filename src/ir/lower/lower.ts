@@ -658,6 +658,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       theme = lowerTheme(m);
     }
   }
+  if (user && tenancy?.registryName) user.registry = tenancy.registryName;
   const subdomains: SubdomainIR[] = [];
   const deployables: DeployableIR[] = [];
   const e2eBlocks: TestE2E[] = [];
@@ -1439,21 +1440,22 @@ function lowerContext(
         });
         continue;
       }
-      // Any other head word is `loom.policy-unknown-rule` (AST phase).
-      if (r.effect !== "allow") continue;
+      // Any other head word is `loom.policy-unknown-rule` (AST phase); a
+      // removed level is `loom.policy-level-removed` (AST phase).
+      if (r.effect !== "allow" || r.level !== "local") continue;
       // The optional `verb` selects the ladder: `write` gates mutations;
       // bare / `read` is the read ladder.
       if (r.verb === "write") {
         policyWriteLevels.push({
           aggregate: r.target,
-          level: r.level as PolicyWriteLevelIR["level"],
-          source: `allow write ${r.level} on ${r.target}`,
+          level: "local",
+          source: `allow write local on ${r.target}`,
         });
       } else {
         policyReadLevels.push({
           aggregate: r.target,
-          level: r.level as PolicyReadLevelIR["level"],
-          source: `allow ${r.level} on ${r.target}`,
+          level: "local",
+          source: `allow local on ${r.target}`,
         });
       }
     }

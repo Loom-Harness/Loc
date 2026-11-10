@@ -20,7 +20,7 @@
 //     broadcast-to-all, byte-identical to the v1 wire.  The gate stays the
 //     authorized read — SSE carries payloads/tickets, the refetch decides
 //     what a client may see.
-//   - Tenant-owned context: delivery is scoped by the tenant DataKey
+//   - Tenant-owned context: delivery is scoped by the tenant key
 //     (`currentUser.<claim>`, the equality part of the `tenantOwned` read
 //     policy — the claim `tenancy by user.<claim>` bound, NOT the row column
 //     `tenantId`).  A tenant-scoped event reaches only subscribers in the
@@ -42,7 +42,7 @@ export function buildRealtimeFile(
   const plan = realtimeRoomPlan(ctx, sys);
   // A context with no tenant-owned aggregate keeps the v1 broadcast wire
   // byte-for-byte (fixture-gated) — rooms buy nothing when there is no
-  // DataKey to scope by.
+  // tenant key to scope by.
   return plan.tenantScoped
     ? buildRoomScopedRealtime(typeList, plan)
     : buildBroadcastRealtime(typeList);
@@ -111,7 +111,7 @@ export function realtimeRoutes(): OpenAPIHono {
 }
 
 /** Tenant-scoped wire — the relay's connection registry is keyed by the
- *  tenant DataKey; tenant-scoped events reach only the emitter's tenant room
+ *  tenant key; tenant-scoped events reach only the emitter's tenant room
  *  (channels.md rooms + policy-derived routing v1). */
 function buildRoomScopedRealtime(typeList: string, plan: RealtimeRoomPlan): string {
   const tenantTypes = [...plan.tenantEventTypes].sort();
@@ -131,7 +131,7 @@ function buildRoomScopedRealtime(typeList: string, plan: RealtimeRoomPlan): stri
 // Realtime SSE wire (channels.md — rooms + policy-derived routing v1).
 // Events carried by a \`delivery: broadcast\` channel stream to connected
 // browsers at GET /realtime/events.  This context hosts tenant-owned
-// aggregates, so delivery is scoped by the tenant DataKey
+// aggregates, so delivery is scoped by the tenant key
 // (\`currentUser.${claim}\`, the equality part of the \`tenantOwned\` read
 // policy): a tenant-scoped event reaches only subscribers in the emitter's
 // tenant room — never cross-tenant.  The authorized read remains the gate;

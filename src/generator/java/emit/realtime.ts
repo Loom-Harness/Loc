@@ -24,7 +24,7 @@ import { JAVA_NUMERIC } from "../numeric-codec.js";
 // Two topologies (channels.md "Realtime topology" — rooms + policy-derived
 // routing v1), mirroring the Hono backend: an untenanted context is
 // broadcast-to-all (byte-identical); a tenant-owned context scopes delivery by
-// the tenant DataKey (`currentUser.<claim>`, the bound `tenancy by
+// the tenant claim (`currentUser.<claim>`, the bound `tenancy by
 // user.<claim>` — NOT the row column `tenantId`), so a tenant-scoped event
 // reaches only subscribers in the emitter's tenant room — never cross-tenant.  A
 // connection derives its room from the verified principal at connect (never a
@@ -192,7 +192,7 @@ function renderBroadcastController(events: EventIR[], types: string[], basePkg: 
 }
 
 /** Tenant-scoped controller (channels.md rooms + policy-derived routing v1):
- *  the SseEmitter registry is keyed by the tenant DataKey; tenant-scoped events
+ *  the SseEmitter registry is keyed by the tenant claim; tenant-scoped events
  *  reach only the emitter's tenant room, never cross-tenant. */
 function renderRoomScopedController(
   events: EventIR[],
@@ -246,7 +246,7 @@ function renderRoomScopedController(
     `/** Realtime SSE wire (channels.md rooms + policy-derived routing v1):`,
     ` *  broadcast-channel events stream to connected browsers at`,
     ` *  GET /api/realtime/events.  This context hosts tenant-owned aggregates,`,
-    ` *  so delivery is scoped by the tenant DataKey (\`currentUser.${claim}\`): a`,
+    ` *  so delivery is scoped by the tenant claim (\`currentUser.${claim}\`): a`,
     ` *  tenant-scoped event reaches only subscribers in the emitter's tenant`,
     ` *  room — never cross-tenant.  The authorized read remains the gate.`,
     ` *  @Hidden keeps the SSE stream out of the springdoc OpenAPI document. */`,

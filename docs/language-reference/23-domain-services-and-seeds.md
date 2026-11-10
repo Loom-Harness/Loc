@@ -328,7 +328,7 @@ Six crossings parsed clean and then produced a *different* wrong artefact on eac
 | `raw` row on an aggregate `persistedAs: eventLog` | `loom.seed-raw-eventsourced` | Its truth is the append-only `<agg>_events` stream (stream_id, version, type, data, occurred_at), which has no per-field columns either. Use the **domain** path — see below, this is the one crossing that changed from a hard refusal to a supported path (**M-T6.52**). |
 | Domain-path row on an aggregate `persistedAs: eventLog` with **no** `create` action | `loom.seed-eventsourced-no-create` | Zero `create` actions is a legitimate event-sourced shape (constructed only out-of-band), but then there is no creation event for a seed row to append. Add a canonical `create(...)`, or drop the row. |
 | Row on an `abstract` inheritance base | `loom.seed-abstract-aggregate` | A base has no create factory and no repository, so every backend drops the row (elixir again keeping the marker). Seed a concrete subtype. |
-| Domain-path row on a `tenantOwned` aggregate | `loom.seed-tenant-owned-needs-raw` | The capability keeps `tenantId`/`dataKey` `internal` and stamps them **from the principal**; a first-boot seeder has none, so the row lands with an empty/NULL tenant against a `NOT NULL` column and the capability's own read filter (`tenant_id = NULL`) can never match it. Use the `raw` path and spell the tenant columns: |
+| Domain-path row on a `tenantOwned` aggregate | `loom.seed-tenant-owned-needs-raw` | The capability keeps `tenantId` `internal` and stamps it **from the principal**; a first-boot seeder has none, so the row lands with an empty/NULL tenant against a `NOT NULL` column and the capability's own read filter (`tenant_id = NULL`) can never match it. Use the `raw` path and spell the tenant column: |
 
 A **domain-path row on an event-sourced aggregate that DOES declare a `create`** is accepted — the seed appends the aggregate's creation event through the same command seam an ordinary create request uses, on all five backends:
 
@@ -349,8 +349,8 @@ The row's fields must name the `create` action's own declared parameters (`owner
 
 ```ddd
 seed wired raw {
-  Invoice { id: "11111111-1111-1111-1111-111111111111", tenantId: "acme", dataKey: "acme", label: "Seeded", amount: 5 }
+  Invoice { id: "11111111-1111-1111-1111-111111111111", tenantId: "acme", label: "Seeded", amount: 5 }
 }
 ```
 
-The tenant columns a `tenantOwned` aggregate carries (and the hierarchical `dataKey`) are described in [`../tenancy.md`](../tenancy.md).
+The tenant column a `tenantOwned` aggregate carries is described in [`../tenancy.md`](../tenancy.md).

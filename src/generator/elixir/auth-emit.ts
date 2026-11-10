@@ -1,7 +1,4 @@
-import {
-  forwardsCallerCredential,
-  hostedHierarchyRegistry,
-} from "../../ir/enrich/hosting-facts.js";
+import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type {
   AuthIR,
@@ -12,7 +9,11 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import {
+  type OrgContextPlan,
+  orgContextPlan,
+  registryContextName,
+} from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
@@ -30,6 +31,7 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { registryAncestorsSql, registryTableSql } from "../_persistence/registry-walk.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix LiveView auth scaffolding — emitted per deployable when
@@ -104,25 +106,10 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   // dev stub keeps a freshly-generated stack callable out of the box.
   const auth = sys.auth;
 
-  // Hierarchy (multi-tenancy): when the registry opts into
-  // `tenantRegistry` (a `dataKey` column exists), `currentUser.orgPath` becomes
-  // a per-request registry read — the caller org's materialized `data_key`,
-  // resolved through the registry's Ecto schema module (which carries the
-  // `@schema_prefix` + `:binary_id` cast) via the app `Repo`.  Without it (flat
-  // tenancy), the claim-copy stands.  The plug is constructed once per
-  // request, so the read is naturally memoized on `conn.assigns.current_user`.
-  // Only a deployable hosting the registry's context has its schema module and
-  // table; any other keeps the claim-copy (phase ⑦ refuses it when something it
-  // hosts reads the path).
-  const registry = hostedHierarchyRegistry(sys, deployable.contextNames);
   // A typed call to an auth-required api forwards the caller's credential.
   // The request process keeps it beside the principal; a LiveView process
   // reads it from the Phoenix session the browser pipeline seeded.
   const forwardCaller = forwardsCallerCredential(deployable, sys);
-  const orgPathRegistry =
-    registry && sys.tenancy
-      ? orgPathRegistryRef(sys, appModule, sys.tenancy.registryName)
-      : undefined;
 
   files.set(
     `lib/${appName}_web/auth.ex`,
@@ -131,13 +118,12 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
       webModule,
       auth,
       sys.tenancy?.claimField,
-      orgPathRegistry,
       args.hasFieldMask ?? false,
-      // The operating-scope switch gate (`organizationContext`, M-T3.6 items
-      // 3+5) — only where something reads the operating scope; the phase-⑦
-      // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
-      !!orgPathRegistry && systemReadsOrgContext(sys),
+      // The operating-scope switch gate (`organizationContext`) — only where
+      // something reads the operating org.
+      orgContextPlan(sys, deployable.contextNames),
       forwardCaller,
+      orgRegistryModules(sys, appModule),
     ),
   );
   files.set(`lib/${appName}_web/live_auth.ex`, renderLiveAuth(webModule, auth, forwardCaller));
@@ -161,34 +147,21 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   return { files, enabled: true };
 }
 
-/** The Ecto modules the `orgPath` registry read needs — the registry's
- *  schema module (carrying `@schema_prefix` + the `:binary_id` id cast) and the
- *  app `Repo`.  `undefined` for flat tenancy (claim-copy). */
-interface OrgPathRegistryRef {
-  repoModule: string;
-  schemaModule: string;
-}
-
-/** Locate the tenant registry aggregate's Ecto schema module —
- *  `<App>.<Context>.<Registry>` (mirrors `schema-emit.ts`:
- *  `${appModule}.${upperFirst(ctx.name)}.${upperFirst(agg.name)}`) — plus the
- *  app `Repo`.  `undefined` when the registry isn't found in any context. */
-function orgPathRegistryRef(
-  sys: SystemIR,
+/** The modules and table the switch gate's registry reads use: the registry's
+ *  repository (its `find_by_id/2` applies the registry's read scope), the
+ *  Ecto repo, and the quoted registry table the ancestors walk reads. */
+function orgRegistryModules(
+  sys: AuthEmitArgs["sys"],
   appModule: string,
-  registryName: string,
-): OrgPathRegistryRef | undefined {
-  for (const sub of sys.subdomains) {
-    for (const ctx of sub.contexts) {
-      if (ctx.aggregates.some((a) => a.name === registryName)) {
-        return {
-          repoModule: `${appModule}.Repo`,
-          schemaModule: `${appModule}.${upperFirst(ctx.name)}.${upperFirst(registryName)}`,
-        };
-      }
-    }
-  }
-  return undefined;
+): { repository: string; repo: string; table: string } | undefined {
+  const ctxName = registryContextName(sys);
+  const table = registryTableSql(sys);
+  if (!ctxName || !table || !sys.tenancy) return undefined;
+  return {
+    repository: `${appModule}.${upperFirst(ctxName)}.${upperFirst(sys.tenancy.registryName)}Repository`,
+    repo: `${appModule}.Repo`,
+    table,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -217,108 +190,107 @@ function renderAuthPlug(
   user: UserIR | undefined,
   webModule: string,
   auth: AuthIR | undefined,
-  orgPathClaim?: string,
-  orgPathRegistry?: OrgPathRegistryRef,
+  tenantClaim?: string,
   hasFieldMask = false,
-  orgContext = false,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
   forwardCaller = false,
+  registryModules?: { repository: string; repo: string; table: string },
 ): string {
   const buildUserBody = renderBuildUser(user, auth);
   const idKey = actorIdKey(user);
-  // Derived `currentUser.orgPath` — the caller's tenant materialized path.
-  // Applied as a final `put_org_path/1` step AFTER the principal (and any
-  // dev-claims override) is built, so it reflects the final claim value.
-  //
-  //  - flat tenancy: `orgPath` is the claim itself (the root-segment
-  //    path — no registry `dataKey` column to read), stringified null-safely.
-  //  - hierarchy: resolve the caller org's registry `data_key` once per
-  //    request (the plug runs per request, so it is memoized on the principal);
-  //    fail safe to the claim when the row / dataKey is absent or the claim is
-  //    malformed — never crashes.
-  const orgPathKey = orgPathClaim ? snake(orgPathClaim) : undefined;
-  // `put_root_org/1` runs AFTER `put_org_path/1` in the pipe, deriving
-  // `current_user.root_org` from the just-set `:org_path`.
-  // `put_org_context/1` seeds `:org_context_path` — the request's OPERATING
-  // scope (`organizationContext.orgPath`) — with the principal's own
-  // `:org_path` on EVERY principal the plug builds (the API path, the dev-stub
-  // LiveView identity, the OIDC session identity), so a stamp or operation
-  // reading it never meets a missing key.  Only the API `call/2` path can then
-  // SWITCH it, through the fail-closed `x-org-context` gate below.
-  const orgPathPipe = orgPathKey
-    ? ` |> put_org_path() |> put_root_org()${orgContext ? " |> put_org_context()" : ""}`
-    : "";
-  const putOrgPathDef = !orgPathKey
-    ? ""
-    : orgPathRegistry
-      ? `
-  # Derives \`current_user.org_path\` (multi-tenancy): the caller org's
-  # materialized \`data_key\`, read once per request from the tenant registry via
-  # the app \`Repo\`.  The registry's Ecto schema module applies the schema prefix
-  # and casts the pinned string claim against the \`:binary_id\` id column (the
-  # same cast the registry self-scope filter uses).  Falls back to the raw claim
-  # (the root-segment path) when the row / data_key is absent or the claim is
-  # not a uuid.  A database error is not swallowed: it fails the request rather
-  # than silently scoping the caller to the bare claim.  It runs BEFORE the principal
-  # exists, and reads exactly the row the registry's own self-scope admits
-  # (\`id == claim\`), so it skips the read scope (\`skip_filters: :all\`) rather
-  # than meeting a principal-bound clause with no principal.
-  defp put_org_path(user), do: Map.put(user, :org_path, resolve_org_path(user[:${orgPathKey}]))
+  const tenantKey = tenantClaim ? snake(tenantClaim) : undefined;
+  // The operating-scope switch gate (`organizationContext`) exists only under
+  // tenancy and only where something reads the operating org.  Its principal
+  // member `:operating_org` is seeded by `put_operating_org/1` on EVERY
+  // principal the plug builds (the API path, the dev-stub LiveView identity,
+  // the OIDC session identity), so a stamp or operation reading it never meets
+  // a missing key.  Only the API `call/2` path can then SWITCH it, through the
+  // fail-closed `x-org-context` gate.  Without the gate the principal is
+  // exactly the declared claims.
+  const orgContext = !!tenantKey && plan.gate;
+  // On the deployable that hosts the registry, a requested org other than the
+  // home org is admitted when the caller can read that registry row through
+  // the registry's read scope; elsewhere only the home org is.
+  const host = orgContext && !!plan.registry && !!registryModules;
+  const ancestors = host && plan.ancestors;
+  const operatingOrgPipe = orgContext ? " |> put_operating_org()" : "";
+  // The gate compares org IDS: the caller's home org is its tenancy claim.  A
+  // request whose `x-org-context` names any other org, or any org at all when
+  // the caller has no home org, is a 403 before the principal is assigned — no
+  // controller runs, nothing is written.  Absent / empty ⇒ the home org
+  // (already seeded by `put_operating_org/1`).
+  const orgContextDef = orgContext
+    ? `
+  # The caller's home org: its tenancy claim, "" when absent.
+  defp home_org(user), do: to_string(user[:${tenantKey}] || "")
 
-  defp resolve_org_path(claim) when is_binary(claim) and claim != "" do
-    case Ecto.UUID.cast(claim) do
-      {:ok, id} ->
-        case ${orgPathRegistry.repoModule}.one(
-               from(o in ${orgPathRegistry.schemaModule}, where: o.id == ^id, select: o.data_key),
-               skip_filters: :all
-             ) do
-          data_key when is_binary(data_key) and data_key != "" -> data_key
-          _ -> claim
-        end
+  # Seeds \`current_user.operating_org\` — the request's OPERATING org
+  # (\`organizationContext.org\`) — with the caller's home org.  The API plug
+  # may then switch it through \`org_context_gate/2\`.
+  defp put_operating_org(user), do: in_org(user, home_org(user))
 
-      :error ->
-        claim
-    end
-  end
-
-  defp resolve_org_path(claim), do: to_string(claim)
-`
-      : `
-  # Derives \`current_user.org_path\` from the tenancy claim (multi-tenancy).
-  defp put_org_path(user), do: Map.put(user, :org_path, to_string(user[:${orgPathKey}]))
-`;
-  // `current_user.root_org`: the ROOT-org segment — the first segment of
-  // `:org_path` (up to the first `.`).  Derived off the already-resolved
-  // `:org_path` (pure, no extra read), correct under both flat and hierarchy
-  // tenancy; anchors the `global` read level's root-subtree widening.
-  // The operating-scope switch gate (`organizationContext`).  A request whose
-  // `x-org-context` names an org outside the caller's `:org_path` subtree
-  // (equal, or anchored under `org_path <> "."`), or any org at all when the
-  // caller has no `:org_path`, is a 403 before the principal is assigned — no
-  // controller runs, nothing is written.  Absent / empty ⇒ the principal's
-  // own scope (already seeded by `put_org_context/1`), never a widening.
-  const orgContextDef =
-    orgPathKey && orgContext
-      ? `
-  # Seeds \`current_user.org_context_path\` — the request's OPERATING scope
-  # (\`organizationContext.orgPath\`) — with the principal's own \`org_path\`.
-  # The API plug may then switch it through \`org_context_gate/2\`.
-  defp put_org_context(user), do: Map.put(user, :org_context_path, user[:org_path])
+  # This principal operating in \`org\`${ancestors ? " — with its ancestor set\n  # (`organizationContext.ancestors`), resolved once per principal" : ""}.
+  defp in_org(user, org)${
+    ancestors
+      ? `,
+    do: user |> Map.put(:operating_org, org) |> Map.put(:operating_ancestors, operating_ancestors_of(org))`
+      : ", do: Map.put(user, :operating_org, org)"
+  }
 
   # The fail-closed operating-scope switch gate: a requested \`${ORG_CONTEXT_HEADER}\`
-  # path is admitted only inside the caller's \`org_path\` subtree.
+  # org is admitted when it is the caller's home org${
+    host ? ",\n  # or a registry row the caller can read through the registry's read scope" : ""
+  }.
   defp org_context_gate(user, [requested | _]) when is_binary(requested) and requested != "" do
-    scope = to_string(user[:org_path] || "")
+    home = home_org(user)
 
     cond do
-      scope == "" -> {:error, requested, "no_principal_scope"}
-      requested == scope -> {:ok, Map.put(user, :org_context_path, requested)}
-      String.starts_with?(requested, scope <> ".") -> {:ok, Map.put(user, :org_context_path, requested)}
+      home == "" -> {:error, requested, "no_principal_scope"}
+      requested == home -> {:ok, user}${
+        host ? `\n      can_read_org?(user, requested) -> {:ok, in_org(user, requested)}` : ""
+      }
       true -> {:error, requested, "outside_scope"}
     end
   end
 
   defp org_context_gate(user, _), do: {:ok, user}
+${
+  host
+    ? `
+  # True when \`user\` (the HOME principal) can read the registry row \`org\`
+  # through the registry's read scope.  A value that is not a uuid names no row.
+  defp can_read_org?(user, org) do
+    case Ecto.UUID.cast(org) do
+      {:ok, id} -> match?({:ok, _}, ${registryModules!.repository}.find_by_id(id, user))
+      :error -> false
+    end
+  end
+`
+    : ""
+}${
+  ancestors
+    ? `
+  # \`organizationContext.ancestors\` for \`org\`: the org and every org above it,
+  # walked over \`parent\` with \`UNION\` so a cycle terminates.
+  defp operating_ancestors_of(org) do
+    case Ecto.UUID.dump(org) do
+      {:ok, raw} ->
+        %{rows: rows} =
+          Ecto.Adapters.SQL.query!(
+            ${registryModules!.repo},
+            ${elixirString(registryAncestorsSql(registryModules!.table, "$1"))},
+            [raw]
+          )
 
+        Enum.map(rows, fn [id] -> Ecto.UUID.load!(id) end)
+
+      :error ->
+        []
+    end
+  end
+`
+    : ""
+}
   # RFC 7807 403 for a refused operating-scope switch — sent + halted before
   # the principal is assigned, so no controller runs and nothing is written.
   defp send_org_context_forbidden(conn, requested, reason) do
@@ -344,27 +316,7 @@ function renderAuthPlug(
     |> halt()
   end
 `
-      : "";
-  const putRootOrgDef = !orgPathKey
-    ? ""
-    : `
-  # Derives \`current_user.root_org\` (multi-tenancy): the first segment of
-  # the materialized \`org_path\`, the anchor for the \`global\` read level.
-  defp put_root_org(user), do: Map.put(user, :root_org, root_org_of(user[:org_path]))
-
-  defp root_org_of(path) when is_binary(path) do
-    case :binary.split(path, ".") do
-      [root | _] -> root
-      _ -> path
-    end
-  end
-
-  defp root_org_of(path), do: to_string(path)
-`;
-  // The registry read needs `from/2`; import it only in hierarchy mode so
-  // a flat / no-tenancy plug carries no unused import (--warnings-as-errors).
-  const ectoQueryImport =
-    orgPathKey && orgPathRegistry ? "\n  import Ecto.Query, only: [from: 2]" : "";
+    : "";
   // DEV STUB only: let a caller override string claims (e.g. tenantId) via a
   // base64-JSON `x-loom-dev-claims` header — the same injection the Hono dev
   // stub honours (dotnet/java/python parity).  Never in OIDC mode: a header
@@ -375,7 +327,7 @@ function renderAuthPlug(
   const devClaimNeedsList = devClaimEntries.some((c) => c.kind === "stringList");
   const buildUserCall =
     (devClaimsEnabled ? "merge_dev_claims(conn, build_user(claims))" : "build_user(claims)") +
-    orgPathPipe;
+    operatingOrgPipe;
   const mergeDevClaimsDef = devClaimsEnabled
     ? `
   # DEV STUB only: override string claims (e.g. tenantId) from a base64-encoded
@@ -421,7 +373,7 @@ ${
     : "";
   // The authenticated branch of `call/2`.  Under the operating-scope switch
   // gate it moves inside `case org_context_gate(...)` (re-indented two
-  // levels); otherwise it is emitted exactly as before.
+  // levels).
   const authedTail = `          # Principal slice of the execution context: stamp ONLY the actor id
           # into Logger.metadata (the request-context carrier) so audit and log
           # lines can attribute the actor without leaking the rest of the
@@ -474,7 +426,7 @@ ${indentElixir(authedTail, 4)}
   # LiveViews the same identity the :api pipeline grants every request —
   # nil unless ${DEV_AUTH_ENV}=1, like every request the plug sees.
   def dev_user do
-    if dev_auth?(), do: build_user(dev_claims())${orgPathPipe}
+    if dev_auth?(), do: build_user(dev_claims())${operatingOrgPipe}
   end
 
   # The dev stub answers only when ${DEV_AUTH_ENV}=1 — a development login,
@@ -485,7 +437,7 @@ ${indentElixir(authedTail, 4)}
   # The request principal for a user-shape claims map (atom keys), derived as
   # this plug derives a request's — the seam a context integration test binds
   # its principal through.
-  def as_principal(claims) when is_map(claims), do: claims${orgPathPipe}
+  def as_principal(claims) when is_map(claims), do: claims${operatingOrgPipe}
 `;
   // OIDC only: the browser LiveView guard reads the verified principal from the
   // `session` cookie (the /auth/callback handshake token) so the :browser
@@ -503,7 +455,7 @@ ${indentElixir(authedTail, 4)}
 
     with token when is_binary(token) and token != "" <- conn.cookies["session"],
          {:ok, claims} <- verify_token(token) do
-      build_user(claims)${orgPathPipe}
+      build_user(claims)${operatingOrgPipe}
     else
       _ -> nil
     end
@@ -629,7 +581,7 @@ defmodule ${webModule}.Auth do
 
   @behaviour Plug
   import Plug.Conn
-  require Logger${ectoQueryImport}
+  require Logger
 
   @impl Plug
   def init(opts), do: opts
@@ -687,7 +639,7 @@ ${verifierSection}
 
   defp build_user(claims) do
 ${buildUserBody}  end
-${mergeDevClaimsDef}${putOrgPathDef}${putRootOrgDef}${orgContextDef}${renderElixirSystemPrincipal(user, orgPathClaim)}end
+${mergeDevClaimsDef}${orgContextDef}${renderElixirSystemPrincipal(user, tenantClaim, orgContext, ancestors)}end
 `;
 }
 
@@ -996,18 +948,23 @@ ${claims}
 
 /** `system_principal/0` — the principal an event reactor runs as (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
- *  the dev stub's `"admin"`), `is_system: true`, the tenancy claim and the
- *  derived tenant paths (`org_path` / `root_org` / `org_context_path`) taken
- *  from the EVENT ORIGIN — the ambient principal's `{tenant, orgPath,
- *  causedBy}` snapshot: in-process the request that raised the event (the auth
+ *  the dev stub's `"admin"`), `is_system: true`, the tenancy claim (and, under
+ *  the operating-scope switch gate, `operating_org`) taken from the EVENT
+ *  ORIGIN — the ambient principal's `{tenant, causedBy}` snapshot: in-process the request that raised the event (the auth
  *  plug stashed it in the process dictionary), on the outbox relay / a channel
  *  consumer the origin the row / envelope carried (`with_event_origin/2`).
  *  No origin (a timer tick, a LiveView-raised event) ⇒ an empty tenant, which
  *  matches no tenant-owned row. */
-function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: string): string {
+function renderElixirSystemPrincipal(
+  user: UserIR | undefined,
+  tenantClaim: string | undefined,
+  orgContext: boolean,
+  ancestors = false,
+): string {
   if (!user) return "";
   const idKey = actorIdKey(user);
   const tenantKey = tenantClaim ? snake(tenantClaim) : undefined;
+  let rebuildsTenant = false;
   const entries = user.fields.map((f) => {
     const k = snake(f.name);
     const empty = f.optional
@@ -1017,22 +974,28 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
         : elixirStubValueForType(f.type);
     if (k !== tenantKey) return `      ${k}: ${empty},`;
     const rebuilt = claimFromOriginString(f.type, "tenant", "elixir");
+    if (rebuilt !== null) rebuildsTenant = true;
     return rebuilt === null
       ? `      ${k}: ${empty},`
       : `      ${k}: if(tenant in [nil, ""], do: ${empty}, else: ${rebuilt}),`;
   });
-  const derived = tenantKey
-    ? `
-    |> Map.put(:org_path, org_path)
-    |> Map.put(:root_org, org_path |> String.split(".") |> hd())
-    |> Map.put(:org_context_path, org_path)`
-    : "";
+  // The system principal's operating org is its event tenant.
+  // A reactor reading the ancestors is refused at phase ⑦
+  // (`loom.org-context-ancestors-in-reactor`): the system principal has none.
+  const operatingOrg =
+    tenantKey && orgContext
+      ? `
+    |> Map.put(:operating_org, tenant || "")${ancestors ? "\n    |> Map.put(:operating_ancestors, [])" : ""}`
+      : "";
+  // `tenant` is bound only where something reads it: unbound otherwise, it is
+  // an unused-variable warning that `--warnings-as-errors` rejects.
+  const bindsTenant = !!tenantKey && (rebuildsTenant || orgContext);
   return `
   @doc """
   Where an event came from (ruling D1): the ambient principal's tenant claim and
-  materialized path, and the originating user id (\`causedBy\`, audit only) —
-  captured onto the outbox row and the channel envelope so a reactor that runs
-  after the request is gone still runs as the system principal OF THAT TENANT.
+  the originating user id (\`causedBy\`, audit only) — captured onto the outbox
+  row and the channel envelope so a reactor that runs after the request is gone
+  still runs as the system principal OF THAT TENANT.
   A system principal propagates its own origin; nil outside any principal.
   """
   def current_event_origin do
@@ -1042,8 +1005,13 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
 
       user ->
         %{
-          "tenant" => ${tenantKey ? `blank_to_nil(origin_claim(user, :${tenantKey}))` : "nil"},
-          "orgPath" => ${tenantKey ? "blank_to_nil(origin_claim(user, :org_path))" : "nil"},
+          "tenant" => ${
+            tenantKey && orgContext
+              ? "blank_to_nil(origin_claim(user, :operating_org))"
+              : tenantKey
+                ? `blank_to_nil(origin_claim(user, :${tenantKey}))`
+                : "nil"
+          },
           "causedBy" =>
             if(origin_claim(user, :is_system) == true,
               do: origin_claim(user, :caused_by),
@@ -1063,12 +1031,9 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
   @doc "The system principal of an event origin map (or nil)."
   def system_principal_for(origin) do
     origin = origin || %{}${
-      // `tenant` is bound only under tenancy: unbound otherwise, it is an
-      // unused-variable warning that `--warnings-as-errors` rejects.
-      tenantKey
+      bindsTenant
         ? `
-    tenant = string_or_nil(Map.get(origin, "tenant"))
-    org_path = string_or_nil(Map.get(origin, "orgPath")) || tenant || ""`
+    tenant = string_or_nil(Map.get(origin, "tenant"))`
         : ""
     }
 
@@ -1076,7 +1041,7 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
 ${entries.join("\n")}
       is_system: true,
       caused_by: string_or_nil(Map.get(origin, "causedBy"))
-    }${derived}
+    }${operatingOrg}
   end
 
   @doc """
@@ -1298,11 +1263,10 @@ function renderAuthController(
   port: number,
 ): string {
   // The DECLARED `user { … }` shape, BY DECLARED NAME, and nothing else
-  // (#2548).  Encoding the assign directly spelled every key the way the
-  // internal map does — `tenantId` reached the wire as `tenant_id` — and shipped
-  // the derived tenancy members (`org_path` / `root_org`) alongside, which are
-  // per-request scoping state rather than part of the declared principal.  The
-  // other four backends project the same way.
+  // — never the internal map's snake_case keys (`tenant_id`), and never the
+  // derived `operating_org`, which is per-request scoping state rather than
+  // part of the declared principal.  The other four backends project the same
+  // way.
   const meProjection = (user?.fields ?? [])
     .map((f) => `          ${JSON.stringify(f.name)} => user[:${snake(f.name)}]`)
     .join(",\n");

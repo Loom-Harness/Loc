@@ -6,6 +6,7 @@ import {
   eventToDataFn,
   rowToEventFn,
 } from "../../../generator/typescript/repository-eventsourced-builder.js";
+import { eventSourcedWorkflows } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -30,11 +31,6 @@ import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 // repo wiring already live.  Reuses the aggregate event store's `eventToData`
 // / `rowToEvent` (de)serialisers — the stream row shape is identical.
 // ---------------------------------------------------------------------------
-
-/** The event-sourced workflows in a context. */
-export function eventSourcedWorkflows(ctx: EnrichedBoundedContextIR): WorkflowIR[] {
-  return ctx.workflows.filter((wf) => wf.eventSourced);
-}
 
 /** The event types a workflow folds — the events its appliers consume. */
 export function foldedEventNames(wf: WorkflowIR): string[] {
@@ -350,7 +346,8 @@ export function emitWorkflowStreamSerializers(
   opts: { readOnly?: boolean } = {},
 ): string[] {
   const folded = new Set<string>();
-  for (const wf of eventSourcedWorkflows(ctx)) for (const n of foldedEventNames(wf)) folded.add(n);
+  for (const wf of eventSourcedWorkflows(ctx.workflows))
+    for (const n of foldedEventNames(wf)) folded.add(n);
   if (folded.size === 0) return [];
   const events: EventIR[] = ctx.events.filter((e) => folded.has(e.name));
   // A read-only consumer only group-folds the stream → only `rowToEvent`

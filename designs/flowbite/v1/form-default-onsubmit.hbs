@@ -1,7 +1,7 @@
 {
               try {
                 {{{mutationCall}}}
-                toast.success("{{successMessage}}");
+                toast.success({{{successMessage}}});
                 {{{redirectStmt}}};
               } catch (e) {
                 const outcome = form.applyServerErrors(e);

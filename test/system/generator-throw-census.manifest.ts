@@ -340,6 +340,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
   },
+  "src/generator/_walker/i18n-chrome.ts#authGateMessage": {
+    invariant:
+      "Every caller (the Feliz and Flutter auth gates) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME; no .ddd input names the string.",
+  },
+  "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
+    invariant:
+      "A locale Intl.PluralRules does not support returns undefined before the search, and every supported locale's ordinal rules depend on n mod 10 / 100 / 1000 at most, so one of PERIODS always repeats within VERIFY_UP_TO; test/generator/_i18n/ordinal-rules.test.ts derives the table for every locale the runtime knows.",
+  },
   "src/generator/_i18n/wire-error-text.ts#wireErrorMessage": {
     invariant:
       "Every caller passes a wireCode(cls)/fieldCode(reason) key, and WIRE_ERROR_MESSAGES is built from the closed WireRejectionClass/FieldRejectionReason records, so every such key is present.",

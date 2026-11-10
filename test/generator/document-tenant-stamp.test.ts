@@ -6,20 +6,20 @@ import { generateSystemFiles } from "../_helpers/index.js";
 // ---------------------------------------------------------------------------
 // The `onCreate` lifecycle stamps on the DOCUMENT write path — all backends.
 //
-// `tenantOwned` declares `tenantId := currentUser.tenantId` /
-// `dataKey := currentUser.orgPath` as onCreate stamps.  Every backend lands
+// `tenantOwned` declares `tenantId := organizationContext.org` as an onCreate
+// stamp.  Every backend lands
 // them somewhere on the RELATIONAL path — node in `db/audit-stamp.ts`
 // (`stampInsert`), java via a JPA `@PrePersist` hook, .NET via the EF
 // `AuditableInterceptor`.  A `shape: document` aggregate reaches NONE of those:
 // it is one opaque jsonb column, not an EF-tracked entity with mapped stamp
-// columns and not a JPA entity at all.  So the stamps never ran and the row was
+// columns and not a JPA entity at all.  Without an explicit stamp the row is
 // written with an EMPTY tenantId — invisible to every principal INCLUDING ITS
 // CREATOR, because the (correct) read filter compares `"" === currentUser
-// .tenantId`.  A 201 create, then 404 on every read, update and destroy.
+// .tenantId`: a 201 create, then 404 on every read, update and destroy.
 //
 // Runtime-proven on the node behavioural leg; this is the unit-tier witness for
-// all three.  Python already emitted `_stamp_on_create` and is the reference.
-// Elixir refuses this crossing by name (`loom.context-filter-no-principal`).
+// all three.  Python's `_stamp_on_create` is the reference emission.  Elixir
+// refuses this crossing by name (`loom.context-filter-no-principal`).
 //
 // The gate that could NOT see it: the compile tiers (the emission type-checks
 // either way) and `policy-document-inapp.test.ts`, which runs the predicate
@@ -59,8 +59,7 @@ describe("document onCreate stamps — java", () => {
   it("emits the stamp as a PLAIN method (no JPA hook fires on a POJO)", async () => {
     const thing = fileEndingWith(await load(), "features/things/Thing.java");
     expect(thing).toContain("void _stampOnCreate() {");
-    expect(thing).toContain("this.tenantId = currentUser.tenantId();");
-    expect(thing).toContain("this.dataKey = currentUser.orgPath();");
+    expect(thing).toContain("this.tenantId = currentUser.operatingOrg();");
     // A document root is not a JPA entity — an @PrePersist annotation here
     // would never fire and would drag in a jakarta.persistence import.
     expect(thing).not.toContain("@PrePersist");
@@ -82,7 +81,7 @@ describe("document onCreate stamps — dotnet", () => {
     expect(thing).toContain("internal void _StampOnCreate()");
     expect(thing).toContain("var currentUser = RequestContext.Current?.CurrentUser;");
     expect(thing).toContain("if (currentUser == null) return;");
-    expect(thing).toContain("TenantId = currentUser.TenantId;");
+    expect(thing).toContain("TenantId = currentUser.OperatingOrg;");
   });
 
   it("calls it on the INSERT branch, BEFORE the snapshot is serialized", async () => {
@@ -103,7 +102,7 @@ describe("document onCreate stamps — python is the reference emission", () => 
     const files = await generateSystemFiles(sourceFor("python"));
     const thing = fileEndingWith(files, "app/domain/thing.py");
     expect(thing).toContain("def _stamp_on_create(self, current_user: User) -> None:");
-    expect(thing).toContain("self._tenant_id = current_user.tenant_id");
+    expect(thing).toContain("self._tenant_id = current_user.operating_org");
   });
 });
 

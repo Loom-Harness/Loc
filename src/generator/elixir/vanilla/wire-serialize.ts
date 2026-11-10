@@ -298,7 +298,7 @@ export function renderWireSerialize(
   // drops `access: internal` / `access: secret` fields; every other backend
   // applies it on the read boundary (and vanilla's own OpenAPI emitter already
   // did), so skipping it here leaked exactly the fields the modifier exists to
-  // hide.  `tenantOwned`'s `tenantId`/`dataKey` are `internal`, so a
+  // hide.  `tenantOwned`'s `tenantId` is `internal`, so a
   // multi-tenant aggregate shipped its tenant key to the client on every GET —
   // and the SERVED SPEC said it wouldn't.  A `secret` field (password hash,
   // API key) leaked the same way.

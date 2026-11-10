@@ -5,6 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
+import { hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -287,8 +288,7 @@ export function renderSchema(
     // `<ctx>_events` log emitted above (folded on load, filtered by
     // `stream_type`) — no per-workflow table.  A plain correlation-bearing
     // workflow keeps its mutable state row.
-    if (!wf.eventSourced && wf.correlationField)
-      tables.push(emitWorkflowStateTable(wf, ctx, wfSchema));
+    if (hasStateRow(wf)) tables.push(emitWorkflowStateTable(wf, ctx, wfSchema));
   }
   // Projection read models (projection.md): one context-owned state table per
   // projection, keyed by its correlation column — the fold dispatcher upserts
@@ -408,10 +408,9 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
     lines.push(`});`);
     return lines.join("\n");
   }
-  for (const m of tenancy.metadata)
-    lines.push(`  ${m.field}: text("${m.column}")${m.required ? ".notNull()" : ""},`);
+  for (const m of tenancy.metadata) lines.push(`  ${m.field}: text("${m.column}").notNull(),`);
   const keyCols = [
-    ...tenancy.metadata.filter((m) => m.required).map((m) => `table.${m.field}`),
+    ...tenancy.metadata.map((m) => `table.${m.field}`),
     `table.${proj.correlationField}`,
   ];
   lines.push(`}, (table) => ({`);

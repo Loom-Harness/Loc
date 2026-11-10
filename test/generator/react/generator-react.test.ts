@@ -618,7 +618,7 @@ describe("react generator", () => {
       // Submit button + success/error toast.
       expect(page).toMatch(/data-testid="workflow-place_order-submit"/);
       expect(page).toMatch(
-        /notifications\.show\(\{ color: "green", message: "Place Order completed" \}\)/,
+        /notifications\.show\(\{ color: "green", message: t\("chrome\.completed\.placeOrder", "Place Order completed"\) \}\)/,
       );
       // After success navigate back to the index.
       expect(page).toMatch(/navigate\("\/workflows"\)/);
