@@ -39,6 +39,42 @@ system Sharing {
         filter exists CategoryShare as s where s.category == this.category && s.grantee == currentUser.id
       }
       repository Products for Product
+
+      // THE IN-APP POSITIONS — a `requires` gate and an operation `when` are
+      // evaluated by the handler before any query runs, so their `exists` is a
+      // read of its own: a synthesized single-row find on the quantified
+      // aggregate's repository, under that aggregate's read scope.
+      aggregate Rack {
+        label: string
+        category: Category id
+        // A create gate over the create's own arguments: a rack is opened
+        // only for a category shared with the caller (a revoked share is out
+        // of `CategoryShare`'s read scope, so it opens nothing).
+        create(label: string, category: Category id) {
+          requires exists CategoryShare as s where s.category == category && s.grantee == currentUser.id
+        }
+        // An operation `when` (409) over the loaded row, and a `requires`
+        // (403) quantifying over the row's OWN aggregate with an argument:
+        // no OTHER rack of the category carries the new label.
+        operation relabel(to: string) when exists CategoryShare as s where s.category == this.category {
+          requires !exists Rack as o where o.label == to && o.category == this.category && o.id != this.id
+          label := to
+        }
+        // `for write`: a sealed category keeps its racks, but `Seal` is
+        // write-denied, so no seal is WRITABLE and the gate passes even
+        // while one is readable.  Without `for write` it would refuse.
+        destroy {
+          requires !exists Seal for write as z where z.category == this.category
+          requires exists Seal as z where z.category == this.category
+        }
+      }
+      repository Racks for Rack
+      aggregate Seal with crudish {
+        category: Category id
+      }
+      policy {
+        deny write on Seal
+      }
       // THE FILTER POSITION — every product whose category is shared with `g`,
       // whoever asks.  (It reads `Product`, so the row filter above ANDs in.)
       criterion SharedWith(g: guid) of Product = exists CategoryShare as s where s.category == this.category && s.grantee == g
@@ -117,5 +153,48 @@ system Sharing {
     // deleted outright, which leaves nothing readable.
     api.category_shares.destroy(theirs)
     expect(api.category_shares.all().total).toBe(0)
+  }
+  test e2e "exists in a create gate, an operation gate, an operation when and a destroy gate" against d {
+    let me = "00000000-0000-0000-0000-000000000000"
+    let other = "7b0c1c7e-0000-4000-8000-000000000001"
+    let books = api.categories.create({ name: "Books" })
+
+    // The create gate correlates on the create's own `category` argument and
+    // on the caller: no share, a share to somebody else, and a REVOKED share
+    // to the caller (out of CategoryShare's read scope) all refuse.
+    expect(api.racks.create({ label: "A", category: books.id })).toThrow(403)
+    let theirs = api.category_shares.create({ category: books.id, grantee: other, revoked: false })
+    expect(api.racks.create({ label: "A", category: books.id })).toThrow(403)
+    let stale = api.category_shares.create({ category: books.id, grantee: me, revoked: true })
+    expect(api.racks.create({ label: "A", category: books.id })).toThrow(403)
+    let mine = api.category_shares.create({ category: books.id, grantee: me, revoked: false })
+    let a = api.racks.create({ label: "A", category: books.id })
+    let b = api.racks.create({ label: "B", category: books.id })
+
+    // The operation gate quantifies over Rack itself, with the `to`
+    // argument: another rack's label refuses, the rack's own does not.
+    expect(api.racks.relabel(a, { to: "B" })).toThrow(403)
+    api.racks.relabel(a, { to: "A" })
+    api.racks.relabel(a, { to: "C" })
+    expect(api.racks.getById(a).label).toBe("C")
+
+    // The `when` reads any live share of the rack's category: with both
+    // revoked the operation is not allowed in this state (409), and a new
+    // live share to somebody else is enough again.
+    api.category_shares.update(mine, { category: books.id, grantee: me, revoked: true })
+    api.category_shares.update(theirs, { category: books.id, grantee: other, revoked: true })
+    expect(api.racks.relabel(a, { to: "D" })).toThrow(409)
+    expect(api.racks.getById(a).label).toBe("C")
+    let again = api.category_shares.create({ category: books.id, grantee: other, revoked: false })
+    api.racks.relabel(a, { to: "D" })
+    expect(api.racks.getById(a).label).toBe("D")
+
+    // The destroy gate needs a READABLE seal and no WRITABLE one: with no
+    // seal it refuses; a write-denied seal is readable but never writable.
+    expect(api.racks.destroy(b)).toThrow(403)
+    let seal = api.seals.create({ category: books.id })
+    expect(api.seals.getById(seal).category).toBe(books.id)
+    api.racks.destroy(b)
+    expect(api.racks.getById(b)).toThrow(404)
   }
 }

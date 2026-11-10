@@ -1434,6 +1434,7 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       aggregate,
       binding: expr.binding,
       where: lowerExpr(expr.where, inner),
+      ...(expr.forWrite ? { forWrite: true as const } : {}),
     };
   }
   if (isMatchExpr(expr)) {

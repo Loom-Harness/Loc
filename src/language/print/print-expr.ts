@@ -199,7 +199,7 @@ export function printExpr(node: Expression): string {
     case "MatchExpr":
       return printMatch(node);
     case "ExistsExpr":
-      return `exists ${node.aggregate.$refText} as ${node.binding} where ${printExpr(node.where)}`;
+      return `exists ${node.aggregate.$refText}${node.forWrite ? " for write" : ""} as ${node.binding} where ${printExpr(node.where)}`;
     case "PrimitiveConversion":
       // value is `Expression | undefined` in the generated AST (the
       // grammar's `value=Expression` doesn't force presence — a

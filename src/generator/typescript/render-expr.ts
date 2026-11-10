@@ -200,6 +200,11 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
   // domain-expression position consumes one today; emit a TS array literal
   // so unexpected uses still compile.
   list: (elements) => `[${elements.join(", ")}]`,
+  // An in-app `exists`: the gate's handler holds `db` + `events` (the router's
+  // transactional signature), so the quantified aggregate's repository is
+  // constructed in place, as a workflow does.
+  existsRead: (e, args) =>
+    `((await new ${e.aggregate}Repository(db, events).${e.read.find}(${args.join(", ")})) !== null)`,
 };
 
 export function renderTsExpr(e: ExprIR, ctx: TsRenderContext = DEFAULT): string {

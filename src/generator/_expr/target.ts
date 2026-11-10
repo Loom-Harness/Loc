@@ -2,6 +2,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
+import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { coalesceParts } from "./coalesce.js";
 
 // ---------------------------------------------------------------------------
@@ -227,6 +228,12 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  (`loom.exists-outside-query`), so the dispatcher throws when this is
    *  unset. */
   exists?(e: Extract<ExprIR, { kind: "exists" }>, ctx: Ctx): string;
+  /** An in-app `exists` (a `requires` gate, an operation `when`): a call to
+   *  the synthesized find `e.read` names on the quantified aggregate's
+   *  repository, with `args` (its rendered arguments), tested for a row.  The
+   *  emitter of the gate puts that repository in scope.  Checked before
+   *  `exists`, which renders the query-position subquery. */
+  existsRead?(e: ExistsReadNode, args: string[], ctx: Ctx): string;
   /** Boolean predicate-arms `match { cond => value }` — the original form,
    *  unchanged.  Lowered to the backend's chained-conditional idiom. */
   match(arms: RenderedArm[], otherwise: string | undefined): string;
@@ -432,6 +439,12 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
         "renderExprWith: 'authz-filter' must be handled by the backend's query-filter translator, not the generic expression dispatcher",
       );
     case "exists":
+      if (e.read && t.existsRead)
+        return t.existsRead(
+          e as ExistsReadNode,
+          e.read.args.map((a) => renderExprWith(a, t, ctx)),
+          ctx,
+        );
       if (t.exists) return t.exists(e, ctx);
       throw new Error("renderExprWith: 'exists' is a query predicate, not a domain expression");
   }
