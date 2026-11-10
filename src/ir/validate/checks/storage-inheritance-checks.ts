@@ -7,7 +7,11 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
-import { maskLaunderingEvents } from "../../enrich/mask-taint.js";
+import {
+  carriesFieldMask,
+  maskLaunderingEvents,
+  partDerivedNestedMaskReads,
+} from "../../enrich/mask-taint.js";
 import type { BoundedContextIR, EnrichedLoomModel } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
@@ -190,26 +194,52 @@ export function validateFieldMask(
 ): void {
   const anyBackend = backendPlatforms.size > 0;
   for (const agg of ctx.aggregates) {
-    const masked = agg.fields.filter((f) => f.maskUnless);
-    if (masked.length === 0) continue;
-    for (const f of masked) {
+    if (!carriesFieldMask(agg)) continue;
+    // A contained part's mask is the same caller predicate, evaluated by the
+    // same projection, so it obeys the same rule.
+    const owners = [
+      { name: agg.name, fields: agg.fields },
+      ...agg.parts.map((p) => ({ name: p.name, fields: p.fields })),
+    ];
+    const masked = owners.flatMap((o) =>
+      o.fields.filter((f) => f.maskUnless).map((f) => ({ owner: o.name, f })),
+    );
+    for (const { owner, f } of masked) {
       const offending = firstNonGateRef(f.maskUnless!, GATE_ALLOWED_REFS);
       if (offending !== null) {
         diags.push({
           severity: "error",
           code: "loom.field-mask-not-current-user",
           message: diagMessage("loom.field-mask-not-current-user", {
-            name: agg.name,
+            name: owner,
             fName: f.name,
             offending,
           }),
-          source: `${ctx.name}/${agg.name}.${f.name}`,
+          source: `${ctx.name}/${owner}.${f.name}`,
           origin: f.origin,
         });
       }
     }
+    // A part `derived` reading ANOTHER part's masked member: the part's own
+    // projection knows only its own masks, so the value would ship in the
+    // clear.  Refused until the part projection can carry a nested predicate.
+    for (const hit of partDerivedNestedMaskReads(agg)) {
+      diags.push({
+        severity: "error",
+        code: "loom.field-mask-on-part",
+        message: diagMessage("loom.field-mask-on-part", {
+          part: hit.part,
+          derived: hit.derived,
+          field: hit.via,
+        }),
+        source: `${ctx.name}/${agg.name}.${hit.part}.${hit.derived}`,
+        origin: agg.origin,
+      });
+    }
     if (anyBackend) continue;
-    const names = masked.map((f) => f.name).join(", ");
+    const names = masked
+      .map(({ owner, f }) => (owner === agg.name ? f.name : `${owner}.${f.name}`))
+      .join(", ");
     diags.push({
       severity: "error",
       code: "loom.field-mask-unsupported",
@@ -223,9 +253,7 @@ export function validateFieldMask(
   // may read any field — so a masked aggregate can't be a query-time projection
   // source (it would leak the field past the mask).  An honest bound until
   // projection read-masking lands; the field surface itself stays supported.
-  const maskedAggNames = new Set(
-    ctx.aggregates.filter((a) => a.fields.some((f) => f.maskUnless)).map((a) => a.name),
-  );
+  const maskedAggNames = new Set(ctx.aggregates.filter(carriesFieldMask).map((a) => a.name));
   if (maskedAggNames.size > 0) {
     const launderingEvents = maskLaunderingEvents(ctx);
     for (const proj of ctx.projections) {

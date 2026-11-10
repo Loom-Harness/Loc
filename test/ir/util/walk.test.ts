@@ -199,6 +199,14 @@ function exprCases(): Record<ExprIR["kind"], () => ExprCase> {
       exprChildren: [],
       stmtChildren: [],
     }),
+    exists: () => {
+      const where = sent();
+      return {
+        node: { kind: "exists", aggregate: "X", binding: "x", where },
+        exprChildren: [where],
+        stmtChildren: [],
+      };
+    },
     duration: () => {
       const amount = sent();
       return {

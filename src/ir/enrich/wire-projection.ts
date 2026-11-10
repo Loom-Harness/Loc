@@ -538,6 +538,10 @@ export function wireFieldsForAggregate(agg: AggregateIR): WireField[] {
 }
 
 export function wireFieldsForPart(part: EntityPartIR): WireField[] {
+  // A part's `mask unless` field redacts exactly like a root one, and a part
+  // `derived` computed from it carries its predicate (`mask-taint.ts`).  Every
+  // backend's part projection reads `WireField.maskUnless` here.
+  const masks = maskedReadPredicates(part);
   const out: WireField[] = [
     {
       name: "id",
@@ -554,6 +558,7 @@ export function wireFieldsForPart(part: EntityPartIR): WireField[] {
       optional: f.optional,
       source: "property",
       access: f.access ?? "editable",
+      ...(f.maskUnless ? { maskUnless: f.maskUnless } : {}),
     });
   }
   for (const c of part.contains) {
@@ -572,6 +577,7 @@ export function wireFieldsForPart(part: EntityPartIR): WireField[] {
       optional: d.type.kind === "optional",
       source: "derived",
       access: "editable",
+      ...(masks.has(d.name) ? { maskUnless: masks.get(d.name)! } : {}),
     });
   }
   return out;
@@ -602,6 +608,41 @@ export function wireFieldsForValueObject(vo: ValueObjectIR): WireField[] {
     });
   }
   return out;
+}
+
+/** Where a response serializer redacts: the masked wire members of one entity
+ *  (each nulled unless the caller satisfies its predicate) and the
+ *  containments whose part carries a mask somewhere below.  The one derivation
+ *  every map-shaped backend serializer (node, python, elixir) walks; the
+ *  record-shaped ones (.NET, java) reach the same members through their
+ *  per-part projection reading `WireField.maskUnless`. */
+export interface WireMaskPlan {
+  fields: { name: string; pred: ExprIR }[];
+  nested: { name: string; collection: boolean; plan: WireMaskPlan }[];
+}
+
+/** The redaction plan of an aggregate or part over its API-read wire shape, or
+ *  undefined when nothing on it (or under it) is masked. */
+export function wireMaskPlan(
+  ent: AggregateIR | EntityPartIR,
+  parts: readonly EntityPartIR[],
+  seen: ReadonlySet<string> = new Set(),
+): WireMaskPlan | undefined {
+  if (seen.has(ent.name)) return undefined;
+  const inner = new Set([...seen, ent.name]);
+  const wire = forApiRead(wireFieldsFor(ent));
+  const fields = wire
+    .filter((wf) => wf.maskUnless !== undefined && wf.source !== "containment")
+    .map((wf) => ({ name: wf.name, pred: wf.maskUnless! }));
+  const nested: WireMaskPlan["nested"] = [];
+  for (const wf of wire) {
+    if (wf.source !== "containment") continue;
+    const el = wf.type.kind === "array" ? wf.type.element : wf.type;
+    const part = el.kind === "entity" ? parts.find((p) => p.name === el.name) : undefined;
+    const plan = part ? wireMaskPlan(part, parts, inner) : undefined;
+    if (plan) nested.push({ name: wf.name, collection: wf.type.kind === "array", plan });
+  }
+  return fields.length === 0 && nested.length === 0 ? undefined : { fields, nested };
 }
 
 /** Recompute the canonical wire shape for an aggregate / part / value object,

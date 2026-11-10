@@ -40,7 +40,7 @@ export interface PaneSourceCtx {
   onSourceChange: (text: string, origin?: "editor" | "builder", label?: string) => void;
   /** Bumped on every editor keystroke; debounced into `liveTick`. */
   editorSourceTick: number;
-  initialSource: string;
+  seedRevision: number;
   activeSourcePath: string;
   sourceEpoch: number;
 }
@@ -108,7 +108,7 @@ const UNNAMED = "Apply";
 /** Frozen stand-in for the external-reseed inputs when a pane opts out.  The
  *  hook still runs (rules of hooks) but never observes a change, so it never
  *  bumps and never re-renders the pane. */
-const NO_EXTERNAL_RESEED = { initialSource: "", activeSourcePath: "", sourceEpoch: 0 };
+const NO_EXTERNAL_RESEED = { seedRevision: 0, activeSourcePath: "", sourceEpoch: 0 };
 
 export function usePaneHarness<A extends unknown[] = []>(
   ctx: PaneSourceCtx,
@@ -130,7 +130,7 @@ export function usePaneHarness<A extends unknown[] = []>(
   const liveTick = useLiveSourceTick(ctx.editorSourceTick);
   const external = options.externalReseed === false ? NO_EXTERNAL_RESEED : ctx;
   const externalTick = useExternalSourceTick(
-    external.initialSource,
+    external.seedRevision,
     external.activeSourcePath,
     external.sourceEpoch,
   );

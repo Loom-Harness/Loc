@@ -1040,6 +1040,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
     // type-zero seed and needs no `record` prop — so answering `true` here would
     // thread a prop nothing reads.  The two vocabularies must move together,
     // which is what the `never` below enforces.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":

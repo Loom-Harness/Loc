@@ -89,7 +89,7 @@ export interface Env {
   locals: Map<
     string,
     {
-      kind: "param" | "let" | "lambda" | "match-binding";
+      kind: "param" | "let" | "lambda" | "match-binding" | "row";
       type: TypeIR;
       /** True when this local holds a repository union-find result — an
        *  absence-shaped runtime value (bare aggregate-or-absent, never the
@@ -237,7 +237,7 @@ export interface ResultGuard {
 export function withLocal(
   env: Env,
   name: string,
-  kind: "param" | "let" | "lambda" | "match-binding",
+  kind: "param" | "let" | "lambda" | "match-binding" | "row",
   type: TypeIR,
   opts?: { absenceUnion?: boolean; resultGuard?: ResultGuard },
 ): Env {
@@ -299,6 +299,7 @@ export interface ScopeCandidate {
     | "let"
     | "lambda"
     | "match-binding"
+    | "row"
     | "property"
     | "derived"
     | "helper-fn"

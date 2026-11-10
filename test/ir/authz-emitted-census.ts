@@ -38,7 +38,11 @@
 // over `generateSystems` output — no boot, no docker.
 
 import { maskedReadPredicates } from "../../src/ir/enrich/mask-taint.js";
-import { forApiRead, wireFieldsForAggregate } from "../../src/ir/enrich/wire-projection.js";
+import {
+  forApiRead,
+  wireFieldsForAggregate,
+  wireFieldsForPart,
+} from "../../src/ir/enrich/wire-projection.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -1585,6 +1589,10 @@ export interface MaskFact {
   readonly fields: readonly string[];
   /** The string constants every masked field's predicate renders. */
   readonly markers: readonly string[];
+  /** Each contained part carrying masked wire fields of its own.  Every
+   *  backend but java inlines the part's redaction into the root serializer;
+   *  java gives the part record its own `fromMasked`. */
+  readonly parts: readonly { readonly name: string; readonly fields: readonly string[] }[];
 }
 
 export function maskFacts(model: LoomModel): MaskFact[] {
@@ -1598,9 +1606,19 @@ export function maskFacts(model: LoomModel): MaskFact[] {
           const masks = maskedReadPredicates(agg);
           const wire = new Set(forApiRead(wireFieldsForAggregate(agg)).map((w) => w.name));
           const masked = [...masks].filter(([name]) => wire.has(name));
-          if (masked.length === 0) continue;
+          const parts = agg.parts
+            .map((p) => ({
+              name: p.name,
+              wire: forApiRead(wireFieldsForPart(p)).filter((w) => w.maskUnless !== undefined),
+            }))
+            .filter((p) => p.wire.length > 0);
+          if (masked.length === 0 && parts.length === 0) continue;
           const markers = new Set<string>();
-          for (const [, pred] of masked) {
+          const preds = [
+            ...masked.map(([, pred]) => pred),
+            ...parts.flatMap((p) => p.wire.map((w) => w.maskUnless!)),
+          ];
+          for (const pred of preds) {
             walkExprDeep(pred, (n) => {
               if (n.kind === "literal" && n.lit === "string")
                 markers.add(n.value.replace(/^"|"$/g, ""));
@@ -1610,6 +1628,7 @@ export function maskFacts(model: LoomModel): MaskFact[] {
             aggregate: agg.name,
             fields: masked.map(([name]) => name),
             markers: [...markers],
+            parts: parts.map((p) => ({ name: p.name, fields: p.wire.map((w) => w.name) })),
           });
         }
       }
@@ -1624,6 +1643,11 @@ interface MaskLocator {
   readonly masked: (agg: string) => RegExp;
   /** Inline constructions end at the statement, not the scope. */
   readonly maskedIsStatement?: boolean;
+  /** A backend whose contained part has its OWN redacting mapper: the call the
+   *  root's masked serializer must make into it… */
+  readonly partRecord?: (part: string) => RegExp;
+  /** …and where that mapper starts. */
+  readonly partMapper?: (part: string) => RegExp;
   /** A USE of the raw serializer for `agg`. */
   readonly rawUse: (agg: string) => RegExp;
   /** The line of a raw use that makes it an audit SNAPSHOT (allowed). */
@@ -1638,7 +1662,9 @@ const MASK_LOCATORS: Record<VariantId, MaskLocator> = {
   dotnet: csMask(),
   dapper: csMask(),
   java: {
-    masked: () => /\bstatic\s+\w+\s+fromMasked\(/,
+    masked: (agg) => new RegExp(`\\bstatic\\s+${esc(agg)}Response\\s+fromMasked\\(`),
+    partRecord: (part) => new RegExp(`\\b${esc(part)}Response(?:::|\\.)fromMasked\\b`),
+    partMapper: (part) => new RegExp(`\\bstatic\\s+${esc(part)}Response\\s+fromMasked\\(`),
     rawUse: (agg) => new RegExp(`\\b${esc(agg)}Response(?:\\.from|::from)\\b(?!Masked)`),
     snapshot: /\bvar\s+__(?:before|after)\s*=/,
     historyKey: (f) => new RegExp(`snapshotValue\\([^,]+,\\s*"${esc(f)}"\\)`),
@@ -1726,11 +1752,41 @@ export function maskSweep(
         const window = text.slice(at, end);
         maskedSpans.push([at, end]);
         masked++;
+        // Every masked field the window must redact: the root's, plus each
+        // contained part's where the backend inlines the part's redaction.
+        const expected =
+          fact.fields.length +
+          (m.partRecord ? 0 : fact.parts.reduce((n, p) => n + p.fields.length, 0));
         for (const marker of fact.markers) {
-          if (count(window, `"${marker}"`) < fact.fields.length) {
+          if (count(window, `"${marker}"`) < expected) {
             findings.push(
-              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${fact.fields.length} masked field(s)`,
+              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${expected} masked field(s)`,
             );
+          }
+        }
+        // A part with its own redacting mapper must be the one the root's
+        // redacting mapper projects through.
+        for (const p of m.partRecord ? fact.parts : []) {
+          if (!m.partRecord!(p.name).test(window)) {
+            findings.push(
+              `M1 ${variant} ${fact.aggregate}: masked serializer at ${short}:${lineOf(text, at)} projects part ${p.name} unmasked`,
+            );
+          }
+        }
+      }
+      // M1 (part records) — each part's own redacting mapper carries every
+      // masked field's predicate.
+      for (const p of m.partMapper ? fact.parts : []) {
+        for (const hit of text.matchAll(new RegExp(m.partMapper!(p.name).source, "gm"))) {
+          const at = hit.index ?? 0;
+          const window = text.slice(at, scopeAt(scopes, at + 1).end);
+          masked++;
+          for (const marker of fact.markers) {
+            if (count(window, `"${marker}"`) < p.fields.length) {
+              findings.push(
+                `M1 ${variant} ${fact.aggregate}.${p.name}: masked part mapper at ${short}:${lineOf(text, at)} carries "${marker}" ${count(window, `"${marker}"`)}× for ${p.fields.length} masked field(s)`,
+              );
+            }
           }
         }
       }

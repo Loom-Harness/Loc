@@ -3,9 +3,10 @@
 // Monaco and the in-browser generator are all that runs; nothing bundles or
 // boots.
 //
-// Six proofs, one per acceptance line:
+// Proofs, one per acceptance line:
 //   1. a `loom.bare-aggregate-in-type` row offers **Fix**, and applying it
-//      drops the error count to 0 (the mutation-proof assertion);
+//      drops the error count to 0 (the mutation-proof assertion) — and the
+//      editor's own quick-fix menu offers the same fix;
 //   2. `F8` moves the cursor to the problem's line and announces it;
 //   3. ⌘K → "Generate" runs generate (the strip's segment goes ok);
 //   4. the first-run card shows on a fresh profile and not after dismissal;
@@ -84,6 +85,32 @@ test("a Problems row with a fix-hint provider offers Fix, and applying it clears
   await expect.poll(() => readEditorSource(page)).toContain("customer: Customer id");
   await expect(page.getByTestId("pipeline-count-validate")).toHaveText("0 errors", { timeout: 30_000 });
   await expect(page.getByTestId("problems-empty")).toBeVisible();
+});
+
+// The lightbulb is the language-server worker's: the client registers its
+// code-action provider, and no main-thread provider exists (a main-thread
+// one validates per keystroke — #5011).  So this is the proof the worker's
+// quick fix reaches the editor and applies.
+test("the editor's quick-fix menu offers the worker's fix for a hinted diagnostic", async ({ page }) => {
+  await page.goto("/");
+  await waitForPlaygroundReady(page);
+  await setSource(page, BARE);
+  await expect(page.getByTestId("pipeline-count-validate")).toHaveText("1 error", { timeout: 30_000 });
+
+  // Caret on the offending line (line 2); the lightbulb appears once the
+  // worker has answered the cursor's code-action request.
+  await page.locator(".monaco-editor .view-line").nth(1).click();
+  await page.locator(".monaco-editor .lightBulbWidget").click();
+  const fix = page.locator(".action-widget").getByText("Reference the aggregate by id");
+  await expect(fix).toBeVisible();
+  // One entry: the worker's provider is the only one.  It is the menu's first
+  // (focused) row; Enter applies it — a pointer click lands on Monaco's
+  // context-view pointer block.
+  await expect(fix).toHaveCount(1);
+  await page.keyboard.press("Enter");
+
+  await expect.poll(() => readEditorSource(page)).toContain("customer: Customer id");
+  await expect(page.getByTestId("pipeline-count-validate")).toHaveText("0 errors", { timeout: 30_000 });
 });
 
 test("F8 moves the cursor to the problem's line and announces it", async ({ page }) => {

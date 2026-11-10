@@ -412,6 +412,26 @@ app.MapGet("/ready", async (AppDbContext db, CancellationToken cancellationToken
 // http_requests_total / http_request_duration_seconds recorded by
 // RequestLoggingMiddleware) as the text exposition at /metrics.
 app.MapMetrics();
+// Baseline security headers on every response (API answers, problem
+// documents, the OpenAPI document, the embedded SPA).  Strict-Transport-
+// Security only while LOOM_SECURE_TRANSPORT is on (the default); the local compose
+// stack serves plain http and turns it off.
+var loomSecureTransport = (Environment.GetEnvironmentVariable("LOOM_SECURE_TRANSPORT") ?? "").Trim().ToLowerInvariant()
+    is not ("false" or "0" or "off" or "no");
+app.Use(async (HttpContext http, RequestDelegate next) =>
+{
+    http.Response.OnStarting(() =>
+    {
+        var headers = http.Response.Headers;
+        headers["X-Content-Type-Options"] = "nosniff";
+        headers["X-Frame-Options"] = "DENY";
+        headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+        if (loomSecureTransport) headers["Strict-Transport-Security"] = "max-age=31536000";
+        return Task.CompletedTask;
+    });
+    await next(http);
+});
 // Ambient execution context — births the RequestContext (correlation id,
 // locale, start time, scope id) and opens the root frame.  Mounted FIRST so
 // the frame covers the entire pipeline: the request log below rides its

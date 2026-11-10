@@ -109,7 +109,7 @@ export function renderDapperTphBaseReaderImpl(
   const scopeClass = `${base.name}Scope`;
   const where = sqls.length > 0 ? ` WHERE ${scopeMarker(scopeClass, "Polymorphic")}` : "";
   const andWhere = sqls.length > 0 ? ` AND ${scopeMarker(scopeClass, "Polymorphic")}` : "";
-  const refs = collectFilterPrincipalRefs(exprs);
+  const refs = collectFilterPrincipalRefs(exprs, ctx.aggregates);
   const princ = principalFields(refs, AMBIENT);
   const princSuffix = princ.length > 0 ? `, ${princ.join(", ")}` : "";
   const princObj = princ.length > 0 ? `new { ${princ.join(", ")} }` : "null";

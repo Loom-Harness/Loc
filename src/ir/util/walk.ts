@@ -97,6 +97,11 @@ export function walkExprChildren(e: ExprIR, v: ExprChildVisitor): void {
     case "authz-filter":
       // Authorization sentinel: every decision (`deny`) is a childless leaf.
       break;
+    case "exists":
+      // The quantified predicate — it reads the bound row, the enclosing row,
+      // params and the principal, all of which a collector must see.
+      expr?.(e.where);
+      break;
     case "paren":
       expr?.(e.inner);
       break;
@@ -303,6 +308,8 @@ export function mapExprChildren(e: ExprIR, f: (child: ExprIR) => ExprIR): ExprIR
       return { ...e, elements: e.elements.map(f) };
     case "authz-filter":
       return e;
+    case "exists":
+      return { ...e, where: f(e.where) };
     case "paren":
       return { ...e, inner: f(e.inner) };
     case "unary":

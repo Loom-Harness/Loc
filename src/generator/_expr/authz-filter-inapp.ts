@@ -72,6 +72,7 @@ export function desugarAuthzFilterInApp(e: ExprIR, aggName: string): ExprIR {
     // the defensive envelope around a hand-composed conjunction.  Named rather
     // than left to a `default:` so a new `ExprIR` kind that could CARRY a
     // predicate (a future `match`-shaped filter, say) is a `tsc` error here.
+    case "exists":
     case "action-ref":
     case "call":
     case "convert":
@@ -116,6 +117,7 @@ export function hasAuthzFilter(e: ExprIR): boolean {
     // Cannot contain a sentinel — same construction argument as
     // {@link desugarAuthzFilterInApp}; the two switches must stay arm-for-arm
     // identical, which is what the `never` below enforces.
+    case "exists":
     case "action-ref":
     case "call":
     case "convert":

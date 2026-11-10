@@ -22,6 +22,7 @@ import type {
   StorageOpenResult,
 } from "./infra-protocol.js";
 import { InfraRouter } from "./infra/router.js";
+import { openOpfsBlobStore } from "./infra/persist.js";
 import { createServices } from "./infra/services.js";
 import { errText } from "./migrate.js";
 
@@ -147,6 +148,7 @@ async function storage(req: StorageOp, ports: readonly MessagePort[]): Promise<u
 
 const router = new InfraRouter({
   createServices,
+  openBlobStore: openOpfsBlobStore,
   storage,
   async detachStorages(client) {
     await Promise.all([...storages.values()].map((h) => h.call({ op: "detach", client }).catch(() => undefined)));

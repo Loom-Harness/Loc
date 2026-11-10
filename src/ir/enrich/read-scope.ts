@@ -31,6 +31,7 @@
 // Where ids are UUIDv7 (node), `id` order also tracks creation order.
 
 import type { AggregateIR, ExprIR, SortTermIR, TypeIR } from "../types/loom-ir.js";
+import { exprUsesCurrentUser } from "../types/loom-ir.js";
 import {
   type AggPool,
   baseOf,
@@ -47,6 +48,7 @@ import {
   TENANT_OWNED_CAPABILITY,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../util/tenant-stance.js";
+import { walkExprDeep } from "../util/walk.js";
 
 /** What a restriction is.
  *
@@ -404,4 +406,59 @@ export function polymorphicReadFor(
     variants,
     order: readOrderFor(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// `exists <Agg> as s where …` — the quantified aggregate's read scope.
+//
+// Every backend renders the quantifier as an EXISTS subquery that carries the
+// quantified aggregate's own restrictions (tenant floor, capability filters,
+// deny), so an `exists` never sees a row its caller could not read.  These two
+// helpers are the one place that scope is read, and the one place a renderer
+// asks whether a predicate needs the request principal once those inner
+// restrictions are counted.
+// ---------------------------------------------------------------------------
+
+/** The read restrictions an `exists` over `aggregate` ANDs into its subquery:
+ *  every predicate a plain read of it applies.  Empty when `aggregate` is not
+ *  in `pool` (the validator has refused that quantifier). */
+export function existsScopePredicates(aggregate: string, pool: AggPool): ExprIR[] {
+  const agg = pool.find((a) => a.name === aggregate);
+  if (!agg) return [];
+  return readFilterRestrictions(readScopeFor(agg, pool)).map((r) => r.predicate);
+}
+
+/** `exprUsesCurrentUser`, counting the read scope every `exists` inside `e`
+ *  carries: a predicate that names no principal itself still needs one when it
+ *  quantifies over a tenant-scoped aggregate. */
+export function exprReadsPrincipal(e: ExprIR | undefined, pool: AggPool): boolean {
+  return readsPrincipal(e, pool, new Set());
+}
+
+function readsPrincipal(e: ExprIR | undefined, pool: AggPool, seen: Set<string>): boolean {
+  if (exprUsesCurrentUser(e)) return true;
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (found || x.kind !== "exists" || seen.has(x.aggregate)) return;
+    seen.add(x.aggregate);
+    found = existsScopePredicates(x.aggregate, pool).some((p) => readsPrincipal(p, pool, seen));
+  });
+  return found;
+}
+
+/** `exprs` plus the read scope of every `exists` inside them (transitively,
+ *  each quantified aggregate once) — for a renderer that collects what a
+ *  predicate BINDS (principal parameters) and must see the restrictions the
+ *  subqueries carry, which are not children of the predicate itself. */
+export function withExistsScopes(exprs: readonly ExprIR[], pool: AggPool): ExprIR[] {
+  const out = [...exprs];
+  const seen = new Set<string>();
+  for (let i = 0; i < out.length; i++) {
+    walkExprDeep(out[i], (x) => {
+      if (x.kind !== "exists" || seen.has(x.aggregate)) return;
+      seen.add(x.aggregate);
+      out.push(...existsScopePredicates(x.aggregate, pool));
+    });
+  }
+  return out;
 }

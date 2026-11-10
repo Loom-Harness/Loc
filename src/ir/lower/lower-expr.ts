@@ -33,6 +33,7 @@ import {
   isDerivedProp,
   isEntityPart,
   isEnumDecl,
+  isExistsExpr,
   isFunctionDecl,
   isIdRef,
   isIntLit,
@@ -1427,6 +1428,19 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       env,
       env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE },
     );
+  }
+  if (isExistsExpr(expr)) {
+    // `exists <Agg> as s where p` — `s` binds one row of `<Agg>` (a `row`
+    // local, so `s.field` lowers to an ordinary typed `member`); the enclosing
+    // row stays `this`, so bare names keep resolving against the owner.
+    const aggregate = expr.aggregate?.ref?.name ?? expr.aggregate?.$refText ?? "";
+    const inner = withLocal(env, expr.binding, "row", { kind: "entity", name: aggregate });
+    return {
+      kind: "exists",
+      aggregate,
+      binding: expr.binding,
+      where: lowerExpr(expr.where, inner),
+    };
   }
   if (isMatchExpr(expr)) {
     // Variant form (`match SUBJECT { VariantType binding => value }`,

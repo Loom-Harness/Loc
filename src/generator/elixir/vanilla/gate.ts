@@ -47,12 +47,16 @@ export function renderGateCondition(gate: ExprIR, render: (g: ExprIR) => string)
   return isAlwaysDenyGate(gate) ? ELIXIR_ALWAYS_DENY : render(gate);
 }
 
-/** The hoisted gates the generic merge-patch `update` seam evaluates — the
- *  `mask unless` write gates (`src/ir/enrich/mask-taint.ts`).  Shared by the
- *  context seam, the REST action and the LiveView edit form, so the seam's
- *  arity (it takes `current_user` when gated) cannot drift between them.
- *  Empty for any other operation. */
+/** The hoisted gates the generic merge-patch `update` seam evaluates: the
+ *  operation's own `requires` gates (header, `with crudish(requires: …)`) and
+ *  the `mask unless` write gates (`src/ir/enrich/mask-taint.ts`).  Shared by
+ *  the context seam, the REST action and the LiveView edit form, so the seam's
+ *  arity (it takes `current_user` when gated) cannot drift between them.  An
+ *  always-true `requires` is dropped (see {@link isAlwaysPublicGate}); empty
+ *  for any other operation. */
 export function updateSeamGates(op: OperationIR | undefined): RequiresStmtIR[] {
   if (op?.name !== "update" || !mergePatchFields(op)) return [];
-  return operationGates(op).filter((g) => g.maskWriteOf !== undefined);
+  return operationGates(op).filter(
+    (g) => g.maskWriteOf !== undefined || !isAlwaysPublicGate(g.expr),
+  );
 }

@@ -31,6 +31,7 @@ import {
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
+import { quantifiesOver } from "./capability-filter.js";
 import { namedRoutesToResidual, renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import { partConstraintLines } from "./changeset-validators.js";
 import {
@@ -512,6 +513,7 @@ function renderSchema(
   // restrictions ride `Repo.prepare_query/3` (read-scope-emit.ts).
   const readScopeBlock = renderSchemaReadScope(
     ectoReadScope(agg, pool, `${appModule}.${ctxModule}`),
+    !!ctx && quantifiesOver(agg, ctx),
   );
 
   return `# Auto-generated.

@@ -1,3 +1,4 @@
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import {
   destroyVersionCheck,
@@ -156,7 +157,7 @@ export function renderJavaService(
   // A `mask unless` aggregate projects RESPONSE reads through the redacting
   // `fromMasked` mapper (authorization.md §5); audit before/after snapshots keep
   // the unmasked `from`.  Byte-identical (`from`) when no field is masked.
-  const respFrom = agg.fields.some((f) => f.maskUnless) ? "fromMasked" : "from";
+  const respFrom = carriesFieldMask(agg) ? "fromMasked" : "from";
 
   // --- create -----------------------------------------------------------------
   // Event-sourced aggregates are constructible through their `create`

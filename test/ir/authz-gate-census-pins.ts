@@ -187,6 +187,16 @@ export const R = {
     "surface look covered while its `requires` went unexercised, so the cross-tenant rung is " +
     "deliberately not a refusal arm here" +
     REDIRECTED_TO_EMITTED_CENSUS,
+  /** UNREACHABLE (harness identity).  A row filter keyed on `currentUser.id`
+   *  (`exists Share as s where s.grantee == currentUser.id`): both harness
+   *  identities carry the dev stub's built-in zero-guid id, so neither can be
+   *  refused by it.  The refused side is asserted by the fixture itself — a
+   *  row its filter hides reads `toThrow(404)`. */
+  sharedPrincipalId:
+    "row filter keyed on `currentUser.id`, which both harness identities share (the dev stub's " +
+    "zero guid), so neither can be refused by it; the fixture's own `toThrow(404)` reads of a " +
+    "hidden row assert the refused side" +
+    REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (shape).  A read mask redacts a FIELD inside a 200; there is no
    *  refusal status to assert.  Nor are the two identities distinguishable here
    *  — neither carries the unmasking claim. */
@@ -336,6 +346,14 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
   },
+  "corpus/exists-quantifier": {
+    "create POST /api/products": R.sharedPrincipalId,
+    "getById GET /api/products/{id}": R.sharedPrincipalId,
+    "destroy DELETE /api/products/{id}": R.sharedPrincipalId,
+    "operation POST /api/products/{id}/update": R.sharedPrincipalId,
+    "find GET /api/products": R.sharedPrincipalId,
+    "explicitHandler GET /api/products/shared_with/{g}": R.sharedPrincipalId,
+  },
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
     "find GET /api/accounts": R.sharedTenancyIdentity,
@@ -476,6 +494,7 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   maskIsNotAStatus: 7,
+  sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,

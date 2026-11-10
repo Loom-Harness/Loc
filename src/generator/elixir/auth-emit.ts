@@ -14,6 +14,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { claimPathFor } from "../_auth/claim-types.js";
@@ -1271,8 +1272,8 @@ ${me}
           })
 
         conn
-        |> put_resp_cookie("oidc_state", state, http_only: true, same_site: "Lax")
-        |> put_resp_cookie("oidc_verifier", verifier, http_only: true, same_site: "Lax")
+        |> put_resp_cookie("oidc_state", state, cookie_opts())
+        |> put_resp_cookie("oidc_verifier", verifier, cookie_opts())
         |> redirect(external: authorize <> "?" <> query)
 
       _ ->
@@ -1346,19 +1347,22 @@ ${me}
   # Persist the access token as the browser session and the refresh token (when
   # the IdP granted one) for /refresh.  Both HttpOnly — the SPA never sees them.
   defp store_tokens(conn, tokens) do
-    conn =
-      put_resp_cookie(conn, "session", Map.get(tokens, "access_token", ""),
-        http_only: true,
-        same_site: "Lax"
-      )
+    conn = put_resp_cookie(conn, "session", Map.get(tokens, "access_token", ""), cookie_opts())
 
     case Map.get(tokens, "refresh_token") do
       refresh when is_binary(refresh) and refresh != "" ->
-        put_resp_cookie(conn, "refresh", refresh, http_only: true, same_site: "Lax")
+        put_resp_cookie(conn, "refresh", refresh, cookie_opts())
 
       _ ->
         conn
     end
+  end
+
+  # HttpOnly, SameSite=Lax (the IdP's redirect back to /callback still carries
+  # them), and Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack
+  # serves plain http), so the tokens never ride cleartext in a TLS deployment.
+  defp cookie_opts do
+    [http_only: true, same_site: "Lax", secure: ${webModule}.SecurityHeaders.secure_transport?()]
   end
 
   # --- OIDC config (read at runtime) -----------------------------------------

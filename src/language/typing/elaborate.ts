@@ -89,6 +89,7 @@ import {
   isEntityPart,
   isEnumDecl,
   isEventDecl,
+  isExistsExpr,
   isExpression,
   isForStmt,
   isFunctionDecl,
@@ -162,6 +163,8 @@ export type BindingKind =
   | "let"
   | "lambda"
   | "match"
+  /** The row an `exists <Agg> as <row> where …` quantifies over. */
+  | "row"
   | "event-param"
   | "state"
   | "derived"
@@ -674,6 +677,20 @@ export class Elaborator {
       return acc ?? Ty.unknown("no-rule");
     }
     if (isLambda(e)) return this.synthLambda(e, scope, scope.frame.rowElem).self;
+    if (isExistsExpr(e)) {
+      // `exists <Agg> as s where p` — `s` is one row of `<Agg>`; the enclosing
+      // row stays `this`, so the frame (owner, candidate alias) is unchanged.
+      const agg = e.aggregate?.ref;
+      const rowScope = scope.child();
+      rowScope.bind(
+        e.binding,
+        agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
+        e,
+        "row",
+      );
+      if (e.where) this.synth(e.where, rowScope);
+      return Ty.prim("bool");
+    }
     if (isListLit(e)) {
       let acc: Ty | undefined;
       for (const el of e.elements) {

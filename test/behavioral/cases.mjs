@@ -293,7 +293,40 @@ export function unauthorizedCredentials(authMode, unauthorizedToken) {
 export const AUTHZ_LADDERS = {
   "auth-simple": {
     seed: { path: "/api/tickets", body: { subject: "authz ladder probe", open: true } },
-    gated: { method: "POST", path: "/api/tickets/{id}/close", body: {} },
+    gated: [
+      { label: "named operation gate", method: "POST", path: "/api/tickets/{id}/close", body: {} },
+      // The generic `update` route carries its operation's `requires` too: a
+      // backend that hoists the gate only into named operations lets the
+      // second identity rewrite the row here.
+      {
+        label: "generic update gate — hand-written header `requires`",
+        seed: { path: "/api/memos", body: { body: "ladder" } },
+        method: "POST",
+        path: "/api/memos/{id}/update",
+        body: { body: "rewritten" },
+      },
+      {
+        label: "generic update gate — `crudish(requires: Policy)`",
+        seed: { path: "/api/notes", body: { text: "ladder" } },
+        method: "POST",
+        path: "/api/notes/{id}/update",
+        body: { text: "rewritten" },
+      },
+      // The same policy gates the macro's other two members.
+      {
+        label: "`crudish(requires: Policy)` create",
+        method: "POST",
+        path: "/api/notes",
+        body: { text: "ladder create" },
+        arms: { anonymous: null, unauthorized: 403, authorized: 201 },
+      },
+      {
+        label: "`crudish(requires: Policy)` destroy",
+        seed: { path: "/api/notes", body: { text: "ladder destroy" } },
+        method: "DELETE",
+        path: "/api/notes/{id}",
+      },
+    ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },

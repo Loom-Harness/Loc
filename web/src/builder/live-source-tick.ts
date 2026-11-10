@@ -25,3 +25,28 @@ export function reseedDecision(baseline: number | null, tick: number): ReseedDec
   if (baseline === null) return "baseline";
   return tick > baseline ? "schedule" : "ignore";
 }
+
+/** Seed-revision state: the last `initialSource` observed and the revision
+ *  counter.  `initialSource` follows the workspace store, so a keystroke
+ *  changes it too; the revision must advance only when the editor was
+ *  reseeded onto text the editor itself did not just write. */
+export interface SeedRevision {
+  seen: string;
+  rev: number;
+}
+
+/** Next seed revision.  A change to `initialSource` that equals the text the
+ *  editor last emitted (`lastWritten`) is the store echoing a keystroke — it
+ *  reaches the panes through the debounced live tick only.  Any other change
+ *  (tab switch, example import, workspace switch, history restore) bumps. */
+export function nextSeedRevision(
+  state: SeedRevision,
+  initialSource: string,
+  lastWritten: string | null,
+): SeedRevision {
+  if (initialSource === state.seen) return state;
+  return {
+    seen: initialSource,
+    rev: initialSource === lastWritten ? state.rev : state.rev + 1,
+  };
+}

@@ -40,6 +40,7 @@
 // ---------------------------------------------------------------------------
 
 import {
+  exprReadsPrincipal,
   type ReadRestriction,
   readFilterRestrictions,
   readScopeFor,
@@ -261,8 +262,11 @@ export interface RestrictionHost {
 const EMPTY_HOST: RestrictionHost = { sqlRestriction: [], filters: [] };
 
 /** True for a restriction a static SQL fragment can carry. */
-function isStaticRestriction(r: ReadRestriction): r is ReadRestriction & { predicate: ExprIR } {
-  return r.predicate !== undefined && !exprUsesCurrentUser(r.predicate);
+function isStaticRestriction(
+  r: ReadRestriction,
+  pool: readonly AggregateIR[],
+): r is ReadRestriction & { predicate: ExprIR } {
+  return r.predicate !== undefined && !exprReadsPrincipal(r.predicate, pool);
 }
 
 /** The TPH root a concrete shares its table with, or undefined. */
@@ -291,6 +295,9 @@ export function restrictionHostFor(
   enumsPkg = "domain.enums",
   /** See `promotedCapabilities`. */
   hosted: readonly BoundedContextIR[] = [ctx],
+  /** The Postgres schema the context's tables live in — qualifies the table an
+   *  `exists` subquery reads (a native fragment, past the entity mapping). */
+  schema?: string,
 ): RestrictionHost {
   const pool = ctx.aggregates;
   if (isTphConcrete(agg, pool)) return EMPTY_HOST;
@@ -331,15 +338,15 @@ export function restrictionHostFor(
     byName.set(name, cur);
   };
   const addPrincipal = (owner: string, r: ReadRestriction, kind?: string): void => {
-    const { condition, params } = renderSqlFilterCondition(r.predicate!, enumsPkg);
+    const { condition, params } = renderSqlFilterCondition(r.predicate!, enumsPkg, pool, schema);
     addFilter(`${owner}_${r.capability ?? "filter"}`, r.capability, condition, kind, params);
   };
   for (const r of readFilterRestrictions(scope)) {
-    if (!isStaticRestriction(r)) {
+    if (!isStaticRestriction(r, pool)) {
       addPrincipal(agg.name, r);
       continue;
     }
-    const frag = renderSqlRestriction(r.predicate);
+    const frag = renderSqlRestriction(r.predicate, pool, schema);
     if (r.capability !== undefined && promoted.has(r.capability)) {
       addFilter(r.capability, r.capability, frag);
     } else sqlRestriction.push(frag);
@@ -349,11 +356,11 @@ export function restrictionHostFor(
   const guardedStatic = new Map<string, string[]>();
   for (const { discriminator, restriction: r } of scope.subtypeRestrictions) {
     if (r.predicate === undefined) continue;
-    if (!isStaticRestriction(r)) {
+    if (!isStaticRestriction(r, pool)) {
       addPrincipal(discriminator, r, discriminator);
       continue;
     }
-    const frag = renderSqlRestriction(r.predicate);
+    const frag = renderSqlRestriction(r.predicate, pool, schema);
     if (r.capability !== undefined && promoted.has(r.capability)) {
       addFilter(`${discriminator}_${r.capability}`, r.capability, frag, discriminator);
     } else {
@@ -367,7 +374,12 @@ export function restrictionHostFor(
   const writers = tphRoot ? tphConcretesOf(agg, pool) : [agg];
   for (const w of writers) {
     if (!w.writeScopeFilter) continue;
-    const { condition, params } = renderSqlFilterCondition(w.writeScopeFilter, enumsPkg);
+    const { condition, params } = renderSqlFilterCondition(
+      w.writeScopeFilter,
+      enumsPkg,
+      pool,
+      schema,
+    );
     const kind = tphRoot ? w.name : undefined;
     addFilter(`${w.name}${WRITE_SCOPE_SUFFIX}`, undefined, condition, kind, params);
   }

@@ -151,7 +151,7 @@ end
 
 ## `auth: required` — per-deployable middleware + verifier seam
 
-The `user` block declares the shape; `auth: required` on a **deployable** opts it into the decode middleware. Without it the deployable stays open. With it but no `user` block, `loom.auth-no-user-block` fires (the sibling `loom.auth-without-user` is the *auth-block-without-user* case). The middleware decodes the token via the verifier hook, stashes the principal on the request context, and 401s on failure. A shared bypass list (`/health`, `/ready`, `/openapi.json`, `/swagger`, the OIDC handshake paths) keeps framework endpoints anonymous so smoke tests and the OpenAPI parity check work without tokens.
+The `user` block declares the shape; `auth: required` on a **deployable** opts it into the decode middleware. Without it the deployable stays open. With it but no `user` block, `loom.auth-no-user-block` fires (the sibling `loom.auth-without-user` is the *auth-block-without-user* case). The middleware decodes the token via the verifier hook, stashes the principal on the request context, and 401s on failure. A shared bypass list (`/health`, `/ready`, `/openapi.json`, `/swagger`, the OIDC handshake paths) keeps framework endpoints anonymous so smoke tests and the OpenAPI parity check work without tokens. Every backend decides on the path its router dispatches — percent-decoded, path parameters stripped, dot segments resolved — and a bypass prefix matches only its canonical spelling, so `/%61pi/docs`, `/api;x/docs` or `/%68ealth` are gated like `/api/docs`.
 
 `AuthMode` is a two-value union: `required` (backend — decode + enforce) and `ui` (frontend — the client-side session guard). `auth: ui` on a backend deployable is `loom.auth-ui-misplaced` (it replaced the older `auth-ui-on-backend` code); pointing it at a target that is not `auth: required` is `loom.auth-ui-target-open`; a framework outside `react`/`vue`/`svelte`/`angular`/`feliz`/`flutter` is `loom.auth-ui-unsupported-framework`.
 
@@ -160,9 +160,10 @@ The `user` block declares the shape; `auth: required` on a **deployable** opts i
 ```ts
 // auth/middleware.ts — mounted in http/index.ts as app.use("*", authMiddleware)
 export const authMiddleware = createMiddleware<{ Variables: { currentUser: User } }>(async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  for (const prefix of BYPASS_PREFIXES) if (path.startsWith(prefix)) { await next(); return; }
-  if (routeProbe && !routeProbe(c.req.method, path)) { await next(); return; }
+  const path = c.req.path; // the path the router dispatched on (percent-decoded)
+  if (path === new URL(c.req.url).pathname) // a bypass matches only its canonical spelling
+    for (const prefix of BYPASS_PREFIXES) if (path.startsWith(prefix)) { await next(); return; }
+  if (!routeMatched(c)) { await next(); return; } // the router's own match: no route → 404/405
   // … verifyUserOrThrow(c.req.raw) → 401 on failure, then c.set("currentUser", user)
 });
 ```
@@ -179,7 +180,9 @@ if (RequestContext.Current is { } rc) rc.CurrentUser = user;
 `Program.cs` registers exactly one `IUserVerifier` — `OidcUserVerifier` under an `auth { oidc }` block, otherwise `DevStubUserVerifier` — plus `ICurrentUserAccessor` + `IHttpContextAccessor`.
 == java
 ```java
-// auth/UserFilter.java — a servlet filter; auth/UserVerifier.java is the seam,
+// auth/UserFilter.java — a servlet filter deciding on getServletPath() + getPathInfo()
+// (the container-normalised dispatch path), gating any request whose raw URI reads
+// differently to Spring's per-segment matcher; auth/UserVerifier.java is the seam,
 // auth/CurrentUserAccessor.java exposes the principal (statically) to services and mappers.
 ```
 == python

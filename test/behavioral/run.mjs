@@ -52,7 +52,7 @@ const WORKER = join(HERE, "case-worker.mjs");
 // the full node leg: one case peaks at ≤ 0.85 GB (PGlite's WASM heap is most
 // of it), the runner stays under 0.1 GB.  In ONE process the same corpus keeps
 // a ~230 MB database alive per leaking case (module-level state in the bundle
-// — the recorder's dispatch, the generated auth module's `routeProbe` — reaches
+// — the recorder's dispatch, for one — reaches
 // the app), which the runner ceiling catches within a few dozen cases.
 const CASE_RSS_LIMIT_MB = Number(process.env.LOOM_BH_CASE_RSS_LIMIT_MB ?? 1536);
 const RUNNER_RSS_LIMIT_MB = Number(process.env.LOOM_BH_RUNNER_RSS_LIMIT_MB ?? 1024);

@@ -30,9 +30,11 @@
 
 import {
   forApiRead,
+  type WireMaskPlan,
   wireFieldsForAggregate,
   wireFieldsForPart,
   wireFieldsForValueObject,
+  wireMaskPlan,
 } from "../../../ir/enrich/wire-projection.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
@@ -160,6 +162,7 @@ function derivedRenderable(
     // real gap here, and it is an honest one (the wire carries a raw value, not
     // a formatted message).  Named rather than left to a `default:` so a new
     // `ExprIR` kind is a decision taken against `render-expr.ts`'s vocabulary.
+    case "exists":
     case "modelText":
     case "authz-filter":
     case "i18nFormat":
@@ -195,6 +198,53 @@ export interface WireSerializeResult {
    *  gate the controllers read to route audit snapshots through the unmasked
    *  `serialize_unmasked/1` (responses keep calling `serialize/1`). */
   masked: boolean;
+}
+
+/** The statements rebinding `target` (a serialized wire map) with every masked
+ *  member `plan` names nilled, descending into each contained part — every
+ *  element of a collection, or a single containment when it is set.
+ *  `Map.replace_lazy/3` touches a key only when the map has it. */
+function redactMap(
+  plan: WireMaskPlan,
+  target: string,
+  indent: string,
+  counter: { n: number },
+  pred: (e: ExprIR) => string,
+): string[] {
+  const out: string[] = [];
+  for (const f of plan.fields) {
+    out.push(
+      `${indent}${target} = if current_user != nil and (${pred(f.pred)}), do: ${target}, else: Map.put(${target}, "${f.name}", nil)`,
+    );
+  }
+  for (const c of plan.nested) {
+    const v = `masked_${counter.n++}`;
+    const inner = redactMap(c.plan, v, `${indent}      `, counter, pred);
+    if (c.collection) {
+      out.push(
+        `${indent}${target} =`,
+        `${indent}  Map.replace_lazy(${target}, "${c.name}", fn items ->`,
+        `${indent}    Enum.map(items || [], fn ${v} ->`,
+        ...inner,
+        `${indent}      ${v}`,
+        `${indent}    end)`,
+        `${indent}  end)`,
+      );
+    } else {
+      out.push(
+        `${indent}${target} =`,
+        `${indent}  Map.replace_lazy(${target}, "${c.name}", fn`,
+        `${indent}    nil ->`,
+        `${indent}      nil`,
+        ``,
+        `${indent}    ${v} ->`,
+        ...inner,
+        `${indent}      ${v}`,
+        `${indent}  end)`,
+      );
+    }
+  }
+  return out;
 }
 
 function unwrapOptional(t: TypeIR): TypeIR {
@@ -541,27 +591,25 @@ function renderShapeSerialize(
   // projection reads (`numeric-codec.ts` carries the rationale).
   if (usedDecimal) helpers.set("__decimal_num", elixirDecimalNumHelper());
 
-  // `mask unless` read redaction (authorization.md §5): the masked root wire
-  // fields, projected fail-closed against the ambient principal.  When present,
-  // the raw map moves to `serialize_unmasked/1` (audit snapshots project through
-  // it, unredacted) and `serialize/1` delegates to it, then nils each masked key
-  // unless the caller satisfies its predicate.  A mask-free aggregate keeps the
-  // single unmasked `serialize/1` verbatim (byte-identical).
-  const maskedFields = wireShape.filter((wf) => wf.maskUnless !== undefined);
-  if (maskedFields.length === 0) {
+  // `mask unless` read redaction (authorization.md §5): the masked wire members
+  // — on the root and on every contained part (`wireMaskPlan`) — projected
+  // fail-closed against the ambient principal.  When present, the raw map moves
+  // to `serialize_unmasked/1` (audit snapshots project through it, unredacted)
+  // and `serialize/1` delegates to it, then nils each masked key unless the
+  // caller satisfies its predicate.  A mask-free aggregate keeps the single
+  // unmasked `serialize/1` verbatim (byte-identical).
+  const plan = root.agg ? wireMaskPlan(root.agg, root.parts) : undefined;
+  if (!plan) {
     const serialize = `  defp serialize${sfx}(${headVar}) do\n${preludeBind}${body}\n  end`;
     return { serialize, body, helpers: [...helpers.values()], masked: false };
   }
-  const redactLines = maskedFields
-    .map((wf) => {
-      // The predicate is `currentUser`-only (validated); render it in-memory
-      // (`filterArgs` unset) against the `current_user` local bound below.  The
-      // `current_user != nil` guard short-circuits so an unauthenticated request
-      // (nil principal) redacts without a `nil.<claim>` crash.
-      const pred = renderExpr(wf.maskUnless!, derivedRc);
-      return `    wire = if current_user != nil and (${pred}), do: wire, else: Map.put(wire, "${wf.name}", nil)`;
-    })
-    .join("\n");
+  // The predicate is `currentUser`-only (validated); render it in-memory
+  // (`filterArgs` unset) against the `current_user` local bound below.  The
+  // `current_user != nil` guard short-circuits so an unauthenticated request
+  // (nil principal) redacts without a `nil.<claim>` crash.
+  const redactLines = redactMap(plan, "wire", "    ", { n: 0 }, (e) =>
+    renderExpr(e, derivedRc),
+  ).join("\n");
   const serialize =
     `  defp serialize${sfx}(${headVar}) do\n` +
     `    current_user = Process.get(:loom_current_user)\n` +

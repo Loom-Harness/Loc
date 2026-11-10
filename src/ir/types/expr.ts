@@ -37,6 +37,7 @@ export type RefKind =
   | "resource" // ambient resource handle — `files`, `jobs`, …
   | "store-field" // a `<Store>.<field>` read from a page/component/store body (Stage 5)
   | "match-binding" // the narrowed variant binding of a variant-`match` arm (variant-match.md)
+  | "row" // the quantified row of an `exists <Agg> as <row> where …` (typed `entity{<Agg>}`)
   | "unknown";
 
 export type CallKind =
@@ -395,6 +396,30 @@ export type ExprIR = (
        *  table/alias off their render context, not this — it is carried for
        *  provenance / debugging. */
       aggregate: string;
+    }
+  /**
+   * Existential quantifier over another aggregate's rows —
+   * `exists CategoryShare as s where s.category == this.id`.  Typed `bool`.
+   *
+   * `aggregate` names an aggregate of the SAME bounded context (it shares the
+   * enclosing row's database; `loom.exists-cross-context` refuses another
+   * context's).  Inside `where`, `binding` resolves to a `ref` with
+   * `refKind: "row"` typed `entity{<aggregate>}`, so `s.category` is an
+   * ordinary `member`; `this` / bare fields still name the ENCLOSING row, and
+   * params / `currentUser` stay in scope.
+   *
+   * A query predicate only: every backend renders it as a correlated
+   * `EXISTS (SELECT 1 FROM <aggregate's table> WHERE <where> AND <the
+   * aggregate's own read scope>)`.  The quantified aggregate's read scope —
+   * tenant floor, capability filters, deny — always applies inside the
+   * subquery, so an `exists` never sees a row its caller could not read.
+   * `loom.exists-outside-query` keeps it out of in-memory positions.
+   */
+  | {
+      kind: "exists";
+      aggregate: string;
+      binding: string;
+      where: ExprIR;
     }
   | { kind: "paren"; inner: ExprIR }
   | { kind: "unary"; op: "-" | "!"; operand: ExprIR }

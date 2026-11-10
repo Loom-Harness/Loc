@@ -4,6 +4,7 @@
 // are not verified: the point is the round trip, not authentication.
 
 import { captureMail } from "./mailbox.js";
+import type { BlobStore } from "./persist.js";
 import type { ResourceOp, HttpRequestData, HttpResponseData } from "./resource-types.js";
 import type { InfraService } from "./service.js";
 
@@ -18,6 +19,27 @@ interface StoredObject {
 }
 
 const buckets = new Map<string, Map<string, StoredObject>>();
+
+/** Durable copy of every object: one blob per object, `<bucket>\0<key>` →
+ *  `[u32 meta length][meta JSON][body]`. */
+let store: BlobStore | null = null;
+
+function packObject(o: StoredObject): Uint8Array {
+  const meta = enc.encode(JSON.stringify({ contentType: o.contentType, etag: o.etag, lastModified: o.lastModified.toISOString() }));
+  const out = new Uint8Array(4 + meta.length + o.body.length);
+  new DataView(out.buffer).setUint32(0, meta.length);
+  out.set(meta, 4);
+  out.set(o.body, 4 + meta.length);
+  return out;
+}
+
+function unpackObject(blob: Uint8Array): StoredObject {
+  const n = new DataView(blob.buffer, blob.byteOffset, blob.byteLength).getUint32(0);
+  const meta = JSON.parse(dec.decode(blob.subarray(4, 4 + n))) as { contentType: string; etag: string; lastModified: string };
+  return { body: blob.slice(4 + n), contentType: meta.contentType, etag: meta.etag, lastModified: new Date(meta.lastModified) };
+}
+
+const blobKey = (bucket: string, key: string): string => `${bucket}\0${key}`;
 
 const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -109,12 +131,14 @@ function s3Http(req: HttpRequestData): HttpResponseData {
         (req.headers["x-amz-content-sha256"] ?? "").startsWith("STREAMING-");
       const body = chunked ? decodeAwsChunked(req.body) : req.body;
       const etag = etagOf(body);
-      objects.set(key, {
+      const stored: StoredObject = {
         body,
         contentType: req.headers["content-type"] ?? "application/octet-stream",
         etag,
         lastModified: new Date(),
-      });
+      };
+      objects.set(key, stored);
+      store?.put("s3", blobKey(bucket, key), packObject(stored));
       return { status: 200, headers: { etag, "x-amz-request-id": "loom-playground", ...CORS }, body: new Uint8Array() };
     }
     case "GET":
@@ -136,6 +160,7 @@ function s3Http(req: HttpRequestData): HttpResponseData {
     }
     case "DELETE":
       objects.delete(key);
+      store?.remove("s3", blobKey(bucket, key));
       return { status: 204, headers: { ...CORS }, body: new Uint8Array() };
     default:
       return s3Error(405, "MethodNotAllowed", `${method} is not supported.`);
@@ -174,6 +199,18 @@ export const s3Service: InfraService<ResourceOp> = {
       );
     }
     throw new Error(`s3: unknown op "${op}"`);
+  },
+  persist: async (next) => {
+    store = next;
+    buckets.clear();
+    if (!next) return;
+    for (const [id, blob] of await next.load("s3")) {
+      const at = id.indexOf("\0");
+      const bucket = id.slice(0, at);
+      const objects = buckets.get(bucket) ?? new Map<string, StoredObject>();
+      buckets.set(bucket, objects);
+      objects.set(id.slice(at + 1), unpackObject(blob));
+    }
   },
   reset: () => buckets.clear(),
 };

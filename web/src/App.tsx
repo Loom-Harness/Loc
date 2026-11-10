@@ -107,6 +107,7 @@ import { useWorkspaceSources } from "./workspace/use-workspace-sources";
 import { setCrashWorkspaceProvider } from "./util/crash-context";
 import { SHOW_DIAGNOSTICS_EVENT } from "./LastCrashNotice";
 import { filesDroppedByExample } from "./workspace/example-import";
+import { type SeedRevision, nextSeedRevision } from "./builder/live-source-tick";
 import { NEW_FILE_SEED, pickInitialSource } from "./workspace/initial-source";
 import type { WorkspaceSourcesController } from "./workspace/workspace-sources";
 import { applyGeneratedTree, readGeneratedTree, startAutoCommit } from "./workspace/git";
@@ -322,6 +323,14 @@ export default function App(): JSX.Element {
       workspace.persistedSource,
     ],
   );
+
+  // Seed revision: bumps only when `initialSource` moves to text the editor did
+  // not just write.  Typing changes `initialSource` (it follows the store) but
+  // must reach the panes only through the debounced live tick.
+  const lastWrittenRef = useRef<string | null>(null);
+  const seedRevRef = useRef<SeedRevision>({ seen: initialSource, rev: 0 });
+  seedRevRef.current = nextSeedRevision(seedRevRef.current, initialSource, lastWrittenRef.current);
+  const seedRevision = seedRevRef.current.rev;
 
   const [pipeline, dispatch] = useReducer(pipelineReducer, initialPipelineState);
 
@@ -3010,6 +3019,7 @@ export default function App(): JSX.Element {
     setAuthStub,
     onSourceChange: (text: string, origin?: "editor" | "builder", label?: string): void => {
       sourceRef.current = text;
+      lastWrittenRef.current = text;
       // A real source change (typing in Monaco or a Builder Apply) — from
       // here on, mobile auto-generate is allowed (see hasUserEditedRef).
       hasUserEditedRef.current = true;
@@ -3124,6 +3134,7 @@ export default function App(): JSX.Element {
       exampleId,
       augmentedExamplesList,
       initialSource,
+      seedRevision,
       workspace,
       activeSourcePath,
       sourceFiles,
@@ -3234,6 +3245,7 @@ export default function App(): JSX.Element {
       exampleId,
       augmentedExamplesList,
       initialSource,
+      seedRevision,
       workspace,
       activeSourcePath,
       sourceFiles,

@@ -183,7 +183,9 @@ describe("each backend mounts the guard ahead of routing", () => {
     // RFC 7807 envelope a framework-detected 405 gets. Emitted the other way
     // round it would answer a bodiless 405 — a second error contract.
     const pages = program.indexOf("app.UseStatusCodePages(");
-    const guard = program.indexOf("app.Use(async (HttpContext http, RequestDelegate next)");
+    // The guard is the `app.Use` that reads the static-subpath table; other
+    // `app.Use` middleware (security headers) is emitted earlier.
+    const guard = program.indexOf("staticSubpathMethods.TryGetValue(");
     const map = program.indexOf("app.MapControllers();");
     expect(pages).toBeGreaterThan(-1);
     expect(guard).toBeGreaterThan(-1);

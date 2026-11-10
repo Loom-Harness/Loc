@@ -527,7 +527,14 @@ export function renderJavaSpringDataRepository(
     // a miss answers 200 with some other row, two rows a non-unique 500.
     const own = f.filter;
     const where = jpqlWhere(
-      own ? renderJpqlWhere(own, { alias: "e", enumsPkg, mode: "jpql-spring-data" }) : null,
+      own
+        ? renderJpqlWhere(own, {
+            alias: "e",
+            enumsPkg,
+            mode: "jpql-spring-data",
+            aggs: ctx.pool,
+          })
+        : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map(
@@ -568,7 +575,12 @@ export function renderJavaSpringDataRepository(
       // impl passes Pageable.unpaged() for the bare run.  The `order by`
       // is baked into the JPQL (an unsorted Pageable leaves it alone).
       const where = jpqlWhere(
-        renderJpqlWhere(r.where, { alias: "e", enumsPkg, mode: "jpql-spring-data" }),
+        renderJpqlWhere(r.where, {
+          alias: "e",
+          enumsPkg,
+          mode: "jpql-spring-data",
+          aggs: ctx.pool,
+        }),
         ctx.bypassByRetrieval?.get(r.name),
       );
       const params = r.params

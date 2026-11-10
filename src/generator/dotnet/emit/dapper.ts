@@ -23,11 +23,16 @@ import { streamOriginFrameLines, streamScopePredicate, streamScopeWhere } from "
 // `text` (`.ToString()` / `Enum.Parse`).
 // ---------------------------------------------------------------------------
 
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import {
+  existsScopePredicates,
+  readSortFor,
+  withExistsScopes,
+} from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
+  AggregateIR,
   ContainmentIR,
   EnrichedAggregateIR,
   EntityPartIR,
@@ -713,6 +718,23 @@ const SQL_BINOP: Record<string, string> = {
 export interface WhereSqlCtx {
   agg: EnrichedAggregateIR;
   table: string;
+  /** The context's aggregates — needed only to resolve an `exists <Agg> …`
+   *  quantifier to the quantified table and its read scope. */
+  pool?: readonly AggregateIR[];
+  /** Each in-scope `exists … as <row>` binding → its table alias. */
+  rows?: ReadonlyMap<string, string>;
+  /** Inside an `exists` subquery the filtered row's columns are qualified
+   *  with `table` (unqualified they would resolve to the quantified table);
+   *  while rendering the quantified aggregate's own read scope, `this` is the
+   *  subquery's alias instead. */
+  thisQualifier?: string;
+}
+
+/** A column of the row a `this`-rooted read names, qualified when inside an
+ *  `exists` subquery (see `WhereSqlCtx.thisQualifier`). */
+function thisColumn(column: string, sqlCtx: WhereSqlCtx | undefined): string {
+  const q = sqlCtx?.thisQualifier;
+  return q ? `${q}.${sqlIdent(column)}` : sqlIdent(column);
 }
 
 /** Hand-rolled ExprIR → raw Postgres SQL, the `persistence: dapper` adapter's
@@ -746,6 +768,36 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
   const pt = principalTerm(e);
   if (pt) return `@${principalTermParam(pt)}`;
   switch (e.kind) {
+    case "exists": {
+      // `exists <Agg> as s where p` — a correlated EXISTS over the quantified
+      // table (on the connection's `search_path`, like every table here),
+      // carrying that aggregate's own read scope.
+      const inner = sqlCtx?.pool?.find((a) => a.name === e.aggregate);
+      if (!sqlCtx || !inner)
+        return refuseOutOfVocabulary("sql-dapper", `'exists ${e.aggregate}' without its aggregate`);
+      const alias = `q_${snake(e.binding)}`;
+      const rows = new Map(sqlCtx.rows ?? []);
+      rows.set(e.binding, alias);
+      const terms = [
+        whereToSql(e.where, {
+          ...sqlCtx,
+          rows,
+          thisQualifier: sqlCtx.thisQualifier ?? sqlCtx.table,
+        }),
+      ];
+      for (const pred of existsScopePredicates(inner.name, sqlCtx.pool ?? [])) {
+        terms.push(
+          whereToSql(pred, {
+            ...sqlCtx,
+            agg: inner as EnrichedAggregateIR,
+            rows,
+            thisQualifier: alias,
+          }),
+        );
+      }
+      const table = sqlIdent(aggregateTableName(inner, sqlCtx.pool ?? []));
+      return `EXISTS (SELECT 1 FROM ${table} ${alias} WHERE ${terms.join(" AND ")})`;
+    }
     case "paren":
       return `(${whereToSql(e.inner, sqlCtx)})`;
     case "unary":
@@ -842,13 +894,28 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     }
     case "member":
       // `this.<field>` → column.
-      if (e.receiver.kind === "this") return sqlIdent(snake(e.member));
+      if (e.receiver.kind === "this") return thisColumn(snake(e.member), sqlCtx);
+      // `s.<field>` on an `exists … as s` row → the quantified table's column.
+      if (e.receiver.kind === "ref" && e.receiver.refKind === "row") {
+        const alias = sqlCtx?.rows?.get(e.receiver.name);
+        if (!alias) return refuseOutOfVocabulary("sql-dapper", "row read outside its 'exists'");
+        return `${alias}.${sqlIdent(snake(e.member))}`;
+      }
+      if (
+        e.receiver.kind === "member" &&
+        e.receiver.receiver.kind === "ref" &&
+        e.receiver.receiver.refKind === "row"
+      ) {
+        const alias = sqlCtx?.rows?.get(e.receiver.receiver.name);
+        if (!alias) return refuseOutOfVocabulary("sql-dapper", "row read outside its 'exists'");
+        return voLeafSql(snake(e.receiver.member), e.member, e.memberType, alias);
+      }
       // `this.<vo>.<sub>` → the value object's leaf, read out of its jsonb
       // column (`voLeafSql`).  The gate admits a value-object leaf in every
       // predicate position — a comparison as much as a bare boolean
       // (`this.flags.active`, `!this.flags.active`).
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
-        return voLeafSql(snake(e.receiver.member), e.member, e.memberType);
+        return voLeafSql(snake(e.receiver.member), e.member, e.memberType, sqlCtx?.thisQualifier);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
       // request principal (`RequestContext.Current!.CurrentUser!.<Claim>`).  The
       // caller (a capability `filter`) binds `@__cu_<claim>` into every SELECT's
@@ -860,7 +927,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // A find/retrieval parameter → Dapper named parameter.
       if (e.refKind === "param") return `@${e.name}`;
       // A candidate field (criterion / retrieval `where`) → its column.
-      if (e.refKind === "this-prop") return sqlIdent(snake(e.name));
+      if (e.refKind === "this-prop") return thisColumn(snake(e.name), sqlCtx);
       // An enum value (`Status.Confirmed`) → its text representation, matching
       // the `text` column the enum is stored as.
       if (e.refKind === "enum-value") return `'${e.name.replace(/'/g, "''")}'`;
@@ -925,9 +992,9 @@ function stripOptional(t: TypeIR): TypeIR {
  *  object's enum properties carry a `JsonStringEnumConverter` (enums-vos.ts),
  *  so it compares against an enum literal (`'A'`) and an enum parameter (bound
  *  by name) exactly as an enum column does. */
-function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR): string {
+function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR, qualifier?: string): string {
   const inner = stripOptional(leafType);
-  const col = sqlIdent(voColumn);
+  const col = qualifier ? `${qualifier}.${sqlIdent(voColumn)}` : sqlIdent(voColumn);
   const key = upperFirst(leaf);
   if (inner.kind === "id") {
     const cast = idTypes().sql;
@@ -1034,7 +1101,13 @@ function principalValue(r: FilterPrincipalRef, base: string): string {
  *  Rides `walkExprDeep` rather than a hand-rolled recursion: the hand-rolled
  *  traversal must reach a principal reference nested anywhere (a `match` arm,
  *  a list literal), or its parameter goes unbound. */
-export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPrincipalRef[] {
+export function collectFilterPrincipalRefs(
+  given: readonly ExprIR[],
+  /** The context's aggregates: an `exists` subquery binds the principal its
+   *  quantified aggregate's read scope reads, too. */
+  pool: AggPool = [],
+): FilterPrincipalRef[] {
+  const filters = withExistsScopes(given, pool);
   const byParam = new Map<string, FilterPrincipalRef>();
   const add = (ref: FilterPrincipalRef): void => {
     if (!byParam.has(ref.param)) byParam.set(ref.param, ref);
@@ -1257,7 +1330,7 @@ export function renderDapperRepository(
   );
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
   const table = sqlIdent(aggregateTableName(agg, pool));
-  const sqlCtx: WhereSqlCtx = { agg, table };
+  const sqlCtx: WhereSqlCtx = { agg, table, pool };
   // The read scope: ONE generated `<Agg>Scope` helper holds the `kind` scope and
   // every capability / tenancy / deny predicate; each statement below splices a
   // member of it (see dapper-scope.ts).
@@ -1419,7 +1492,7 @@ export function renderDapperRepository(
    *  evaluated on a read whose whole point is that it runs without the
    *  principal scope.  `ignoring *` on an unauthenticated call NREs. */
   const filterPrincipalRefsFor = (bypass?: { bypassAll?: boolean; bypassCaps?: string[] }) =>
-    collectFilterPrincipalRefs(scope.keptExprs(bypass));
+    collectFilterPrincipalRefs(scope.keptExprs(bypass), pool);
   /** ` AND <scope>` / ` WHERE <scope>` for a read carrying `bypass`: a marker
    *  that `csSqlLiteral` turns into a `<Agg>Scope` member reference.  The TPH
    *  discriminator is never bypassable — a type mapping, not a query filter. */
@@ -1441,12 +1514,15 @@ export function renderDapperRepository(
    *  is how a find whose predicate is the only self-scope one ends up calling a
    *  method the class never declares (CS0103). */
   const needsClaimGuid = claimGuidHelperLines(
-    collectFilterPrincipalRefs([
-      ...capabilityFilters,
-      ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
-      ...(repo?.finds ?? []).flatMap((f) => (f.filter ? [f.filter] : [])),
-      ...retrievals.flatMap((r) => (r.where ? [r.where] : [])),
-    ]),
+    collectFilterPrincipalRefs(
+      [
+        ...capabilityFilters,
+        ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
+        ...(repo?.finds ?? []).flatMap((f) => (f.filter ? [f.filter] : [])),
+        ...retrievals.flatMap((r) => (r.where ? [r.where] : [])),
+      ],
+      pool,
+    ),
   );
   // Comma-prefixed suffix appended inside a `new { … }` that already has fields
   // (GetById / FindManyByIds).
@@ -1478,7 +1554,7 @@ export function renderDapperRepository(
   const writePrincFields = principalFields(
     dedupPrincipalRefs([
       ...filterPrincipalRefs,
-      ...collectFilterPrincipalRefs(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
+      ...collectFilterPrincipalRefs(agg.writeScopeFilter ? [agg.writeScopeFilter] : [], pool),
     ]),
     AMBIENT_CURRENT_USER,
   );
@@ -1700,7 +1776,7 @@ export function renderDapperRepository(
     // claim set, so the parameter object binds exactly what the SELECT names.
     const findPrincipalRefs = dedupPrincipalRefs([
       ...filterPrincipalRefsFor(f),
-      ...collectFilterPrincipalRefs(f.filter ? [f.filter] : []),
+      ...collectFilterPrincipalRefs(f.filter ? [f.filter] : [], pool),
     ]);
     const findPrincFields = principalFields(findPrincipalRefs, principalBase);
     const allFindParams = [...paramFields, ...findPrincFields];
@@ -1905,7 +1981,7 @@ export function renderDapperRepository(
       // the principal an unauthenticated call does not have.
       ...dedupPrincipalRefs([
         ...filterPrincipalRefsFor({ bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
-        ...collectFilterPrincipalRefs([r.where]),
+        ...collectFilterPrincipalRefs([r.where], pool),
       ]).map(
         (pr) =>
           `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,

@@ -8,6 +8,12 @@ import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import {
+  BASELINE_SECURITY_HEADERS,
+  HSTS_HEADER,
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
+import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
   TEST_RESET_HEADER,
@@ -1350,6 +1356,7 @@ ${
 // http_requests_total / http_request_duration_seconds recorded by
 // RequestLoggingMiddleware) as the text exposition at /metrics.
 app.MapMetrics();
+${renderDotnetSecurityHeaders()}
 // Ambient execution context — births the RequestContext (correlation id,
 // locale, start time, scope id) and opens the root frame.  Mounted FIRST so
 // the frame covers the entire pipeline: the request log below rides its
@@ -1728,6 +1735,17 @@ export function renderTestCsproj(
 `;
 }
 
+/** The runtime stage's switch to an unprivileged user — the aspnet image's
+ *  `app` user, named by its numeric `$APP_UID` so a k8s `runAsNonRoot` check can
+ *  verify it.  The published tree stays root-owned and read-only to it; data/
+ *  is the one directory the process writes (local object-store resources
+ *  default there). */
+const DOTNET_NON_ROOT_BLOCK = `# Run unprivileged (the image's \`app\` user, by number).  data/ is the one
+# directory the process writes (local object-store resources default there).
+RUN mkdir -p /app/data && chown $APP_UID /app/data
+USER $APP_UID
+`;
+
 export function renderDockerfile(
   ns: string,
   options?: {
@@ -1785,7 +1803,7 @@ COPY --from=dotnet-build /app/publish ./
 # SPA bundle lands under wwwroot/ so UseStaticFiles + MapFallbackToFile
 # can serve it on the same origin as the /api/* controller routes.
 COPY --from=spa-build /spa/${options?.spaOutDir ?? "dist"} ./wwwroot
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
   }
   if (options?.hasEmbeddedSpa) {
@@ -1825,7 +1843,7 @@ COPY --from=dotnet-build /app/publish ./
 # SPA bundle lands under wwwroot/ so UseStaticFiles + MapFallbackToFile
 # can serve it on the same origin as the /api/* controller routes.
 COPY --from=spa-build /spa/${options?.spaOutDir ?? "dist"} ./wwwroot
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
   }
   return `# syntax=docker/dockerfile:1
@@ -1853,7 +1871,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends wget \\
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 COPY --from=build /app/publish ./
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
 }
 
@@ -1884,4 +1902,35 @@ function meClaimValue(f: FieldIR): string {
     return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
   }
   return access;
+}
+
+/** The Program.cs block that puts the shared baseline security headers
+ *  (`src/util/security-headers.ts`) on every response.  `Response.OnStarting`
+ *  rather than a header write before `next`: a response produced further down
+ *  (UseStatusCodePages, an exception handler that clears the response) still
+ *  carries them.  Not `UseHsts`: it skips plain-http requests, which is every
+ *  request behind a TLS-terminating proxy. */
+function renderDotnetSecurityHeaders(): string {
+  const offValues = SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(" or ");
+  return lines(
+    `// Baseline security headers on every response (API answers, problem`,
+    `// documents, the OpenAPI document, the embedded SPA).  Strict-Transport-`,
+    `// Security only while ${SECURE_TRANSPORT_ENV} is on (the default); the local compose`,
+    `// stack serves plain http and turns it off.`,
+    `var loomSecureTransport = (Environment.GetEnvironmentVariable(${JSON.stringify(SECURE_TRANSPORT_ENV)}) ?? "").Trim().ToLowerInvariant()`,
+    `    is not (${offValues});`,
+    `app.Use(async (HttpContext http, RequestDelegate next) =>`,
+    `{`,
+    `    http.Response.OnStarting(() =>`,
+    `    {`,
+    `        var headers = http.Response.Headers;`,
+    ...BASELINE_SECURITY_HEADERS.map(
+      ([name, value]) => `        headers[${JSON.stringify(name)}] = ${JSON.stringify(value)};`,
+    ),
+    `        if (loomSecureTransport) headers[${JSON.stringify(HSTS_HEADER[0])}] = ${JSON.stringify(HSTS_HEADER[1])};`,
+    `        return Task.CompletedTask;`,
+    `    });`,
+    `    await next(http);`,
+    `});`,
+  );
 }

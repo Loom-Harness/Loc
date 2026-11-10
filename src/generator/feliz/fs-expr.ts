@@ -804,6 +804,11 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
         `internal: an authorization filter for '${e.aggregate}' reached the F# update renderer. ` +
           "Please file a bug.",
       );
+    case "exists":
+      // A query predicate, never in a ui body (`loom.exists-outside-query`).
+      throw new Error(
+        `internal: 'exists ${e.aggregate} …' reached the F# update renderer. Please file a bug.`,
+      );
     default: {
       const _exhaustive: never = e;
       return _exhaustive;

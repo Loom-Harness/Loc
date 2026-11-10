@@ -467,6 +467,9 @@ system DevPlatform {
 
             repository Engineers for Engineer { }
             criterion ByHandle(handle: string) of Engineer = this.handle == handle
+            // ExistsExpr — an engineer on call whose handle names a live squad:
+            // a correlated EXISTS that carries Squad's own softDeletable scope.
+            criterion OnCallSquadLead of Engineer = this.onCall && exists Squad as s where s.name == this.handle
         }
     }
 

@@ -816,8 +816,63 @@ const MASK_LEAK: Record<VariantId, Edit[]> = {
   elixir: [
     {
       file: /employee_controller\.ex$/,
-      from: 'Enum.flat_map(["name", "grade", "reviews"]',
-      to: 'Enum.flat_map(["name", "grade", "reviews", "salary"]',
+      from: 'Enum.flat_map(["name", "grade"]',
+      to: 'Enum.flat_map(["name", "grade", "salary"]',
+    },
+  ],
+};
+
+/** The same leak on a contained PART's masked field: the part's redaction
+ *  reads a predicate the caller always satisfies (or, on java, the root maps
+ *  the part through its unmasked `from`). */
+const MASK_PART_LEAK: Record<VariantId, Edit[]> = {
+  node: [
+    {
+      file: /employee-repository\.ts$/,
+      from: '"people.unmask")))) __m0.note',
+      to: '"people.view")))) __m0.note',
+    },
+  ],
+  mikroorm: [
+    {
+      file: /employee-repository\.ts$/,
+      from: '"people.unmask")))) __m0.note',
+      to: '"people.view")))) __m0.note',
+    },
+  ],
+  dotnet: [
+    {
+      file: /GetEmployeeByIdHandler\.cs$/,
+      from: '"people.unmask"))) ? (string?)(__e.Note)',
+      to: '"people.view"))) ? (string?)(__e.Note)',
+    },
+  ],
+  dapper: [
+    {
+      file: /GetEmployeeByIdHandler\.cs$/,
+      from: '"people.unmask"))) ? (string?)(__e.Note)',
+      to: '"people.view"))) ? (string?)(__e.Note)',
+    },
+  ],
+  java: [
+    {
+      file: /\/EmployeeResponse\.java$/,
+      from: "ReviewResponse::fromMasked",
+      to: "ReviewResponse::from",
+    },
+  ],
+  python: [
+    {
+      file: /employee_repository\.py$/,
+      from: '"people.unmask" in _mask_user.permissions)):\n                        _m0_e["note"]',
+      to: '"people.view" in _mask_user.permissions)):\n                        _m0_e["note"]',
+    },
+  ],
+  elixir: [
+    {
+      file: /employee_controller\.ex$/,
+      from: '"people.unmask")), do: masked_0, else: Map.put(masked_0, "note"',
+      to: '"people.view")), do: masked_0, else: Map.put(masked_0, "note"',
     },
   ],
 };
@@ -904,6 +959,19 @@ describe("M-T9.41 mutation proofs — the historical leaks re-seeded on EMITTED 
         expect(maskSweep(v.id, files, c.masks).findings).toEqual([]);
         const seeded = maskSweep(v.id, seed(files, MASK_LEAK[v.id]), c.masks).findings;
         expect(seeded.length, `${v.id}: the seeded mask leak was NOT caught`).toBeGreaterThan(0);
+      },
+      TIMEOUT,
+    );
+
+    it(
+      `${v.id}: \`mask unless\` — a contained part's masked field reaching the wire unmasked is named`,
+      async () => {
+        const c = caseOf("corpus/field-mask");
+        const files = await filesOf(c.key, v);
+        const seeded = maskSweep(v.id, seed(files, MASK_PART_LEAK[v.id]), c.masks).findings;
+        expect(seeded.length, `${v.id}: the seeded part mask leak was NOT caught`).toBeGreaterThan(
+          0,
+        );
       },
       TIMEOUT,
     );
