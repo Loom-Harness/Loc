@@ -129,7 +129,7 @@ export function renderFelizI18nModule(
 ): string {
   const scope = {
     contexts,
-    sentences: HAND_BUILT_FORM_SENTENCES,
+    sentences: HAND_BUILT_FORM_SENTENCES.rows,
     implicitModelText: true,
     authGate,
   };

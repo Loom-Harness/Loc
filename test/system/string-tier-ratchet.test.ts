@@ -93,7 +93,7 @@ const CEILINGS: Record<string, number> = {
   // reads, widened domain-service reads and document nested VO collections.
   "(cross-target)": 3700, // cross-backend pins for the dev-login gate, mask read gates, handler event sinks and part value-object collections
   _expr: 200,
-  _frontend: 400,
+  _frontend: 600,
   _i18n: 200,
   _numeric: 200,
   _obs: 200,

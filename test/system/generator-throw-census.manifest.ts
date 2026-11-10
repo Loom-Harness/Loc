@@ -342,7 +342,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/_walker/i18n-chrome.ts#authGateMessage": {
     invariant:
-      "Every caller (the Feliz and Flutter auth gates) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME; no .ddd input names the string.",
+      "Every caller (the Feliz and Flutter auth gates, the session views of the pack-rendered frontends) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME or SESSION_VIEW_CHROME; no .ddd input names the string.",
   },
   "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
     invariant:

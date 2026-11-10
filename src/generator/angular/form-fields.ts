@@ -883,7 +883,7 @@ export function fieldArrayInput(
   const remove = formButton(ctx, {
     type: "button",
     emphasis: "warn",
-    label: "Remove",
+    label: localizedPageChromeText(ctx, sentenceChromeName("removeItem", spec.elementName)),
     attrs: ` (click)="${spec.removeMethod}(${parent ? `${parent}, ` : ""}$index)"`,
   });
   const add = formButton(ctx, {

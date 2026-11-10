@@ -43,8 +43,8 @@ describe("flutter WorkflowForm", () => {
     // Both scalar params become controller-backed inputs.
     expect(src).toContain("_customerController");
     expect(src).toContain("_amountController");
-    // Submit label is "Run <Workflow>".
-    expect(src).toContain("Run Place Order");
+    // Submit label is the workflow run button, "Run".
+    expect(src).toContain("Text(t('C.placeOrder.op.run', 'Run'))");
   });
 
   it("references the workflow-form widget from the hosting page + imports forms", async () => {
