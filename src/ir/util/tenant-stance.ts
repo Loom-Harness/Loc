@@ -283,6 +283,19 @@ export function hasTenantOwned(agg: Pick<AggregateIR, "capabilities">): boolean 
   return (agg.capabilities ?? []).includes(TENANT_OWNED_CAPABILITY);
 }
 
+/** True when the events a STATE-stored aggregate raises must carry its row's
+ *  tenant: a `tenantOwned` row can be written by a principal of another org
+ *  (a write share), and the outbox row, the channel envelope and a tenant-
+ *  scoped fold all read the event origin of the frame the event is recorded
+ *  and dispatched in.  The save then records and dispatches in the row
+ *  tenant's frame — the rule an event-sourced stream already follows for its
+ *  stream tenant. */
+export function eventsCarryRowTenant(
+  agg: Pick<AggregateIR, "capabilities" | "persistedAs">,
+): boolean {
+  return hasTenantOwned(agg) && agg.persistedAs !== "eventLog";
+}
+
 /** True when the aggregate carries the `tenantRegistry` prelude capability
  *  (the registry tree's `parent`).  Drives the structural checks: exactly one,
  *  on the `of` target. */

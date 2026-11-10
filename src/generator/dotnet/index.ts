@@ -1,7 +1,7 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
-import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
+import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
@@ -465,7 +465,7 @@ function emitProjectFromContexts(
       foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
     extern: contexts.some(hasExternOperation),
-    deferralKeepsFrame: contexts.some(eventLogCarriesTenant),
+    deferralKeepsFrame: contexts.some(eventsKeepOriginFrame),
   });
   emitDispatcher(ns, out, hasSubscriptions, system.deployable.persistence !== "dapper");
   out.set("Domain/Events/IDomainEvent.cs", renderIDomainEvent(ns, hasSubscriptions));

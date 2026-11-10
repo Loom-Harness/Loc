@@ -34,6 +34,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import { inRowTenant } from "../row-tenant.js";
 import {
   applySavedVersion,
   savedVersionDecl,
@@ -273,7 +274,7 @@ export function renderMikroDocumentRepository(
     "",
     `    for (const event of aggregate.pullEvents()) {`,
     `      requestLog().info({ event: "event_dispatched", event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string });`,
-    `      await this.events.dispatch(event);`,
+    `      await ${inRowTenant(agg, "this.events.dispatch(event)")};`,
     `    }`,
     `  }`,
     deleteMethod ? "" : null,

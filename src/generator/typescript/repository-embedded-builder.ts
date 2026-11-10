@@ -46,6 +46,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { projectFieldEntries } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { inRowTenant } from "./row-tenant.js";
 import {
   applySavedVersion,
   savedVersionDecl,
@@ -294,7 +295,7 @@ export function buildEmbeddedRepositoryFile(
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     `    for (const event of aggregate.pullEvents()) {`,
     `      ${renderHonoStoreLogCall("eventDispatched", `event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
-    `      await this.events.dispatch(event);`,
+    `      await ${inRowTenant(agg, "this.events.dispatch(event)")};`,
     `    }`,
     `  }`,
     "",

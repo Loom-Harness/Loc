@@ -37,6 +37,7 @@ export const PY = {
   system_principal: pyRef("app.auth.user", "system_principal"),
   current_event_origin: pyRef("app.auth.user", "current_event_origin"),
   event_origin_frame: pyRef("app.auth.user", "event_origin_frame"),
+  row_tenant_frame: pyRef("app.auth.user", "row_tenant_frame"),
   DomainError: pyRef("app.domain.errors", "DomainError"),
   check_int: pyRef("app.domain.errors", "check_int"),
   ForbiddenError: pyRef("app.domain.errors", "ForbiddenError"),

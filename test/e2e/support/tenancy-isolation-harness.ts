@@ -713,6 +713,8 @@ export async function assertOrgContextGate(
 //   9. a sharer whose write scope excludes the row (`own`: a colleague's row)
 //      may neither share it nor revoke its shares;
 //  10. shares cross tenants: an Org grant to another customer opens the row;
+//  11. an event raised on a shared row carries the row's tenant: a grantee's
+//      write folds under the owner's org;
 //   0. `allow share on X when …` gates creating and revoking a share.
 // ---------------------------------------------------------------------------
 
@@ -844,6 +846,18 @@ export async function assertShareable(base: string): Promise<void> {
   expect([200, 204], renamed.text).toContain(renamed.status);
   expect(await names(sharer)).toEqual(["gear"]);
   expect((await rename(mgr(orgAX), "nope")).status).toBe(404);
+
+  // (11) An event raised on the shared row carries the ROW's tenant: A.B's
+  // rename through its write share folds under A, the owner, not under A.B.
+  const viaOp = await send(mgr(orgAB), "POST", `/api/categories/${tools}/rename`, { to: "gear" });
+  expect([200, 204], viaOp.text).toContain(viaOp.status);
+  const folded = async (who: Record<string, string>): Promise<string[]> => {
+    const r = await send(who, "GET", "/api/projections/renames");
+    expect(r.status, r.text).toBe(200);
+    return rows<{ category: string }>(r.json).map((x) => x.category);
+  };
+  expect(await folded(sharer)).toEqual([tools]);
+  expect(await folded(mgr(orgAB))).toEqual([]);
 
   // (7) No re-share: A.B writes the row through its write share, but the row
   // is not in A.B's org, so A.B may not share it.

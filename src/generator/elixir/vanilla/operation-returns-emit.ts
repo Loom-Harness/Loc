@@ -29,6 +29,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
+import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirMatchRefusal } from "../../../ir/validate/checks/elixir-match-stmt-checks.js";
@@ -652,7 +653,13 @@ function emitParts(
       { name: "event_type", valueExpr: `"${upperFirst(s.eventName)}"` },
       ...(rc.agg ? [{ name: "aggregate", valueExpr: `"${upperFirst(rc.agg.name)}"` }] : []),
     ]);
-    const dispatchCall = elixirDispatchCall(evVar, rc.contextModule, hasDispatcher, channels, true);
+    const call = elixirDispatchCall(evVar, rc.contextModule, hasDispatcher, channels, true);
+    // An event raised on a tenantOwned row carries the ROW's tenant: the
+    // dispatch runs in the row tenant's event-origin frame.
+    const dispatchCall =
+      call && rc.agg && eventsCarryRowTenant(rc.agg)
+        ? `${appModule}Web.Auth.in_row_tenant(record.tenant_id, fn -> ${call} end)`
+        : call;
     out.push({
       bind: [`${indents.bind}${evVar} = ${struct}`, `${indents.bind}${logCall}`],
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],

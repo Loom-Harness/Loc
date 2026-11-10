@@ -25,6 +25,7 @@ const TS_SYM = {
   requireCurrentUser: tsNamed("~/auth/middleware", "requireCurrentUser"),
   EventOrigin: tsNamed("~/auth/middleware", "EventOrigin"),
   runAsEventOrigin: tsNamed("~/auth/middleware", "runAsEventOrigin"),
+  runInRowTenant: tsNamed("~/auth/middleware", "runInRowTenant"),
   registerOidcVerifier: tsNamed("~/auth/oidc", "registerOidcVerifier"),
   registerDevStubVerifier: tsNamed("~/auth/dev-stub", "registerDevStubVerifier"),
   devStubClaims: tsNamed("~/auth/dev-stub", "devStubClaims"),

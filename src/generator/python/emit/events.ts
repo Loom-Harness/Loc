@@ -1,4 +1,4 @@
-import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
+import { eventsKeepOriginFrame } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent } from "../../../util/naming.js";
@@ -51,7 +51,7 @@ export function renderPyEvents(ctx: BoundedContextIR): string {
     "",
     "",
     ...POST_COMMIT_LINES,
-    ...(hasEvents ? ["", "", ...postCommitDispatcherLines(eventLogCarriesTenant(ctx))] : []),
+    ...(hasEvents ? ["", "", ...postCommitDispatcherLines(eventsKeepOriginFrame(ctx))] : []),
     "",
   );
 }
@@ -79,9 +79,9 @@ const CREATE_TASK = pyRef("asyncio", "create_task");
 
 /** The outermost link `make_dispatcher` returns (app/dispatch.py).
  *
- *  `keepFrame`: some stream of the deployable is tenant-scoped
- *  (`stream-tenancy.ts`), so an append may dispatch inside its stream tenant's
- *  event-origin frame (`event_origin_frame`), which has closed again by the
+ *  `keepFrame`: some aggregate may dispatch inside an event-origin frame of
+ *  its own (`eventsKeepOriginFrame`: a tenant-scoped stream's, or a
+ *  tenantOwned row's), which has closed again by the
  *  time the post-commit list runs.  The queued delivery then runs in a copy of
  *  the RAISING context, so the outbox capture, the channel envelope and a
  *  projection fold read the event's own origin. */

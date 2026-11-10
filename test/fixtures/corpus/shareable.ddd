@@ -9,7 +9,9 @@
 // Sharing or revoking needs write access to the row in the sharer's own org
 // (`exists Category for write`): a manager writes only the categories they
 // created (`own`), so a colleague cannot share them, and a grantee cannot
-// re-share a row of another org, even with a write share.
+// re-share a row of another org, even with a write share.  An event raised on
+// a shared row carries the row's tenant, so a grantee's write folds (and
+// publishes) under the owner's org.
 //
 // Driven by the `tenancy-org-context` boot harness (`assertShareable`) on
 // every backend, with real registry org ids as tenancy claims.  The deployable
@@ -31,6 +33,22 @@ system Sharing {
       aggregate Category with tenantOwned, auditable, shareable, softDeletable, softDelete, crudish {
         name: string
         secret: string? mask unless currentUser.role == "manager"
+        operation rename(to: string) {
+          name := to
+          emit CategoryRenamed { category: id, name: to }
+        }
+      }
+      event CategoryRenamed { category: Category id  name: string }
+
+      // A tenant-scoped fold: a rename made through a write share folds
+      // under the ROW's org, the owner's, never the grantee's.
+      projection Renames keyed by category {
+        category: Category id
+        name: string
+        on(e: CategoryRenamed) {
+          category := e.category
+          name := e.name
+        }
       }
 
       // `with shareable` unfolds to CategoryShare (+ its events), the

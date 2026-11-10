@@ -26,9 +26,9 @@ export function renderCommon(
     /** An `extern` operation exists — its unfilled hook raises
      *  `ExternNotImplementedException`, answered 501. */
     extern?: boolean;
-    /** Some stream is tenant-scoped (`stream-tenancy.ts`): a buffered event
-     *  keeps the frame it was raised in — an append raises inside its stream
-     *  tenant's event-origin frame, closed again by the time the scope flushes.
+    /** Some aggregate dispatches inside an event-origin frame of its own (a
+     *  tenant-scoped stream's, or a tenantOwned row's): a buffered event keeps
+     *  the frame it was raised in, closed again by the time the scope flushes.
      *  Off ⇒ byte-identical. */
     deferralKeepsFrame?: boolean;
   } = {},

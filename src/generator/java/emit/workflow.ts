@@ -1,4 +1,3 @@
-import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import { isWorkflowSelfType } from "../../../ir/plan/index.js";
@@ -79,6 +78,7 @@ import {
   entryUnionFiles,
   entryUnionJava,
 } from "./entry-result.js";
+import { publishesInRowTenant } from "./service.js";
 import {
   bearsNestedRecord,
   collectWireToDomainImports,
@@ -759,15 +759,16 @@ function publishDrainedLine(binding: string, publisher: string): string {
 export function javaPublishDrained(
   binding: string,
   publisher: string,
-  agg: Parameters<typeof isTenantScopedStream>[0] | undefined,
+  agg: Parameters<typeof publishesInRowTenant>[0] | undefined,
   authPkg: string | undefined,
 ): string {
-  if (!agg || !authPkg || !isTenantScopedStream(agg)) return publishDrainedLine(binding, publisher);
+  if (!agg || !authPkg || !publishesInRowTenant(agg)) return publishDrainedLine(binding, publisher);
   return (
     `{ var __s = ${binding}; var __o = ${authPkg}.User.currentEventOrigin(); ` +
+    `var __t = java.util.Objects.toString(__s.tenantId(), null); ` +
     `Runnable __pub = () -> { for (var __e : __s.pullEvents()) ${publisher}.publishEvent(__e); }; ` +
-    `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __s.tenantId())) __pub.run(); ` +
-    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__s.tenantId(), __o == null ? null : __o.causedBy()), __pub); }`
+    `if (java.util.Objects.equals(__o == null ? null : __o.tenant(), __t)) __pub.run(); ` +
+    `else ${authPkg}.CurrentUserAccessor.runAsEventOrigin(new ${authPkg}.EventOrigin(__t, __o == null ? null : __o.causedBy()), __pub); }`
   );
 }
 
