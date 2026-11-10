@@ -29,6 +29,7 @@ import {
   escapeJsFamilyText,
   hookFnName,
   hookVarName,
+  jsRichTranslateCall,
   lowerFirstName,
   referencesIdent,
   renderJsMatch,
@@ -450,6 +451,11 @@ export const svelteTarget: WalkerTarget = {
   /** Svelte 5 shares JSX's `{expr}` interpolation syntax. */
   renderInterpolation(jsExpr: string): string {
     return `{${jsExpr}}`;
+  },
+
+  /** A rich-text sentence: the runtime's escaped HTML through `{@html}`. */
+  renderRichText(spec): string {
+    return `{@html ${jsRichTranslateCall(spec)}}`;
   },
 
   /** Svelte dynamic attribute — `name={expr}`, leading space

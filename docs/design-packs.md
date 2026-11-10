@@ -203,11 +203,12 @@ parameters.`, a bool cell's `Yes`/`No`, an empty picker's `Select…`.
 data only — never for a word a generator fills in, because "Add {item}" or
 "{operation} succeeded" cannot be right where the language declines the noun.
 A message that varies by operation or item type is generated per subject by the
-walker ("Add line", "Ship succeeded"; keys `chrome.addItem.<ValueObject>`,
-`chrome.operationSucceeded.<op>`) and handed to the template as a token:
+walker ("Add line", "Ship succeeded", "Order created"; keys `chrome.addItem.<ValueObject>`,
+`chrome.operationSucceeded.<op>`, `chrome.created.<Aggregate>`,
+`chrome.completed.<Workflow>`) and handed to the template as a token:
 `{{{addItemLabel}}}` (markup text) and `{{{successMessage}}}` (a target value).
 A pack that reads either token lists its base in `"sentenceChrome":
-["addItem", "operationSucceeded"]`, which is what puts those sentences in its
+["addItem", "operationSucceeded", "created", "completed"]`, which is what puts those sentences in its
 catalogs; `test/i18n/no-word-frames.test.ts` fails when the list and the
 templates disagree.
 
@@ -253,9 +254,9 @@ $ ddd i18n sync app.ddd
 The carry is deliberately narrow: same `<role>`, same `<hash>`, the old key gone
 from the fresh extraction, the new key untranslated, the lock
 (`locales/.loom/source.lock/<ns>.json`) proving the English is byte-identical, and the
-donor a real translation rather than a `TODO:`/conflicted value. Anything
+donor a real translation rather than a legacy `TODO:`/conflicted value. Anything
 ambiguous — two dropped families offering one wording, or two new families
-wanting one — carries **nothing** and falls back to a `TODO:`. A role the new
+wanting one — carries **nothing**; the new key stays untranslated (absent). A role the new
 pack spells differently has a different hash and still re-keys, which is the
 whole point of hashing the message.
 

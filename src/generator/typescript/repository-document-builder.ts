@@ -189,7 +189,7 @@ export function buildDocumentRepositoryFile(
       : []),
     `    const existing = await this.db.select({ ${ROW_VERSION_FIELD}: schema.${tableName}.${ROW_VERSION_FIELD} }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
     `    if (existing.length === 0) {`,
-    // The `onCreate` stamps (`auditable`, `tenantOwned`'s tenantId/dataKey, a
+    // The `onCreate` stamps (`auditable`, `tenantOwned`'s tenantId, a
     // hand-written `stamp onCreate`) land HERE, on the doc payload, exactly as
     // the relational path lands them on the row (`.values(stampInsert(row))`,
     // emit/audit-stamp.ts).  A document aggregate has one opaque jsonb column,
@@ -199,8 +199,8 @@ export function buildDocumentRepositoryFile(
     // Only the INSERT branch stamps.  `stampUpdate` STRIPS the create-only
     // fields so a relational UPDATE cannot overwrite them, which is right for a
     // partial column `set` and WRONG here: the update writes the whole blob, so
-    // stripping `tenantId`/`dataKey` would delete them from the document.  The
-    // rehydrated aggregate already carries both, so the update branch is
+    // stripping `tenantId` would delete it from the document.  The
+    // rehydrated aggregate already carries it, so the update branch is
     // correct doing nothing.
     //
     // Without this a `tenantOwned` document row was written with an EMPTY
@@ -365,12 +365,10 @@ export function aggregateRetrievals(
  *  introduces (`requireCurrentUser()` for by-id reads, the find's own
  *  `currentUser` param when it has one).
  *
- *  An `authz-filter` SENTINEL (`policy { allow deep … }` / `deny`) is desugared
- *  to ordinary IR first: it exists to be intercepted by a backend's
- *  QUERY-filter translator, and this path has no query to translate into
- *  (pairwise finding F1 — the sentinel reached the generic dispatcher and blew
- *  its invariant).  In-app, both decisions are plain expressions over the
- *  rehydrated row.
+ *  An `authz-filter` SENTINEL (a policy `deny`) is desugared to ordinary IR
+ *  first: it exists to be intercepted by a backend's QUERY-filter translator,
+ *  and this path has no query to translate into.  In-app, the decision is a
+ *  plain expression over the rehydrated row.
  *
  *  `bypass` is the READ's OWN `ignoring <Cap>` / `ignoring *` clause.  It used
  *  to be absent here, so the predicate came from the aggregate's default filter

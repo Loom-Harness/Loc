@@ -5,7 +5,7 @@
 // must degrade to a refetch ticket, and the PRINCIPAL claim member the room key
 // is read from.
 //
-// The single DataKey v1 derives is the TENANT — the equality part of the
+// The single room key v1 derives is the TENANT — the equality part of the
 // `tenantOwned` read policy (`this.tenantId == currentUser.<claim>`), the
 // canonical multi-tenancy scoping column.  Row column and principal claim are
 // DIFFERENT names: the capability owns `tenantId` on the row, while the

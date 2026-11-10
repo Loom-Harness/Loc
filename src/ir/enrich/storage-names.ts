@@ -25,11 +25,9 @@ import type {
   AssociationIR,
   EntityPartIR,
   ProjectionIR,
-  SystemIR,
   WorkflowIR,
 } from "../types/loom-ir.js";
 import { type AggPool, projectionSourceTable, tableOwnerName } from "../util/inheritance.js";
-import { hierarchyRegistry } from "../util/tenant-stance.js";
 
 export { routeSegmentFor, tableNameFor };
 
@@ -54,21 +52,6 @@ export function aggregateTableNameOf(name: string, pool: AggPool): string {
  *  source outside `pool` owns the table spelled from its own name. */
 export function projectionSourceTableName(source: string, pool: AggPool): string {
   return tableNameFor(projectionSourceTable(source, pool).tableOwner);
-}
-
-/** The tenant registry's table, resolved in the context that declares it, or
- *  undefined when the system has no hierarchical registry. */
-export function registryTableName(
-  sys: Pick<SystemIR, "tenancy" | "subdomains">,
-): string | undefined {
-  const reg = hierarchyRegistry(sys);
-  if (!reg) return undefined;
-  for (const mod of sys.subdomains) {
-    for (const ctx of mod.contexts) {
-      if (ctx.aggregates.includes(reg)) return aggregateTableName(reg, ctx.aggregates);
-    }
-  }
-  return undefined;
 }
 
 /** The child table of a contained entity part (`VariantSKU` → `variant_skus`). */

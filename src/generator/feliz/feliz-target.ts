@@ -404,7 +404,7 @@ function renderFieldArray(
   const rows = `model.${formField}.${fa.fieldName} |> List.mapi (fun i row -> ${row})`;
   const labelText = felizInputText(ctx, src, [], fa.jsonKey);
   const label = `Html.label [ prop.className "font-semibold"; prop.text ${labelText?.label ?? `"${fa.label}"`} ]`;
-  const add = `Html.button [ prop.className "btn btn-sm"; prop.onClick (fun _ -> dispatch ${fa.addMsg}); prop.text "Add ${fa.elementLabel}" ]`;
+  const add = `Html.button [ prop.className "btn btn-sm"; prop.onClick (fun _ -> dispatch ${fa.addMsg}); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("addItem", fa.elementName))} ]`;
   return `Html.div [ prop.className "flex flex-col gap-2"; prop.children [ ${label}; yield! (${rows}); ${add} ] ]`;
 }
 
@@ -1219,6 +1219,12 @@ export const felizTarget: WalkerTarget = {
           .map((v) => `${fsString(v.name)}, box (${v.expr})`)
           .join("; ")} ])`
       : `(I18n.t ${fsString(key)} ${fsString(message)})`,
+  // A rich-text sentence → the runtime's `I18n.rich`, a `span` of styled
+  // elements.  Parenthesised, like `renderTranslate`, for the child slot.
+  renderRichText: ({ key, message, values }) =>
+    `(I18n.rich ${fsString(key)} ${fsString(message)} [ ${(values ?? [])
+      .map((v) => `${fsString(v.name)}, box (${v.expr})`)
+      .join("; ")} ])`,
   renderStyleAttr: () => "",
   // Implicit model-text sites (form labels, enum options, submit buttons, the
   // `EnumBadge` value) are keyed by identity through `renderTranslate`.

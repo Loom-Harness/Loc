@@ -52,6 +52,7 @@ import {
   renderLocaleModule,
   renderLocalePlug,
   renderLocaleSelect,
+  renderLocaleTest,
 } from "../locale.js";
 import {
   renderApplication,
@@ -79,6 +80,7 @@ import {
 } from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
 import { renderObanConfig } from "./scheduler-emit.js";
+import { renderVanillaSecurityHeaders } from "./security-headers-emit.js";
 import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
 export function emitVanillaShellFiles(
@@ -238,7 +240,10 @@ export function emitVanillaShellFiles(
   out.set(`lib/${appName}/telemetry.ex`, renderTelemetry({ appName, appModule }));
   // Ambient execution-context carrier (Logger.metadata) — the Plug is mounted
   // in the endpoint after Plug.RequestId.
-  out.set(`lib/${appName}/request_context.ex`, renderRequestContext(appModule));
+  out.set(
+    `lib/${appName}/request_context.ex`,
+    renderRequestContext(appModule, { source: sourceLocale, negotiated: i18nEnabled }),
+  );
   // Post-commit effect buffer a transactional workflow opens (M-T4.3 item 6).
   out.set(`lib/${appName}/post_commit.ex`, renderPostCommit(appModule));
   // The typed guard denial a pure body (`function` / `domainService` /
@@ -342,6 +347,12 @@ export function emitVanillaShellFiles(
     out.set(`lib/${appName}_web/gettext.ex`, renderGettextBackend(appName, appModule));
     out.set(`lib/${appName}_web/locale.ex`, renderLocaleModule(appModule, localeModel, icuEnabled));
     if (localeNegotiation) {
+      // The negotiation fallbacks are only worth a generated test where there
+      // is something to negotiate.  `mix test` needs the helper whether or not
+      // the model also declares `test` blocks (the domain-test emitter writes
+      // the identical file).
+      out.set("test/test_helper.exs", "ExUnit.start()\n");
+      out.set("test/locale_test.exs", renderLocaleTest(appModule, localeModel, hasLiveView));
       out.set(`lib/${appName}_web/locale_plug.ex`, renderLocalePlug(appModule));
       out.set(`lib/${appName}_web/locale_hook.ex`, renderLocaleHook(appModule));
     }
@@ -419,9 +430,14 @@ export function emitVanillaShellFiles(
   if (hasLiveView) {
     out.set(
       `lib/${appName}_web/controllers/error_html.ex`,
-      renderVanillaErrorHtml(appModule, sourceLocale),
+      renderVanillaErrorHtml(appModule, {
+        source: sourceLocale,
+        dir: localeModel.entries[0]?.dir ?? "ltr",
+        negotiated: i18nEnabled,
+      }),
     );
   }
+  out.set(`lib/${appName}_web/security_headers.ex`, renderVanillaSecurityHeaders(appModule));
   out.set(`lib/${appName}_web/body_parser.ex`, renderVanillaBodyParser(appModule));
   out.set(`lib/${appName}_web/fault_handler.ex`, renderVanillaFaultHandler(appModule));
   out.set(
@@ -750,10 +766,13 @@ function renderVanillaEndpoint(
   // `Plug.Static` serves `priv/static` so the root layout's
   // `~p"/assets/app.css"` / `app.js` references resolve.  A JSON-API-only
   // deployable serves no static assets and mounts no live socket.
-  const liveViewPlugs = hasLiveView
+  const liveSocket = hasLiveView
     ? `  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
 
-  plug Plug.Static,
+`
+    : "";
+  const liveViewPlugs = hasLiveView
+    ? `  plug Plug.Static,
     at: "/",
     from: :${appName},
     gzip: false,
@@ -785,6 +804,10 @@ defmodule ${appModule}Web.Endpoint do
     signing_salt: "loom_dev",
     same_site: "Lax"
   ]
+
+${liveSocket}  # First, so every response the endpoint sends — static assets included —
+  # carries the baseline security headers.
+  plug ${appModule}Web.SecurityHeaders
 
 ${liveViewPlugs}${spaStaticPlug}  plug Plug.RequestId
   plug ${appModule}.RequestContext
@@ -1705,16 +1728,41 @@ end
  *  `detail_for(status, _, _) when status >= 500` rule) — an exception message
  *  can name modules, SQL text and hosts, and a customer-facing error page is
  *  exactly the wrong place to leak them regardless of format. */
-function renderVanillaErrorHtml(appModule: string, sourceLocale: string): string {
+function renderVanillaErrorHtml(
+  appModule: string,
+  locale: { source: string; dir: string; negotiated: boolean },
+): string {
+  const web = `${appModule}Web`;
+  // The page's language and direction are the request's negotiated locale (the
+  // router's locale plug assigned it when it ran; otherwise `Accept-Language`
+  // decides), else the source language.
+  const localeFn = locale.negotiated
+    ? `
+  defp locale(assigns) do
+    conn = assigns[:conn]
+
+    tag =
+      (conn && conn.assigns[:loom_locale]) ||
+        ${web}.Locale.from_accept_language(
+          conn && conn |> Plug.Conn.get_req_header("accept-language") |> List.first()
+        ) || ${web}.Locale.source()
+
+    {tag, ${web}.Locale.dir(tag)}
+  end
+`
+    : `
+  defp locale(_assigns), do: {${JSON.stringify(locale.source)}, ${JSON.stringify(locale.dir)}}
+`;
   return `# Auto-generated.
-defmodule ${appModule}Web.ErrorHTML do
-  def render(template, _assigns) do
+defmodule ${web}.ErrorHTML do
+  def render(template, assigns) do
     status = template |> String.split(".") |> hd() |> String.to_integer()
     title = Phoenix.Controller.status_message_from_template(template)
+    {lang, dir} = locale(assigns)
 
     Phoenix.HTML.raw("""
     <!DOCTYPE html>
-    <html lang="${sourceLocale}">
+    <html lang="#{lang}" dir="#{dir}">
       <head>
         <meta charset="utf-8" />
         <title>#{status} #{title}</title>
@@ -1726,7 +1774,7 @@ defmodule ${appModule}Web.ErrorHTML do
     </html>
     """)
   end
-end
+${localeFn}end
 `;
 }
 

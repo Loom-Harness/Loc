@@ -1,5 +1,6 @@
 import { readFilterRestrictions, readScopeFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
+import { stateRowWorkflows } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -39,11 +40,7 @@ import { csJsonSqlType } from "../codec-spelling.js";
 import { CS } from "../cs-symbols.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
-import {
-  correlationWorkflows,
-  workflowStateClass,
-  workflowStateDbSet,
-} from "../workflow-state-emit.js";
+import { workflowStateClass, workflowStateDbSet } from "../workflow-state-emit.js";
 import { joinDbSetName, joinEntityName } from "./join-entities.js";
 
 // AppDbContext + per-aggregate IEntityTypeConfiguration<T>.  The
@@ -212,7 +209,7 @@ export function renderDbContext(
   // by its correlation field.  Empty (byte-identical) when the context declares
   // no saga.  Requires `using <ns>.Infrastructure.Persistence.Workflows;` for
   // the state POCO type.
-  const corrWfs = correlationWorkflows(ctx.workflows);
+  const corrWfs = stateRowWorkflows(ctx.workflows);
   const wfStateUsings =
     corrWfs.length > 0 ? [`using ${ns}.Infrastructure.Persistence.Workflows;`] : [];
   const wfStateDbSets = corrWfs.map(
@@ -300,12 +297,13 @@ export function renderDbContext(
   const principalFilterMembers: string[] = [];
   const principalFilterLines = filterHostAggs.flatMap((host) => {
     return hostedQueryFilters(host, ctx.aggregates)
-      .filter((h) => exprRefsCurrentUser(h.predicate))
+      .filter((h) => needsDbContextFilter(h.predicate))
       .map(({ owner: a, index: i, name, predicate, guard }) => {
         let body = renderCsExpr(predicate, {
           thisName: guard ? `((${guard})x)` : "x",
           currentUserExpr: "_currentUser.User",
           efQuery: true,
+          dbContextExpr: "this",
         });
         // Hoist a `new <Agg>Id(...)` self-scope construction out of the filter
         // expression (EF can't translate the constructor in-tree).
@@ -907,7 +905,7 @@ function typeGuarded(concrete: string, body: string): string {
  *  filter `agg`'s configuration hosts (`hostedQueryFilters`). */
 function staticQueryFilterLines(agg: AggregateIR, pool: AggPool): string[] {
   return hostedQueryFilters(agg, pool)
-    .filter((h) => !exprRefsCurrentUser(h.predicate))
+    .filter((h) => !needsDbContextFilter(h.predicate))
     .map(({ name, predicate, guard }) => {
       const body = renderCsExpr(predicate, {
         thisName: guard ? `((${guard})x)` : "x",
@@ -1007,6 +1005,19 @@ function queryFilterName(
  *  Tenancy filters (`filter this.x == currentUser.x`) do; structural filters
  *  (`softDelete`) don't.  Drives the conditional `Domain.Common` using for the
  *  ambient accessor.  Walks only the expr shapes a capability filter can take. */
+/** A filter registered in the DbContext's `OnModelCreating` rather than on the
+ *  per-entity configuration: one that reads the request principal (the
+ *  context's `_currentUser`), or one with an `exists` subquery, which reads
+ *  another entity set through the context (`this.Set<Agg>()`). */
+function needsDbContextFilter(e: ExprIR): boolean {
+  if (exprRefsCurrentUser(e)) return true;
+  let quantifies = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "exists") quantifies = true;
+  });
+  return quantifies;
+}
+
 function exprRefsCurrentUser(e: ExprIR): boolean {
   // Delegates to the shared derivation instead of mirroring it.  The
   // hand-rolled twin this replaces SAID it had to mirror `exprUsesCurrentUser`
@@ -1053,6 +1064,7 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
     // Named rather than left to a
     // `default:` so a new `ExprIR` kind is a decision rather than a silent
     // omission.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

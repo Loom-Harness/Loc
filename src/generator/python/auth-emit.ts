@@ -4,20 +4,17 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
-import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
-
-const TEXT = pyRef("sqlalchemy", "text");
-const SESSION_FACTORY = pyRef("app.db.engine", "session_factory");
 
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
@@ -45,33 +42,18 @@ export function emitPyAuthFiles(
   user: UserIR,
   out: Map<string, string>,
   auth?: AuthIR,
-  orgPathClaim?: string,
-  orgPathRegistryTable?: string,
-  /** Something in the system reads `organizationContext.orgPath` — emit the
+  tenantClaim?: string,
+  /** Something in the system reads `organizationContext.org` — emit the
    *  operating-scope switch gate (`systemReadsOrgContext`). */
   readsOrgContext = false,
 ): void {
-  // Hierarchy (multi-tenancy): `orgPathRegistryTable` is the tenant
-  // registry's schema-qualified table when it opts into `tenantRegistry` (a
-  // `data_key` column exists).  Present → `currentUser.orgPath` becomes a
-  // per-request memoized read of the caller org's materialized `data_key`
-  // (fail-safe fallback to the claim); absent (flat tenancy) → the
-  // claim-copy `@property` stands.
-  const orgPathReadsRegistry = !!orgPathRegistryTable;
-  // The operating-scope switch gate (`organizationContext`, M-T3.6 items 3+5)
-  // — only where something reads the operating scope; the phase-⑦
-  // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
-  const orgContext = orgPathReadsRegistry && !!orgPathClaim && readsOrgContext;
+  // The operating-scope switch gate (`organizationContext`) exists only under
+  // tenancy and only where something reads the operating org.
+  const orgContext = !!tenantClaim && readsOrgContext;
   out.set("app/auth/__init__.py", "");
-  out.set(
-    "app/auth/user.py",
-    renderUserModule(user, orgPathClaim, orgPathReadsRegistry, orgContext),
-  );
+  out.set("app/auth/user.py", renderUserModule(user, tenantClaim, orgContext));
   out.set("app/auth/verifier.py", VERIFIER_PY);
-  out.set(
-    "app/auth/middleware.py",
-    renderAuthMiddleware(user, !!auth, orgPathClaim, orgPathRegistryTable, orgContext),
-  );
+  out.set("app/auth/middleware.py", renderAuthMiddleware(user, !!auth, tenantClaim, orgContext));
   // /auth/me is emitted whenever a backend has auth — the frontend `auth: ui`
   // guard probes it, and it works for both the OIDC verifier and the dev stub.
   out.set("app/auth/routes.py", renderRoutesPy(user));
@@ -138,75 +120,25 @@ function stubValueForType(t: TypeIR): string {
   }
 }
 
-function renderUserModule(
-  user: UserIR,
-  orgPathClaim?: string,
-  orgPathReadsRegistry = false,
-  orgContext = false,
-): string {
+function renderUserModule(user: UserIR, tenantClaim?: string, orgContext = false): string {
   const fields = user.fields.map((f) => {
     const t = renderPyType(f.optional ? { kind: "optional", inner: f.type } : f.type);
     return `    ${snake(f.name)}: ${t}`;
   });
-  // Derived `currentUser.orgPath` — the caller's tenant materialized path
-  // (multi-tenancy).  Two shapes, both keeping it OFF `asdict` /
-  // the `/auth/me` wire (derived, not a claim) and untouched by every
-  // construction site (the verifier never sets it):
-  //
-  //  - flat tenancy: a computed `@property` deriving the root-segment
-  //    path from the tenancy claim, null-safely.
-  //  - hierarchy: a bare class attribute (NOT a dataclass field, so
-  //    `asdict()` skips it) that the auth middleware resolves ONCE per request
-  //    from the registry's `data_key` column and writes back via
-  //    `object.__setattr__` (this dataclass is frozen).  The read is memoized
-  //    on the principal — `require_current_user().org_path` returns the
-  //    resolved path — and falls back to the claim when the row/dataKey is
-  //    absent.  Defaults to "" until the middleware resolves it.
-  const orgPathProp = !orgPathClaim
-    ? []
-    : orgPathReadsRegistry
-      ? [
-          "",
-          "    # The caller's tenant materialized path (`currentUser.orgPath`),",
-          "    # resolved once per request by the auth middleware from the tenant",
-          "    # registry's `data_key` column and stored here via",
-          "    # object.__setattr__ (this dataclass is frozen).  A bare class",
-          "    # attribute — NOT a dataclass field — so asdict()/the /auth/me wire",
-          "    # never serializes it (multi-tenancy).",
-          '    org_path = ""',
-          ...(orgContext
-            ? [
-                "",
-                "    # The request's OPERATING scope (`organizationContext.orgPath`): the",
-                `    # validated \`${ORG_CONTEXT_HEADER}\` path when the request switches into a`,
-                "    # descendant org, else `org_path`.  Set once per request by the auth",
-                "    # middleware's fail-closed switch gate (never read off the token); a",
-                "    # bare class attribute, so asdict()/the /auth/me wire never carries it.",
-                '    org_context_path = ""',
-              ]
-            : []),
-        ]
-      : [
-          "",
-          "    @property",
-          "    def org_path(self) -> str:",
-          '        """The caller\'s tenant materialized path (`currentUser.orgPath`) —',
-          '        derived per-request from the tenancy claim (multi-tenancy)."""',
-          `        return "" if self.${snake(orgPathClaim)} is None else str(self.${snake(orgPathClaim)})`,
-        ];
-  // `currentUser.rootOrg`: the ROOT-org segment — the first segment of
-  // `org_path` (up to the first `.`).  A read-only property off `org_path`
-  // (pure, no extra read), correct under both flat and hierarchy tenancy;
-  // anchors the `global` read level's root-subtree widening.  Not a dataclass
-  // field, so asdict()/the /auth/me wire never serializes it.
-  const rootOrgProp = orgPathClaim
+  // `currentUser.operatingOrg` — the request's OPERATING org id, present only
+  // when the switch gate is emitted.  A bare class attribute (NOT a dataclass
+  // field, so `asdict()` and the `/auth/me` wire skip it) that the auth
+  // middleware sets once per request via `object.__setattr__` (this dataclass
+  // is frozen); the system principal sets it to its event tenant.
+  const operatingOrgAttr = orgContext
     ? [
         "",
-        "    @property",
-        "    def root_org(self) -> str:",
-        '        """The caller\'s ROOT-org segment (`currentUser.rootOrg`) — the first',
-        '        segment of `org_path` (multi-tenancy)."""',
-        '        return self.org_path.split(".", 1)[0]',
+        "    # The request's OPERATING org id (`organizationContext.org`): the home",
+        `    # org (the tenancy claim); an \`${ORG_CONTEXT_HEADER}\` header may name only`,
+        "    # that org.  Set once per request by the auth middleware's fail-closed",
+        "    # switch gate (never read off the token); a bare class attribute, so",
+        "    # asdict()/the /auth/me wire never carries it.",
+        '    operating_org = ""',
       ]
     : [];
   // `User.guid_claim(name)` — the parse-to-None coercion the registry
@@ -269,8 +201,7 @@ function renderUserModule(
     "    # The originating user's id on the system principal — audit and logs",
     "    # only, never read by a gate.",
     "    caused_by: str | None = None",
-    ...orgPathProp,
-    ...rootOrgProp,
+    ...operatingOrgAttr,
     ...guidClaimMethod,
     "",
     "",
@@ -295,7 +226,7 @@ function renderUserModule(
     "    if user is None:",
     '        raise PermissionError("unauthorized")',
     "    return user",
-    ...renderPySystemPrincipal(user, orgPathClaim, orgPathReadsRegistry, orgContext),
+    ...renderPySystemPrincipal(user, tenantClaim, orgContext),
     "",
   );
 }
@@ -303,8 +234,8 @@ function renderUserModule(
 /** `system_principal()` — the principal an event reactor runs as (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
  *  the dev stub's `"admin"`), `is_system=True`, the tenancy claim (and, under
- *  hierarchy, the resolved `org_path`) taken from the EVENT ORIGIN — the
- *  ambient principal's `{tenant, orgPath, causedBy}` snapshot, which in-process
+ *  the switch gate, the operating org) taken from the EVENT ORIGIN — the
+ *  ambient principal's `{tenant, causedBy}` snapshot, which in-process
  *  is the request that raised the event, and on the outbox relay / a channel
  *  consumer the origin the row / envelope carried (`event_origin_frame`).
  *  No origin (a timer tick) ⇒ an empty tenant, which matches no tenant-owned
@@ -312,7 +243,6 @@ function renderUserModule(
 function renderPySystemPrincipal(
   user: UserIR,
   tenantClaim: string | undefined,
-  readsRegistry: boolean,
   orgContext: boolean,
 ): string[] {
   const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
@@ -333,14 +263,14 @@ function renderPySystemPrincipal(
       : `        ${snake(f.name)}=${empty(f)} if tenant is None else ${rebuilt},`;
   });
   const claim = tenantClaim ? snake(tenantClaim) : undefined;
-  const hierarchy = tenantClaim && readsRegistry;
+  const setsOperatingOrg = !!tenantClaim && orgContext;
   return [
     "",
     "",
     "def current_event_origin() -> dict[str, str | None] | None:",
     '    """Where an event came from (ruling D1): the ambient principal\'s tenant',
-    "    claim and materialized path, and the originating user id (`causedBy`,",
-    "    audit only).  Captured onto the outbox row and the channel envelope so",
+    "    claim and the originating user id (`causedBy`, audit only).  Captured",
+    "    onto the outbox row and the channel envelope so",
     "    a reactor that runs after the request is gone still runs as the system",
     "    principal OF THAT TENANT.  A system principal propagates its own origin;",
     '    None outside any principal (a timer tick, boot)."""',
@@ -351,7 +281,6 @@ function renderPySystemPrincipal(
     claim
       ? `        "tenant": None if user.${claim} is None or str(user.${claim}) == "" else str(user.${claim}),`
       : '        "tenant": None,',
-    claim ? '        "orgPath": user.org_path or None,' : '        "orgPath": None,',
     idField
       ? `        "causedBy": user.caused_by if user.is_system else str(user.${snake(idField.name)}),`
       : '        "causedBy": user.caused_by,',
@@ -362,30 +291,20 @@ function renderPySystemPrincipal(
     '    """The system principal of an event origin: no claims, `is_system`, the',
     "    origin's tenant, `caused_by` for audit.  Gates are evaluated against it",
     '    normally — one that admits it says `currentUser.isSystem || …`."""',
-    ...(kwargsReadTenant || hierarchy
+    ...(kwargsReadTenant || setsOperatingOrg
       ? [
           '    raw_tenant = None if origin is None else origin.get("tenant")',
           "    tenant = raw_tenant if isinstance(raw_tenant, str) else None",
         ]
       : []),
     '    raw_caused_by = None if origin is None else origin.get("causedBy")',
-    ...(hierarchy
-      ? [
-          '    raw_org_path = None if origin is None else origin.get("orgPath")',
-          '    org_path = raw_org_path if isinstance(raw_org_path, str) else (tenant or "")',
-        ]
-      : []),
-    `    ${hierarchy ? "user =" : "return"} User(`,
+    `    ${setsOperatingOrg ? "user =" : "return"} User(`,
     ...kwargs,
     "        is_system=True,",
     "        caused_by=raw_caused_by if isinstance(raw_caused_by, str) else None,",
     "    )",
-    ...(hierarchy
-      ? [
-          '    object.__setattr__(user, "org_path", org_path)',
-          ...(orgContext ? ['    object.__setattr__(user, "org_context_path", org_path)'] : []),
-          "    return user",
-        ]
+    ...(setsOperatingOrg
+      ? ['    object.__setattr__(user, "operating_org", tenant or "")', "    return user"]
       : []),
     "",
     "",
@@ -487,18 +406,11 @@ export function actorIdAttr(user: UserIR): string | null {
 function renderAuthMiddleware(
   user: UserIR,
   oidc: boolean,
-  orgPathClaim?: string,
-  orgPathRegistryTable?: string,
+  tenantClaim?: string,
   orgContext = false,
 ): string {
   const idAttr = actorIdAttr(user);
-  // Hierarchy (multi-tenancy): resolve `currentUser.orgPath` from the
-  // tenant registry's `data_key` once per request (fail-safe to the claim).
-  // Unlike the Hono auth layer (which can't reach the db and registers a
-  // boot-time resolver closure), the Starlette middleware can import the
-  // module-level `session_factory`, so the lookup lives right here.
-  const hierarchy = !!orgPathRegistryTable && !!orgPathClaim;
-  const claimAttr = orgPathClaim ? snake(orgPathClaim) : null;
+  const claimAttr = tenantClaim ? snake(tenantClaim) : null;
   // Under OIDC the /auth/login|callback|logout redirect handlers must be
   // reachable without a verified principal — bypass them.  /auth/me is NOT
   // bypassed (the guard reads the verified user).
@@ -512,34 +424,6 @@ function renderAuthMiddleware(
   const bypass = oidc
     ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
     : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
-  // The per-request registry `data_key` resolver (hierarchy only).  A fresh
-  // session per lookup; `SELECT data_key … WHERE id = :claim LIMIT 1`; a
-  // missing row / NULL `data_key` / any error (e.g. a non-matching dev-stub
-  // claim) falls back to the claim itself — the documented root-segment
-  // fallback that never crashes a request.
-  const resolver = hierarchy
-    ? [
-        "",
-        "",
-        "async def _resolve_org_path(claim: str) -> str:",
-        '    """The caller org\'s materialized path (`currentUser.orgPath`): the tenant',
-        "    registry's `data_key` for the tenancy claim, else the claim itself",
-        "    (root-segment fallback).  Memoized — the middleware calls this once per",
-        '    request and stores the result on the principal (multi-tenancy)."""',
-        "    if not claim:",
-        "        return claim",
-        "    try:",
-        `        async with ${SESSION_FACTORY}() as session:`,
-        "            result = await session.execute(",
-        `                ${TEXT}("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
-        '                {"claim": claim},',
-        "            )",
-        "            data_key = result.scalar_one_or_none()",
-        "        return data_key if isinstance(data_key, str) else claim",
-        "    except Exception:",
-        "        return claim",
-      ]
-    : [];
   return lines(
     '"""Auth middleware.  Auto-generated.',
     "",
@@ -559,7 +443,6 @@ function renderAuthMiddleware(
     "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
-    ...resolver,
     "",
     "",
     "class AuthMiddleware(BaseHTTPMiddleware):",
@@ -604,35 +487,23 @@ function renderAuthMiddleware(
     '                media_type="application/problem+json",',
     '                headers={"WWW-Authenticate": \'Bearer realm="api", error="invalid_token"\'},',
     "            )",
-    // Hierarchy: resolve the caller's tenant materialized path once and
-    // store it on the (frozen) principal, so `currentUser.orgPath` reads a
-    // memoized value rather than recomputing per access.
-    ...(hierarchy && claimAttr
-      ? [
-          `        _claim = "" if user.${claimAttr} is None else str(user.${claimAttr})`,
-          '        object.__setattr__(user, "org_path", await _resolve_org_path(_claim))',
-        ]
-      : []),
     // The operating-scope switch gate (`organizationContext`): after the
-    // principal's `org_path` is resolved, before the principal is attached.  A
-    // request whose `x-org-context` names an org outside the caller's
-    // `org_path` subtree (equal, or anchored under `org_path + "."`), or any
-    // org at all when the caller has no `org_path`, is a 403 — no handler runs,
-    // nothing is written.  Absent / empty ⇒ the principal's own scope.
-    ...(orgContext
+    // principal is verified, before it is attached.  The home org is the
+    // tenancy claim; an absent / empty header operates in the home org, a
+    // header equal to the home org is admitted, and any other org — or any org
+    // at all when the caller has no home org — is a 403: no handler runs,
+    // nothing is written.
+    ...(orgContext && claimAttr
       ? [
+          `        home_org = "" if user.${claimAttr} is None else str(user.${claimAttr})`,
           `        requested_org_context = request.headers.get("${ORG_CONTEXT_HEADER}", "")`,
           "        if requested_org_context:",
-          "            scope = user.org_path",
-          "            if not scope or not (",
-          "                requested_org_context == scope",
-          '                or requested_org_context.startswith(scope + ".")',
-          "            ):",
+          "            if not home_org or requested_org_context != home_org:",
           `                ${PY.log}(`,
           `                    "${LogEvents.orgContextDenied.level}",`,
           `                    "${LogEvents.orgContextDenied.event}",`,
           "                    org_context=requested_org_context,",
-          '                    reason="no_principal_scope" if not scope else "outside_scope",',
+          '                    reason="no_principal_scope" if not home_org else "outside_scope",',
           "                    status=403,",
           "                )",
           "                return JSONResponse(",
@@ -647,9 +518,7 @@ function renderAuthMiddleware(
           "                    status_code=403,",
           '                    media_type="application/problem+json",',
           "                )",
-          '            object.__setattr__(user, "org_context_path", requested_org_context)',
-          "        else:",
-          '            object.__setattr__(user, "org_context_path", user.org_path)',
+          '        object.__setattr__(user, "operating_org", requested_org_context or home_org)',
         ]
       : []),
     "        request.state.current_user = user",
@@ -681,9 +550,9 @@ function renderAuthMiddleware(
  *  `tenantId` would reach the wire as `tenant_id` while the other four backends
  *  answer the declared name.  `/auth/me` is the one endpoint the
  *  frontends' `auth: ui` guard reads, so its keys are a wire contract like any
- *  other; the per-request derived members (`org_path` / `root_org`) stay off it
- *  for the same reason they do on the other backends — they are scoping state,
- *  not part of the declared principal. */
+ *  other; the per-request operating org (`operating_org`) stays off it for the
+ *  same reason it does on the other backends — it is scoping state, not part of
+ *  the declared principal. */
 function renderRoutesPy(user: UserIR): string {
   const projection = user.fields
     .map((f) => `            ${JSON.stringify(f.name)}: user.${snake(f.name)},`)
@@ -856,6 +725,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
+from app.http.security_headers import SECURE_TRANSPORT
 
 _SCOPES = ${JSON.stringify(scopes)}
 ${
@@ -976,6 +846,13 @@ def _base64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
+def _set_cookie(response: Response, name: str, value: str) -> None:
+    """HttpOnly, SameSite=Lax (the IdP's redirect back to /callback still carries
+    it), and Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack
+    serves plain http), so the tokens never ride cleartext in a TLS deployment."""
+    response.set_cookie(name, value, httponly=True, samesite="lax", secure=SECURE_TRANSPORT)
+
+
 @router.get("/login", include_in_schema=False)
 async def login() -> RedirectResponse:
     authorize = cast(str, _discovery()["authorization_endpoint"])
@@ -996,8 +873,8 @@ async def login() -> RedirectResponse:
         }
     )
     response = RedirectResponse(authorize + "?" + query)
-    response.set_cookie("oidc_state", state, httponly=True, samesite="lax")
-    response.set_cookie("oidc_verifier", verifier, httponly=True, samesite="lax")
+    _set_cookie(response, "oidc_state", state)
+    _set_cookie(response, "oidc_verifier", verifier)
     return response
 
 
@@ -1051,12 +928,10 @@ def _store_tokens(response: Response, tokens: dict[str, Any]) -> None:
     """Persist the access token as the session cookie and the refresh token
     (when granted) for /refresh.  Both HttpOnly — the SPA never sees them."""
     access = tokens.get("access_token")
-    response.set_cookie(
-        "session", access if isinstance(access, str) else "", httponly=True, samesite="lax"
-    )
+    _set_cookie(response, "session", access if isinstance(access, str) else "")
     refresh_token = tokens.get("refresh_token")
     if isinstance(refresh_token, str) and refresh_token:
-        response.set_cookie("refresh", refresh_token, httponly=True, samesite="lax")
+        _set_cookie(response, "refresh", refresh_token)
 
 
 def _token_request(form: dict[str, str]) -> dict[str, Any] | None:

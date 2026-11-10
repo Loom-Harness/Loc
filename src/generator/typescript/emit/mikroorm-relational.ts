@@ -556,6 +556,8 @@ export function mikroRetrievalMethod(
    *  retrieval (`… ignoring …`) bypasses; empty for the shared retrieval,
    *  which keeps every schema filter. */
   ignoring: string | null = null,
+  /** The context's aggregates — resolves an `exists` quantifier in `r.where`. */
+  pool: readonly EnrichedAggregateIR[] = [],
 ): string {
   const methodName = `run${upperFirst(r.name)}`;
   const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
@@ -566,7 +568,7 @@ export function mikroRetrievalMethod(
     findParamBindings(r.params),
   );
   const params = [...baseParams, `${L.page}?: { offset?: number; limit?: number }`].join(", ");
-  const filter = mikroFilterOrRefuse(r.where, AMBIENT_PRINCIPAL, agg.associations);
+  const filter = mikroFilterOrRefuse(r.where, AMBIENT_PRINCIPAL, agg.associations, pool);
   // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
@@ -749,7 +751,12 @@ export function renderMikroRepository(
     // implicit key match.
     const own = f.filter;
     const filter = own
-      ? mikroFilterOrRefuse(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
+      ? mikroFilterOrRefuse(
+          own,
+          usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
+          agg.associations,
+          pool,
+        )
       : "{}";
     // Paged return (`find x(): <Agg> paged`; the auto-`findAll` after M-T2.6):
     // trailing `page`/`pageSize`/`sort`/`dir` controls → a `em.count` +
@@ -868,6 +875,7 @@ export function renderMikroRepository(
         row,
         (n) => assocHydrateBind(agg, ctx, n.em, "", "return", "    ", n),
         mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+        pool,
       ),
     );
 

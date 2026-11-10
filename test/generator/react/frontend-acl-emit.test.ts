@@ -171,7 +171,9 @@ describe("frontend ACL — wired into emitted form catch blocks (Phase 2)", () =
     expect(src).toMatch(
       /notifications\.show\(\{ color: "red", message: \(e as Error\)\.message \}\)/,
     );
-    expect(src).toMatch(/notifications\.show\(\{ color: "green", message: "Order created" \}\)/);
+    expect(src).toMatch(
+      /notifications\.show\(\{ color: "green", message: t\("chrome\.created\.Order", "Order created"\) \}\)/,
+    );
   });
 });
 

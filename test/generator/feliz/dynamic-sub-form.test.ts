@@ -96,7 +96,9 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
     );
     // Add / per-row Remove controls.
     expect(app).toContain("dispatch (RemoveOrderCreateFormItems i)");
-    expect(app).toContain('dispatch AddOrderCreateFormItems); prop.text "Add Line Item"');
+    expect(app).toContain(
+      'dispatch AddOrderCreateFormItems); prop.text (I18n.t "chrome.addItem.LineItem" "Add Line Item")',
+    );
   });
 
   it("also drives the scaffolded update OperationForm (its own indexed Msgs)", async () => {

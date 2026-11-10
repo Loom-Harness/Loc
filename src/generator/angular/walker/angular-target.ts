@@ -26,6 +26,7 @@ import {
   escapeJsFamilyText,
   hookFnName,
   hookVarName,
+  jsRichTranslateCall,
   lowerFirstName,
   referencesIdent,
   renderJsMatch,
@@ -533,6 +534,12 @@ export const angularTarget: WalkerTarget = {
   /** Angular interpolation in text/child position. */
   renderInterpolation(jsExpr: string): string {
     return `{{ ${jsExpr} }}`;
+  },
+
+  /** A rich-text sentence: the runtime's escaped HTML bound as `[innerHTML]`
+   *  (Angular's sanitizer keeps `<strong>` / `<em>` / `<code>`). */
+  renderRichText(spec): string {
+    return `<span${angularTarget.renderAttrBinding("innerHTML", jsRichTranslateCall(spec))}></span>`;
   },
 
   /** Angular property binding — `[name]="expr"`, leading space included.

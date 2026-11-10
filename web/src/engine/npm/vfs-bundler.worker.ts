@@ -17,6 +17,7 @@ import { makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
 import { harvestTsconfigPaths } from "../../bundle/plugin.js";
 import { install } from "./install.js";
 import { IdbInstallCache } from "./install-cache-idb.js";
+import { BundleMemo, bundleKey } from "./bundle-memo.js";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -239,6 +240,9 @@ interface CtxSlot {
 
 const ctxCache = new Map<string, CtxSlot>();
 
+/** Finished self-contained bundles, by `bundleKey` (see bundle-memo.ts). */
+const bundleMemo = new BundleMemo<VfsBundleResponse>();
+
 /** Replace `target`'s entries with `source`'s, keeping the SAME map
  *  instance the live esbuild context's plugin closes over. */
 function syncFiles(target: FileMap, source: FileMap): void {
@@ -381,15 +385,28 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     // Distinct slot keys (hono vs react-self) so the backend and the
     // fallback frontend each keep their own persistent context.
     const slotKey = stdinContents ? "hono" : "react-self";
+    const signature = JSON.stringify([
+      entry ?? null,
+      !!externalReactRuntime,
+      aliases,
+      stdinContents ?? null,
+      sourcemapOption,
+    ]);
+    const memoKey = await bundleKey({
+      signature: slotKey + signature,
+      generatedFiles,
+      rootDeps,
+    });
+    const memoHit = bundleMemo.get(memoKey);
+    if (memoHit) {
+      // eslint-disable-next-line no-console
+      console.info(`[npm-engine] ${slotKey}: install=0ms bundle=0ms (memoised bundle)`);
+      self.postMessage({ ...memoHit, id } satisfies VfsBundleResponse);
+      return;
+    }
     const slot = await getSlot(
       slotKey,
-      JSON.stringify([
-        entry ?? null,
-        !!externalReactRuntime,
-        aliases,
-        stdinContents ?? null,
-        sourcemapOption,
-      ]),
+      signature,
       (files) => ({
         options: stdinContents
           ? {
@@ -417,7 +434,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     );
     syncFiles(slot.files, generatedFiles);
     const tInstall = performance.now();
-    const { versions, fileCount } = await install(
+    const { versions, fileCount, timings } = await install(
       rootDeps,
       (p, d) => slot.files.set(p, d),
       { cache: await getCache(), mirror: await getMirror() },
@@ -435,7 +452,9 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     // eslint-disable-next-line no-console
     console.info(
       `[npm-engine] ${kind}: install=${installMs}ms bundle=${bundleMs}ms ` +
-        `(${versions.size} pkgs, ${fileCount} files installed)`,
+        `(${versions.size} pkgs, ${fileCount} files installed; plan=${Math.round(timings.planMs)}ms ` +
+        `fetch=${Math.round(timings.fetchMs)}ms extract=${Math.round(timings.extractMs)}ms ` +
+        `write=${Math.round(timings.writeMs)}ms cached=${timings.cacheHits})`,
     );
     const js = out.outputFiles?.find((f) => f.path.endsWith(".js"));
     const css = out.outputFiles?.find((f) => f.path.endsWith(".css"));
@@ -448,7 +467,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
     if (kind === "hono" && sourcemap) {
       code += "//# sourceURL=loom://backend.js\n";
     }
-    self.postMessage({
+    const response = {
       id,
       ok: true,
       code,
@@ -456,7 +475,9 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
       versions: versionRec,
       installMs,
       bundleMs,
-    } satisfies VfsBundleResponse);
+    } satisfies VfsBundleResponse;
+    bundleMemo.set(memoKey, response);
+    self.postMessage(response);
   } catch (err) {
     const message =
       (err as { errors?: Array<{ text: string }> }).errors?.[0]?.text ??

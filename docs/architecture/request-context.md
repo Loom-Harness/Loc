@@ -51,7 +51,6 @@ CurrentUser {
   id          : Id
   tenantId    : TenantId        // the `user.tenantId` claim (multi-tenancy)
   permissions : Permission[]    // from the `user {}` claim record (authorization)
-  dataKey     : DataKey         // hierarchical data scope (authorization)
   // clearance for sensitivity declassification is derived from
   // permissions; no separate field in v1
 }
@@ -59,7 +58,7 @@ CurrentUser {
 
 `CurrentUser` **is** the `currentUser` magic identifier from
 `authorization.md` — the policy DSL's `currentUser.permissions`,
-`currentUser.dataKey`, `currentUser.id` are member accesses on this
+`currentUser.id` are member accesses on this
 exact record, and multi-tenancy's `tenancy by user.tenantId` reads
 `currentUser.tenantId`. There is one principal record, not one per
 feature.
@@ -72,9 +71,8 @@ feature.
 | `scopeId` | execution-context, on each frame open | audit (`scopeId` on record), provenance (which whole a value belongs to) |
 | `parentId` | execution-context, = parent frame's `scopeId` | audit + provenance (call-structure linkage) |
 | `currentUser.id` | auth middleware (from token) | audit (actor), authorization (gates), provenance (who computed) |
-| `currentUser.tenantId` | auth middleware (from `user.tenantId` claim) | multi-tenancy (query filter + write-stamp), authorization (DataKey leftmost) |
+| `currentUser.tenantId` | auth middleware (from `user.tenantId` claim) | multi-tenancy (query filter + write-stamp) |
 | `currentUser.permissions` | auth middleware (from `user {}` claim record) | authorization (operation/view/workflow gates), sensitivity (declassification clearance) |
-| `currentUser.dataKey` | auth middleware (from claim) | authorization (`data { reachable when … }` row filter) |
 | `locale` | i18n middleware (`Accept-Language` / explicit) | i18n (catalog lookup), error rendering (ProblemDetails `title`) |
 | `startedAt` | boundary middleware | audit (timestamp), observability (duration) |
 
@@ -278,7 +276,7 @@ for log↔trace correlation, that is its concern (owned by
 already wires `Activity.Current?.TraceId` into log scopes in
 `emit/program.ts`) — a one-way read of the frame, never a write governance
 reads back, and never via `Baggage` (it serialises to the W3C `baggage`
-header, leaking any `currentUser`/`tenantId`/`dataKey` to every downstream
+header, leaking any `currentUser`/`tenantId` to every downstream
 service).
 
 ### Two seams — and why a Mediator behaviour is not sufficient alone
@@ -363,8 +361,8 @@ The Phoenix carrier ships today, emitted as a
   key resolved from the user shape) — the **full principal stays on
   `conn.assigns.current_user`**, never in the log-bearing carrier. This is the
   log-safe realisation of the table's `currentUser.id` row; the richer
-  `currentUser` slices (`tenantId`/`permissions`/`dataKey`) are not on the
-  Elixir carrier yet.
+  `currentUser` slices (`tenantId`/`permissions`) are not on the Elixir
+  carrier.
 - **Accessors** (`correlation_id/0`, `scope_id/0`, `parent_id/0`, `actor_id/0`,
   `locale/0`, `started_at/0`) let non-HTTP code read the carrier without a
   `conn`; each returns nil outside a request (and `actor_id` nil before auth /

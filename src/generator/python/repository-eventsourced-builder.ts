@@ -352,10 +352,9 @@ function streamScopeFn(
 
 /** `_origin_frame(aggregate)` — the events' origin is their STREAM's tenant
  *  (`eventTenantMetadataFor`): the outbox capture and the CloudEvents envelope
- *  (`tenantid` / `loomorgpath`) read the ambient origin, so when the raising
- *  principal's tenant is not the stream's (a `policy`-widened subtree append)
- *  the dispatch runs in the stream tenant's frame.  The common case — same
- *  tenant — keeps the request's own. */
+ *  (`tenantid`) read the ambient origin, so when the raising principal's
+ *  tenant is not the stream's the dispatch runs in the stream tenant's frame.
+ *  The common case — same tenant — keeps the request's own. */
 function originFrameMethod(agg: EnrichedAggregateIR): string {
   return lines(
     `    def _origin_frame(self, aggregate: ${aggRef(agg)}) -> ${pyRef("contextlib", "AbstractContextManager")}[None]:`,
@@ -365,7 +364,6 @@ function originFrameMethod(agg: EnrichedAggregateIR): string {
     `        return ${authUser("event_origin_frame")}(`,
     "            {",
     '                "tenant": aggregate.tenant_id,',
-    '                "orgPath": aggregate.data_key,',
     '                "causedBy": None if origin is None else origin.get("causedBy"),',
     "            }",
     "        )",

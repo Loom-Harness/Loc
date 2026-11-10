@@ -150,6 +150,7 @@ export function structEvaluable(
     // anything inside a `{x, format}` hole. A corpus without `, format` holes
     // cannot see it, which is why it keeps surviving. Follow-up, deliberately
     // not bundled here.
+    case "exists":
     case "i18nFormat":
       return false;
     default: {

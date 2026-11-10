@@ -823,7 +823,7 @@ the conforming backends, and the fix that established it.
   `forApiRead` is the read-boundary projection over `wireShape`, and every read
   surface applies it.
 - **Trigger.** A GET on an aggregate carrying an `internal` field — for example
-  the `tenantId` / `dataKey` that the `tenantOwned` capability injects
+  the `tenantId` that the `tenantOwned` capability injects
   ([`tenancy.md`](tenancy.md)).
 - **Why it mattered.** The vanilla REST serializer projected the **raw**
   `wireShape` and never applied `forApiRead`, so a multi-tenant aggregate shipped
@@ -2144,7 +2144,7 @@ nothing and the test passes vacuously.
   history (`GET /<aggregates>/{id}/history`) serves — is the request principal
   projected onto the system's declared `user { … }` fields, keyed by the
   declared names: exactly the body `/api/auth/me` answers. No undeclared claim,
-  no derived tenancy member (`orgPath` / `rootOrg`), no backend-specific key
+  no server-side principal member (`operatingOrg`), no backend-specific key
   casing. `null` when no principal is bound, which is always the case on a
   deployable with no auth.
 - **Trigger.** `test/fixtures/corpus/field-mask.ddd` — `auth: required`,

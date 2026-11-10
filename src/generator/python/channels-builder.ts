@@ -115,7 +115,7 @@ export function buildPyChannelsFile(
    *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
   valueObjects: readonly ValueObjectIR[] = [],
   /** The deployable carries auth: every envelope carries the raising frame's
-   *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
+   *  EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1)
    *  and the consumer delivers each event inside the system principal of
    *  that origin (`app.auth.user.event_origin_frame`). */
   carriesOrigin = false,
@@ -571,7 +571,6 @@ export function buildPyChannelsFile(
           "# Envelope extension attribute -> event-origin key (ruling D1).",
           "_ORIGIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (",
           '    ("tenantid", "tenant"),',
-          '    ("loomorgpath", "orgPath"),',
           '    ("loomcausedby", "causedBy"),',
           ")",
           "",

@@ -23,3 +23,9 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export { lookupOp } from "./operation-lookup.js";
+export {
+  eventSourcedWorkflows,
+  hasStateRow,
+  observableWorkflows,
+  stateRowWorkflows,
+} from "./workflow-sets.js";

@@ -1,10 +1,10 @@
 // A `tenantOwned` event-sourced aggregate on node (`stream-tenancy.ts`): the
 // stream carries its tenant as stored-event metadata.  The event log gains the
-// `tenant_id` / `data_key` metadata columns, a new stream is stamped from the
+// `tenant_id` metadata column, a new stream is stamped from the
 // principal, every stream load and list is scoped by the generated
 // `<agg>StreamScope` helper, an append carries the loaded stream's tenant
 // forward, and the dispatch runs in the stream tenant's event origin (the
-// CloudEvents `tenantid` / `loomorgpath`).  A `crossTenant` stream keeps the
+// CloudEvents `tenantid`).  A `crossTenant` stream keeps the
 // unscoped shape.
 
 import fs from "node:fs";
@@ -54,28 +54,26 @@ describe("node: a tenantOwned event-sourced stream carries and scopes its tenant
   const bookRepo = file(files, "db/repositories/book-repository.ts");
   const scopes = file(files, "db/read-scopes.ts");
 
-  it("the event log carries the tenant metadata columns (migration + drizzle schema)", () => {
+  it("the event log carries the tenant metadata column (migration + drizzle schema)", () => {
     const sql = [...files.entries()]
       .filter(([k]) => k.includes("/db/migrations/") && k.endsWith(".sql"))
       .map(([, v]) => v)
       .join("\n");
     const log = sql.slice(sql.indexOf("main_events"));
     expect(log).toMatch(/"tenant_id" TEXT NULL/);
-    expect(log).toMatch(/"data_key" TEXT NULL/);
+    // Absence check: tenancy is flat, the log carries no hierarchy-path column.
+    expect(log).not.toContain("data_key");
     const schema = file(files, "db/schema.ts");
     expect(schema).toContain(`tenantId: text("tenant_id"),`);
-    expect(schema).toContain(`dataKey: text("data_key"),`);
+    expect(schema).not.toContain("data_key");
   });
 
-  it("the stream scope helper renders the tenancy restriction over the metadata columns", () => {
+  it("the stream scope helper renders the tenancy restriction over the metadata column", () => {
     expect(scopes).toContain("export function ledgerStreamScope(");
     expect(scopes).toContain(
       `drops(use, "tenantOwned") ? undefined : eq(schema.mainEvents.tenantId, requireCurrentUser().tenantId)`,
     );
-    // `allow deep` widens Book's to the subtree over `data_key`.
-    const book = scopes.slice(scopes.indexOf("export function bookStreamScope("));
-    expect(book).toContain("schema.mainEvents.dataKey");
-    expect(book).toContain("requireCurrentUser().orgPath");
+    expect(scopes).toContain("export function bookStreamScope(");
   });
 
   it("the by-id load is scoped — a foreign tenant's stream is not found (404)", () => {
@@ -84,9 +82,7 @@ describe("node: a tenantOwned event-sourced stream carries and scopes its tenant
     );
     // getById — the command (append) load — rides findById.
     expect(ledgerRepo).toMatch(/async getById[\s\S]*?this\.findById\(id\)/);
-    expect(ledgerRepo).toContain(
-      "inst._adoptStreamTenant({ tenantId: rows[0].tenantId, dataKey: rows[0].dataKey });",
-    );
+    expect(ledgerRepo).toContain("inst._adoptStreamTenant({ tenantId: rows[0].tenantId });");
   });
 
   it("the list load is scoped, and adopts each stream's tenant", () => {
@@ -107,10 +103,8 @@ describe("node: a tenantOwned event-sourced stream carries and scopes its tenant
 
   it("a new stream is stamped from the principal; an append carries the stream's tenant", () => {
     expect(ledgerRepo).toContain("const meta = aggregate._streamVersion === 0");
-    expect(ledgerRepo).toContain(
-      "? stampInsertLedger({ tenantId: aggregate.tenantId, dataKey: aggregate.dataKey })",
-    );
-    expect(ledgerRepo).toContain(": { tenantId: aggregate.tenantId, dataKey: aggregate.dataKey };");
+    expect(ledgerRepo).toContain("? stampInsertLedger({ tenantId: aggregate.tenantId })");
+    expect(ledgerRepo).toContain(": { tenantId: aggregate.tenantId };");
     expect(ledgerRepo).toMatch(/data: eventToData\(event\),\s*\.\.\.meta,/);
     expect(ledgerRepo).toContain(`import { stampInsertLedger } from "../audit-stamp";`);
   });
@@ -118,15 +112,13 @@ describe("node: a tenantOwned event-sourced stream carries and scopes its tenant
   it("the events dispatch in the stream tenant's origin (channel envelope tenantid)", () => {
     expect(ledgerRepo).toContain("if ((origin?.tenant ?? null) === aggregate.tenantId)");
     expect(ledgerRepo).toContain(
-      "await runAsEventOrigin({ tenant: aggregate.tenantId, orgPath: aggregate.dataKey, causedBy: origin?.causedBy ?? null }, dispatchAll);",
+      "await runAsEventOrigin({ tenant: aggregate.tenantId, causedBy: origin?.causedBy ?? null }, dispatchAll);",
     );
   });
 
   it("the domain class adopts the metadata onto its tenantOwned fields", () => {
     const domain = file(files, "domain/ledger.ts");
-    expect(domain).toContain(
-      "_adoptStreamTenant(meta: { tenantId: string | null; dataKey: string | null }): void {",
-    );
+    expect(domain).toContain("_adoptStreamTenant(meta: { tenantId: string | null }): void {");
   });
 });
 

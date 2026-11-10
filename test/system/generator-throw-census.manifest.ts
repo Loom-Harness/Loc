@@ -184,6 +184,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "authz-filter is built only by enrichment (tenant-stance.ts:349/451, enrichments.ts:588/682) into contextFilters/writeScopeFilter, and every backend filter translator special-cases it (isDenyFilter/isDeepScopeFilter; in-app path _expr/authz-filter-inapp.ts). Empirically: the 90-fixture corpus with `deny on <every aggregate>` and `deny write` injected into every context, generated on node, node{mikroorm}, dotnet, dotnet{dapper}, python, java and elixir, never reached this throw. The document-shape crossing (policy-document.ddd) was the historical leak and is fixed. (src/ir/util/tenant-stance.ts:349,451; src/generator/_expr/authz-filter-inapp.ts)",
   },
+  "src/generator/_expr/target.ts#renderExprWith$4": {
+    guardedBy: ["loom.exists-outside-query"],
+  },
   "src/generator/_expr/target.ts#renderExprWithMarks$2": {
     invariant:
       "Only caller is the TS aggregate op-body loop (domain statements); action-ref is lowered only in UI bodies (env.actions/env.stores). (src/generator/typescript/render-stmt.ts:161; src/ir/lower/lower-expr.ts:2455)",
@@ -191,6 +194,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_expr/target.ts#renderExprWithMarks$3": {
     invariant:
       "Only caller renders aggregate op-body statements, which never contain the enrichment-only authz-filter sentinel (built at tenant-stance.ts:349/451 into filters only). (src/generator/typescript/render-stmt.ts:161)",
+  },
+  "src/generator/_expr/target.ts#renderExprWithMarks$4": {
+    guardedBy: ["loom.exists-outside-query"],
   },
 
   // src/generator/_frontend/api-module.ts
@@ -334,6 +340,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every chromeMessage/localizedChrome* call passes a hard-coded name from our own emitters, all present in CHROME_MESSAGES. (src/generator/_walker/i18n-chrome.ts:~60-91 (CHROME_MESSAGES))",
   },
+  "src/generator/_walker/i18n-chrome.ts#authGateMessage": {
+    invariant:
+      "Every caller (the Feliz and Flutter auth gates) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME; no .ddd input names the string.",
+  },
+  "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
+    invariant:
+      "A locale Intl.PluralRules does not support returns undefined before the search, and every supported locale's ordinal rules depend on n mod 10 / 100 / 1000 at most, so one of PERIODS always repeats within VERIFY_UP_TO; test/generator/_i18n/ordinal-rules.test.ts derives the table for every locale the runtime knows.",
+  },
   "src/generator/_i18n/wire-error-text.ts#wireErrorMessage": {
     invariant:
       "Every caller passes a wireCode(cls)/fieldCode(reason) key, and WIRE_ERROR_MESSAGES is built from the closed WireRejectionClass/FieldRejectionReason records, so every such key is present.",
@@ -381,6 +395,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_walker/walker-core.ts#emitExpr$6": {
     invariant:
       "Exhaustive `never` default over ExprIR kinds. (src/generator/_walker/walker-core.ts:2240)",
+  },
+  "src/generator/_walker/walker-core.ts#emitExpr$7": {
+    guardedBy: ["loom.exists-outside-query"],
   },
   "src/generator/_walker/walker-core.ts#emitStmt": {
     invariant:
@@ -915,6 +932,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/fs-expr.ts#renderFsExpr$5": {
     invariant:
       "authz-filter is built only by enrichment into an aggregate's contextFilters / writeScopeFilter, never into a ui body. (src/ir/util/tenant-stance.ts)",
+  },
+  "src/generator/feliz/fs-expr.ts#renderFsExpr$6": {
+    guardedBy: ["loom.exists-outside-query"],
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
     guardedBy: [
@@ -1655,5 +1675,17 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/registry.ts#resolvePlatformRef$2": {
     guardedBy: ["loom.platform-unknown"],
     note: "A non-backend bareword not in FRONTEND_KEYWORDS is rejected, so the `platforms` lookup always hits.",
+  },
+  "src/generator/elixir/render-expr.ts#renderEctoExists": {
+    invariant:
+      "Every Ecto filter render context that can hold an `exists` (renderEctoRestriction, the retrieval module, the repository finds) threads the context's aggregates as `pool`, and `loom.exists-cross-context` refuses a quantifier whose aggregate is not in that context. (src/generator/elixir/vanilla/capability-filter.ts, retrieval-emit.ts, repository-emit.ts)",
+  },
+  "src/generator/typescript/emit/mikroorm-filter.ts#existsEntry": {
+    guardedBy: [
+      "loom.exists-cross-context",
+      "loom.exists-unsupported",
+      "loom.criterion-not-selectable",
+    ],
+    note: "the raw-SQL renderer covers exactly what `firstNonQueryablePredicate` admits inside an `exists`",
   },
 };

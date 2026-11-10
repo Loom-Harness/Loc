@@ -318,6 +318,8 @@ export function exprUsesMoney(e: ExprIR | undefined): boolean {
       return exprUsesMoney(e.operand);
     case "paren":
       return exprUsesMoney(e.inner);
+    case "exists":
+      return exprUsesMoney(e.where);
     case "lambda":
       return exprUsesMoney(e.body) || (e.block ?? []).some(stmtUsesMoney);
     case "new":

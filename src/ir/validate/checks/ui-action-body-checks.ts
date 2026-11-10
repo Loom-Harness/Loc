@@ -150,6 +150,7 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
     // No check of their own — only children, handled by `descend` below.
     // Enumerated rather than left to a `default:` so a new `ExprIR` kind is a
     // `tsc` error here and someone decides whether it needs a page-body gate.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":
@@ -780,6 +781,7 @@ function toastMessageProblem(
     // error here — the three renderers this mirrors (`renderMessageExpr`,
     // `renderFsToastMessage`, `renderMessageExprElixir`) would `throw` on it,
     // and this gate exists precisely to turn that throw into a `loom.*` code.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

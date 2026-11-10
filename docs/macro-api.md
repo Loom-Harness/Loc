@@ -87,7 +87,7 @@ Aggregate | Subdomain | BoundedContext | Workflow | ValueObject | EnumDecl
 ```
 
 `Policy` resolves the FUNCTION form only (`policy Name(): bool = …`) —
-never the anonymous / read-ladder `policy { … }` block, which has no
+never the anonymous `policy { … }` block, which has no
 name to call and is not a boolean gate.  It is what lets a macro splice
 an authorization gate into a body it owns: see
 `crudish(requires: <Policy>)` in

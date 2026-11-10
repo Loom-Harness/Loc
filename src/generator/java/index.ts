@@ -1,12 +1,12 @@
-import { hostedHierarchyRegistry } from "../../ir/enrich/hosting-facts.js";
-import {
-  aggregateTableName,
-  partTableName,
-  registryTableName,
-} from "../../ir/enrich/storage-names.js";
+import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import {
+  eventSourcedWorkflows,
+  observableWorkflows,
+  stateRowWorkflows,
+} from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -232,6 +232,7 @@ import {
   renderJavaTimerScheduler,
   renderJobRunrConfig,
 } from "./emit/scheduler.js";
+import { renderSecurityHeadersFilter } from "./emit/security-headers-filter.js";
 import { renderJavaSeedRunner } from "./emit/seed.js";
 import { renderJavaService } from "./emit/service.js";
 import {
@@ -247,17 +248,9 @@ import {
 import { renderJavaCommandValidators, renderJavaVoValidators } from "./emit/validator.js";
 import { referencedValueObjects } from "./emit/wire.js";
 import { renderJavaWorkflows } from "./emit/workflow.js";
+import { esWorkflowStateClass, renderEsWorkflowFoldClass } from "./emit/workflow-eventsourced.js";
+import { renderJavaWorkflowInstanceReads } from "./emit/workflow-instances.js";
 import {
-  esWorkflowStateClass,
-  eventSourcedWorkflows,
-  renderEsWorkflowFoldClass,
-} from "./emit/workflow-eventsourced.js";
-import {
-  observableWorkflowsOf,
-  renderJavaWorkflowInstanceReads,
-} from "./emit/workflow-instances.js";
-import {
-  correlationWorkflows,
   renderWorkflowStateEntity,
   renderWorkflowStateRepository,
   workflowStateClass,
@@ -593,6 +586,7 @@ function emitProjectFromContexts(
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
   // RS-39 — an empty request body reads as `{}`.
   place("EmptyJsonBodyFilter.java", "config", renderEmptyJsonBodyFilter(basePkg));
+  place("SecurityHeadersFilter.java", "config", renderSecurityHeadersFilter(basePkg));
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));
@@ -976,13 +970,12 @@ function emitProjectFromContexts(
         );
       }
     };
-    for (const wf of correlationWorkflows(ctx.workflows)) {
-      // An `eventSourced` workflow persists as an append-only `<wf>_events`
-      // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
-      // mutable JPA state row — emit the in-memory fold class instead, into the
-      // dispatcher's package so the handler body reaches its package-private
-      // state fields (workflow-and-applier.md A2-S5b).
-      if (wf.eventSourced) continue;
+    // An `eventSourced` workflow persists as an append-only `<wf>_events`
+    // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
+    // mutable JPA state row — it gets the in-memory fold class below instead,
+    // in the dispatcher's package so the handler body reaches its
+    // package-private state fields (workflow-and-applier.md A2-S5b).
+    for (const wf of stateRowWorkflows(ctx.workflows)) {
       const wfConstruct = `${ctx.name}.${wf.name}`;
       place(
         `${workflowStateClass(wf)}.java`,
@@ -1123,7 +1116,10 @@ function emitProjectFromContexts(
       // the combined `<Ctx>WorkflowInstancesController` merges every
       // observable saga's routes, so it stays unmapped.
       const instanceResponseOrigin = new Map<string, WorkflowIR>(
-        observableWorkflowsOf(ctx).map((wf) => [`${upperFirst(wf.name)}InstanceResponse.java`, wf]),
+        observableWorkflows(ctx.workflows).map((wf) => [
+          `${upperFirst(wf.name)}InstanceResponse.java`,
+          wf,
+        ]),
       );
       for (const [name, f] of instanceReads) {
         const wf = instanceResponseOrigin.get(name);
@@ -1456,33 +1452,7 @@ function emitProjectFromContexts(
   // Auth surface — only when the deployable opts in via auth: required
   // and the system declares a user block.
   if (authRequired && system?.sys) {
-    // Hierarchy (multi-tenancy): when the tenant registry opts into
-    // `tenantRegistry` (a `data_key` column exists) AND its state table is
-    // among THIS deployable's contexts (so the boot JdbcTemplate reaches it),
-    // `currentUser.orgPath` reads the registry's `data_key` per request;
-    // otherwise the claim-copy accessor stands.
-    let orgPathRegistry: { table: string } | undefined;
-    const reg = hostedHierarchyRegistry(
-      system.sys,
-      contexts.map((c) => c.name),
-    );
-    if (reg) {
-      for (const ctx of contexts) {
-        const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
-        if (regAgg) {
-          const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
-          const table = registryTableName(system.sys) as string;
-          orgPathRegistry = { table: schema ? `${schema}.${table}` : table };
-          break;
-        }
-      }
-    }
-    for (const [name, content] of renderAuthFiles(
-      system.sys,
-      basePkg,
-      routePrefix,
-      orgPathRegistry,
-    )) {
+    for (const [name, content] of renderAuthFiles(system.sys, basePkg, routePrefix)) {
       out.set(mainSourcePath(`${basePkg}.auth`, name), content);
     }
   }
@@ -1761,7 +1731,7 @@ function emitAggregate(
           voLookup,
           mangledEnums,
         },
-        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
+        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts, schema),
       }),
       agg.name,
       agg.origin,
@@ -1879,7 +1849,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts),
+      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`, contexts, schema),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state

@@ -220,6 +220,13 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  this unset and the dispatcher throws.  A frontend that rides this
    *  dispatcher (HEEx) supplies it. */
   modelText?(e: Extract<ExprIR, { kind: "modelText" }>, ctx: Ctx): string;
+  /** `exists <Agg> as s where p` — a QUERY predicate (the correlated SQL
+   *  `EXISTS` subquery).  Only the targets that double as a query language
+   *  (.NET LINQ under `efQuery`, Elixir Ecto) supply it, and they render it
+   *  only in that mode; a domain-logic position never holds one
+   *  (`loom.exists-outside-query`), so the dispatcher throws when this is
+   *  unset. */
+  exists?(e: Extract<ExprIR, { kind: "exists" }>, ctx: Ctx): string;
   /** Boolean predicate-arms `match { cond => value }` — the original form,
    *  unchanged.  Lowered to the backend's chained-conditional idiom. */
   match(arms: RenderedArm[], otherwise: string | undefined): string;
@@ -414,9 +421,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       // position, which the IR validator should already have rejected.
       throw new Error("renderExprWith: 'action-ref' is not a domain expression");
     case "authz-filter":
-      // An authorization/tenancy filter sentinel (M-T9.9).  It lives ONLY in an
-      // aggregate's context/write-scope filters and every backend's query-filter
-      // translator special-cases it (`isDenyFilter` / `isDeepScopeFilter`)
+      // An authorization filter sentinel.  It lives ONLY in an aggregate's
+      // context/write-scope filters and every backend's query-filter
+      // translator special-cases it (`isDenyFilter`)
       // BEFORE reaching this generic dispatch — so reaching it here means a
       // backend's filter translator forgot the sentinel arms.  Throw LOUDLY
       // (a codegen crash) rather than fall through to a wrong render: a silently
@@ -424,6 +431,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       throw new Error(
         "renderExprWith: 'authz-filter' must be handled by the backend's query-filter translator, not the generic expression dispatcher",
       );
+    case "exists":
+      if (t.exists) return t.exists(e, ctx);
+      throw new Error("renderExprWith: 'exists' is a query predicate, not a domain expression");
   }
 }
 
@@ -502,6 +512,7 @@ export const ALL_EXPR_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "match",
   "list",
   "authz-filter",
+  "exists",
 ]);
 
 export const QUERY_EMISSION_MODES = [
@@ -555,6 +566,7 @@ export interface EmissionVocabulary {
  *  only in HOW a `currentUser.<claim>` member renders, not in which `kind`s
  *  are accepted. */
 const JPQL_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
+  "exists",
   "literal",
   "this",
   "id",
@@ -579,6 +591,7 @@ const SQL_MIGRATION_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
 
 /** dotnet `emit/dapper.ts`'s `whereToSql` switch. */
 const SQL_DAPPER_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
+  "exists",
   "paren",
   "unary",
   "binary",
@@ -593,6 +606,7 @@ const SQL_DAPPER_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
  *  / `lowerWorkflowFilterToSqlAlchemy` / `lowerProjectionFilterToSqlAlchemy`
  *  all recurse through). */
 const SQLALCHEMY_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
+  "exists",
   "literal",
   "this",
   "id",
@@ -608,6 +622,7 @@ const SQLALCHEMY_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
 /** node `repository-find-predicate.ts`'s `lowerToDrizzle` switch. */
 const DRIZZLE_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
   "literal",
+  "exists",
   "this",
   "id",
   "ref",
@@ -621,6 +636,7 @@ const DRIZZLE_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
 
 /** node `emit/mikroorm-filter.ts`'s `predicateEntry` / `filterValue` arms. */
 const MIKROORM_KINDS: ReadonlySet<ExprIR["kind"]> = new Set([
+  "exists",
   "literal",
   "ref",
   "member",
@@ -941,6 +957,11 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       // dispatcher; a backend's query-filter translator special-cases it first.
       throw new Error(
         "renderExprWithMarks: 'authz-filter' must be handled by the backend's query-filter translator, not the generic expression dispatcher",
+      );
+    case "exists":
+      if (t.exists) return compose(t.exists(e, ctx), []);
+      throw new Error(
+        "renderExprWithMarks: 'exists' is a query predicate, not a domain expression",
       );
   }
 }

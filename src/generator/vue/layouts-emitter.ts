@@ -14,6 +14,7 @@
 // `<router-view />`.
 
 import type { ComponentIR, LayoutIR, ParamIR, SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { vueTarget } from "./walker/vue-target.js";
@@ -29,8 +30,27 @@ function walkSlot(
   body: NonNullable<LayoutIR["header"]>,
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
+  i18nPrefix: string | undefined,
 ): WalkedSlot {
-  const result = walkBody(body, vueTarget, pack, new Set(), new Set(), userComponents);
+  const result = walkBody(
+    body,
+    vueTarget,
+    pack,
+    new Set(),
+    new Set(),
+    userComponents,
+    [],
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Set(),
+    new Set(),
+    false,
+    i18nPrefix,
+  );
   return {
     html: result.tsx,
     imports: result.imports,
@@ -55,6 +75,7 @@ export function prepareVueNamedLayouts(
   pack: LoadedPack,
   topLevelComponents: readonly ComponentIR[] = [],
   externComponents: ReadonlySet<string> = new Set(),
+  i18nEnabled = false,
 ): PreparedVueLayout[] {
   if (sys.layouts.length === 0) return [];
   const referenced = new Set<string>();
@@ -74,7 +95,13 @@ export function prepareVueNamedLayouts(
     if (!referenced.has(layout.name)) continue;
     out.push({
       name: layout.name,
-      content: renderVueLayoutFile(layout, pack, userComponents, externComponents),
+      content: renderVueLayoutFile(
+        layout,
+        pack,
+        userComponents,
+        externComponents,
+        i18nEnabled ? layoutKeyPrefix(ui, layout) : undefined,
+      ),
     });
   }
   return out;
@@ -85,10 +112,17 @@ function renderVueLayoutFile(
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
   externComponents: ReadonlySet<string>,
+  i18nPrefix: string | undefined,
 ): string {
-  const header = layout.header ? walkSlot(layout.header, pack, userComponents) : undefined;
-  const sidebar = layout.sidebar ? walkSlot(layout.sidebar, pack, userComponents) : undefined;
-  const footer = layout.footer ? walkSlot(layout.footer, pack, userComponents) : undefined;
+  const header = layout.header
+    ? walkSlot(layout.header, pack, userComponents, i18nPrefix)
+    : undefined;
+  const sidebar = layout.sidebar
+    ? walkSlot(layout.sidebar, pack, userComponents, i18nPrefix)
+    : undefined;
+  const footer = layout.footer
+    ? walkSlot(layout.footer, pack, userComponents, i18nPrefix)
+    : undefined;
   const slots = [header, sidebar, footer].filter((s): s is WalkedSlot => s !== undefined);
 
   // Aggregate the slot imports.  Layout slots reach only pack primitives
@@ -130,6 +164,9 @@ function renderVueLayoutFile(
   for (const n of [...usedComponents].sort()) {
     const ext = externComponents.has(n) ? "" : ".vue";
     script.push(`import ${n} from "../components/${n}${ext}";`);
+  }
+  if (slots.some((s) => (s.imports.get("../i18n")?.size ?? 0) > 0)) {
+    script.push(`import { t } from "../lib/locale";`);
   }
   if (slots.some((s) => s.html.includes("<LocaleSwitcher"))) {
     script.push(`import LocaleSwitcher from "../components/LocaleSwitcher.vue";`);

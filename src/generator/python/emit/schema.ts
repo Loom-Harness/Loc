@@ -605,16 +605,14 @@ function renderProjectionStateModel(
     // Force nullable on every non-key column.
     cols.push(...columnsForFields([f], ctx).map((c) => ({ ...c, optional: true })));
   }
-  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
-  // composite key `(tenant_id, <key>)`) and its org path.
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
+  // composite key `(tenant_id, <key>)`.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
     const [c] = columnsForFields(
-      [{ name: m.field, type: { kind: "primitive", name: "string" }, optional: !m.required }],
+      [{ name: m.field, type: { kind: "primitive", name: "string" }, optional: false }],
       ctx,
     );
-    cols.push(
-      m.required ? { ...c!, optional: false, primaryKey: true } : { ...c!, optional: true },
-    );
+    cols.push({ ...c!, optional: false, primaryKey: true });
   }
   return lines(
     `class ${proj.name}Row(Base):`,

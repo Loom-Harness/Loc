@@ -178,8 +178,7 @@ export function renderProjectionRowEntity(
 /** The Spring Data repository over the read-model row, keyed by the correlation
  *  id — the load/save handle the dispatcher fold + the read routes go through. */
 /** The row entity of a tenant-scoped fold: `@EmbeddedId Key rowKey` over
- *  `(tenant_id, <key>)`, the org path as a plain column, the correlation and
- *  tenant exposed through record-style accessors like every other row field. */
+ *  `(tenant_id, <key>)`, the correlation and tenant exposed through record-style accessors like every other row field. */
 function renderTenantScopedRowEntity(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
@@ -199,16 +198,10 @@ function renderTenantScopedRowEntity(
   const owner: JpaFieldOwner = { name: proj.name, fields: [], associations: [] };
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
-  const { tenant, dataKey } = foldTenantColumns(tenancy);
+  const { tenant } = foldTenantColumns(tenancy);
   const t = jid(tenant.field);
-  const d = jid(dataKey.field);
   const c = jid(corr);
-  const fieldLines: string[] = [
-    `    @EmbeddedId`,
-    `    Key rowKey;`,
-    `    @Column(name = "${hbIdent(dataKey.column)}")`,
-    `    String ${d};`,
-  ];
+  const fieldLines: string[] = [`    @EmbeddedId`, `    Key rowKey;`];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
     fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
@@ -272,16 +265,14 @@ function renderTenantScopedRowEntity(
     `    ${cls}() {`,
     `    }`,
     ``,
-    `    public static ${cls} _allocate(String ${t}, String ${d}, ${idClass} ${c}) {`,
+    `    public static ${cls} _allocate(String ${t}, ${idClass} ${c}) {`,
     `        var __s = new ${cls}();`,
     `        __s.rowKey = new Key(${t}, ${c});`,
-    `        __s.${d} = ${d};`,
     `        return __s;`,
     `    }`,
     ``,
     ...accessor(idClass, corr, `rowKey.${c}`),
     ...accessor("String", tenant.field, `rowKey.${t}`),
-    ...accessor("String", dataKey.field, d),
     ...stateOnly.flatMap((f) => [
       ...accessor(rowJavaType(f), f.name, jid(f.name)),
       ...setter(rowJavaType(f), f.name),

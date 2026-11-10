@@ -100,7 +100,9 @@ describe("Vue attribute-position expressions are entity-escaped", () => {
     for (const [platform, design, ext] of [
       ["react", "mantine", ".tsx"],
       ["svelte", "flowbite", ".svelte"],
-      ["angular", "angularMaterial", ".ts"],
+      // The component files, not every `.ts`: the shared i18n runtime is a `.ts`
+      // module whose `tRich` escaper legitimately spells `&quot;`.
+      ["angular", "angularMaterial", ".component.ts"],
     ] as const) {
       const src = await pageSrc(platform, design, ext);
       expect(src, `${platform} renders the filter`).toContain('=== "A"');

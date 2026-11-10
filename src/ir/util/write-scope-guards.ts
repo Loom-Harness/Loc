@@ -3,8 +3,7 @@
 // An op route loads its row through the backend's write-scope load
 // (`getById` / `GetByIdForWriteAsync` / `get_by_id_for_write` /
 // `get_<agg>_for_write`), so a row outside the caller's write scope —
-// `policy { deny write on X }`, or the `allow deep` own-org floor under a
-// widened read — answers 404 before anything changes.  A body can hold a row
+// `policy { deny write on X }` — answers 404 before anything changes.  A body can hold a row
 // that no such load produced: one returned by `Repo.all(<criterion>)`, a find,
 // a loop variable.  Every aggregate mutation carries the same requirement
 // whatever loaded the row, so before a statement mutates or deletes a row it

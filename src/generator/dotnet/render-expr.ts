@@ -2,23 +2,14 @@ import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
-import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { checkedBinaryKind, checkedUnaryKind } from "../_expr/checked-int.js";
 import { nullishOperand } from "../_expr/coalesce.js";
 import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
-import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
   type CallExpr,
@@ -81,6 +72,10 @@ export interface CsRenderContext {
    *  criteria Specifications): scalar intrinsics render their EF-translatable
    *  spelling (see CS_INTRINSIC_QUERY_RENDERERS) instead of the domain form. */
   efQuery?: boolean;
+  /** How an EF query reaches the DbContext for an `exists <Agg> …` subquery
+   *  (`<db>.Set<Agg>()`): the repository's `_db` field by default, `this`
+   *  inside the DbContext's own `OnModelCreating` query filters. */
+  dbContextExpr?: string;
   /** Resource-op call routing: resourceName → static C# helper class
    *  name (e.g. `salesFiles` → `S3Resources`).  Set on the workflow
    *  render context; a `resource-op` call renders to
@@ -209,6 +204,10 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
       if (x.callKind === "domain-service") {
         into.add(`${ns}.Domain.Services`);
       }
+      break;
+    case "exists":
+      // `<db>.Set<Agg>()` names the quantified aggregate's class unqualified.
+      into.add(`${ns}.Domain.${plural(x.aggregate)}`);
       break;
     // No using needed for the node ITSELF.  This is a PER-NODE callback, not a
     // traversal: both call sites drive it with `walkExprDeep` /
@@ -444,7 +443,19 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
 const CS_TARGET_EF: ExprTarget<CsRenderContext> = {
   ...CS_TARGET,
   binary: (left, right, e, ctx) => renderCsBinary(left, right, e, true, ctx.memberScope),
+  // `exists <Agg> as s where p` → `<db>.Set<Agg>().Any(q_s => p)`, which EF
+  // translates to a correlated `EXISTS` subquery.  EF applies the quantified
+  // entity's own query filters to the `Set<Agg>()` it reads, so the subquery
+  // carries that aggregate's read scope with no help from here.
+  exists: (e, ctx) =>
+    `${ctx.dbContextExpr ?? "_db"}.Set<${e.aggregate}>().Any(${csRowParam(e.binding)} => ${renderCsExpr(e.where, ctx)})`,
 };
+
+/** The lambda parameter an `exists … as <row>` binding renders as — prefixed
+ *  so it can never shadow the enclosing query's own parameter (`x`). */
+function csRowParam(binding: string): string {
+  return `q_${binding}`;
+}
 
 export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string {
   // Authorization/tenancy filter sentinels must be intercepted BEFORE
@@ -466,70 +477,17 @@ export function renderCsExpr(e: ExprIR, ctx: CsRenderContext = DEFAULT): string 
 /** The `authz-filter` sentinels as EF-query-filter-expressible C#. */
 function renderCsAuthzFilter(
   e: Extract<ExprIR, { kind: "authz-filter" }>,
-  ctx: CsRenderContext,
+  _ctx: CsRenderContext,
 ): string {
-  switch (e.filter.kind) {
+  const kind = e.filter.kind;
+  switch (kind) {
     // DENY carve-out (authorization — deny-wins).  An always-false EF
     // query-filter predicate; EF Core translates `Where(_ => false)` to no rows.
     case "deny":
       return "false";
-    // `deep`/`global` read level (multi-tenancy) —
-    // descendant-or-self materialized-path scope with the NULL-dataKey fallback
-    // to the tenant floor (see `DEEP_SCOPE_SEMANTICS`).  Rendered as a
-    // static-expressible EF query-filter lambda: `.StartsWith(...)` translates
-    // to SQL LIKE, `== null` to IS NULL — no host call inside the filter (EF
-    // cannot translate one inside a global query filter).
-    case "scope": {
-      const t = ctx.thisName;
-      const col = `${t}.${upperFirst(TENANT_OWNED_DATA_KEY_FIELD)}`;
-      const tenantCol = `${t}.${upperFirst(TENANT_OWNED_TENANT_ID_FIELD)}`;
-      const principal = ctx.currentUserExpr ?? "currentUser";
-      // Anchor claim: `orgPath` for `deep`, `rootOrg` for `global`.
-      const org = `${principal}.${upperFirst(deepScopeAnchorClaim(e))}`;
-      // Tenant claim: the system's declared `tenancy by user.<claim>` — NOT
-      // the row column above, which only coincides when the author happened to
-      // name the claim `tenantId`.
-      const tenant = `${principal}.${upperFirst(deepScopeTenantClaim(e))}`;
-      const prefix = JSON.stringify(DATA_KEY_PATH_DELIMITER);
-      // `StartsWith` overload by POSITION, and the two requirements are exactly
-      // opposed.  In an EF query filter the call is never executed — it lives in
-      // an `Expression<Func<>>` EF rewrites into SQL `LIKE` — and the
-      // `StringComparison` overload has NO SQL translation, so the bare form is
-      // mandatory there (CA1310 does not fire inside an expression tree).  In an
-      // EXECUTED position (the in-app document read filter, where the fields
-      // live inside the jsonb blob and there is no query to translate into) the
-      // bare call is culture-sensitive: CA1310 rejects it under /warnaserror,
-      // and ordinal is also the semantics that MATCHES the SQL `LIKE` the
-      // relational twin runs — a culture-sensitive prefix test could admit a row
-      // the relational path excludes. So the overload follows `efQuery`.
-      const startsWith = ctx.efQuery
-        ? `${col}.StartsWith(${org} + ${prefix})`
-        : `${col}.StartsWith(${org} + ${prefix}, StringComparison.Ordinal)`;
-      // SARGABLE PREFILTER, EF-query positions only.  A parameterized
-      // `StartsWith` lowers to `left(col, length(@p)) = @p` (see the
-      // `string.startsWith` row in CS_INTRINSIC_QUERY_RENDERERS) — escaping-free
-      // and therefore correct, but a function of the column, so the planner
-      // cannot use the `data_key text_pattern_ops` index and every deep/global
-      // read seq-scans.  `EF.Functions.Like(col, pattern, "!")` emits a real
-      // `LIKE … ESCAPE '!'`, whose fixed prefix the planner turns into an index
-      // range; the `StartsWith` stays as the RECHECK, so an escaping slip in the
-      // pattern (which can only WIDEN a LIKE) cannot leak a foreign subtree.
-      // The pattern chain touches only the principal, never `x`, so EF
-      // funcletizes it into one bound parameter instead of translating
-      // `replace()`.  The in-app (document/jsonb) face has no query to index, so
-      // it keeps the bare anchored test.
-      const descendant = ctx.efQuery
-        ? `(EF.Functions.Like(${col}, ${csSubtreeLikePattern(org)}, ` +
-          `${JSON.stringify(DATA_KEY_LIKE_ESCAPE)}) && ${startsWith})`
-        : startsWith;
-      return (
-        `((${col} != null && (${col} == ${org} || ${descendant})) ` +
-        `|| (${col} == null && ${tenantCol} == ${tenant}))`
-      );
-    }
     default: {
-      const _exhaustive: never = e.filter;
-      throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+      const _exhaustive: never = kind;
+      throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
     }
   }
 }
@@ -871,6 +829,8 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}`;
     case "enum-value":
       return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
+    case "row":
+      return csRowParam(e.name);
     case "current-user":
       // Magic identifier for the system's `user { ... }` shape.  The
       // emitter for each per-request context (operation, workflow)
@@ -1115,7 +1075,7 @@ function renderMethodCall(
   e: MethodCallExpr,
   ctx: CsRenderContext,
 ): string {
-  // (The `deep` / DENY authorization filter sentinels are the discriminated
+  // (The DENY authorization filter sentinel is the discriminated
   // `authz-filter` kind — handled by `renderCsAuthzFilter` before the shared
   // dispatch, not a `method-call` marker here.)
   // `this.<refColl>.contains(x)` — membership over a reference

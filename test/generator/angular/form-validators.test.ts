@@ -233,3 +233,33 @@ describe("angular generator — code-point length validators", () => {
     );
   });
 });
+
+describe("angular generator — exclusive numeric bounds", () => {
+  const source = SOURCE.replace(
+    "invariant price >= 0",
+    "invariant price > 0.5\n          invariant price < 9.5",
+  );
+
+  it("emits an inline exclusive ValidatorFn that rejects the boundary value", async () => {
+    const all = await generateSystemFiles(source);
+    const page = all.get("web/src/app/pages/product-new.component.ts")!;
+    expect(page).not.toContain("Validators.min(0.5)");
+    expect(page).not.toContain("Validators.max(9.5)");
+    const compile = (key: string): ((c: { value: unknown }) => unknown) => {
+      const m = page.match(
+        new RegExp(
+          `\\(\\(c: AbstractControl\\) => c\\.value == null \\|\\| c\\.value === "" \\|\\| Number\\(c\\.value\\) [<>] [\\d.]+ \\? null : \\{ "${key}": [^}]*\\} \\}\\)`,
+        ),
+      );
+      expect(m, key).toBeTruthy();
+      return new Function(`return ${m![0].replace(": AbstractControl", "")}`)() as never;
+    };
+    const gt = compile("greater-than");
+    expect(gt({ value: 0.5 })).not.toBeNull();
+    expect(gt({ value: 0.6 })).toBeNull();
+    expect(gt({ value: "" })).toBeNull();
+    const lt = compile("less-than");
+    expect(lt({ value: 9.5 })).not.toBeNull();
+    expect(lt({ value: 9.4 })).toBeNull();
+  });
+});

@@ -20,7 +20,7 @@ import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
-import { canEmitToExpressionFor, refsCurrentUser } from "./criteria-emit.js";
+import { canEmitToExpressionFor, quantifies, refsCurrentUser } from "./criteria-emit.js";
 import { csLocalNamer } from "./local-names.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -83,6 +83,9 @@ export function emitRetrievalSpecs(
  *  applied by the EF repository's `Run<Name>Async` instead
  *  ({@link retrievalWhereInRepository}); the spec keeps only the sort. */
 export function retrievalWhereInRepository(r: RetrievalIR, agg: EnrichedAggregateIR): boolean {
+  // An `exists` quantifier is the same case: its subquery reads another entity
+  // set through the DbContext.
+  if (quantifies(r.where)) return true;
   let found = false;
   walkExprDeep(r.where, (e) => {
     if (

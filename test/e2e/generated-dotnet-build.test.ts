@@ -789,11 +789,9 @@ describe.skipIf(!ENABLED)(
     //
     // Two failure modes here are invisible to any string-level pin and only a
     // real build sees them — both actually failed while developing the fix:
-    //   - CS0535: `policy { allow … }` × document (the interface declares
-    //     `GetByIdForWriteAsync`, the document repo implemented nothing).
-    //   - CA1310: the `deep` ladder's `.StartsWith` is an unexecuted expression
-    //     tree on the relational path but a REAL call in-app, where the
-    //     culture-sensitive overload is an analyzer error under /warnaserror.
+    //   - CS0535: a narrowed write scope (`deny write`) × document makes the
+    //     interface declare `GetByIdForWriteAsync`, which the document
+    //     repository must implement.
     it("system `shape: document` × tenancy + policy (dotnet) — in-app read filter builds under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dn-doc-tenancy-"));
       try {

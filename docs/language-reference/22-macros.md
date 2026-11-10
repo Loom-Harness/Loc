@@ -87,8 +87,8 @@ Five capabilities ship built in ([`src/macros/prelude.ts`](../../src/macros/prel
 |---|---|
 | `auditable` | `createdAt` / `updatedAt` / `createdBy` / `updatedBy` (all `managed`) + the `onCreate` / `onUpdate` stamp rules |
 | `softDeletable` | `isDeleted` (`internal`) + `deletedAt?` (`managed`) + `filter !this.isDeleted` |
-| `tenantOwned` | `tenantId` + `dataKey` (both `internal`) + the principal-claim stamp + the tenant read filter ([Tenancy](../tenancy.md)) |
-| `tenantRegistry` | `parent: Self id?` (`immutable`) + materialized `dataKey: string?` (`managed`) — the tenant tree |
+| `tenantOwned` | `tenantId` (`internal`) + the principal-claim stamp + the tenant read filter ([Tenancy](../tenancy.md)) |
+| `tenantRegistry` | `parent: Self id?` (`immutable`) — the tenant tree, for managing sub-tenants |
 | `versioned` | `version: int token = 1` — the optimistic-concurrency marker |
 
 ## `crudish`

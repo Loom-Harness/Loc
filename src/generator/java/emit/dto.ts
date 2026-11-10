@@ -6,7 +6,9 @@ import {
   wireFieldsFor,
   wireFieldsForAggregate,
   wireFieldsForPart,
+  wireMaskPlan,
 } from "../../../ir/enrich/wire-projection.js";
+import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -38,7 +40,6 @@ import {
   type WireDir,
   wireJavaType,
 } from "./wire.js";
-import { observableWorkflowsOf } from "./workflow-instances.js";
 
 // ---------------------------------------------------------------------------
 // Request / response DTO records.  One record per file (Java's rule);
@@ -321,7 +322,17 @@ export function renderDtoFiles(
 
   // --- part responses ------------------------------------------------------------
   for (const part of agg.parts) {
-    out.push(wireRecord(part, `${part.name}Response`, pkg, basePkg, partImport(part.name)));
+    out.push(
+      wireRecord(
+        part,
+        `${part.name}Response`,
+        pkg,
+        basePkg,
+        partImport(part.name),
+        undefined,
+        agg.parts,
+      ),
+    );
   }
 
   // --- aggregate response ----------------------------------------------------------
@@ -334,6 +345,7 @@ export function renderDtoFiles(
       basePkg,
       entityImport,
       declaredRootResponse ? { payload: declaredRootResponse, payloads } : undefined,
+      agg.parts,
     ),
   );
 
@@ -554,6 +566,9 @@ function wireRecord(
    *  `Response` name to `<Part>Response::from` — never `<Part>ResponseResponse`).
    *  Byte-identical to the `wireShape` path for a scaffolded record. */
   declared?: { payload: PayloadIR; payloads: readonly PayloadIR[] },
+  /** Every part of the owning aggregate — a containment whose part carries a
+   *  mask projects through that part's `fromMasked`. */
+  parts: readonly EnrichedEntityPartIR[] = [],
 ): DtoFile {
   const imports = new Set<string>();
   const components: string[] = [];
@@ -630,6 +645,17 @@ function wireRecord(
           currentUserExpr: "__maskUser",
         });
         maskedArgs.push(`(__maskUser != null && (${pred})) ? ${projected} : null`);
+      } else if (w.source === "containment" && maskedPart(w, entity, parts)) {
+        // A contained part carrying a mask projects through ITS `fromMasked`,
+        // so the root's redacting mapper redacts the part's members too.
+        maskedAny = true;
+        const part = maskedPart(w, entity, parts)!;
+        maskedArgs.push(
+          projected.replace(
+            new RegExp(`\\b${part}Response(::|\\.)from\\b`, "g"),
+            `${part}Response$1fromMasked`,
+          ),
+        );
       } else {
         maskedArgs.push(projected);
       }
@@ -668,6 +694,20 @@ function wireRecord(
     category: "response-dto",
     content: recordFile(pkg, basePkg, recordName, components, body, imports, entityImport),
   };
+}
+
+/** The part a containment wire field projects, when that part carries a
+ *  `mask unless` member on its wire (or below it) — and so has a `fromMasked`
+ *  mapper the redacting root mapper must call. */
+function maskedPart(
+  w: WireField,
+  entity: EnrichedAggregateIR | EnrichedEntityPartIR,
+  parts: readonly EnrichedEntityPartIR[],
+): string | undefined {
+  const el = w.type.kind === "array" ? w.type.element : w.type;
+  if (el.kind !== "entity") return undefined;
+  const part = parts.find((p) => p.name === el.name && p.name !== entity.name);
+  return part && wireMaskPlan(part, parts) ? part.name : undefined;
 }
 
 function wireFieldType(w: WireField): TypeIR {
@@ -782,7 +822,7 @@ export function renderReadModelVoResponseDtos(
 ): DtoFile[] {
   const voLookup = valueObjectFieldLookup(ctx);
   const voNames = new Set<string>();
-  for (const wf of observableWorkflowsOf(ctx)) {
+  for (const wf of observableWorkflows(ctx.workflows)) {
     referencedValueObjects(
       (wf.instanceWireShape ?? []).map((w) => w.type),
       voNames,

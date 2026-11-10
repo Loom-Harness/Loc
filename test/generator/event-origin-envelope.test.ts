@@ -1,24 +1,18 @@
 // ---------------------------------------------------------------------------
-// Item 3 (d) / ruling D1 (docs/decisions.md D-REACTOR-SYSTEM-PRINCIPAL): a
-// reactor runs as the system principal OF THE TRIGGERING EVENT'S TENANT — also
-// when the event reaches it through the outbox relay or across a broker.
-//
-// Before: the system principal copied its tenant from the dispatching
-// request's principal.  The outbox relay and the channel consumer run with no
-// request, so a durable or broker-delivered event's reactor ran TENANT-LESS
-// (every tenant-scoped read matched nothing): the envelope carried no tenant
-// and the outbox row only the bare event.
-//
-// Now every backend snapshots the raising frame's EVENT ORIGIN
-// (`{tenant, orgPath, causedBy}`) onto the outbox row (reserved payload key
-// `__loomOrigin`) and the envelope (`tenantid` / `loomorgpath` /
-// `loomcausedby`), and the relay / consumer deliver the event inside a frame
-// whose ambient principal is the system principal of that origin.
+// Ruling D1 (docs/decisions.md D-REACTOR-SYSTEM-PRINCIPAL): a reactor runs as
+// the system principal OF THE TRIGGERING EVENT'S TENANT — also when the event
+// reaches it through the outbox relay or across a broker.  The outbox relay
+// and the channel consumer run with no request, so the tenant cannot come from
+// a request principal: every backend snapshots the raising frame's EVENT
+// ORIGIN (`{tenant, causedBy}`) onto the outbox row (reserved payload key
+// `__loomOrigin`) and the envelope (`tenantid` / `loomcausedby`), and the
+// relay / consumer deliver the event inside a frame whose ambient principal is
+// the system principal of that origin.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { honoProjectDirs, unboundSymbols } from "../_helpers/emitted-binding.js";
-import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const fixture = (platform: string, auth = true): string => `
 system Acme {
@@ -89,19 +83,6 @@ async function gen(platform: string, auth = true): Promise<Map<string, string>> 
   return generateSystemFiles(auth ? fixture(platform) : authless(platform));
 }
 
-/** Hierarchical tenancy: the registry is a `tenantRegistry` TREE, so the
- *  system principal's materialized path is the origin's `orgPath`. */
-async function genHierarchy(platform: string): Promise<Map<string, string>> {
-  return generateSystemFilesUnchecked(
-    fixture(platform).replace(
-      "aggregate Organization with crudish { name: string }",
-      "aggregate Organization with crudish {\n        name: string\n        implements tenantRegistry\n      }",
-    ),
-    "shipApi hosts a tenant-owned context without the registry, which is refused " +
-      "(loom.tenancy-registry-remote-unsupported, #4806); these cases pin the event origin envelope on sales_api, which hosts it",
-  );
-}
-
 function get(files: Map<string, string>, suffix: string): string {
   const hit = [...files.entries()].find(([k]) => k.endsWith(suffix));
   expect(hit, `${suffix} not emitted; got:\n${[...files.keys()].join("\n")}`).toBeDefined();
@@ -139,7 +120,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       );
     });
 
-    it("envelope carries tenantid / loomorgpath / loomcausedby; the consumer delivers inside the origin", async () => {
+    it("envelope carries tenantid / loomcausedby; the consumer delivers inside the origin", async () => {
       const ch = get(await gen("node"), "ship_api/http/channels.ts");
       expect(ch).toContain("  tenantid?: string;");
       expect(ch).toContain("    ...originAttributes(currentEventOrigin()),");
@@ -147,8 +128,10 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
         "        await runAsEventOrigin(originOf(envelope), () => dispatcher.dispatch(event));",
       );
       expect(ch).toContain(
-        "  return { tenant: tenantid ?? null, orgPath: loomorgpath ?? null, causedBy: loomcausedby ?? null };",
+        "  return { tenant: tenantid ?? null, causedBy: loomcausedby ?? null };",
       );
+      // Absence check: the envelope carries no hierarchy-path attribute.
+      expect(ch).not.toContain("loomorgpath");
     });
 
     it("every emitted symbol is bound (both deployables)", async () => {
@@ -179,12 +162,6 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       expect(u).toContain('        tenant_id="" if tenant is None else tenant,');
       expect(u).toContain("    return system_principal_for(current_event_origin())");
       expect(u).toContain("    token = current_user_var.set(system_principal_for(origin))");
-    });
-
-    it("hierarchy: the principal takes the origin's orgPath (and is assigned, not a SyntaxError)", async () => {
-      const u = get(await genHierarchy("python"), "sales_api/app/auth/user.py");
-      expect(u).toContain("    user = User(");
-      expect(u).toContain('    object.__setattr__(user, "org_path", org_path)');
     });
 
     it("producer: the outbox row records the origin; the relay publishes inside it", async () => {
@@ -321,7 +298,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       expect(origin).toContain("var origin = User.CurrentEventOrigin();");
       const user = get(files, "ship_api/Auth/User.cs");
       expect(user).toContain(
-        "        : new EventOrigin(NullIfEmpty(user.TenantId?.ToString()), NullIfEmpty(user.OrgPath), user.IsSystem ? user.CausedBy : user.Id.ToString());",
+        "        : new EventOrigin(NullIfEmpty(user.TenantId?.ToString()), user.IsSystem ? user.CausedBy : user.Id.ToString());",
       );
       expect(user).toContain("origin?.Tenant is { Length: > 0 } t ? t : string.Empty");
       expect(user).toContain(
