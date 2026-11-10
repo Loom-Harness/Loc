@@ -982,7 +982,14 @@ function emitProjectFromContexts(
       place(
         `${workflowStateClass(wf)}.java`,
         "infra-persistence",
-        renderWorkflowStateEntity(wf, ctx, basePkg, pkgFor("infra-persistence"), ctxSchema),
+        renderWorkflowStateEntity(
+          wf,
+          ctx,
+          basePkg,
+          pkgFor("infra-persistence"),
+          ctxSchema,
+          hostedDurable.size > 0,
+        ),
         undefined,
         wf.origin,
         wfConstruct,
@@ -1065,6 +1072,7 @@ function emitProjectFromContexts(
         contextSchema: ctxSchema,
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
+        deployableDurable: hostedDurable.size > 0,
         localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },

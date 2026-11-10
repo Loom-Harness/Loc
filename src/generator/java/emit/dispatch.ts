@@ -11,7 +11,6 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
@@ -93,6 +92,11 @@ export interface DispatchCtx {
    *  subscription; the ChannelConsumerService invokes these methods on
    *  delivery instead of Spring's local fan-out). */
   brokerEvents?: ReadonlySet<string>;
+  /** Any context this deployable hosts declares a durable channel.  A saga
+   *  consumer maps and checks `last_event_id` whenever it can receive a durable
+   *  envelope — the channel may be declared in a different hosted context than
+   *  the workflow. */
+  deployableDurable?: boolean;
   /** Durable events on a channel with NO broker (dispatch-delivery-semantics.md
    *  standalone tier): their handlers also DROP the local `@EventListener` — a
    *  durable event is recorded in `__loom_outbox` inside the producer's tx and
@@ -555,6 +559,7 @@ export function renderJavaDispatcher(
             dctx.resources?.classes,
             unionPkgOf,
             `${dctx.basePkg}.auth`,
+            dctx.deployableDurable === true,
           ),
       true,
     );
@@ -682,7 +687,7 @@ export function renderJavaDispatcher(
   }
   // The idempotent-consumer marker preamble (renderHandler, above) references
   // OutboxDelivery only for non-event-sourced sagas under a durable channel.
-  if (durableEventTypes(ctx).size > 0 && stateWfs.length > 0) {
+  if (dctx.deployableDurable === true && stateWfs.length > 0) {
     imports.add(`${dctx.basePkg}.domain.common.OutboxDelivery`);
   }
 
@@ -833,6 +838,9 @@ function renderHandler(
   unionPkgOf?: (unionName: string) => string | undefined,
   /** The generated `auth` package — see `javaPublishDrained`. */
   authPkg?: string,
+  /** The saga row carries `last_event_id` (any hosted context declares a
+   *  durable channel). */
+  durable = false,
 ): string[] {
   const corr = wf.correlationField as string;
   // The event param is the method's own parameter, alongside `__key`, `state`,
@@ -874,7 +882,6 @@ function renderHandler(
   // as the envelope id, which the ChannelConsumerService parks on
   // OutboxDelivery around each dispatch.  A repeat of the recorded id is a no-op
   // (at-least-once → effectively-once); inline (ephemeral) dispatch carries null.
-  const durable = durableEventTypes(ctx).size > 0;
   const body: string[] = [`        var __key = ${keyExpr};`];
   if (sub.trigger === "create") {
     body.push(

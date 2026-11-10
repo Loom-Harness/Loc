@@ -500,7 +500,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // Saga tables live in the context's schema (matching the migration
     // `prefix:`), so the Ecto `@schema_prefix` and the DDL agree at runtime.
     const wfSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema);
+    emitWorkflowStateSchemas(appName, ctx, appModule, out, wfSchema, hostedDurable.size > 0);
     // Event-sourced workflows (workflow-and-applier.md A2-S5b): the per-workflow
     // fold struct + `<wf>_events` Ecto schema + fold + stream IO modules (the
     // saga analogue of the ES aggregate files above).  The dispatcher branches
@@ -517,7 +517,17 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     allQueryProjections.push(
       ...emitVanillaQueryProjectionModules(appName, appModule, ctx, out, sourcemap, sys, contexts),
     );
-    emitDispatch(appName, ctx, appModule, out, sys, sourcemap, channelsCfg, wiredForeignChannels);
+    emitDispatch(
+      appName,
+      ctx,
+      appModule,
+      out,
+      sys,
+      sourcemap,
+      channelsCfg,
+      wiredForeignChannels,
+      hostedDurable.size > 0,
+    );
     // First-boot seed data (database-seeding.md, M-T6.37) — one
     // `<Ctx>.Seeds` module per context that declares a `seed` block, run at
     // Application boot right after the supervision tree is up (so the Repo is
