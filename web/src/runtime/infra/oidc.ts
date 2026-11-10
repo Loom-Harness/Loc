@@ -6,7 +6,9 @@
 //
 //   <issuer>/.well-known/openid-configuration   discovery
 //   <issuer>/protocol/openid-connect/certs      JWKS (the signing key only)
-//   <issuer>/protocol/openid-connect/token      grant_type=password | refresh_token
+//   <issuer>/protocol/openid-connect/auth       authorization (answered by `authorize`: the
+//                                               preview's login page picks the persona)
+//   <issuer>/protocol/openid-connect/token      grant_type=authorization_code (PKCE) | password | refresh_token
 //   <issuer>/protocol/openid-connect/userinfo   the persona's profile claims
 //
 // A deployable's `fetch` reaches these through `../resource-fakes.ts`; the main
@@ -21,6 +23,10 @@
 //                                   a token set; `claims` merge over the persona's,
 //                                   `signWith: "foreign"` signs with a key the JWKS
 //                                   does not publish (a forged token)
+//   authorize { url, persona }      sign `persona` in at an authorization URL; the
+//                                   redirect back to the client, with a code
+//   settings { accessTokenLifetime? }  seconds a token minted by a grant lives
+//   grants {}                       the grants the token endpoint served, oldest first
 //   http { method, url, headers, body }   an endpoint request from a deployable
 
 import type { HttpRequestData, HttpResponseData, ResourceOp } from "./resource-types.js";
@@ -112,6 +118,16 @@ export async function signJwt(payload: Record<string, unknown>, which: "realm" |
 
 let realms: OidcRealm[] = [];
 let personas: OidcPersona[] = [];
+/** Authorization codes awaiting their exchange (single use). */
+const codes = new Map<
+  string,
+  { persona: string; issuer: string; clientId: string; redirectUri: string; challenge: string | null; method: string }
+>();
+/** Seconds a token minted by a token-endpoint grant lives. */
+let grantLifetime = DEFAULT_LIFETIME_S;
+/** The grants the token endpoint served, oldest first. */
+const grants: { grant: string; persona: string }[] = [];
+
 /** Refresh tokens still redeemable → who they were issued to.  Single use:
  *  redeeming one replaces it (rotation). */
 const refreshTokens = new Map<string, { persona: string; claims?: Record<string, unknown>; issuer: string }>();
@@ -181,16 +197,54 @@ export function discovery(issuer: string): Record<string, unknown> {
     authorization_endpoint: `${oc}/auth`,
     token_endpoint: `${oc}/token`,
     userinfo_endpoint: `${oc}/userinfo`,
-    end_session_endpoint: `${oc}/logout`,
     jwks_uri: `${oc}/certs`,
-    response_types_supported: ["token"],
-    grant_types_supported: ["refresh_token", "password"],
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token", "password"],
     subject_types_supported: ["public"],
     id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "profile", "email", "offline_access"],
+    code_challenge_methods_supported: ["S256", "plain"],
     token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
     claims_supported: ["sub", "iss", "aud", "exp", "iat", "preferred_username", "email", "realm_access"],
   };
+}
+
+async function s256(verifier: string): Promise<string> {
+  return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(verifier))));
+}
+
+/** Sign `persona` in at the authorization URL `url` (what the client's
+ *  `/login` redirected to): checks the request the way Keycloak does and
+ *  answers the redirect back to the client — `redirect_uri?code=…&state=…`,
+ *  or `?error=…` for a request it refuses. */
+export function authorize(url: string, persona: string): string {
+  const u = new URL(url);
+  const realm = realms.find((r) => url.startsWith(`${r.issuer}/protocol/openid-connect/auth`));
+  if (!realm) throw new Error(`oidc: ${u.origin + u.pathname} is no realm's authorization endpoint`);
+  const q = u.searchParams;
+  const redirectUri = q.get("redirect_uri") ?? "";
+  if (!redirectUri) throw new Error("oidc: the authorization request names no redirect_uri");
+  const back = new URL(redirectUri);
+  const state = q.get("state");
+  if (state !== null) back.searchParams.set("state", state);
+  const refuse = (error: string): string => {
+    back.searchParams.set("error", error);
+    return back.toString();
+  };
+  if (q.get("client_id") !== realm.clientId) return refuse("unauthorized_client");
+  if (q.get("response_type") !== "code") return refuse("unsupported_response_type");
+  personaFor(persona);
+  const code = randomToken();
+  codes.set(code, {
+    persona,
+    issuer: realm.issuer,
+    clientId: realm.clientId,
+    redirectUri,
+    challenge: q.get("code_challenge"),
+    method: q.get("code_challenge_method") ?? "plain",
+  });
+  back.searchParams.set("code", code);
+  return back.toString();
 }
 
 async function token(realm: OidcRealm, form: URLSearchParams): Promise<HttpResponseData> {
@@ -198,14 +252,36 @@ async function token(realm: OidcRealm, form: URLSearchParams): Promise<HttpRespo
   if (grant === "password") {
     const username = form.get("username") ?? "";
     if (!personas.some((p) => p.username === username)) return oauthError(401, "invalid_grant", "Invalid user credentials");
-    return json(200, await mint({ persona: username, issuer: realm.issuer }));
+    grants.push({ grant: "password", persona: username });
+    return json(200, await mint({ persona: username, issuer: realm.issuer, expiresIn: grantLifetime }));
+  }
+  if (grant === "authorization_code") {
+    const code = form.get("code") ?? "";
+    const held = codes.get(code);
+    codes.delete(code);
+    if (!held || held.issuer !== realm.issuer) return oauthError(400, "invalid_grant", "Code not valid");
+    if (form.get("redirect_uri") !== held.redirectUri) return oauthError(400, "invalid_grant", "Incorrect redirect_uri");
+    if (form.get("client_id") !== held.clientId) return oauthError(400, "invalid_client", "Client mismatch");
+    if (held.challenge !== null) {
+      const verifier = form.get("code_verifier") ?? "";
+      const derived = held.method === "plain" ? verifier : await s256(verifier);
+      if (!verifier || derived !== held.challenge) {
+        return oauthError(400, "invalid_grant", "PKCE verification failed: Code mismatch");
+      }
+    }
+    grants.push({ grant: "authorization_code", persona: held.persona });
+    return json(200, await mint({ persona: held.persona, issuer: realm.issuer, expiresIn: grantLifetime }));
   }
   if (grant === "refresh_token") {
     const presented = form.get("refresh_token") ?? "";
     const held = refreshTokens.get(presented);
     if (!held || held.issuer !== realm.issuer) return oauthError(400, "invalid_grant", "Token is not active");
     refreshTokens.delete(presented);
-    return json(200, await mint({ persona: held.persona, claims: held.claims, issuer: realm.issuer }));
+    grants.push({ grant: "refresh_token", persona: held.persona });
+    return json(
+      200,
+      await mint({ persona: held.persona, claims: held.claims, issuer: realm.issuer, expiresIn: grantLifetime }),
+    );
   }
   return oauthError(400, "unsupported_grant_type", `Unsupported grant_type ${grant ?? "(none)"}`);
 }
@@ -267,6 +343,17 @@ export const oidcService: InfraService<ResourceOp> = {
         return realms;
       case "mint":
         return mint(params as MintParams);
+      case "authorize": {
+        const p = params as { url: string; persona: string };
+        return { location: authorize(p.url, p.persona) };
+      }
+      case "settings": {
+        const p = params as { accessTokenLifetime?: number };
+        if (p.accessTokenLifetime !== undefined) grantLifetime = p.accessTokenLifetime;
+        return { accessTokenLifetime: grantLifetime };
+      }
+      case "grants":
+        return [...grants];
       case "jwks":
         return { keys: [(await keyOf("realm")).jwk] };
       case "http":
@@ -279,5 +366,8 @@ export const oidcService: InfraService<ResourceOp> = {
     realms = [];
     personas = [];
     refreshTokens.clear();
+    codes.clear();
+    grants.length = 0;
+    grantLifetime = DEFAULT_LIFETIME_S;
   },
 };

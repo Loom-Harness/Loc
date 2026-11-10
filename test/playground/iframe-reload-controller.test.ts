@@ -31,10 +31,15 @@ describe("iframe-html — in-place reload controller", () => {
   });
 
   it("does not reset history on its own — only the first-load hostScript does", () => {
-    // The single replaceState lives in the hostScript (runs once at
-    // document parse); the controller must NOT touch history, so a
-    // reload preserves the current route.  Assert there is exactly one.
-    const matches = html.match(/history\.replaceState/g) ?? [];
-    expect(matches.length).toBe(1);
+    // The start-route replaceState lives in the hostScript (runs once at
+    // document parse); the reload controller must NOT touch history, so a
+    // reload preserves the current route.  The only other replaceState is
+    // the sign-in navigation's explicit `route` message.
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+    const reload = scripts.filter((s) => s.includes('r.kind !== "reload"'));
+    expect(reload).toHaveLength(1);
+    expect(reload[0]).not.toContain("replaceState");
+    const others = scripts.filter((s) => s.includes("history.replaceState") && !s.includes('r.kind === "route"'));
+    expect(others).toHaveLength(1);
   });
 });

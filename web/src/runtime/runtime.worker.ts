@@ -11,6 +11,7 @@ import { errText } from "./migrate.js";
 import { BrokerClient, type ChannelBindingLike, type ChannelTransport } from "./broker-facade.js";
 import { InfraPort } from "./infra-port.js";
 import { serviceFetch } from "./service-fetch.js";
+import { keepCookieHeaders } from "./cookie-headers.js";
 import { connectResourceFakes, prepareResourceFakes, setOidcIssuer, setRoutedHosts } from "./resource-fakes.js";
 import { StorageClient } from "./storage-client.js";
 import type {
@@ -61,6 +62,7 @@ setBackgroundFlush((lines) => {
   }
 });
 prepareResourceFakes();
+keepCookieHeaders();
 
 interface BundleModule {
   createApp: (db: unknown) => { fetch: (req: Request) => Promise<Response> };
@@ -288,10 +290,12 @@ async function dispatch(req: SerializedRequest): Promise<DispatchResult> {
       headers[k] = v;
     });
     const body = await response.text();
+    const setCookies = response.headers.getSetCookie?.() ?? [];
     const out: SerializedResponse = {
       status: response.status,
       statusText: response.statusText,
       headers,
+      ...(setCookies.length > 0 ? { setCookies } : {}),
       body,
     };
     return { ok: true, response: out, durationMs: Math.round(performance.now() - begin) };

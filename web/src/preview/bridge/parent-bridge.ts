@@ -63,6 +63,19 @@ interface SelectedForward {
   testid: string | null;
 }
 
+/** A navigation the preview cancelled because it led into the runtime base
+ *  (the generated app's `signIn()` / `signOut()`), with the backend path. */
+interface NavigateForward {
+  kind: "navigate";
+  url: string;
+}
+
+/** The persona the preview's login page signed in as (null: cancelled). */
+interface LoginPickForward {
+  kind: "login-pick";
+  persona: string | null;
+}
+
 /** Reply posted back over the port for a `RuntimeForward`. */
 type RuntimeReply =
   | {
@@ -96,6 +109,8 @@ export class SandboxBridge {
   /** A reload requested before the handshake completed — flushed once
    *  the port connects so an edit that lands during boot isn't lost. */
   private pendingReload: ReloadPayload | null = null;
+  /** The open login page's answer. */
+  private loginPick: ((persona: string | null) => void) | null = null;
 
   constructor(
     private readonly iframe: HTMLIFrameElement,
@@ -118,7 +133,30 @@ export class SandboxBridge {
     private readonly infraHttp?: (
       req: Omit<InfraHttpForward, "kind" | "rid">,
     ) => Promise<InfraHttpResult>,
+    /** Notified with the backend path of a navigation the preview cancelled
+     *  (see `NavigateForward`). */
+    private readonly onNavigate?: (url: string) => void,
   ) {}
+
+  /** Show the identity provider's login page in the preview; resolves with
+   *  the persona picked, or null when the user cancels. */
+  showLogin(issuer: string, personas: readonly string[]): Promise<string | null> {
+    this.loginPick?.(null);
+    return new Promise((resolve) => {
+      if (!this.port) {
+        resolve(null);
+        return;
+      }
+      this.loginPick = resolve;
+      this.port.postMessage({ kind: "login", issuer, personas: [...personas] });
+    });
+  }
+
+  /** Point the preview's history at the app route `path` (before a reload
+   *  remounts the app there). */
+  showRoute(path: string): void {
+    this.port?.postMessage({ kind: "route", path });
+  }
 
   /** The parent-side port, available after the handshake; null before
    *  connect or after dispose. */
@@ -188,7 +226,19 @@ export class SandboxBridge {
       | InfraHttpForward
       | AppLogForward
       | SelectedForward
+      | NavigateForward
+      | LoginPickForward
       | undefined;
+    if (data && data.kind === "navigate") {
+      this.onNavigate?.(data.url);
+      return;
+    }
+    if (data && data.kind === "login-pick") {
+      const pick = this.loginPick;
+      this.loginPick = null;
+      pick?.(data.persona);
+      return;
+    }
     if (data && (data.kind === "console" || data.kind === "error")) {
       this.onAppLog?.({ level: data.level, text: data.text });
       return;
@@ -245,6 +295,8 @@ export class SandboxBridge {
 
   dispose(): void {
     this.disposed = true;
+    this.loginPick?.(null);
+    this.loginPick = null;
     if (this.readyListener) {
       window.removeEventListener("message", this.readyListener);
       this.readyListener = null;
