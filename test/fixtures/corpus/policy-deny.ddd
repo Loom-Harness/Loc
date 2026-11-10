@@ -43,6 +43,8 @@ system PolicyDeny {
 
   subdomain Core {
     context Vault {
+      payload Settled { amt: int }
+      payload Short { need: int }
       // READ-denied — invisible to every caller, mutations 404.
       aggregate Secret with tenantOwned, crudish {
         code: string
@@ -50,6 +52,14 @@ system PolicyDeny {
       // WRITE-denied — reads stay open, mutations match no row.
       aggregate Account with tenantOwned, crudish {
         balance: int
+        // Returning operations are commands: they load through the write
+        // scope, so a write-denied aggregate refuses them like `update`.
+        operation settle(amt: int): Settled or Short {
+          return Settled { amt: amt }
+        }
+        operation doubled(): int {
+          return this.balance * 2
+        }
       }
       // Denied WITHOUT a tenant filter — `crossTenant` opts out of the tenant
       // floor, so the always-false term is the ONLY predicate on every read.
@@ -175,6 +185,8 @@ system PolicyDeny {
     // …and the writes are refused, on a row the reads above just returned.
     expect(api.accounts.update(a, { balance: 999 })).toThrow(404)
     expect(api.accounts.destroy(a)).toThrow(404)
+    expect(api.accounts.settle(a, { amt: 5 })).toThrow(404)
+    expect(api.accounts.doubled(a)).toThrow(404)
     // The refusal must be a REFUSAL, not a half-applied write: read the row
     // back and prove the balance never moved and the row is still there.
     let stillThere = api.accounts.getById(a)
