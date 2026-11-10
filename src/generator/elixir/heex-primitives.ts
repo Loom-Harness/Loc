@@ -45,7 +45,6 @@ import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
-import { gridCols, slugify } from "../_walker/shared/args.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -62,7 +61,6 @@ import {
   isAttrRenderable,
   localizedHeexAttr,
   type PrimitiveSpec,
-  positionalRole,
   registerBinding,
   renderAttrValue,
   renderChild,
@@ -1837,40 +1835,11 @@ export function renderEnumBadge(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
 // ---------------------------------------------------------------------------
 // Closed primitive library — HEEx component dispatch.
 // ---------------------------------------------------------------------------
-/** Tailwind utility classes for the pure-LAYOUT primitives.
- *
- *  These live in the WALKER, not in a design pack, and that split is the whole
- *  HEEx pack contract: a pack owns the design VOCABULARY (the `<.button>` /
- *  `<.table>` / `<.card>` function components in `core_components.ex`), while
- *  flex/grid geometry is design-neutral — daisyUI adds a component vocabulary,
- *  not a layout one, so `coreComponents` and `daisyui` would carry byte-
- *  identical copies of these strings.  Both packs build Tailwind through the
- *  same assets pipeline and both scan `../lib/<app>_web/**\/*.*ex`, so a literal
- *  class emitted here survives either pack's production purge.
- *
- *  The strings mirror the shadcn (Tailwind) React templates — `primitive-stack`
- *  = `flex flex-col gap-4`, `primitive-toolbar` = `… justify-between …` — so a
- *  page laid out on React and on Phoenix reads the same. */
-const LAYOUT_CLASSES = {
-  Stack: "flex flex-col gap-4",
-  Group: "flex flex-row items-center gap-4",
-  Toolbar: "flex flex-row items-center justify-between gap-4",
-  Grid: "grid gap-4",
-  Container: "container mx-auto px-4",
-} as const;
-
-/** `Container(size: "md")` → the max-width utility for that size.
- *
- *  Sizes mirror the vuetify pack's pixel ladder (540 / 720 / 960 / 1140 / 1320)
- *  at the nearest Tailwind step; an absent or unrecognised `size:` keeps the
- *  default centred `container` (what the shadcn template emits). */
-const CONTAINER_MAX_W: Record<string, string> = {
-  xs: "max-w-xl",
-  sm: "max-w-3xl",
-  md: "max-w-5xl",
-  lg: "max-w-6xl",
-  xl: "max-w-7xl",
-};
+/** Tailwind utility classes for the `Toolbar` layout.  Flex geometry is
+ *  design-neutral, so it lives here rather than in a design pack; it mirrors
+ *  the shadcn `primitive-toolbar` template and the layout classes in
+ *  `heex-pack.ts`. */
+const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
 
 /** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
  *  Listed inline so the small set is easy to scan.  The registered
@@ -1878,22 +1847,9 @@ const CONTAINER_MAX_W: Record<string, string> = {
  *  these specs; the typed dispatch table at
  *  src/generator/_walker/registry.ts wires them up by name. */
 const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  Stack: {
-    tag: "div",
-    staticAttrs: ["class"],
-    takesChildren: true,
-    baseClass: LAYOUT_CLASSES.Stack,
-  },
   // Heading is rendered by the bespoke `renderHeading` (raw `<h{n}>` with a
   // structure-derived rank), not through this generic spec table.
   Text: { tag: "p", takesChildren: true },
-  // `Card`/`Paper` render through the PACK's `<.card>` function component (see
-  // `renderCard`) — the card surface is design vocabulary, and the two packs
-  // spell it differently (daisyUI `card card-bordered` + `card-body`, neutral
-  // Tailwind on coreComponents).  The spec's `passThroughAttrs` names the
-  // component's own attrs; `title`/`variant`/`shadow` are supplied by the
-  // renderer, so nothing here has to be authored to reach the tag.
-  Card: { tag: ".card", takesChildren: true },
   // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
   // author's `label:` overrides it (and translates), which needs
   // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
@@ -1904,13 +1860,7 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     takesChildren: true,
     labelAsAriaLabel: true,
     extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
-    baseClass: LAYOUT_CLASSES.Toolbar,
-  },
-  Group: {
-    tag: "div",
-    staticAttrs: ["class"],
-    takesChildren: true,
-    baseClass: LAYOUT_CLASSES.Group,
+    baseClass: TOOLBAR_CLASS,
   },
   // `Empty("No results yet")` carries the author's message in positional 0 (the
   // `empty` user-visible slot).  It rendered as a childless `<.empty />`, so the
@@ -1943,20 +1893,12 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
   // `Paper` is a titleless `Card` (same surface, no header) — same pack
   // component, so the two stay visually consistent by construction.
   Paper: { tag: ".card", takesChildren: true },
-  // `Grid`'s per-breakpoint column classes come from `cols:` (see `renderGrid`);
-  // each child rides its own `<div>` grid item, mirroring the JSX packs' column
-  // wrapper so a multi-root child (a `Table` + its pager) occupies ONE cell.
-  Grid: { tag: "div", staticAttrs: ["class"], takesChildren: true, childWrapper: "div" },
-  Container: { tag: "div", staticAttrs: ["class"], takesChildren: true },
 };
 
 // Per-primitive registry-facing wrappers — bind the generic
 // `renderPrimitive` helper to a specific `closedPrimitive` spec so
 // the typed dispatch table can reference one named function per
 // primitive (rather than re-dispatching by name inside the renderer).
-export function renderStack(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Stack!, expr, ctx);
-}
 /** `Heading("text", level?)` → a raw `<h{n}>` whose rank is the explicit
  *  `level:` (1..6) or, when absent, DERIVED from the enclosing `Section`/`Card`
  *  nesting depth: `min(6, 2 + headingDepth)` — matching the JSX frontends
@@ -1999,31 +1941,6 @@ export function renderInlineCode(
   ctx: WalkContext,
 ): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.InlineCode!, expr, ctx);
-}
-
-/** `Divider(label?)` → `<hr />`, or rule-text-rule when a `label:` is given.
- *
- *  LiveView has no labelled-divider component, but "no component" is not a
- *  reason to DROP the label: it is a user-visible slot (`dividerLabel`), so it
- *  reaches `.loom/messages.en.json` — dropping it would have a translator
- *  translating text the app never shows.  Every JSX pack composes the same
- *  three-element form for exactly this reason, so HEEx does too. */
-export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let label = "";
-  for (let i = 0; i < expr.args.length; i++) {
-    const arg = expr.args[i]!;
-    const name = expr.argNames?.[i];
-    if (name === "label") label = renderInTemplate(arg, ctx, "dividerLabel");
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  if (!label) return `<hr${testidAttr} />`;
-  return (
-    `<div class="flex items-center gap-3 my-4"${testidAttr}>` +
-    `<hr class="flex-1" />` +
-    `<span class="text-sm opacity-70">${label}</span>` +
-    `<hr class="flex-1" />` +
-    `</div>`
-  );
 }
 
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
@@ -2243,92 +2160,6 @@ function heexChrome(ctx: WalkContext, name: string): { english: string; call?: s
   return { english, call: pgettextCall(chromeKey(name), english) };
 }
 
-/** `Tabs(Tab(label, body), …)` → a client-side tab switcher.  All panels are
- *  rendered; switching is a `Phoenix.LiveView.JS` toggle (`JS.hide`/`JS.show`
- *  + active-class) — the idiomatic LiveView way to do presentational UI state
- *  with no server round-trip and no verified-route plumbing.  Uses ARIA roles
- *  (tablist/tab/tabpanel) — same roles Mantine's `<Tabs>` emits, so a
- *  role-based e2e spec is portable across React and HEEx.  Each Tabs instance
- *  gets a unique `tabs-<n>` id so its toggle selectors stay scoped. */
-export function renderTabs(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // `body` is EVERY panel child, not just the first: `Tab { "Ovw", Text { "A" },
-  // Text { "B" } }` must render `B` too — reading `pos[1]` alone drops it (the
-  // JSX engine has the same rule in `_walker/primitives/layout.ts`).  A panel is
-  // a children container like `Card`.
-  const tabs: Array<{
-    label: string;
-    /** The caption already rendered for HEEx TEXT position — a `<%= pgettext(…)
-     *  %>` call under i18n, undefined when the raw escaped label is right. */
-    labelHeex?: string;
-    slug: string;
-    body: ExprIR[];
-  }> = [];
-  let idx = 0;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name) continue; // named args (testid, style, …) not consumed here
-    idx++;
-    if (arg.kind === "call" && arg.name === "Tab") {
-      const pos = arg.args.filter((_, j) => !arg.argNames?.[j]);
-      // Positional 0 is the CAPTION only when it is text-like.  Consuming a
-      // CALL there swallowed the panel: `Tab { title: "One", Text { "first" } }`
-      // leaves only the `Text` positional, which became the label (rendered
-      // through the tabLabel slot!) while `slice(1)` emptied the panel.  Mirror
-      // of the shared walker's `emitTabs` rule.
-      const labelIsTextLike = pos[0] !== undefined && pos[0].kind !== "call";
-      const labelArg = labelIsTextLike ? pos[0] : undefined;
-      const label = labelArg && labelArg.kind === "literal" ? labelArg.value : `Tab ${idx}`;
-      tabs.push({
-        label,
-        // The caption is a user-visible slot (`tabLabel`): under i18n
-        // it renders through `pgettext`, else as the escaped literal.  The SLUG
-        // stays derived from the source literal — a per-locale anchor would
-        // break every `JS.show` selector this switcher is built on.
-        labelHeex: labelArg ? renderInTemplate(labelArg, ctx, "tabLabel") : undefined,
-        // `slugify`, not `snake` — the SAME derivation the six JSX/markup
-        // targets use (`_walker/primitives/layout.ts`).  `snake/1` only splits
-        // camelCase and downcases, so a caption with a space came out as
-        // `order details` and went straight into an HTML `id` and the
-        // `JS.show(to: "#tabs-1-panel-order details")` selector this switcher is
-        // built on — a broken anchor, and a DIFFERENT id than every other target
-        // derives from the same caption, which splits cross-target e2e
-        // selectors.  The `|| tab-<idx>` fallback and the 1-based `idx` already
-        // match the shared walker's.
-        slug: slugify(label) || `tab-${idx}`,
-        body: labelIsTextLike ? pos.slice(1) : pos,
-      });
-    } else {
-      // Bare positional (e.g. `Tabs(Card(...), Card(...))`) — its own panel.
-      tabs.push({ label: `Tab ${idx}`, slug: `tab-${idx}`, body: [arg] });
-    }
-  }
-  if (tabs.length === 0)
-    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Tabs: no tabs")} -->`;
-  const id = `tabs-${++ctx.tabSeq.value}`;
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const triggers = tabs
-    .map((t, i) => {
-      const active = i === 0 ? " tab-active" : "";
-      const js =
-        `JS.hide(to: "[data-tabs='${id}']")` +
-        ` |> JS.show(to: "#${id}-panel-${t.slug}")` +
-        ` |> JS.remove_class("tab-active", to: "[data-tabs-tab='${id}']")` +
-        ` |> JS.add_class("tab-active", to: "#${id}-tab-${t.slug}")`;
-      return `    <button type="button" role="tab" id="${id}-tab-${t.slug}" data-tabs-tab="${id}" class="tab${active}" phx-click={${js}}>${t.labelHeex ?? esc(t.label)}</button>`;
-    })
-    .join("\n");
-  const panels = tabs
-    .map((t, i) => {
-      const hidden = i === 0 ? "" : " hidden";
-      const body = t.body.map((child) => renderChild(child, ctx)).join("\n");
-      return `  <div role="tabpanel" id="${id}-panel-${t.slug}" data-tabs="${id}" class="tab-panel${hidden}">\n${indent(body, 4)}\n  </div>`;
-    })
-    .join("\n");
-  const testidAttr = testIdAttr(expr, ctx);
-  return `<div class="tabs"${testidAttr}>\n  <div role="tablist" class="tab-bar">\n${triggers}\n  </div>\n${panels}\n</div>`;
-}
-
 // ---------------------------------------------------------------------------
 // Standalone controlled inputs — Field / NumberField / PasswordField /
 // MultilineField / SelectField / Toggle.  Each binds to a page `state` field
@@ -2529,63 +2360,33 @@ function stringNamedLit(expr: Extract<ExprIR, { kind: "call" }>, name: string): 
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
 }
 
-/** `Card("Title", …children)` / `Paper(…children)` → the pack's `<.card>`.
+/** `Paper(…children)` → the pack's `<.card>` with no title: every positional
+ *  is a body child.
  *
- *  The card SURFACE is design vocabulary (border/elevation/padding/title
- *  typography), so it goes through the pack's function component rather than
- *  hardcoded classes in the walker — `daisyui` renders `card card-bordered
- *  bg-base-100` + `card-body`/`card-title`, `coreComponents` a neutral
- *  `rounded-lg border border-zinc-200 bg-white` — exactly the split
- *  `<.button>` / `<.table>` / `<.badge>` already use.
- *
- *  Title handling mirrors the JSX `emitCard`: positional 0 is the title when it
- *  is text-LIKE (not itself a primitive call), every remaining positional is a
- *  body child.  It is a user-visible slot (`cardTitle`), so it rides the
- *  translation runtime as an ATTRIBUTE expression under i18n (D-I18N-ATTR).
- *  `variant:`/`shadow:` are CONSUMED as component attrs — the pack maps them to
- *  its own elevation idiom — rather than leaking as bare HTML attributes. */
-function renderCardLike(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-  takesTitle: boolean,
-): string {
-  const positional = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const titleArg = takesTitle && positional[0]?.kind !== "call" ? positional[0] : undefined;
-  const bodyExprs = titleArg ? positional.slice(1) : positional;
-
+ *  The card SURFACE is design vocabulary, so it goes through the pack's
+ *  function component — the same `<.card>` the shared `Card` renders through
+ *  `heex-pack.ts`.  `variant:`/`shadow:` are consumed as component attrs.  A
+ *  Paper is a heading-nesting level, like `Card`.  `card/1` declares `attr
+ *  :testid` and no `:global` rest, so the testid goes in as `testid=`: a
+ *  `data-testid=` would be an undefined attribute, a compile warning
+ *  `--warnings-as-errors` turns fatal. */
+export function renderPaper(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
+  const bodyExprs = expr.args.filter((_, i) => !expr.argNames?.[i]);
   const attrs: string[] = [];
-  if (titleArg) {
-    const value =
-      localizedHeexAttr(titleArg, ctx, positionalRole("Card", 0)) ?? attrValue(titleArg, ctx);
-    attrs.push(`title=${value}`);
-  }
   for (const knob of ["variant", "shadow"] as const) {
     const value = stringNamedLit(expr, knob);
     if (value) attrs.push(`${knob}="${escapeHeexAttr(value)}"`);
   }
   const attrStr = attrs.length > 0 ? ` ${attrs.join(" ")}` : "";
-  // A Card is a heading-nesting level (like the JSX `emitCard`): a `Heading`
-  // inside it derives a rank one deeper (accessibility.md).
   const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
   const children = bodyExprs.map((c) => renderChild(c, childCtx)).join("\n");
-  // The pack's `card/1` declares `attr :testid` (and spreads it as
-  // `data-testid={@testid}`) with no `:global` rest, so the raw `data-testid=`
-  // the plain-HTML primitives take is an UNDEFINED attribute on it — dropped,
-  // with a compile warning `--warnings-as-errors` turns fatal (the scaffold's
-  // workflows-index cards hit it).
   const testidAttr = testIdAttr(expr, ctx).replace(/^ data-testid=/, " testid=");
   if (children.length === 0) return `<.card${attrStr}${testidAttr} />`;
   return `<.card${attrStr}${testidAttr}>\n${indent(children, 2)}\n</.card>`;
 }
 
-export function renderCard(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderCardLike(expr, ctx, true);
-}
 export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
-}
-export function renderGroup(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Group!, expr, ctx);
 }
 export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
@@ -2652,46 +2453,6 @@ export function renderButton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
     expr,
     ctx,
   );
-}
-/** `Paper(…children)` — a Card with no title slot (positional 0 is a child). */
-export function renderPaper(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderCardLike(expr, ctx, false);
-}
-
-/** `Grid(cols: 3 | [3,2,1], …children)` → a CSS grid.
- *
- *  `cols:` is read through the SHARED `gridCols` reader the JSX walker uses, so
- *  `cols: [3, 2, 1]` means `[desktop, tablet, mobile]` on Phoenix exactly as it
- *  does on React — and it is CONSUMED into the class list.  Left to the
- *  generic named-attr path it emits `cols={[3, 2, 1]}`: a LIST reaching
- *  Phoenix's attribute escaper, i.e. a page that compiles and then raises on
- *  first render.
- *
- *  Tailwind is mobile-first, so the breakpoint ladder reads
- *  `grid-cols-<mobile> md:grid-cols-<tablet> lg:grid-cols-<desktop>` — the same
- *  spelling the shadcn `primitive-grid` template emits. */
-export function renderGrid(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const cols = gridCols(expr);
-  const colClasses = cols
-    ? `grid-cols-${cols.mobile} md:grid-cols-${cols.tablet} lg:grid-cols-${cols.desktop}`
-    : "grid-cols-3";
-  return renderPrimitive(
-    { ...CLOSED_PRIMITIVE_SPECS.Grid!, baseClass: `${LAYOUT_CLASSES.Grid} ${colClasses}` },
-    expr,
-    ctx,
-  );
-}
-
-/** `Container(size: "md", …children)` → a centred max-width wrapper.
- *
- *  `size:` is CONSUMED into a `max-w-*` utility (see {@link CONTAINER_MAX_W});
- *  left to the generic named-attr path it leaks as `size="md"`, an attribute
- *  no `<div>` has. */
-export function renderContainer(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const size = stringNamedLit(expr, "size");
-  const maxW = size ? CONTAINER_MAX_W[size] : undefined;
-  const baseClass = maxW ? `mx-auto w-full px-4 ${maxW}` : LAYOUT_CLASSES.Container;
-  return renderPrimitive({ ...CLOSED_PRIMITIVE_SPECS.Container!, baseClass }, expr, ctx);
 }
 
 /** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.
