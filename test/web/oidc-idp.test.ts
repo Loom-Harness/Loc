@@ -115,7 +115,7 @@ describe("oidcSetup — the realm and personas a boot hands the identity provide
       },
     ];
     const plan = { kind: "unversioned" } as never;
-    const env = (slug: string) => (slug === "api" ? { OIDC_ISSUER: ISSUER } : {});
+    const env = (slug: string): Record<string, string> => (slug === "api" ? { OIDC_ISSUER: ISSUER } : {});
     const place = () => ({ dataDir: ":memory:", island: null });
     const withIdp = bootPlan(backends, plan, [], place, env, [], setup).plan;
     expect(withIdp.backends[0]?.verifier).toBe("configured");
