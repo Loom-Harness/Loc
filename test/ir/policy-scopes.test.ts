@@ -53,14 +53,8 @@ describe("policy scope composition", () => {
     const composed = ruled.contextFilters[slot]!;
     expect(composed.kind === "binary" && composed.op).toBe("||");
     expect(kinds(composed)).toContain("exists");
-    // A read rule never widens writes: the write scope is the read composite
-    // AND the write default (the floor).
-    const w = ruled.writeScopeFilter!;
-    expect(w.kind === "binary" && w.op).toBe("&&");
-    expect(w.kind === "binary" && w.right).toEqual({
-      kind: "paren",
-      inner: plain.contextFilters[slot],
-    });
+    // A read rule never widens writes: the write scope is the floor alone.
+    expect(ruled.writeScopeFilter).toEqual(plain.contextFilters[slot]);
   });
 
   it("guards `when` arms and keeps `local` for the callers no `when` admits", async () => {

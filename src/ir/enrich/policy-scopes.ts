@@ -18,11 +18,12 @@
 // `ignoring` clause drops the whole tenant scope exactly as it dropped the bare
 // floor.
 //
-// WRITE: `writeScopeFilter` is the read composite AND the write composite, so a
-// row a read rule opens is still out of write reach unless a write rule (or the
-// write default) admits it — which is why an aggregate with any read row rule
-// gets an explicit write scope even when it declares no write rule — and a row
-// a write rule names is writable only while it is also readable.
+// WRITE: the write composite becomes `writeScopeFilter`.  Every command load
+// applies the read scope AND the write scope, so a row a read rule opens is
+// still out of write reach unless a write rule (or the write default) admits it
+// — which is why an aggregate with any read row rule gets an explicit write
+// scope even when it declares no write rule — and a row a write rule names is
+// writable only while it is also readable.
 //
 // `when` conditions are principal terms (`currentUser.role == "clerk"`); the
 // negated fallback arm is pushed down to its leaves (`==` ↔ `!=`, De Morgan),
@@ -114,11 +115,7 @@ function composeContext(ctx: EnrichedBoundedContextIR, userIdType: TypeIR) {
       return {
         ...agg,
         contextFilters: filters,
-        // A writable row is a readable one.  Most backends AND the read scope
-        // into the command load anyway; the Ecto load swaps the read
-        // restrictions for the write scope, so the write scope carries the
-        // read composite itself whenever the two differ.
-        writeScopeFilter: sameExpr(read, write) ? write : allOf([read, write]),
+        writeScopeFilter: write,
       };
     }),
   };
@@ -167,11 +164,6 @@ function ownTerm(agg: AggregateIR, floor: ExprIR, userIdType: TypeIR): ExprIR | 
     resultType: BOOL,
   };
   return allOf([floor, mine]);
-}
-
-function sameExpr(a: ExprIR, b: ExprIR): boolean {
-  const strip = (_k: string, v: unknown) => (_k === "origin" ? undefined : v);
-  return JSON.stringify(a, strip) === JSON.stringify(b, strip);
 }
 
 function paren(e: ExprIR): ExprIR {
