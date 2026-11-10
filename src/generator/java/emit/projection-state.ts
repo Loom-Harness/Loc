@@ -210,6 +210,9 @@ function renderTenantScopedRowEntity(
     `    /** The row's key: the event's tenant and the fold key. */`,
     `    @Embeddable`,
     `    public static class Key implements java.io.Serializable {`,
+    // `-Xlint:serial` under `-Werror` (the corpus compile gate) requires it.
+    `        private static final long serialVersionUID = 1L;`,
+    ``,
     `        @Column(name = "${hbIdent(tenant.column)}")`,
     `        String ${t};`,
     `        @Embedded`,
