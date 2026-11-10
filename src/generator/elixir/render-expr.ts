@@ -346,6 +346,11 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // domain-expression position consumes one today, but keep total with an
   // Elixir-list emit so unexpected uses still compile.
   list: (elements) => `[${elements.join(", ")}]`,
+  // An in-app `exists`: a call to the synthesized find on the quantified
+  // aggregate's repository module, reachable from any context function; it
+  // answers `{:ok, record | nil}`.
+  existsRead: (e, args, ctx) =>
+    `match?({:ok, %{}}, ${ctx.contextModule}.${e.aggregate}Repository.${snake(e.read.find)}(${args.join(", ")}))`,
 };
 
 /** The `ELIXIR_TARGET` leaves that read nothing from the Elixir domain context

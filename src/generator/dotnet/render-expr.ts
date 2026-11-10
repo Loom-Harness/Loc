@@ -1,12 +1,13 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { existsReadsIn } from "../../ir/util/in-app-exists.js";
 import { idColumnVsOperatingOrg } from "../../ir/util/org-context.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { checkedBinaryKind, checkedUnaryKind } from "../_expr/checked-int.js";
 import { nullishOperand } from "../_expr/coalesce.js";
@@ -432,7 +433,26 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   // the assignment target — so one spelling serves `T[]`, `List<T>` and
   // `IReadOnlyList<T>`, empty or not.
   list: (elements) => `[${elements.join(", ")}]`,
+  // An in-app `exists`: the handler holding the gate has the quantified
+  // aggregate's repository injected (`csExistsReadDeps`).
+  existsRead: (e, args) =>
+    `((await ${csExistsReadField(e.aggregate)}.${upperFirst(e.read.find)}(${[...args, "cancellationToken"].join(", ")})) != null)`,
 };
+
+/** The handler field an in-app `exists` over `aggregate` reads through. */
+function csExistsReadField(aggregate: string): string {
+  return `_${lowerFirst(aggregate)}Reads`;
+}
+
+/** The repositories the in-app `exists` reads inside `exprs` need injected.
+ *  (Their interfaces' namespaces come from `collectCsExprUsings`, which every
+ *  gate site already runs over its predicates.) */
+export function csExistsReadDeps(
+  exprs: readonly (ExprIR | undefined)[],
+): { type: string; field: string }[] {
+  const aggs = [...new Set(exprs.flatMap((e) => existsReadsIn(e).map((x) => x.aggregate)))];
+  return aggs.map((a) => ({ type: `I${a}Repository`, field: csExistsReadField(a) }));
+}
 
 /** EF-translated-position twin of `CS_TARGET` (find `Where`,
  *  `HasQueryFilter`, criteria Specifications — `ctx.efQuery`).  The efQuery
@@ -533,6 +553,12 @@ function renderCsBinary(
   // to the aggregate's OWN key (`this.id`) so `<Agg>Id` is guaranteed to
   // exist; id-typed reference FIELDS are untouched.
   if (e.op === "==" || e.op === "!=") {
+    // A row's own key against `null` (the `deny write` scope of an
+    // `exists … for write`): the `<Agg>Id` record struct is never null, and C#
+    // refuses the comparison as always-false (CS8073), so it is decided here.
+    if (isKeyNullTest(e.left, e.right) || isKeyNullTest(e.right, e.left)) {
+      return e.op === "==" ? "false" : "true";
+    }
     const liftedRight = liftScalarToSelfId(e.left, e.right, right, scope);
     if (liftedRight) return `${left} ${e.op} ${liftedRight}`;
     const liftedLeft = liftScalarToSelfId(e.right, e.left, left, scope);
@@ -545,6 +571,16 @@ function renderCsBinary(
   }
   if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;
   return `${left} ${e.op} ${right}`;
+}
+
+function isKeyNullTest(key: ExprIR, other: ExprIR): boolean {
+  return (
+    key.kind === "member" &&
+    key.member === "id" &&
+    key.memberType.kind === "id" &&
+    other.kind === "literal" &&
+    other.lit === "null"
+  );
 }
 
 /** `DateTime.Add<Unit>` method per duration unit (A5 temporal) — the EF

@@ -23,6 +23,7 @@ import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
@@ -34,6 +35,7 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
@@ -42,7 +44,7 @@ import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { javaExistsReadField, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   javaAuditApiPkg,
   javaHistoryFind,
@@ -112,6 +114,9 @@ export interface ServiceCtx {
   pkg: string;
   entityPkg: string;
   domainRepoPkg: string;
+  /** The repository-interface package of any aggregate of the context — for
+   *  the repositories an in-app `exists` gate reads through. */
+  repoPkgOf?: (aggregate: string) => string;
   /** auth: required + system user block — gates currentUser threading. */
   authed?: boolean;
   /** Declared `user { … }` field names, in declaration order — the shape the
@@ -257,7 +262,15 @@ export function renderJavaService(
   // (op-gates.ts): the create gate belongs beside the factory call, and the
   // destroy gate needs the aggregate the service loads.  The controller is a
   // thin dispatch that holds neither.
+  const existsReads = existsReadAggregates(agg);
   const createGates = lifecycleGates(canonicalCreate(agg));
+  const createGateReadsParams = createGates.some((g) => {
+    let reads = false;
+    walkExprDeep(g.expr, (x) => {
+      if (x.kind === "ref" && x.refKind === "param") reads = true;
+    });
+    return reads;
+  });
   const destroyGates = lifecycleGates(canonicalDestroy(agg));
   const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
@@ -291,9 +304,12 @@ export function renderJavaService(
           ? `        var currentUser = currentUserAccessor.user();`
           : null,
         // BEFORE the factory: a denied create constructs nothing, saves
-        // nothing, and stages no audit row.
-        ...lifecycleGateLines(createGates, undefined, createLocals),
-        ...createLets,
+        // nothing, and stages no audit row.  A gate reading a create argument
+        // runs after the input locals it reads; any other runs first, so a
+        // denied caller is refused before the body is converted.
+        ...(createGateReadsParams
+          ? [...createLets, ...lifecycleGateLines(createGates, undefined, createLocals)]
+          : [...lifecycleGateLines(createGates, undefined, createLocals), ...createLets]),
         `        var aggregate = ${agg.name}.create(${createArgs});`,
         // A DOCUMENT root is a plain POJO with no JPA persistence context, so
         // its claim stamps (`tenantOwned`'s tenantId) cannot ride an
@@ -791,6 +807,12 @@ export function renderJavaService(
       ? [...unionReturnNames].sort().map((u) => `import ${ctx.entityPkg}.${u};`)
       : []),
     ctx.domainRepoPkg !== ctx.pkg ? `import ${ctx.domainRepoPkg}.${agg.name}Repository;` : null,
+    ...existsReads
+      .filter((n) => n !== agg.name)
+      .map((n) => {
+        const pkg = ctx.repoPkgOf?.(n) ?? ctx.domainRepoPkg;
+        return pkg !== ctx.pkg ? `import ${pkg}.${n}Repository;` : null;
+      }),
     needsUserAccessor || historyMasks || isTenantScopedStream(agg)
       ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;`
       : null,
@@ -837,17 +859,23 @@ export function renderJavaService(
     needsUserAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
     dispatches ? `    private final ApplicationEventPublisher eventPublisher;` : null,
     anyAudited ? `    private final AuditRecordRepository auditRecords;` : null,
+    // The repositories an in-app `exists` gate reads through.
+    ...existsReads.map((n) => `    private final ${n}Repository ${javaExistsReadField(n)};`),
     ``,
     `    public ${agg.name}Service(${[
       `${agg.name}Repository repository`,
       ...(needsUserAccessor ? ["CurrentUserAccessor currentUserAccessor"] : []),
       ...(dispatches ? ["ApplicationEventPublisher eventPublisher"] : []),
       ...(anyAudited ? ["AuditRecordRepository auditRecords"] : []),
+      ...existsReads.map((n) => `${n}Repository ${javaExistsReadField(n)}`),
     ].join(", ")}) {`,
     `        this.repository = repository;`,
     needsUserAccessor ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     dispatches ? `        this.eventPublisher = eventPublisher;` : null,
     anyAudited ? `        this.auditRecords = auditRecords;` : null,
+    ...existsReads.map(
+      (n) => `        this.${javaExistsReadField(n)} = ${javaExistsReadField(n)};`,
+    ),
     `    }`,
     ``,
     ...createLines,
