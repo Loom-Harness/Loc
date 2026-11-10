@@ -138,7 +138,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "disallowed", dx.Message, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate");
+            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -156,7 +156,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             }
             _log.LogWarning("{Event} message={Message} status={Status}", "conflict", __conflictDetail, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict");
+            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -222,7 +222,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} status={Status}", "not_found", 404);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("not_found");
-            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found");
+            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -275,6 +275,23 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         };
     }
 
+    // The aggregate each `/api/<segment>` route serves: a refusal answered for
+    // one carries its identity key as `params.type`.
+    private static readonly System.Collections.Generic.Dictionary<string, string> AggregateTypes = new()
+    {
+        ["customers"] = "Customers.Customer",
+        ["products"] = "Products.Product",
+    };
+
+    private static System.Collections.Generic.Dictionary<string, object?>? TypeParams(ExceptionContext context)
+    {
+        var segments = (context.HttpContext.Request.Path.Value ?? "").Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+        var at = segments.Length > 0 && segments[0] == "api" ? 1 : 0;
+        return segments.Length > at && AggregateTypes.TryGetValue(segments[at], out var type)
+            ? new System.Collections.Generic.Dictionary<string, object?> { ["type"] = type }
+            : null;
+    }
+
     // The same 404 envelope, for the routes MVC cannot reach.
     //
     // This class is an `IExceptionFilter`: it only ever sees exceptions raised
@@ -312,5 +329,26 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             Instance = http.Request.Path,
             Extensions = { ["code"] = "problem.not-found" },
         }, statusCode: 404, contentType: "application/problem+json");
+    }
+
+    // The 400 for a multipart upload that carries no `file` part.  The minimal
+    // `/files` endpoint binds the part as optional and answers through here, so
+    // the refusal is the same problem body as every other unreadable request
+    // rather than the bodiless framework 400 that `UseStatusCodePages` would
+    // fill with the bare reason phrase.
+    public static Microsoft.AspNetCore.Http.IResult MissingFilePartProblem(Microsoft.AspNetCore.Http.HttpContext http, ILogger<DomainExceptionFilter> _log)
+    {
+        var trace_id = Activity.Current?.TraceId.ToString() ?? "";
+        _log.LogWarning("{Event} error={Error} status={Status}", "client_error", "Expected a 'file' part in the multipart request body", 400);
+        http.Response.Headers["x-request-id"] = trace_id;
+        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Bad Request",
+            Status = 400,
+            Detail = "Expected a 'file' part in the multipart request body",
+            Instance = http.Request.Path,
+            Extensions = { ["code"] = "problem.malformed-body" },
+        }, statusCode: 400, contentType: "application/problem+json");
     }
 }

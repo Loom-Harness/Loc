@@ -8,11 +8,12 @@
 //   2. the Auth tab's OVERRIDE — the claims JSON injected as
 //      `x-loom-dev-claims` when the stub is enabled.
 //
-// An `auth { oidc }` system emits the dev stub too and the preview registers
-// it (no IdP is reachable from the worker), so it reports the stub's
-// identities like any other.  A file set with an OIDC verifier but no stub, or
-// a system with no `user` block, is reported as such rather than as an empty
-// list.
+// An `auth { oidc }` system emits the dev stub too.  Booted with its OIDC
+// verifier (the default) the identities are the fake identity provider's
+// personas, so the strip says so; booted with the dev stub it reports the
+// stub's identities like any other.  A file set with an OIDC verifier but no
+// stub, or a system with no `user` block, is reported as such rather than as
+// an empty list.
 //
 // Pure: file list + config in, identities out.
 
@@ -84,7 +85,8 @@ export function overrideIdentity(cfg: AuthStubConfig): Record<string, string> | 
   return out;
 }
 
-export function usersState(files: readonly FileLike[], cfg: AuthStubConfig): UsersState {
+export function usersState(files: readonly FileLike[], cfg: AuthStubConfig, oidcActive = false): UsersState {
+  if (oidcActive) return { kind: "oidc" };
   const stub = files.find((f) => DEV_STUB_FILE.test(f.path));
   if (!stub) {
     return files.some((f) => OIDC_FILE.test(f.path)) ? { kind: "oidc" } : { kind: "none" };

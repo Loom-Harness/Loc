@@ -221,12 +221,15 @@ describe("java renderJavaExpr — member + method-call", () => {
             kind: "member",
             receiver: { kind: "ref", name: "i", refKind: "lambda" },
             member: "price",
-            receiverType: { kind: "entity", name: "LineItem" },
+            receiverType: { kind: "entity", name: "LineItem", declKind: "part" },
             memberType: MONEY,
           },
         },
       ],
-      receiverType: { kind: "array", element: { kind: "entity", name: "LineItem" } },
+      receiverType: {
+        kind: "array",
+        element: { kind: "entity", name: "LineItem", declKind: "part" },
+      },
       isCollectionOp: true,
     };
     expect(renderJavaExpr(sum)).toBe(
@@ -254,14 +257,14 @@ describe("java renderJavaExpr — member + method-call", () => {
               kind: "member",
               receiver: { kind: "ref", name: "l", refKind: "lambda" },
               member: "price",
-              receiverType: { kind: "entity", name: "LineItem" },
+              receiverType: { kind: "entity", name: "LineItem", declKind: "part" },
               memberType: MONEY,
             },
             right: {
               kind: "member",
               receiver: { kind: "ref", name: "l", refKind: "lambda" },
               member: "qty",
-              receiverType: { kind: "entity", name: "LineItem" },
+              receiverType: { kind: "entity", name: "LineItem", declKind: "part" },
               memberType: INT,
             },
             leftType: MONEY,
@@ -270,7 +273,10 @@ describe("java renderJavaExpr — member + method-call", () => {
           },
         },
       ],
-      receiverType: { kind: "array", element: { kind: "entity", name: "LineItem" } },
+      receiverType: {
+        kind: "array",
+        element: { kind: "entity", name: "LineItem", declKind: "part" },
+      },
       isCollectionOp: true,
     };
     expect(renderJavaExpr(sum)).toBe(
@@ -553,7 +559,7 @@ describe("java renderJavaType", () => {
       renderJavaType({
         kind: "genericInstance",
         ctor: "paged",
-        arg: { kind: "entity", name: "Order" },
+        arg: { kind: "entity", name: "Order", declKind: "aggregate" },
       }),
     ).toBe("Paged<Order>");
   });
@@ -685,18 +691,18 @@ describe("java renderJavaExpr — variant-match switch", () => {
     subjectType: {
       kind: "union",
       variants: [
-        { kind: "entity", name: "Project" },
-        { kind: "entity", name: "ProjectNotFound" },
+        { kind: "entity", name: "Project", declKind: "aggregate" },
+        { kind: "entity", name: "ProjectNotFound", declKind: "aggregate" },
       ],
     },
     variantArms: [
       {
-        varType: { kind: "entity", name: "Project" },
+        varType: { kind: "entity", name: "Project", declKind: "aggregate" },
         binding: "p",
         value: { kind: "ref", name: "p", refKind: "match-binding" },
       },
       {
-        varType: { kind: "entity", name: "ProjectNotFound" },
+        varType: { kind: "entity", name: "ProjectNotFound", declKind: "aggregate" },
         value: litStr("not found"),
       },
     ],
@@ -731,15 +737,15 @@ describe("java renderJavaExpr — variant-match with an `error` variant", () => 
   const union = (a: string, b: string): TypeIR => ({
     kind: "union",
     variants: [
-      { kind: "entity", name: a },
-      { kind: "entity", name: b },
+      { kind: "entity", name: a, declKind: "aggregate" },
+      { kind: "entity", name: b, declKind: "aggregate" },
     ],
   });
   const readOf = (binding: string, member: string): ExprOf<"member"> => ({
     kind: "member",
     receiver: { kind: "ref", name: binding, refKind: "match-binding" },
     member,
-    receiverType: { kind: "entity", name: "X" },
+    receiverType: { kind: "entity", name: "X", declKind: "aggregate" },
     memberType: STRING,
   });
 
@@ -749,9 +755,13 @@ describe("java renderJavaExpr — variant-match with an `error` variant", () => 
     subject: { kind: "ref", name: "r", refKind: "let" },
     subjectType: union("Hit", "NotFound"),
     variantArms: [
-      { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
       {
-        varType: { kind: "entity", name: "NotFound" },
+        varType: { kind: "entity", name: "Hit", declKind: "payload" },
+        binding: "h",
+        value: readOf("h", "code"),
+      },
+      {
+        varType: { kind: "entity", name: "NotFound", declKind: "error" },
         binding: "n",
         isError: true,
         value: readOf("n", "resource"),
@@ -773,8 +783,16 @@ describe("java renderJavaExpr — variant-match with an `error` variant", () => 
     const twoSuccesses: ExprIR = {
       ...oneSuccessOneError,
       variantArms: [
-        { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
-        { varType: { kind: "entity", name: "Miss" }, binding: "m", value: readOf("m", "reason") },
+        {
+          varType: { kind: "entity", name: "Hit", declKind: "payload" },
+          binding: "h",
+          value: readOf("h", "code"),
+        },
+        {
+          varType: { kind: "entity", name: "Miss", declKind: "payload" },
+          binding: "m",
+          value: readOf("m", "reason"),
+        },
       ],
       subjectType: union("Hit", "Miss"),
     };

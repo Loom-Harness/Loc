@@ -4,6 +4,7 @@
 // value child via the shared `walk`.
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { isMoneyLocaleFormatCall } from "../../../ir/util/money-locale-format.js";
 import { rowShapeByKey } from "../../_frontend/optional-member.js";
 import { giveUp } from "../give-up.js";
 import {
@@ -81,6 +82,36 @@ function attrExprValue(nav: { expr: string; dynamic: boolean }, ctx: WalkContext
   return nav.expr;
 }
 
+/** True when `Money { …, format: "locale" }` opts into locale-formatted
+ *  display.  The accepted values are the closed `Money.format` vocabulary in
+ *  `src/util/walker-primitive-arg-values.ts`. */
+function moneyLocaleFormat(call: ExprIR & { kind: "call" }): boolean {
+  return isMoneyLocaleFormatCall(call);
+}
+
+/** `, a, undefined, c` for `[a, undefined, c]` — optional trailing positional
+ *  arguments with the gaps filled and the unset tail dropped. */
+function positionalTail(parts: readonly (string | undefined)[]): string {
+  let last = parts.length - 1;
+  while (last >= 0 && parts[last] === undefined) last--;
+  return parts
+    .slice(0, last + 1)
+    .map((p) => `, ${p ?? "undefined"}`)
+    .join("");
+}
+
+/** An authored value as a complete attribute fragment, leading space included:
+ *  a string literal quoted, anything else bound through the target.  Empty
+ *  when the value is absent. */
+function attrFragment(arg: ExprIR | undefined, ctx: WalkContext, name: string): string {
+  if (!arg) return "";
+  const nav =
+    arg.kind === "literal" && arg.lit === "string"
+      ? { expr: ctx.target.exprLiteral("string", arg.value), dynamic: false, literal: arg.value }
+      : { expr: emitExpr(arg, ctx), dynamic: true };
+  return navAttrFragment(nav, ctx, name);
+}
+
 export function emitMoney(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
@@ -91,12 +122,26 @@ export function emitMoney(
   const valueExpr = value ? emitExpr(value, ctx) : "0";
   const currency = stringNamed(call, "currency");
   const decimals = numericNamed(call, "decimals");
+  const localeFormat = moneyLocaleFormat(call);
+  const currencyLit = currency !== undefined ? JSON.stringify(currency) : "";
+  const decimalsLit = decimals !== undefined ? String(decimals) : "";
   return renderPrimitive(ctx, "primitive-money", {
     valueExpr,
     hasCurrency: currency !== undefined,
-    currency: currency !== undefined ? JSON.stringify(currency) : "",
+    currency: currencyLit,
     hasDecimals: decimals !== undefined,
-    decimals: decimals !== undefined ? String(decimals) : "",
+    decimals: decimalsLit,
+    hasLocaleFormat: localeFormat,
+    // Feliz reads the active locale off its generated `I18n` module, which
+    // exists exactly when the ui has translatable strings.
+    hasI18n: ctx.i18nPrefix !== undefined,
+    // The positional tail the call-style packs append to `formatMoney(value…)`:
+    // `(currency?, decimals?, localized?)`, trimmed of trailing gaps.
+    moneyTail: positionalTail([
+      currency !== undefined ? currencyLit : undefined,
+      decimals !== undefined ? decimalsLit : undefined,
+      localeFormat ? "true" : undefined,
+    ]),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
@@ -116,6 +161,7 @@ export function emitDateDisplay(
   const valueExpr = value ? emitExpr(value, ctx) : '""';
   return renderPrimitive(ctx, "primitive-date-display", {
     valueExpr,
+    hasValue: value !== undefined,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
@@ -139,6 +185,7 @@ export function emitEnumBadge(
   const color = stringNamed(call, "color");
   return renderPrimitive(ctx, "primitive-enum-badge", {
     valueExpr,
+    valueText: value ? ctx.target.renderEnumBadgeText?.(value, ctx) : undefined,
     hasColor: color !== undefined,
     color: color !== undefined ? JSON.stringify(color) : "",
     testidAttr: testidAttr(call, ctx),
@@ -227,6 +274,8 @@ export function emitAnchor(
     // the two procedural packs (Feliz's `prop.href`, Flutter's `pushNamed`)
     // consume, since neither renders HTML attributes.
     to: nav?.expr,
+    // The destination's source text when it is a literal.
+    toLiteral: nav?.literal,
     hasTo: nav !== undefined,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
@@ -262,6 +311,15 @@ export function emitImage(
   return renderPrimitive(ctx, "primitive-image", {
     src,
     alt,
+    // The same values as complete attribute fragments (` src="…"` /
+    // ` src={…}`), for a pack whose markup spells the binding itself.
+    srcAttr: () => attrFragment(namedArgValue(call, "src") ?? positional, ctx, "src"),
+    altAttr: () =>
+      namedArgValue(call, "alt") !== undefined
+        ? attrFragment(namedArgValue(call, "alt"), ctx, "alt")
+        : boolNamed(call, "decorative")
+          ? ` alt=""`
+          : "",
     hasSrc: src !== undefined,
     hasAlt: alt !== undefined,
     testidAttr: testidAttr(call, ctx),
@@ -284,6 +342,8 @@ export function emitAvatar(
   return renderPrimitive(ctx, "primitive-avatar", {
     src,
     alt,
+    srcAttr: () => attrFragment(namedArgValue(call, "src"), ctx, "src"),
+    altAttr: () => attrFragment(namedArgValue(call, "alt"), ctx, "alt"),
     hasSrc: src !== undefined,
     hasAlt: alt !== undefined,
     // A NAMING alt (not the decorative `""`).  With no `src:` there is no
@@ -337,9 +397,20 @@ export function emitHeading(
 }
 
 export function emitText(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
-  void depth;
+  const rich = localizedRichText(call, ctx);
   return renderPrimitive(ctx, "primitive-text", {
-    text: localizedRichText(call, ctx) ?? localizedText(call, ctx, "text", '""'),
+    text: rich ?? localizedText(call, ctx, "text", '""'),
+    // The positionals after the first, walked as children — a thunk, so only a
+    // pack that renders them (one element per child) walks them.
+    restChildren:
+      rich === undefined
+        ? () =>
+            positionalArgs(call)
+              .slice(1)
+              .map((a) => walk(a, ctx, depth + 1))
+        : () => [],
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
@@ -348,10 +419,12 @@ export function emitText(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
 /** `Bold { "..." }` — inline strong-emphasis span.  Same shape as
  *  `emitText`; lowers to the pack-specific `<strong>` equivalent. */
 export function emitBold(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-bold", {
     text: localizedText(call, ctx, "bold", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 
@@ -362,10 +435,12 @@ export function emitItalic(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-italic", {
     text: localizedText(call, ctx, "italic", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 
@@ -376,10 +451,12 @@ export function emitInlineCode(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-inline-code", {
     text: localizedText(call, ctx, "code", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 

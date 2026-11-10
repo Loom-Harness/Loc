@@ -362,8 +362,15 @@ const __record = (dispatch) => {
         __urls.push(req.url);
         __bodies.push(req.body);
         __ifMatched.push(Object.keys(req.headers ?? {}).some((k) => /^if-match$/i.test(k)));
+        // A request made under a test's \`as { … }\` principal carries other
+        // dev claims than the runner's own; the ladder and the probes keep
+        // authenticating as the runner's principal, so its claims stand in.
         for (const [k, v] of Object.entries(req.headers ?? {})) {
-          if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
+          if (/^content-(type|length)$/i.test(k)) continue;
+          __authHeaders[k] =
+            /^x-loom-dev-claims$/i.test(k) && typeof DEV_CLAIMS === "string"
+              ? Buffer.from(DEV_CLAIMS).toString("base64")
+              : v;
         }
         __wire.push(__toWireEntry(__wire.length, req.method, req.url, r.status, r.body ?? ""));
         __checkSecurityHeaders(req, r);
@@ -526,6 +533,17 @@ const __frameworkProbesRun = async (dispatch, opts = {}) => {
   // trailing ordinal — never shift one an existing golden aligns on.
   if (opts.files) {
     await dispatch({ method: "GET", url: origin + "/files/__loom_absent", headers: { ...__authHeaders } });
+    // The upload with no \`file\` part: a multipart POST carrying only another
+    // field.  Like the absent read, no \`test e2e\` step can send it (the DSL
+    // speaks \`api.<agg>.<op>\`, JSON only), so it rides the probe tier and is
+    // diffed against the golden on every leg.  Every backend answers the same
+    // RFC 9457 400 \`problem.malformed-body\`.
+    await dispatch({
+      method: "POST",
+      url: origin + "/files",
+      headers: { ...__authHeaders, "content-type": "multipart/form-data; boundary=loomb" },
+      body: '--loomb\\r\\nContent-Disposition: form-data; name="other"\\r\\n\\r\\nx\\r\\n--loomb--\\r\\n',
+    });
   }
   await __emptyCommandBodyProbes(dispatch);
   await __twoWriterProbe(dispatch);

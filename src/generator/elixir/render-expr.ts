@@ -9,6 +9,7 @@ import type {
   LiteralKind,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { isOrgAncestorsRead } from "../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
@@ -345,6 +346,11 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // domain-expression position consumes one today, but keep total with an
   // Elixir-list emit so unexpected uses still compile.
   list: (elements) => `[${elements.join(", ")}]`,
+  // An in-app `exists`: a call to the synthesized find on the quantified
+  // aggregate's repository module, reachable from any context function; it
+  // answers `{:ok, record | nil}`.
+  existsRead: (e, args, ctx) =>
+    `match?({:ok, %{}}, ${ctx.contextModule}.${e.aggregate}Repository.${snake(e.read.find)}(${args.join(", ")}))`,
 };
 
 /** The `ELIXIR_TARGET` leaves that read nothing from the Elixir domain context
@@ -968,6 +974,17 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    // `organizationContext.ancestors` is a plain id list on the principal,
+    // not a preloaded relationship.
+    // Inside an Ecto `where:` (a row rule, a policy function inlined into
+    // one) the argument is a column and the lineage a pinned list —
+    // `<column> in ^lineage`, with no principal pinning `[]` (matches no row;
+    // a pinned `nil` would fail Ecto's `{:in, type}` cast).
+    if (isOrgAncestorsRead(e.receiver)) {
+      if (!ctx.filterArgs) return `Enum.member?(${recv}, ${args[0]})`;
+      const value = recv.startsWith("^(") && recv.endsWith(")") ? recv.slice(2, -1) : recv;
+      return `${args[0]} in ^((${value}) || [])`;
+    }
     const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
     if (field && ctx.refCollOwnerModule) {
       return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;

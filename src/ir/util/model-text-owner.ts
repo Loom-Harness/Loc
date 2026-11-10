@@ -24,6 +24,21 @@ function declares(bc: BoundedContextIR, typeName: string): "own" | "system" | un
   return undefined;
 }
 
+/** The contexts that declare `typeName` when the home context does not (neither
+ *  as its own nor as a system-level type), sorted by name; empty when the home
+ *  context settles it.  More than one entry means the implicit path has no
+ *  single owner to key under. */
+export function modelTextFallbackOwners(
+  typeName: string,
+  home: BoundedContextIR | undefined,
+  others: Iterable<BoundedContextIR> = [],
+): string[] {
+  if (home && declares(home, typeName) !== undefined) return [];
+  const owners = new Set<string>();
+  for (const bc of others) if (declares(bc, typeName) === "own") owners.add(bc.name);
+  return [...owners].sort();
+}
+
 /** The context name `typeName` is keyed under, looked up first in `home` (the
  *  context the rendering form belongs to), then in `others`; `undefined` for a
  *  system-level (root-declared) type or one no given context declares.
@@ -31,10 +46,11 @@ function declares(bc: BoundedContextIR, typeName: string): "own" | "system" | un
  *  The home context wins outright: a type it declares is the one its own pages
  *  mean, exactly as an unqualified `label(X)` there reads.  A type the home
  *  does not declare is looked up across `others`; when several contexts declare
- *  it the explicit `label(X)` path reports the name ambiguous and asks the
- *  author to qualify it, and this implicit path has nobody to ask, so it takes
- *  the alphabetically first owner — a choice that depends on the names alone,
- *  never on the order the contexts were enumerated in. */
+ *  it the explicit `label(X)` path reports the name ambiguous and the IR check
+ *  `loom.model-text-implicit-ambiguous` reports the implicit reference, so the
+ *  alphabetically first owner taken here only keeps emission deterministic for
+ *  a model already rejected — it depends on the names alone, never on the order
+ *  the contexts were enumerated in. */
 export function modelTextContextOf(
   typeName: string,
   home: BoundedContextIR | undefined,
@@ -45,7 +61,5 @@ export function modelTextContextOf(
     if (d === "own") return home.name;
     if (d === "system") return undefined;
   }
-  const owners = new Set<string>();
-  for (const bc of others) if (declares(bc, typeName) === "own") owners.add(bc.name);
-  return [...owners].sort()[0];
+  return modelTextFallbackOwners(typeName, undefined, others)[0];
 }

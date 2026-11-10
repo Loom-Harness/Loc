@@ -10,10 +10,9 @@ import {
   browserCanReachNetwork,
   pgliteStarts,
   readEditorSource,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 async function pick(page: Page, testid: string, option: string): Promise<void> {
@@ -29,8 +28,7 @@ async function sql(page: Page, statement: string): Promise<void> {
 
 test("two deployables, two storages: pickers, status rows and tagged logs", async ({ page }) => {
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Shared storage/);
+  await startFromExample(page, /Shared storage/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
@@ -55,9 +53,7 @@ test("two deployables, two storages: pickers, status rows and tagged logs", asyn
   });
 
   await test.step("Generate, bundle", async () => {
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
     await page.getByTestId("btn-bundle").click();
     await waitForBundle(page);
   });

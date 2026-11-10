@@ -62,6 +62,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { hasStateRow } from "../../plan/index.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -296,7 +297,7 @@ export function validatePersistedCollectionPositions(
   for (const wf of ctx.workflows) {
     // Only a correlation-bearing, state-row workflow keeps a table; an
     // eventSourced one folds its state from its stream.
-    if (wf.eventSourced || !wf.correlationField) continue;
+    if (!hasStateRow(wf)) continue;
     for (const f of wf.stateFields ?? []) checkField(ctx, "workflow", wf.name, f, diags, stored);
   }
 }

@@ -177,7 +177,7 @@ ${members}
 }`;
 
 /** One aggregate whose MEMBERS are the defect, for the `structural.ts` shape
- *  rules and the `_shared.ts` sensitivity-drop helper (M-T9.56).  `modifiers`
+ *  rules (M-T9.56).  `modifiers`
  *  goes on the aggregate itself (`audited`). */
 const aggShape = (modifiers: string, members: string): string => `
 system S {
@@ -554,6 +554,27 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // The lowering backstop: a ui body reading a name nothing declares — the
+  // names validator leaves ui bodies to the typing pass, so nothing else
+  // refuses it.
+  "loom.unresolved-type": `
+system S {
+  subdomain M { context C { aggregate Doc with crudish { title: string } repository Docs for Doc { } } }
+  api A from M
+  ui U { api Api: A  page P { route: "/" body: For { each: orders, render: o => Text { "x" } } } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+  deployable web { platform: react targets: d ui: U { Api: d } port: 3001 }
+}`,
+  // A response record typed onto a stored aggregate field.
+  "loom.transport-type-position": `
+system S {
+  subdomain M { context C {
+    response Ok { n: int }
+    aggregate Doc with crudish { title: string  last: Ok }
+  } }
+}`,
   // An `exists` in an operation guard: not a position compiled into a query.
   "loom.exists-outside-query": `
 system S {
@@ -564,6 +585,76 @@ system S {
       operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
     }
   } }
+}`,
+  // A row rule that never reads the row.
+  "loom.policy-row-not-queryable": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow on Doc as d where currentUser.role == "admin" }
+    }
+  }
+}`,
+  // A `when` that is not a claim comparison.
+  "loom.policy-when-not-caller-only": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow local on Doc when currentUser.role == "a" && 1 > 0 }
+    }
+  }
+}`,
+  // `own` on an aggregate without `auditable`.
+  "loom.policy-own-no-creator": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate Doc with tenantOwned, crudish { title: string }
+      policy { allow own on Doc }
+    }
+  }
+}`,
+  // A row rule on a TPH concrete.
+  "loom.policy-scope-inheritance-unsupported": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      abstract aggregate Doc inheritanceUsing: sharedTable with tenantOwned { title: string }
+      aggregate Memo extends Doc with tenantOwned, crudish { body: string }
+      policy { allow on Memo as m where m.body == currentUser.role }
+    }
+  }
+}`,
+  // Two read scopes that reach each other through `exists`.
+  "loom.policy-row-cycle": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string }
+      aggregate A with tenantOwned, crudish { key: string }
+      aggregate B with tenantOwned, crudish { key: string }
+      policy {
+        allow on A as a where exists B as b where b.key == a.key
+        allow on B as b where exists A as a where a.key == b.key
+      }
+    }
+  }
 }`,
   // An `exists` over another context's aggregate: a different database.
   "loom.exists-cross-context": `
@@ -750,6 +841,14 @@ system S {
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.migration-enum-value-form": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft = Open }`,
+  "loom.migration-enum-value-unknown": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft -> Pending }`,
   "loom.migration-step-target-missing": `${systemScope("")}
 migration "m" { Gone -> Missing }`,
   "loom.migration-step-ambiguous": `
@@ -788,6 +887,17 @@ migration "m" { A.Note -> B.Note }`,
   // model element, a plural of a member, a call outside every page/component
   // body, and a call spliced into a template.
   "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  // `Home` references `Status`, declared by neither it nor the system level but by
+  // both `Alpha` and `Beta`: the implicit form labels have no single owner.
+  "loom.model-text-implicit-ambiguous": `
+system S {
+  subdomain D {
+    context Alpha { aggregate Widget with crudish { n: int } enum Status { On, Off } }
+    context Beta { aggregate Gadget with crudish { n: int } enum Status { Up, Down } }
+    context Home { aggregate Hub with crudish { s: Status } }
+  }
+  ui WebApp with scaffold(subdomains: [D]) { }
+}`,
   "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
   "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
       sku: string
@@ -1226,6 +1336,60 @@ system OrgCtx {
   // The operating scope read on a deployable with no auth:
   // there is no auth middleware, so no switch gate, so the read would be an
   // unvalidated caller-submitted value.
+  // `organizationContext.ancestors` read on a deployable that does not host
+  // the registry's context — its database has no registry table to walk.
+  "loom.tenancy-registry-remote-unsupported": `
+system OrgAnc {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Registry {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Orgs for Org
+    }
+    context Books {
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Notes for Note
+    }
+  }
+  storage primary { type: postgres }
+  resource r { for: Registry, kind: state, use: primary }
+  resource b { for: Books, kind: state, use: primary }
+  deployable reg { platform: node, contexts: [Registry], dataSources: [r], port: 3001, auth: required }
+  deployable books { platform: node, contexts: [Books], dataSources: [b], port: 3002, auth: required }
+}`,
+  // A reactor reaching `organizationContext.ancestors` through an operation:
+  // the system principal it runs as carries no ancestor set.
+  "loom.org-context-ancestors-in-reactor": `
+system OrgAncReactor {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      event Probed { note: Note id  org: Org id }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Orgs for Org
+      repository Notes for Note
+      workflow onProbed {
+        note: Note id
+        create(e: Probed) by e.note {
+          let n = Notes.get(e.note)
+          n.probe(e.org)
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], port: 3000, auth: required }
+}`,
   "loom.org-context-gate-unmet": `
 system OrgCtx {
   user { id: guid  tenantId: string }
@@ -3018,13 +3182,6 @@ system S {
     "",
     "      entity Part { n: int }\n      contains parts: Part[]?",
   ),
-  // The one FORWARDING helper in the census (`warnSensitivityDrop`): a
-  // sensitivity-tagged value flowing into an untagged target.  Its callers do
-  // not word anything, so the drain touched the helper.
-  "loom.sensitivity-drop": aggShape(
-    "",
-    "      secret: string sensitive(pii)\n      derived leak: string = secret",
-  ),
 
   // --- the M-T9.56 drain of `src/language/validators/datasource.ts` -------
   // Three rules, nine sites: the kind must suit the storage's type, a knob
@@ -4752,9 +4909,15 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
   // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
-  // BASELINE's value set. The pointed-at file drives the warning, its
-  // `sql before` silencing, and the widening / first-generation exemptions.
+  // BASELINE's value set. The pointed-at file drives the refusal, its
+  // declared-rename / `sql` / `--allow-destructive` releases, and the
+  // widening / first-generation exemptions.
   "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
+  // Phase ⑨, same reason: a declared enum value rename announces the JSON
+  // places it cannot rewrite only on a generation that runs it, against a
+  // BASELINE. The pointed-at file drives it on a document-shaped aggregate and
+  // its silence on a purely relational one.
+  "loom.migration-enum-value-unmigrated": "test/system/migration-enum-value-rename.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

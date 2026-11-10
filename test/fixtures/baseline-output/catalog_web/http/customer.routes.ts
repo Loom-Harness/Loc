@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, problemParams, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Customer } from "../domain/customer";
@@ -118,7 +118,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
         if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
-          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use" }), 409, { "content-type": "application/problem+json" });
+          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use", ...problemParams("problem.referenced-in-use", c.req.path) }), 409, { "content-type": "application/problem+json" });
         }
         throw err;
       }
@@ -181,7 +181,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
 
   app.onError((err, c) => {
     const trace_id = c.get("requestId") ?? "";
-    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
+    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     if (err instanceof ForbiddenError) {
       c.get("log").warn({ event: "forbidden", aggregate: "Customer", message: err.message, status: 403 });
       recordDomainFault("forbidden");

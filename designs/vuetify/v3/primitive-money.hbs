@@ -1,1 +1,1 @@
-<span{{{testidAttr}}}>\{{ formatMoney({{{valueExpr}}}{{#if hasCurrency}}, {{{currency}}}{{/if}}{{#if hasDecimals}}{{#unless hasCurrency}}, undefined{{/unless}}, {{{decimals}}}{{/if}}) }}</span>
+<span{{{testidAttr}}}>\{{ formatMoney({{{valueExpr}}}{{{moneyTail}}}) }}</span>

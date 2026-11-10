@@ -21,6 +21,7 @@ import type {
   EnrichedSubdomainIR,
   EnrichedSystemIR,
   EntityPartIR,
+  EnumValueRenameIntentIR,
   FieldIR,
   ManualIndexIR,
   PrimitiveName,
@@ -94,7 +95,15 @@ import {
 } from "../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../util/row-version.js";
 import { TIMER_CLAIM_TABLE } from "../util/timer.js";
+import {
+  enumJsonPlaces,
+  enumRenameKey,
+  enumStoredBy,
+  enumValueRenameUpdates,
+  moduleStoresEnum,
+} from "./enum-value-renames.js";
 import type { SnapshotStore } from "./snapshot.js";
+
 // ---------------------------------------------------------------------------
 // MigrationsIR builder + diff.
 //
@@ -109,6 +118,18 @@ import type { SnapshotStore } from "./snapshot.js";
 // `buildMigrations` wires the two together at system scope, one entry
 // per owning module.
 // ---------------------------------------------------------------------------
+
+/** Event types carried by a durable channel on any context of the module. */
+function moduleDurableEventTypes(module: EnrichedSubdomainIR): ReadonlySet<string> {
+  return new Set(module.contexts.flatMap((c) => [...durableEventTypes(c)]));
+}
+
+/** Event types carried by a durable channel anywhere in the system — the
+ *  superset every backend's saga-table emitter (which sees only its hosted
+ *  contexts) draws its `last_event_id` decision from. */
+function systemDurableEventTypes(sys: EnrichedSystemIR): ReadonlySet<string> {
+  return new Set(sys.subdomains.flatMap((md) => [...moduleDurableEventTypes(md)]));
+}
 
 export function schemaFromModule(
   module: EnrichedSubdomainIR,
@@ -154,6 +175,13 @@ export function schemaFromModule(
    *  tests keep the legacy unqualified output.  Module/cross-context infra
    *  (outbox) is deliberately NOT stamped — it spans every context. */
   contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined = () => undefined,
+  /** Event types any durable channel of the system carries.  A saga table
+   *  maps the `last_event_id` marker whenever its consumer can see a durable
+   *  channel — and the channel may be declared in a DIFFERENT context than the
+   *  workflow (the backend emitters see every context their deployable
+   *  hosts).  Defaults to the module's own channels for schema-only unit
+   *  tests. */
+  durableEvents: ReadonlySet<string> = moduleDurableEventTypes(module),
   /** Whether a timerSource with an `every:` cadence fires an event of one of
    *  this module's contexts — the module then owns the `__loom_timer` claim
    *  table.  Timers are system-scope, so `buildMigrations` resolves this from
@@ -300,7 +328,7 @@ export function schemaFromModule(
   // schema, matching the plain `pgTable(...)` the Drizzle schema emitter uses
   // for these, so the runtime DDL and the ORM mapping line up.
   for (const ctx of module.contexts) {
-    const durable = durableEventTypes(ctx).size > 0;
+    const durable = durableEvents.size > 0 || durableEventTypes(ctx).size > 0;
     // The workflow's saga tables are context-owned (a workflow belongs to a
     // context), so they live in that context's schema — beside its aggregate
     // tables — not in `public`, where two contexts each with a `Tracker`
@@ -1456,26 +1484,34 @@ function enumCheckValues(expression: string): string[] | undefined {
 /** An enum CHECK on a table the BASELINE already has, whose value set LOST a
  *  member this generation (the member was deleted or renamed in the `enum`).
  *
- *  The re-added constraint is `NOT VALID`, so the deploy itself succeeds — but
- *  the rows already holding a removed value stay, and every backend loads an
- *  enum column by mapping the stored string onto the enum: python's pydantic,
- *  java's `@Enumerated`, EF's string conversion and `Ecto.Enum` all fail on the
- *  unknown value (a list route that reads the row errors as a whole), node
- *  serves it off-contract, and any UPDATE of the row is refused by the new
- *  CHECK.  The diff cannot see which rows hold what, so this is a WARNING
- *  pointing at the fix the author controls: a `sql before` UPDATE remapping
- *  the removed values in the same generation.  Declaring one (any `before`
- *  step for the module this generation) is read as "handled" and silences it,
- *  the same rule `uniqueOnExistingTableWarnings` uses.
+ *  The re-added constraint is `NOT VALID`, so the deploy itself would succeed
+ *  — but the rows already holding a removed value stay, and every backend
+ *  loads an enum column by mapping the stored string onto the enum: python's
+ *  pydantic, java's `@Enumerated`, EF's string conversion and `Ecto.Enum` all
+ *  fail on the unknown value (a list route that reads the row errors as a
+ *  whole), node serves it off-contract, and any UPDATE of the row is refused
+ *  by the new CHECK.  So a narrowing is breaking-for-data: `buildMigrations`
+ *  refuses it ({@link MigrationEnumNarrowedError}) unless a declared enum
+ *  value rename covers the removed value or a `sql` step remaps it.
  *
  *  Matched by constraint NAME on both sides, so a check whose table or column
  *  was renamed this generation is not compared (its name changed with it), and
- *  a WIDENING (members only added) never warns. */
-export function enumNarrowingWarnings(
+ *  a WIDENING (members only added) never narrows.  `enumOf` is the enum the
+ *  column stores in `next` — what a declared rename is matched against. */
+export interface EnumNarrowing {
+  readonly table: string;
+  readonly column: string;
+  readonly check: string;
+  readonly enumOf: string | undefined;
+  readonly removed: readonly string[];
+  readonly kept: readonly string[];
+}
+
+function enumNarrowings(
   steps: readonly MigrationStep[],
   baseline: SchemaSnapshot | null,
-  module: string,
-): MigrationWarning[] {
+  next: SchemaSnapshot,
+): EnumNarrowing[] {
   if (baseline === null) return [];
   const prevChecks = new Map<string, CheckShape>();
   for (const t of baseline.tables) {
@@ -1483,7 +1519,7 @@ export function enumNarrowingWarnings(
       if (c.kind === "enumValues") prevChecks.set(`${qkey(t.schema, t.name)}.${c.name}`, c);
     }
   }
-  const out: MigrationWarning[] = [];
+  const out: EnumNarrowing[] = [];
   for (const s of steps) {
     if (s.op !== "addCheck" || s.check.kind !== "enumValues") continue;
     const before = prevChecks.get(`${qkey(s.schema, s.check.table)}.${s.check.name}`);
@@ -1495,18 +1531,16 @@ export function enumNarrowingWarnings(
     const removed = oldValues.filter((v) => !kept.has(v));
     if (removed.length === 0) continue;
     const column = /^"((?:[^"]|"")+)"/.exec(s.check.expression)?.[1] ?? "<column>";
-    const table = qualifiedName(s.schema, s.check.table);
+    const enumOf = next.tables
+      .find((t) => t.name === s.check.table && t.schema === s.schema)
+      ?.columns.find((c) => c.name === column)?.enumOf;
     out.push({
-      code: "loom.migration-enum-narrowed",
-      module,
-      message: diagMessage("loom.migration-enum-narrowed", {
-        module,
-        table,
-        column,
-        check: s.check.name,
-        removed: removed.map(sqlStringLiteral).join(", "),
-        kept: newValues.map(sqlStringLiteral).join(", "),
-      }),
+      table: qualifiedName(s.schema, s.check.table),
+      column,
+      check: s.check.name,
+      enumOf,
+      removed,
+      kept: newValues,
     });
   }
   return out;
@@ -1542,6 +1576,38 @@ export class MigrationDestructiveError extends Error {
         `add-nullable / backfill-TODO / SET NOT NULL sequence instead.`,
     );
     this.name = "MigrationDestructiveError";
+  }
+}
+
+/** Raised when an enum CHECK on a populated table loses a member that no
+ *  declared enum value rename and no `sql` step of the same generation
+ *  accounts for (see {@link enumNarrowings}).  Breaking-for-data: a
+ *  {@link MigrationDestructiveError}, so `ddd diff` classifies it and
+ *  `--allow-destructive` acknowledges it (the author asserting no row can
+ *  hold a removed value). */
+export class MigrationEnumNarrowedError extends MigrationDestructiveError {
+  override readonly code = "loom.migration-enum-narrowed";
+  constructor(
+    module: string,
+    offending: readonly MigrationStep[],
+    readonly narrowings: readonly EnumNarrowing[],
+  ) {
+    super(module, offending);
+    this.name = "MigrationEnumNarrowedError";
+    this.message = narrowings
+      .map((n) =>
+        diagMessage("loom.migration-enum-narrowed", {
+          module,
+          enumName: n.enumOf ?? "<Enum>",
+          table: n.table,
+          column: n.column,
+          check: n.check,
+          removed: n.removed.map(sqlStringLiteral).join(", "),
+          kept: n.kept.join(", "),
+          firstRemoved: n.removed[0],
+        }),
+      )
+      .join("\n");
   }
 }
 
@@ -2364,6 +2430,14 @@ export interface BuildMigrationsOptions {
    *  the module the owning block's other intents pin (or the system's single
    *  owner module; ambiguous scope raises {@link MigrationSqlScopeError}). */
   sqlSteps?: readonly SqlStepIR[];
+  /** Enum value renames (`Status.Draft -> Pending`), in declaration order.
+   *  Each module whose schema stores the enum emits one data UPDATE per
+   *  storing column, exactly once (ledger key `"<block>#<index>"`), after the
+   *  generation's structural steps — the re-added CHECK already admits the
+   *  new value — and ahead of its trailing `sql` steps.  A not-yet-applied
+   *  rename also covers its old value's removal from the enum's CHECK, which
+   *  is otherwise refused ({@link MigrationEnumNarrowedError}). */
+  enumValueRenameIntents?: readonly EnumValueRenameIntentIR[];
   /** Sink for the non-fatal diagnostics the derivation raises — currently only
    *  `loom.migration-rename-inferred`, announcing the drop+add → RENAME guess
    *  (F-3).  A caller that omits it loses the warnings, which is why the two
@@ -2512,6 +2586,7 @@ export function buildMigrations(
   // move tables between modules, so each module's derivation reads the others'
   // (a move finds its source tables in another module's baseline, and an event
   // log's fate depends on whether any module still declares it).
+  const systemDurable = systemDurableEventTypes(sys);
   const owning = sys.subdomains.filter((md) => md.migrationsOwner);
   const baselineOf = new Map<string, SchemaSnapshot | null>();
   const nextOf = new Map<string, SchemaSnapshot>();
@@ -2522,8 +2597,37 @@ export function buildMigrations(
     );
     nextOf.set(
       md.name,
-      schemaFromModule(md, shapeOf, schemaOf, manualIndexesOf, contextSchemaOf, ownsIntervalTimer),
+      schemaFromModule(
+        md,
+        shapeOf,
+        schemaOf,
+        manualIndexesOf,
+        contextSchemaOf,
+        systemDurable,
+        ownsIntervalTimer,
+      ),
     );
+  }
+  // Enum value renames, per owning module: the ones whose enum the module
+  // stores — in a column (the UPDATEs) or inside JSON (announced, not
+  // rewritten).  A block's steps run on the modules its renames touch, the
+  // same pinning its column and table steps get.
+  const enumRenamesOf = new Map<
+    string,
+    { intent: EnumValueRenameIntentIR; jsonPlaces: string[] }[]
+  >();
+  for (const md of owning) {
+    const touching: { intent: EnumValueRenameIntentIR; jsonPlaces: string[] }[] = [];
+    for (const intent of options.enumValueRenameIntents ?? []) {
+      const jsonPlaces = enumJsonPlaces(md, intent.enum, shapeOf, schemaOf, contextSchemaOf);
+      if (!moduleStoresEnum(nextOf.get(md.name)!, intent.enum) && jsonPlaces.length === 0) continue;
+      touching.push({ intent, jsonPlaces });
+      (
+        blockModules.get(intent.migration) ??
+        blockModules.set(intent.migration, new Set()).get(intent.migration)!
+      ).add(md.name);
+    }
+    enumRenamesOf.set(md.name, touching);
   }
   const holds = (
     snap: SchemaSnapshot | null | undefined,
@@ -2733,19 +2837,88 @@ export function buildMigrations(
         before: f.before === true && diffBaseline !== null,
       })),
     ].filter((d) => !applied.has(d.key));
+    // Enum value renames not yet applied to this module.  On its Initial
+    // generation no row exists to remap, so the step is recorded as applied
+    // with no UPDATE; afterwards it runs ahead of the trailing `sql` steps, so
+    // a raw statement of the same generation already sees the new spelling.
+    const enumRenames = (enumRenamesOf.get(m.name) ?? []).filter(
+      (r) => !applied.has(enumRenameKey(r.intent)),
+    );
+    const enumKeys = enumRenames.map((r) => enumRenameKey(r.intent));
+    if (baseline !== null) {
+      const firstTrailing = newData.findIndex((d) => !d.before);
+      newData.splice(
+        firstTrailing === -1 ? newData.length : firstTrailing,
+        0,
+        ...enumValueRenameUpdates(
+          next,
+          enumRenames.map((r) => r.intent),
+          applied,
+        ),
+      );
+      for (const { intent, jsonPlaces } of enumRenames) {
+        if (jsonPlaces.length === 0) continue;
+        options.warnings?.push({
+          code: "loom.migration-enum-value-unmigrated",
+          module: m.name,
+          message: diagMessage("loom.migration-enum-value-unmigrated", {
+            module: m.name,
+            enumName: intent.enum,
+            from: intent.from,
+            to: intent.to,
+            where: jsonPlaces.join("\n"),
+          }),
+        });
+      }
+    }
     const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
-    judgeBlocksAgainstBaseline(m, baseline, options, sqlForModule, structuralSteps, markBlock, {
-      schemaOf,
-      contextSchemaOf,
-      tableStepEnv,
-    });
+    judgeBlocksAgainstBaseline(
+      m,
+      baseline,
+      options,
+      sqlForModule,
+      (enumRenamesOf.get(m.name) ?? []).map((r) => r.intent),
+      structuralSteps,
+      markBlock,
+      {
+        schemaOf,
+        contextSchemaOf,
+        tableStepEnv,
+      },
+    );
     // B-20b — announce a `unique (…)` landing on a populated table, unless the
     // author already declared a `sql before` step for this generation.
-    // An enum CHECK losing a member on a populated table is announced on the
-    // same terms: a `sql before` remap is the declared fix.
     if (options.warnings && !newData.some((d) => d.before)) {
       options.warnings.push(...uniqueOnExistingTableWarnings(structuralSteps, baseline, m.name));
-      options.warnings.push(...enumNarrowingWarnings(structuralSteps, baseline, m.name));
+    }
+    // An enum CHECK losing a member on a populated table is breaking-for-data
+    // unless something says what the stored values become: a not-yet-applied
+    // rename of that value, or any `sql` step of this generation (before the
+    // check or after it — the remapped row satisfies the new check either
+    // way).
+    const remapsBySql = sqlForModule.some((st) => !applied.has(`${st.migration}#${st.index}`));
+    const uncovered = remapsBySql
+      ? []
+      : enumNarrowings(structuralSteps, baseline, next)
+          .map((n) => ({
+            ...n,
+            removed: n.removed.filter(
+              (v) => !enumRenames.some((r) => r.intent.enum === n.enumOf && r.intent.from === v),
+            ),
+          }))
+          .filter((n) => n.removed.length > 0);
+    if (uncovered.length > 0 && !moduleAllowDestructive) {
+      const offending = structuralSteps.filter(
+        (st) =>
+          st.op === "addCheck" &&
+          uncovered.some(
+            (n) =>
+              n.check === st.check.name && n.table === qualifiedName(st.schema, st.check.table),
+          ),
+      );
+      const refusal = new MigrationEnumNarrowedError(m.name, offending, uncovered);
+      if (!options.destructiveRefusals) throw refusal;
+      options.destructiveRefusals.push(refusal);
     }
     const steps: MigrationStep[] = markConcurrentIndexes(
       [
@@ -2767,7 +2940,13 @@ export function buildMigrations(
     // Applied-data ledger (M-T2.3): carry the baseline's keys and record the
     // ones this generation emits, so a `sql` step / TPH fix-up runs exactly
     // once across the chain.
-    const appliedOut = [...(baseline?.appliedDataMigrations ?? []), ...newData.map((d) => d.key)];
+    const appliedOut = [
+      ...new Set([
+        ...(baseline?.appliedDataMigrations ?? []),
+        ...newData.map((d) => d.key),
+        ...enumKeys,
+      ]),
+    ];
     const stamped: SchemaSnapshot =
       appliedOut.length > 0 ? { ...next, appliedDataMigrations: appliedOut } : next;
     out.push({
@@ -2844,6 +3023,7 @@ function judgeBlocksAgainstBaseline(
   baseline: SchemaSnapshot | null,
   options: BuildMigrationsOptions,
   sqlForModule: readonly { migration: string; index: number }[],
+  enumRenames: readonly EnumValueRenameIntentIR[],
   structuralSteps: readonly MigrationStep[],
   mark: (block: string, spent: boolean) => void,
   resolvers: {
@@ -2881,10 +3061,14 @@ function judgeBlocksAgainstBaseline(
     ...(options.tableRenameIntents ?? []).map((i) => i.migration),
     ...(options.backfillIntents ?? []).map((i) => i.migration),
     ...sqlForModule.map((st) => st.migration),
+    ...enumRenames.map((r) => r.migration),
   ]);
   for (const block of blocks) {
     for (const st of sqlForModule) {
       if (st.migration === block) mark(block, applied.has(`${st.migration}#${st.index}`));
+    }
+    for (const r of enumRenames) {
+      if (r.migration === block) mark(block, applied.has(enumRenameKey(r)));
     }
     const ofBlock = <T extends { migration: string }>(xs: readonly T[] | undefined): T[] =>
       (xs ?? []).filter((x) => x.migration === block);
@@ -4011,7 +4195,19 @@ function flattenValueObject(
       if (inner) return flattenValueObject(name, inner, vfOptional, group, voLookup);
     }
     const { type, fkRefTable } = mapTypeToColumn(vfBase);
-    return [{ column: { name, type, nullable: vfOptional, voGroup: group }, fkRefTable }];
+    const enumOf = enumStoredBy(vfBase);
+    return [
+      {
+        column: {
+          name,
+          type,
+          nullable: vfOptional,
+          voGroup: group,
+          ...(enumOf !== undefined ? { enumOf } : {}),
+        },
+        fkRefTable,
+      },
+    ];
   });
 }
 
@@ -4277,11 +4473,15 @@ function finalizeChecks(
 function mapField(f: FieldIR): MappedColumn {
   const { type, fkRefTable } = mapTypeToColumn(f.type);
   const addColumnDefault = addColumnDefaultFor(f);
+  const enumOf = enumStoredBy(f.type);
   return {
-    column:
-      addColumnDefault === undefined
-        ? { name: snake(f.name), type, nullable: f.optional }
-        : { name: snake(f.name), type, nullable: f.optional, addColumnDefault },
+    column: {
+      name: snake(f.name),
+      type,
+      nullable: f.optional,
+      ...(addColumnDefault !== undefined ? { addColumnDefault } : {}),
+      ...(enumOf !== undefined ? { enumOf } : {}),
+    },
     fkRefTable,
   };
 }

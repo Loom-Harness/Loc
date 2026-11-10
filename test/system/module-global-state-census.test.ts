@@ -54,7 +54,9 @@ type Discipline =
   /** Restored by an exported hook, named in `hook`. */
   | "test-reset-hook"
   /** Holds only an ordering promise whose value is discarded; carries no data between calls. */
-  | "ordering-chain";
+  | "ordering-chain"
+  /** Only ever incremented to mint a unique id; never read for control flow. */
+  | "monotonic-counter";
 
 interface Pin {
   discipline: Discipline;
@@ -69,6 +71,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "build-once-cache",
     reason:
       "Memoised clause names of the grammar's `Storage` rule — built once from the static grammar, never mutated.",
+  },
+  "src/ir/enrich/exists-reads.ts:DERIVED": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakSet keyed by the `exists` IR node whose write scope was ANDed in; marks the node itself, so a second enrichment of the same lowered model skips it, and dies with the node.",
   },
   "src/generator/_payload/provenanced-wire.ts:provNamesCache": {
     discipline: "keyed-cache",
@@ -100,6 +107,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "scoped-restore",
     reason:
       "M-T5.47 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
+  },
+  "src/ir/lower/lower-expr.ts:unresolvedSink": {
+    discipline: "scoped-restore",
+    reason:
+      "`collectUnresolvedTypes` installs a fresh sink per `lowerProject` run and restores the outer one in a `finally`.",
   },
   "src/ir/lower/lower-expr.ts:uiEnumIndexByRoot": {
     discipline: "keyed-cache",
@@ -145,6 +157,19 @@ const PINNED: Record<string, Pin> = {
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",
+  },
+  "src/language/shared-services.ts:sharedServices": {
+    discipline: "build-once-cache",
+    reason:
+      "Lazily-built Langium service set; calls are serialised and each removes its document from the index in `finally`, so no declarations survive a call.",
+  },
+  "src/language/shared-services.ts:queue": {
+    discipline: "ordering-chain",
+    reason: "Serialises calls on the shared services; the chained value is always `undefined`.",
+  },
+  "src/language/shared-services.ts:uriSeq": {
+    discipline: "monotonic-counter",
+    reason: "Gives every call a fresh document URI; only ever incremented.",
   },
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",

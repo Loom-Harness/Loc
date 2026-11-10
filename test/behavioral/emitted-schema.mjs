@@ -47,3 +47,34 @@ export function applyMigrationsStmt(deplDir, pgliteVar = "pglite") {
   const folder = JSON.stringify(migrationsFolderOf(deplDir));
   return `for (const __m of __readEmittedMigrations({ migrationsFolder: ${folder} })) for (const __q of __m.sql) if (__q.trim()) await ${pgliteVar}.exec(__q);`;
 }
+
+/** Import line for `schemaAgreementStmt` (string-templated harness entry). */
+export const SCHEMA_AGREEMENT_IMPORT =
+  'import { is as __drizzleIs } from "drizzle-orm"; import { PgTable as __PgTable, getTableConfig as __getTableConfig } from "drizzle-orm/pg-core";';
+
+/** Statement, run AFTER the emitted migrations apply, proving the ORM schema
+ *  maps only columns the migrations created (for every table they create): it selects every column the
+ *  drizzle schema names from its table, so a mapped column the migration chain
+ *  omits (`column "x" does not exist`) fails here by table, not later as a
+ *  runtime error on whichever request first touches the table.  Pushes one
+ *  `probe` result into the array named by `outVar`. */
+export function schemaAgreementStmt(schemaVar = "schema", pgliteVar = "pglite", outVar = "out") {
+  return `{
+    const __missing = [];
+    for (const __t of Object.values(${schemaVar})) {
+      if (!__drizzleIs(__t, __PgTable)) continue;
+      const __c = __getTableConfig(__t);
+      const __qual = (__c.schema ? '"' + __c.schema + '".' : "") + '"' + __c.name + '"';
+      const __cols = __c.columns.map((c) => '"' + c.name + '"').join(", ");
+      try { await ${pgliteVar}.query("SELECT " + __cols + " FROM " + __qual + " LIMIT 0"); }
+      catch (e) {
+        const __msg = e instanceof Error ? e.message : String(e);
+        // A mapped TABLE with no physical relation is a query-time projection
+        // (a typing-only drizzle table over a live read) — only a missing
+        // COLUMN of a migrated table is a disagreement.
+        if (/column .* does not exist/.test(__msg)) __missing.push(__qual + ": " + __msg);
+      }
+    }
+    ${outVar}.push({ tier: "probe", name: "ORM-mapped columns are all migrated", status: __missing.length === 0 ? "pass" : "fail", ...(__missing.length === 0 ? {} : { error: __missing.join("; ") }) });
+  }`;
+}

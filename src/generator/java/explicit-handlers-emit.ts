@@ -532,7 +532,7 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): the wire union, and an error answer
   // marks the transaction rollback-only, discarding every write the command
   // made.
-  const er = entryResult(h, ctx);
+  const er = entryResult(h);
   if (er && h.returnType?.kind === "union") {
     returnLines.push(
       `        ${entryUnionJava(h.returnType)} handlerResult = null;`,
@@ -715,7 +715,7 @@ export function emitExplicitHandlers(
       });
       return;
     }
-    if (h.returnType?.kind === "union" && entryResult(h, ctx)) {
+    if (h.returnType?.kind === "union" && entryResult(h)) {
       for (const f of entryUnionFiles(h.returnType, ctx, appPkg, basePkg)) {
         if (!files.some((x) => x.name === f.name)) files.push(f);
       }
@@ -1084,7 +1084,7 @@ export function emitExplicitRouteController(
     const absentGuard = absentIs404
       ? [`        if (result == null) throw ${JAVA_FIND_ABSENCE_THROW};`]
       : [];
-    const hEr = h.extern ? undefined : entryResult(h, ctx);
+    const hEr = h.extern ? undefined : entryResult(h);
     const callLines =
       hEr && h.returnType?.kind === "union"
         ? [

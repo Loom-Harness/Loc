@@ -24,9 +24,10 @@
 // `t(key, default, values?)` call sites the walker emits are unchanged.
 // ---------------------------------------------------------------------------
 
+import { isAggregateProblemKey } from "../../ir/enrich/wire-policy.js";
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { sourceText } from "../_i18n/source-text.js";
+import { sourceOverrideKeys, sourceText } from "../_i18n/source-text.js";
 import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 import { baseAliases, localeEntries } from "./locale-meta.js";
@@ -59,10 +60,37 @@ export function buildUiCatalog(
     for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
       byKey.set(key, message);
     for (const [key, message] of Object.entries(packChrome)) byKey.set(key, message);
+    // An optional per-aggregate problem sentence ships only once a source
+    // override writes it; its derived text is the generic sentence's.
+    for (const key of sourceOverrideKeys()) {
+      const generic = aggregateProblemGeneric(key);
+      if (generic !== undefined && byKey.has(generic)) byKey.set(key, byKey.get(generic)!);
+    }
   }
   const out: Record<string, string> = {};
   for (const key of [...byKey.keys()].sort()) out[key] = sourceText(key, byKey.get(key)!);
   return out;
+}
+
+/** The generic `problem.<class>` key an optional per-aggregate problem key
+ *  (`<Ctx>.<Type>.problem.<class>`) rewords, or undefined for any other key. */
+export function aggregateProblemGeneric(key: string): string | undefined {
+  return isAggregateProblemKey(key) ? key.slice(key.indexOf(".problem.") + 1) : undefined;
+}
+
+/** The optional per-aggregate problem keys among `candidates` (a translated
+ *  catalog's keys) that a catalog of `keys` admits: those whose generic
+ *  sentence it carries, and which it does not carry already. */
+export function optionalProblemKeys(
+  candidates: Iterable<string>,
+  keys: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const key of candidates) {
+    const generic = aggregateProblemGeneric(key);
+    if (generic !== undefined && keys.has(generic) && !keys.has(key)) out.push(key);
+  }
+  return out.sort();
 }
 
 /** `src/locales/<source>.json` — the source-language catalog for this UI. */
@@ -107,6 +135,7 @@ export function renderTranslatedCatalogs(
   if (!translations || translations.size === 0) return out;
   const keys = Object.keys(buildUiCatalog(ui, packChrome, scope));
   if (keys.length === 0) return out;
+  const keySet = new Set(keys);
   for (const locale of [...translations.keys()].sort()) {
     if (locale === sourceLocale) continue;
     const source = translations.get(locale) ?? {};
@@ -114,6 +143,11 @@ export function renderTranslatedCatalogs(
     for (const key of keys) {
       const value = source[key];
       if (value !== undefined) scoped[key] = value;
+    }
+    // A translator may write an optional per-aggregate problem sentence the
+    // source never derives; it ships wherever its generic sentence does.
+    for (const key of optionalProblemKeys(Object.keys(source), keySet)) {
+      scoped[key] = source[key]!;
     }
     out.set(locale, `${JSON.stringify(scoped, null, 2)}\n`);
   }

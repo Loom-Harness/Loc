@@ -1,6 +1,7 @@
 import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
+import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   eventSourcedWorkflows,
@@ -55,6 +56,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import {
   enumPool,
   valueObjectFieldLookup,
@@ -79,6 +81,7 @@ import {
   requestComponentNamerFor,
 } from "../_openapi/request-component-names.js";
 import { unionMembers } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -564,6 +567,7 @@ function emitProjectFromContexts(
         .flatMap((c) => c.aggregates)
         .map((a): readonly [string, string] => [routeSegmentFor(a.name), a.name]),
       contexts.some((c) => anyRouteReadsIfMatch(c.aggregates)),
+      aggregateRouteTypes(contexts),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)
@@ -980,7 +984,14 @@ function emitProjectFromContexts(
       place(
         `${workflowStateClass(wf)}.java`,
         "infra-persistence",
-        renderWorkflowStateEntity(wf, ctx, basePkg, pkgFor("infra-persistence"), ctxSchema),
+        renderWorkflowStateEntity(
+          wf,
+          ctx,
+          basePkg,
+          pkgFor("infra-persistence"),
+          ctxSchema,
+          hostedDurable.size > 0,
+        ),
         undefined,
         wf.origin,
         wfConstruct,
@@ -1063,6 +1074,7 @@ function emitProjectFromContexts(
         contextSchema: ctxSchema,
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
+        deployableDurable: hostedDurable.size > 0,
         localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
@@ -1452,7 +1464,21 @@ function emitProjectFromContexts(
   // Auth surface — only when the deployable opts in via auth: required
   // and the system declares a user block.
   if (authRequired && system?.sys) {
-    for (const [name, content] of renderAuthFiles(system.sys, basePkg, routePrefix)) {
+    const plan = orgContextPlan(system.sys, system.deployable.contextNames);
+    const registry = plan.registry
+      ? {
+          name: plan.registry.name,
+          repoPkg: pkgFor("repository-interface", plan.registry.name),
+          tableSql: registryTableSql(system.sys)!,
+        }
+      : undefined;
+    for (const [name, content] of renderAuthFiles(
+      system.sys,
+      basePkg,
+      routePrefix,
+      plan,
+      registry,
+    )) {
       out.set(mainSourcePath(`${basePkg}.auth`, name), content);
     }
   }
@@ -2026,6 +2052,7 @@ function emitAggregate(
       pkg: applicationPkg,
       entityPkg: pkgFor("entity", agg.name),
       domainRepoPkg: pkgFor("repository-interface", agg.name),
+      repoPkgOf: (name: string) => pkgFor("repository-interface", name),
       authed: authRequired,
       userFields: authRequired ? (sys?.user?.fields ?? []).map((f) => f.name) : [],
       boundedContext: ctx,

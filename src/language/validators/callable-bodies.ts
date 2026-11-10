@@ -43,7 +43,7 @@ import {
 } from "../handler-return.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
 import type { Ty } from "../typing/ty.js";
-import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
+import { canPromoteLiteralTo } from "./_shared.js";
 import {
   checkConstructionArgTypes,
   checkEmit,
@@ -146,7 +146,6 @@ function checkReturns(
         { node: n, property: "value", code: "loom.return-type-mismatch" },
       );
     }
-    warnSensitivityDrop(actual, declared, accept, { node: n, property: "value" });
   }
   if (!definitelyReturns(body) && !fallsThroughToThis(c, declared)) {
     accept(

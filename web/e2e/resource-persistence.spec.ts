@@ -20,6 +20,9 @@ const infra = (page: Page, service: string, op: string, params?: unknown) =>
     [service, op, params],
   );
 
+// Persistence is the subject: the fakes' state lives beside an OPFS cluster.
+test.use({ pgliteStorage: "opfs" });
+
 const OBJECT = "https://persist-bucket.s3.us-east-1.amazonaws.com/keep/me.txt";
 
 async function generateBundleBoot(page: Page): Promise<void> {

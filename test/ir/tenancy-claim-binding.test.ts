@@ -1,12 +1,12 @@
 // Tenancy claim binding — the principal side of the `tenantOwned` capability.
 //
-// `tenancy by user.<claim> of <Registry>` lets the author name the claim that
-// carries the tenant.  The `tenantOwned` prelude capability is built with no
-// system in scope, so it writes `currentUser.tenantId`; the expander splices
-// the DECLARED claim instead (`resolveTenancyClaim`), so the stamp and the
-// read filter read a member the principal really has, as the registry
-// self-scope does.  If they disagreed, typed backends would fail to compile
-// and dynamic ones would 500 per request.
+// Under `tenancy by user.<claim> of <Registry>`, the prelude `tenantOwned`
+// filters and stamps on `organizationContext.org`, which lowers to the derived
+// principal member `operatingOrg` — the operating org, whose home value is the
+// DECLARED claim (the auth middleware's switch gate reads it).  The registry
+// self-scope reads the declared claim directly.  Without a `tenancy by` there
+// is no operating org, and the expander rebinds both sides to
+// `currentUser.tenantId`.
 //
 // The ROW column stays `tenantId` throughout: the capability owns that name,
 // and it is not the author's to choose.  Only the principal side moves.
@@ -61,42 +61,52 @@ const src = (claim: string) => `
 `;
 
 describe("tenancy claim binding — tenantOwned principal side", () => {
-  it("binds the read filter's RHS to the declared claim, keeping the row column", async () => {
+  it("anchors the read filter's RHS on the operating org, keeping the row column", async () => {
     const inv = findAgg(await buildLoomModel(src("orgId")), "Invoice");
     expect(floorFilter(inv)).toMatchObject({
       kind: "binary",
       op: "==",
       // LHS — the capability's ROW column, unchanged.
       left: { kind: "member", receiver: { kind: "this" }, member: "tenantId" },
-      // RHS — the DECLARED claim, not the capability's hardcoded name.
+      // RHS — the operating org (home value: the DECLARED claim).
       right: {
         kind: "member",
         receiver: { kind: "ref", name: "currentUser", refKind: "current-user" },
-        member: "orgId",
+        member: "operatingOrg",
       },
     });
   });
 
-  it("binds the create stamp's source claim, keeping the stamped column", async () => {
+  it("anchors the create stamp on the operating org, keeping the stamped column", async () => {
     const inv = findAgg(await buildLoomModel(src("orgId")), "Invoice");
     expect(tenantStampValue(inv)).toMatchObject({
       kind: "member",
       receiver: { kind: "ref", name: "currentUser", refKind: "current-user" },
-      member: "orgId",
+      member: "operatingOrg",
     });
   });
 
-  it("agrees with the registry self-scope — both halves read ONE claim", async () => {
-    // The regression this closes: these two were derived independently, and
-    // only the registry half honoured the declaration.
+  it("the registry self-scope reads the DECLARED claim", async () => {
     const ir = await buildLoomModel(src("orgId"));
     const registryClaim = findAgg(ir, "Organization").contextFilters![0]!;
     expect(registryClaim).toMatchObject({ right: { member: "orgId" } });
-    expect(floorFilter(findAgg(ir, "Invoice"))).toMatchObject({ right: { member: "orgId" } });
   });
 
-  it("is a no-op when the claim IS `tenantId` (byte-neutral for every prior model)", async () => {
-    const inv = findAgg(await buildLoomModel(src("tenantId")), "Invoice");
+  it("falls back to `currentUser.tenantId` without a `tenancy by`", async () => {
+    const inv = findAgg(
+      await buildLoomModel(`
+        system Billder {
+          user { id: guid  tenantId: string }
+          subdomain Billing {
+            context Invoicing {
+              aggregate Invoice with tenantOwned { number: string }
+              repository Invoices for Invoice { }
+            }
+          }
+        }
+      `),
+      "Invoice",
+    );
     expect(floorFilter(inv)).toMatchObject({
       left: { member: "tenantId" },
       right: { member: "tenantId" },
@@ -130,8 +140,8 @@ describe("tenancy claim binding — tenantOwned principal side", () => {
       }
     `);
     const inv = findAgg(ir, "Invoice");
-    // The capability filter moved to `orgId` …
-    expect(floorFilter(inv)).toMatchObject({ right: { member: "orgId" } });
+    // The capability filter anchors on the operating org …
+    expect(floorFilter(inv)).toMatchObject({ right: { member: "operatingOrg" } });
     // … while the author's own filter still reads `tenantId`.
     const authored = (inv.contextFilters ?? []).find(
       (f) => f.kind === "binary" && f.left.kind === "member" && f.left.member === "legacyTenant",

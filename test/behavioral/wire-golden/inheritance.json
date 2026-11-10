@@ -122,6 +122,9 @@
         "code": "problem.not-found",
         "detail": "Vendor {id} not found",
         "instance": "/api/vendors/{id}",
+        "params": {
+          "type": "Parties.Vendor"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -136,6 +139,9 @@
         "code": "problem.not-found",
         "detail": "Machine {id} not found",
         "instance": "/api/machines/{id}",
+        "params": {
+          "type": "Parties.Machine"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -150,6 +156,9 @@
         "code": "problem.not-found",
         "detail": "Vehicle {id} not found",
         "instance": "/api/vehicles/{id}",
+        "params": {
+          "type": "Parties.Vehicle"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -171,6 +180,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}",
+        "params": {
+          "type": "Parties.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -185,6 +197,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/customers/by_email",
+        "params": {
+          "type": "Parties.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -248,6 +263,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}/update",
+        "params": {
+          "type": "Parties.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

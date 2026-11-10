@@ -14,7 +14,9 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
+import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
+import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
@@ -27,16 +29,20 @@ import {
 } from "../../util/openapi-ids.js";
 import {
   ORG_CONTEXT_ACCESSOR,
+  ORG_CONTEXT_ANCESTORS,
   ORG_CONTEXT_ORG,
   PRINCIPAL_IS_SYSTEM,
+  PRINCIPAL_OPERATING_ANCESTORS,
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
+import { PROVENANCE_LINEAGE_FIELD } from "../../util/provenance-carrier.js";
 import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { walkerPrimitiveArgValues } from "../../util/walker-primitive-arg-values.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
+import { factoryArgs } from "../factory-call.js";
 import type {
   Aggregate,
   Api,
@@ -44,6 +50,7 @@ import type {
   BoundedContext,
   BuilderCall,
   CallArg,
+  Component,
   Create,
   EntityPart,
   Expression,
@@ -52,7 +59,9 @@ import type {
   Lambda,
   MemberSuffix,
   Model,
+  NameRef,
   Operation,
+  Page,
   PostfixChain,
   PostfixSuffix,
   Projection,
@@ -60,6 +69,8 @@ import type {
   Statement,
   TypeAtom,
   TypeRef,
+  Ui,
+  UiFunction,
   ValueObject,
   Workflow,
   WorkflowCreateDecl,
@@ -116,6 +127,7 @@ import {
   isParenExpr,
   isPayloadDecl,
   isPolicyDecl,
+  isPolicyReadRule,
   isPostfixChain,
   isPreconditionStmt,
   isPrimitiveConversion,
@@ -139,6 +151,7 @@ import {
   isTestE2E,
   isThisRef,
   isUi,
+  isUiFunction,
   isUiNotification,
   isUnaryExpr,
   isValueObject,
@@ -147,10 +160,11 @@ import {
 } from "../generated/ast.js";
 import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
+import { AUDIT_ENTRY, CALL_OPTIONS, LIST_QUERY, provenanceLineage } from "./e2e-wire.js";
 import { primitiveFieldType } from "./primitive-fields.js";
-import { astProjectionReadShape } from "./projection-shape.js";
+import { astProjectionReadShape, astProjectionWireShape } from "./projection-shape.js";
 import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
-import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, wireOf, withTags } from "./ty.js";
+import { isPrim, PAGED_META, type RecordShape, Ty, wireOf } from "./ty.js";
 
 // ---------------------------------------------------------------------------
 // Scope model (design §D4): one persistent chain, built by the walk.
@@ -223,6 +237,32 @@ export class Scope {
 
 const ROOT_FRAME: Frame = { ui: false, e2e: false };
 
+/** The two generated `test e2e` clients: the HTTP client and the Playwright
+ *  page objects. */
+type E2eClient = "api" | "ui";
+const isE2eClient = (name: string): name is E2eClient => name === "api" || name === "ui";
+
+/** The handle `ui.workflows.<wf>(…)` reserves for the workflow forms. */
+const UI_WORKFLOWS_HANDLE = "workflows";
+
+/** The create `POST /<aggs>` serves: the canonical (unnamed) `create`, or an
+ *  event-sourced aggregate's first (the backends' `emitsRestCreate`). */
+function restCreate(agg: Aggregate): Create | undefined {
+  const creates = agg.members.filter(isCreate);
+  return creates.find((c) => !c.name) ?? (agg.persistedAs === "eventLog" ? creates[0] : undefined);
+}
+
+/** The public operation `name` of `agg` or an ancestor: the verb the e2e
+ *  clients call on a record. */
+function publicOperation(agg: Aggregate, name: string): Operation | undefined {
+  for (const o of ownerChain(agg)) {
+    for (const m of o.members as AstNode[]) {
+      if (isOperation(m) && m.name === name && !m.private) return m;
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // The elaborator
 // ---------------------------------------------------------------------------
@@ -288,8 +328,26 @@ export class Elaborator {
       else {
         // `api.<handle>.<verb>(…)` as a statement: its body arguments fill
         // the request they are sent as.
-        if (inner.frame.e2e && lv.head === "api" && lv.tail.length === 2)
-          this.typeE2eArgs(String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
+        if (inner.frame.e2e && isE2eClient(lv.head) && lv.tail.length === 2)
+          this.typeE2eArgs(lv.head, String(lv.tail[0]), String(lv.tail[1]), lv.args, inner);
+        // `Api.Agg.create.mutate({ … })` in a ui body sends the create's request.
+        if (
+          inner.frame.ui &&
+          lv.tail.length === 3 &&
+          lv.tail[1] === "create" &&
+          lv.tail[2] === "mutate"
+        ) {
+          const agg = this.apiParamNamed(lv.head, lv)
+            ? this.index.find("aggregate", String(lv.tail[0]), lv)
+            : undefined;
+          const create = agg && restCreate(agg);
+          const body = lv.args[0];
+          // With no declared create the body is the aggregate's own fields.
+          const want = create
+            ? Ty.record({ of: "request", ref: create })
+            : agg && wireOf(Ty.record({ of: "aggregate", ref: agg }));
+          if (want && body) this.synthAgainst(body, inner, want);
+        }
         const member = lv.tail.length > 0 ? lv.tail[lv.tail.length - 1]! : lv.head;
         const call = { $type: "MemberSuffix", member, call: true, args: [] } as never;
         this.lvalueCallResults.set(
@@ -438,13 +496,26 @@ export class Elaborator {
     // A migration backfill (`Order.quantity = quantity + 1`) reads the
     // backfilled aggregate's columns as bare names, in its context.
     if (node.$type === "ColumnStep") {
-      const agg = (node as { aggregate?: { ref?: AstNode } }).aggregate?.ref;
+      const agg = (node as { owner?: { ref?: AstNode } }).owner?.ref;
       if (agg && isAggregate(agg)) return scope.child({ owner: agg, ctx: agg.$container });
       return scope;
     }
     if (isRepository(node)) {
       const agg = node.aggregate?.ref;
       return agg ? scope.child({ owner: agg }) : scope;
+    }
+    // A policy row rule (`allow on X as x where …`): `x` is the filtered row of
+    // X, which is also the owner bare names resolve against.
+    if (isPolicyReadRule(node) && node.binding) {
+      const agg = this.index.find("aggregate", node.target, node);
+      const s = scope.child({ owner: agg });
+      s.bind(
+        node.binding,
+        agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
+        node,
+        "row",
+      );
+      return s;
     }
     if (isCriterion(node) || isRetrieval(node)) {
       const target = this.resolveType(node.target, scope);
@@ -600,11 +671,7 @@ export class Elaborator {
   }
 
   private propertyType(p: Property, scope: Scope | undefined): Ty {
-    const tags = p.sensitivity?.tags;
-    return withTags(
-      this.resolveType(p.type, scope),
-      tags && tags.length > 0 ? [...tags].sort() : undefined,
-    );
+    return this.resolveType(p.type, scope);
   }
 
   // ---- synth: an expression's own type -----------------------------------
@@ -643,6 +710,8 @@ export class Elaborator {
       if (bound) return bound.ty;
       const owner = scope.frame.owner;
       if (owner && !isValueObject(owner)) return { kind: "id", target: owner, name: owner.name };
+      // A page reads its route's `id` segment, as the page shell binds it.
+      if (AstUtils.getContainerOfType(e, isPage)) return Ty.prim("string");
       return Ty.unknown("unresolved-name");
     }
     if (isParenExpr(e)) return this.synth(e.inner, scope);
@@ -656,7 +725,7 @@ export class Elaborator {
       this.synth(e.cond, scope);
       const a = this.synth(e.thenExpr, scope);
       const b = this.synth(e.elseExpr, scope);
-      return withTags(join(a, b) ?? a, mergeTags(a.sensitivity, b.sensitivity));
+      return join(a, b) ?? a;
     }
     if (isMatchExpr(e)) {
       let acc: Ty | undefined;
@@ -742,10 +811,9 @@ export class Elaborator {
     // as lowering resolves it), ahead of the enclosing record's fields.
     const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
     if (res) return Ty.record({ of: "resource", ref: res });
-    // `test e2e` call roots are resolved at render time against the target
-    // deployable; typing them is cutover family 3f's (a pass gap, not an
-    // author error).
-    if (f.e2e && (name === "api" || name === "ui")) return Ty.unknown("no-rule");
+    // A `test e2e` client root is typed with its `<handle>.<verb>(…)` call
+    // (`e2eApiCall` / `e2eUiCall`); bare, it is no value.
+    if (f.e2e && isE2eClient(name)) return Ty.unknown("no-rule");
     const member = f.owner ? this.ownerMember(f.owner, name, scope) : undefined;
     if (member) return member;
     // A store named as a value (`Cart.lines` heads resolve here).
@@ -862,6 +930,17 @@ export class Elaborator {
     return undefined;
   }
 
+  private componentDecl(name: string, node: AstNode): Component | undefined {
+    for (let c: AstNode | undefined = node; c; c = c.$container) {
+      if (isUi(c) || c.$type === "Model") {
+        return (c as Ui | Model).members.find(
+          (m): m is Component => isComponent(m) && m.name === name,
+        );
+      }
+    }
+    return undefined;
+  }
+
   private componentNamed(name: string, node: AstNode): boolean {
     for (let c: AstNode | undefined = node; c; c = c.$container) {
       if (isUi(c)) return c.members.some((m) => isComponent(m) && m.name === name);
@@ -963,7 +1042,19 @@ export class Elaborator {
     const isPrimitive =
       isWalkerPrimitive(name) && !(this.index.find("valueobject", name, e) && !scope.frame.ui);
     if (isPrimitive) this.synthPrimitiveArgs(name, e.entries, scope, e);
-    else for (const entry of e.entries) this.synth(entry.value, scope);
+    else {
+      // A user component's lambda prop takes the parameter its declared
+      // `action(T)` gives it.
+      const comp = scope.frame.ui ? this.componentDecl(name, e) : undefined;
+      for (const entry of e.entries) {
+        const p = entry.name ? comp?.params.find((x) => x.name === entry.name) : undefined;
+        const want = p ? this.resolveType(p.type, scope) : undefined;
+        const action = want?.kind === "optional" ? want.inner : want;
+        if (isLambda(entry.value) && action?.kind === "action" && action.arg)
+          this.synthLambda(entry.value, scope, action.arg);
+        else this.synth(entry.value, scope);
+      }
+    }
     if (scope.frame.ui && isWalkerPrimitive(name)) return { kind: "slot" };
     const vo = this.index.find("valueobject", name, e);
     if (vo) return { kind: "valueobject", ref: vo, name };
@@ -1047,7 +1138,8 @@ export class Elaborator {
     scope: Scope,
   ): Ty | undefined {
     const of = entries.find((x) => x.name === "of")?.value;
-    if (!of || !isPostfixChain(of)) return undefined;
+    // `of:` is a read path, or a bare projection name (a ui with no `api`).
+    if (!of || !(isPostfixChain(of) || isNameRef(of))) return undefined;
     this.synth(of, scope);
     const t = this.apiReadType(of, scope);
     return t?.kind === "optional" ? t.inner : t;
@@ -1066,10 +1158,15 @@ export class Elaborator {
   /** The value a ui-side read `<handle>.<Agg>.<verb>(…)` (or
    *  `<handle>.<Projection>`) yields — the aggregate is the LAST suffix naming
    *  one, the verb the suffix after it. */
-  private apiReadType(of: PostfixChain, scope: Scope, upTo?: number): Ty | undefined {
+  private apiReadType(of: PostfixChain | NameRef, scope: Scope, upTo?: number): Ty | undefined {
     // The path segments: the head name, then each member suffix.
+    if (isNameRef(of)) return this.apiReadSegments([of.name], of, scope);
     const segs: string[] = [isNameRef(of.head) ? of.head.name : ""];
     for (const s of of.suffixes.slice(0, upTo)) if (isMemberSuffix(s)) segs.push(String(s.member));
+    return this.apiReadSegments(segs, of, scope);
+  }
+
+  private apiReadSegments(segs: string[], of: AstNode, scope: Scope): Ty | undefined {
     for (let i = segs.length - 1; i >= 0; i--) {
       const m = segs[i]!;
       if (!m) continue;
@@ -1137,7 +1234,7 @@ export class Elaborator {
       const p = named.projection;
       const row = Ty.record({ of: "projection", ref: p });
       if (verb === "byKey") return wireOf(row);
-      return wireOf(astProjectionReadShape(p) === "one" ? row : Ty.array(row));
+      return wireOf(astProjectionWireShape(p) === "one" ? row : Ty.array(row));
     }
     const target = named.aggregate;
     if (target) {
@@ -1152,14 +1249,14 @@ export class Elaborator {
         return wireOf(paged ? { kind: "generic", ctor: "paged", arg: row } : Ty.array(row));
       }
       if (verb === "destroy") return Ty.never;
+      if (verb === AUDIT_HISTORY_FIND) return Ty.array(AUDIT_ENTRY);
       // A public operation: no declared result answers 204 with no body.
-      for (const o of ownerChain(target)) {
-        for (const m of o.members as AstNode[]) {
-          if (!isOperation(m) || m.name !== verb || m.private) continue;
-          return m.returnType ? this.e2eResult(this.resolveType(m.returnType, scope)) : Ty.never;
-        }
-      }
-      return Ty.unknown("no-rule");
+      const op = publicOperation(target, verb);
+      if (op)
+        return op.returnType ? this.e2eResult(this.resolveType(op.returnType, scope)) : Ty.never;
+      // Not a verb of the aggregate: a routed handler whose CONTEXT slugs the
+      // same way may answer it (the client's last resort).
+      return this.e2eRoutedHandler(handle, verb, scope);
     }
     const wf = named.workflow;
     if (wf) {
@@ -1170,17 +1267,38 @@ export class Elaborator {
         const result = wf.members.find(
           (m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m) && m.returnType !== undefined,
         )?.returnType;
-        return result ? this.e2eResult(this.resolveType(result, scope)) : Ty.unknown("no-rule");
+        // No declared result: the command answers 204 with no body.
+        return result ? this.e2eResult(this.resolveType(result, scope)) : Ty.never;
       }
       return undefined;
     }
+    return this.e2eRoutedHandler(handle, verb, scope);
+  }
+
+  /** `api.<contextSlug>.<handler>(…)`: the routed handler's declared result,
+   *  or nothing (204) when it declares none. */
+  private e2eRoutedHandler(handle: string, verb: string, scope: Scope): Ty | undefined {
     const handler = this.index.routedHandler(handle, verb);
-    if (handler) {
-      return handler.returnType
-        ? this.e2eResult(this.resolveType(handler.returnType, scope))
-        : Ty.never;
-    }
-    return undefined;
+    if (!handler) return undefined;
+    return handler.returnType
+      ? this.e2eResult(this.resolveType(handler.returnType, scope))
+      : Ty.never;
+  }
+
+  /** A `test e2e` `ui.<handle>.<verb>(…)` call: what the Playwright page
+   *  objects hand back (`ui-e2e-render.ts`).  `create` fills and submits the
+   *  aggregate's create form and `getById` navigates to a detail page; both
+   *  answer the record, its fields read as its JSON.  A public operation and
+   *  `ui.workflows.<wf>(…)` drive a form and answer nothing. */
+  private e2eUiCall(handle: string, verb: string): Ty | undefined {
+    if (handle === UI_WORKFLOWS_HANDLE) return this.index.e2eHandle(verb).workflow && Ty.never;
+    const target = this.index.e2eHandle(handle).aggregate;
+    if (!target) return undefined;
+    // A create local is the record it made: a field read on it navigates to
+    // that record's detail page first (`ui-e2e-render.ts`).
+    if (verb === "create" || verb === "getById")
+      return wireOf(Ty.record({ of: "aggregate", ref: target }));
+    return publicOperation(target, verb) ? Ty.never : undefined;
   }
 
   /** A declared result as the client receives it: an `or`-union tagged, any
@@ -1189,49 +1307,63 @@ export class Elaborator {
     return t.kind === "union" ? Ty.record({ of: "tagged", ref: t }) : wireOf(t);
   }
 
-  /** The declaration whose params the body argument at `index` of
-   *  `api.<handle>.<verb>(…)` sends: the canonical `create` (argument 0), a
-   *  public operation (argument 1, after the id), a workflow's `create` behind
-   *  `run` (argument 0). */
-  private e2eRequestOf(
+  /** The value the argument at `index` of `<client>.<handle>.<verb>(…)`
+   *  sends, when the client defines it: a request body (the canonical
+   *  `create`, a public operation after the id, a workflow's `create`), a list
+   *  read's query, a write's options. */
+  private e2eArgType(
+    client: E2eClient,
     handle: string,
     verb: string,
     index: number,
-  ): Create | Operation | WorkflowCreateDecl | undefined {
+    scope: Scope,
+  ): Ty | undefined {
+    const req = (d: Create | Operation | WorkflowCreateDecl | undefined) =>
+      d && Ty.record({ of: "request", ref: d });
+    if (client === "ui") {
+      // `ui.workflows.<wf>(…)` fills the workflow's form: its `create`.
+      if (handle === UI_WORKFLOWS_HANDLE) {
+        const wf = this.index.e2eHandle(verb).workflow;
+        return index === 0 ? req(wf?.members.find(isWorkflowCreateDecl)) : undefined;
+      }
+      // The ui client reaches no projection; a workflow only through the
+      // reserved handle above.
+      if (!this.index.e2eHandle(handle).aggregate) return undefined;
+    }
     const named = this.index.e2eHandle(handle);
     if (named.projection && (verb === "list" || verb === "byKey")) return undefined;
     const agg = named.aggregate;
     if (agg) {
-      if (verb === "create")
-        return index === 0
-          ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
-          : undefined;
-      if (index !== 1) return undefined;
-      for (const o of ownerChain(agg)) {
-        for (const m of o.members as AstNode[]) {
-          if (isOperation(m) && m.name === verb && !m.private) return m;
-        }
+      if (verb === "create") return index === 0 ? req(restCreate(agg)) : undefined;
+      if (client === "api" && verb === "all") return index === 0 ? LIST_QUERY : undefined;
+      const op = publicOperation(agg, verb);
+      if (op) {
+        if (index === 1) return req(op);
+        return client === "api" && index === 2 ? CALL_OPTIONS : undefined;
       }
-      return undefined;
+    } else if (client === "api" && named.workflow && verb === "run") {
+      if (index === 0) return req(named.workflow.members.find(isWorkflowCreateDecl));
+      return index === 1 ? CALL_OPTIONS : undefined;
     }
-    if (named.workflow && verb === "run" && index === 0) {
-      return named.workflow.members.find((m): m is WorkflowCreateDecl => isWorkflowCreateDecl(m));
-    }
-    return undefined;
+    // A routed handler takes its params positionally, each as its JSON.
+    const handler = client === "api" ? this.index.routedHandler(handle, verb) : undefined;
+    const param = handler?.params[index];
+    return param ? wireOf(this.resolveType(param.type, scope)) : undefined;
   }
 
   /** Type the body arguments of an e2e api call against the request each
    *  fills — before the arguments' own elaboration, which then reads the
    *  recorded types. */
   private typeE2eArgs(
+    client: E2eClient,
     handle: string,
     verb: string,
     args: readonly Expression[],
     scope: Scope,
   ): void {
     args.forEach((a, i) => {
-      const req = this.e2eRequestOf(handle, verb, i);
-      if (req) this.synthAgainst(a, scope, Ty.record({ of: "request", ref: req }));
+      const want = this.e2eArgType(client, handle, verb, i, scope);
+      if (want) this.synthAgainst(a, scope, want);
     });
   }
 
@@ -1240,7 +1372,7 @@ export class Elaborator {
    *  literal's elements against the element. */
   private synthAgainst(e: Expression, scope: Scope, expected: Ty): void {
     const want = expected.kind === "optional" ? expected.inner : expected;
-    if (isObjectLit(e) && want.kind === "record") {
+    if (isObjectLit(e) && (want.kind === "record" || (want.kind === "valueobject" && want.ref))) {
       for (const f of e.fields) {
         const ft = this.e2eField(want, String(f.name), scope);
         if (ft) this.synthAgainst(f.value, scope, ft);
@@ -1256,10 +1388,16 @@ export class Elaborator {
     this.synth(e, scope);
   }
 
-  /** The JSON type of field `name` of a request body or a wire record. */
+  /** The type of field `name` of a request body, a wire record, or — written
+   *  as a record literal where one is expected — a value object. */
   private e2eField(t: Ty, name: string, scope: Scope): Ty | undefined {
+    if (t.kind === "valueobject") {
+      const p = t.ref?.members.find((m): m is Property => isProperty(m) && m.name === name);
+      return p ? this.resolveType(p.type, scope) : undefined;
+    }
     if (t.kind !== "record") return undefined;
     const shape = t.shape;
+    if (shape.of === "fields") return shape.fields[name];
     if (shape.of === "request") {
       const p = shape.ref.params.find((x) => x.name === name);
       return p ? wireOf(this.resolveType(p.type, scope)) : undefined;
@@ -1310,6 +1448,54 @@ export class Elaborator {
             if (opId === camelId(opOperation(agg.name, m.name)))
               return m.returnType ? this.resolveType(m.returnType, scope) : Ty.never;
             if (opId === camelId(["can", m.name, agg.name])) return Ty.prim("bool");
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** `navigate(Page, { … })`: the record is the state the target page
+   *  receives, one entry per param it declares (an undeclared key keeps its
+   *  own value's type). */
+  private typeNavigationState(args: readonly CallArg[], scope: Scope, node: AstNode): void {
+    const state = args[1]?.value;
+    if (!state || !isObjectLit(state)) return;
+    const target = args[0]?.value;
+    const pageName = target && isNameRef(target) ? target.name : undefined;
+    const ui = AstUtils.getContainerOfType(node, isUi);
+    const page =
+      pageName && ui
+        ? AstUtils.streamAllContents(ui).find((n): n is Page => isPage(n) && n.name === pageName)
+        : undefined;
+    const fields: Record<string, Ty> = {};
+    for (const f of state.fields) {
+      const p = page?.params.find((x) => x.name === f.name);
+      fields[String(f.name)] = p ? this.resolveType(p.type, scope) : this.synth(f.value, scope);
+    }
+    const name = `${pageName ?? "Page"}State`;
+    this.synthAgainst(state, scope, Ty.record({ of: "fields", name, fields }));
+  }
+
+  /** The declaration whose params argument `index` of the api operation
+   *  `opId` sends: an aggregate's canonical `create` (argument 0), a public
+   *  operation (argument 1, after the id). */
+  private apiOperationRequest(
+    api: Api,
+    opId: string,
+    index: number,
+  ): Create | Operation | undefined {
+    for (const ctx of api.source?.ref?.contexts ?? []) {
+      for (const agg of ctx.members) {
+        if (!isAggregate(agg) || agg.isAbstract) continue;
+        if (opId === camelId(opCreate(agg.name)))
+          return index === 0
+            ? agg.members.find((m): m is Create => isCreate(m) && !m.name)
+            : undefined;
+        for (const o of ownerChain(agg)) {
+          for (const m of o.members as AstNode[]) {
+            if (isOperation(m) && opId === camelId(opOperation(agg.name, m.name)))
+              return index === 1 ? m : undefined;
           }
         }
       }
@@ -1410,6 +1596,8 @@ export class Elaborator {
     const shadowed = scope.lookup(name) !== undefined;
     if (isCallSuffix(first)) {
       const args = first.args;
+      if (scope.frame.ui && name === "navigate" && !shadowed)
+        this.typeNavigationState(args, scope, node);
       const t = this.freeCall(name, scope, node, args);
       if (scope.frame.ui && t.kind === "slot" && isWalkerPrimitive(name)) {
         this.synthPrimitiveArgs(name, args, scope, node);
@@ -1425,23 +1613,33 @@ export class Elaborator {
       return { t: Ty.prim("bool"), consumed: 1 };
     }
     // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
-    // generated test client (cutover family 3f).
-    if (scope.frame.e2e && name === "api") {
+    // generated test client, `ui.<handle>.<verb>(…)` its Playwright page
+    // objects (cutover family 3f).
+    if (scope.frame.e2e && isE2eClient(name)) {
       const call = e.suffixes[1];
       if (!ms.call && call && isMemberSuffix(call) && call.call) {
+        const handle = String(ms.member);
+        const verb = String(call.member);
         this.typeE2eArgs(
-          String(ms.member),
-          String(call.member),
+          name,
+          handle,
+          verb,
           call.args.map((a) => a.value),
           scope,
         );
         this.synthArgs(call.args, scope);
-        const t = this.e2eApiCall(String(ms.member), String(call.member), scope, node);
+        const t =
+          name === "api"
+            ? this.e2eApiCall(handle, verb, scope, node)
+            : this.e2eUiCall(handle, verb);
         return { t: t ?? Ty.unknown("unresolved-member"), consumed: 2 };
       }
     }
     const readHead =
       this.apiParamNamed(name, node) ||
+      // A ui with no `api` param reads a context's aggregates directly
+      // (`Ctx.Order.all`).
+      (scope.frame.ui && this.index.contexts.some((c) => c.name === name)) ||
       this.index.find("aggregate", name, node) ||
       this.index.find("projection", name, node) ||
       this.index.find("workflow", name, node);
@@ -1459,8 +1657,16 @@ export class Elaborator {
       const read = this.apiReadType(e, scope, path) ?? Ty.unknown("no-rule");
       if (hook === -1) return { t: read, consumed: path };
       const prop = String((e.suffixes[hook] as MemberSuffix).member);
+      // `.data` is the read; `.isLoading` & co. are flags; `.error` is the
+      // failed read's message, absent while none failed.
       const t =
-        prop === "data" ? read : prop.startsWith("is") ? Ty.prim("bool") : Ty.unknown("no-rule");
+        prop === "data"
+          ? read
+          : prop.startsWith("is")
+            ? Ty.prim("bool")
+            : prop === "error"
+              ? Ty.opt(Ty.prim("string"))
+              : Ty.unknown("no-rule");
       return { t, consumed: hook + 1 };
     }
     if (name === "permissions" && !ms.call && !scope.lookup("permissions")) {
@@ -1473,8 +1679,32 @@ export class Elaborator {
         return { t: { kind: "enum", ref: en, name: en.name }, consumed: 1 };
     }
     if (ms.call && ms.member === "create") {
+      const vo = this.index.find("valueobject", name, node);
+      if (vo) {
+        // `Vo.create({ … })` builds the value object from a record of its
+        // fields; `Vo.create(f: …)` names them one by one.
+        const voTy: Ty = { kind: "valueobject", ref: vo, name: vo.name };
+        for (const a of ms.args) {
+          if (a.name) {
+            const p = vo.members.find((m): m is Property => isProperty(m) && m.name === a.name);
+            if (p) this.synthAgainst(a.value, scope, this.resolveType(p.type, scope));
+          } else if (ms.args.length === 1) this.synthAgainst(a.value, scope, voTy);
+        }
+        this.synthArgs(ms.args, scope);
+        return { t: voTy, consumed: 1 };
+      }
       const agg = this.index.find("aggregate", name, node);
       if (agg) {
+        // Each argument fills the factory input it names (or sits at): a
+        // declared create's param, else the aggregate's field.
+        const params = agg.members.find((m): m is Create => isCreate(m) && !m.name)?.params ?? [];
+        const mapped = factoryArgs(agg, ms.args);
+        for (const f of mapped.kind === "fields" ? mapped.fields : []) {
+          const p = params.find((x) => x.name === f.name);
+          const want = p ? this.resolveType(p.type, scope) : this.ownerMember(agg, f.name, scope);
+          if (want && want.kind !== "unknown" && !isLambda(f.value))
+            this.synthAgainst(f.value, scope, want);
+        }
         this.synthArgs(ms.args, scope);
         return { t: Ty.record({ of: "aggregate", ref: agg }), consumed: 1 };
       }
@@ -1592,6 +1822,13 @@ export class Elaborator {
     const fn: FunctionDecl | undefined =
       this.index.find("function", name, node) ?? stdFunction(name);
     if (fn) return this.resolveType(fn.returnType, scope);
+    // A ui's own `function … extern from "…"`.
+    const uiFn = scope.frame.ui
+      ? AstUtils.getContainerOfType(node, isUi)?.members.find(
+          (m): m is UiFunction => isUiFunction(m) && m.name === name,
+        )
+      : undefined;
+    if (uiFn) return this.resolveType(uiFn.returnType, scope);
     if (durationUnitOf(name)) return Ty.prim("duration");
     // A walker primitive / user component invoked in call form builds a ui element.
     if (scope.frame.ui && (isWalkerPrimitive(name) || this.componentNamed(name, node)))
@@ -1611,6 +1848,9 @@ export class Elaborator {
     // An assertion matcher (`expect(x).toBe(y)`) is a statement, not a value.
     if (t.kind === "unknown" && isMemberSuffix(s) && s.call && isIntrinsicMatcher(s.member))
       return Ty.never;
+    // `.not` negates the matcher after it (`expect(x).not.toBeNull()`): it is
+    // still the value under assertion.
+    if (t.kind === "unknown" && isNegatedMatcherModifier(s)) return recv;
     return t;
   }
 
@@ -1621,7 +1861,6 @@ export class Elaborator {
     }
     const ms = s as MemberSuffix;
     const name = ms.member;
-    const tags = recv.sensitivity;
     // A member resolves through ONE optional level, so the read has the type
     // it would have on the narrowed receiver; whether the unguarded read is
     // legal is `checkNullableReceivers`' judgement, made once for every member.
@@ -1641,7 +1880,7 @@ export class Elaborator {
       return bare;
     }
     if (bare.kind === "array") {
-      if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return withTags(Ty.prim("int"), tags);
+      if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return Ty.prim("int");
       return this.collectionOp(bare.element, ms, scope);
     }
     if (ms.call && bare.kind !== "record" && bare.kind !== "valueobject")
@@ -1650,6 +1889,10 @@ export class Elaborator {
       case "record":
         return this.recordMember(bare.shape, ms, scope);
       case "generic":
+        // The e2e client reads a lineage's interior (`…lineage.computedValue`);
+        // a frontend body only renders it whole.
+        if (bare.ctor === "provenanced" && name === PROVENANCE_LINEAGE_FIELD && scope.frame.e2e)
+          return Ty.opt(provenanceLineage(bare.arg));
         return genericMember(bare.ctor, bare.arg, name) ?? Ty.unknown("unresolved-member");
       case "valueobject": {
         if (!bare.ref) return Ty.unknown("unresolved-type");
@@ -1675,7 +1918,10 @@ export class Elaborator {
       case "primitive": {
         const p = bare.name;
         const field = primitiveFieldType(p, name);
-        if (field) return withTags(Ty.prim(field), tags);
+        if (field) return Ty.prim(field);
+        // A frontend or e2e body holds a `File` as its `FileRef` wire record.
+        const ref = p === "File" && !ms.call ? FILE_REF_MEMBERS.get(name) : undefined;
+        if (ref && (scope.frame.ui || scope.frame.e2e || inFrontendDecl(ms))) return Ty.prim(ref);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
         const sig = intrinsicFor(p, name);
         if (sig) {
@@ -1705,17 +1951,30 @@ export class Elaborator {
       }
       case "principal": {
         if (name === PRINCIPAL_OPERATING_ORG || name === ORG_CONTEXT_ORG) return Ty.prim("string");
+        if (name === PRINCIPAL_OPERATING_ANCESTORS || name === ORG_CONTEXT_ANCESTORS) {
+          const registry = this.index.tenancyRegistry();
+          return registry
+            ? Ty.array({ kind: "id", target: registry, name: registry.name })
+            : Ty.unknown("unresolved-member");
+        }
         // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
         if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);
         return f ? this.resolveType(f.type, scope) : Ty.unknown("unresolved-member");
       }
       case "resource": {
-        this.synthArgs(ms.args, scope);
         const kind = shape.ref.kind;
         // A bound api's typed operation (`orders.getOrderById(id)`, M-T4.8)
         // answers its declared response; the verb registry is the untyped rest.
         const api = kind === "api" ? shape.ref.use?.ref : undefined;
+        if (api && isApi(api) && ms.call) {
+          // Its body argument fills the request of the operation it calls.
+          ms.args.forEach((a, i) => {
+            const req = this.apiOperationRequest(api, name, i);
+            if (req) this.synthAgainst(a.value, scope, Ty.record({ of: "request", ref: req }));
+          });
+        }
+        this.synthArgs(ms.args, scope);
         if (api && isApi(api) && ms.call) {
           const op = this.apiOperationType(api, name, scope);
           if (op) return op;
@@ -1745,6 +2004,12 @@ export class Elaborator {
             const f = d.fields.find((x) => x.name === name);
             if (f) return this.resolveType(f.type, scope);
           }
+          // A store action named as a handler (`onClick: Basket.clear`), typed
+          // like a page action of the same shape.
+          if (isActionDecl(d) && d.name === name) {
+            const p = d.params[0];
+            return { kind: "action", ...(p ? { arg: this.resolveType(p.type, scope) } : {}) };
+          }
         }
         return Ty.unknown("unresolved-member");
       }
@@ -1761,6 +2026,8 @@ export class Elaborator {
           (!ms.call && this.e2eField(Ty.record(shape), name, scope)) ||
           Ty.unknown("unresolved-member")
         );
+      case "fields":
+        return (!ms.call && shape.fields[name]) || Ty.unknown("unresolved-member");
       case "tagged": {
         if (ms.call) return Ty.unknown("unresolved-member");
         if (name === "type") return Ty.prim("string");
@@ -1796,10 +2063,11 @@ export class Elaborator {
         if ((m as { name?: string }).name !== name) continue;
         if (isProperty(m)) {
           const t = this.propertyType(m, scope);
-          // In a frontend body a `provenanced` field IS its wire carrier —
-          // `{ value, lineage }` (`src/util/provenance-carrier.ts`) — which
-          // the scaffold detail page reads as `<row>.<field>.value`.
-          return m.provenanced && inFrontendDecl(ms)
+          // In a frontend body and a `test e2e` body a `provenanced` field
+          // IS its wire carrier — `{ value, lineage }`
+          // (`src/util/provenance-carrier.ts`) — which the scaffold detail
+          // page reads as `<row>.<field>.value`.
+          return m.provenanced && (inFrontendDecl(ms) || inTestE2e(ms))
             ? { kind: "generic", ctor: "provenanced", arg: t }
             : t;
         }
@@ -1870,7 +2138,7 @@ export class Elaborator {
   private narrowed(e: Expression, t: Ty & { kind: "optional" }): Ty {
     const key = simplePathKey(e);
     if (key === undefined) return t;
-    return isNarrowedNonNull(e, key) ? withTags(t.inner, t.sensitivity) : t;
+    return isNarrowedNonNull(e, key) ? t.inner : t;
   }
 
   /** The same rule for a chain's PREFIX ending at suffix `i` — `this.note` in
@@ -1883,7 +2151,7 @@ export class Elaborator {
       if (!isMemberSuffix(s) || s.call) return t;
       parts.push(s.member);
     }
-    return isNarrowedNonNull(e, parts.join(".")) ? withTags(t.inner, t.sensitivity) : t;
+    return isNarrowedNonNull(e, parts.join(".")) ? t.inner : t;
   }
 }
 
@@ -1919,6 +2187,19 @@ function inFrontendDecl(node: AstNode): boolean {
     AstUtils.getContainerOfType(node, isUi) !== undefined ||
     AstUtils.getContainerOfType(node, isComponent) !== undefined
   );
+}
+
+/** A `.not` member followed by an assertion matcher call. */
+function isNegatedMatcherModifier(s: PostfixSuffix): boolean {
+  if (!isMemberSuffix(s) || s.call || s.member !== "not" || !isPostfixChain(s.$container))
+    return false;
+  const next = s.$container.suffixes[s.$container.suffixes.indexOf(s) + 1];
+  return !!next && isMemberSuffix(next) && next.call && isIntrinsicMatcher(next.member);
+}
+
+/** True inside a `test e2e` body, which reads records as the wire sends them. */
+function inTestE2e(node: AstNode): boolean {
+  return AstUtils.getContainerOfType(node, isTestE2E) !== undefined;
 }
 
 /** A member of a blessed generic carrier (the field lists of
@@ -2057,7 +2338,8 @@ function joinEnums(a: Ty & { kind: "enum" }, b: Ty & { kind: "enum" }): Ty | und
 function declOf(t: Ty): unknown {
   switch (t.kind) {
     case "record":
-      return t.shape.of === "principal" ? "principal" : t.shape.ref;
+      if (t.shape.of === "principal") return "principal";
+      return t.shape.of === "fields" ? t.shape.name : t.shape.ref;
     case "enum":
     case "valueobject":
       return t.ref ?? t.name;
@@ -2080,12 +2362,6 @@ function sameType(a: Ty, b: Ty): boolean {
  *  (money and temporal algebras, numeric widening, `/` widens to decimal,
  *  implicit stringification). Anything else is `ill-typed-operands`. */
 function arithmetic(a: Ty, b: Ty, op: string): Ty {
-  const tags = mergeTags(a.sensitivity, b.sensitivity);
-  const r = arithmeticBare(a, b, op);
-  return withTags(r, tags);
-}
-
-function arithmeticBare(a: Ty, b: Ty, op: string): Ty {
   if (a.kind === "unknown") return a;
   if (b.kind === "unknown") return b;
   if (op === "+") {

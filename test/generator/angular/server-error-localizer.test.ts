@@ -90,8 +90,8 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const pages = [...files].filter(([p]) => p.startsWith("web/src/app/") && p.endsWith(".ts"));
     const text = pages.map(([, s]) => s).join("\n");
     // A named rule answers its identity key.
-    expect(text).toContain('{{ t("Sales.Order.rule.qtyPositive", "Qty is invalid") }}');
-    expect(text).toContain('{{ t("Sales.Order.rule.skuShape", "Sku is invalid") }}');
+    expect(text).toContain('{{ t("Sales.Order.rule.qtyPositive", "Qty positive") }}');
+    expect(text).toContain('{{ t("Sales.Order.rule.skuShape", "Sku shape") }}');
   });
 
   it("an unnamed field limit renders under the code of the validator that failed, with its bound", async () => {
@@ -103,9 +103,11 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const pages = [...files].filter(([p]) => p.startsWith("web/src/app/") && p.endsWith(".ts"));
     const text = pages.map(([, s]) => s).join("\n");
     expect(text).toContain(
-      `@if (orderForm.controls.qty.errors?.['min']) { {{ t("field.min", "Qty is invalid", { min: 1 }) }} } @else { {{ t("field.max", "Qty is invalid", { max: 9 }) }} }`,
+      `@if (orderForm.controls.qty.errors?.['min']) { {{ t("field.min", "Must be at least {min}", { min: 1 }) }} } @else { {{ t("field.max", "Must be at most {max}", { max: 9 }) }} }`,
     );
-    expect(text).toContain('{{ t("field.min-length", "Sku is invalid", { min: 3 }) }}');
+    expect(text).toContain(
+      '{{ t("field.min-length", "{min, plural, one {Must be at least # character} other {Must be at least # characters}}", { min: 3 }) }}',
+    );
   });
 
   it("the app catalog carries every problem.* / field.* code", async () => {

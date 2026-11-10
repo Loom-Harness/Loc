@@ -52,8 +52,9 @@ export type {
   TargetNodeOf,
 } from "./define.js";
 export { defineMacro } from "./define.js";
-export type { ContextStampAssignment } from "./factories.js";
+export type { ContextStampAssignment, PolicyRuleSpec } from "./factories.js";
 export {
+  aggregate,
   aggregatesIn,
   apiReadFields,
   apiReadFieldsOf,
@@ -72,11 +73,14 @@ export {
   createInputProperties,
   destroy,
   entityPartNames,
+  enumDecl,
+  existsExpr,
   field,
   handlerRef,
   idRef,
   ifLetStmt,
   implementsCapabilityRef,
+  invariant,
   letStmt,
   matchStmt,
   memberAccess,
@@ -89,7 +93,10 @@ export {
   operation,
   originOf,
   param,
+  paren,
   payload,
+  policyBlock,
+  policyFn,
   primType,
   query,
   queryHandler,

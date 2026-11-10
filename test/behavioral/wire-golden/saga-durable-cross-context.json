@@ -1,0 +1,226 @@
+{
+  "case": "saga-durable-cross-context",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/products/{id}/record",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "sku": "s1"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/products?dir=asc&sort=sku",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 3,
+            "sku": "s2"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "text": "t"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/notes?dir=asc&sort=text",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "text": "u"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/products",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/products",
+        "instance": "/api/products",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/products",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/products/{id}/record",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/record",
+        "params": {
+          "type": "Catalog.Product"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/products/{id}/record",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/record",
+        "params": {
+          "type": "Catalog.Product"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/products/{id}/record",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/products/{id}/record",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/update",
+        "params": {
+          "type": "Catalog.Product"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

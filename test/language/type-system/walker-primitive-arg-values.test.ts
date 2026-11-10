@@ -50,6 +50,9 @@ const HEEX_COMPONENT: Record<string, string | null> = {
   // the emitter defaults to `right` and every template branches only on
   // `left`, so any third value renders right with nothing said.
   "Button.iconPosition": null,
+  // The HEEx `Money` primitive does not model it; a HEEx ui using it is refused
+  // by the capability table (`primitive:Money-locale@body`).
+  "Money.format": null,
 };
 
 /** Every `<pack>/<version>` directory under `designs/`. */

@@ -1,5 +1,7 @@
 import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
 import {
+  aggregateProblemParams,
+  aggregateTypeKey,
   FIND_ABSENT_DETAIL,
   reasonPhrase,
   wireCode,
@@ -300,7 +302,13 @@ export function buildPyRoutesFile(
     historyFind
       ? ["", "", renderPyHistoryMapper(agg), "", "", historyRoute(agg, historyFind, ctx)]
       : null,
-    destroyOp ? ["", "", destroyRoute(agg, conflictResolver(ctx), destroyOp)] : null,
+    destroyOp
+      ? [
+          "",
+          "",
+          destroyRoute(agg, conflictResolver(ctx), destroyOp, aggregateTypeKey(ctx.name, agg.name)),
+        ]
+      : null,
     ...opEntries.map((e) => ["", "", operationRoute(agg, e.operation!, ctx, e)]),
     // Can-query companions register after the operation routes (static
     // `can_<op>` paths, no collision with `/{id}`).
@@ -495,12 +503,6 @@ function containmentResponseType(t: TypeIR): string {
   return "object";
 }
 
-/** True iff `name` is a declared `response` payload in the context — a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(ctx: EnrichedBoundedContextIR, name: string): boolean {
-  return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
-}
-
 /** Pydantic type for a field of a DECLARED `response` payload record (M-T5.10).
  *  A VO / scalar / enum / id field carries its DOMAIN type, so `responsePyType`
  *  maps it as the wireShape path does.  A CONTAINMENT field is ALREADY the
@@ -509,20 +511,12 @@ function isResponsePayloadName(ctx: EnrichedBoundedContextIR, name: string): boo
  *  since running it through `containmentResponseType` would append a second
  *  `Response` (`list[LineResponseResponse]`). */
 function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (
-    t.kind === "array" &&
-    t.element.kind === "entity" &&
-    isResponsePayloadName(ctx, t.element.name)
-  )
+  if (t.kind === "array" && t.element.kind === "entity" && t.element.declKind === "response")
     return `list[${t.element.name}]`;
-  if (t.kind === "entity" && isResponsePayloadName(ctx, t.name)) return `${t.name} | None`;
+  if (t.kind === "entity" && t.declKind === "response") return `${t.name} | None`;
   // An OPTIONAL single containment (`note: MemoResponse?`) is the same
   // nullable record reference, not a re-suffixed one.
-  if (
-    t.kind === "optional" &&
-    t.inner.kind === "entity" &&
-    isResponsePayloadName(ctx, t.inner.name)
-  )
+  if (t.kind === "optional" && t.inner.kind === "entity" && t.inner.declKind === "response")
     return `${t.inner.name} | None`;
   return responsePyType(t, ctx);
 }
@@ -849,7 +843,10 @@ function createRoute(
     bindPrincipal ? PY_USER_BIND : null,
     // BEFORE the factory: a denied create must construct nothing (and, when
     // audited, stage nothing).
-    ...lifecycleGate(canonicalCreate(agg)),
+    ...lifecycleGate(canonicalCreate(agg), undefined, (name) => {
+      const f = inputs.find((q) => q.name === name);
+      return f ? pyWireToDomain(`body.${pythonWireIdent(f.name)}`, f.type, ctx) : undefined;
+    }),
     `    created = ${aggClassRef(agg.name)}.create(${args})`,
     hasStamp(agg, "create") ? stampCall(agg, "create", "created") : null,
     auditCreate ? "    repo = _repo(session)" : null,
@@ -992,6 +989,7 @@ function destroyRoute(
   agg: EnrichedAggregateIR,
   resolve: (name: string) => number,
   apiOp: ApiOperationIR,
+  typeKey: string,
 ): string {
   // The cross-aggregate `X id` FK is ON DELETE RESTRICT — a still-referenced
   // delete raises IntegrityError → the `ReferencedInUse` structural conflict,
@@ -1054,6 +1052,7 @@ function destroyRoute(
     `            ${JSON.stringify(reasonPhrase(referencedInUse))},`,
     `            ${JSON.stringify(wireSentenceFor("referenced-in-use", agg.name))},`,
     `            code=${JSON.stringify(wireCode("referenced-in-use"))},`,
+    `            params=${JSON.stringify(aggregateProblemParams("referenced-in-use", typeKey))},`,
     "        )",
     `    return ${H.Response}(status_code=204)`,
   );
@@ -1104,9 +1103,15 @@ function requiresGate(op: OperationIR, ctx: BoundedContextIR): string[] {
  *              only (`loom.lifecycle-guard-unreadable` enforces that).
  *    destroy — `__loaded`, the row the route already loaded for its 404 probe,
  *              so an unreachable id answers 404 before 403. */
-function lifecycleGate(action: OperationIR | null | undefined, thisName?: string): string[] {
+function lifecycleGate(
+  action: OperationIR | null | undefined,
+  thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
+): string[] {
+  // A create gate's parameters are the create-input fields the body carries
+  // (`loom.lifecycle-guard-unreadable` admits no other).
   return lifecycleGates(action).flatMap((g) => [
-    `    if ${renderPyNegatedGuard(g.expr, thisName ? { thisName } : undefined)}:`,
+    `    if ${renderPyNegatedGuard(g.expr, { thisName: thisName ?? "self", ...(paramExpr ? { paramExpr } : {}) })}:`,
     `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
   ]);
 }
@@ -1181,7 +1186,14 @@ function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): st
   return unionMoneyArms(variants, ctx).flatMap((arm) => {
     const enc = arm.keys.map(({ key, optional }) => {
       const access = `result[${JSON.stringify(key)}]`;
-      const wire = numericEncode(PY_NUMERIC, "money", "dto-map", access);
+      // The tagged result is a `dict[str, object]`; the cast names the
+      // `Decimal` the variant field holds so `mypy --strict` accepts the encode.
+      const wire = numericEncode(
+        PY_NUMERIC,
+        "money",
+        "dto-map",
+        `${PY.cast}(${PY.Decimal}, ${access})`,
+      );
       return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
     });
     return [

@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
+import { aggregateTypeKey } from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -1139,4 +1140,35 @@ function elixirServerInitSeed(seed: ServerInitSeed, type: TypeIR): string {
     case "empty-collection":
       return "[]";
   }
+}
+
+/** The `[constraint name, params.type]` pairs of the unique indexes and
+ *  reference FKs the changesets above name — what a LiveView reads the
+ *  aggregate a persistence refusal concerns off (an Ecto constraint error
+ *  carries only the constraint's name).  A name two aggregates share (a TPH
+ *  base's inherited key) names neither, so it is left out. */
+export function constraintTypeEntries(
+  contexts: readonly BoundedContextIR[],
+): (readonly [string, string])[] {
+  const byName = new Map<string, string | null>();
+  const add = (name: string, type: string): void => {
+    const seen = byName.get(name);
+    byName.set(name, seen === undefined || seen === type ? type : null);
+  };
+  for (const ctx of contexts) {
+    const names = new Set(ctx.aggregates.map((a) => a.name));
+    for (const agg of ctx.aggregates) {
+      if (agg.isAbstract) continue;
+      const type = aggregateTypeKey(ctx.name, agg.name);
+      for (const uk of agg.uniqueKeys ?? [])
+        add(uniqueKeyIndex(agg, uk, ctx.aggregates).name, type);
+      const table = aggregateTableName(agg, ctx.aggregates);
+      for (const f of outboundReferenceFields(agg.fields, names)) {
+        add(`${table}_${snake(f.name)}_fkey`, type);
+      }
+    }
+  }
+  return [...byName]
+    .filter((e): e is [string, string] => e[1] !== null)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }

@@ -265,6 +265,21 @@ export async function selectExample(page: Page, label: string | RegExp): Promise
   await expect(page.getByText(/^0 errors$/)).toBeVisible({ timeout: 30_000 });
 }
 
+/** Open `label` as the workspace a spec works on, from a cold page load.
+ *
+ *  `waitForPlaygroundReady` + `selectExample` waits for the language server's
+ *  `0 errors` twice — once on the default workspace the spec abandons a moment
+ *  later, once on the example.  Only the second verdict matters, so this waits
+ *  for the shell, creates the example workspace, and waits once.  Specs that
+ *  assert on the default workspace, or on the first-run card, keep
+ *  `waitForPlaygroundReady`. */
+export async function startFromExample(page: Page, label: string | RegExp): Promise<void> {
+  await expect(page.getByRole("heading", { name: /Loom Playground/i })).toBeVisible();
+  await expect(page.getByTestId("workspace-new")).toBeVisible();
+  await selectExample(page, label);
+  await dismissFirstRun(page);
+}
+
 // Click the "Create workspace" button in the new-workspace popover, robustly.
 //
 // Call this AFTER the example option has been chosen.  The create popover is
@@ -426,6 +441,18 @@ export async function recordInitialMigration(page: Page): Promise<void> {
   if (await generate.isVisible()) {
     await expect(generate).toHaveAttribute("data-state", "ok", { timeout: 120_000 });
   }
+}
+
+/** Record the initial migration and leave the workspace generated.
+ *
+ *  Recording kicks a Generate and `recordInitialMigration` waits for it to
+ *  settle, so the files are already there: a spec that clicks Generate next
+ *  runs the same generate twice.  Specs that drive the manual flow (click
+ *  Generate, read its result) keep doing so; every other bundling or booting
+ *  spec calls this and goes straight to Bundle. */
+export async function recordAndGenerate(page: Page): Promise<void> {
+  await recordInitialMigration(page);
+  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
 }
 
 /** How each storage's PGlite came up in this page so far — the notes on the

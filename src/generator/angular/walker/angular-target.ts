@@ -16,6 +16,7 @@
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../../ir/util/collection-op-site.js";
+import { requireFrontendAxes } from "../../../util/frontend-axes.js";
 import { projectionBodyIsMoney } from "../../_expr/js-collection-ops.js";
 import { optionalChainedMemberRead } from "../../_frontend/optional-member.js";
 import { escapeHtmlAttr } from "../../_walker/a11y-emit.js";
@@ -35,9 +36,9 @@ import {
 } from "../../_walker/js-target-helpers.js";
 import type {
   ApiCallSite,
+  DataBinding,
   RenderPosition,
   StateRef,
-  TargetHookUse,
   VariantMatchSpec,
   WalkerTarget,
 } from "../../_walker/target.js";
@@ -58,6 +59,9 @@ import { renderAngularDataGridChild } from "./data-grid-child.js";
  *  by the cross-target conformance test and the shared markup walker. */
 export const angularTarget: WalkerTarget = {
   framework: "angular",
+  axes: requireFrontendAxes("angular"),
+  // A failed call through the HTTP API client throws its `ApiError`.
+  dataErrorType: { from: "../api/client", name: "ApiError" },
   // The Angular form fields (`angular/form-fields.ts`) and the shared `EnumBadge`
   // read the identity-keyed form label / enum option / submit text
   // (`_walker/model-text-sites.ts`).
@@ -265,7 +269,7 @@ export const angularTarget: WalkerTarget = {
    *  frontends so the shared api-module builder is reusable.  On
    *  Angular the `use*` factory returns a toSignal-backed read handle
    *  (or calls a service mutation), hoisted in the component class. */
-  buildHookUse(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): TargetHookUse {
+  bindDataAccess(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): DataBinding {
     if (detected.kind === "workflow-instance") {
       const wf = upperFirstName(detected.aggregateName);
       const isAll = detected.operation === "all";
@@ -314,7 +318,7 @@ export const angularTarget: WalkerTarget = {
    *  function body; Angular components have no function body, so the reads
    *  live as members.)  Same de-dupe + fallback semantics as the other
    *  targets. */
-  renderApiHoisting(uses: ApiCallSite[]): string[] {
+  renderDataBindings(uses: ApiCallSite[]): string[] {
     const seen = new Set<string>();
     const lines: string[] = [];
     for (const u of uses) {

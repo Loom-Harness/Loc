@@ -495,11 +495,15 @@ export async function assertOrgContextGate(
   pg: Postgres,
   bootLog: () => string,
 ): Promise<void> {
-  async function createOrg(name: string, parent?: string): Promise<string> {
+  async function createOrg(name: string, parent?: string, steward?: string): Promise<string> {
     const r = await fetch(`${base}/api/orgs`, {
       method: "POST",
       headers: { "content-type": "application/json" }, // claim-less signup
-      body: JSON.stringify(parent ? { name, parent } : { name }),
+      body: JSON.stringify({
+        name,
+        ...(parent ? { parent } : {}),
+        ...(steward ? { steward } : {}),
+      }),
     });
     expect(r.status, await r.clone().text()).toBe(201);
     return ((await r.json()) as { id: string }).id;
@@ -587,13 +591,98 @@ export async function assertOrgContextGate(
   });
   expect(noteRefused.status).toBe(403);
 
+  // === (2b) A FOREIGN org the caller can read on the registry is admitted:
+  // the registry row rule (`steward == currentUser.tenantId`) puts S in A's
+  // registry read scope, so A may act in S.  The write is stamped with S, is
+  // read back under the switch and by S itself, and never shows in A's own
+  // org.  Z, which names no steward, stays refused (2). ===
+  const orgS = await createOrg("S", undefined, orgA);
+  const switched = await create(actingAs(orgA, orgS), "switched-s");
+  expect(switched.status, switched.body).toBe(201);
+  expect(tenantOf("switched-s")).toBe(orgS);
+  expect(await labels(actingAs(orgA, orgS))).toContain("switched-s");
+  expect(await labels(actingAs(orgS))).toContain("switched-s");
+  expect(await labels(actingAs(orgA))).not.toContain("switched-s");
+  // The steward relation is one-way: S cannot act in A.
+  const reverse = await create(actingAs(orgS, orgA), "reverse-s");
+  expect(reverse.status, reverse.body).toBe(403);
+  expect(rowCount("reverse-s")).toBe("0");
+
   // === (3) A forged header on a token with no tenancy claim: 403, no write. ===
   const forged = await create(actingAs("", orgA), "forged");
   expect(forged.status, forged.body).toBe(403);
   expect(rowCount("forged")).toBe("0");
 
-  // === (4) Reads stay principal-anchored. ===
+  // === (4) Reads anchor on the operating org (the home org here). ===
   expect(await labels(actingAs(orgA, orgA))).toEqual(await labels(actingAs(orgA)));
+  expect(await labels(actingAs(orgA))).not.toContain("own-ab");
+
+  // === (5) `organizationContext.ancestors`: the operating org and every org
+  // above it, read in an operation body and through a policy function. ===
+  async function probe(who: string, account: string, org: string) {
+    const r = await fetch(`${base}/api/accounts/${account}/probe`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify({ org }),
+      signal: AbortSignal.timeout(20_000), // a non-terminating walk fails here
+    });
+    expect([200, 204], await r.clone().text()).toContain(r.status);
+    const read = (await (
+      await fetch(`${base}/api/accounts/${account}`, { headers: actingAs(who) })
+    ).json()) as { lineage?: number | null; underOrg?: boolean | null };
+    return { lineage: read.lineage, underOrg: read.underOrg };
+  }
+  async function move(who: string, org: string, to: string): Promise<void> {
+    const r = await fetch(`${base}/api/orgs/${org}/move`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify({ to }),
+    });
+    expect([200, 204], await r.clone().text()).toContain(r.status);
+  }
+  const ownAB = await create(actingAs(orgAB), "own-ab");
+  expect(ownAB.status, ownAB.body).toBe(201);
+  expect(tenantOf("own-ab")).toBe(orgAB);
+  expect(await probe(orgAB, ownAB.id!, orgA)).toEqual({ lineage: 2, underOrg: true });
+  expect(await probe(orgA, own.id!, orgAB)).toEqual({ lineage: 1, underOrg: false });
+
+  // === (5b) A row rule testing a COLUMN against the lineage — directly
+  // (`reader`) and inside an `exists` over grant rows (`MemoGrant.org`). ===
+  async function post(who: string, url: string, body: object): Promise<string> {
+    const r = await fetch(`${base}${url}`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify(body),
+    });
+    expect(r.status, await r.clone().text()).toBe(201);
+    return ((await r.json()) as { id: string }).id;
+  }
+  async function memos(who: string): Promise<string[]> {
+    const r = await fetch(`${base}/api/memos`, { headers: actingAs(who) });
+    expect(r.status, await r.clone().text()).toBe(200);
+    return rows<{ body: string }>(await r.json())
+      .map((x) => x.body)
+      .sort();
+  }
+  // Z's memo opened to A's subtree; Z's private memo granted to A.B only.
+  await post(orgZ, "/api/memos", { body: "to-a", reader: orgA });
+  const granted = await post(orgZ, "/api/memos", { body: "granted", reader: orgZ });
+  await post(orgZ, "/api/memo_grants", { memo: granted, org: orgAB });
+  expect(await memos(orgZ)).toEqual(["granted", "to-a"]);
+  expect(await memos(orgA)).toEqual(["to-a"]);
+  expect(await memos(orgAB)).toEqual(["granted", "to-a"]);
+
+  // === (6) An AUTHORED move re-parents A under Z: the next request sees it. ===
+  await move(orgA, orgA, orgZ);
+  expect(await probe(orgAB, ownAB.id!, orgZ)).toEqual({ lineage: 3, underOrg: true });
+  expect(await probe(orgA, own.id!, orgZ)).toEqual({ lineage: 2, underOrg: true });
+  // The row rules follow the move with nothing rewritten: Z's memo for Z's
+  // subtree now reaches A.
+  expect(await memos(orgA)).toEqual(["granted", "to-a"]);
+
+  // === (7) A deliberate cycle (Z under A.B: Z → A.B → A → Z) terminates. ===
+  await move(orgZ, orgZ, orgAB);
+  expect(await probe(orgAB, ownAB.id!, orgZ)).toEqual({ lineage: 3, underOrg: true });
 
   // === The deny is logged through the neutral catalog. ===
   const deadline = Date.now() + 15_000;

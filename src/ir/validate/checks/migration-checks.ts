@@ -250,7 +250,7 @@ function sqlExprFamily(e: ExprIR): string | undefined {
 //
 // The declared intents are exactly the migration surface that lives on the IR
 // at phase ⑦ (`renameIntents` / `tableRenameIntents` / `backfillIntents` /
-// `sqlMigrationSteps`) — the derived `MigrationsIR` itself only exists in
+// `sqlMigrationSteps` / `enumValueRenameIntents`) — the derived `MigrationsIR` itself only exists in
 // phase ⑨.  So the gate is here, and it makes the gap HONEST: a declared
 // migration on the self-provisioning adapter is a compile error naming the
 // adapter to switch to, instead of silent data loss.
@@ -294,10 +294,20 @@ export function validateMigrationAdapterSupport(
   }
   for (const b of loom.backfillIntents)
     add(b.context, b.migration, `backfill ${b.aggregate}.${b.field}`);
-  const sqlSteps = loom.sqlMigrationSteps.map((s) => ({
-    migration: s.migration,
-    step: `sql step #${s.index}`,
-  }));
+  for (const r of loom.enumValueRenameIntents) {
+    if (r.context !== undefined) add(r.context, r.migration, `rename ${r.enum}.${r.from}`);
+  }
+  // A root-level enum belongs to no context: like a raw `sql` step, its rename
+  // is charged to every self-provisioning deployable.
+  const sqlSteps = [
+    ...loom.sqlMigrationSteps.map((s) => ({
+      migration: s.migration,
+      step: `sql step #${s.index}`,
+    })),
+    ...loom.enumValueRenameIntents
+      .filter((r) => r.context === undefined)
+      .map((r) => ({ migration: r.migration, step: `rename ${r.enum}.${r.from}` })),
+  ];
   if (byContext.size === 0 && sqlSteps.length === 0) return;
 
   for (const sys of loom.systems) {

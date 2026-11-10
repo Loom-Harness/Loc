@@ -143,7 +143,7 @@ describe("ts `-=` element removal — every boxed element type compares by value
       { kind: "primitive", name: "string" },
       // An entity PART emits no `equals()`, and its removal is genuinely
       // identity-scoped — the instance held IS the one being removed.
-      { kind: "entity", name: "Line" },
+      { kind: "entity", name: "Line", declKind: "part" },
     ] as TypeIR[]) {
       expect(scan(removeOf(t)), `${t.kind} should keep reference identity`).toBe(
         "(e) => e === (this._d)",

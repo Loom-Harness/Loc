@@ -262,11 +262,10 @@ describe("money through the emitted page", () => {
     expect(page).toContain("final String budget;");
     expect(page).toContain("HomeState(budget: '12.5000')");
     expect(page).toContain("budget: LoomMoney.add(state.budget, '2.5000')");
-    // The display parses ONLY to format — `NumberFormat.format` takes a `num`.
-    // The applied expression of the null-guard closure (`nullSafe`,
-    // flutter/pack.ts) is the parse — the guard came in with the targets
-    // drain, the parse is M-T1.21; both are present after the merge.
-    expect(page).toContain("format(v))(LoomMoney.toNum(state.budget))");
+    // The display reads the wire STRING itself (`LoomMoney.display`) — no
+    // `toNum` hop, so no digit a double cannot hold is ever lost.
+    expect(page).toContain("LoomMoney.display(v))(state.budget)");
+    expect(page).not.toContain("LoomMoney.toNum(state.budget)");
   });
 
   it("a NumberField bound to a money cell still has a setter behind it", async () => {

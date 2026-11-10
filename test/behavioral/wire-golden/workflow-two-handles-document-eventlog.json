@@ -258,6 +258,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/hit",
+        "params": {
+          "type": "Ledger.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -272,6 +275,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/hit",
+        "params": {
+          "type": "Ledger.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

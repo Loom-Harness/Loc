@@ -92,7 +92,7 @@ describe("expected-failure result — lowering", () => {
 
   it("classifies the leaves through entryResult", async () => {
     const ctx = await enriched(SYS(PAY("Receipt or Declined", OK_ARMS)));
-    const er = commandCreateEntryResult(ctx.workflows[0]!, ctx)!;
+    const er = commandCreateEntryResult(ctx.workflows[0]!)!;
     expect(er.arms.map((a) => [a.kind, a.tag])).toEqual([
       ["payload", "Receipt"],
       ["error", "Declined"],
@@ -111,7 +111,7 @@ describe("expected-failure result — lowering", () => {
     );
     const c = ctx.workflows[0]!.creates[0]!;
     expect(c.returnTags).toEqual(["Receipt"]);
-    expect(commandCreateEntryResult(ctx.workflows[0]!, ctx)!.leaves).toHaveLength(1);
+    expect(commandCreateEntryResult(ctx.workflows[0]!)!.leaves).toHaveLength(1);
   });
 
   it("tags a tail return with its variant", async () => {
@@ -138,7 +138,7 @@ describe("expected-failure result — lowering", () => {
     );
     const h = ctx.commandHandlers![0]!;
     expect(h.returnTags).toEqual(["Account", "Declined"]);
-    expect(entryResult(h, ctx)!.arms.map((a) => a.kind)).toEqual(["aggregate", "error"]);
+    expect(entryResult(h)!.arms.map((a) => a.kind)).toEqual(["aggregate", "error"]);
   });
 });
 

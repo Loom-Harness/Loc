@@ -119,6 +119,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/restore",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -290,6 +293,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/soft_delete",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -304,6 +310,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/soft_delete",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

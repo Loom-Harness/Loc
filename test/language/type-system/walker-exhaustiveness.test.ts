@@ -46,7 +46,7 @@ const tySource = fs.readFileSync(path.resolve(path.dirname(SRC), "typing/ty.ts")
 /** Every `kind:` literal in the `Ty` union declaration — read from the
  *  source so the test cannot drift behind a union that grew. */
 function tyKinds(): string[] {
-  const start = tySource.indexOf("export type Ty = (");
+  const start = tySource.indexOf("export type Ty =\n");
   expect(start, "the `Ty` union declaration moved or was renamed").toBeGreaterThan(-1);
   const end = tySource.indexOf("\n\n", start);
   const decl = tySource.slice(start, end);

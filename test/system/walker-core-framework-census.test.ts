@@ -13,6 +13,17 @@
 // those files must not contain `heex`, `elixir`, `liveview` or `phoenix`, in
 // any case.  A framework difference the core needs is a new `WalkerTarget`
 // seam, not a name check.
+//
+// The same files must not speak one KIND of target's data access either.  A
+// client-state target reads the server through a hook over the generated HTTP
+// API client; a server-session target (LiveView) calls its context in-process
+// and has neither.  The core says only "this body reads X / calls op Y",
+// through the data-access seam (`_walker/data-access.ts`), and each target
+// binds that its own way.  Hook and HTTP-client vocabulary in the core would
+// make every target a hook target, so `walker-core.ts` carries none.  The
+// shared primitives still carry some; each file's count is pinned below and
+// may only fall — a fix lowers its ceiling in the same change, and a file that
+// reaches zero leaves the table.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +32,19 @@ import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
 
 const FORBIDDEN = /heex|elixir|liveview|phoenix/i;
+
+/** Hook and HTTP-client vocabulary: React-style `use*` hooks and their
+ *  libraries, the generated `../api/<module>` client, and raw HTTP calls. */
+const DATA_ACCESS_VOCABULARY =
+  /hook|tanstack|query-core|usequery|usemutation|\/api\/|api-client|apiclient|httpclient|\bfetch\b|axios/i;
+
+/** The data-access vocabulary each shared primitive still carries.  Exact:
+ *  a count above its ceiling is a new leak, a count below it is a stale
+ *  ceiling to lower.  `walker-core.ts` is absent, so its ceiling is zero. */
+const DATA_ACCESS_CEILINGS: Readonly<Record<string, number>> = {
+  "src/generator/_walker/primitives/controls.ts": 9,
+  "src/generator/_walker/primitives/forms.ts": 23,
+};
 
 const WALKER_CORE = "src/generator/_walker/walker-core.ts";
 const PRIMITIVES_DIR = "src/generator/_walker/primitives";
@@ -63,8 +87,13 @@ function codeTokens(text: string): { line: number; text: string }[] {
 
 /** `file:line: token` for every framework-naming token in `text`. */
 function frameworkMentions(file: string, text: string): string[] {
+  return mentions(file, text, FORBIDDEN);
+}
+
+/** `file:line: token` for every token of `text` matching `pattern`. */
+function mentions(file: string, text: string, pattern: RegExp): string[] {
   return codeTokens(text)
-    .filter((t) => FORBIDDEN.test(t.text))
+    .filter((t) => pattern.test(t.text))
     .map((t) => `${file}:${t.line}: ${t.text}`);
 }
 
@@ -100,6 +129,41 @@ describe("walker-core framework census", () => {
       'sample.ts:4: "phoenixLiveView"',
       "sample.ts:5: renderHeex",
       "sample.ts:6: } elixir`",
+    ]);
+  });
+
+  it("speaks no hook or HTTP-client vocabulary outside the data-access seam", () => {
+    const over: string[] = [];
+    const stale: string[] = [];
+    for (const f of files) {
+      const hits = mentions(f, readFileSync(f, "utf8"), DATA_ACCESS_VOCABULARY);
+      const ceiling = DATA_ACCESS_CEILINGS[f] ?? 0;
+      if (hits.length > ceiling)
+        over.push(`${f}: ${hits.length} > ${ceiling}\n  ${hits.join("\n  ")}`);
+      else if (hits.length < ceiling) stale.push(`${f}: ${hits.length} < ${ceiling}`);
+    }
+    expect(
+      over,
+      "The shared walker names a hook or the HTTP API client.  Route the read or call " +
+        "through `_walker/data-access.ts` and bind it in the target's `bindDataAccess`.",
+    ).toEqual([]);
+    expect(stale, "A ceiling is stale.  Lower it to the file's count.").toEqual([]);
+    for (const f of Object.keys(DATA_ACCESS_CEILINGS)) expect(files).toContain(f);
+  });
+
+  it("recognises hook and HTTP-client vocabulary in code, not in comments", () => {
+    const sample = [
+      "// the hook is declared once per page",
+      "const a = 1;",
+      "import { tryDetectApiHook } from './api-hook-detector.js';",
+      'addImport(ctx, "../api/client", "ApiError");',
+      "const r = await fetch(url);",
+    ].join("\n");
+    expect(mentions("sample.ts", sample, DATA_ACCESS_VOCABULARY)).toEqual([
+      "sample.ts:3: tryDetectApiHook",
+      "sample.ts:3: './api-hook-detector.js'",
+      'sample.ts:4: "../api/client"',
+      "sample.ts:5: fetch",
     ]);
   });
 });

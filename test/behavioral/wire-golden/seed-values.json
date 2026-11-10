@@ -95,6 +95,9 @@
         "code": "problem.not-found",
         "detail": "Part {id} not found",
         "instance": "/api/parts/{id}",
+        "params": {
+          "type": "Catalog.Part"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -222,6 +225,9 @@
         "code": "problem.not-found",
         "detail": "Meetup {id} not found",
         "instance": "/api/meetups/{id}",
+        "params": {
+          "type": "Catalog.Meetup"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

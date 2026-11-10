@@ -71,10 +71,11 @@
 
 import Handlebars from "handlebars";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { isAggregateProblemCode } from "../../ir/enrich/wire-policy.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
 import { sourceText } from "../_i18n/source-text.js";
-import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
+import { WIRE_ERROR_MESSAGES, wireErrorMessage } from "../_i18n/wire-error-text.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
 import {
   chromeDeclarationDefects,
@@ -255,6 +256,15 @@ function localizedTranslateError(webModule: string): string {
         `  defp localized_error(${elixirLiteral(code)}, _msg), do: pgettext(${elixirLiteral(code)}, ${elixirLiteral(WIRE_ERROR_MESSAGES[code]!)})`,
     )
     .join("\n");
+  // The problem codes a changeset can carry, each of which concerns one
+  // aggregate (`AGGREGATE_PROBLEM_CLASSES`).
+  const aggregateClauses = codes
+    .filter((code) => isAggregateProblemCode(code))
+    .map(
+      (code) =>
+        `  defp aggregate_error(${elixirLiteral(code)} = code, msg, opts),\n    do: aggregate_sentence(code, opts, ${elixirLiteral(wireErrorMessage(code))}, localized_error(code, msg))\n`,
+    )
+    .join("\n");
   return `  # A server-originated field error is localized HERE, in the LiveView process,
   # by the catalog code the JSON wire carries for the same refusal: a named rule's
   # identity key (\`loom_code\`), a rule's generic key (\`loom_rule_code\`), else
@@ -265,13 +275,37 @@ function localizedTranslateError(webModule: string): string {
     params = Keyword.get(opts, :loom_params) || %{}
 
     text =
-      Enum.reduce(params, localized_error(code, msg), fn {key, value}, acc ->
+      Enum.reduce(params, aggregate_error(code, msg, opts), fn {key, value}, acc ->
         String.replace(acc, "{#{key}}", fn _ -> to_string(value) end)
       end)
 
     Enum.reduce(opts, text, fn {key, value}, acc ->
       String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
     end)
+  end
+
+  # A persistence refusal concerns the aggregate whose constraint tripped; the
+  # catalog MAY carry that aggregate's own whole sentence
+  # (\`<type>.problem.<class>\`, its msgid the generic sentence's), read before
+  # the generic \`problem.<class>\`.
+${aggregateClauses}
+  defp aggregate_error(code, msg, _opts), do: localized_error(code, msg)
+
+  defp aggregate_sentence(code, opts, english, generic) do
+    with name when is_binary(name) <- Keyword.get(opts, :constraint_name),
+         type when is_binary(type) <- ${webModule}.ProblemDetails.constraint_type(name),
+         {:ok, text} <-
+           ${webModule}.Gettext.lgettext(
+             Gettext.get_locale(${webModule}.Gettext),
+             "default",
+             "#{type}.#{code}",
+             english,
+             %{}
+           ) do
+      text
+    else
+      _ -> generic
+    end
   end
 
 ${clauses}

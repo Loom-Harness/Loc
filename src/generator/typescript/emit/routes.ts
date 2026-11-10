@@ -1,4 +1,5 @@
 import {
+  MISSING_FILE_PART_DETAIL,
   wireCode,
   wireFixedDetail,
   wireStatus,
@@ -12,6 +13,7 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -221,7 +223,8 @@ export function renderHttpIndex(
     const needsTx =
       a.operations.some((o) => o.visibility === "public" && (o.audited || opHasProvSite(o))) ||
       !!auditedCreateAction?.audited ||
-      !!canonicalDestroy(a)?.audited;
+      !!canonicalDestroy(a)?.audited ||
+      existsReadAggregates(a).length > 0;
     const repoArg = `new ${a.name}Repository(db, events)`;
     const args = needsTx ? `${repoArg}, db, events` : repoArg;
     return `  app.route("${API_BASE_PATH}/${routeSegmentFor(a.name)}", ${lowerFirst(a.name)}Routes(${args}));`;
@@ -364,7 +367,9 @@ export function renderHttpIndex(
         `    const body = await c.req.parseBody();`,
         `    const file = body["file"];`,
         `    if (!(file instanceof File)) {`,
-        `      return c.json({ error: "expected a 'file' form field" }, 400);`,
+        // A missing part is the same malformed-request 400 every unreadable body
+        // earns: the root \`onError\` renders an \`HTTPException\` as problem+json.
+        `      throw new HTTPException(${wireStatus("malformed-body")}, { message: ${JSON.stringify(MISSING_FILE_PART_DETAIL)} });`,
         `    }`,
         `    const key = ${T.randomUUID}();`,
         `    const bytes = new Uint8Array(await file.arrayBuffer());`,
@@ -439,7 +444,7 @@ export function renderHttpIndex(
     // from a mounted sub-app has a request id to correlate on — same read, same
     // cast bridge as the sub-routers use.
     `    const trace_id = c.get("requestId") ?? "";`,
-    `    const problem = (status: ${rootProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${rootProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
     "    if (err instanceof ForbiddenError) {",
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
@@ -498,7 +503,7 @@ export function renderHttpIndex(
       'import { secureHeaders } from "hono/secure-headers";',
       'import { TrieRouter } from "hono/router/trie-router";',
       'import type { ContentfulStatusCode } from "hono/utils/http-status";',
-      'import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";',
+      'import { emptyBodyAsEmptyObject, frameworkProblemBody, problemParams } from "./problem-details";',
       tsImportSlot("drizzle-orm"),
       'import { requestIdMiddleware } from "../obs/request-id";',
       // `recordDomainFault` joins `registry` here for the root DOMAIN ladder

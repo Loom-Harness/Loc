@@ -35,7 +35,7 @@ import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
 import { localizedPageTitle } from "../../_walker/i18n-emit.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
-import type { ApiHookUse } from "../../_walker/walker-core.js";
+import type { DataBinding } from "../../_walker/walker-core.js";
 import {
   closeUsedActions,
   emitExpr,
@@ -83,7 +83,7 @@ function initCtx(pack: LoadedPack): WalkContext {
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
@@ -329,11 +329,11 @@ export function renderVuePage(input: VuePageShellInput): string {
       // An action may `match await Sales.Order.op()` (Stage 2) — thread the
       // api-param handles + aggregate/context maps so the awaited op is detected
       // and its vue-query mutation hoisted (registered into the shared
-      // `result.usedApiHooks`, drained by the hoist loop below).
+      // `result.dataBindings`, drained by the hoist loop below).
       apiParamNames: new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName])),
       aggregatesByName: input.aggregatesByName,
       bcByAggregate: input.bcByAggregate,
-      usedApiHooks: result.usedApiHooks,
+      dataBindings: result.dataBindings,
       pageRoutes: input.pageRoutes,
     },
   );
@@ -446,7 +446,7 @@ export function renderVuePage(input: VuePageShellInput): string {
         return out;
       })
       .join(", ");
-  for (const use of result.usedApiHooks.values()) {
+  for (const use of result.dataBindings.values()) {
     if (seenVars.has(use.varName)) continue;
     seenVars.add(use.varName);
     const args = scriptArgs(use.argsRendered ?? []);
@@ -942,7 +942,7 @@ function relPrefix(input: VuePageShellInput): string {
   return "../".repeat(depth);
 }
 
-/** Adjust an `ApiHookUse.importFrom` (recorded as `../api/<agg>` —
+/** Adjust an `DataBinding.importFrom` (recorded as `../api/<agg>` —
  *  the one-level-deep convention) to the page's actual directory
  *  depth. */
 function adjustDepth(importFrom: string, input: VuePageShellInput): string {
@@ -1295,15 +1295,15 @@ export function renderVueComponentFile(
     names.add(m.hookName);
     apiImports.set(from, names);
   }
-  // Api-read hoists — the component twin of the page shell's `usedApiHooks`
+  // Api-read hoists — the component twin of the page shell's `dataBindings`
   // loop.  A read in a component body (`QueryView { of: Sales.Order.all }`)
-  // records the same `ApiHookUse`, so it gets the same `reactive(use…())`
+  // records the same `DataBinding`, so it gets the same `reactive(use…())`
   // declaration and the same `../api/<agg>` import; `importFrom` is already
   // recorded one hop from `src/`, which is exactly where a component file
   // sits (no `adjustDepth` needed).  Args flow through `rewriteScript` below
   // with the mutation hoists, so a read parameterised by a prop reads
   // `props.<name>`.
-  for (const use of result.usedApiHooks.values()) {
+  for (const use of result.dataBindings.values()) {
     if (seenVars.has(use.varName)) continue;
     seenVars.add(use.varName);
     const args = (use.argsRendered ?? []).join(", ");
@@ -1654,7 +1654,7 @@ function buildDerivedLines(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: new Map(),
-      usedApiHooks: new Map(),
+      dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
@@ -1710,12 +1710,12 @@ function buildDerivedLines(
  *  api-param handles + aggregate/context maps `tryDetectApiHook` and the error-
  *  variant classifier consult, plus the SHARED sinks the resolved mutation
  *  hook + reification imports must land in (the page shell hoists the hook from
- *  `usedApiHooks` and routes `imports` into its api-import block).  All optional
+ *  `dataBindings` and routes `imports` into its api-import block).  All optional
  *  — a body with no awaited effect (the Stage-1 case, and every component body)
  *  passes none and behaves exactly as before. */
 interface ActionWalkCtx {
   apiParamNames?: Map<string, string>;
-  usedApiHooks?: Map<string, ApiHookUse>;
+  dataBindings?: Map<string, DataBinding>;
   imports?: Map<string, Set<string>>;
   aggregatesByName?: ReadonlyMap<string, AggregateIR>;
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
@@ -1748,7 +1748,7 @@ function buildActionLines(
   // Shared across every action's handler walk: the mutation hooks a
   // `variant-match` registers (the shell hoists them from here) and the
   // reification imports (`ApiError`, the op's union response type) it needs.
-  const usedApiHooks = ctxOpts.usedApiHooks ?? new Map<string, ApiHookUse>();
+  const dataBindings = ctxOpts.dataBindings ?? new Map<string, DataBinding>();
   const imports = ctxOpts.imports ?? new Map<string, Set<string>>();
   // Transitively include any sibling action a used action's body calls
   // (Proposal A Stage 1, Fix 1) so its handler emits too.
@@ -1775,7 +1775,7 @@ function buildActionLines(
       usedUserComponents: new Set(),
       usesChildren: false,
       apiParamNames: ctxOpts.apiParamNames ?? new Map(),
-      usedApiHooks,
+      dataBindings,
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: ctxOpts.aggregatesByName ?? new Map(),

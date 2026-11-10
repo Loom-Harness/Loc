@@ -99,8 +99,8 @@ describe("flutterTarget — state seam", () => {
 });
 
 describe("flutterTarget — api seam", () => {
-  it("buildHookUse names a provider-local var and renders args through the callback", () => {
-    const use = flutterTarget.buildHookUse(
+  it("bindDataAccess names a provider-local var and renders args through the callback", () => {
+    const use = flutterTarget.bindDataAccess(
       { aggregateName: "Customer", operation: "byId", args: [{} as never], kind: "aggregate" },
       () => "id",
     );
@@ -123,7 +123,7 @@ describe("flutterTarget — api seam", () => {
     );
   });
 
-  it("renderApiHoisting emits one deduped ref.watch(<var>Provider) per distinct read", () => {
+  it("renderDataBindings emits one deduped ref.watch(<var>Provider) per distinct read", () => {
     const call: ApiCallSite = {
       apiHandle: "Sales",
       aggregateName: "Customer",
@@ -131,14 +131,14 @@ describe("flutterTarget — api seam", () => {
       kind: "query",
       args: [],
     };
-    const lines = flutterTarget.renderApiHoisting([call, call]);
+    const lines = flutterTarget.renderDataBindings([call, call]);
     expect(lines).toHaveLength(1);
     // A real AsyncValue binding the QueryView `.when` consumes (no TODO stub).
     expect(lines[0]).toBe("    final customerAll = ref.watch(customerAllProvider);");
     expect(lines[0]).not.toContain("TODO");
   });
 
-  it("renderApiHoisting passes a byId read's args to the .family provider", () => {
+  it("renderDataBindings passes a byId read's args to the .family provider", () => {
     const byId: ApiCallSite = {
       apiHandle: "Sales",
       aggregateName: "Customer",
@@ -148,7 +148,7 @@ describe("flutterTarget — api seam", () => {
       varName: "customerById",
       argsRendered: ["id"],
     };
-    const lines = flutterTarget.renderApiHoisting([byId]);
+    const lines = flutterTarget.renderDataBindings([byId]);
     expect(lines[0]).toBe("    final customerById = ref.watch(customerByIdProvider(id));");
   });
 

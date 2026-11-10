@@ -153,6 +153,9 @@
         "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}",
+        "params": {
+          "type": "Review.Claim"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -223,6 +226,9 @@
         "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/file",
+        "params": {
+          "type": "Review.Claim"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -237,6 +243,9 @@
         "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/file",
+        "params": {
+          "type": "Review.Claim"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -265,6 +274,9 @@
         "code": "problem.not-found",
         "detail": "Claim {id} not found",
         "instance": "/api/claims/{id}/update",
+        "params": {
+          "type": "Review.Claim"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

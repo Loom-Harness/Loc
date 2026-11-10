@@ -144,3 +144,138 @@ describe("the e2e api client's request bodies, typed as what the client sends", 
     expect(await typeOfText(src, `api.shop.getOrderByCode("C2").code`)).toBe("p:string");
   });
 });
+
+describe("the e2e ui client, typed from the page objects it drives", () => {
+  it("a create and a getById answer the record as its JSON", async () => {
+    const src = sys(`let c = ui.customers.create({ name: "x" })  let i = c.id  let n = c.name
+      let rd = ui.orders.getById(c)  let t = rd.total  let code = rd.code`);
+    expect(await typeOfText(src, `ui.customers.create({ name: "x" })`)).toBe("rec:Customer");
+    expect(await typeOfText(src, "c.id")).toBe("p:string");
+    expect(await typeOfText(src, "c.name")).toBe("p:string");
+    expect(await typeOfText(src, "rd.total")).toBe("p:string");
+    expect(await typeOfText(src, "rd.code")).toBe("p:string");
+  });
+
+  it("a body is the create's / operation's / workflow form's record", async () => {
+    const src = sys(`let o = ui.orders.create({ code: "A", shipTo: { city: "Oslo", zip: "0150" } })
+      ui.orders.retitle(o, { t: "renamed" })
+      ui.workflows.checkout({ o: "x" })`);
+    expect(await typeOfText(src, `{ city: "Oslo", zip: "0150" }`)).toBe("rec:Address");
+    expect(await typeOfText(src, `{ t: "renamed" }`)).toBe("rec:__Request__");
+    expect(await typeOfText(src, `{ o: "x" }`)).toBe("rec:__Request__");
+  });
+
+  it("an operation and a workflow form answer nothing", async () => {
+    const src = sys(`let o = ui.orders.create({ code: "A" })
+      let r = ui.orders.retitle(o, { t: "y" })  let w = ui.workflows.checkout({ o: "x" })`);
+    expect(await typeOfText(src, `ui.orders.retitle(o, { t: "y" })`)).toBe("never");
+    expect(await typeOfText(src, `ui.workflows.checkout({ o: "x" })`)).toBe("never");
+  });
+
+  it("the api-only surface and an invented verb do not resolve", async () => {
+    const src = sys(`let a = ui.totals.list()  let b = ui.checkout.run({ o: "x" })
+      let c = ui.orders.nope()  let d = ui.workflows.nope({})`);
+    for (const call of [
+      "ui.totals.list()",
+      `ui.checkout.run({ o: "x" })`,
+      "ui.orders.nope()",
+      "ui.workflows.nope({})",
+    ])
+      expect(await typeOfText(src, call), call).toBe("unknown:unresolved-member");
+  });
+});
+
+describe("the rest of the e2e api client's surface", () => {
+  const audited = (body: string) =>
+    sys(body)
+      .replace("aggregate Customer with crudish {", "aggregate Customer with crudish, audited {")
+      .replace(
+        "aggregate Order with crudish {",
+        "aggregate Order with crudish {\n        tally: int provenanced = 0",
+      );
+
+  it("a routed handler answers even when its context slugs like an aggregate", async () => {
+    const src = sys(`let r = api.sales.byCode("A")  let c = r.code`).replace(
+      "context Sales {",
+      "context Sales {\n      aggregate Sale with crudish { n: int }\n      repository SalesRepo for Sale",
+    );
+    expect(await typeOfText(src, "r.code")).toBe("p:string");
+  });
+
+  it("a workflow run with no declared result answers nothing", async () => {
+    const src = sys(`let r = api.checkout.run({ o: "x" })`).replace(
+      "create(o: Order id): Order or Unsettled { order := o  return Orders.get(o) }",
+      "create(o: Order id) { order := o }",
+    );
+    expect(await typeOfText(src, `api.checkout.run({ o: "x" })`)).toBe("never");
+  });
+
+  it("history answers audit entries; a change names its field", async () => {
+    const src = audited(`let h = api.customers.history("x")  let a = h.first().at
+      let n = h.first().changes.where(c => c.field == "name").count()`);
+    expect(await typeOfText(src, `api.customers.history("x")`)).toBe("[rec:AuditEntry]");
+    expect(await typeOfText(src, "h.first().at")).toBe("p:string");
+    expect(await typeOfText(src, `c.field == "name"`)).toBe("p:bool");
+  });
+
+  it("a list query and a write's options are their fixed records", async () => {
+    const src = sys(`let all = api.orders.all({ sort: "code", dir: "asc", page: 1 })
+      api.orders.retitle("x", { t: "y" }, { ifMatch: 3 })`);
+    expect(await typeOfText(src, `{ sort: "code", dir: "asc", page: 1 }`)).toBe(
+      "rec:__ListQuery__",
+    );
+    expect(await typeOfText(src, "{ ifMatch: 3 }")).toBe("rec:__CallOptions__");
+  });
+
+  it("a provenanced field reads as its carrier, its lineage as the lineage record", async () => {
+    const src = audited(`let o = api.orders.getById("x")  let v = o.tally.value
+      let cv = o.tally.lineage.computedValue  let p = o.tally.lineage.inputs.first().path`);
+    expect(await typeOfText(src, "o.tally.value")).toBe("p:int");
+    expect(await typeOfText(src, "o.tally.lineage.computedValue")).toBe("p:int");
+    expect(await typeOfText(src, "o.tally.lineage.inputs.first().path")).toBe("p:string");
+  });
+
+  it("a per-row projection lists its rows; a whole-table aggregation is one row", async () => {
+    const src = sys(
+      `let rows = api.codes.list()  let n = rows.count()  let t = api.totals.list().orders`,
+    ).replace(
+      "projection Totals",
+      "projection Codes { code: string  from Order as o  select code = o.code }\n      projection Totals",
+    );
+    expect(await typeOfText(src, "api.codes.list()")).toBe("[rec:Codes]");
+    expect(await typeOfText(src, "rows.count()")).toBe("p:int");
+    expect(await typeOfText(src, "api.totals.list().orders")).toBe("p:int");
+  });
+});
+
+describe("e2e request bodies the client sends positionally or through a named create", () => {
+  it("an event-sourced aggregate's create body is its first (named) create's record", async () => {
+    const src = sys(`let a = api.ledgers.create({ owner: "alice" })`).replace(
+      "context Sales {",
+      `context Sales {
+      event Opened { ledger: Ledger id  owner: string }
+      aggregate Ledger persistedAs: eventLog {
+        owner: string
+        create open(owner: string) { emit Opened { ledger: id, owner: owner } }
+        apply(e: Opened) { owner := e.owner }
+      }
+      repository Ledgers for Ledger`,
+    );
+    expect(await typeOfText(src, `{ owner: "alice" }`)).toBe("rec:__Request__");
+  });
+
+  it("a routed handler's arguments are its params, each as its JSON", async () => {
+    const src = sys(
+      `let r = api.sales.byCode("A")  let s = api.sales.reprice({ city: "Oslo", zip: "1" })`,
+    )
+      .replace(
+        "queryHandler ByCode",
+        "queryHandler Reprice(at: Address): string { return at.city }\n      queryHandler ByCode",
+      )
+      .replace(
+        `route GET "/by-code/{code}" -> Sales.ByCode`,
+        `route GET "/by-code/{code}" -> Sales.ByCode  route POST "/reprice" -> Sales.Reprice`,
+      );
+    expect(await typeOfText(src, `{ city: "Oslo", zip: "1" }`)).toBe("rec:Address");
+  });
+});

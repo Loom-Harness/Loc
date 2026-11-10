@@ -3,7 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { refType, tsImportSlot, tsNamed, tsNamespace } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -130,6 +130,7 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate, ruleMembers } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
@@ -529,6 +530,7 @@ export function buildRoutesFile(
   // Either feature pulls in the transactional handler + its db/events/
   // schema/randomUUID imports.
   const needsTx = fileHasAudit || fileHasProv;
+  const existsReads = existsReadAggregates(agg);
   // Entity history (docs/audit.md) — the read side of the trail those inserts
   // write.  Driven by the enrichment-derived `historyFind` rather than by
   // re-deriving "is this audited" here, so the read surface can never disagree
@@ -571,7 +573,7 @@ export function buildRoutesFile(
     // Audited / provenanced routes instantiate the repo inside a
     // transaction (`new ${agg.name}Repository(tx, events)`), so the class
     // must be a value import there; otherwise it's only a parameter type.
-    needsTx
+    needsTx || existsReads.includes(agg.name)
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
@@ -825,7 +827,7 @@ export function buildRoutesFile(
     const prepareFields = serverSourcedDefaultFields(createInputFields(agg));
     if (prepareFields.length > 0) {
       const props = prepareFields
-        .map((f) => `${f.name}: ${zodForResponseField(f.type, false, ctx)}`)
+        .map((f) => `${f.name}: ${zodForResponseField(f.type, false)}`)
         .join(", ");
       lines.push(
         `const Prepare${agg.name}Response = z.object({ ${props} }).partial().openapi("Prepare${agg.name}Response");`,
@@ -1038,9 +1040,22 @@ export function buildRoutesFile(
     lines.push("");
   }
 
-  const routerParams = needsTx
-    ? `repo: ${agg.name}Repository, db: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"}, events: DomainEventDispatcher`
-    : `repo: ${agg.name}Repository`;
+  // An in-app `exists` gate (no transaction of its own) reads the router's
+  // `db` + `events` too; its types are imported from the references here.
+  const dbType = needsTx
+    ? usingMikro
+      ? "EntityManager"
+      : "NodePgDatabase<typeof schema>"
+    : usingMikro
+      ? refType(tsNamed("@mikro-orm/postgresql", "EntityManager"))
+      : `${refType(tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"))}<typeof ${refType(tsNamespace("~/db/schema", "schema"))}>`;
+  const eventsType = needsTx
+    ? "DomainEventDispatcher"
+    : refType(tsNamed("~/domain/events", "DomainEventDispatcher"));
+  const routerParams =
+    needsTx || existsReads.length > 0
+      ? `repo: ${agg.name}Repository, db: ${dbType}, events: ${eventsType}`
+      : `repo: ${agg.name}Repository`;
   lines.push(`export function ${lowerFirst(agg.name)}Routes(${routerParams}): OpenAPIHono {`);
   // `newApp()` from `./problem-details` constructs OpenAPIHono with the
   // shared validation `defaultHook` pre-wired — Zod parse failures emit
@@ -1101,7 +1116,12 @@ export function buildRoutesFile(
     // The gate runs BEFORE the factory — a create guard has no `this` to read,
     // and denying after construction would already have run the invariants and
     // (on an audited create) staged a row.
-    lines.push(...lifecycleGateLines(canonicalCreate(agg), "      "));
+    lines.push(
+      ...lifecycleGateLines(canonicalCreate(agg), "      ", undefined, (name) => {
+        const f = requiredFields.find((q) => q.name === name);
+        return f ? wireToDomainExpr(`body.${f.name}`, f.type, ctx) : undefined;
+      }),
+    );
     // Wrap each wire-shape field into the typed factory argument (brand
     // ids, instantiate value objects).  Avoids `as never` and lets
     // strict tsc catch shape drift between Zod and the domain class.
@@ -1443,7 +1463,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))}, ...problemParams(${JSON.stringify(wireCode("referenced-in-use"))}, c.req.path) }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1557,7 +1577,7 @@ export function buildRoutesFile(
   // .NET / Phoenix).  `instance` is the request path; `type` is `about:blank`
   // (no per-error type registry).  Shared shape across all error arms.
   lines.push(
-    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(`    if (err instanceof ForbiddenError) {`);
   lines.push(
@@ -1723,7 +1743,7 @@ export function buildRoutesFile(
   // it.  Names stay in the pre-existing ASCII order Biome's import sorter
   // expects (`ProblemDetails` < `frameworkProblemBody` < `newApp` <
   // `requireJsonContentType`).
-  const problemNamed = ["ProblemDetails", "frameworkProblemBody", "newApp"];
+  const problemNamed = ["ProblemDetails", "frameworkProblemBody", "newApp", "problemParams"];
   const assembledSoFar = lines.join("\n");
   // The shared guid wire schema, only when a route actually declares one.
   // ASCII order puts it between the two `P`/`f` names above.
@@ -1843,9 +1863,15 @@ function lifecycleGateLines(
   action: OperationIR | null | undefined,
   pad: string,
   thisName?: string,
+  paramExpr?: (name: string) => string | undefined,
 ): string[] {
   return lifecycleGates(action).map((g) => {
-    const pred = renderTsExpr(g.expr, thisName ? { thisName } : undefined);
+    // A create gate's parameters are the create-input fields the body
+    // carries (`loom.lifecycle-guard-unreadable` admits no other).
+    const pred = renderTsExpr(g.expr, {
+      thisName: thisName ?? "this",
+      ...(paramExpr ? { paramExpr } : {}),
+    });
     return `${pad}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
       `Forbidden: ${g.source}`,
     )});`;
@@ -2241,9 +2267,8 @@ function emitOperationRoute(
 /** True when a union variant is an `error` payload — the route maps it to an
  *  RFC-7807 ProblemDetails status instead of serializing it as a success body
  *  (exception-less.md). */
-function isErrorVariant(v: TypeIR, ctx: BoundedContextIR): boolean {
-  if (v.kind !== "entity") return false;
-  return ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
+function isErrorVariant(v: TypeIR): boolean {
+  return v.kind === "entity" && v.declKind === "error";
 }
 
 /** The exception-less operation route (`operation foo(): X or NotFound`).  Calls
@@ -2266,7 +2291,7 @@ function emitReturningOperationRoute(
   // operation route does not stamp.
   const aggSlug = routeSegmentFor(agg.name);
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
-  const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
+  const errorVariants = variants.filter((vv) => isErrorVariant(vv));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
   // An inline union's OpenAPI split (M-FT.24): the 200 declares the success
   // arms only; each error arm's status declares that arm's problem body.
@@ -2645,7 +2670,7 @@ function emitResponseDtoSchema(
       const t: TypeIR = provenanced.has(f.name)
         ? { kind: "genericInstance", ctor: "provenanced", arg: f.type }
         : f.type;
-      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional, ctx)},`);
+      lines.push(`  ${f.name}: ${zodForResponseField(t, f.optional)},`);
     }
   } else {
     const fields = forApiRead(wireFieldsFor(ent));
@@ -2986,21 +3011,15 @@ export function zodForResponse(t: TypeIR, optional: boolean): string {
  *  TypeIR whose name is a declared `response` payload, which must be rendered
  *  DIRECTLY (`z.array(LabelResponse)`); running it through `zodForResponse` would
  *  append a second `Response` (`z.array(LabelResponseResponse)`). */
-function zodForResponseField(t: TypeIR, optional: boolean, ctx: BoundedContextIR): string {
+function zodForResponseField(t: TypeIR, optional: boolean): string {
   const info = wireTypeInfo(t, "response");
-  if (info.refKind === "entity" && isResponsePayloadName(ctx, info.base)) {
+  if (info.refKind === "entity" && info.declKind === "response") {
     let z = info.base;
     if (info.isCollection) z = `z.array(${z})`;
     if (info.isNullable || optional) z = `${z}.nullish()`;
     return z;
   }
   return zodForResponse(t, optional);
-}
-
-/** True iff `name` is a declared `response` payload in the context — i.e. a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(ctx: BoundedContextIR, name: string): boolean {
-  return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
 export function zodForResponseInner(t: TypeIR): string {

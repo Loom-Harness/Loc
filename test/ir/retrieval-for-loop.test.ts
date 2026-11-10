@@ -55,7 +55,7 @@ describe("workflow for-loop — parsing + lowering", () => {
       expect(run.page?.limit).toBeDefined();
       expect(run.returnType).toEqual({
         kind: "array",
-        element: { kind: "entity", name: "Customer" },
+        element: { kind: "entity", name: "Customer", declKind: "aggregate" },
       });
     }
   });

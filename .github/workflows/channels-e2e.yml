@@ -106,9 +106,9 @@ jobs:
           - backend: dotnet
             scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet
           - backend: java
-            scripts: test:channels-java test:channels-rabbit-java test:channels-kafka-java
+            scripts: test:channels-java test:channels-rabbit-java test:channels-kafka-java test:saga-redelivery-java
           - backend: elixir
-            scripts: test:channels-elixir test:channels-rabbit-elixir test:channels-kafka-elixir
+            scripts: test:channels-elixir test:channels-rabbit-elixir test:channels-kafka-elixir test:saga-redelivery-elixir
     name: channels-e2e (${{ matrix.backend }})
     services:
       postgres:

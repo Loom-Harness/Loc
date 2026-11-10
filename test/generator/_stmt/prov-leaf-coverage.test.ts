@@ -35,7 +35,7 @@ const prop = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop
 
 /** Element / member types for the collection fixtures below — the IR carries
  *  both on every member read, so the fixtures do too. */
-const LINE: TypeIR = { kind: "entity", name: "Line" };
+const LINE: TypeIR = { kind: "entity", name: "Line", declKind: "part" };
 const MONEY_T: TypeIR = { kind: "primitive", name: "money" };
 const paths = (e: ExprIR) => collectLeaves(e, render).map((l) => l.path);
 

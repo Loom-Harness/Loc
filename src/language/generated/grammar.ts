@@ -483,12 +483,12 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
         "elements": [
           {
             "$type": "Assignment",
-            "feature": "aggregate",
+            "feature": "owner",
             "operator": "=",
             "terminal": {
               "$type": "CrossReference",
               "type": {
-                "$ref": "#/rules@102"
+                "$ref": "#/types@0"
               },
               "terminal": {
                 "$type": "RuleCall",
@@ -3192,7 +3192,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                 "terminal": {
                   "$type": "CrossReference",
                   "type": {
-                    "$ref": "#/types@0"
+                    "$ref": "#/types@1"
                   },
                   "terminal": {
                     "$type": "RuleCall",
@@ -7292,7 +7292,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                     "terminal": {
                       "$type": "CrossReference",
                       "type": {
-                        "$ref": "#/types@1"
+                        "$ref": "#/types@2"
                       },
                       "terminal": {
                         "$type": "RuleCall",
@@ -7319,7 +7319,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                         "terminal": {
                           "$type": "CrossReference",
                           "type": {
-                            "$ref": "#/types@1"
+                            "$ref": "#/types@2"
                           },
                           "terminal": {
                             "$type": "RuleCall",
@@ -7457,7 +7457,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                     "terminal": {
                       "$type": "CrossReference",
                       "type": {
-                        "$ref": "#/types@1"
+                        "$ref": "#/types@2"
                       },
                       "terminal": {
                         "$type": "RuleCall",
@@ -7484,7 +7484,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                         "terminal": {
                           "$type": "CrossReference",
                           "type": {
-                            "$ref": "#/types@1"
+                            "$ref": "#/types@2"
                           },
                           "terminal": {
                             "$type": "RuleCall",
@@ -9512,6 +9512,120 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                   },
                   "arguments": []
                 }
+              },
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": "when"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "when",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@211"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "?"
+              }
+            ]
+          },
+          {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "effect",
+                "operator": "=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "allow"
+                }
+              },
+              {
+                "$type": "Alternatives",
+                "elements": [
+                  {
+                    "$type": "Assignment",
+                    "feature": "verb",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@118"
+                      },
+                      "arguments": []
+                    }
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "verb",
+                    "operator": "=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@117"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "?"
+              },
+              {
+                "$type": "Keyword",
+                "value": "on"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "target",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@276"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "as"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "binding",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@276"
+                  },
+                  "arguments": []
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "where"
+              },
+              {
+                "$type": "Assignment",
+                "feature": "row",
+                "operator": "=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@211"
+                  },
+                  "arguments": []
+                }
               }
             ]
           },
@@ -9646,6 +9760,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "local"
+          },
+          {
+            "$type": "Keyword",
+            "value": "own"
           },
           {
             "$type": "Keyword",
@@ -9817,7 +9935,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                 "terminal": {
                   "$type": "CrossReference",
                   "type": {
-                    "$ref": "#/types@2"
+                    "$ref": "#/types@3"
                   },
                   "terminal": {
                     "$type": "RuleCall",
@@ -11907,7 +12025,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                 "terminal": {
                   "$type": "CrossReference",
                   "type": {
-                    "$ref": "#/types@3"
+                    "$ref": "#/types@4"
                   },
                   "terminal": {
                     "$type": "RuleCall",
@@ -15197,6 +15315,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "own"
+          },
+          {
+            "$type": "Keyword",
             "value": "ownTable"
           },
           {
@@ -16086,7 +16208,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "terminal": {
               "$type": "CrossReference",
               "type": {
-                "$ref": "#/types@4"
+                "$ref": "#/types@5"
               },
               "terminal": {
                 "$type": "RuleCall",
@@ -16119,7 +16241,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
         "terminal": {
           "$type": "CrossReference",
           "type": {
-            "$ref": "#/types@4"
+            "$ref": "#/types@5"
           },
           "terminal": {
             "$type": "RuleCall",
@@ -19981,6 +20103,25 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             }
           },
           {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "forWrite",
+                "operator": "?=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "for"
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "write"
+              }
+            ],
+            "cardinality": "?"
+          },
+          {
             "$type": "Keyword",
             "value": "as"
           },
@@ -21112,6 +21253,27 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
     }
   ],
   "types": [
+    {
+      "$type": "Type",
+      "name": "MigrationStepOwner",
+      "type": {
+        "$type": "UnionType",
+        "types": [
+          {
+            "$type": "SimpleType",
+            "typeRef": {
+              "$ref": "#/rules@102"
+            }
+          },
+          {
+            "$type": "SimpleType",
+            "typeRef": {
+              "$ref": "#/rules@98"
+            }
+          }
+        ]
+      }
+    },
     {
       "$type": "Type",
       "name": "ResourceTarget",

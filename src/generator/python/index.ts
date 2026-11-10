@@ -1,11 +1,13 @@
 import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import {
+  aggregateRouteTypes,
   fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
   type WireRejectionClass,
   wireCode,
   wireFixedDetail,
+  wireParams,
   wireSentence,
   wireStatus,
   wireTitle,
@@ -51,7 +53,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
@@ -87,6 +89,7 @@ import {
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -503,7 +506,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       out,
       oidc,
       args.sys.tenancy?.claimField,
-      systemReadsOrgContext(args.sys),
+      orgContextPlan(args.sys, args.deployable.contextNames),
+      registryTableSql(args.sys),
     );
   // First-boot seeding (database-seeding.md): emitted only when a
   // dataset survives filtering (rows on concrete aggregates); the
@@ -748,6 +752,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       hasDomainFloorMessages(merged),
       // An unfilled `extern` operation hook answers 501.
       hasExternOperation(merged),
+      aggregateRouteTypes(args.contexts),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1914,7 +1919,7 @@ function collectOpUnions(
     const entries: { path: string; method: string; type: TypeIR }[] = [];
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+      if (r?.type.kind === "union" && commandCreateEntryResult(wf)) {
         entries.push({
           path: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
           method: "post",
@@ -1927,7 +1932,7 @@ function collectOpUnions(
       const h =
         (ctx.commandHandlers ?? []).find((x) => x.name === r.target.handler) ??
         (ctx.queryHandlers ?? []).find((x) => x.name === r.target.handler);
-      if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h, ctx)) continue;
+      if (!h || h.extern || h.returnType?.kind !== "union" || !entryResult(h)) continue;
       entries.push({
         path: explicitRoutePath(r),
         method: r.method.toLowerCase(),
@@ -2002,11 +2007,19 @@ function renderProblemPy(
   /** True when an `extern` operation exists — the module then carries the 501
    *  handler for its unfilled hook. */
   hasExtern = false,
+  /** The `[route segment, params.type]` pairs of the aggregates served here
+   *  (`aggregateRouteTypes`): a refusal answered on one's routes carries its
+   *  identity key. */
+  routeTypes: ReadonlyArray<readonly [string, string]> = [],
 ): string {
   // The 403 body is the constant `Forbidden` under every verifier: the failed
   // gate is DSL source, which stays in the `forbidden` log line only.
   const forbiddenDetail = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   const code = (cls: WireRejectionClass): string => JSON.stringify(wireCode(cls));
+  // A class whose body carries `params.type` (`wireParams`) reads the addressed
+  // aggregate off the request path (`_type_params`).
+  const typeArg = (cls: WireRejectionClass): string =>
+    wireParams(cls).includes("type") ? ", params=_type_params(request)" : "";
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
   // handler → ConcurrencyConflict, the DisallowedError (`when`-gate) handler →
@@ -2082,7 +2095,7 @@ function renderProblemPy(
             record_domain_fault("domain_error")
             return problem(
                 request, ${wireStatus("dangling-reference", structuralErrorStatuses)}, ${title("dangling-reference")}, ${JSON.stringify(wireFixedDetail("dangling-reference"))},
-                code=${code("dangling-reference")},
+                code=${code("dangling-reference")}${typeArg("dangling-reference")},
             )
 `
     : "";
@@ -2092,7 +2105,7 @@ function renderProblemPy(
             record_domain_fault("disallowed")
             return problem(
                 request, ${uniquenessStatus}, ${title("unique-conflict")}, ${JSON.stringify(wireFixedDetail("unique-conflict"))},
-                code=${code("unique-conflict")},
+                code=${code("unique-conflict")}${typeArg("unique-conflict")},
             )
 `
     : "";
@@ -2127,7 +2140,7 @@ ${danglingRefArm}${uniqueArm}        return await _internal(request, err)
         # ("<Aggregate> <id> was modified by another request") — that is the detail.
         log("warn", "conflict", message=str(err), status=${concurrencyStatus})
         record_domain_fault("conflict")
-        return problem(request, ${concurrencyStatus}, ${title("version-conflict")}, str(err), code=${code("version-conflict")})
+        return problem(request, ${concurrencyStatus}, ${title("version-conflict")}, str(err), code=${code("version-conflict")}${typeArg("version-conflict")})
 
 `
     : "";
@@ -2340,6 +2353,18 @@ def problem(
     )
 
 
+# The aggregate each \`/api/<segment>\` route serves: a refusal answered for one
+# carries its identity key as \`params.type\`.
+_AGGREGATE_TYPES: dict[str, str] = {${routeTypes.map(([seg, type]) => `\n    ${JSON.stringify(seg)}: ${JSON.stringify(type)},`).join("")}${routeTypes.length > 0 ? "\n" : ""}}
+
+
+def _type_params(request: Request) -> dict[str, object] | None:
+    segments = [s for s in request.url.path.split("/") if s]
+    at = 1 if segments and segments[0] == "api" else 0
+    agg_type = _AGGREGATE_TYPES.get(segments[at]) if len(segments) > at else None
+    return {"type": agg_type} if agg_type is not None else None
+
+
 # The JSON media types a body-carrying route reads — the predicate hono's
 # validator applies: \`application/json\`, \`application/<x>+json\`, with params.
 _JSON_MEDIA_TYPE = re.compile(
@@ -2519,7 +2544,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _disallowed(request: Request, err: DisallowedError) -> JSONResponse:
         log("warn", "disallowed", message=str(err), status=${disallowedStatus})
         record_domain_fault("disallowed")
-        return problem(request, ${disallowedStatus}, ${title("state-gate")}, str(err), code=${code("state-gate")})
+        return problem(request, ${disallowedStatus}, ${title("state-gate")}, str(err), code=${code("state-gate")}${typeArg("state-gate")})
 
 ${domainFloorEntryFn}    # Integer arithmetic past its declared range (RS-48): the domain floor's
     # status, its own class code and fixed detail, no errors[].  Starlette
@@ -2546,7 +2571,7 @@ ${voHandler}${externHandler}${integrityHandler}${versionedHandler}    @app.excep
     async def _not_found(request: Request, err: AggregateNotFoundError) -> JSONResponse:
         log("warn", "not_found", message=str(err), status=${notFoundStatus})
         record_domain_fault("not_found")
-        return problem(request, ${notFoundStatus}, ${title("not-found")}, str(err), code=${code("not-found")})
+        return problem(request, ${notFoundStatus}, ${title("not-found")}, str(err), code=${code("not-found")}${typeArg("not-found")})
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, err: RequestValidationError) -> JSONResponse:

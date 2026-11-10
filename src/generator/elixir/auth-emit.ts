@@ -9,10 +9,14 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import {
+  type OrgContextPlan,
+  orgContextPlan,
+  registryContextName,
+} from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { elixirString, snake } from "../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
@@ -27,6 +31,7 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { registryAncestorsSql, registryTableSql } from "../_persistence/registry-walk.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix LiveView auth scaffolding — emitted per deployable when
@@ -116,8 +121,9 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
       args.hasFieldMask ?? false,
       // The operating-scope switch gate (`organizationContext`) — only where
       // something reads the operating org.
-      systemReadsOrgContext(sys),
+      orgContextPlan(sys, deployable.contextNames),
       forwardCaller,
+      orgRegistryModules(sys, appModule),
     ),
   );
   files.set(`lib/${appName}_web/live_auth.ex`, renderLiveAuth(webModule, auth, forwardCaller));
@@ -139,6 +145,23 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   );
 
   return { files, enabled: true };
+}
+
+/** The modules and table the switch gate's registry reads use: the registry's
+ *  repository (its `find_by_id/2` applies the registry's read scope), the
+ *  Ecto repo, and the quoted registry table the ancestors walk reads. */
+function orgRegistryModules(
+  sys: AuthEmitArgs["sys"],
+  appModule: string,
+): { repository: string; repo: string; table: string } | undefined {
+  const ctxName = registryContextName(sys);
+  const table = registryTableSql(sys);
+  if (!ctxName || !table || !sys.tenancy) return undefined;
+  return {
+    repository: `${appModule}.${upperFirst(ctxName)}.${upperFirst(sys.tenancy.registryName)}Repository`,
+    repo: `${appModule}.Repo`,
+    table,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,8 +192,9 @@ function renderAuthPlug(
   auth: AuthIR | undefined,
   tenantClaim?: string,
   hasFieldMask = false,
-  readsOrgContext = false,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
   forwardCaller = false,
+  registryModules?: { repository: string; repo: string; table: string },
 ): string {
   const buildUserBody = renderBuildUser(user, auth);
   const idKey = actorIdKey(user);
@@ -183,7 +207,12 @@ function renderAuthPlug(
   // a missing key.  Only the API `call/2` path can then SWITCH it, through the
   // fail-closed `x-org-context` gate.  Without the gate the principal is
   // exactly the declared claims.
-  const orgContext = !!tenantKey && readsOrgContext;
+  const orgContext = !!tenantKey && plan.gate;
+  // On the deployable that hosts the registry, a requested org other than the
+  // home org is admitted when the caller can read that registry row through
+  // the registry's read scope; elsewhere only the home org is.
+  const host = orgContext && !!plan.registry && !!registryModules;
+  const ancestors = host && plan.ancestors;
   const operatingOrgPipe = orgContext ? " |> put_operating_org()" : "";
   // The gate compares org IDS: the caller's home org is its tenancy claim.  A
   // request whose `x-org-context` names any other org, or any org at all when
@@ -198,22 +227,70 @@ function renderAuthPlug(
   # Seeds \`current_user.operating_org\` — the request's OPERATING org
   # (\`organizationContext.org\`) — with the caller's home org.  The API plug
   # may then switch it through \`org_context_gate/2\`.
-  defp put_operating_org(user), do: Map.put(user, :operating_org, home_org(user))
+  defp put_operating_org(user), do: in_org(user, home_org(user))
+
+  # This principal operating in \`org\`${ancestors ? " — with its ancestor set\n  # (`organizationContext.ancestors`), resolved once per principal" : ""}.
+  defp in_org(user, org)${
+    ancestors
+      ? `,
+    do: user |> Map.put(:operating_org, org) |> Map.put(:operating_ancestors, operating_ancestors_of(org))`
+      : ", do: Map.put(user, :operating_org, org)"
+  }
 
   # The fail-closed operating-scope switch gate: a requested \`${ORG_CONTEXT_HEADER}\`
-  # org is admitted only when it is the caller's home org.
+  # org is admitted when it is the caller's home org${
+    host ? ",\n  # or a registry row the caller can read through the registry's read scope" : ""
+  }.
   defp org_context_gate(user, [requested | _]) when is_binary(requested) and requested != "" do
     home = home_org(user)
 
     cond do
       home == "" -> {:error, requested, "no_principal_scope"}
-      requested == home -> {:ok, Map.put(user, :operating_org, requested)}
+      requested == home -> {:ok, user}${
+        host ? `\n      can_read_org?(user, requested) -> {:ok, in_org(user, requested)}` : ""
+      }
       true -> {:error, requested, "outside_scope"}
     end
   end
 
   defp org_context_gate(user, _), do: {:ok, user}
+${
+  host
+    ? `
+  # True when \`user\` (the HOME principal) can read the registry row \`org\`
+  # through the registry's read scope.  A value that is not a uuid names no row.
+  defp can_read_org?(user, org) do
+    case Ecto.UUID.cast(org) do
+      {:ok, id} -> match?({:ok, _}, ${registryModules!.repository}.find_by_id(id, user))
+      :error -> false
+    end
+  end
+`
+    : ""
+}${
+  ancestors
+    ? `
+  # \`organizationContext.ancestors\` for \`org\`: the org and every org above it,
+  # walked over \`parent\` with \`UNION\` so a cycle terminates.
+  defp operating_ancestors_of(org) do
+    case Ecto.UUID.dump(org) do
+      {:ok, raw} ->
+        %{rows: rows} =
+          Ecto.Adapters.SQL.query!(
+            ${registryModules!.repo},
+            ${elixirString(registryAncestorsSql(registryModules!.table, "$1"))},
+            [raw]
+          )
 
+        Enum.map(rows, fn [id] -> Ecto.UUID.load!(id) end)
+
+      :error ->
+        []
+    end
+  end
+`
+    : ""
+}
   # RFC 7807 403 for a refused operating-scope switch — sent + halted before
   # the principal is assigned, so no controller runs and nothing is written.
   defp send_org_context_forbidden(conn, requested, reason) do
@@ -562,7 +639,7 @@ ${verifierSection}
 
   defp build_user(claims) do
 ${buildUserBody}  end
-${mergeDevClaimsDef}${orgContextDef}${renderElixirSystemPrincipal(user, tenantClaim, orgContext)}end
+${mergeDevClaimsDef}${orgContextDef}${renderElixirSystemPrincipal(user, tenantClaim, orgContext, ancestors)}end
 `;
 }
 
@@ -882,6 +959,7 @@ function renderElixirSystemPrincipal(
   user: UserIR | undefined,
   tenantClaim: string | undefined,
   orgContext: boolean,
+  ancestors = false,
 ): string {
   if (!user) return "";
   const idKey = actorIdKey(user);
@@ -902,10 +980,12 @@ function renderElixirSystemPrincipal(
       : `      ${k}: if(tenant in [nil, ""], do: ${empty}, else: ${rebuilt}),`;
   });
   // The system principal's operating org is its event tenant.
+  // A reactor reading the ancestors is refused at phase ⑦
+  // (`loom.org-context-ancestors-in-reactor`): the system principal has none.
   const operatingOrg =
     tenantKey && orgContext
       ? `
-    |> Map.put(:operating_org, tenant || "")`
+    |> Map.put(:operating_org, tenant || "")${ancestors ? "\n    |> Map.put(:operating_ancestors, [])" : ""}`
       : "";
   // `tenant` is bound only where something reads it: unbound otherwise, it is
   // an unused-variable warning that `--warnings-as-errors` rejects.
@@ -925,7 +1005,13 @@ function renderElixirSystemPrincipal(
 
       user ->
         %{
-          "tenant" => ${tenantKey ? `blank_to_nil(origin_claim(user, :${tenantKey}))` : "nil"},
+          "tenant" => ${
+            tenantKey && orgContext
+              ? "blank_to_nil(origin_claim(user, :operating_org))"
+              : tenantKey
+                ? `blank_to_nil(origin_claim(user, :${tenantKey}))`
+                : "nil"
+          },
           "causedBy" =>
             if(origin_claim(user, :is_system) == true,
               do: origin_claim(user, :caused_by),

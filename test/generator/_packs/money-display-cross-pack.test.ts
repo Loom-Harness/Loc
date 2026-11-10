@@ -89,9 +89,14 @@ describe("money display — cross-pack contract", () => {
       });
 
       it('fabricates no currency — no "USD", no style: "currency"', () => {
-        expect(rendered).not.toContain("USD");
-        expect(rendered).not.toContain('style: "currency"');
-        expect(rendered).not.toContain("style: 'currency'");
+        // The pack's OWN text: the shared `moneyText` source legitimately
+        // carries `style: "currency"` for the opt-in locale mode, driven only by
+        // the currency code the caller passed (pinned behaviourally in
+        // `_frontend/money-format.test.ts`).
+        const packOwned = rendered.replace(MONEY_TEXT_SOURCE, "");
+        expect(packOwned).not.toContain("USD");
+        expect(packOwned).not.toContain('style: "currency"');
+        expect(packOwned).not.toContain("style: 'currency'");
       });
 
       it("puts no Number() float hop on the money path", () => {

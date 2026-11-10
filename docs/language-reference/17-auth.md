@@ -147,7 +147,7 @@ end
 ```
 ::: end
 
-> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads `organizationContext.org` also gets one server-side member, `operatingOrg` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
+> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads the operating scope (every `tenantOwned` floor does) also gets the server-side members `operatingOrg` and, where `organizationContext.ancestors` is read, `operatingAncestors` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
 
 ## `auth: required` — per-deployable middleware + verifier seam
 
@@ -482,7 +482,7 @@ if (!(currentUser.role === "agent" || (currentUser.permissions).includes("suppor
 
 ## `policy { … }` — the `local` floor and `deny`
 
-The **block** form of `policy` is a context member that sets per-aggregate access on top of the tenant floor `with tenantOwned` installs. `allow` carries a `ReadLevel`, and the one level is `local` — the caller's own org, `tenantId == currentUser.<claim>`, which is also **the default** for an aggregate no rule names; the optional `write` verb selects the write access. `deny` is the all-or-nothing carve-out and **wins** over any `allow`.
+The **block** form of `policy` is a context member that sets per-aggregate access on top of the tenant floor `with tenantOwned` installs. `allow` carries a `ReadLevel`: `local` — the caller's own org, `tenantId == currentUser.<claim>`, which is also **the default** for an aggregate no rule names — or `own` (see [Row rules, `when` and `own`](#row-rules-when-and-own)); the optional `write` verb selects the write access. `deny` is the all-or-nothing carve-out and **wins** over any `allow`.
 
 ```ddd
 policy {
@@ -539,11 +539,96 @@ out.append(with_loader_criteria(TicketRow, (TicketRow.tenant_id == user.tenant_i
 | --- | --- |
 | Target names no aggregate in this context | `loom.policy-unknown-aggregate` / `loom.policy-deny-unknown-aggregate` |
 | Target is not `with tenantOwned` (a level refines the tenant floor) | `loom.policy-target-not-tenant-owned` |
-| Two rules select a level for the same aggregate / access | `loom.policy-duplicate-target` / `loom.policy-deny-duplicate` |
+| Two rules select a level for the same aggregate / access / `when` | `loom.policy-duplicate-target` / `loom.policy-deny-duplicate` |
 | `allow [write] deep` / `allow [write] global` | `loom.policy-level-removed` |
 | A `deny` that shadows an `allow` for the same aggregate (the allow is dead) | `loom.policy-deny-shadows-allow` |
 
 Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy.md`](../tenancy.md) and [`../auth.md`](../auth.md#deny-carve-outs).
+
+### Row rules, `when` and `own`
+
+Visibility composes per aggregate and per access as `(default ∨ row rule₁ ∨ …) ∧ ¬deny` (D-SHARING):
+
+- `allow <level> on X when <cond>` replaces the `local` default for the callers `<cond>` admits. `<cond>` reads the caller only (`currentUser` claims compared with `==` / `!=`, combined with `&&` / `||` / `!`). Callers no `when` admits keep `local`.
+- `own` is `local` AND `createdBy == currentUser.id`; the aggregate needs `with auditable`.
+- `allow [read|write] on X as x where <predicate>` adds the rows the predicate admits. `x` is the row; the predicate is compiled into the query, so it uses field comparisons, `exists <Aggregate> as s where …` and policy functions — which take the row's aggregate or an `X id` and are inlined.
+- A read rule never widens the write scope: a mutation loads its row through the read scope AND the write scope.
+- `organizationContext.ancestors.contains(<column>)` tests a row column (`x.<field>`, or an `exists` row's `s.<field>`) against the operating org and every org above it — `<column> = ANY(<lineage>)` in the query, the lineage bound from the request. A row opened to an org this way opens to its whole subtree, and an org moved under it sees the row on its next request. A value argument stays in operation bodies; the membership is not available in a `find` / retrieval `where`.
+
+```ddd
+policy GranteeIsMe(s: CategoryShare): bool = s.grantee == currentUser.tenantId
+policy SharedWithMe(c: Category id): bool =
+  exists CategoryShare as s where s.category == c && GranteeIsMe(s)
+
+policy {
+  allow read on CategoryShare as s where GranteeIsMe(s)
+  allow write on Category as c where exists CategoryShare as s where s.category == c.id && s.grantee == currentUser.tenantId && s.write
+  allow on Product as p where SharedWithMe(p.category)
+  allow local on Note when currentUser.role == "manager"
+  allow own on Note when currentUser.role == "clerk"
+}
+```
+
+::: tabs backend
+== dotnet
+```csharp
+// Infrastructure/Persistence/AppDbContext.cs
+modelBuilder.Entity<Product>().HasQueryFilter("TenantIdFilter", x => (x.TenantId == _currentUser.User.TenantId) || (this.Set<CategoryShare>().Any(q_s => q_s.Category == x.Category && q_s.Grantee == _currentUser.User.TenantId)));
+modelBuilder.Entity<Note>().HasQueryFilter("Filter1", x => ((_currentUser.User.Role == "manager") && (x.TenantId == _currentUser.User.TenantId)) || ((_currentUser.User.Role == "clerk") && ((x.TenantId == _currentUser.User.TenantId) && (x.CreatedBy == _currentUser.User.Id))) || ((_currentUser.User.Role != "manager") && (_currentUser.User.Role != "clerk") && (x.TenantId == _currentUser.User.TenantId)));
+```
+```csharp
+// Infrastructure/Repositories/CategoryRepository.cs — the write scope every mutation loads through
+var inScope = await _db.Categories.AnyAsync(x => x.Id == id && ((x.TenantId == RequestContext.Current!.CurrentUser!.TenantId) || (_db.Set<CategoryShare>().Any(q_s => q_s.Category == x.Id && q_s.Grantee == RequestContext.Current!.CurrentUser!.TenantId && q_s.Write))), cancellationToken);
+```
+::: end
+
+```ddd
+policy InLineage(o: Org id): bool = organizationContext.ancestors.contains(o)
+policy {
+  allow read on Memo as m where InLineage(m.reader)   // m.reader's org and every org below it
+}
+```
+
+::: tabs backend
+== node
+```ts
+// db/read-scopes.ts
+or(eq(schema.memos.tenantId, requireCurrentUser().operatingOrg), inArray(schema.memos.reader, requireCurrentUser().operatingAncestors))
+```
+== python
+```python
+# app/db/read_scope.py
+or_((MemoRow.tenant_id == user.operating_org), MemoRow.reader.in_(user.operating_ancestors))
+```
+== dotnet
+```csharp
+// EF Core: Infrastructure/Persistence/AppDbContext.cs
+x => (x.TenantId == _currentUser.User.OperatingOrg) || ((_currentUser.User.OperatingAncestors).Contains(x.Reader))
+// Dapper: the lineage binds as one uuid array
+"(reader = ANY(@__cu_operatingAncestors))"
+```
+== java
+```java
+// Memo.java — the lineage binds as one comma-joined Hibernate filter parameter
+@Filter(name = "Memo_tenantOwned", condition = "((tenant_id = :__cuOperatingOrg) or (text(reader) = any(string_to_array(:__cuCsvOperatingAncestors, ','))))")
+```
+== elixir
+```elixir
+# lib/<app>/books/memo.ex
+Ecto.Query.where(query, [record], (record.tenant_id == ^(current_user && current_user.operating_org)) or (record.reader in ^((current_user && current_user.operating_ancestors) || [])))
+```
+::: end
+
+| Situation | Diagnostic |
+| --- | --- |
+| A `where` that is not a query predicate, or never reads the row | `loom.policy-row-not-queryable` |
+| A `when` that reads the row or is not a claim comparison | `loom.policy-when-not-caller-only` |
+| `own` on an aggregate with no `createdBy` | `loom.policy-own-no-creator` |
+| A composing rule on an aggregate in an inheritance hierarchy | `loom.policy-scope-inheritance-unsupported` |
+| Read scopes that reach each other through `exists` | `loom.policy-row-cycle` |
+| A row-rule verb other than `read` / `write` | `loom.policy-unknown-rule` |
+
+Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--block--levels-row-rules-and-deny).
 
 ### `read` — who may read an aggregate
 

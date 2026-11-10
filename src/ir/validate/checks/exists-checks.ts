@@ -1,24 +1,34 @@
 // `exists <Agg> as <row> where …` — the existential quantifier (#3346).
 //
 //   loom.exists-outside-query         the quantifier sits in a position that is
-//                                     not compiled into a query (an operation
-//                                     body, a `requires` gate, a derived, a
-//                                     page …); `#projection` for a projection
-//                                     `where`, which has its own renderers
+//                                     neither compiled into a query nor an
+//                                     in-app gate (an operation body, a
+//                                     `precondition`, a derived, a page …);
+//                                     `#projection` for a projection `where`,
+//                                     which has its own renderers
+//   #guarded-call                     an in-app body (a command handler, a
+//                                     workflow step) calls an operation whose
+//                                     gate reads a repository: only the
+//                                     operation's own handler can evaluate it
 //   loom.exists-cross-context         the quantified aggregate is not declared in
 //                                     the enclosing context (an EXISTS reads the
 //                                     same database as the row it filters)
 //   loom.exists-unsupported#self      the quantified aggregate IS the filtered
-//                                     row's aggregate
+//                                     row's aggregate (a query position only:
+//                                     an in-app read is its own query)
 //   loom.exists-unsupported#storage   either side is not a plain relational state
 //                                     table (event-sourced, document/embedded
 //                                     shape, an inheritance hierarchy)
 //
-// Every backend renders the quantifier as a correlated `EXISTS (SELECT 1 FROM
-// <table> WHERE …)` subquery, so it is a QUERY predicate: the sites below are the
-// ones a backend compiles into SQL.  A criterion body is admitted because a
-// criterion is inlined at its use site, and that use site is checked here too —
-// the same criterion inlined into an operation `when` guard is refused there.
+// In a query position every backend renders the quantifier as a correlated
+// `EXISTS (SELECT 1 FROM <table> WHERE …)` subquery: the QUERY_SITES below are
+// the ones a backend compiles into SQL.  A criterion body is admitted because a
+// criterion is inlined at its use site, and that use site is checked here too.
+// The other admitted positions are the in-app gates of a create, operation or
+// destroy — its `requires` statements and its `when` — where enrichment gives
+// the node a synthesized repository read (`read`, `exists-reads.ts`); a node
+// there that has none could not be lifted into one, and is refused like any
+// other position.
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type {
@@ -26,10 +36,12 @@ import type {
   BoundedContextIR,
   EnrichedLoomModel,
   ExprIR,
+  WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { inAppExists } from "../../util/in-app-exists.js";
 import { forEachModelExpr } from "../../util/model-exprs.js";
-import { walkExprDeep } from "../../util/walk.js";
+import { walkExprDeep, walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 type ExistsIR = Extract<ExprIR, { kind: "exists" }>;
@@ -38,6 +50,8 @@ type ExistsIR = Extract<ExprIR, { kind: "exists" }>;
 const QUERY_SITES: ReadonlySet<string> = new Set([
   "AggregateIR.contextFilters",
   "AggregateIR.contextFilterRefs",
+  "AggregateIR.writeScopeFilter",
+  "PolicyRowRuleIR.where",
   "CriterionIR.body",
   "FindIR.filter",
   "FindIR.criterionRef",
@@ -73,7 +87,7 @@ export function validateExistsQuantifiers(loom: EnrichedLoomModel, diags: LoomDi
   // 1. Position — every reachable expression, with the site it hangs off.
   forEachModelExpr(loom, ({ expr, source, site }) => {
     if (expr.kind !== "exists") return;
-    if (QUERY_SITES.has(site)) return;
+    if (QUERY_SITES.has(site) || expr.read) return;
     const projection = PROJECTION_SITES.has(site);
     diags.push({
       severity: "error",
@@ -87,7 +101,47 @@ export function validateExistsQuantifiers(loom: EnrichedLoomModel, diags: LoomDi
   });
 
   // 2. The quantified aggregate, against the context and the filtered row.
-  for (const ctx of allContexts(loom)) checkContext(ctx, diags);
+  for (const ctx of allContexts(loom)) {
+    checkContext(ctx, diags);
+    checkGuardedCalls(ctx, diags);
+  }
+}
+
+/** An operation whose `requires` or `when` holds an in-app `exists` is gated
+ *  by its HTTP handler, which reads the quantified repository; the aggregate
+ *  method itself has no repository, so a call from another body would run the
+ *  operation ungated. */
+function checkGuardedCalls(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  const guarded = new Set<string>();
+  for (const agg of ctx.aggregates)
+    for (const op of agg.operations)
+      if (inAppExists(op).some((x) => x.read)) guarded.add(`${agg.name}.${op.name}`);
+  if (guarded.size === 0) return;
+  const bodies: [string, readonly WorkflowStmtIR[]][] = [
+    ...(ctx.commandHandlers ?? []).map((h): [string, WorkflowStmtIR[]] => [h.name, h.statements]),
+    ...(ctx.workflows ?? []).flatMap((wf): [string, WorkflowStmtIR[]][] => [
+      [wf.name, wf.statements],
+      ...wf.creates.map((c): [string, WorkflowStmtIR[]] => [wf.name, c.statements]),
+      ...wf.subscriptions.map((o): [string, WorkflowStmtIR[]] => [wf.name, o.statements]),
+    ]),
+  ];
+  for (const [owner, statements] of bodies) {
+    for (const top of statements) {
+      walkWorkflowStmtsDeep(top, (s) => {
+        if (s.kind !== "op-call" || !guarded.has(`${s.aggName}.${s.op}`)) return;
+        const source = `${ctx.name}/${owner}`;
+        diags.push({
+          severity: "error",
+          code: "loom.exists-outside-query",
+          message: diagMessage("loom.exists-outside-query#guarded-call", {
+            op: `${s.aggName}.${s.op}`,
+            source,
+          }),
+          source,
+        });
+      });
+    }
+  }
 }
 
 function checkContext(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
@@ -144,6 +198,13 @@ function checkContext(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   };
   for (const agg of ctx.aggregates) {
     for (const f of agg.contextFilters ?? []) check(f, agg, `${ctx.name}/${agg.name}`);
+    check(agg.writeScopeFilter, agg, `${ctx.name}/${agg.name}`);
+    // In-app gates: no enclosing row, so only the quantified side is checked.
+    for (const op of [...agg.creates, ...agg.operations, ...agg.destroys]) {
+      const source = `${ctx.name}/${agg.name}.${op.name}`;
+      check(op.when, undefined, source);
+      for (const s of op.statements) if (s.kind === "requires") check(s.expr, undefined, source);
+    }
   }
   const hostOf = (t: { kind: string; name?: string }): AggregateIR | undefined =>
     t.kind === "entity" && t.name ? byName.get(t.name) : undefined;

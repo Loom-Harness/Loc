@@ -72,7 +72,7 @@ describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
     // Params carried through from the criterion, candidate is the aggregate,
     // and the criterionRef keeps reifying backends calling the predicate fn.
     expect(ret?.params.map((p) => p.name)).toEqual(["rgn"]);
-    expect(ret?.targetType).toEqual({ kind: "entity", name: "Order" });
+    expect(ret?.targetType).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
     expect(ret?.criterionRef?.name).toBe("InRegion");
     expect(ret?.criterionRef?.args.map((a) => (a.kind === "ref" ? a.name : "?"))).toEqual(["rgn"]);
   });

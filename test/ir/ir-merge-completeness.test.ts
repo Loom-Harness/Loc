@@ -69,6 +69,7 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   // note.
   policyReadLevels: "consumed by enrichment before the merge; no post-merge reader",
   policyWriteLevels: "consumed by enrichment before the merge; no post-merge reader",
+  policyRowRules: "consumed by enrichment before the merge; no post-merge reader",
   policyDenies: "consumed by enrichment before the merge; no post-merge reader",
   policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
 };
@@ -223,7 +224,13 @@ describe("mergeLoomModels accounts for every LoomModel field", () => {
     // the exact failure `migration-evolution-e2e` exists to catch, but only on
     // the multi-file shape it does not currently exercise.
     const carried = new Set(modelCarriedFields());
-    for (const f of ["renameIntents", "tableRenameIntents", "backfillIntents", "sqlMigrationSteps"])
+    for (const f of [
+      "renameIntents",
+      "tableRenameIntents",
+      "backfillIntents",
+      "sqlMigrationSteps",
+      "enumValueRenameIntents",
+    ])
       expect(carried.has(f), `mergeLoomModels drops ${f}`).toBe(true);
   });
 });

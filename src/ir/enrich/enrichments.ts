@@ -81,6 +81,7 @@ import {
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { applyExistsDerivations } from "./exists-reads.js";
 import { foldTenancyVerdict } from "./fold-tenancy.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
@@ -92,6 +93,7 @@ import {
   fieldRedactedInInspect,
 } from "./mask-taint.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
+import { applyPolicyScopes } from "./policy-scopes.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -153,6 +155,8 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     tableRenameIntents: loom.tableRenameIntents,
     backfillIntents: loom.backfillIntents,
     sqlMigrationSteps: loom.sqlMigrationSteps,
+    enumValueRenameIntents: loom.enumValueRenameIntents,
+    ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;
 }
@@ -279,13 +283,19 @@ function enrichSystem(
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
     .map((m) => applyFoldTenancy(m, sys))
+    // Level rules (`own`, `when`) and row rules compose each aggregate's read
+    // and write scope (`policy-scopes.ts`); deny then ANDs on top, so it wins.
+    .map((m) => applyPolicyScopes(m, sys))
     .map((m) => applyPolicyDenies(m))
     // The bundled dev Keycloak's demo tenant gets a first-boot registry row
     // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
     .map((m) => applyDemoTenantSeed(m, sys))
     // M-T3.19: under denyByDefault the undeclared list / by-id reads of a
     // context served by an `auth: required` backend fail closed (403).
-    .map((m) => applyDefaultDenyReads(m, sys));
+    .map((m) => applyDefaultDenyReads(m, sys))
+    // `exists … for write` takes the write scope composed above, and an
+    // in-app `exists` its synthesized repository read (`exists-reads.ts`).
+    .map((m) => applyExistsDerivations(m));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.
@@ -588,7 +598,10 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
               contextFilterOrigins: [...next.contextFilterOrigins, undefined],
             };
           }
-          if (writeHit) {
+          // A denied read denies writes too.  The read term above already does
+          // that wherever the command load reuses the read scope; an explicit
+          // write scope (a policy rule's) must say it itself.
+          if (writeHit || (readHit && next.writeScopeFilter !== undefined)) {
             // The carve-out is the aggregate's whole write scope.
             next = { ...next, writeScopeFilter: buildDenyFilter(agg) };
           }
@@ -1369,7 +1382,7 @@ export function computeWorkflowReturnType(wf: WorkflowIR): TypeIR | undefined {
 function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
   switch (stmt.kind) {
     case "factory-let":
-      return { kind: "entity", name: stmt.aggName };
+      return { kind: "entity", name: stmt.aggName, declKind: "aggregate" };
     case "repo-let":
       // The `{:ok, name} <-` clause unwraps the loaded aggregate; strip any
       // declared `optional` so the success arm is the non-nil value.
@@ -2051,8 +2064,12 @@ function ensureFindAll(
         name: "all",
         params: [],
         returnType: paged
-          ? { kind: "genericInstance", ctor: "paged", arg: { kind: "entity", name: agg.name } }
-          : { kind: "array", element: { kind: "entity", name: agg.name } },
+          ? {
+              kind: "genericInstance",
+              ctor: "paged",
+              arg: { kind: "entity", name: agg.name, declKind: "aggregate" },
+            }
+          : { kind: "array", element: { kind: "entity", name: agg.name, declKind: "aggregate" } },
       };
       repo.finds = [all, ...repo.finds];
     }

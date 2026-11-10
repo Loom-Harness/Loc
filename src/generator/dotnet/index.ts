@@ -3,6 +3,7 @@ import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
+import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -51,6 +52,7 @@ import {
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
@@ -60,6 +62,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 
 /** True when some aggregate declares an `extern` operation or the context
  *  declares an `extern` command/query handler — the seams whose scaffold-once
@@ -240,6 +243,7 @@ import { rewriteNamespacesForLayout } from "./layout-namespaces.js";
 import { emitProjectionDispatch, emitProjectionReads } from "./projection-emit.js";
 import { emitProjectionRowPersistence } from "./projection-state-emit.js";
 import { emitQueryProjections } from "./query-projection-emit.js";
+import { collectCsExprUsings } from "./render-expr.js";
 import { dotnetSchemaIdOverrides, valueObjectSchemaMerges } from "./schema-ids.js";
 import { emitRetrievalSpecs, renderPagingExtension } from "./spec-emit.js";
 import { hasAnyWireValidator, renderValidationBehavior } from "./validator-emit.js";
@@ -707,7 +711,14 @@ function emitProjectFromContexts(
   // the auditable interceptor can rely on ICurrentUserAccessor.
   const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   if (authRequired) {
-    emitAuthFiles(system.sys, ns, out);
+    emitAuthFiles(
+      system.sys,
+      ns,
+      out,
+      orgContextPlan(system.sys, system.deployable.contextNames),
+      registryTableSql(system.sys),
+      system.deployable.persistence === "dapper",
+    );
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor
@@ -1007,6 +1018,7 @@ function emitProjectFromContexts(
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
+      aggregateRouteTypes: aggregateRouteTypes(contexts),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
@@ -1546,6 +1558,9 @@ function emitAggregate(
   // predicates contribute the same way.
   const repoImplUsings = collectFindBodyUsings(repoWithViews, new Set<string>(), ns);
   collectRetrievalBodyUsings(aggRetrievals, repoImplUsings, ns);
+  // The command load renders the write scope too (`GetByIdForWriteAsync`), and
+  // an `exists` there names the quantified aggregate's type.
+  if (agg.writeScopeFilter) collectCsExprUsings(agg.writeScopeFilter, repoImplUsings, ns);
   // A retrieval/find whose `where` is a reified criterion consumes its
   // `Criterion` class's `ToExpression` → needs Domain.Criteria.
   const consumesCriterion =
@@ -2135,7 +2150,7 @@ function mergeViewsAsFinds(
   if (matchingQp.length === 0) return repo;
   const arrayReturn: import("../../ir/types/loom-ir.js").TypeIR = {
     kind: "array",
-    element: { kind: "entity", name: agg.name },
+    element: { kind: "entity", name: agg.name, declKind: "aggregate" },
   };
   const synthesised = [
     ...matchingQp.map((p) => ({

@@ -471,7 +471,7 @@ describe("dotnet renderCsExpr — A4 collection transformation ops", () => {
       kind: "member",
       receiver: { kind: "ref", name: "x", refKind: "lambda" },
       member,
-      receiverType: { kind: "entity", name: "Line" },
+      receiverType: { kind: "entity", name: "Line", declKind: "part" },
       memberType,
     },
   });
@@ -767,7 +767,7 @@ describe("dotnet renderCsType — generic carriers (P3b)", () => {
     const t: TypeIR = {
       kind: "genericInstance",
       ctor: "paged",
-      arg: { kind: "entity", name: "Order" },
+      arg: { kind: "entity", name: "Order", declKind: "aggregate" },
     };
     expect(renderCsType(t)).toBe("Paged<Order>");
   });
@@ -790,15 +790,15 @@ describe("dotnet renderCsExpr — variant-match with an `error` variant", () => 
   const union = (a: string, b: string): TypeIR => ({
     kind: "union",
     variants: [
-      { kind: "entity", name: a },
-      { kind: "entity", name: b },
+      { kind: "entity", name: a, declKind: "aggregate" },
+      { kind: "entity", name: b, declKind: "aggregate" },
     ],
   });
   const readOf = (binding: string, member: string): ExprOf<"member"> => ({
     kind: "member",
     receiver: { kind: "ref", name: binding, refKind: "match-binding" },
     member,
-    receiverType: { kind: "entity", name: "X" },
+    receiverType: { kind: "entity", name: "X", declKind: "aggregate" },
     memberType: STRING,
   });
 
@@ -808,9 +808,13 @@ describe("dotnet renderCsExpr — variant-match with an `error` variant", () => 
     subject: { kind: "ref", name: "r", refKind: "let" },
     subjectType: union("Hit", "NotFound"),
     variantArms: [
-      { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
       {
-        varType: { kind: "entity", name: "NotFound" },
+        varType: { kind: "entity", name: "Hit", declKind: "payload" },
+        binding: "h",
+        value: readOf("h", "code"),
+      },
+      {
+        varType: { kind: "entity", name: "NotFound", declKind: "error" },
         binding: "n",
         isError: true,
         value: readOf("n", "resource"),
@@ -832,8 +836,16 @@ describe("dotnet renderCsExpr — variant-match with an `error` variant", () => 
     const twoSuccesses: ExprIR = {
       ...oneSuccessOneError,
       variantArms: [
-        { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
-        { varType: { kind: "entity", name: "Miss" }, binding: "m", value: readOf("m", "reason") },
+        {
+          varType: { kind: "entity", name: "Hit", declKind: "payload" },
+          binding: "h",
+          value: readOf("h", "code"),
+        },
+        {
+          varType: { kind: "entity", name: "Miss", declKind: "payload" },
+          binding: "m",
+          value: readOf("m", "reason"),
+        },
       ],
       subjectType: union("Hit", "Miss"),
     };

@@ -1,3 +1,4 @@
+import { WIRE_REJECTION_CLASSES, wireParams } from "../../../ir/enrich/wire-policy.js";
 // ---------------------------------------------------------------------------
 // Vanilla ProblemDetails — `lib/<app>_web/problem_details.ex`.
 // vanilla-foundation-tdd-plan.md (exception-less alignment).
@@ -85,8 +86,23 @@ export function renderVanillaProblemDetailsModule(
    *  no `errors[]` — not the request changeset's "Validation failed".
    *  `undefined` ⇒ byte-identical. */
   opInvariants?: { status: number; title: string },
+  /** The `[route segment, params.type]` pairs of the aggregates served here
+   *  (`aggregateRouteTypes`): a refusal answered on one's routes carries its
+   *  identity key. */
+  routeTypes: readonly (readonly [string, string])[] = [],
+  /** The `[constraint name, params.type]` pairs (`constraintTypeEntries`) a
+   *  LiveView reads the aggregate of a persistence refusal off. */
+  constraintTypes: readonly (readonly [string, string])[] = [],
 ): string {
   const conflict409 = exRejectionAt("version-conflict", concurrencyStatus);
+  // The codes whose body carries `params.type` (`wireParams`), and the
+  // segment → identity-key table the request path is read against.
+  const typedCodes = WIRE_REJECTION_CLASSES.filter((cls) => wireParams(cls).includes("type"))
+    .map(exCode)
+    .join(", ");
+  const aggregateTypes = routeTypes
+    .map(([seg, type]) => `${exLit(seg)} => ${exLit(type)}`)
+    .join(", ");
   const unique409 = exRejectionAt("unique-conflict", uniquenessStatus);
   const notFound404 = exRejectionAt("not-found", notFoundStatus);
   const invalid422 = exRejectionAt("field-invalid", 422);
@@ -144,14 +160,16 @@ export function renderVanillaProblemDetailsModule(
     ${renderPhoenixDomainFault("conflict")}
 
     body =
-      Jason.encode!(%{
+      %{
         type: "about:blank",
         title: ${exLit(conflict409.title)},
         status: ${concurrencyStatus},
         detail: detail,
         instance: conn.request_path,
         code: ${exCode("version-conflict")}
-      })
+      }
+      |> put_params(%{params: params_for(${exCode("version-conflict")}, conn, "")})
+      |> Jason.encode!()
 
     trace_id = conn |> get_resp_header("x-request-id") |> List.first("")
 
@@ -586,14 +604,41 @@ ${forbiddenBodyRedaction}
         instance: conn.request_path,
         code: code
       }
-      |> put_params(%{params: if(code == ${exCode("internal")}, do: %{requestId: trace_id}, else: %{})})
+      |> put_params(%{params: params_for(code, conn, trace_id)})
       |> Jason.encode!()
 
     conn
     |> put_resp_content_type("application/problem+json")
     |> put_resp_header("x-request-id", trace_id)
     |> send_resp(status, body)
-  end${conflictFn}
+  end
+
+  # The \`params\` a refusal's code carries: the request id of a 500 (the fault
+  # itself is never echoed), the addressed aggregate's identity key for a
+  # refusal that concerns one.
+  defp params_for(${exCode("internal")}, _conn, trace_id), do: %{requestId: trace_id}
+  defp params_for(code, conn, _trace_id) when code in [${typedCodes}], do: type_params(conn)
+  defp params_for(_code, _conn, _trace_id), do: %{}
+
+  # The aggregate each \`/api/<segment>\` route serves: a refusal answered for one
+  # carries its identity key as \`params.type\`.
+  @aggregate_types %{${aggregateTypes}}
+
+  defp type_params(conn) do
+    with ["api", segment | _] <- conn.path_info,
+         {:ok, type} <- Map.fetch(@aggregate_types, segment) do
+      %{type: type}
+    else
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  The identity key of the aggregate whose unique index or reference FK is
+  named \`name\` — what a LiveView reads the aggregate of a persistence refusal
+  off — or nil.
+  """
+${constraintTypes.map(([name, type]) => `  def constraint_type(${exLit(name)}), do: ${exLit(type)}\n`).join("")}  def constraint_type(_name), do: nil${conflictFn}
 
   # ---------------------------------------------------------------------------
   # Internal helpers — Ecto.Changeset error → RFC 6901 pointer + message.

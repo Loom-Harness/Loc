@@ -174,6 +174,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.tenancy-registry-remote-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/tenancy-checks.ts:437",
+    what:
+      "a backend deployable hosting a context that reads `organizationContext.ancestors` " +
+      "without hosting the registry's context.  The ancestors walk reads the registry's " +
+      "table, and no registry copy is generated for another deployable.",
+    mission: "#4956",
+  },
+  {
     code: "loom.api-call-principal-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/resource-capability-checks.ts:311",
@@ -213,13 +223,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.exists-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/exists-checks.ts:119",
+    site: "src/ir/validate/checks/exists-checks.ts:173",
     what:
-      "an `exists <Agg> as … where …` quantifier over the filtered row's own aggregate (a " +
-      "self-correlated EXISTS needs a second alias of the same table), or with an event-sourced, " +
-      "document/embedded or inheritance-hierarchy aggregate on either side (no plain relational " +
-      "state table to subquery) — on every backend alike",
-    mission: "#5010",
+      "an `exists <Agg> as … where …` query predicate over the filtered row's own aggregate (a " +
+      "self-correlated EXISTS needs a second alias of the same table), or an `exists` with an " +
+      "event-sourced, document/embedded or inheritance-hierarchy aggregate on either side (no " +
+      "plain relational state table to subquery or read) — on every backend alike",
+    mission: "#5163",
   },
   {
     code: "loom.projection-cross-context-source-unsupported",
@@ -295,7 +305,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:690",
+    site: "src/ir/validate/checks/target-capability-checks.ts:706",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +
@@ -331,8 +341,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "result projection on each of the seven frontend emitters); (2) `match await " +
       "<api>.<Agg>.all` — a collection READ, which has no command to await; (3) `match await " +
       "<state field>`.  (2) and (3) are nonsense the statement form could not otherwise " +
-      "refuse, because a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType` " +
-      "(catch-all `string`) and so cannot reach `loom.match-non-union-subject` — so the row " +
+      "refuse, because a `StmtIR.variant-match`'s `subjectType` is the typing pass's answer " +
+      "and so cannot reach `loom.match-non-union-subject` — so the row " +
       "will NOT reach zero by building; when the workflow subject lands, what is left is a " +
       "permanent refusal and the row re-classes `scope`.  Two shapes a reader might expect " +
       "here are NOT this row's: a dotted workflow (`<api>.<Workflow>.run(…)`) and a " +
@@ -763,7 +773,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:368",
+    site: "src/ir/validate/checks/query-checks.ts:389",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "#3370",
     verified: true,

@@ -35,7 +35,7 @@ describe("operation-call return typing (A2 prerequisite)", () => {
       kind: "union",
       variants: [
         { kind: "primitive", name: "string" },
-        { kind: "entity", name: "NotFound" },
+        { kind: "entity", name: "NotFound", declKind: "error" },
       ],
     });
   });

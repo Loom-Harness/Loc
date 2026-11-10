@@ -1,3 +1,4 @@
+import { MISSING_FILE_PART_DETAIL, wireStatus } from "../../ir/enrich/wire-policy.js";
 import { lines } from "../../util/code-builder.js";
 import { pyNotFoundRaise } from "./wire-policy-py.js";
 
@@ -39,7 +40,7 @@ export function renderPyFilesRoutes(fn: string, module: string): string {
     "",
     "from uuid import uuid4",
     "",
-    "from fastapi import APIRouter, Response, UploadFile",
+    "from fastapi import APIRouter, HTTPException, Response, UploadFile",
     "from fastapi.responses import JSONResponse",
     "",
     "from app.domain.errors import AggregateNotFoundError",
@@ -49,8 +50,12 @@ export function renderPyFilesRoutes(fn: string, module: string): string {
     "",
     "",
     '@router.post("")',
-    "async def upload_file(file: UploadFile) -> Response:",
+    "async def upload_file(file: UploadFile | None = None) -> Response:",
     '    """Multipart upload — store the raw bytes, return a FileRef."""',
+    // A request with no \`file\` part answers the framework-fault problem 400
+    // (the \`HTTPException\` handler), not FastAPI's field-level 422.
+    "    if file is None:",
+    `        raise HTTPException(status_code=${wireStatus("malformed-body")}, detail=${JSON.stringify(MISSING_FILE_PART_DETAIL)})`,
     "    key = str(uuid4())",
     "    body = await file.read()",
     '    content_type = file.content_type or "application/octet-stream"',

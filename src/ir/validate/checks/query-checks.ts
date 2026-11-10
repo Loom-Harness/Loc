@@ -10,6 +10,7 @@ import type {
   ExprIR,
   RefKind,
 } from "../../types/loom-ir.js";
+import { TENANT_OWNED_CAPABILITY } from "../../util/tenant-stance.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import {
   aggregateHasMember,
@@ -135,9 +136,13 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
   // (`currentUser.role == "agent"`, see `principalTerm`): it is the only
   // place a per-role row split can be written, and it covers the
   // synthesised by-id read that no `requires` can reach.
+  // The `tenantOwned` slot is compiler-built: the floor, or the composite of
+  // the floor and the context's policy rules, whose author-written parts are
+  // judged rule by rule (`policy-scope-checks.ts`).
   for (const agg of ctx.aggregates) {
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
-    for (const predicate of filters) {
+    for (const [i, predicate] of filters.entries()) {
+      if (agg.contextFilterOrigins?.[i] === TENANT_OWNED_CAPABILITY) continue;
       const offending = firstNonQueryablePredicate(predicate, {
         admitPrincipalTerms: true,
       });

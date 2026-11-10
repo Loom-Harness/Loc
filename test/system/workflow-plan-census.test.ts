@@ -25,13 +25,23 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   set-filter  a `.filter(...)` whose callback just reads `.eventSourced` or
 //               `.instanceWireShape` (bare, `!!`-wrapped or `!= null`).
 //               → use `eventSourcedWorkflows` / `observableWorkflows`.
+//   own-state   a callback handed to a `walk…Deep` walker that compares a
+//               `refKind` with both `"this-prop"` and `"this-derived"` — the
+//               hand-rolled "does this body read its own state" scan.
+//               → use `workflowBodyUsesOwnState` / `workflowBodyReadsOwnState`
+//               (`src/ir/util/workflow-own-state.ts`).
 //
-// SCOPE.  `src/generator/`, `src/platform/`, `src/system/`.  The plan itself
+//   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
+//               `.name` with a workflow's `.name` — the hand-spelled "this
+//               create returns the workflow itself" test.
+//               → use `isWorkflowSelfType` / `commandCreateReturnsSelf`.
+//
+// SCOPE.  `src/generator/`, `src/platform/`, `src/system/`, `src/ir/validate/`.  The plan itself
 // (`src/ir/plan/`) is the one place allowed to spell the predicates.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const SCANNED_ROOTS = ["src/generator", "src/platform", "src/system"];
+const SCANNED_ROOTS = ["src/generator", "src/platform", "src/system", "src/ir/validate"];
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -90,7 +100,7 @@ function isTruthinessRead(body: ts.Node, prop: string): boolean {
 }
 
 interface Violation {
-  rule: "state-row" | "set-filter";
+  rule: "state-row" | "set-filter" | "self-result" | "own-state";
   where: string;
   text: string;
 }
@@ -120,6 +130,28 @@ function scan(file: string): Violation[] {
       }
     }
     if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
+      const sides = [n.left, n.right].map((e) => peel(e).inner);
+      const isEntityKind = (e: ts.Expression) =>
+        ts.isBinaryExpression(e) &&
+        e.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        propName(e.left) === "kind" &&
+        ts.isStringLiteral(e.right) &&
+        e.right.text === "entity";
+      const isWorkflowName = (e: ts.Expression) =>
+        ts.isBinaryExpression(e) &&
+        e.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        propName(e.left) === "name" &&
+        ts.isPropertyAccessExpression(e.right) &&
+        e.right.name.text === "name" &&
+        /^(wf|workflow)$/.test(e.right.expression.getText(sf));
+      if (sides.some(isEntityKind) && sides.some(isWorkflowName)) {
+        out.push({ rule: "self-result", where: at(n), text: n.getText(sf) });
+      }
+    }
+    if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "filter" &&
@@ -134,6 +166,32 @@ function scan(file: string): Violation[] {
         }
         if (isTruthinessRead(body, "eventSourced") || isTruthinessRead(body, "instanceWireShape")) {
           out.push({ rule: "set-filter", where: at(n), text: n.getText(sf) });
+        }
+      }
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      /^walk\w*Deep$/.test(n.expression.text)
+    ) {
+      for (const arg of n.arguments) {
+        if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) continue;
+        const kinds = new Set<string>();
+        const collect = (m: ts.Node): void => {
+          if (
+            ts.isBinaryExpression(m) &&
+            (m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+              m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken) &&
+            propName(m.left) === "refKind" &&
+            ts.isStringLiteral(m.right)
+          ) {
+            kinds.add(m.right.text);
+          }
+          ts.forEachChild(m, collect);
+        };
+        collect(arg.body);
+        if (kinds.has("this-prop") && kinds.has("this-derived")) {
+          out.push({ rule: "own-state", where: at(n), text: n.expression.text });
         }
       }
     }
@@ -156,8 +214,18 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
+  it("no backend re-spells the workflow self-result test (use isWorkflowSelfType / commandCreateReturnsSelf)", () => {
+    const hits = violations.filter((v) => v.rule === "self-result");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
   it("no backend re-filters the event-sourced / observable workflow sets (use eventSourcedWorkflows / observableWorkflows)", () => {
     const hits = violations.filter((v) => v.rule === "set-filter");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a workflow body for own-state reads (use workflowBodyUsesOwnState / workflowBodyReadsOwnState)", () => {
+    const hits = violations.filter((v) => v.rule === "own-state");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 });

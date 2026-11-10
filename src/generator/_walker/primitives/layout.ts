@@ -306,6 +306,12 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
       // every selector, e2e spec and deep link the moment a translation landed.
       value: slugify(labelStr) || `tab-${i + 1}`,
       ...tabLabelForms(isLiteralLabel ? arg : undefined, ctx, labelStr),
+      // A DYNAMIC caption as text, rendered only when a pack asks for it (a
+      // thunk, so the packs that show the indexed fallback never render it).
+      dynamicLabel:
+        labelIsTextLike && !isLiteralLabel
+          ? () => localizedText(arg, ctx, "tabLabel", '""')
+          : undefined,
       bodyJsx:
         bodyParts.length > 0
           ? joinBody(bodyParts)
@@ -407,6 +413,9 @@ export function emitCard(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   return renderPrimitive(ctx, "primitive-card", {
     hasTitle: titleText !== undefined,
     titleText,
+    // The same title as a complete bound ` title=…` attribute, for a pack whose
+    // card component takes the title as an attribute rather than as children.
+    titleAttr: titleIsTextLike ? localizedPositionalAttr(call, ctx, "cardTitle", "title", 0) : "",
     hasContent: contentJsx !== undefined,
     contentJsx,
     // The same children UNJOINED, for the two packs that emit a programming

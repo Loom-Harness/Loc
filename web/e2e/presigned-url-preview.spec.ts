@@ -6,10 +6,9 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 type InfraCall = (service: string, op: string, params?: unknown) => Promise<unknown>;
@@ -26,13 +25,10 @@ const SIGNED =
 
 test("presigned S3 URL from the preview iframe reaches the object store", async ({ page }) => {
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Sales System/);
+  await startFromExample(page, /Sales System/);
   if (!(await browserCanReachNetwork(page))) test.skip(true, "browser cannot reach the npm registry");
 
-  await recordInitialMigration(page);
-  await page.getByTestId("btn-generate").click();
-  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
   await page.getByTestId("devtools-tab-backend").click();

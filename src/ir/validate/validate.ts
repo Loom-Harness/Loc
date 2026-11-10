@@ -38,6 +38,7 @@ import {
   validateSelfProvisioningSchemaSupport,
   validateTableSteps,
 } from "./checks/migration-checks.js";
+import { validateModelTextOwners } from "./checks/model-text-owner-checks.js";
 import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
@@ -176,6 +177,8 @@ export {
 } from "./checks/diagnostic.js";
 export { firstNonQueryableNode } from "./checks/shared.js";
 
+import { validateUnresolvedTypes } from "./checks/unresolved-type-checks.js";
+
 // ---------------------------------------------------------------------------
 // Loom IR validator — semantic checks that need the full IR (not just
 // the AST).  Runs after `enrichLoomModel`; abort generation on
@@ -260,6 +263,7 @@ export function validateLoomModel(
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateHostedTypeNames(sys, diags);
+    validateModelTextOwners(sys, diags);
     validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
@@ -485,6 +489,8 @@ export function validateLoomModel(
   validateElixirMatchStatements(loom, diags);
   validateElixirBoundMutatingCalls(loom, diags);
   validateElixirEntryResults(loom, diags);
+  // Last: it speaks only when no check above refused the model.
+  validateUnresolvedTypes(loom, diags);
   return dropCascadedWarnings(diags);
 }
 

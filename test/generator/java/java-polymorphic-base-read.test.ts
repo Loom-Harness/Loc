@@ -53,7 +53,7 @@ describe("java generator — polymorphic base read", () => {
     expect(ctl).toContain('"select e from Vehicle e order by e.id"');
     expect(ctl).not.toMatch(/tenantId|currentUser/);
     expect(all.get(`${ROOT}/vehicles/Vehicle.java`)!).toContain(
-      '@Filter(name = "Vehicle_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+      '@Filter(name = "Vehicle_tenantOwned", condition = "tenant_id = :__cuOperatingOrg")',
     );
     expect(all.get(`${ROOT}/crews/CrewsController.java`)).toBeDefined();
   });

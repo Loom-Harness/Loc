@@ -342,7 +342,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/_walker/i18n-chrome.ts#authGateMessage": {
     invariant:
-      "Every caller (the Feliz and Flutter auth gates) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME; no .ddd input names the string.",
+      "Every caller (the Feliz and Flutter auth gates, the session views of the pack-rendered frontends) passes a hard-coded session-gate name from its own emitter, all present in AUTH_GATE_CHROME or SESSION_VIEW_CHROME; no .ddd input names the string.",
   },
   "src/generator/_i18n/ordinal-rules.ts#ordinalTable": {
     invariant:
@@ -674,9 +674,9 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/elixir/heex-target.ts
-  "src/generator/elixir/heex-target.ts#buildHookUse": {
+  "src/generator/elixir/heex-target.ts#bindDataAccess": {
     invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never buildHookUse, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
+      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never bindDataAccess, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
   },
   "src/generator/elixir/heex-target.ts#renderConditionalChild": {
     invariant:
@@ -1679,6 +1679,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/render-expr.ts#renderEctoExists": {
     invariant:
       "Every Ecto filter render context that can hold an `exists` (renderEctoRestriction, the retrieval module, the repository finds) threads the context's aggregates as `pool`, and `loom.exists-cross-context` refuses a quantifier whose aggregate is not in that context. (src/generator/elixir/vanilla/capability-filter.ts, retrieval-emit.ts, repository-emit.ts)",
+  },
+  "src/generator/typescript/emit/mikroorm-filter.ts#rawPredicateEntry": {
+    guardedBy: ["loom.policy-row-not-queryable", "loom.criterion-not-selectable"],
+    note: "reached only for `organizationContext.ancestors.contains(<column>)`, which the predicate gate admits only with a row column — exactly what `lineageSql` renders",
   },
   "src/generator/typescript/emit/mikroorm-filter.ts#existsEntry": {
     guardedBy: [

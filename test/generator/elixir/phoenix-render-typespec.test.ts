@@ -50,9 +50,9 @@ describe("renderTypespec — reference types", () => {
     expect(renderTypespec({ kind: "valueobject", name: "Money" } as TypeIR, CTX)).toBe("map()");
   });
   it("maps entity to <Ctx>.<Name>.t()", () => {
-    expect(renderTypespec({ kind: "entity", name: "OrderLine" } as TypeIR, CTX)).toBe(
-      "MyApp.Sales.OrderLine.t()",
-    );
+    expect(
+      renderTypespec({ kind: "entity", name: "OrderLine", declKind: "aggregate" } as TypeIR, CTX),
+    ).toBe("MyApp.Sales.OrderLine.t()");
   });
 });
 

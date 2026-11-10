@@ -73,7 +73,6 @@ import {
   isOperation,
   isPayloadDecl,
   isPermissionsBlock,
-  isPolicyDecl,
   isProjection,
   isProperty,
   isQueryHandler,
@@ -126,6 +125,7 @@ import type {
   DomainServiceIR,
   EntityPartIR,
   EnumIR,
+  EnumValueRenameIntentIR,
   EventIR,
   ExprIR,
   FieldIR,
@@ -135,10 +135,6 @@ import type {
   LoadSegmentIR,
   PayloadIR,
   PermissionDeclIR,
-  PolicyDenyIR,
-  PolicyReadGateIR,
-  PolicyReadLevelIR,
-  PolicyWriteLevelIR,
   ProjectionIR,
   QueryHandlerIR,
   RawLoomModel,
@@ -182,6 +178,7 @@ import {
 import { lowerDeployable } from "./lower-deployment.js";
 import { lowerDomainService } from "./lower-domain-service.js";
 import {
+  collectUnresolvedTypes,
   criterionRefOf,
   lowerExpr,
   setAmbientEnumIndex,
@@ -203,6 +200,7 @@ import {
   lowerUnique,
   valueProperties,
 } from "./lower-members.js";
+import { lowerPolicyRules } from "./lower-policy.js";
 import { lowerProjection } from "./lower-projection.js";
 import { lowerRequirement, lowerSolution, lowerTestCase } from "./lower-requirements.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -259,6 +257,13 @@ export function lowerModel(model: Model): RawLoomModel {
  *  (`loom.top-level-domain-needs-single-system`), but its contexts are
  *  still lowered loose here so nothing is silently dropped. */
 export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
+  // Every read of an expression the typing pass left unresolved travels with
+  // the model, for `validateLoomModel` to refuse it (`loom.unresolved-type`).
+  const { result, sites } = collectUnresolvedTypes(() => lowerProjectBody(models));
+  return sites.length > 0 ? { ...result, unresolvedTypes: sites } : result;
+}
+
+function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
   const allMembers = models.flatMap((m) => m.members);
   // Index the project-global ambient root-level enums (value name → enum
   // name) so a bare enum-value reference (`priority: Normal`) resolves to
@@ -459,6 +464,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   const tableRenameIntents: TableRenameIntentIR[] = [];
   const backfillIntents: BackfillIntentIR[] = [];
   const sqlMigrationSteps: SqlStepIR[] = [];
+  const enumValueRenameIntents: EnumValueRenameIntentIR[] = [];
   // Root-level VOs / enums have no enclosing context — pass an empty
   // env so `lowerValueObject`'s `inValueObject(env, vo)` still works.
   const rootEnv: Env = { locals: new Map() };
@@ -498,7 +504,25 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
-          const agg = step.aggregate.ref;
+          const owner = step.owner.ref;
+          if (isEnumDecl(owner)) {
+            // Enum value rename (`Status.Draft -> Pending`).  The `=` form on an
+            // enum is rejected by the AST validator, so it lowers to nothing.
+            if (step.renamedTo !== undefined) {
+              const ctx = AstUtils.getContainerOfType(owner, isBoundedContext)?.name;
+              enumValueRenameIntents.push({
+                migration: m.name,
+                index,
+                enum: owner.name,
+                ...(ctx !== undefined ? { context: ctx } : {}),
+                from: step.field,
+                to: step.renamedTo,
+                origin: originFor(step),
+              });
+            }
+            return;
+          }
+          const agg = owner;
           const context = AstUtils.getContainerOfType(agg, isBoundedContext)?.name ?? "";
           if (step.value !== undefined) {
             // Backfill (`Agg.field = <expr>`, M-T2.3).  The expression lowers
@@ -506,7 +530,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             // `this-prop` refs — the SQL renderer's column references.
             backfillIntents.push({
               migration: m.name,
-              aggregate: agg?.name ?? step.aggregate.$refText,
+              aggregate: agg?.name ?? step.owner.$refText,
               context,
               field: step.field,
               value: lowerExpr(step.value, {
@@ -521,7 +545,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             // now-absent column; `renamedTo` the live one.
             renameIntents.push({
               migration: m.name,
-              aggregate: agg?.name ?? step.aggregate.$refText,
+              aggregate: agg?.name ?? step.owner.$refText,
               context,
               from: step.field,
               to: step.renamedTo ?? step.field,
@@ -559,6 +583,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     tableRenameIntents,
     backfillIntents,
     sqlMigrationSteps,
+    enumValueRenameIntents,
   };
 }
 
@@ -587,6 +612,10 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     tableRenameIntents: models.flatMap((m) => m.tableRenameIntents),
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
+    enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
+    unresolvedTypes: models.some((m) => m.unresolvedTypes)
+      ? models.flatMap((m) => m.unresolvedTypes ?? [])
+      : undefined,
   };
 }
 
@@ -658,6 +687,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       theme = lowerTheme(m);
     }
   }
+  if (user && tenancy?.registryName) user.registry = tenancy.registryName;
   const subdomains: SubdomainIR[] = [];
   const deployables: DeployableIR[] = [];
   const e2eBlocks: TestE2E[] = [];
@@ -1402,63 +1432,10 @@ function lowerContext(
     else if (isQueryHandler(m))
       queryHandlers.push(lowerQueryHandler(m, env, ctx, { aggregates, domainServices }));
   }
-  // `policy {}` read-reachability rules (tenancy.md).  A pure
-  // structural projection — the per-aggregate `deep`/`global` rewrite of the
-  // `tenantOwned` filter happens in enrichment; validation (tenant-owned-ness,
-  // hierarchy requirement, unknown/duplicate target) is phase ⑦.
-  const policyReadLevels: PolicyReadLevelIR[] = [];
-  const policyWriteLevels: PolicyWriteLevelIR[] = [];
-  const policyDenies: PolicyDenyIR[] = [];
-  const policyReadGates: PolicyReadGateIR[] = [];
-  for (const m of ctx.members) {
-    if (!isPolicyDecl(m)) continue;
-    for (const r of m.rules) {
-      // `read X requires G` — who may read X.  Lowered in the bare context env
-      // (no `this`, no params): the gate runs before any row is loaded, so a
-      // row field fails to resolve and phase ⑦ reports it.
-      if (r.effect === "read") {
-        if (r.gate) {
-          policyReadGates.push({
-            aggregate: r.target,
-            gate: lowerExpr(r.gate, env),
-            source: `read ${r.target} requires ${cstText(r.gate)}`,
-            origin: originFor(r),
-          });
-        }
-        continue;
-      }
-      // `deny [write] on X` — the deny-wins carve-out.  All-or-nothing
-      // at the aggregate (no level); the optional `write` verb selects the
-      // access.  Enrichment resolves deny-wins after the allow passes.
-      if (r.effect === "deny") {
-        const access = r.verb === "write" ? "write" : "read";
-        policyDenies.push({
-          aggregate: r.target,
-          access,
-          source: `deny ${r.verb ? `${r.verb} ` : ""}on ${r.target}`,
-        });
-        continue;
-      }
-      // Any other head word is `loom.policy-unknown-rule` (AST phase); a
-      // removed level is `loom.policy-level-removed` (AST phase).
-      if (r.effect !== "allow" || r.level !== "local") continue;
-      // The optional `verb` selects the ladder: `write` gates mutations;
-      // bare / `read` is the read ladder.
-      if (r.verb === "write") {
-        policyWriteLevels.push({
-          aggregate: r.target,
-          level: "local",
-          source: `allow write local on ${r.target}`,
-        });
-      } else {
-        policyReadLevels.push({
-          aggregate: r.target,
-          level: "local",
-          source: `allow local on ${r.target}`,
-        });
-      }
-    }
-  }
+  // `policy {}` rules — a pure structural projection (`lower-policy.ts`);
+  // composition is enrichment, validation phase ⑦.
+  const { policyReadLevels, policyWriteLevels, policyRowRules, policyDenies, policyReadGates } =
+    lowerPolicyRules(ctx, env);
   // Context-scoped integration tests (test-placement.md): a `test`
   // nested directly in the `context` (no `for` — subject inferred as this
   // context) plus any hoisted `test … for <this context>` routed here.  Lowered
@@ -1494,6 +1471,7 @@ function lowerContext(
     origin: originFor(ctx),
     ...(policyReadLevels.length > 0 ? { policyReadLevels } : {}),
     ...(policyWriteLevels.length > 0 ? { policyWriteLevels } : {}),
+    ...(policyRowRules.length > 0 ? { policyRowRules } : {}),
     ...(policyDenies.length > 0 ? { policyDenies } : {}),
     ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
   };

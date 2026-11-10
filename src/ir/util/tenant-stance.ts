@@ -6,6 +6,7 @@
 // so it is derived on demand (the `classifyPage` pattern in
 // `page-kind.ts`), never stamped onto AggregateIR.
 
+import { PRINCIPAL_OPERATING_ORG } from "../../util/principal.js";
 import type { AggregateIR, ExprIR, SystemIR, TypeIR } from "../types/loom-ir.js";
 
 /** The prelude capability that marks an aggregate as tenant-scoped
@@ -69,7 +70,7 @@ export function buildRegistrySelfScopeFilter(
   const idType: TypeIR = { kind: "id", targetName: registry.name };
   // Mirrors `USER_SHAPE_NAME` in `src/ir/lower/lower-types.ts` (the
   // synthetic principal entity every lowered `currentUser` ref carries).
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
+  const userShape: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
   return {
     kind: "binary",
     op: "==",
@@ -77,7 +78,7 @@ export function buildRegistrySelfScopeFilter(
       kind: "member",
       receiver: { kind: "this" },
       member: "id",
-      receiverType: { kind: "entity", name: registry.name },
+      receiverType: { kind: "entity", name: registry.name, declKind: "aggregate" },
       memberType: idType,
     },
     right: {
@@ -197,22 +198,15 @@ function stringPrincipalClaim(x: ExprIR): string | undefined {
  *  stayed conflated — see `tenancy-claim-name.ddd`. */
 export const TENANT_OWNED_TENANT_ID_FIELD = "tenantId";
 
-/** The flat tenant FLOOR predicate `this.tenantId == currentUser.<claim>` —
- *  the exact ExprIR shape the `tenantOwned` prelude capability filter lowers to
- *  (`src/macros/prelude.ts`), rebuilt here for the consumers that need the
- *  floor as a standalone predicate.  Every backend already renders this shape,
- *  so a consumer needs no new render code.
- *
- *  The two sides are NOT the same name: the left is the capability's row
- *  COLUMN ({@link TENANT_OWNED_TENANT_ID_FIELD}), the right is the system's
- *  declared `tenancy by user.<claim>` CLAIM.  `tenantClaim` is required rather
- *  than defaulted — a default is precisely how the principal side stayed
- *  pinned to `tenantId` on every backend. */
-export function buildTenantFloorFilter(
-  agg: Pick<AggregateIR, "name">,
-  tenantClaim: string,
-): ExprIR {
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
+/** The flat tenant FLOOR predicate `this.tenantId == organizationContext.org`
+ *  — the exact ExprIR shape the `tenantOwned` prelude capability filter lowers
+ *  to under a `tenancy by` system (`src/macros/prelude.ts`): the row column
+ *  {@link TENANT_OWNED_TENANT_ID_FIELD} against the derived principal member
+ *  {@link PRINCIPAL_OPERATING_ORG}, the operating org.  Rebuilt here for the
+ *  consumers that need the floor as a standalone predicate; every backend
+ *  already renders this shape. */
+export function buildTenantFloorFilter(agg: Pick<AggregateIR, "name">): ExprIR {
+  const userShape: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
   const stringType: TypeIR = { kind: "primitive", name: "string" };
   return {
     kind: "binary",
@@ -221,13 +215,13 @@ export function buildTenantFloorFilter(
       kind: "member",
       receiver: { kind: "this" },
       member: TENANT_OWNED_TENANT_ID_FIELD,
-      receiverType: { kind: "entity", name: agg.name },
+      receiverType: { kind: "entity", name: agg.name, declKind: "aggregate" },
       memberType: stringType,
     },
     right: {
       kind: "member",
       receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
-      member: tenantClaim,
+      member: PRINCIPAL_OPERATING_ORG,
       receiverType: userShape,
       memberType: stringType,
     },

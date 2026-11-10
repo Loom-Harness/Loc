@@ -77,21 +77,51 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "File",
 ] as const;
 
-/** Information-flow sensitivity tags carried by a value's type.  See
- * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.  Mirror of
- * `SensitivityTags` in `src/language/type-system.ts`; kept as a sorted,
- * unique `readonly string[]` so the IR remains JSON-serialisable for
- * `.loom/wire-spec.json`. */
+/** The sensitivity tags a property declares with `sensitive(...)` — sorted,
+ *  unique, JSON-serialisable.  A field fact (`FieldIR.sensitivity`), never a
+ *  type fact: no `TypeIR` carries tags, so the typing pass and every type
+ *  comparison stay tag-free, and the one consumer (the redacted `inspect`)
+ *  reads the field. */
 export type SensitivityTags = readonly string[];
 
-/** Base of every `TypeIR` arm: the information-flow sensitivity tags a
- *  value's type carries (sorted, unique).  Absent when the type carries no
- *  tags — the common case; consumers read absent as "no tags", never as an
- *  error.  A type alias, like `Sourced`, so `TypeIR` stays assignable to
- *  `Record<string, unknown>`. */
-export type Sensitive = {
-  sensitivity?: SensitivityTags;
-};
+/** The payload-family discriminator.  `payload` is the umbrella; `event` /
+ *  `command` / `query` / `response` / `error` are subtypes carrying the same
+ *  structural-record wire contract.  `event` also has its own declaration
+ *  surface (`EventDecl`), projected into the unified `payloads` view at
+ *  lowering time; the rest parse via `PayloadDecl`. */
+export type PayloadKind = "payload" | "event" | "command" | "query" | "response" | "error";
+
+/** Which declaration an `entity` `TypeIR` names.
+ *  - `aggregate` / `part` — an aggregate root or one of its entity parts;
+ *  - a `PayloadKind` — a payload-family record or named union;
+ *  - `workflow` — a workflow's state record (`create(…): Fulfillment`);
+ *  - `projection` — a projection row;
+ *  - `principal` — the authentication principal (`currentUser`);
+ *  - `synthetic` — a compiler-made shape with no declaration (a resource
+ *    handle, a store, a test client's request / tagged / created record, the
+ *    audit-history change row). */
+export type EntityDeclKind =
+  | "aggregate"
+  | "part"
+  | "workflow"
+  | "projection"
+  | PayloadKind
+  | "principal"
+  | "synthetic";
+
+const PAYLOAD_KINDS: ReadonlySet<EntityDeclKind> = new Set<PayloadKind>([
+  "payload",
+  "event",
+  "command",
+  "query",
+  "response",
+  "error",
+]);
+
+/** True when an `entity` names a payload-family record (any `PayloadKind`). */
+export function isPayloadDeclKind(k: EntityDeclKind): k is PayloadKind {
+  return PAYLOAD_KINDS.has(k);
+}
 
 /** Canonical type-discriminated union for every type that appears in
  *  the IR — primitives, ids, enums, value objects, entities, arrays,
@@ -112,22 +142,25 @@ export type Sensitive = {
  *  Every identity is a guid — there is no per-aggregate id value type, so
  *  backends spell an id's underlying scalar (column, wire format, CLR/Java
  *  type) as their guid form unconditionally. */
-export type TypeIR = (
+export type TypeIR =
   | { kind: "primitive"; name: PrimitiveName }
   | { kind: "id"; targetName: string }
   | { kind: "enum"; name: string }
   | { kind: "valueobject"; name: string }
-  | { kind: "entity"; name: string }
+  /** A named record: an aggregate, an entity part, a workflow's state, a
+   *  projection row, a payload-family record (`payload` / `event` /
+   *  `command` / `query` / `response` / `error`), the authentication
+   *  principal, or a compiler-synthesized shape.  `declKind` says which,
+   *  resolved once in lowering, so a consumer switches on it instead of
+   *  looking the name up again. */
+  | { kind: "entity"; name: string; declKind: EntityDeclKind }
   | { kind: "array"; element: TypeIR }
   | { kind: "optional"; inner: TypeIR }
-  /** Carrier-bounded generic payload instantiation — `customer paged`,
-   *  `event envelope` (payload-transport-layer.md, P3).  `ctor` names a
-   *  blessed stdlib shape (see `src/ir/stdlib/generics.ts`); `arg` is the
-   *  single carrier type argument.  Nesting is left-associative postfix:
-   *  `string envelope paged` lowers to
-   *  `genericInstance(paged, genericInstance(envelope, primitive string))`.
-   *  P3a represents this in the IR but blocks emission at IR-validate; P3b
-   *  monomorphizes each distinct instance into a concrete payload. */
+  /** Carrier-bounded generic payload instantiation — `Customer paged`.
+   *  `ctor` names a blessed stdlib shape (see `src/ir/stdlib/generics.ts`);
+   *  `arg` is the single carrier type argument.  Enrichment monomorphizes each
+   *  distinct `paged` instance into a concrete payload the backends emit as a
+   *  DTO; `provenanced` renders structurally. */
   | { kind: "genericInstance"; ctor: GenericCtorName; arg: TypeIR }
   /** Discriminated union (payload-transport-layer.md, P4) — both the named
    *  form (`payload Foo = A | B`) and the anonymous `or` form (`A or B` in any
@@ -135,14 +168,13 @@ export type TypeIR = (
    *  list, each a distinct carrier type; identity is structural on the
    *  variant *set* (associative-commutative — see `unionVariantKey`), so
    *  `A or B` and `B or A` are the same type.  The wire form is tagged by a
-   *  per-variant discriminator (the `type` field — see P4 emission); P4a
-   *  represents this in the IR but blocks emission at IR-validate. */
+   *  per-variant discriminator (the `type` field) shared by every backend
+   *  through `src/generator/_payload/union-wire.ts`. */
   | { kind: "union"; variants: TypeIR[] }
-  /** The unit variant of an `option` (payload-transport-layer.md, P4):
-   *  `T option` lowers to `union[T, none]`.  Carries no payload; on the wire
-   *  it is the tagged-empty variant.  A blessed nullary marker (like `slot`),
-   *  not an author-writable type — it only ever appears inside an option's
-   *  union. */
+  /** The absent value.  `T option` (the deprecated spelling of `T?`) folds
+   *  `union[T, none]`, which `canonicalUnion` collapses to `optional(T)`, so
+   *  `none` survives only as a variant of a union of three or more.  A blessed
+   *  nullary marker (like `slot`), not an author-writable type. */
   | { kind: "none" }
   /** Element-shaped param marker — only valid on a `component`'s
    *  parameter list.  Values flow as JSX (any walker expression) from
@@ -156,18 +188,15 @@ export type TypeIR = (
    *  lambda walked + hoisted in the caller's scope, and the React
    *  props type gains `(arg: TWire) => void`.  `arg` is the declared
    *  callback argument type; undefined for a bare zero-arg `action`. */
-  | { kind: "action"; arg?: TypeIR }
-) &
-  Sensitive;
+  | { kind: "action"; arg?: TypeIR };
 
-/** The blessed closed set of generic-payload **record** carriers.  Kept in
- *  lockstep with the record arms of the `GenericCtor` grammar rule and the
- *  stdlib registry in `src/ir/stdlib/generics.ts`.  The grammar's third ctor,
- *  `option`, is a *union* carrier: `T option` lowers straight to
- *  `union[T, none]` rather than a `genericInstance`, so it never appears here.
+/** The blessed closed set of generic-payload **record** carriers, kept in
+ *  lockstep with the stdlib registry in `src/ir/stdlib/generics.ts`.  The
+ *  grammar's other ctors are not carriers: `T option` is the deprecated
+ *  spelling of `T?`, and `T envelope` is refused and lowers as `T`.
  *
- *  `paged` / `envelope` are AUTHOR-WRITTEN (`customer paged`) and monomorphize
- *  to a named `PayloadIR` record.  `provenanced` is the odd one out: it has no
+ *  `paged` is AUTHOR-WRITTEN (`Customer paged`) and monomorphizes to a named
+ *  `PayloadIR` record.  `provenanced` is the odd one out: it has no
  *  grammar arm at all — nobody writes `int provenanced` as a *type*, they write
  *  `total: int provenanced` as a field MODIFIER — and the enrichment pass
  *  synthesizes the instance into `wireShape` from `FieldIR.provenanced`

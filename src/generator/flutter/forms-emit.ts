@@ -67,7 +67,9 @@ import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-ch
 import {
   type FormInputModelText,
   formInputModelText,
+  opDefaultText,
   paramLabelOwner,
+  workflowRunEntry,
 } from "../_walker/model-text-sites.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
@@ -191,6 +193,7 @@ export interface FlutterFormField {
    *  are the flat scalar ones: text/number cells are `TextFormField`s over a
    *  per-cell `TextEditingController`, and bool / enum / datetime cells hold
    *  their VALUE in the row slot directly (see `objectRowCell`). */
+  elementName?: string;
   objectFields?: {
     jsonKey: string;
     label: string;
@@ -487,6 +490,7 @@ function prepareFields(
             label: humanize(f.name),
             kind: "object-array",
             required: !fieldOptional,
+            elementName: elemBase.kind === "valueobject" ? elemBase.name : undefined,
             objectFields,
             objectPath,
           });
@@ -716,6 +720,15 @@ function opSubmitExpr(
   return dartTranslate(e.key, e.defaultText);
 }
 
+/** A hand-built form sentence as a Dart `Text` widget: the catalog lookup in a
+ *  translatable app, else the constant English literal. */
+function sentenceText(translate: boolean, name: string): string {
+  const english = chromeMessage(name);
+  return translate
+    ? `Text(${dartTranslate(chromeKey(name), english)})`
+    : `const Text('${dartStr(english)}')`;
+}
+
 /** Build the `FlutterFormSpec` for a `CreateForm(of: agg)`. */
 export function flutterCreateForm(
   agg: EnrichedAggregateIR,
@@ -739,7 +752,7 @@ export function flutterCreateForm(
     aggregate: agg.name,
     needsId: false,
     pathExpr: `/${routeSegmentFor(agg.name)}`,
-    submitLabel: `Create ${humanize(agg.name)}`,
+    submitLabel: opDefaultText(agg.name, "create"),
     ...(submitExpr ? { submitExpr } : {}),
     fields,
     dropped,
@@ -839,13 +852,15 @@ export function flutterWorkflowForm(
     aggregatesByName,
   );
   attachModelText(fields, text && { inputs: wf.params, ownerOf: () => wf.name, bc, text });
+  const run = bc ? workflowRunEntry(wf.name, bc, text?.contexts ?? [bc]) : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
     kind: "create",
     aggregate: wf.name,
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
-    submitLabel: `Run ${humanize(wf.name)}`,
+    submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
+    ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
     dropped,
     destructive: false,
@@ -1557,7 +1572,7 @@ function fieldWidget(f: FlutterFormField): string {
         `Expanded(child: TextFormField(controller: entry.value, ${kbd}decoration: const InputDecoration(isDense: true))), ` +
         `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => ${ctrls}.removeAt(entry.key).dispose())), ` +
         `]))), ` +
-        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${ctrls}.add(TextEditingController())))), ` +
+        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: ${sentenceText(f.translateMessages === true, sentenceChromeName("addValue", f.jsonKey))}, onPressed: () => setState(() => ${ctrls}.add(TextEditingController())))), ` +
         `])`
       );
     }
@@ -1566,7 +1581,14 @@ function fieldWidget(f: FlutterFormField): string {
       // rows.  Each row edits `_<name>Values[i]` in place.
       const vals = arrayValuesId(f.wireName);
       const row = `Expanded(child: Checkbox(value: entry.value, onChanged: (v) => setState(() => ${vals}[entry.key] = v ?? false)))`;
-      return arrayEditor(label, vals, row, `${vals}.add(false)`, `${vals}.removeAt(entry.key)`);
+      return arrayEditor(
+        label,
+        vals,
+        row,
+        `${vals}.add(false)`,
+        `${vals}.removeAt(entry.key)`,
+        sentenceText(f.translateMessages === true, sentenceChromeName("addValue", f.jsonKey)),
+      );
     }
     case "enum-array": {
       // A repeatable DROPDOWN row list.  A new row seeds the first declared
@@ -1581,7 +1603,14 @@ function fieldWidget(f: FlutterFormField): string {
         `Expanded(child: DropdownButtonFormField<String>(initialValue: entry.value, isExpanded: true, ` +
         `decoration: const InputDecoration(isDense: true), items: const [${items}], ` +
         `onChanged: (v) => setState(() => ${vals}[entry.key] = v ?? ${seed})))`;
-      return arrayEditor(label, vals, row, `${vals}.add(${seed})`, `${vals}.removeAt(entry.key)`);
+      return arrayEditor(
+        label,
+        vals,
+        row,
+        `${vals}.add(${seed})`,
+        `${vals}.removeAt(entry.key)`,
+        sentenceText(f.translateMessages === true, sentenceChromeName("addValue", f.jsonKey)),
+      );
     }
     case "object-array": {
       const rows = rowsId(f.wireName);
@@ -1596,7 +1625,7 @@ function fieldWidget(f: FlutterFormField): string {
         `${cells}, ` +
         `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() { final removed = ${rows}.removeAt(entry.key); for (final c in removed) { if (c is TextEditingController) c.dispose(); } })), ` +
         `])); }), ` +
-        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${rows}.add(<dynamic>[${newRow}])))), ` +
+        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: ${sentenceText(f.translateMessages === true, sentenceChromeName("addItem", f.elementName ?? f.jsonKey))}, onPressed: () => setState(() => ${rows}.add(<dynamic>[${newRow}])))), ` +
         `])`
       );
     }
@@ -1614,6 +1643,7 @@ function arrayEditor(
   rowWidget: string,
   addExpr: string,
   removeExpr: string,
+  addLabel: string,
 ): string {
   return (
     `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
@@ -1622,7 +1652,7 @@ function arrayEditor(
     `${rowWidget}, ` +
     `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => ${removeExpr})), ` +
     `]))), ` +
-    `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${addExpr}))), ` +
+    `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: ${addLabel}, onPressed: () => setState(() => ${addExpr}))), ` +
     `])`
   );
 }
@@ -1695,6 +1725,16 @@ function newObjectCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]
   }
 }
 
+/** The message of a required `File` input's guard: the whole sentence
+ *  `chrome.fieldRequired.<input>`, a catalog lookup in a translatable app. */
+function fileRequiredMessage(f: FlutterFormField): string {
+  const name = sentenceChromeName("fieldRequired", f.jsonKey);
+  const english = chromeMessage(name);
+  return f.translateMessages === true
+    ? dartTranslate(chromeKey(name), english)
+    : `'${dartStr(english)}'`;
+}
+
 /** The required-file guards for a form's `file` inputs.  A `file` input is not a
  *  `FormField`, so the `Form`'s validator sweep never sees it — a required one is
  *  enforced here instead, with the same visible `_error` banner a failed request
@@ -1705,7 +1745,7 @@ function requiredFileGuards(fields: readonly FlutterFormField[]): string[] {
     if (f.kind !== "file" || !f.required) continue;
     out.push(
       `    if (${stateId(f.wireName)} == null) {`,
-      `      setState(() => _error = ServerIssue.plain('${dartStr(f.label)} is required'));`,
+      `      setState(() => _error = ServerIssue.plain(${fileRequiredMessage(f)}));`,
       "      return;",
       "    }",
     );
@@ -1739,11 +1779,25 @@ export function serverErrorsDart(i18n: boolean): string {
   const text = i18n
     ? `    if (code.isEmpty) return message;
     try {
-      return t(code, message, params);
+      return t(key, message, params);
     } catch (_) {
       return message;
     }`
     : "    return message;";
+  // The two-step lookup: a refusal that concerns one aggregate names it in
+  // `params.type`, and the catalog may carry that aggregate's own sentence.
+  const keyGetter = i18n
+    ? `
+
+  /// The catalog key this refusal is localized by: its aggregate's own sentence
+  /// (\`<type>.problem.<class>\`, the aggregate named by \`params.type\`) when the
+  /// active catalog carries one, else its code.
+  String get key {
+    final type = params?['type'];
+    if (type is String && code.startsWith('problem.') && hasMessage('$type.$code')) return '$type.$code';
+    return code;
+  }`
+    : "";
   return `/// One refusal message: the catalog \`code\` the server sent ('' when there is
 /// none), its English \`message\`, and the \`params\` its placeholders name.
 class ServerIssue {
@@ -1757,7 +1811,7 @@ class ServerIssue {
   /// The message in the active locale, computed when the form RENDERS.
   String get text {
 ${text}
-  }
+  }${keyGetter}
 
   static Map<String, Object>? paramsOf(Object? raw) {
     if (raw is! Map) return null;

@@ -1501,7 +1501,7 @@ function queryViewOfArgs(body: ExprIR): { of: ExprIR; explicitPaged: boolean }[]
 
 /** Collect the `.all` reads a page issues — deduped by Model field.  Detection
  *  reuses the shared `tryDetectApiHook`, so the reads collected here name the
- *  same aggregates the view walk resolves through the `buildHookUse` seam. */
+ *  same aggregates the view walk resolves through the `bindDataAccess` seam. */
 export function collectPageReads(
   page: PageIR,
   apiParamNames: ReadonlySet<string>,
@@ -3215,6 +3215,19 @@ export function renderServerErrorsModule(i18n = false): string {
     "  /// A message with no catalog code: shown as written.",
     '  let plain (message: string) : ServerIssue = { Code = ""; Message = message; Params = [] }',
     "",
+    ...(i18n
+      ? [
+          "  /// The catalog key a refusal is localized by: its aggregate's own sentence",
+          "  /// (`<type>.problem.<class>`, the aggregate named by `params.type`) when the",
+          "  /// active catalog carries one, else its code.",
+          "  let key (issue: ServerIssue) : string =",
+          '    match issue.Params |> List.tryFind (fun (name, _) -> name = "type") with',
+          '    | Some (_, (:? string as ty)) when issue.Code.StartsWith "problem." && I18n.has (ty + "." + issue.Code) ->',
+          '      ty + "." + issue.Code',
+          "    | _ -> issue.Code",
+          "",
+        ]
+      : []),
     "  /// The message in the active locale, computed when the view RENDERS: the",
     "  /// code over the English the server sent, a message whose placeholders the",
     "  /// params cannot fill keeping the English.",
@@ -3223,7 +3236,7 @@ export function renderServerErrorsModule(i18n = false): string {
       ? [
           '    if issue.Code = "" then issue.Message',
           "    else",
-          "      try I18n.tf issue.Code issue.Message issue.Params",
+          "      try I18n.tf (key issue) issue.Message issue.Params",
           "      with _ -> issue.Message",
         ]
       : ["    issue.Message"]),

@@ -220,7 +220,7 @@ describe("classifyRepoArg — a criterion vs a retrieval vs an id", () => {
 // ---------------------------------------------------------------------------
 
 describe("repoReadResultType — the type a let-bound read produces", () => {
-  const ORDER = { kind: "entity", name: "Order" } as const;
+  const ORDER = { kind: "entity", name: "Order", declKind: "aggregate" } as const;
 
   async function typeOf(body: string, extra = "") {
     const { expr, repos, names } = await exprOf(body, extra);

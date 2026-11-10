@@ -1,19 +1,19 @@
 // Cross-backend emission gate for the tenancy claim NAME.
 //
-// `tenancy by user.<claim>` takes any claim name: the expander splices the
-// declared claim (`resolveTenancyClaim`) into the `tenantOwned` capability's
-// stamp and filter, so a fixture that names its claim `tenantId` cannot tell a
-// backend binding the declaration from one reaching for the default.
+// `tenancy by user.<claim>` takes any claim name.  The `tenantOwned` floor and
+// stamp anchor on the operating org (`organizationContext.org`), whose home
+// value each backend's switch gate reads off the DECLARED claim — so a fixture
+// that names its claim `tenantId` cannot tell a backend binding the declaration
+// from one reaching for the default.
 //
-// This pins the emitted result on all five backends, because the IR-level test
-// (`test/ir/tenancy-claim-binding.test.ts`) cannot see a backend that reaches
-// for the `TENANT_OWNED_TENANT_ID_FIELD` constant on the principal side of its
-// own scope-sentinel renderer.
+// This pins the emitted result on all five backends: what a compile cannot see
+// is a backend whose gate reads the `TENANT_OWNED_TENANT_ID_FIELD` constant off
+// the principal instead of the declared claim (on a typed backend that is a
+// compile error, on a dynamic one a per-request 500 — neither is in the corpus).
 //
 // Both halves matter, so both are asserted:
 //   - the ROW column stays `tenantId` (the capability owns it), and
-//   - the PRINCIPAL member follows the declaration (`orgId`).
-// Asserting only the second would pass a backend that renamed the column too.
+//   - the PRINCIPAL side is the operating org, homed on the declaration (`orgId`).
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -34,47 +34,56 @@ async function emitted(platform: string, match: RegExp): Promise<string> {
 }
 
 describe("tenancy claim name — emitted principal reads follow the declaration", () => {
-  it("node: the tenant floor compares the row column to the DECLARED claim", async () => {
+  it("node: the floor and stamp read the operating org, homed on the DECLARED claim", async () => {
     const repo = await emitted("node", /invoice-repository\.ts$/);
-    expect(repo).toContain("eq(schema.invoices.tenantId, requireCurrentUser().orgId)");
+    expect(repo).toContain("eq(schema.invoices.tenantId, requireCurrentUser().operatingOrg)");
     expect(repo).not.toContain("requireCurrentUser().tenantId");
-  });
-
-  it("node: the create stamp copies the DECLARED claim into the row column", async () => {
     const stamp = await emitted("node", /audit-stamp\.ts$/);
-    expect(stamp).toContain("tenantId: currentUser.orgId");
+    expect(stamp).toContain("tenantId: currentUser.operatingOrg");
+    const gate = await emitted("node", /auth\/middleware\.ts$/);
+    expect(gate).toContain('const homeOrg = String(claims.orgId ?? "");');
   });
 
-  it("python: filter and stamp read `org_id`", async () => {
+  it("python: the floor reads the operating org, homed on `org_id`", async () => {
     // The tenant floor is a read-scope hook criterion over the request principal.
     const scope = await emitted("python", /app\/db\/read_scope\.py$/);
-    expect(scope).toContain("InvoiceRow.tenant_id == user.org_id");
+    expect(scope).toContain("InvoiceRow.tenant_id == user.operating_org");
     expect(scope).not.toContain("user.tenant_id");
+    const gate = await emitted("python", /app\/auth\/middleware\.py$/);
+    expect(gate).toContain('home_org = "" if user.org_id is None else str(user.org_id)');
   });
 
-  it("dotnet: the EF query filter reads the DECLARED claim", async () => {
+  it("dotnet: the EF query filter reads the operating org, homed on the DECLARED claim", async () => {
     const ctx = await emitted("dotnet", /AppDbContext\.cs$/);
-    expect(ctx).toContain("x.TenantId == _currentUser.User.OrgId");
+    expect(ctx).toContain("x.TenantId == _currentUser.User.OperatingOrg");
     expect(ctx).not.toContain("_currentUser.User.TenantId");
+    const user = await emitted("dotnet", /Auth\/User\.cs$/);
+    expect(user).toContain('get => _operatingOrg ?? $"{OrgId}";');
   });
 
-  it("java: the tenant filter's parameter resolver reads the DECLARED claim", async () => {
+  it("java: the tenant filter reads the operating org, homed on the DECLARED claim", async () => {
     const entity = await emitted("java", /features\/invoices\/Invoice\.java$/);
-    expect(entity).toContain("tenant_id = :__cuOrgId");
-    expect(entity).toContain("return __cu == null ? null : __cu.orgId();");
+    expect(entity).toContain("tenant_id = :__cuOperatingOrg");
+    expect(entity).toContain("return __cu == null ? null : __cu.operatingOrg();");
     expect(entity).not.toContain("__cu.tenantId()");
+    const gate = await emitted("java", /auth\/UserFilter\.java$/);
+    expect(gate).toContain(
+      'String homeOrg = user.orgId() == null ? "" : String.valueOf(user.orgId());',
+    );
   });
 
-  it("elixir: the Ecto filter reads the DECLARED claim", async () => {
+  it("elixir: the Ecto filter reads the operating org, homed on the DECLARED claim", async () => {
     // The tenant floor is the Invoice schema's `:tenant_owned` clause, applied
     // by `Repo.prepare_query/3`; the repository's create stamp reads it too.
     const files = await generateSystemFiles(src("elixir"));
     const scope = ectoScope(files, "D.Billing.Invoice");
-    expect(scope).toContain("record.tenant_id == ^(current_user && current_user.org_id)");
+    expect(scope).toContain("record.tenant_id == ^(current_user && current_user.operating_org)");
     expect(scope).not.toContain("current_user.tenant_id");
     const repo = await emitted("elixir", /invoice_repository\.ex$/);
-    expect(repo).toContain("current_user.org_id");
+    expect(repo).toContain("current_user.operating_org");
     expect(repo).not.toContain("current_user.tenant_id");
+    const gate = await emitted("elixir", /_web\/auth\.ex$/);
+    expect(gate).toContain('defp home_org(user), do: to_string(user[:org_id] || "")');
   });
 
   it("every backend keeps the ROW column named `tenantId` (the capability owns it)", async () => {

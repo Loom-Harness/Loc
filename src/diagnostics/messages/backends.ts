@@ -92,6 +92,16 @@ export const messages = {
     `svelte, angular, feliz, flutter and phoenixLiveView — so this names a frontend the ` +
     `chart renderer has not been written for yet. Bind the grouped projection to 'Table' ` +
     `meanwhile: it renders the same rows on every frontend.`,
+  "loom.target-unsupported#money-locale-format": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} uses \`Money { …, format: "locale" }\`, which deployable '${p.dName}' can't ` +
+    `render (frontend '${p.target}'): its \`Money\` shows the value's own text and has no ` +
+    `locale-aware number formatter. Drop \`format:\` for the verbatim digits, or host this ` +
+    `page on a frontend that formats money in the active locale — react, vue, svelte, ` +
+    `angular, feliz or flutter.`,
   "loom.target-unsupported#entity-history-read": (p: {
     what: unknown;
     dName: unknown;

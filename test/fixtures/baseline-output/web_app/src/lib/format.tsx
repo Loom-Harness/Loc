@@ -87,9 +87,9 @@ export function NumberValue({ value, decimals = 0 }: { value: number | string | 
  *  page source declared (`Money(x, currency: "EUR")`); `decimals`
  *  re-scales the digit string.  Neither is invented here — Loom money
  *  has no currency dimension.  Semantics live in `moneyText` below. */
-export function MoneyValue({ value, currency, decimals }: { value: number | string | { toString(): string } | null | undefined; currency?: string; decimals?: number }) {
+export function MoneyValue({ value, currency, decimals, localized }: { value: number | string | { toString(): string } | null | undefined; currency?: string; decimals?: number; localized?: boolean }) {
   if (isEmpty(value)) return <EmptyValue />;
-  return <Text component="span" style={{ fontVariantNumeric: "tabular-nums" }}>{moneyText(value as number | string | { toString(): string }, currency, decimals)}</Text>;
+  return <Text component="span" style={{ fontVariantNumeric: "tabular-nums" }}>{moneyText(value as number | string | { toString(): string }, currency, decimals, localized, localized ? getLocale() : undefined)}</Text>;
 }
 
 /** Generic value display with empty-state handling.  Used by
@@ -131,15 +131,59 @@ export function KeyValueRow({
  *                   ("EUR 12.3456").  Only ever what the page source declared.
  *  @param decimals  Optional exact fraction-digit count; re-scales the digit
  *                   string (half away from zero), never through a float.
+ *  @param localized Opt-in (`format: "locale"`): render in `locale`'s
+ *                   conventions instead of the verbatim digits.
+ *  @param locale    The BCP 47 tag for `localized`; undefined = the runtime's
+ *                   own default locale.
  */
 export function moneyText(
   value: number | string | { toString(): string },
   currency?: string,
   decimals?: number,
+  localized?: boolean,
+  locale?: string,
 ): string {
   const raw = typeof value === "string" ? value : String(value);
   const body = decimals === undefined ? raw : scaleDecimalString(raw, decimals);
+  if (localized) {
+    const local = localizeDecimalString(body, currency, locale);
+    if (local !== undefined) {
+      return local;
+    }
+  }
   return currency ? currency + " " + body : body;
+}
+
+/** Format a decimal STRING in a locale's conventions, or undefined when the
+ *  string is not a plain decimal literal or the runtime rejects the currency
+ *  code (the caller then falls back to the verbatim spelling).
+ *
+ *  The digit string goes to `Intl.NumberFormat#format` AS A STRING: ECMA-402
+ *  NumberFormat v3 parses it as an exact decimal, so a NUMERIC(19,4) value
+ *  keeps every digit (a `Number()` hop would not).  The fraction digits are
+ *  pinned to the string's own scale — the locale never re-rounds the value's
+ *  digits (`decimals:` is the knob that re-scales). */
+export function localizeDecimalString(
+  raw: string,
+  currency?: string,
+  locale?: string,
+): string | undefined {
+  const m = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(raw.trim());
+  if (!m) {
+    return undefined;
+  }
+  const frac = m[3] ?? "";
+  const canonical = (m[1] === "-" ? "-" : "") + m[2] + (frac ? "." + frac : "");
+  try {
+    const nf = new Intl.NumberFormat(locale, {
+      ...(currency ? { style: "currency" as const, currency } : {}),
+      minimumFractionDigits: frac.length,
+      maximumFractionDigits: frac.length,
+    });
+    return nf.format(canonical as unknown as number);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Re-scale a decimal STRING to exactly `digits` fraction digits.

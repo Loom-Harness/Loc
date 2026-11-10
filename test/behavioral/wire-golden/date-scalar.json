@@ -214,6 +214,9 @@
         "code": "problem.not-found",
         "detail": "Patient {id} not found",
         "instance": "/api/patients/{id}",
+        "params": {
+          "type": "Clinic.Patient"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

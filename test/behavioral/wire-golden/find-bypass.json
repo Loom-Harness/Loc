@@ -86,6 +86,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/scoped",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -100,6 +103,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/any_tenant",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -127,6 +133,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -154,6 +163,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/restore",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -227,6 +239,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -241,6 +256,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/notes/any_tenant",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -274,6 +292,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/restore",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -301,6 +322,9 @@
         "code": "problem.not-found",
         "detail": "Organization {id} not found",
         "instance": "/api/organizations/{id}",
+        "params": {
+          "type": "Accounts.Organization"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -367,6 +391,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/soft_delete",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -381,6 +408,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/soft_delete",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -409,6 +439,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -454,6 +487,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -595,6 +631,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/scoped",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -739,6 +778,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

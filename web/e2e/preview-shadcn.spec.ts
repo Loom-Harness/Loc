@@ -19,10 +19,9 @@ import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   fatalConsoleErrors,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 // #1242 (fixed): the bundle toast asserted "…KB…" but the Hono bundle is
@@ -40,13 +39,12 @@ test("shadcn design pack → generate → bundle → boot → preview boots", as
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  // Load the pinned shadcn storybook — already `design: shadcn` — rather than
+    // Load the pinned shadcn storybook — already `design: shadcn` — rather than
   // editing the source live.  Driving the Monaco find widget to inject the
   // slot was deterministically flaky on CI headless (the find widget never
   // opened → a 45s timeout), and the sibling storybook preview specs
   // (chakra/mui/shadcn-v4) prove the pre-designed-example path is robust there.
-  await selectExample(page, /shadcn · aggregate-CRUD storybook/);
+  await startFromExample(page, /shadcn · aggregate-CRUD storybook/);
 
   await test.step("Generate (build worker imports the bundled template loader)", async () => {
     // This is the regression check for PR #51 specifically: the build
@@ -56,9 +54,7 @@ test("shadcn design pack → generate → bundle → boot → preview boots", as
     // network access required.
     // The database is created only from recorded migrations — record the
     // example's initial migration before the first Boot.
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
   });
 
   if (!(await browserCanReachNetwork(page))) {

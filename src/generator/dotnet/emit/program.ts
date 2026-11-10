@@ -368,8 +368,9 @@ app.MapGet("/api/realtime/events", async (HttpContext http, ${ns}.Infrastructure
   const fileUpload = options?.fileUpload;
   const fileRoutesEndpoint = fileUpload
     ? `// File upload/download — root /files over the bound objectStore.
-app.MapPost("/files", async (IFormFile file) =>
+app.MapPost("/files", async (IFormFile? file, HttpContext http, ILogger<${ns}.Api.DomainExceptionFilter> log) =>
 {
+    if (file is null) return ${ns}.Api.DomainExceptionFilter.MissingFilePartProblem(http, log);
     var key = Guid.NewGuid().ToString();
     using var ms = new MemoryStream();
     await file.CopyToAsync(ms);

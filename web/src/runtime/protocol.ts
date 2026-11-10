@@ -1,6 +1,7 @@
 // Runtime-worker protocol.
 //
 import type { LogLine } from "../util/log-line.js";
+import type { OidcPersona, OidcRealm } from "./infra/oidc.js";
 
 //
 // One runtime worker per Node deployable.  Once booted it holds the
@@ -22,6 +23,9 @@ export interface SerializedResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /** Every `Set-Cookie` value (`headers` holds one value per name, and a
+   *  response may set several cookies). */
+  setCookies?: string[];
   /** Empty string when the upstream Response had no body, or when
    *  the status (204 / 205 / 304) forbids a body.  Consumers must
    *  pass `null` to `new Response()` for null-body statuses — the
@@ -110,10 +114,19 @@ export interface LoadRequest {
   serviceHosts?: string[];
   /** ESM bundle source produced by the bundler worker. */
   bundleCode: string;
+  /** The user verifier `bootApp` registers (see `Verifier`).  Default
+   *  `"dev-stub"`. */
+  verifier?: Verifier;
   /** Also derive the schema from the bundle's Drizzle tables — the schema of
    *  a source without a system, which its storage then applies. */
   synthDdl: boolean;
 }
+
+/** `"configured"`: the verifier the model declares — under `auth { oidc }` the
+ *  generated OIDC verifier, checking tokens the infra worker's fake identity
+ *  provider signs.  `"dev-stub"`: the dev stub and its `x-loom-dev-claims`
+ *  header. */
+export type Verifier = "configured" | "dev-stub";
 
 export type LoadResult = { ok: true; ddl?: string } | { ok: false; message: string };
 
@@ -143,6 +156,8 @@ export interface StorageBootPlan {
  *  the storage it binds. */
 export interface BootPlan {
   storages: StorageBootPlan[];
+  /** OpenAPI documents the external-API mocks answer from, by origin. */
+  restSpecs?: { origin: string; spec: object }[];
   /** In order of preference: the first one is the default dispatch target
    *  (the backend the frontend talks to). */
   backends: Array<{
@@ -153,7 +168,12 @@ export interface BootPlan {
      *  `environment:`.  Per worker, so two deployables never see each
      *  other's values. */
     env?: Record<string, string>;
+    /** Default `"dev-stub"`. */
+    verifier?: Verifier;
   }>;
+  /** The fake identity provider's realms and personas — set for a system with
+   *  `auth { oidc }`. */
+  oidc?: { realms: OidcRealm[]; personas: OidcPersona[] };
 }
 
 /** A serving deployable and the `StorageBootPlan.key` it reads and writes. */

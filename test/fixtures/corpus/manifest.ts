@@ -373,6 +373,12 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "saga-durable-cross-context",
+    title: "saga consumer of a durable channel declared by another context — the migration must create the `last_event_id` marker the ORM maps",
+    doc: "workflow",
+    backends: ALL,
+  },
+  {
     id: "reactor-failure",
     title:
       "a reactor that throws AFTER its triggering command committed — the command keeps its 2xx, the failure is isolated + logged `reactor_failed`",
@@ -925,6 +931,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "`exists <Aggregate> as <row> where …` — a correlated SQL EXISTS in a row `filter` (the policy position) and in a criterion read, with the quantified aggregate's own read scope applied inside the subquery",
     doc: "criterion",
+    backends: ALL,
+  },
+  {
+    id: "policy-row-rules",
+    title:
+      "`policy` row rules (`allow [write] on X as x where …`), policy functions called on a row and on an `X id`, per-role `when` and `own` — composed onto the tenant default (D-SHARING)",
+    doc: "auth",
     backends: ALL,
   },
   {

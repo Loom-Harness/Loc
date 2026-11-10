@@ -642,6 +642,21 @@ export const AUTHZ_LADDERS = {
         method: "DELETE",
         path: "/api/accounts/{id}",
       },
+      // Returning operations load through the same command seam as `update`:
+      // a union-returning and a value-returning op on the write-denied row
+      // match no row either.
+      {
+        label: "write-denied aggregate — a union-returning op is refused",
+        method: "POST",
+        path: "/api/accounts/{id}/settle",
+        body: { amt: 5 },
+      },
+      {
+        label: "write-denied aggregate — a value-returning op is refused",
+        method: "POST",
+        path: "/api/accounts/{id}/doubled",
+        body: {},
+      },
       // Wave C3 packet 3c: `Ledger`, the aggregate carrying ONLY the tenant
       // floor (no `policy` stance), refused across tenants on its read AND
       // write seams — the tenancy predicate's own refusal, next to the policy
@@ -724,10 +739,85 @@ export const AUTHZ_LADDERS = {
         arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
       },
       {
+        label: "tenant-scoped union-returning op — the command load matches no foreign row",
+        seed: { path: "/api/invoices", body: { number: "LADDER-4", amountDue: 40 } },
+        method: "POST",
+        path: "/api/invoices/{id}/defer",
+        body: { reason: "parts" },
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "tenant-scoped value-returning op — the command load matches no foreign row",
+        seed: { path: "/api/invoices", body: { number: "LADDER-5", amountDue: 50 } },
+        method: "POST",
+        path: "/api/invoices/{id}/owed",
+        body: {},
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
         label: "tenant-scoped destroy — a foreign tenant cannot delete",
         seed: { path: "/api/invoices", body: { number: "LADDER-3", amountDue: 30 } },
         method: "DELETE",
         path: "/api/invoices/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** Row rules, `when` and `own` (D-SHARING) compose onto the tenant floor in
+   *  the floor's own slot, so a foreign tenant with no share must still be
+   *  refused on every read and write seam of a composed aggregate.  The shares,
+   *  the role split and `own` are the fixture's own `test e2e` — they need
+   *  principals this ladder does not have. */
+  "policy-row-rules": {
+    seed: { path: "/api/categories", body: { name: "LADDER-C0" } },
+    gated: [
+      {
+        label: "row-rule composite — a foreign tenant's category (an `exists` row rule beside the floor) by-id read",
+        method: "GET",
+        path: "/api/categories/{id}",
+        seed: { path: "/api/categories", body: { name: "LADDER-C" } },
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "row-rule composite — a foreign tenant's categories update",
+        seed: { path: "/api/categories", body: { name: "LADDER-C" } },
+        method: "POST",
+        path: "/api/categories/{id}/update",
+        body: { name: "LADDER-CB" },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "row-rule composite — a foreign tenant's categories destroy",
+        seed: { path: "/api/categories", body: { name: "LADDER-C" } },
+        method: "DELETE",
+        path: "/api/categories/{id}",
+        note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "row-rule composite — a foreign tenant's note (`when`-gated `local` / `own` levels) by-id read",
+        method: "GET",
+        path: "/api/notes/{id}",
+        seed: { path: "/api/notes", body: { body: "LADDER-N" } },
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "row-rule composite — a foreign tenant's notes update",
+        seed: { path: "/api/notes", body: { body: "LADDER-N" } },
+        method: "POST",
+        path: "/api/notes/{id}/update",
+        body: { body: "LADDER-NB" },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "row-rule composite — a foreign tenant's notes destroy",
+        seed: { path: "/api/notes", body: { body: "LADDER-N" } },
+        method: "DELETE",
+        path: "/api/notes/{id}",
         note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
         arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
       },

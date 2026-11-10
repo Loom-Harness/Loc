@@ -25,17 +25,24 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  "context.ts": 28,
+  // +3: a policy level's `when` (absent = every caller) and the context's
+  // `policyRowRules` list, absent like its `policyReadLevels` siblings.
+  "context.ts": 31,
   "deployment.ts": 22,
-  "expr.ts": 31,
+  // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
+  // in-app gate position; a query-position quantifier has no read).
+  "expr.ts": 33,
   "members.ts": 16,
-  "model.ts": 8,
+  // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
+  // `UnresolvedTypeSite.origin` (absent for a node with no source span); +1:
+  // `EnumValueRenameIntentIR.context` (a root-level enum has no declaring context).
+  "model.ts": 11,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
-  "system.ts": 28,
+  "system.ts": 29,
   "traceability.ts": 5,
-  "types.ts": 3,
+  "types.ts": 2,
   "ui.ts": 20,
   "workflow.ts": 14,
   "workflow-stmt.ts": 26,

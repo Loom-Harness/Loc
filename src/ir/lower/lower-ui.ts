@@ -275,7 +275,11 @@ export function lowerUi(
       // re-derive it (mirrors the mutation-success `["<tag>"]` key).
       const eventName = m.event?.$refText ?? "";
       const env: Env = { locals: new Map(), user: undefined, ui: true };
-      const inner = withLocal(env, m.bind, "param", { kind: "entity", name: eventName });
+      const inner = withLocal(env, m.bind, "param", {
+        kind: "entity",
+        name: eventName,
+        declKind: "event",
+      });
       const toasts: ExprIR[] = [];
       const refetches: RefetchTargetIR[] = [];
       for (const stmt of m.body) {
@@ -348,7 +352,7 @@ function lowerPage(
   let canonical: string | undefined;
   const state: StateFieldIR[] = [];
   // Page-scoped env: route params + state fields bind as locals so
-  // `inferExprType` resolves their refs to their declared types
+  // `passType` resolves their refs to their declared types
   // (otherwise NameRef refs would fall through to the string-typed
   // default — wrong for `count + 1` arithmetic in a page primitive).
   // The page emitter does its own walker-side scope resolution at
@@ -472,7 +476,7 @@ export function lowerComponent(c: Component, user?: UserIR, stores?: Env["stores
       origin: originFor(c),
     };
   }
-  // Component-scoped env: params + state bind so `inferExprType`
+  // Component-scoped env: params + state bind so `passType`
   // resolves refs to their declared types (same reason as
   // `lowerPage`; see comment there).  `user` is threaded for the same
   // reason it is on a page: a component renders INTO a page, so a

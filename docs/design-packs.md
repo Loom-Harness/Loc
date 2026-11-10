@@ -434,9 +434,17 @@ currency?, decimals?)`:
   half away from zero (the backends' and Postgres' rounding family), never
   through a float;
 - **`currency: "EUR"`** prefixes the code the page source passed, verbatim
-  (`EUR 12.3456`) — never a symbol the toolchain guessed.
+  (`EUR 12.3456`) — never a symbol the toolchain guessed;
+- **`format: "locale"`** (opt-in) renders the same digits in the active
+  locale's conventions — grouping, decimal mark, currency symbol and its
+  placement (`1 234,50 €` in fr).  The digit **string** goes to
+  `Intl.NumberFormat#format` (ECMA-402 formats a numeric string exactly), so
+  there is no float hop; the fraction digits stay the value's own scale unless
+  `decimals:` re-scales them.  A pack passes the flag through
+  (`moneyText(value, currency, decimals, localized, getLocale())`); the locale
+  comes from the pack's own locale adapter.
 
-Both knobs are pre-existing, user-declared `Money(…)` arguments; there is no
+All three knobs are user-declared `Money(…)` arguments; there is no
 pack-manifest knob.  A new pack that hand-rolls its own money formatter fails
 `test/generator/_packs/money-display-cross-pack.test.ts`, which bans `"USD"`,
 `style: "currency"` and `Number(` on the money path across every pack at once.

@@ -264,11 +264,50 @@ WHERE EXISTS (SELECT 1 FROM category_shares q_s
 
 `where` takes a whole expression, so the predicate runs to the end of the enclosing expression. Parenthesise the quantifier to combine it: `(exists S as s where s.a == this.b) || this.public`.
 
+### `for write` — the rows the caller may write
+
+`exists <Aggregate> for write as <row> where <predicate>` quantifies over the rows the caller may **write**: the aggregate's write scope (its `allow write` rules, write levels and `deny write`) is ANDed on top of its read scope, exactly as an instance mutation's command load applies both. An aggregate with no write scope is writable wherever it is readable, so there `for write` reads the same rows as plain `exists`. It is valid in every position plain `exists` is.
+
+### In a gate
+
+A `requires` statement of a create, a public operation or a destroy, and an operation's `when`, are evaluated by the handler before any query runs. An `exists` there is a read of its own: a single-row read on the quantified aggregate's repository, under that aggregate's read scope, so a gate sees exactly the rows the same `exists` sees in a query. Every value the predicate takes from the gate — a field of the loaded row, an argument, a claim of `currentUser` — is passed to that read as a parameter.
+
+```ddd
+aggregate Rack {
+  label: string
+  category: Category id
+  // 403 unless the category is shared with the caller
+  create(label: string, category: Category id) {
+    requires exists CategoryShare as s where s.category == category && s.grantee == currentUser.id
+  }
+  // 409 while no live share of the rack's category exists; 403 when another rack has the label
+  operation relabel(to: string) when exists CategoryShare as s where s.category == this.category {
+    requires !exists Rack as o where o.label == to && o.category == this.category && o.id != this.id
+    label := to
+  }
+}
+```
+
+```ts
+// generated (node): the create handler
+if (!(((await new CategoryShareRepository(db, events).existsForRackCreate0(Ids.CategoryId(body.category), currentUser.id)) !== null))) throw new ForbiddenError("Forbidden: …");
+// …and the synthesized read on CategoryShare's repository
+async existsForRackCreate0(arg0: Ids.CategoryId, arg1: string): Promise<CategoryShare | null> {
+  const rootRows = await this.db.select().from(schema.categoryShares)
+    .where(and(and(eq(schema.categoryShares.category, arg0), eq(schema.categoryShares.grantee, arg1)), categoryShareScope()))
+    .orderBy(asc(schema.categoryShares.id)).limit(1);
+  …
+}
+```
+
+The read is not an HTTP route. In a gate the quantified aggregate may be the gated row's own (`Rack` above): the read is a separate query, so it needs no second alias. A create gate reads the create's arguments that name a create-input field.
+
 The rules:
 
-- **A query predicate only.** `exists` is admitted where a predicate is compiled into a query: a `criterion` read through `Repo.all` / `Repo.find`, a `retrieval` `where`, and a row `filter`. Anywhere else (an operation body, a `requires` gate, a `derived`, a page, a projection `where`) it is refused with `loom.exists-outside-query`.
+- **Where it can read the database.** `exists` is admitted where a predicate is compiled into a query — a `criterion` read through `Repo.all` / `Repo.find`, a `retrieval` `where`, a row `filter` — and in the gates above. Anywhere else (a `precondition`, an operation body, a private operation's gate, a `derived`, a page, a policy `read … requires` gate, a projection `where`) it is refused with `loom.exists-outside-query`.
+- **The gate belongs to the handler.** An operation whose `requires` or `when` holds an `exists` is gated by its own HTTP handler; the aggregate method has no repository. Calling it from a command handler or a workflow step is refused (`loom.exists-outside-query`), because the call would run ungated.
 - **Same context.** The quantified aggregate must be declared in the same context as the filtered row, because the subquery reads the same database (`loom.exists-cross-context`).
-- **Another aggregate, stored as plain rows.** Quantifying over the row's own aggregate is refused (`loom.exists-unsupported`), as is either side being event-sourced, stored with `shape: document` / `embedded`, or part of an inheritance hierarchy.
+- **Stored as plain rows.** In a query position, quantifying over the filtered row's own aggregate is refused (`loom.exists-unsupported`). In any position, so is either side being event-sourced, stored with `shape: document` / `embedded`, or part of an inheritance hierarchy.
 - **The row's fields are columns.** `s.<field>` and `s.<vo>.<sub>` read the quantified row's columns. The bare row (`s == x`), an intrinsic over its column (`s.name.trim()`) and date arithmetic over its column are refused by the queryable subset.
 
 ## Return shapes

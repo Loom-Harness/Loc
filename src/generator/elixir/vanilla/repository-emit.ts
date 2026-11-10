@@ -194,7 +194,7 @@ function renderRepository(
   // unless the aggregate's write scope is narrower than its read scope.  When
   // present, a `find_by_id_for_write` mirrors `find_by_id` but scopes on it
   // INSTEAD of the read restrictions (`skip_filters: :all`).
-  const writeScope = vanillaWriteScopeFilter(agg, contextModule);
+  const writeScope = vanillaWriteScopeFilter(agg, contextModule, ctx?.aggregates ?? []);
   // On insert, a TPH concrete stamps its `kind` discriminator (the migration's
   // NOT-NULL text column) so the shared-table row is routable back to this
   // subtype.  `kind` isn't a cast field (it's not a declared aggregate column),

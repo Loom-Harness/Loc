@@ -749,9 +749,11 @@ function printPolicyDecl(node: import("../generated/ast.js").PolicyDecl): string
     (node.rules ?? []).map((r) => {
       if (r.effect === "read")
         return `read ${r.target} requires ${r.gate ? printExpr(r.gate) : ""}`;
-      return r.effect === "deny"
-        ? `deny ${r.verb ? `${r.verb} ` : ""}on ${r.target}`
-        : `allow ${r.verb ? `${r.verb} ` : ""}${r.level} on ${r.target}`;
+      const verb = r.verb ? `${r.verb} ` : "";
+      if (r.effect === "deny") return `deny ${verb}on ${r.target}`;
+      if (r.row) return `allow ${verb}on ${r.target} as ${r.binding} where ${printExpr(r.row)}`;
+      const when = r.when ? ` when ${printExpr(r.when)}` : "";
+      return `allow ${verb}${r.level} on ${r.target}${when}`;
     }),
   );
 }
@@ -1247,10 +1249,11 @@ function printMigration(node: import("../generated/ast.js").Migration): string {
           : `${s.fromTable} -> ${s.to}`;
       if (s.$type === "SqlStep")
         return `sql ${s.placement ? `${s.placement} ` : ""}${JSON.stringify(s.sql)}`;
-      // ColumnStep — rename (`renamedTo`) or backfill (`value`), M-T2.3.
+      // ColumnStep — a rename (`renamedTo`; the owner an aggregate, or an enum for
+      // a value rename) or a backfill (`value`).
       return s.value !== undefined
-        ? `${s.aggregate.$refText}.${s.field} = ${printExpr(s.value)}`
-        : `${s.aggregate.$refText}.${s.field} -> ${s.renamedTo}`;
+        ? `${s.owner.$refText}.${s.field} = ${printExpr(s.value)}`
+        : `${s.owner.$refText}.${s.field} -> ${s.renamedTo}`;
     }),
   );
 }

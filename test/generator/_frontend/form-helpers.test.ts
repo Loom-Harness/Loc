@@ -114,7 +114,7 @@ describe("isPrimitiveLike", () => {
     for (const t of [
       voOf("Address"),
       arr(prim("int")),
-      { kind: "entity", name: "Line" } as TypeIR,
+      { kind: "entity", name: "Line", declKind: "part" } as TypeIR,
     ]) {
       expect(isPrimitiveLike(t)).toBe(false);
       expect(isPrimitiveLike(opt(t))).toBe(false);

@@ -79,7 +79,6 @@ import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
   boundApiOf,
-  inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
@@ -472,11 +471,11 @@ function lowerEntryBody(
   const guard = handler ? handlerReturnGuard(body) : undefined;
   const armForm = variants ? terminalMatchReturns(body) : undefined;
   const tagOf = (value: Expression, at: Env): string | undefined =>
-    variants ? resultVariantTag(inferExprType(value, at), variants) : undefined;
+    variants ? resultVariantTag(passType(value, at), variants) : undefined;
   for (const s of body) {
     if (isReturnStmt(s)) {
       inner = hoistAnswer(s.value, inner);
-      const t = variants ? inferExprType(s.value, inner) : undefined;
+      const t = variants ? passType(s.value, inner) : undefined;
       const value = lowerExpr(s.value, inner);
       if (variants && t?.kind === "union" && value.kind === "ref") {
         // `return r` of a value of the declared union: each arm answers its
@@ -497,7 +496,11 @@ function lowerEntryBody(
       statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
       const bound = hoistAnswer(
         guard.ret.value,
-        withLocal(l.envAfter, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName }),
+        withLocal(l.envAfter, l.stmt.var, "let", {
+          kind: "entity",
+          name: l.stmt.aggName,
+          declKind: "aggregate",
+        }),
       );
       returnValue = lowerExpr(guard.ret.value, bound);
       const tag = tagOf(guard.ret.value, bound);
@@ -543,7 +546,7 @@ function lowerArmResults(
   tagOf: (value: Expression, at: Env) => string | undefined,
 ): { match: ExprIR; tags: string[] } {
   const subject = lowerExpr(stmt.subject, env);
-  const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+  const subjectType = subject.kind === "ref" ? subject.type : passType(stmt.subject, env);
   const absence =
     subjectType?.kind === "optional" ||
     (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
@@ -639,7 +642,7 @@ function lowerOn(
 ): OnIR {
   const eventName = o.event.ref?.name ?? o.event.$refText;
   const inner = withBodyNames(
-    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName }),
+    withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName, declKind: "event" }),
     o.body,
   );
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
@@ -867,14 +870,18 @@ function lowerWorkflowStatementInner(
     // iterable's element aggregate type, lower the body in that extended
     // scope, then compute the per-iteration saves over the body.
     const iterable = lowerExpr(stmt.iterable, env);
-    const iterableType = inferExprType(stmt.iterable, env);
+    const iterableType = passType(stmt.iterable, env);
     const elementType = iterableType.kind === "array" ? iterableType.element : undefined;
     const varAggName = elementType?.kind === "entity" ? elementType.name : "Unknown";
     const repoName = repoForAgg.get(varAggName) ?? plural(varAggName);
     // Bind the loop var to the element type so body op-calls resolve `o`'s
     // aggregate; fall back to the (possibly Unknown) entity type when the
     // iterable didn't infer to an array (the validator surfaces that).
-    const varType: TypeIR = elementType ?? { kind: "entity", name: varAggName };
+    const varType: TypeIR = elementType ?? {
+      kind: "entity",
+      name: varAggName,
+      declKind: "aggregate",
+    };
     const bodyEnv = withLocal(env, stmt.var, "let", varType);
     const { statements: body } = lowerWorkflowStatements(
       stmt.body,
@@ -937,7 +944,7 @@ function lowerWorkflowStatementInner(
     const aggName = repo?.aggregate?.ref?.name ?? boundLocal?.aggName ?? "Unknown";
     const repoName = repo?.name ?? (boundLocal ? (repoForAgg.get(aggName) ?? "") : "");
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
-    const varType: TypeIR = { kind: "entity", name: aggName };
+    const varType: TypeIR = { kind: "entity", name: aggName, declKind: "aggregate" };
     const { statements: thenBody } = lowerWorkflowStatements(
       stmt.thenBody,
       withLocal(env, stmt.var, "let", varType),
@@ -1018,7 +1025,7 @@ function lowerWorkflowStatementInner(
     // `op-call` on that name — and the arm saves it at its own end, the
     // dirtiness rule `if-let`'s then-branch applies to its binder.
     const subject = lowerExpr(stmt.subject, env);
-    const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
+    const subjectType = subject.kind === "ref" ? subject.type : passType(stmt.subject, env);
     const absenceSubject =
       subjectType?.kind === "optional" ||
       (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
@@ -1141,7 +1148,7 @@ function lowerWorkflowStatementInner(
           value: target ? lowerExprInContext(f.value, target, env) : lowerExpr(f.value, env),
         };
       });
-      const aggType: TypeIR = { kind: "entity", name: factory.aggName };
+      const aggType: TypeIR = { kind: "entity", name: factory.aggName, declKind: "aggregate" };
       return {
         stmt: {
           kind: "factory-let",
@@ -1161,7 +1168,7 @@ function lowerWorkflowStatementInner(
     if (runCall) {
       const aggName = runCall.repo.aggregate?.ref?.name ?? "Unknown";
       const repoName = runCall.repo.name;
-      const elementType: TypeIR = { kind: "entity", name: aggName };
+      const elementType: TypeIR = { kind: "entity", name: aggName, declKind: "aggregate" };
       const arrayType: TypeIR = { kind: "array", element: elementType };
       const pageClause =
         runCall.pageOffset || runCall.pageLimit
@@ -1226,7 +1233,10 @@ function lowerWorkflowStatementInner(
     const findOneCall = matchFindCall(expr, reposByName, queryNames);
     if (findOneCall) {
       const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
-      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      const returnType: TypeIR = {
+        kind: "optional",
+        inner: { kind: "entity", name: aggName, declKind: "aggregate" },
+      };
       // A widened read (`… ignoring …`) calls its own method, exactly as the
       // `if let` over the same source does; the plain read runs the shared
       // retrieval.
@@ -1256,7 +1266,7 @@ function lowerWorkflowStatementInner(
     const keyCall = matchKeyLookupCall(expr, reposByName);
     if (keyCall) {
       const aggName = keyCall.repo.aggregate?.ref?.name ?? "Unknown";
-      const returnType: TypeIR = inferExprType(stmt.expr, env);
+      const returnType: TypeIR = passType(stmt.expr, env);
       return {
         stmt: {
           kind: "repo-let",
@@ -1278,7 +1288,10 @@ function lowerWorkflowStatementInner(
     const byIdWidened = matchByIdBypassCall(expr, reposByName, queryNames);
     if (byIdWidened) {
       const aggName = byIdWidened.repo.aggregate?.ref?.name ?? "Unknown";
-      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      const returnType: TypeIR = {
+        kind: "optional",
+        inner: { kind: "entity", name: aggName, declKind: "aggregate" },
+      };
       return {
         stmt: {
           kind: "repo-let",
@@ -1308,7 +1321,7 @@ function lowerWorkflowStatementInner(
       // `find(id)` `T?`, and `all()` the whole collection.  The binding takes that
       // type as is: an optional read binds `T?` (narrowed by `if let`), and
       // the validator refuses an array.
-      const returnType: TypeIR = inferExprType(stmt.expr, env);
+      const returnType: TypeIR = passType(stmt.expr, env);
       const localType: TypeIR = returnType;
       return {
         stmt: {
@@ -1342,7 +1355,7 @@ function lowerWorkflowStatementInner(
     if (boundCall) return boundCall;
     // expr-let: scalar / generic expression.  A declared type is the binding's
     // type, and the value lowers against it (literal promotion).
-    const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
+    const t = stmt.type ? lowerType(stmt.type, env) : passType(stmt.expr, env);
     const exprIR = stmt.type ? lowerExprAsDeclared(stmt.expr, t, env) : lowerExpr(stmt.expr, env);
     // A typed in-system api call (M-T4.8) whose callee declares a union find
     // carries the SAME runtime shape as a local one: the callee answers the
@@ -1599,7 +1612,7 @@ function lowerBoundMutatingCall(
     repoName: repoForAgg.get(aggName) ?? plural(aggName),
   });
   const resultOf = (mutated: { name: string; aggName: string; repoName: string }[]) => {
-    const type = stmt.type ? lowerType(stmt.type, env) : inferExprType(expr, env);
+    const type = stmt.type ? lowerType(stmt.type, env) : passType(expr, env);
     const errorVariants =
       type.kind === "union"
         ? type.variants.map(variantTag).filter((tag) => isErrorVariantTag(tag, env))

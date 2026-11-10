@@ -58,7 +58,12 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { eventSourcedWorkflows, hasStateRow, lookupOp } from "../../../ir/plan/index.js";
+import {
+  commandCreateReturnsSelf,
+  eventSourcedWorkflows,
+  hasStateRow,
+  lookupOp,
+} from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -330,7 +335,7 @@ export function buildWorkflowsFile(
       f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
     for (const wf of ctx.workflows) {
       const r = commandCreateResult(wf);
-      if (r?.type.kind !== "union" || !commandCreateEntryResult(wf, ctx)) continue;
+      if (r?.type.kind !== "union" || !commandCreateEntryResult(wf)) continue;
       const split = opUnionResponses(r.type.variants, ctx);
       if (!seen.has(split.successName)) {
         seen.add(split.successName);
@@ -509,7 +514,7 @@ export function buildWorkflowsFile(
   const wfProblemUnion = [...wfStatuses].sort((a, b) => a - b).join(" | ");
   // RFC 7807 responder — application/problem+json + x-request-id header.
   body.push(
-    `    const problem = (status: ${wfProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${wfProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
@@ -673,6 +678,7 @@ export function buildWorkflowsFile(
     /(?<!\.)\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
+    /\bproblemParams\(/.test(bodyStr) ? "problemParams" : null,
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
     /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
@@ -1004,7 +1010,7 @@ function emitWorkflowRoute(
   const result = commandCreateResult(wf);
   // An expected-failure result (`T or E`): 200 declares the success arms and
   // each error arm's status its problem body, as on an operation route.
-  const er = commandCreateEntryResult(wf, ctx);
+  const er = commandCreateEntryResult(wf);
   const split =
     er && result?.type.kind === "union" ? opUnionResponses(result.type.variants, ctx) : null;
   const responsesAt = out.length;
@@ -1018,7 +1024,7 @@ function emitWorkflowRoute(
         `      ${s.status}: { description: ${JSON.stringify(reasonPhrase(s.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${s.arms.map((a) => a.problemName).join(", ")}]) } } },`,
       );
     }
-  } else if (result && workflowSelfResult(wf)) {
+  } else if (result && commandCreateReturnsSelf(wf)) {
     out.push(
       `      200: { description: "OK", content: { "application/json": { schema: ${upperFirst(wf.name)}InstanceResponse } } },`,
     );
@@ -1217,7 +1223,7 @@ function emitWorkflowRoute(
   // commit.  `!`: assigned in a callback TS's flow analysis cannot see into.
   if (result) {
     out.push(
-      `    let workflowResult!: ${er ? "{ type: string } & Record<string, unknown>" : workflowSelfResult(wf) ? "unknown" : workflowResultTsType(result.type)};`,
+      `    let workflowResult!: ${er ? "{ type: string } & Record<string, unknown>" : commandCreateReturnsSelf(wf) ? "unknown" : workflowResultTsType(result.type)};`,
     );
   }
   const renderValue = (e: ExprIR) =>
@@ -1233,7 +1239,7 @@ function emitWorkflowRoute(
         ]
       : result
         ? [
-            `${ind}workflowResult = ${workflowSelfResult(wf) ? selfRow : renderValue(result.value)};`,
+            `${ind}workflowResult = ${commandCreateReturnsSelf(wf) ? selfRow : renderValue(result.value)};`,
           ]
         : [];
   if (wrapsFrame) {
@@ -1397,7 +1403,7 @@ function emitWorkflowRoute(
   const answered =
     split && result
       ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
-      : result && workflowSelfResult(wf)
+      : result && commandCreateReturnsSelf(wf)
         ? `workflowResult as z.infer<typeof ${upperFirst(wf.name)}InstanceResponse>`
         : "workflowResult";
   out.push(
@@ -1406,13 +1412,6 @@ function emitWorkflowRoute(
   out.push(`  },`);
   out.push(`);`);
   return out;
-}
-
-/** True when the routed create answers the workflow itself (`create(…):
- *  <Wf> { …; return this }`) — its instance state, not a scalar. */
-function workflowSelfResult(wf: WorkflowIR): boolean {
-  const r = commandCreateResult(wf);
-  return r?.type.kind === "entity" && r.type.name === wf.name;
 }
 
 /** The TS test that the answered `workflowResult` is an `error` variant. */

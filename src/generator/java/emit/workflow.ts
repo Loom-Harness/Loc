@@ -1,6 +1,7 @@
 import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { isWorkflowSelfType } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
   typeKey,
@@ -25,6 +26,7 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../../ir/util/op-gates.js";
+import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
   walkWorkflowStmtExprsDeep,
@@ -783,11 +785,6 @@ function workflowPublishes(wf: WorkflowIR): boolean {
   return anyWorkflowStmt(wf, (s) => s.kind === "emit" || nestedSaves(s).length > 0);
 }
 
-/** Does the body carry a workflow-level `emit` anywhere (branches included)? */
-function workflowEmitsDeepOnly(wf: WorkflowIR): boolean {
-  return anyWorkflowStmt(wf, (s) => s.kind === "emit");
-}
-
 function anyWorkflowStmt(wf: WorkflowIR, pred: (s: WorkflowStmtIR) => boolean): boolean {
   let found = false;
   for (const top of wf.statements) {
@@ -939,27 +936,14 @@ function workflowVoMappers(
   basePkg: string,
 ): string[] {
   const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
-  const collect = (t: TypeIR, into: Set<string>): void => {
-    if (t.kind === "valueobject") into.add(t.name);
-    else if (t.kind === "array") collect(t.element, into);
-    else if (t.kind === "optional") collect(t.inner, into);
-  };
-  const voNames = new Set<string>();
-  // Seeds include a payload param's OWN field types — a VO reachable only
-  // THROUGH a payload (`command FileClaim { total: Money }`) would otherwise
-  // have no `toMoney(...)` mapper, while `workflowPayloadMappers` emits a call
-  // to one (#2864 D7/T2, one level down).
-  for (const t of workflowParamTypeSeeds(workflows, ctx)) collect(t, voNames);
-  // Transitive closure — a VO field may itself be a VO.
-  const queue = [...voNames];
-  while (queue.length > 0) {
-    const vo = queue.pop()!;
-    for (const f of voLookup.get(vo) ?? []) {
-      const before = voNames.size;
-      collect(f.type, voNames);
-      if (voNames.size > before) for (const v of voNames) if (!queue.includes(v)) queue.push(v);
-    }
-  }
+  // Seeds include a payload param's OWN field types: a VO reachable only
+  // THROUGH a payload (`command FileClaim { total: Money }`) needs its
+  // `toMoney(...)` mapper too, because `workflowPayloadMappers` calls it.
+  // The closure through VO fields is the shared one every backend uses.
+  const { valueObjects: voNames } = collectReachableTypes(
+    workflowParamTypeSeeds(workflows, ctx),
+    ctx.valueObjects,
+  );
   return [...voNames].sort().flatMap((vo) => {
     const fields: readonly FieldIR[] = voLookup.get(vo) ?? [];
     const args = fields
@@ -1302,7 +1286,7 @@ export function renderJavaWorkflows(
     // the commit and a rollback discards them.
     const publishes = workflowPublishes(wf);
     if (publishes) anyPublishes = true;
-    const wfEmits = workflowEmitsDeepOnly(wf);
+    const wfEmits = workflowEmits(wf.statements).length > 0;
     const bodyChunks = renderWorkflowStmtChunks(
       wf.statements,
       javaWorkflowStmtTarget(
@@ -1370,8 +1354,8 @@ export function renderJavaWorkflows(
     // (an id's raw `value()`), read inside the class-level `@Transactional`
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
-    const er = commandCreateEntryResult(wf, ctx);
-    const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+    const er = commandCreateEntryResult(wf);
+    const selfResult = isWorkflowSelfType(wf, result?.type);
     const resultLines =
       er && result?.type.kind === "union"
         ? [
@@ -1722,7 +1706,7 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
-    const er = commandCreateEntryResult(wf, ctx);
+    const er = commandCreateEntryResult(wf);
     if (er && result.type.kind === "union") {
       return [
         `    @PostMapping("/${snake(wf.name)}")`,
@@ -1738,7 +1722,7 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
-    if (result.type.kind === "entity" && result.type.name === wf.name) {
+    if (isWorkflowSelfType(wf, result.type)) {
       return [
         `    @PostMapping("/${snake(wf.name)}")`,
         `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,

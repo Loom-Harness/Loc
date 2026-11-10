@@ -144,7 +144,8 @@ export function classifyDomainServiceTier(
   // target one of these (mutation is on the PASSED-IN aggregates).
   const aggregateParams = new Map<string, string>(); // paramName -> aggregateName
   for (const p of op.params) {
-    if (p.type.kind === "entity") aggregateParams.set(p.name, p.type.name);
+    if (p.type.kind === "entity" && p.type.declKind === "aggregate")
+      aggregateParams.set(p.name, p.type.name);
   }
 
   let reads = false;
@@ -198,7 +199,8 @@ export function mutatedParamNames(
 ): Set<string> {
   const aggregateParams = new Map<string, string>(); // paramName -> aggregateName
   for (const p of op.params) {
-    if (p.type.kind === "entity") aggregateParams.set(p.name, p.type.name);
+    if (p.type.kind === "entity" && p.type.declKind === "aggregate")
+      aggregateParams.set(p.name, p.type.name);
   }
   const mutated = new Set<string>();
   for (const stmt of op.body) {

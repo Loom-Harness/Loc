@@ -168,6 +168,15 @@ export const R = {
    *  path — so the second principal is refused exactly as the first is, and a
    *  ladder arm would restate the fixture's own `toThrow(404)`.  The refusal IS
    *  asserted: by that `test e2e`. */
+  /** COVERED (by the fixture).  An in-app `exists` gate decides on OTHER rows
+   *  (a share, a sibling, a seal), not on who is calling: the fixture's own
+   *  `test e2e` drives the refused arm (403 / 409) and the admitted arm with the
+   *  same principal, by changing those rows.  A second principal would restate
+   *  the data arm, not discriminate a missing gate. */
+  rowDataGate:
+    "row-data gate (an in-app `exists` over other rows), so the refusal turns on data, not on the " +
+    "caller; the fixture's own `test e2e` drives both the refused (403/409) and the admitted arm " +
+    "— see the gate-position block in the .ddd",
   principalFreeGate:
     "principal-FREE gate (`policy deny` renders an always-false filter for every caller), so a " +
     "second principal cannot be discriminated; the refusal is asserted by the fixture's own " +
@@ -353,6 +362,13 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/products/{id}/update": R.sharedPrincipalId,
     "find GET /api/products": R.sharedPrincipalId,
     "explicitHandler GET /api/products/shared_with/{g}": R.sharedPrincipalId,
+    "create POST /api/racks": R.rowDataGate,
+    "destroy DELETE /api/racks/{id}": R.rowDataGate,
+    "operation POST /api/racks/{id}/relabel": R.rowDataGate,
+    "gateProbe GET /api/racks/{id}/can_relabel": R.rowDataGate,
+    "create POST /api/seals": R.principalFreeGate,
+    "destroy DELETE /api/seals/{id}": R.principalFreeGate,
+    "operation POST /api/seals/{id}/update": R.principalFreeGate,
   },
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
@@ -380,6 +396,32 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
+  },
+  // Row rules / `when` / `own` (D-SHARING).  The ladder refuses a foreign
+  // tenant on Category's and Note's by-id read, update and destroy.  Products
+  // and shares carry a `Category id` foreign key, so a seed needs a second
+  // aggregate's row; the fixture's own `test e2e` refuses them (a foreign org
+  // reads, updates and loses its shares as 404s).
+  "corpus/policy-row-rules": {
+    "create POST /api/orgs": R.sharedTenancyIdentity,
+    "find GET /api/orgs": R.sharedTenancyIdentity,
+    "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/orgs/{id}/update": R.sharedTenancyIdentity,
+    "destroy DELETE /api/orgs/{id}": R.sharedTenancyIdentity,
+    "create POST /api/categories": R.sharedTenancyIdentity,
+    "find GET /api/categories": R.sharedTenancyIdentity,
+    "create POST /api/category_shares": R.sharedTenancyIdentity,
+    "find GET /api/category_shares": R.sharedTenancyIdentity,
+    "getById GET /api/category_shares/{id}": R.oneSeededId,
+    "operation POST /api/category_shares/{id}/update": R.oneSeededId,
+    "destroy DELETE /api/category_shares/{id}": R.oneSeededId,
+    "create POST /api/products": R.sharedTenancyIdentity,
+    "find GET /api/products": R.sharedTenancyIdentity,
+    "getById GET /api/products/{id}": R.oneSeededId,
+    "operation POST /api/products/{id}/update": R.oneSeededId,
+    "destroy DELETE /api/products/{id}": R.oneSeededId,
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
   },
   "corpus/tenancy-owned": {
     "create POST /api/invoices": R.sharedTenancyIdentity,
@@ -497,6 +539,8 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
-  principalFreeGate: 17,
-  sharedTenancyIdentity: 92,
+  principalFreeGate: 20,
+  rowDataGate: 4,
+  sharedTenancyIdentity: 105,
+  oneSeededId: 6,
 };

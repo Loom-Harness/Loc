@@ -71,7 +71,7 @@ describe("node: a tenantOwned event-sourced stream carries and scopes its tenant
   it("the stream scope helper renders the tenancy restriction over the metadata column", () => {
     expect(scopes).toContain("export function ledgerStreamScope(");
     expect(scopes).toContain(
-      `drops(use, "tenantOwned") ? undefined : eq(schema.mainEvents.tenantId, requireCurrentUser().tenantId)`,
+      `drops(use, "tenantOwned") ? undefined : eq(schema.mainEvents.tenantId, requireCurrentUser().operatingOrg)`,
     );
     expect(scopes).toContain("export function bookStreamScope(");
   });

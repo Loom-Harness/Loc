@@ -427,3 +427,65 @@ describe("pseudo-locale en-XA", () => {
     expect(Object.values(after).some((v) => v.includes("Welcome back"))).toBe(false);
   });
 });
+
+describe("check — the source catalog's own plural forms", () => {
+  it("an override using a form English lacks fails --strict, with no translated locale present", async () => {
+    const add = await keyOf("Page {page} of {pages}");
+    writeLocale("en", { [add]: "{page, plural, one {a} few {b} other {c}} {pages}" });
+    await runI18nCheck(ddd, { dir, strict: true });
+    expect(exits).toEqual([1]);
+    expect(text()).toContain("en (source): 1 invalid");
+    expect(text()).toContain(`${add}: plural {page} has a "few" form this locale does not use`);
+  });
+
+  it("a source page literal with a form English lacks is reported", async () => {
+    fs.writeFileSync(ddd, SOURCE.replace('"Welcome"', '"{n, plural, one {x} few {y} other {z}}"'));
+    await runI18nCheck(ddd, { dir, strict: true });
+    expect(exits).toEqual([1]);
+    expect(text()).toContain('"few" form this locale does not use');
+  });
+
+  it("a clean source with no locale files still passes", async () => {
+    await runI18nCheck(ddd, { dir });
+    expect(text()).toContain("No locale files to check.");
+    expect(exits).toEqual([]);
+  });
+});
+
+describe("check — rich-text tags", () => {
+  const RICH = SOURCE.replace('"Welcome"', '"Read the <b>terms</b> and <code>FAQ</code>"');
+  const richKey = async () => keyOf("Read the <b>terms</b> and <code>FAQ</code>");
+  const translateRich = async (value: string) => {
+    fs.writeFileSync(ddd, RICH);
+    await runI18nInit(ddd, "de", { dir });
+    const full = await translateAll("de");
+    writeLocale("de", { ...full, [await richKey()]: value });
+    exits.length = 0;
+    logs.length = 0;
+    await runI18nCheck(ddd, { dir, strict: true });
+  };
+
+  it("a reordered, balanced translation passes", async () => {
+    await translateRich("Lies die <code>FAQ</code> und die <b>AGB</b>");
+    expect(exits).toEqual([]);
+  });
+
+  it("a dropped tag is reported", async () => {
+    await translateRich("Lies die FAQ und die <b>AGB</b>");
+    expect(exits).toEqual([1]);
+    expect(text()).toContain("rich-text tag <code> from the source is missing");
+  });
+
+  it("an unbalanced tag is reported", async () => {
+    await translateRich("Lies die <b>AGB und die <code>FAQ</code>");
+    expect(exits).toEqual([1]);
+    expect(text()).toContain("unbalanced rich-text tags");
+  });
+
+  it("an added known tag and an unknown tag are reported", async () => {
+    await translateRich("<i>Lies</i> die <b>AGB</b> und <code>FAQ</code> <u>x</u>");
+    expect(exits).toEqual([1]);
+    expect(text()).toContain("rich-text tag <i> is not in the source");
+    expect(text()).toContain("unknown tag <u>");
+  });
+});

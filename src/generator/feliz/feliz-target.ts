@@ -11,6 +11,7 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
+import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -25,8 +26,10 @@ import {
 import {
   type FormInputModelText,
   formInputModelText,
+  opDefaultText,
   opModelText,
   paramLabelOwner,
+  workflowRunExpr,
 } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
@@ -399,7 +402,7 @@ function renderFieldArray(
   const rowInputs = fa.rowFields.map((rf) =>
     renderRowInput(rf, felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey)),
   );
-  const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text "Remove" ]`;
+  const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("removeItem", fa.elementName))} ]`;
   const row = `Html.div [ prop.className "flex gap-2 items-end"; prop.children [ ${[...rowInputs, remove].join("; ")} ] ]`;
   const rows = `model.${formField}.${fa.fieldName} |> List.mapi (fun i row -> ${row})`;
   const labelText = felizInputText(ctx, src, [], fa.jsonKey);
@@ -466,6 +469,7 @@ function renderFsMatch(
 
 export const felizTarget: WalkerTarget = {
   framework: "feliz",
+  axes: requireFrontendAxes("feliz"),
 
   // --- State seam — MVU model reads --------------------------------------
   renderStateRead: (ref: StateRef, _pos: RenderPosition) => `model.${upperFirst(ref.name)}`,
@@ -505,10 +509,10 @@ export const felizTarget: WalkerTarget = {
   // An Elmish read is NOT a per-component hook: the `<param>.<agg>.all` site
   // resolves to the Model field holding its `Remote<'T>`, the shell wires the
   // init `Cmd` + `Loaded` `Msg` + `update` arm (see index.ts's read wiring).
-  // So `buildHookUse` names the Model field, `renderApiCall` returns it as the
-  // value QueryView matches on, and `renderApiHoisting` emits nothing (there is
+  // So `bindDataAccess` names the Model field, `renderApiCall` returns it as the
+  // value QueryView matches on, and `renderDataBindings` emits nothing (there is
   // no page-top hoist to make).
-  buildHookUse: (detected) => {
+  bindDataAccess: (detected) => {
     // A query-time PROJECTION read (M-T1.3) resolves to its own Model
     // field, filled by the init Cmd.  Its Remote payload — and so which
     // `View.*` matcher renders it — follows the projection's RESPONSE SHAPE:
@@ -539,7 +543,7 @@ export const felizTarget: WalkerTarget = {
   // The magic route `id` (`byId(id)`) resolves to the local `id` the page view
   // function binds from its `Page` case (`| ProductDetail id -> …View … id`).
   renderRouteId: () => "id",
-  renderApiHoisting: () => [],
+  renderDataBindings: () => [],
   // The `data:` lambda param binds to the match arm the QueryView pack emits
   // (`| Loaded <binding> -> …`), so a read handle's data dereferences to that
   // binding directly (no `.data` — the arm already unwrapped the `Remote`).
@@ -851,7 +855,7 @@ export const felizTarget: WalkerTarget = {
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? `"Create ${upperFirst(form.aggregate)}"`} ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? fsString(opDefaultText(agg.name, "create"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
@@ -974,11 +978,12 @@ export const felizTarget: WalkerTarget = {
       (f) => fieldInputText(ctx, src, f),
     );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const runLabel = src.bc ? workflowRunExpr(ctx, src.bc, wfName) : undefined;
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Run ${upperFirst(form.workflow)}" ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${runLabel ?? fsString(opDefaultText(wf.name, "run"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
@@ -1356,7 +1361,7 @@ export const felizTarget: WalkerTarget = {
    *  are JavaScript, and the per-row projection it does for the JS chart
    *  libraries buys nothing here — F# reads the record's fields directly. */
   renderChartData({ queryExpr }) {
-    // `queryExpr` is the Model FIELD name — `buildHookUse` returns it bare
+    // `queryExpr` is the Model FIELD name — `bindDataAccess` returns it bare
     // because Elmish has no hook to hoist, and each consumer names the record
     // it reads from.  The QueryView pack renderer prefixes `model.` for exactly
     // the same reason.

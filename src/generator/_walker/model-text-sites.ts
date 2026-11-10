@@ -122,6 +122,14 @@ export function opModelText(
   return { markup: ctx.target.renderInterpolation(expr, STRING), expr };
 }
 
+/** The English default of an operation's identity-keyed label
+ *  (`<Ctx>.<Type>.op.<op>`): what a button reads when its ui carries no
+ *  translation runtime, so the literal and the catalog entry cannot drift. */
+export function opDefaultText(typeName: string, opName: string): string {
+  return modelTextEntry({ ctx: undefined, type: typeName, facet: "op", member: opName })
+    .defaultText;
+}
+
 /** The key and English default of a workflow's run button,
  *  `<Ctx>.<Workflow>.op.run` → "Run" — the one spelling every target's
  *  `WorkflowForm` submit reads. */
@@ -138,16 +146,26 @@ export function workflowRunEntry(
   });
 }
 
-/** A workflow form's run button as a markup token; undefined when the site is
- *  off (the target keeps its literal "Run"). */
-export function workflowRunModelText(
+/** A workflow form's run button as a target-native expression; undefined when
+ *  the site is off (the target keeps its literal "Run"). */
+export function workflowRunExpr(
   ctx: WalkContext,
   bc: BoundedContextIR,
   wfName: string,
 ): string | undefined {
   if (!implicitModelTextOn(ctx)) return undefined;
   const { key, defaultText } = workflowRunEntry(wfName, bc, ctx.bcByAggregate.values());
-  return ctx.target.renderInterpolation(localizedModelText(ctx, key, defaultText), STRING);
+  return localizedModelText(ctx, key, defaultText);
+}
+
+/** {@link workflowRunExpr} as a markup token. */
+export function workflowRunModelText(
+  ctx: WalkContext,
+  bc: BoundedContextIR,
+  wfName: string,
+): string | undefined {
+  const expr = workflowRunExpr(ctx, bc, wfName);
+  return expr === undefined ? undefined : ctx.target.renderInterpolation(expr, STRING);
 }
 
 /** The identity-keyed text of ONE form input, resolved off the model rather

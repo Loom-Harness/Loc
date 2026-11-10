@@ -327,7 +327,7 @@ system Demo {
       'problem(422, "Unprocessable Entity", e.getMessage(), "problem.domain-floor", request), 422',
     );
     expect(advice).toContain(
-      'problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404',
+      'typed(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), request), 404',
     );
   });
 
@@ -429,7 +429,7 @@ describe("java generator — single-row read absence 404 (RS-22/RS-27)", () => {
     const advice = files_.get(`${ABS_ROOT}/api/ApiExceptionAdvice.java`)!;
     expect(advice).toContain("@ExceptionHandler(AggregateNotFoundException.class)");
     expect(advice).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
+      'return respond(typed(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), request), 404);',
     );
     // RS-9 — `type` is present and `about:blank`, written through setProperty
     // so Spring's NON_DEFAULT suppression cannot drop it.

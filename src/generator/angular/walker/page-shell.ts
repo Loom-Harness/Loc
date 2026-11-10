@@ -37,6 +37,7 @@ import {
   fieldArrayMembers,
   fieldGroupControlDecl,
   fileUploadMethodLines,
+  groupArrayMembers,
 } from "../form-fields.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
@@ -104,13 +105,20 @@ function submitBody(formVar: string, lines: readonly string[]): string[] {
   ];
 }
 
-/** The getter + add/remove member lines a form's dynamic-row fields contribute
- *  (empty when the form has none). */
+/** The getter + add/remove member lines a form's dynamic-row fields contribute,
+ *  including the arrays nested in its value-object groups (empty when the form
+ *  has none). */
 function formArrayMemberLines(
   formVar: string,
-  fieldArrays: AngularFieldArraySpec[] | undefined,
+  form: {
+    fieldArrays?: AngularFieldArraySpec[];
+    fieldGroups?: AngularFieldGroupSpec[];
+  },
 ): string[] {
-  return (fieldArrays ?? []).flatMap((fa) => fieldArrayMembers(formVar, fa));
+  return [
+    ...(form.fieldArrays ?? []).flatMap((fa) => fieldArrayMembers(formVar, fa)),
+    ...(form.fieldGroups ?? []).flatMap(groupArrayMembers),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +469,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // hoist need the api handles + aggregate/BC lookups in scope, and the
     // emitted imports (`ApiError`, the union response type) + hoisted hook must
     // flow back to the shell — so SHARE the walk's object sinks (`imports`,
-    // `usedApiHooks`, `usedParams`) and POPULATE the lookups, rather than the
+    // `dataBindings`, `usedParams`) and POPULATE the lookups, rather than the
     // isolated `derivedCtx` the Stage-1 named-action path used.
     const actionApiParamNames = new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName]));
     for (const action of actions) {
@@ -470,7 +478,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       const baseCtx: WalkContext = {
         ...derivedCtx(input.pack, paramNames, stateNames, derivedNames),
         imports: result.imports,
-        usedApiHooks: result.usedApiHooks,
+        dataBindings: result.dataBindings,
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
         aggregatesByName: input.aggregatesByName ?? new Map(),
@@ -604,7 +612,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       : []
     : [...(page.route ?? "").matchAll(/:(\w+)/g)].map((m) => m[1]);
   const argRefs = new Set<string>();
-  for (const h of result.usedApiHooks.values()) for (const a of h.argsRendered) argRefs.add(a);
+  for (const h of result.dataBindings.values()) for (const a of h.argsRendered) argRefs.add(a);
   // The magic route `id` (`usesRouteId` — `byId(id)` / a bare `id` read) binds
   // even when it isn't a declared param or a hook arg, so a `/…/:id` page that
   // references it resolves `id` against the snapshot.
@@ -811,9 +819,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // use…();`).  The field initializer is the injection context the factory's
   // `inject()` needs; pages sit two hops under `src/`, so the pack's default
   // `../api/<agg>` import path rewrites to `../../api/<agg>`.
-  if (result.usedApiHooks.size > 0) {
+  if (result.dataBindings.size > 0) {
     const byPath = new Map<string, Set<string>>();
-    for (const h of result.usedApiHooks.values()) {
+    for (const h of result.dataBindings.values()) {
       const from = h.importFrom.replace(/^\.\.\/api\//, "../../api/");
       const names = byPath.get(from) ?? new Set<string>();
       names.add(h.hookName);
@@ -840,8 +848,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       }
       return out;
     };
-    const hoisted = angularTarget.renderApiHoisting(
-      [...result.usedApiHooks.values()].map((h) => {
+    const hoisted = angularTarget.renderDataBindings(
+      [...result.dataBindings.values()].map((h) => {
         const bound = h.argsRendered.map(bind);
         // A parameterised `find` takes a REACTIVE getter, not a snapshot: wrap
         // the resolved query object in `() => (...)` so the `injectQuery`
@@ -885,7 +893,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   for (const form of angularForms) {
     members.push(`  readonly ${form.mutationVar} = ${form.mutationFn}();`);
     members.push(`  readonly ${form.formVar} = new FormGroup({ ${formGroupBody(form)} });`);
-    members.push(...formArrayMemberLines(form.formVar, form.fieldArrays));
+    members.push(...formArrayMemberLines(form.formVar, form));
     members.push(
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
@@ -909,7 +917,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   for (const form of angularWorkflowForms) {
     members.push(`  readonly ${form.mutationVar} = ${form.mutationFn}();`);
     members.push(`  readonly ${form.formVar} = new FormGroup({ ${formGroupBody(form)} });`);
-    members.push(...formArrayMemberLines(form.formVar, form.fieldArrays));
+    members.push(...formArrayMemberLines(form.formVar, form));
     members.push(
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
@@ -942,7 +950,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       members.push(`  readonly ${f.mutationVar} = ${f.mutationFn}();`);
       const opBody = formGroupBody(f);
       members.push(`  readonly ${f.formVar} = new FormGroup(${opBody ? `{ ${opBody} }` : "{}"});`);
-      members.push(...formArrayMemberLines(f.formVar, f.fieldArrays));
+      members.push(...formArrayMemberLines(f.formVar, f));
       // The id expression is a template-scope ref (`id` / `order.id`); class
       // fields read against `this` (`this.id` / `this.order.id`).
       const idExpr = prefixWholeWordsWithThis(f.idExpr, idFields);
@@ -1046,7 +1054,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       ...page.state.map((s) => s.name),
       ...page.params.map((p) => p.name),
       ...boundParams,
-      ...[...result.usedApiHooks.values()].map((h) => h.varName),
+      ...[...result.dataBindings.values()].map((h) => h.varName),
     ]);
     for (const m of angularModals) {
       members.push(`  readonly ${m.openSig} = signal(false);`);
@@ -1061,7 +1069,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         members.push(`  readonly ${m.gate.local} = ${m.gate.hook}(() => ${classId} ?? "");`);
       }
       members.push(`  readonly ${m.formVar} = new FormGroup({ ${formGroupBody(m)} });`);
-      members.push(...formArrayMemberLines(m.formVar, m.fieldArrays));
+      members.push(...formArrayMemberLines(m.formVar, m));
       members.push(
         [
           `  async ${m.submitMethod}(): Promise<void> {`,
@@ -1245,7 +1253,7 @@ function derivedCtx(
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),

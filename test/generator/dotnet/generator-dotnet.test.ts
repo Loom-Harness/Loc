@@ -287,7 +287,7 @@ describe(".NET generator", () => {
         /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id, "problem\.domain-floor"\)/,
       );
       expect(filter).toMatch(
-        /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found"\)/,
+        /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found", TypeParams\(context\)\)/,
       );
       // Both 500 arms — the extern wrapper and the catch-all — now send the
       // same sanitized detail (RS-26), so this asserts the trace id threads
@@ -1165,7 +1165,7 @@ describe(".NET generator", () => {
     const files = await salesFiles();
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
     expect(filter).toMatch(
-      /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found"\)/,
+      /Problem\(context, 404, "Not Found", nf\.Message, trace_id, "problem\.not-found", TypeParams\(context\)\)/,
     );
   });
 

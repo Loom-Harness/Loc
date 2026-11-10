@@ -75,7 +75,7 @@ describe("python File upload (slice 2a)", () => {
     expect(routes).toContain(
       "from app.resources.local_disk import doc_files_get_bytes, doc_files_put_bytes",
     );
-    expect(routes).toContain("async def upload_file(file: UploadFile) -> Response:");
+    expect(routes).toContain("async def upload_file(file: UploadFile | None = None) -> Response:");
     expect(routes).toContain("await doc_files_put_bytes(key, body, content_type)");
     expect(routes).toContain('"contentType": content_type,');
     expect(routes).toContain("async def download_file(key: str) -> Response:");

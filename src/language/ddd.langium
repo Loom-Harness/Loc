@@ -76,10 +76,14 @@ Migration:
 // stays LL(k)), or a table step (`OldName -> NewName`, `A.Name -> B.Name`).
 // Disambiguation: `sql` keyword ⇒ raw step; `ID '->'` ⇒ table rename;
 // `ID '.' ID '->' ID '.'` ⇒ table move; any other `ID '.'` ⇒ column step.  A
-// column step's `aggregate` is a cross-reference to the still-present
-// aggregate.  The dead side (`field` as an old column name / `fromTable` /
-// `fromContext`) is a bare identifier the model may no longer declare — a
-// ledger block legitimately names things that have since moved on.
+// column step's `owner` is a cross-reference to the still-present aggregate
+// — or enum, for an enum VALUE rename (`Status.Draft -> Pending`), which has
+// the column-rename shape exactly and so cannot be told apart by the parser:
+// the linker resolves the owner and the validator and lowering branch on its
+// kind.  The dead side (`field` as an old column name or old enum value /
+// `fromTable` / `fromContext`) is a bare identifier the model may no longer
+// declare — a ledger block legitimately names things that have since moved
+// on.
 MigrationStepDecl:
     SqlStep | ColumnStep | TableRename;
 
@@ -98,17 +102,22 @@ MigrationStepDecl:
 SqlStep:
     'sql' (placement=ID)? sql=STRING;
 
-// A column step, left-factored on the shared `Agg.field` prefix:
+// A column step, left-factored on the shared `Owner.member` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
 //     OLD, now-absent column — the M-T2.1 ledger semantics)
 //   - backfill: `Order.status = <expr>`   (`value` set; `field` is a LIVE
 //     field — it names the newly-added / newly-required column, and the
 //     expression is lowered in the aggregate's scope so sibling fields
 //     resolve as columns)
+//   - enum value rename: `Status.Draft -> Pending` (owner an enum; `field`
+//     is the OLD value stored rows hold, `renamedTo` a LIVE value).  Only
+//     the `->` form is admitted on an enum (`loom.enum-value-rename-form`).
 // `=` carries the backfill intent exactly as `->` carries rename — no new
 // keyword.
+type MigrationStepOwner = Aggregate | EnumDecl;
+
 ColumnStep:
-    aggregate=[Aggregate:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
+    owner=[MigrationStepOwner:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
 
 // A table step renames and/or moves the table(s) of an aggregate, workflow or
 // projection, keeping their rows:
@@ -1259,7 +1268,15 @@ PolicyDecl:
         )
     );
 
-// `allow [write] <level> on <Aggregate>` — the optional `write` verb selects
+// `allow [write] <level> on <Aggregate> [when <caller-only expr>]` — a level
+// rule; `when` gates it on the CALLER (`currentUser` claims), never the row.
+// `allow [read|write] on <Aggregate> as <row> where <row predicate>` — a ROW
+// RULE (`read`, the default, is an identifier the validator pins, as on the
+// gate rule below):
+// it ADDS the rows its predicate admits to the level default (D-SHARING); the
+// predicate is compiled into the query, so it must be queryable.
+//
+// The optional `write` verb selects
 // the ladder: bare = reads; `write` = INSTANCE mutations (update-style ops,
 // destroy, applier dispatch).  There is deliberately NO `read` verb synonym on
 // the ladder: bare
@@ -1292,7 +1309,8 @@ PolicyDecl:
 // `effect` stays the discriminator — this rule is a gate, not a ladder rung,
 // so it takes no level.
 PolicyReadRule:
-      effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID
+      effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID ('when' when=Expression)?
+    | effect='allow' (verb=PolicyVerb | verb=PolicyGateVerb)? 'on' target=ID 'as' binding=ID 'where' row=Expression
     | effect='deny' (verb=PolicyVerb)? 'on' target=ID
     | effect=PolicyGateVerb target=ID 'requires' gate=Expression;
 
@@ -1306,12 +1324,13 @@ PolicyVerb returns string:
     'write';
 
 // The level of an `allow` rule.  `local` — the caller's own org, the
-// `tenantId ==` floor — is the only level.  `deep` and `global` still PARSE so a
+// `tenantId ==` floor; `own` — the rows of the operating org the caller created
+// (the floor AND `createdBy == currentUser.id`).  `deep` and `global` still PARSE so a
 // model written against the removed hierarchical ladder gets the named
 // `loom.policy-level-removed` error (with its replacement) instead of a parse
 // error; lowering drops the rule.
 ReadLevel returns string:
-    'local' | 'deep' | 'global';
+    'local' | 'own' | 'deep' | 'global';
 
 // `implements <Cap>` is the typed capability-application form — a synonym of
 // `with <Cap>`: the expander splices the referenced capability's fields +
@@ -2153,7 +2172,7 @@ SoftKeywordsExceptSort returns string:
       | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
       | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
-      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
+      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
       | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
@@ -2269,11 +2288,11 @@ NamedType:
 
 // EventDecl / PayloadDecl join the union so a bare name in a type position can
 // resolve to a transport type (an `event` or a `command`/`query`/… payload).
-// The scope provider (ddd-scope.ts) only *offers* these in a workflow
-// `create` parameter position — `create(e: PaymentReceived) by …`,
-// `create(c: SettleOrder)` — so they cannot leak into aggregate field /
-// operation-param / UI positions, where a bare event name stays unresolved.
-// IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
+// The scope provider (ddd-scope.ts) offers them in front of the ordinary types
+// only at a transport boundary the type-position table admits
+// (type-positions.ts); elsewhere they resolve behind the ordinary types and the
+// position check refuses them (`loom.transport-type-position`).  IdType (`X id`)
+// ranks them behind aggregates and parts — `PaymentReceived id` is meaningless.
 // A Workflow joins for one position only: a workflow `create`'s result type
 // may name its own workflow (`create(…): Fulfillment { …; return this }`),
 // and the scope provider offers it nowhere else.
@@ -2811,8 +2830,10 @@ PrimaryExpr infers Expression:
 // parenthesise the quantifier to combine it (`(exists … where p) && q`).
 // `exists` is soft (see `SoftKeywordsExceptSort`): it starts this form only
 // when an aggregate name and `as` follow.
+// `for write` quantifies over the rows the caller may WRITE (the quantified
+// aggregate's read scope AND its write scope) instead of the rows it may read.
 ExistsExpr:
-    'exists' aggregate=[Aggregate:ID] 'as' binding=ID 'where' where=Expression;
+    'exists' aggregate=[Aggregate:ID] (forWrite?='for' 'write')? 'as' binding=ID 'where' where=Expression;
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

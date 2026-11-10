@@ -23,12 +23,26 @@ export type ServerErrorOutcome =
   | { kind: "global"; title: string }
   | { kind: "unhandled" };
 
-/** The localized text of a refusal: its catalog `code`, falling back to the
- *  English the server sent, its placeholders filled from `params`.  A
- *  message whose placeholders the params cannot fill keeps the English. */
+/** No catalog message is this string: `t` answers it for an absent key. */
+const ABSENT_MESSAGE = "\u0000";
+
+/** The catalog key a refusal is localized by: its aggregate's own sentence
+ *  (`<type>.problem.<class>`) when the active catalog carries one, else its
+ *  `code`. */
+export function problemKey(code: string, params?: Record<string, unknown>): string {
+  const type = params?.type;
+  if (typeof type !== "string" || !code.startsWith("problem.")) return code;
+  const specific = `${type}.${code}`;
+  return t(specific, ABSENT_MESSAGE) === ABSENT_MESSAGE ? code : specific;
+}
+
+/** The localized text of a refusal: its catalog `code` (or its aggregate's
+ *  own sentence, `problemKey`), falling back to the English the server sent,
+ *  its placeholders filled from `params`.  A message whose placeholders the
+ *  params cannot fill keeps the English. */
 export function localizeProblem(code: string, fallback: string, params?: Record<string, unknown>): string {
   try {
-    return t(code, fallback, params as Parameters<typeof t>[2]);
+    return t(problemKey(code, params), fallback, params as Parameters<typeof t>[2]);
   } catch {
     return fallback;
   }

@@ -1,9 +1,12 @@
 // HEEx coverage — which walker primitives and which `WalkResult` accumulators a
 // set of generated systems actually reaches on the Phoenix/HEEx page walker.
 //
-// It wraps every `heex` renderer in the walker primitive registry.  Each call
-// counts the primitive (and any sub-primitive among its arguments, which the
-// parent renders without the registry) and records the HEEx `WalkContext` it was handed.  That
+// It wraps every `heex` renderer in the walker primitive registry, and the
+// shared `tsx` renderer of each primitive the shared core renders for HEEx
+// (`HEEX_SHARED_PRIMITIVES`) when it runs in a HEEx walk.  Each call counts the
+// primitive (and any sub-primitive among its arguments, which the parent
+// renders without the registry) and records the HEEx `WalkContext` it renders
+// under.  That
 // context's accumulators (`handlers`, `formBindings`, the boxed `usesSlot`
 // flag, …) are the same objects the walk's `WalkResult` returns, shared by
 // reference across every nested context, so reading them after generation
@@ -46,49 +49,60 @@ function filled(v) {
 }
 
 /**
- * Wrap every `heex` renderer of `registry` (the `WALKER_PRIMITIVES` object).
+ * Wrap every `heex` renderer of `registry` (the `WALKER_PRIMITIVES` object),
+ * and the `tsx` renderer of each name in `sharedNames` (the primitives the
+ * shared core renders for HEEx) for its calls inside a HEEx walk.
  * Returns a recorder; call `setInput(name)` before generating each input and
  * `report()` after the last one.  `uninstall()` restores the registry.
  */
-export function installHeexCoverage(registry) {
+export function installHeexCoverage(registry, sharedNames = new Set()) {
   const primitives = new Map(); // name -> Set<input>
   const contexts = []; // { input, ctx }
   const seenRoots = new Set();
   let input = "(unnamed)";
-  const originals = new Map();
+  const originals = new Map(); // name -> { slot, fn }
+  const reached = (name, call, ctx) => {
+    primitives.get(name).add(input);
+    // A sub-primitive (`Column`) is rendered by its parent directly, not
+    // through the registry, so it is reached when its parent renders it.
+    for (const arg of call.args ?? []) {
+      if (arg?.kind === "call" && registry[arg.name]?.group === "sub" && registry[arg.name].heex) {
+        primitives.get(arg.name)?.add(input);
+      }
+    }
+    // One record per walk: every nested context shares the root's
+    // `handlers` array.
+    if (!seenRoots.has(ctx.handlers)) {
+      seenRoots.add(ctx.handlers);
+      contexts.push({ input, ctx });
+    }
+  };
   for (const [name, def] of Object.entries(registry)) {
-    if (!def.heex) continue;
-    primitives.set(name, new Set());
-    const original = def.heex;
-    originals.set(name, original);
-    def.heex = (call, ctx) => {
-      primitives.get(name).add(input);
-      // A sub-primitive (`Column`) is rendered by its parent directly, not
-      // through the registry, so it is reached when its parent renders it.
-      for (const arg of call.args ?? []) {
-        if (
-          arg?.kind === "call" &&
-          registry[arg.name]?.group === "sub" &&
-          registry[arg.name].heex
-        ) {
-          primitives.get(arg.name)?.add(input);
-        }
-      }
-      // One record per walk: every nested context shares the root's
-      // `handlers` array.
-      if (!seenRoots.has(ctx.handlers)) {
-        seenRoots.add(ctx.handlers);
-        contexts.push({ input, ctx });
-      }
-      return original(call, ctx);
-    };
+    if (def.heex) {
+      primitives.set(name, new Set());
+      const original = def.heex;
+      originals.set(name, { slot: "heex", fn: original });
+      def.heex = (call, ctx) => {
+        reached(name, call, ctx);
+        return original(call, ctx);
+      };
+    } else if (sharedNames.has(name) && def.tsx) {
+      primitives.set(name, new Set());
+      const original = def.tsx;
+      originals.set(name, { slot: "tsx", fn: original });
+      def.tsx = (call, ctx, depth) => {
+        const heex = ctx.sink?.heex;
+        if (heex) reached(name, call, heex);
+        return original(call, ctx, depth);
+      };
+    }
   }
   return {
     setInput(name) {
       input = name;
     },
     uninstall() {
-      for (const [name, original] of originals) registry[name].heex = original;
+      for (const [name, { slot, fn }] of originals) registry[name][slot] = fn;
     },
     /** `{ primitives, accumulators, componentScoped, maxComponentUses }`, each
      *  mapping a name to the inputs that reached it. */
@@ -121,7 +135,7 @@ export function formatHeexCoverage(report) {
     lines.push(`  ${inputs.size === 0 ? "MISSING" : String(inputs.size).padStart(7)}  ${label}`);
     if (inputs.size === 0) gaps.push(label);
   };
-  lines.push("primitives with a heex renderer (inputs reaching each):");
+  lines.push("primitives the HEEx target renders (inputs reaching each):");
   for (const [name, inputs] of [...report.primitives].sort()) row(name, inputs);
   lines.push("WalkResult accumulators filled:");
   for (const [name, inputs] of report.accumulators) row(name, inputs);

@@ -239,7 +239,7 @@ export function foldRowReadScope(
   opts: ReadScopeOptions = {},
 ): ReadScope {
   const str: TypeIR = { kind: "primitive", name: "string" };
-  const user: TypeIR = { kind: "entity", name: "__User__" };
+  const user: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
   const predicate: ExprIR = {
     kind: "binary",
     op: "==",
@@ -247,7 +247,7 @@ export function foldRowReadScope(
       kind: "member",
       receiver: { kind: "this" },
       member: TENANT_OWNED_TENANT_ID_FIELD,
-      receiverType: { kind: "entity", name: projection },
+      receiverType: { kind: "entity", name: projection, declKind: "projection" },
       memberType: str,
     },
     right: {

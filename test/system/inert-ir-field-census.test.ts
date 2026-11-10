@@ -57,6 +57,8 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "read through `foldTenancyFor` in `src/ir/enrich/fold-tenancy.ts` (an enrich helper the scan does not cover), which every backend's projection emitter and the migrations builder import",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
+  unresolvedTypes:
+    "consumed in the IR by `validateUnresolvedTypes` (src/ir/validate/checks/unresolved-type-checks.ts): a model carrying one is refused before any target runs",
   whenSource:
     "diagnostic text only: `loom.loop-gate-not-implied` names the gate; the 409 detail is constant, so no target may echo it",
 };
@@ -82,8 +84,6 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   needs: "#4636",
   overlap: "#4636",
   policyDenies: "#4636",
-  policyReadLevels: "#4636",
-  policyWriteLevels: "#4636",
   priority: "#4636",
   readonly: "#4636",
   resourceInterfaces: "#4636",

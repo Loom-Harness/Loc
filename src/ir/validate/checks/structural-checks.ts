@@ -287,15 +287,13 @@ export function validateUnmappedErrorStatuses(
   diags: LoomDiagnostic[],
 ): void {
   const overrides = ctx.errorStatusOverrides ?? {};
-  const errorNames = new Set(ctx.payloads.filter((p) => p.kind === "error").map((p) => p.name));
   for (const agg of ctx.aggregates) {
     for (const op of agg.operations) {
       if (op.returnType?.kind !== "union") continue;
       const flagged = new Set<string>();
       for (const v of op.returnType.variants) {
-        if (v.kind !== "entity") continue;
+        if (v.kind !== "entity" || v.declKind !== "error") continue; // only `error` payloads
         const name = v.name;
-        if (!errorNames.has(name)) continue; // only `error` payloads
         if (isStdlibError(name)) continue; // carries a stdlib default
         if (name in overrides) continue; // explicit api mapping
         if (flagged.has(name)) continue;
@@ -1439,7 +1437,11 @@ function assignEffectReproduced(s: StmtIR, agg: AggregateIR): boolean {
  * (`this`, `isEmpty()`, a ref name), so the diagnostic can name what it found
  * rather than gesture at the clause.
  */
-function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): string[] {
+function lifecycleGuardIllegalReads(
+  expr: ExprIR,
+  label: "create" | "destroy",
+  inputs: ReadonlySet<string>,
+): string[] {
   const bad: string[] = [];
   // A `destroy` guard runs after the by-id load, so every instance-rooted
   // spelling is fine there; only the refs with no binding at all are not.
@@ -1505,6 +1507,15 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
       case "current-user":
       case "enum-value":
       case "unknown":
+      // The quantified row of an `exists`, bound inside its own predicate.
+      case "row":
+        return;
+      // A create argument that names a create-input field: the POST body
+      // carries it, so the handler holds the value the factory is about to
+      // receive.  Any other parameter has no wire slot.
+      case "param":
+        if (label === "create" && inputs.has(node.name)) return;
+        bad.push(node.name);
         return;
       // `helper-fn` joins the instance-rooted group: every backend renders it
       // `this.<fn>` / `<record>.<fn>`, so allowlisting it was the same hole as
@@ -1580,7 +1591,11 @@ export function validateLifecycleBodyDropped(
         esCreateRendered && esGateUnsupportedOn.length > 0 && label === "create";
       for (const s of esCreateRefused ? [] : (action?.statements ?? [])) {
         if (s.kind !== "requires") continue;
-        const illegal = lifecycleGuardIllegalReads(s.expr, label);
+        const illegal = lifecycleGuardIllegalReads(
+          s.expr,
+          label,
+          new Set((agg.createInput ?? []).map((f) => f.field.name)),
+        );
         if (illegal.length === 0) continue;
         // Two literal `diagMessage` keys, and two pushes rather than one
         // with a conditional message: the catalog gate resolves the key

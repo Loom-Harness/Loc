@@ -12,12 +12,11 @@
 import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
-  clickWorkspaceCreate,
   dumpPreviewDiagnostics,
   fatalConsoleErrors,
-  recordInitialMigration,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 // #1242 (fixed): the bundle toast asserted "…KB…" but the Hono bundle is
@@ -69,17 +68,7 @@ test("chakra@v3 preview boots without runtime errors", async ({ page }) => {
   });
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-
-  // Pick the pinned chakra@v3 storybook.
-  await page.getByTestId("workspace-new").click();
-  await page.getByRole("textbox", { name: /Choose example/i }).click();
-  await page.getByRole("option", { name: /Chakra v3 · aggregate-CRUD storybook/ }).click();
-  await clickWorkspaceCreate(page);
-
-  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({
-    timeout: 30_000,
-  });
+  await startFromExample(page, /Chakra v3 · aggregate-CRUD storybook/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(
@@ -91,7 +80,7 @@ test("chakra@v3 preview boots without runtime errors", async ({ page }) => {
   const tBundleStart = Date.now();
   // The database is created only from recorded migrations — record the
   // example's initial migration before the first Boot.
-  await recordInitialMigration(page);
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   try {
     await waitForBundle(page);

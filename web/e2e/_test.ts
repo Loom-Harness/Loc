@@ -11,11 +11,18 @@
 // made into each page's IndexedDB, so a Boot starts its storages from it
 // instead of running initdb (`src/runtime/pglite-snapshot.ts`).  A spec that
 // covers the cold path sets `test.use({ pgliteSnapshot: false })`.
+//
+// `pgliteStorage` (default `"memory"`) keeps every storage in memory
+// (`src/runtime/storage-placement.ts`), skipping OPFS's ~3 s access-handle-pool
+// creation per new cluster.  A spec about persistence — rows surviving a
+// reload, the `persisted` badge, Reset on an OPFS cluster — sets
+// `test.use({ pgliteStorage: "opfs" })`.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test as base } from "@playwright/test";
 import { SNAPSHOT_DB, SNAPSHOT_STORE } from "../src/runtime/pglite-snapshot";
+import { STORAGE_PLACEMENT_KEY } from "../src/runtime/storage-placement";
 import { PGLITE_VERSION, pgliteSeedPath } from "./_pglite-seed";
 
 export * from "@playwright/test";
@@ -39,8 +46,22 @@ function seedBase64(): string | null {
   return seed;
 }
 
-export const test = base.extend<{ loomTiming: void; pgliteSnapshot: boolean; pgliteSeed: void }>({
+export const test = base.extend<{ loomTiming: void; pgliteSnapshot: boolean; pgliteStorage: "memory" | "opfs"; pgliteSeed: void; storagePlacement: void }>({
   pgliteSnapshot: [true, { option: true }],
+  pgliteStorage: ["memory", { option: true }],
+  storagePlacement: [
+    async ({ page, pgliteStorage }, use) => {
+      if (pgliteStorage === "memory") {
+        await page.addInitScript((key) => {
+          try {
+            localStorage.setItem(key, "memory");
+          } catch {}
+        }, STORAGE_PLACEMENT_KEY);
+      }
+      await use();
+    },
+    { auto: true },
+  ],
   pgliteSeed: [
     async ({ page, pgliteSnapshot }, use) => {
       const b64 = pgliteSnapshot ? seedBase64() : null;

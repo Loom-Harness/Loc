@@ -79,6 +79,12 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   == this.category && s.grantee == currentUser.id`), compiled into the query as a
   correlated `EXISTS` that carries the quantified aggregate's own read scope; see
   [the `exists` quantifier](language-reference/10-repositories-and-queries.md#exists--quantifying-over-another-aggregate).
+  A `requires` gate of a create, public operation or destroy may test another
+  row the same way — `requires exists Doc for write as d where d.id == target`
+  admits the caller only while they may write that `Doc` (its read scope AND its
+  write scope); the handler runs it as a single-row read on `Doc`'s repository
+  before the 403/409 decision.  A policy `read X requires` gate stays
+  `currentUser`-only: use a row rule to make visibility depend on another row.
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that
@@ -286,10 +292,13 @@ Under a `tenancy by user.<claim> of <Registry>` declaration the principal is
 exactly its declared `user { … }` claims; the tenancy claim is the caller's
 home org. There is no computed org-path member: `currentUser.orgPath` and
 `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`, naming the
-replacement (`organizationContext.org` for the org the request acts in). In a
-system that reads `organizationContext.org`, each backend's auth middleware
-also sets one server-side member, `currentUser.operatingOrg` — what
-`organizationContext.org` lowers to — through the `x-org-context` switch gate.
+replacement (`organizationContext.org` for the org the request acts in,
+`organizationContext.ancestors` for it and the orgs above it). In a system that
+reads the operating scope — every `tenantOwned` floor does — each backend's
+auth middleware also sets server-side members through the `x-org-context`
+switch gate: `currentUser.operatingOrg`, what `organizationContext.org` lowers
+to, and, where a hosted context reads it, `currentUser.operatingAncestors`, what
+`organizationContext.ancestors` lowers to. Neither is on the `/auth/me` wire.
 The stamp, the tenant floor and the gate live in [tenancy.md](tenancy.md).
 
 ### The system principal — `currentUser.isSystem`
@@ -836,6 +845,37 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
 | `loom.policy-out-of-scope` | a policy reached from a context other than its declaring one, in any file of the project — a `PolicyName(args)` call, a `Ctx.PolicyName(args)` call, a bare `PolicyName` reference, or a call to a top-level function whose body names the policy (the function is inlined at the call site) — policies are context-local; redeclare it there |
+
+### Row rules, `when` and `own`
+
+Beside `local` and `deny`, the `policy {}` block takes row rules
+(`allow [read|write] on X as x where …`), per-caller level rules
+(`allow <level> on X when …`) and the `own` level. They compose onto the tenant
+default — `(default ∨ row rules) ∧ ¬deny` — and a named policy function called
+inside a `where` (on the row, or on an `X id` it dereferences with `exists`) is
+inlined into the query predicate:
+
+```ddd
+policy SharedWithMe(c: Category id): bool =
+  exists CategoryShare as s where s.category == c && s.grantee == currentUser.tenantId
+
+policy {
+  allow on Product as p where SharedWithMe(p.category)
+  allow own on Note when currentUser.role == "clerk"
+}
+```
+
+```sql
+-- Product read, every backend
+WHERE p.tenant_id = $tenant
+   OR EXISTS (SELECT 1 FROM category_shares s
+              WHERE s.category_id = p.category_id AND s.grantee = $tenant
+                AND <CategoryShare's own read scope>)
+```
+
+The composition rules, the generated output and the diagnostics are in
+[tenancy.md](tenancy.md#the-policy--block--levels-row-rules-and-deny) and the
+language reference ([§17](language-reference/17-auth.md#row-rules-when-and-own)).
 
 ### Deny carve-outs
 
@@ -1390,7 +1430,7 @@ under `auth/`:
 | `auth/user-types.ts` | `User` interface matching the user block |
 | `auth/verifier.ts` | `registerUserVerifier(...)` registry + `verifyUserOrThrow(req)` helper |
 | `auth/middleware.ts` | Hono middleware mounted in `http/index.ts` |
-| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview |
+| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview, and only when its Auth tab selects the dev stub |
 | `auth/oidc.ts` + `auth/handshake.ts` | With an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake |
 
 `http/index.ts` mounts `app.use("*", authMiddleware)` after
@@ -1567,7 +1607,7 @@ public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancel
 The other backends gate the same way: node's `boot.ts` passes
 `opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1"` to
 `registerDevStubVerifier(...)` (the playground preview boots with
-`verifier: "dev-stub"`), Java's `DevStubUserVerifier.verify` and Python's
+`verifier: "dev-stub"` unless the system declares `auth { oidc }`), Java's `DevStubUserVerifier.verify` and Python's
 `_dev_stub_verifier` return null/`None`, and Phoenix's `verify_token/1`
 answers `{:error, :dev_auth_off}`.
 
@@ -1585,7 +1625,8 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > replaces the stub with the generated OIDC verifier on every backend
 > (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and
 > node's `auth/dev-stub.ts` is registered only by the playground preview's
-> `bootApp(db, { verifier: "dev-stub" })`.  There is no `x-loom-dev-claims`
+> `bootApp(db, { verifier: "dev-stub" })`, which the preview passes only when
+> its Auth tab selects the dev stub.  There is no `x-loom-dev-claims`
 > path and no env switch that brings it back, so every request needs a real
 > bearer token. Local
 > development with an `oidc` block therefore needs an IdP:
@@ -1624,11 +1665,12 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
 registers the stub only when the host passes `verifier: "dev-stub"`, which the
 server's `index.ts` never does, so a running app ignores the header. The
-playground preview passes it, because no identity provider is reachable from
-its browser worker —
-that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
-header there answers 401, not 400, since the OIDC middleware does not know the
-stub).
+playground preview boots the generated OIDC verifier against its in-browser
+identity provider (see [Playground: the in-browser identity
+provider](#playground-the-in-browser-identity-provider)); its Auth tab can
+switch the preview to the stub instead, and that is the one place an OIDC
+system honours `x-loom-dev-claims` (a malformed header there answers 401, not
+400, since the OIDC middleware does not know the stub).
 
 ```ts
 // generated (node, auth { oidc }) — index.ts
@@ -1695,6 +1737,67 @@ that an identifier claim (`guid`, or an `X id`) must be a UUID. An optional
 claim that is absent or can't be decoded is `null`. A **required** one rejects
 the token with 401. Value-object, enum, `money` and `json` claims are not decoded on
 .NET/Java; they keep the type default.
+
+## Playground: the in-browser identity provider
+
+The playground preview runs the generated **OIDC verifier** of an
+`auth { oidc }` system unchanged — discovery, JWKS, signature, `iss`, `aud`,
+`exp` and the claim projection — against an identity provider that runs in the
+browser's infra worker (`web/src/runtime/infra/oidc.ts`):
+
+- **Realm.** The provider answers under the `OIDC_ISSUER` the backend's compose
+  service names, with Keycloak's endpoint paths
+  (`/.well-known/openid-configuration`, `/protocol/openid-connect/certs`,
+  `…/token`, `…/userinfo`). Tokens are RS256, signed with a WebCrypto key whose
+  public half is the JWKS. `aud` is `OIDC_AUDIENCE` when compose sets it,
+  otherwise what the dev realm's audience mapper mints (the declared
+  `audience:`), otherwise the client id.
+- **Personas.** The users of the generated dev realm (`keycloak/realm.json`),
+  with the claims Keycloak's mappers put in their access token: a UUID `sub`,
+  the profile claims, `realm_access.roles` (so a permission held as a realm
+  role satisfies `permissions.contains(…)`), and one claim per user-attribute
+  mapper (`role`, `tenantId`, …). A token minted in the playground carries what
+  the docker compose stack's Keycloak mints for the same user.
+- **Tokens.** The Auth tab mints one for the persona you pick, with its claims
+  editable (another tenant, another permission set); the API console and the
+  preview send it as `Authorization: Bearer …`. The token endpoint answers the
+  `authorization_code` grant (PKCE `S256` checked against the challenge) and
+the `password` grant, and rotates refresh tokens (each redeems once).
+
+```ddd
+system Desk {
+  user { id: guid  role: string  permissions: string[]  tenantId: string }
+  auth {
+    provider: keycloak
+    oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: "desk-api" }
+    claims: { permissions: "realm_access.roles" }
+  }
+  tenancy by user.tenantId of Org
+  // … operation close() { requires currentUser.permissions.contains(permissions.closeNotes) … }
+}
+```
+
+```ts
+// generated — api/auth/oidc.ts, booted unchanged in the preview
+const ISSUER = process.env.OIDC_ISSUER ?? "";           // http://host.docker.internal:8081/realms/desk
+const AUDIENCE = process.env.OIDC_AUDIENCE ?? "desk-api";
+// …
+const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
+```
+
+An expired token, one signed with another key and one minted for another
+audience are each refused with 401 by that code; `demo` is refused `close()`
+with 403 and `demo-admin`, who holds `support.closeNotes`, is not; a token
+whose `tenantId` names another tenant reads only that tenant's rows.
+
+The generated frontend's own login (`auth: ui`) runs too. Its **Sign in**
+navigates to `/api/auth/login`; the preview cancels that navigation and follows
+the redirect chain itself: the backend's `/login` (state + PKCE cookies) → the
+provider's login page, rendered inside the preview (one button per persona) →
+the backend's `/callback`, which exchanges the code with its PKCE verifier and
+sets the HttpOnly `session` and `refresh` cookies → the app. The preview keeps
+those cookies for the app's requests, so `/api/auth/refresh` rotates the
+refresh token when the access token expires and **Sign out** clears both.
 
 ## Token audience (`aud`)
 

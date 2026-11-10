@@ -31,6 +31,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { isWorkflowSelfType } from "../../plan/index.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectIR } from "../../types/effect-ir.js";
 import type { BoundedContextIR, EnrichedLoomModel, WorkflowStmtIR } from "../../types/loom-ir.js";
@@ -243,13 +244,13 @@ export function expectedFailureEntryPoints(
     const r = commandCreateResult(wf);
     if (!r) continue;
     const where = `workflow '${wf.name}'`;
-    if (commandCreateEntryResult(wf, ctx)) out.push({ where, slug: "" });
-    else if (r.type.kind === "entity" && r.type.name === wf.name) {
+    if (commandCreateEntryResult(wf)) out.push({ where, slug: "" });
+    else if (isWorkflowSelfType(wf, r.type)) {
       out.push({ where, slug: "#workflow-state" });
     }
   }
   for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
-    if (!h.extern && entryResult(h, ctx)) out.push({ where: `handler '${h.name}'`, slug: "" });
+    if (!h.extern && entryResult(h)) out.push({ where: `handler '${h.name}'`, slug: "" });
   }
   return out;
 }

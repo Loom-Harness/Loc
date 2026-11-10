@@ -31,6 +31,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
+        "params": {
+          "type": "Shop.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -74,6 +77,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
+        "params": {
+          "type": "Shop.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -114,6 +120,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_code",
+        "params": {
+          "type": "Shop.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -148,6 +157,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
+        "params": {
+          "type": "Shop.Item"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -191,6 +203,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
+        "params": {
+          "type": "Shop.Item"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -231,6 +246,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/items/by_sku",
+        "params": {
+          "type": "Shop.Item"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -287,6 +305,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/update",
+        "params": {
+          "type": "Shop.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

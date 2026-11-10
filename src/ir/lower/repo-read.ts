@@ -424,7 +424,7 @@ export function matchRepoRead(
  *  read's recognised SHAPE is exactly what decides its result type, and the
  *  `.ddd` source never spells that type out.  Splitting them is how the pair
  *  drifts — which is the bug this function was added to close.  A let-bound
- *  repo read in a `domainService` body was typed by `inferExprType`, whose
+ *  repo read in a `domainService` body was typed by `passType`, whose
  *  PostfixChain arm has a probe for every OTHER resolved call shape (store
  *  field, api operation, domain-service operation — each commented "without
  *  this `let`-binds would mis-type as `string`") but had none for a repository
@@ -440,7 +440,11 @@ export function matchRepoRead(
  *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
  *  shape), and `find` takes the `T?` its `if let` arm implies. */
 export function repoReadResultType(read: RepoReadMatch): TypeIR {
-  const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
+  const entity: TypeIR = {
+    kind: "entity",
+    name: read.repo.aggregate?.ref?.name ?? "Unknown",
+    declKind: "aggregate",
+  };
   // An unknown named read falls back to the bare aggregate, like the workflow
   // `repo-let` arm; its validator refuses it.
   if (read.op === "unknown-read") return entity;

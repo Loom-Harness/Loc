@@ -116,8 +116,5 @@ describe("typeToString", () => {
     expect(typeToString(union(order, NONE))).toBe("Order option");
     expect(typeToString({ kind: "generic", ctor: "paged", arg: order })).toBe("Order paged");
     expect(typeToString(opt({ kind: "array", element: prim("int") }))).toBe("int[]?");
-    expect(typeToString({ kind: "primitive", name: "string", sensitivity: ["pii"] })).toBe(
-      "string!{pii}",
-    );
   });
 });

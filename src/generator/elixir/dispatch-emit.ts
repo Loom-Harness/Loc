@@ -19,7 +19,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { operationUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
@@ -29,6 +28,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
+import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -234,10 +234,13 @@ export function emitWorkflowStateSchemas(
   /** The context's schema for the saga-state `@schema_prefix`; undefined ⇒
    *  unqualified. */
   schema?: string,
+  /** Any context this deployable hosts declares a durable channel — the saga
+   *  row maps `last_event_id` whenever it can receive a durable envelope, even
+   *  one whose channel is declared in another hosted context. */
+  durable = false,
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
-  const durable = durableEventTypes(ctx).size > 0;
   for (const wf of ctx.workflows) {
     if (!hasStateRow(wf)) continue;
     out.set(
@@ -270,6 +273,8 @@ export function emitDispatch(
    *  re-emits through the `<App>.Channels` tee. */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  /** See `emitWorkflowStateSchemas`' `durable`. */
+  durable = false,
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
@@ -290,7 +295,6 @@ export function emitDispatch(
     if (hasStateRow(sub.workflow)) correlationWfs.set(sub.workflow.name, sub.workflow);
   }
   const dispatchSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
-  const durable = durableEventTypes(ctx).size > 0;
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
@@ -305,7 +309,7 @@ export function emitDispatch(
     // its own emitted events (the saga analogue of the ES aggregate).
     const { content, regions }: HandlerResult = sub.workflow.eventSourced
       ? renderEsWorkflowHandler(contextModule, sub, channels)
-      : renderHandler(appModule, contextModule, ctx, sub, sys, channels);
+      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
@@ -496,35 +500,6 @@ end
 // Handler module
 // ---------------------------------------------------------------------------
 
-/** Does any expression in the body reference `this` (a saga-state field)?
- *
- *  Rides the SHARED `walkWorkflowStmtsDeep` / `walkWorkflowStmtExprsDeep`
- *  rather than a local `WorkflowStmtIR.kind` / `ExprIR.kind` switch.  The hand-rolled version
- *  it replaces had no `for-each` / `if-let` / `repo-run` / `repo-delete` /
- *  `resource-call` / `domain-service-call` arm at all, so a `state.<field>` read
- *  nested inside a loop body read as UNUSED — the handler then bound `_state`
- *  and the loop named an undefined variable (`--warnings-as-errors`).  An
- *  `assign` still forces `state`: its write target IS the row. */
-function bodyUsesThis(statements: WorkflowStmtIR[]): boolean {
-  let used = false;
-  for (const st of statements) {
-    // The write target IS `state` (`Repo.update!(… state …)`), so an own-state
-    // assignment always references it — bind `state`, not `_state`.  Checked at
-    // every depth: an assign inside a `for-each` body counts too.
-    walkWorkflowStmtsDeep(st, (n) => {
-      if (n.kind === "assign") used = true;
-    });
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (
-        e.kind === "ref" &&
-        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
-      )
-        used = true;
-    });
-  }
-  return used;
-}
-
 function renderHandler(
   appModule: string,
   contextModule: string,
@@ -532,10 +507,11 @@ function renderHandler(
   sub: Subscription,
   sys?: SystemIR,
   channels?: ElixirChannelsCfg,
+  durable = false,
 ): HandlerResult {
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
-  const usesThis = persisted && bodyUsesThis(sub.statements);
+  const usesThis = persisted && workflowBodyUsesOwnState(sub.statements);
   // A reactor has no request principal: it runs as the SYSTEM principal
   // (ruling D1) — `<Web>.Auth.system_principal/0`, carrying the originating
   // request's tenant and recording its user as `caused_by`.  Bound only when
@@ -564,7 +540,6 @@ function renderHandler(
   // durable channel, the ChannelConsumer parks the envelope id (= the outbox
   // row id) in the process dictionary; the saga handler no-ops on a redelivery
   // of the recorded id and stamps it before the state save.
-  const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
     ? renderPersistedBody(

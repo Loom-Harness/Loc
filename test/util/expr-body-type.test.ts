@@ -20,7 +20,7 @@ const member = (name: string, memberType: TypeIR): ExprIR => ({
   kind: "member",
   receiver: { kind: "ref", name: "l", refKind: "lambda" },
   member: name,
-  receiverType: { kind: "entity", name: "LineItem" },
+  receiverType: { kind: "entity", name: "LineItem", declKind: "part" },
   memberType,
 });
 

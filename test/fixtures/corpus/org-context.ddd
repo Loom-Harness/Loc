@@ -4,18 +4,31 @@
 // `currentUser` is the PRINCIPAL (its tenancy claim is the caller's home org,
 // read off the unforgeable token).  `organizationContext.org` is the id of the
 // org the request operates IN: the home org, unless the request carries an
-// `x-org-context: <org id>` header the gate admits.  Every backend's auth
-// middleware validates that header BEFORE any handler runs — an org it does not
-// admit (or any org at all on a token with no tenancy claim) is a 403 with no
-// write.
+// `x-org-context: <org id>` header naming a registry row the caller can read
+// through the registry's read scope.  Every backend's auth middleware
+// validates that header BEFORE any handler runs — an org it does not admit (or
+// any org at all on a token with no tenancy claim) is a 403 with no write.
 //
-//   - `tenantOwned` is re-declared here so its WRITE stamp reads the operating
-//     org while the read filter stays principal-anchored.  A user-declared
-//     capability of the same name replaces the prelude's.
+//   - the prelude `tenantOwned` anchors both its read filter and its write
+//     stamp on `organizationContext.org`.
 //   - `note()` reads the operating org in an OPERATION body too, so every
 //     backend threads it through its ordinary principal path (not only the
 //     stamp seam) — and the harness can read the value back on the wire.
-//   - `Org` is the registry tree.
+//   - `probe(org)` reads `organizationContext.ancestors` — the operating org
+//     and every org above it — both directly and through a policy function.
+//   - `Memo` is readable beyond its org through row rules that test a COLUMN
+//     against `organizationContext.ancestors` (a `= ANY(...)` / `IN` in the
+//     query): directly (`reader`, the memo opens to that org's subtree) and
+//     inside an `exists` over `MemoGrant` rows — the shape `shareable`'s
+//     `Subtree` grantee takes.
+//   - `Org` is the registry tree.  Its `parent` is an ordinary mutable field;
+//     `move(to)` is AUTHORED (the capability generates none), which is how the
+//     harness re-parents an org and closes a deliberate cycle.
+//   - A registry ROW RULE widens the registry's read scope: an org naming a
+//     `steward` org is readable by that steward — and so a caller from the
+//     steward org may switch into it, and its writes there are stamped with
+//     the switched org (D-SHARING; the switch admits any org the caller can
+//     read on the registry).
 //
 // The deployable platform is substituted per leg (node/python/java/dotnet/elixir).
 system OrgContext {
@@ -23,28 +36,51 @@ system OrgContext {
 
   tenancy by user.tenantId of Org
 
-  capability tenantOwned {
-    tenantId: string internal
-    stamp onCreate {
-      tenantId := organizationContext.org
-    }
-    filter this.tenantId == currentUser.tenantId
-  }
-
   subdomain Core {
     context Books {
+      policy InLineage(org: Org id): bool = organizationContext.ancestors.contains(org)
+
       aggregate Account with tenantOwned, crudish {
         label: string
         scope: string?
+        lineage: int?
+        underOrg: bool?
         // Records the operating org the call ran under, on the wire.
         operation note() {
           scope := organizationContext.org
         }
+        // Records the operating org's ancestor set: its size, and whether
+        // `org` is in it (the policy function's verdict).
+        operation probe(org: Org id) {
+          lineage := organizationContext.ancestors.count()
+          underOrg := InLineage(org)
+        }
+      }
+      aggregate Memo with tenantOwned, crudish {
+        body: string
+        reader: Org id
+      }
+      aggregate MemoGrant with tenantOwned, crudish {
+        memo: Memo id
+        org: Org id
+      }
+      policy {
+        allow read on MemoGrant as g where InLineage(g.org)
+        allow read on Memo as m where
+          InLineage(m.reader) || exists MemoGrant as g where g.memo == m.id && InLineage(g.org)
       }
       aggregate Org with crudish {
         name: string
+        steward: string?
         implements tenantRegistry
+        operation move(to: Org id) {
+          parent := to
+        }
       }
+      policy {
+        allow read on Org as o where o.steward == currentUser.tenantId
+      }
+
       repository Accounts for Account { }
       repository Orgs for Org { }
     }

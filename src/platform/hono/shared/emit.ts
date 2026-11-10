@@ -9,14 +9,19 @@ import { migratesAtBoot } from "../../../ir/util/databases.js";
 // zod-refine) in core.
 
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_adapters/index.js";
+import { UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
-import { spellMarkers } from "../../../generator/_imports/symbol.js";
-import { finalizeTsModule, tsImportSlot } from "../../../generator/_imports/ts.js";
+import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
+import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
+import {
+  registryAncestorsSql,
+  registryTableSql,
+} from "../../../generator/_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   buildBaseReaderFile,
@@ -82,7 +87,10 @@ import { buildRepositoryFile } from "../../../generator/typescript/repository-bu
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
 import { buildEventSourcedRepositoryFile } from "../../../generator/typescript/repository-eventsourced-builder.js";
-import { aggregateHasStreamScope } from "../../../generator/typescript/repository-find-predicate.js";
+import {
+  aggregateHasStreamScope,
+  drizzleScopeFnName,
+} from "../../../generator/typescript/repository-find-predicate.js";
 import {
   PORT_POOL_PATH,
   portMembersFromSource,
@@ -99,6 +107,7 @@ import {
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
+  aggregateRouteTypes,
   fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -106,8 +115,10 @@ import {
   frameworkReasonPhrase,
   INTEGER_RANGE_PARAMS,
   REASON_PHRASE_STATUSES,
+  WIRE_REJECTION_CLASSES,
   wireCode,
   wireFixedDetail,
+  wireParams,
   wireSentence,
   wireStatus,
   wireTitle,
@@ -153,6 +164,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../../ir/util/org-context.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -165,7 +177,7 @@ import { hasValueObjectInvariants } from "../../../ir/util/value-object-invarian
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
-import { lowerFirst } from "../../../util/naming.js";
+import { lowerFirst, plural } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -435,7 +447,15 @@ function problemDetailsTs(
   versioned: boolean,
   valueObjectInvariants = false,
   domainFloorCodes = false,
+  /** The `[route segment, params.type]` pairs of the aggregates served here
+   *  (`aggregateRouteTypes`): a refusal answered on one's routes carries its
+   *  identity key. */
+  routeTypes: readonly (readonly [string, string])[] = [],
 ): string {
+  // The codes whose body carries `params.type` (`wireParams`).
+  const typedCodes = WIRE_REJECTION_CLASSES.filter((cls) => wireParams(cls).includes("type")).map(
+    (cls) => JSON.stringify(wireCode(cls)),
+  );
   const errorImports = [
     domainFloorCodes ? "DomainError" : null,
     valueObjectInvariants ? "ValueObjectInvariantError" : null,
@@ -711,6 +731,25 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   // \`requireJsonContentType\` raised it (RS-39).
   const said = status === ${wireStatus("unsupported-media-type")} ? ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} : detail;
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance, code: frameworkCode(status, detail) });
+}
+
+/** The aggregate each \`/api/<segment>\` route serves: a refusal answered for one
+ *  carries its identity key as \`params.type\`. */
+const AGGREGATE_TYPES: ReadonlyMap<string, string> = new Map<string, string>([${routeTypes.map(([seg, type]) => `\n  [${JSON.stringify(seg)}, ${JSON.stringify(type)}],`).join("")}${routeTypes.length > 0 ? "\n" : ""}]);
+
+/** The codes of the refusals that concern one aggregate. */
+const TYPED_CODES: ReadonlySet<string> = new Set([${typedCodes.join(", ")}]);
+
+/** A refusal body's \`params\` member: the values given, else — for a refusal
+ *  that concerns one aggregate — the identity key of the aggregate the request
+ *  path addresses; absent when there is neither. */
+export function problemParams(code: string, path: string, params?: Record<string, unknown>): { params?: Record<string, unknown> } {
+  if (params) return { params };
+  if (!TYPED_CODES.has(code)) return {};
+  const segments = path.split("/").filter((s) => s !== "");
+  const at = segments[0] === "api" ? 1 : 0;
+  const type = segments.length > at ? AGGREGATE_TYPES.get(segments[at]!) : undefined;
+  return type === undefined ? {} : { params: { type } };
 }
 
 /** The wire \`code\` of a fault the framework raised, by its status — the one
@@ -1022,6 +1061,7 @@ export function generateTypeScriptForContexts(
       anyRouteReadsIfMatch(merged.aggregates),
       emitVoInvariant,
       emitDomainFloorCodes,
+      aggregateRouteTypes(contexts),
     ),
   );
   if (emitProvenance) out.set("domain/provenance.ts", PROVENANCE_TS);
@@ -1514,7 +1554,7 @@ export function generateTypeScriptForContexts(
   }
 
   if (authRequired) {
-    emitAuthFiles(system.sys, out);
+    emitAuthFiles(system.sys, out, system.deployable.contextNames);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
@@ -1766,6 +1806,7 @@ export function generateTypeScriptForContexts(
     inProcessDispatcherEmitted: /^export function createInProcessDispatcher\(/m.test(
       out.get("http/workflows.ts") ?? "",
     ),
+    orgRegistry: authRequired ? hostedOrgRegistry(system.sys, system.deployable) : undefined,
   };
   out.set("boot.ts", renderProjectBootTs(entryConfig));
   out.set("index.ts", renderProjectIndexTs(entryConfig));
@@ -2226,6 +2267,23 @@ interface ProjectEntryConfig {
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
   readonly inProcessDispatcherEmitted: boolean;
+  /** The tenancy registry this deployable hosts, when the operating-scope
+   *  switch gate is emitted: boot binds the gate's registry reads to the db. */
+  readonly orgRegistry?: {
+    /** The registry aggregate's name. */
+    readonly name: string;
+    /** The quoted, schema-qualified registry table. */
+    readonly tableSql: string;
+  };
+}
+
+/** The registry the switch gate reads on this deployable — present only when
+ *  the gate is emitted and the deployable hosts the registry's context. */
+function hostedOrgRegistry(sys: SystemIR, dep: DeployableIR): ProjectEntryConfig["orgRegistry"] {
+  const plan = orgContextPlan(sys, dep.contextNames);
+  const tableSql = registryTableSql(sys);
+  if (!plan.registry || !tableSql) return undefined;
+  return { name: plan.registry.name, tableSql };
 }
 
 /** Indent every non-empty line of `text` by two spaces. */
@@ -2251,6 +2309,7 @@ function indentBlock(text: string): string {
  */
 function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   const {
+    usingMikro,
     userShape,
     runSeedsAtBoot,
     outboxRelay,
@@ -2293,6 +2352,44 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     : oidc
       ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
       : `\n${devStubDoc}${devStubGated}`;
+  // The operating-scope switch gate's registry reads (`organizationContext`).
+  // `canRead` loads the requested row through the registry's read scope —
+  // the ambient frame holds the caller's HOME principal while the gate runs —
+  // so the registry's own read rules decide which orgs a caller may switch
+  // into.  `ancestors` is the shared recursive walk (`registry-walk.ts`).  A
+  // value that is not a uuid names no registry row; it never reaches the db.
+  const orgRegistryRegistration = !cfg.orgRegistry
+    ? ""
+    : (() => {
+        const reg = cfg.orgRegistry;
+        const table = lowerFirst(plural(reg.name));
+        const walk = registryAncestorsSql(reg.tableSql, "${org}");
+        const canRead = usingMikro
+          ? `(await db.fork().findOne(${ref(tsNamed("~/db/entities", `${reg.name}Row`))}, { id: org })) !== null`
+          : `(await db.select({ id: ${T.schema}.${table}.id }).from(${T.schema}.${table}).where(${T.and}(${T.eq}(${T.schema}.${table}.id, org), ${ref(tsNamed("~/db/read-scopes", drizzleScopeFnName({ name: reg.name })))}())).limit(1)).length > 0`;
+        const walkCall = usingMikro
+          ? `((await db.fork().getConnection().execute(${JSON.stringify(registryAncestorsSql(reg.tableSql, "?"))}, [org])) as { id: string }[]).map((r) => r.id)`
+          : `((await db.execute(${T.sql}\`${walk}\`)) as unknown as { rows: { id: string }[] }).rows.map((r) => r.id)`;
+        return [
+          "",
+          "// The operating-scope switch gate reads the tenancy registry: `canRead`",
+          "// loads the requested row through the registry's own read scope (the",
+          "// ambient frame holds the caller's HOME principal), and `ancestors` walks",
+          "// `parent` upward — `UNION`, so a cycle terminates.",
+          `const ORG_ID = /${UUID_PATTERN}/i;`,
+          `${ref(tsNamed("~/auth/middleware", "registerOrgRegistry"))}({`,
+          "  async canRead(org) {",
+          "    if (!ORG_ID.test(org)) return false;",
+          `    return ${canRead};`,
+          "  },",
+          "  async ancestors(org) {",
+          "    if (!ORG_ID.test(org)) return [];",
+          `    return ${walkCall};`,
+          "  },",
+          "});",
+          "",
+        ].join("\n");
+      })();
   // The in-process dispatcher is constructed once and shared by the outbox
   // relay and/or the timer scheduler (scheduling.md).
   const needsDispatcher = outboxRelay || hasTimers || hasChannels;
@@ -2415,7 +2512,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
     stopLines.length === 0
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
-  const preamble = `${seedCall}${authStubCall}`.replace(/^\n/, "");
+  const preamble = `${seedCall}${authStubCall}${orgRegistryRegistration}`.replace(/^\n/, "");
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.

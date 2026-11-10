@@ -19,7 +19,7 @@
 //   * `checkSinglePrimitiveConversion` (AST validation) — the literal is
 //     validated as a decimal string, NOT run through the conversion table
 //     (which admits `money ← {int, long, decimal}` and would reject a string).
-//   * `typeOf` / `inferExprType` — both forms are `money`, so neither needs a
+//   * `typeOf` / `passType` — both forms are `money`, so neither needs a
 //     special case; the type is `target`.
 //   * `lowerExprInner` — the literal lowers to `lit("money", text)`, the
 //     conversion to `{ kind: "convert", target: "money" }`.  Byte-identical to

@@ -100,6 +100,11 @@ const UI_WITNESSES: Readonly<Record<RefusableUiConstruct, (framework: string) =>
         select tier = c.tier, spend = sum(c.spend)
       }`,
     ),
+  "primitive:Money-locale-format@body": (fw) =>
+    uiWitness(
+      fw,
+      `QueryView { of: Sales.Customer.byId(id), data: c => Money { c.spend, currency: "EUR", format: "locale" } }`,
+    ),
   "read:entity-history@body": (fw) =>
     uiWitness(
       fw,
@@ -499,6 +504,30 @@ system Bk {
   resource log { for: Bookings, kind: eventLog, use: pg }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
+}
+`,
+  "tenancy:remote-registry@deployable": (platform) => `
+system OrgAnc {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Registry {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Orgs for Org
+    }
+    context Books {
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Notes for Note
+    }
+  }
+  storage primary { type: postgres }
+  resource r { for: Registry, kind: state, use: primary }
+  resource b { for: Books, kind: state, use: primary }
+  deployable reg { platform: ${platform} contexts: [Registry] dataSources: [r] port: 3001 auth: required }
+  deployable books { platform: ${platform} contexts: [Books] dataSources: [b] port: 3002 auth: required }
 }
 `,
   "call:auth-required-api@resource": (platform) => `

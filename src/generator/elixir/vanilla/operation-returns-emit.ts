@@ -116,8 +116,11 @@ export interface OpFragment {
  *  success body matches what `GET /<plural>/:id` returns for the same aggregate.
  *  `forApiRead` drops `internal` / `secret` fields, exactly as the REST
  *  serializer does (RS-25) — an op success body is the same read boundary. */
-function wireFieldsOf(agg: AggregateIR): string[] {
-  return forApiRead(wireFieldsForAggregate(agg)).map((f) => snake(f.name));
+function wireFieldsOf(agg: AggregateIR): { field: string; wire: string }[] {
+  return forApiRead(wireFieldsForAggregate(agg)).map((f) => ({
+    field: snake(f.name),
+    wire: f.name,
+  }));
 }
 
 /** The PRIVATE operations `op`'s body calls as bare statements, transitively
@@ -936,18 +939,20 @@ export function renderReturningOpFunction(
     // return type has no discriminator to carry.
     const aggTag =
       op.returnType?.kind === "union"
-        ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name }))}, `
+        ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name, declKind: "aggregate" }))}, `
         : "";
     // The map key is the field's WIRE name: the struct field is snake-cased
-    // (`row_version`), but the concurrency counter goes out as `rowVersion` on
-    // every backend, so its key is the camel atom Jason encodes as such.
-    const wireKey = (f: string): string => (f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : f);
+    // (`unit_price`, `row_version`), but every backend answers the camelCase
+    // name (`unitPrice`, `rowVersion`), so the key is the camel atom Jason
+    // encodes as such.
+    const wireKey = (f: string, wire: string): string =>
+      f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : wire;
     const wireMap = (recordVar: string, projectRefColls: boolean): string =>
       `%{${aggTag}${wireFieldsOf(agg)
-        .map((f) =>
+        .map(({ field: f, wire }) =>
           projectRefColls && isRefCollFieldName(agg, f)
-            ? `${wireKey(f)}: __ref_id_list(${recordVar}.${f})`
-            : `${wireKey(f)}: ${recordVar}.${f}`,
+            ? `${wireKey(f, wire)}: __ref_id_list(${recordVar}.${f})`
+            : `${wireKey(f, wire)}: ${recordVar}.${f}`,
         )
         .join(", ")}}`;
 
@@ -1443,7 +1448,14 @@ export function renderReturningStmt(
             : `%{value: ${value}}`;
         return `    {:error, ${JSON.stringify(s.variantTag)}, ${data}}`;
       }
-      return `    {:ok, ${taggedSuccess(value, s)}}`;
+      // A payload-literal success value is a WIRE surface (Jason encodes atom
+      // keys verbatim), so it is keyed by the declared camelCase field names,
+      // not the snake keys the shared `object` leaf gives domain-side maps.
+      const wireValue =
+        s.value.kind === "object"
+          ? `%{${s.value.fields.map((f) => `${f.name}: ${renderExpr(f.value, rc)}`).join(", ")}}`
+          : value;
+      return `    {:ok, ${taggedSuccess(wireValue, s)}}`;
     }
     case "let":
       return `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`;
@@ -1683,6 +1695,11 @@ export function renderReturningOpControllerAction(
   agg: AggregateIR,
   op: OperationIR,
   ctx: BoundedContextIR,
+  /** The controller's command-load seam: the context fn that loads the row
+   *  (`get_<agg>` or `get_<agg>_for_write`), the trailing actor arg it takes,
+   *  and whether the controller already binds `current_user` for it (a
+   *  principal-filtered aggregate's reads are scoped by the request actor). */
+  load: { loadFn: string; loadActor: string; bindsActor: boolean },
 ): string {
   const opSnake = snake(op.name);
   const aggSnake = snake(agg.name);
@@ -1750,13 +1767,13 @@ export function renderReturningOpControllerAction(
   // A `money` field of a payload SUCCESS variant rides as the fixed-scale
   // string (RS-12) — the tagged map holds a `%Decimal{}` at domain precision,
   // which Jason would encode at its own scale.  The arm list is the shared
-  // `unionMoneyArms` node / python read; keys are the snake atoms of the map.
+  // `unionMoneyArms` node / python read; keys are the camelCase wire-name atoms of the map.
   const moneyArmClauses =
     op.returnType?.kind === "union"
       ? unionMoneyArms(op.returnType.variants, ctx).map((arm) => {
           const pipe = arm.keys
             .map(({ key, optional }) => {
-              const atom = `:${escapeElixirIdent(snake(key))}`;
+              const atom = `:${key}`;
               const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
               return optional
                 ? `Map.update(${atom}, nil, &(&1 && ${round}))`
@@ -1798,7 +1815,8 @@ export function renderReturningOpControllerAction(
   // `current_user \\ nil` arity); bind it off `conn.assigns`.
   const opActor = opUsesCurrentUser(op);
   const opReadsIfMatch = readsIfMatch(operationVersionCheck(agg, op));
-  const opCuBind = opActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
+  const opCuBind =
+    opActor || load.bindsActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
   return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
@@ -1813,7 +1831,7 @@ ${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogC
   )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
-    with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
+    with {:ok, record} <- ${ctxModule}.${load.loadFn}(id${load.loadActor}) do
       ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
     else
       {:error, :not_found} ->

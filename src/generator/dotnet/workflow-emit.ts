@@ -1,6 +1,6 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
-import { observableWorkflows } from "../../ir/plan/index.js";
+import { isWorkflowSelfType, observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -222,7 +222,7 @@ export function emitWorkflows(
     sourcemap?.file(requestPath, finalizeCsUnit(requestContent), wf.origin, construct);
     // An expected-failure result's wire union (`Application.EntryResults`).
     const routed = commandCreateResult(wf);
-    if (routed?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+    if (routed?.type.kind === "union" && commandCreateEntryResult(wf)) {
       const f = renderEntryUnionFile(routed.type, ctx, ns);
       if (!out.has(f.path)) out.set(f.path, f.content);
     }
@@ -1414,7 +1414,7 @@ function renderHandler(
   const resultCs = result ? workflowResultCs(wf, result.type, ns) : "Unit";
   // An expected-failure result (`T or E`) runs in one transaction whether or
   // not the workflow is `transactional`; an error answer rolls it back.
-  const er = commandCreateEntryResult(wf, ctx);
+  const er = commandCreateEntryResult(wf);
   // A body that re-checks a held row's write scope runs in one transaction
   // too, so a row outside the scope fails the whole command and rolls back
   // the rows it already changed.
@@ -1665,7 +1665,7 @@ function renderHandler(
     stmtLines.push(
       ...entryResultCsLines(er, result.type, renderArg, ctx, ns, INDENT, "workflowResult", wfThis),
     );
-  } else if (result && result.type.kind === "entity" && result.type.name === wf.name) {
+  } else if (result && isWorkflowSelfType(wf, result.type)) {
     // `create(…): <Wf> { …; return this }` — the saved instance state.
     stmtLines.push(
       `        workflowResult = new ${upperFirst(wf.name)}InstanceResponse(${(
@@ -2449,11 +2449,6 @@ export function renderExprWithEventParam(
   return renderCsExpr(rewritten, { thisName, resourceClasses });
 }
 
-/** True when a create's declared result is its own workflow (`return this`). */
-function workflowSelf(wf: WorkflowIR, t: import("../../ir/types/loom-ir.js").TypeIR): boolean {
-  return t.kind === "entity" && t.name === wf.name;
-}
-
 /** The C# type a workflow command answers: the entry-result union for `T or
  *  E`, the instance response for the workflow itself, else the domain type. */
 function workflowResultCs(
@@ -2462,7 +2457,7 @@ function workflowResultCs(
   ns: string,
 ): string {
   if (t.kind === "union") return `global::${entryResultNs(ns)}.${entryUnionName(t)}`;
-  if (workflowSelf(wf, t))
+  if (isWorkflowSelfType(wf, t))
     return `global::${ns}.Application.Workflows.${upperFirst(wf.name)}InstanceResponse`;
   return renderCsType(t);
 }
@@ -2518,9 +2513,9 @@ function renderController(
     // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
     // own `id` field carries on the wire, not the strongly-typed id record.
     const result = commandCreateResult(wf);
-    const er = commandCreateEntryResult(wf, ctx);
+    const er = commandCreateEntryResult(wf);
     const success = result
-      ? `    [ProducesResponseType(typeof(${er || workflowSelf(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
+      ? `    [ProducesResponseType(typeof(${er || isWorkflowSelfType(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
       : // Explicit success (NoContent → 204) so the added error
         // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
         `    [ProducesResponseType(204)]\n`;
