@@ -200,6 +200,7 @@ function recordDeclKind(shape: RecordShape): EntityDeclKind {
     case "created":
     case "tagged":
     case "request":
+    case "fields":
       return "synthetic";
   }
 }
