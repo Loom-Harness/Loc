@@ -709,9 +709,10 @@ export async function assertOrgContextGate(
 //   6. revoking a share closes the row again;
 //   7. a grantee cannot re-share: sharing needs write access to the row in
 //      the sharer's OWN org, which a write share of another org's row is not;
+//   8. a soft-deleted row is hidden from its grantees with it;
 //   9. a sharer whose write scope excludes the row (`own`: a colleague's row)
 //      may neither share it nor revoke its shares;
-//   8. a soft-deleted row is hidden from its grantees with it;
+//  10. shares cross tenants: an Org grant to another customer opens the row;
 //   0. `allow share on X when …` gates creating and revoking a share.
 // ---------------------------------------------------------------------------
 
@@ -883,10 +884,16 @@ export async function assertShareable(base: string): Promise<void> {
   expect([200, 204]).toContain((await revoke(toAB)).status);
   expect(await names(mgr(orgAB))).toEqual([]);
 
+  // (10) Shares cross tenants by design: an Org grant to another customer
+  // (Z, a separate top-level org) opens the row to it.
+  await share(sharer, { category: tools, granteeKind: "Org", org: orgZ });
+  expect(await names(mgr(orgZ))).toEqual(["gear"]);
+
   // (8) softDeletable: a soft-deleted row is hidden from its grantees too.
   expect(await names(mgr(orgW))).toEqual(["gear"]);
   const deleted = await send(sharer, "POST", `/api/categories/${tools}/soft_delete`, {});
   expect([200, 204], deleted.text).toContain(deleted.status);
   expect(await names(mgr(orgW))).toEqual([]);
+  expect(await names(mgr(orgZ))).toEqual([]);
   expect(await names(sharer)).toEqual([]);
 }

@@ -1,5 +1,6 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
 import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
@@ -255,6 +256,16 @@ function render(e: ExprIR, ctx: JpqlCtx): string {
       // a tuple, the bind param is not).  Use a correlated existence subquery
       // with an embeddable-equality predicate instead, which Hibernate
       // decomposes per attribute (`p.value = :x.value`).
+      // `organizationContext.ancestors.contains(<id column>)` — the column
+      // tested against the operating org's lineage.  The column is an
+      // `@Embedded` id record, so the test reads its `value` against the
+      // lineage projected to UUIDs; an absent principal binds the empty list,
+      // which matches nothing.
+      const lineageArg = orgAncestorsMembershipArg(e);
+      if (lineageArg) {
+        if (isEntityManagerMode(ctx)) throw unsupported(ctx, "organizationContext.ancestors");
+        return `${render(lineageArg, ctx)}.value in :#{@${CURRENT_USER_BEAN}.user()?.operatingAncestors()?.![value()] ?: T(java.util.List).of()}`;
+      }
       if (e.member === "contains" && e.receiverType.kind === "array" && e.args.length === 1) {
         const coll = render(e.receiver, ctx);
         const val = render(e.args[0]!, ctx);
@@ -472,6 +483,13 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, ctx: JpqlCtx): str
     return `${render(operand, ctx)} is ${e.op === "==" ? "" : "not "}null`;
   }
   const op = jpqlOp(e.op);
+  // An id column against `organizationContext.org`: the operating org is a
+  // claim string that need not be a registry id, so the comparison is on the
+  // column's text — a uuid parameter would fail to bind a non-uuid claim.
+  const orgCmp = idColumnVsOperatingOrg(e);
+  if (orgCmp) {
+    return `cast(${render(orgCmp.column, ctx)}.value as String) ${orgCmp.negated ? "<>" : "="} ${render(orgCmp.org, ctx)}`;
+  }
   // Self-id vs principal-claim comparison (`this.id == currentUser.<claim>` —
   // the derived tenancy registry self-scope).  The entity key is an
   // `@EmbeddedId` record (`OrganizationId(UUID value)`), so the comparison
