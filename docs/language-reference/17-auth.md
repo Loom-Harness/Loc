@@ -640,7 +640,7 @@ Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--
 - `policy SharedWithMe(x: X)` — X has such a share **in X's own org**;
 - `policy XSharing` — a grantee reads the shares addressed to it, reads X where `SharedWithMe`, and writes X where a share with `write` is addressed to it.
 
-A share row belongs to the sharer's org; it counts only when it sits in the shared row's own org, so a share another org writes — or a grantee's re-share — opens nothing. A grant opens the row, not its fields: `mask unless` still redacts by the grantee's own principal.
+A share row belongs to the sharer's org; it counts only when it sits in the shared row's own org, so a share another org writes — or a grantee's re-share — opens nothing. A grant opens the row, not its fields: `mask unless` still redacts by the grantee's own principal. A `softDeletable` row's shares open nothing once it is deleted: the `!isDeleted` filter ANDs onto the whole read scope, shares included.
 
 `allow share on X [when <caller-only expr>]` decides who may create or revoke a share: XShare's `create` and `revoke` carry it as a leading `requires` (403). With no rule nobody may share. The share surface is XShare's own derived routes: `POST /api/<x>_shares`, `GET /api/<x>_shares` (the caller's org's shares and the ones addressed to it), `POST /api/<x>_shares/{id}/revoke`.
 
@@ -665,6 +665,9 @@ if (!(currentUser.role === "manager")) throw new ForbiddenError("Forbidden: allo
 | `shareable` on an aggregate that is not `tenantOwned` | `loom.shareable-not-tenant-owned` |
 | `allow share on X` where X is not `shareable` | `loom.policy-share-not-shareable` |
 | A share `when` that reads anything but the caller | `loom.policy-when-not-caller-only` |
+| A projection on a deployable that does not host the shareable aggregate's context reads it | `loom.share-host-bypass` |
+| `shareable` on an event-sourced or `shape: document` aggregate (its share rules quantify with `exists`) | `loom.exists-unsupported` |
+| `shareable` on an aggregate in an inheritance hierarchy | `loom.policy-scope-inheritance-unsupported` |
 
 ### `read` — who may read an aggregate
 

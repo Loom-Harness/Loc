@@ -5,6 +5,9 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
+  "loom.shareable-no-tenancy": "17-auth.md#sharing--shareable",
+  "loom.shareable-not-tenant-owned": "17-auth.md#sharing--shareable",
+  "loom.share-host-bypass": "17-auth.md#sharing--shareable",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.tenancy-registry-remote-unsupported":

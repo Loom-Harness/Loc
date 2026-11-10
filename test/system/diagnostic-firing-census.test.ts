@@ -616,6 +616,29 @@ system S {
     }
   }
 }`,
+  // A projection on another deployable reading a shareable aggregate's table.
+  "loom.share-host-bypass": `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context A {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Doc with tenantOwned, shareable, crudish { title: string }
+    }
+    context B {
+      projection DocCount {
+        n: int
+        from Doc as d
+        select n = count()
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource a { for: A, kind: state, use: pg }
+  deployable da { platform: node, contexts: [A], dataSources: [a], port: 3000, auth: required }
+  deployable db { platform: node, contexts: [B], port: 3001, auth: required }
+}`,
   // `shareable` with no `tenancy by … of <Registry>` to name grantee orgs by.
   "loom.shareable-no-tenancy": `
 context C {

@@ -688,6 +688,7 @@ export async function assertOrgContextGate(
 //   6. revoking a share closes the row again;
 //   7. a grantee cannot re-share: a share it creates sits in ITS org, not the
 //      row's, so it counts for nobody;
+//   8. a soft-deleted row is hidden from its grantees with it;
 //   0. `allow share on X when …` gates creating and revoking a share.
 // ---------------------------------------------------------------------------
 
@@ -827,4 +828,11 @@ export async function assertShareable(base: string): Promise<void> {
   expect(await names(mgr(orgAB))).toEqual(["gear"]);
   expect([200, 204]).toContain((await revoke(toAB)).status);
   expect(await names(mgr(orgAB))).toEqual([]);
+
+  // (8) softDeletable: a soft-deleted row is hidden from its grantees too.
+  expect(await names(mgr(orgW))).toEqual(["gear"]);
+  const deleted = await send(sharer, "POST", `/api/categories/${tools}/soft_delete`, {});
+  expect([200, 204], deleted.text).toContain(deleted.status);
+  expect(await names(mgr(orgW))).toEqual([]);
+  expect(await names(sharer)).toEqual([]);
 }

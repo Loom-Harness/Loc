@@ -67,6 +67,8 @@ async function lowered(src: string) {
  *  applies, a field it adds, and the header it needs. */
 function capabilityParts(f: Feature | undefined): { cap: string; field: string } {
   if (f === "capability:provenanced") return { cap: "", field: "total: int provenanced" };
+  // A share opens a tenant-scoped row, so `shareable` rides with `tenantOwned`.
+  if (f === "capability:shareable") return { cap: "tenantOwned, shareable", field: "" };
   if (f?.startsWith("capability:")) return { cap: f.slice("capability:".length), field: "" };
   return { cap: "", field: "" };
 }
@@ -105,7 +107,8 @@ function tupleAggregates(tuple: FeatureTuple): string {
 
 /** A one-context system hosting `tuple`'s aggregates on `platform`. */
 function tupleWitness(tuple: FeatureTuple, platform: Platform): string {
-  const tenancy = tuple.includes("capability:tenantOwned");
+  const tenancy =
+    tuple.includes("capability:tenantOwned") || tuple.includes("capability:shareable");
   return `
 system W {
   user { id: guid  tenantId: string }

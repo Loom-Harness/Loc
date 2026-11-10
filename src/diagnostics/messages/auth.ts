@@ -25,7 +25,6 @@ export const segments = [
   "guard",
   "default",
   "field",
-  "shareable",
 ] as const;
 
 export const messages = {
@@ -509,15 +508,8 @@ export const messages = {
     `to tenant-owned aggregates.`,
   // Row rules, `when` and `own` (D-SHARING) — src/ir/validate/checks/policy-scope-checks.ts
   // ----------------------------------------------------------------------
-  // src/macros/expander.ts / src/ir/validate/checks/share-checks.ts
+  // src/ir/validate/checks/policy-scope-checks.ts — the share gate
   // ----------------------------------------------------------------------
-  "loom.shareable-no-tenancy": (p: { name: unknown }) =>
-    `aggregate '${p.name}' is \`shareable\`, but the system declares no \`tenancy by user.<claim> of <Registry>\`: ` +
-    `a share names its grantee by registry org, and visibility beyond one's org needs an org to start from.  ` +
-    `Declare the tenancy, or drop \`shareable\`.`,
-  "loom.shareable-not-tenant-owned": (p: { name: unknown }) =>
-    `aggregate '${p.name}' is \`shareable\` but not \`tenantOwned\`: its rows are already visible to every ` +
-    `caller, so a share opens nothing.  Add \`with tenantOwned\`, or drop \`shareable\`.`,
   "loom.policy-share-not-shareable": (p: { source: unknown; aggregate: unknown }) =>
     `\`${p.source}\`: '${p.aggregate}' is not \`shareable\` — there is no share to gate.  ` +
     `Add \`with shareable\` to '${p.aggregate}', or drop the rule.`,

@@ -20,10 +20,13 @@
 //                                         `shareable`
 //   loom.shareable-not-tenant-owned       `shareable` on an aggregate whose rows
 //                                         every caller already reads
+//   loom.share-host-bypass                a projection on another deployable
+//                                         reads a shareable aggregate's rows
 //
 // Policy-function call cycles are refused at the AST (`loom.policy-fn-cycle`).
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { platformOwnsBackend } from "../../../language/validators/data/platform-rules.js";
 import { OWN_CREATOR_FIELD } from "../../enrich/policy-scopes.js";
 import type {
   AggregateIR,
@@ -45,6 +48,41 @@ export function validatePolicyScopes(sys: SystemIR, diags: LoomDiagnostic[]): vo
       checkLevels(ctx, diags);
       checkScopeCycles(ctx, diags);
       checkSharing(ctx, diags);
+    }
+  }
+  checkShareHosting(sys, diags);
+}
+
+/** A shareable aggregate's rows are read through its host's read scope, where
+ *  its share rules live.  A query-time projection over it, served by a backend
+ *  deployable that does not host its context, reads the table directly — the
+ *  shares (and the rest of the scope) never apply — so it is refused. */
+function checkShareHosting(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const contexts = sys.subdomains.flatMap((s) => s.contexts);
+  const byName = new Map(contexts.map((c) => [c.name, c]));
+  for (const dep of sys.deployables) {
+    if (!platformOwnsBackend(dep.platform)) continue;
+    for (const name of dep.contextNames) {
+      const ctx = byName.get(name);
+      for (const p of ctx?.projections ?? []) {
+        if (!p.query || (p.query.sourceKind ?? "aggregate") !== "aggregate") continue;
+        const home = p.query.sourceContext ?? name;
+        if (dep.contextNames.includes(home)) continue;
+        const source = byName.get(home)?.aggregates.find((a) => a.name === p.query?.source);
+        if (!source?.capabilities.includes("shareable")) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.share-host-bypass",
+          message: diagMessage("loom.share-host-bypass", {
+            deployable: dep.name,
+            projection: p.name,
+            aggregate: source.name,
+            context: home,
+          }),
+          source: `${sys.name}/${dep.name}`,
+          origin: p.origin,
+        });
+      }
     }
   }
 }

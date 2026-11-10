@@ -417,6 +417,26 @@ system W {
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
 }
 `,
+  // A shareable state aggregate: its share aggregate, grantee rules and gate.
+  "capability:shareable@aggregate": (platform) => `
+system W {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Main {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Doc with tenantOwned, shareable, crudish { title: string }
+      policy { allow share on Doc when currentUser.role == "manager" }
+      repository Orgs for Org { }
+      repository Docs for Doc { }
+    }
+  }
+  api MainApi from Core
+  storage pg { type: postgres }
+  resource st { for: Main, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000, auth: required }
+}
+`,
   // An event-sourced aggregate whose stream carries its tenant.
   "capability:tenantOwned@event-sourced": (platform) => `
 system W {
@@ -499,6 +519,31 @@ system Bk {
   resource log { for: Bookings, kind: eventLog, use: pg }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
+}
+`,
+  // A projection on another deployable reading a shareable aggregate's table.
+  "read:shareable-off-host@deployable": (platform) => `
+system W {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context A {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Doc with tenantOwned, shareable, crudish { title: string }
+      repository Docs for Doc { }
+    }
+    context B {
+      projection DocCount {
+        n: int
+        from Doc as d
+        select n = count()
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource a { for: A, kind: state, use: pg }
+  deployable da { platform: ${platform}, contexts: [A], dataSources: [a], port: 3000, auth: required }
+  deployable d { platform: ${platform}, contexts: [B], port: 3001, auth: required }
 }
 `,
   "tenancy:remote-registry@deployable": (platform) => `

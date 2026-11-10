@@ -4,7 +4,8 @@
 // `organizationContext.ancestors`, so a move re-targets it on the next
 // request), or one user.  A grantee reads the shared row; a write share also
 // opens it to the grantee's writes; a `mask unless` field still redacts by the
-// grantee's own principal.  Revoking a share closes the row again.
+// grantee's own principal.  Revoking a share closes the row again, and so
+// does soft-deleting the row: its shares open nothing once it is hidden.
 //
 // Driven by the `tenancy-org-context` boot harness (`assertShareable`) on
 // every backend, with real registry org ids as tenancy claims.  The deployable
@@ -23,7 +24,7 @@ system Sharing {
           parent := to
         }
       }
-      aggregate Category with tenantOwned, shareable, crudish {
+      aggregate Category with tenantOwned, shareable, softDeletable, softDelete, crudish {
         name: string
         secret: string? mask unless currentUser.role == "manager"
       }
