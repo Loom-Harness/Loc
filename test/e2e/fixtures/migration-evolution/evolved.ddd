@@ -12,6 +12,8 @@
 //     value set.  Non-destructive: the constraint is added `NOT VALID`, so the
 //     seeded v1 row survives whatever it holds (the harness seeds a value the
 //     enum still admits, so the surviving-row assertion stays exact).
+//   • `Stage.draft` renamed to `drafted` — the declared enum value rename
+//     updates the stored `'draft'` to `'drafted'` after the CHECK is re-added.
 //
 // The `migration` block is ledger-style: permanent in source, inert once baked
 // into the baseline snapshot.
@@ -19,12 +21,14 @@ system ShopEvo {
   subdomain Catalog {
     context Catalog {
       enum Status { draft, live }
+      enum Stage { drafted, done }
       aggregate Product with crudish {
         name: string
         unitPrice: money
         sku: string
         description: string?
         status: Status
+        stage: Stage
       }
       repository Products for Product { }
     }
@@ -44,4 +48,5 @@ system ShopEvo {
 migration "evolve-catalog" {
   Product.price -> unitPrice
   Product.sku = "SEED"
+  Stage.draft -> drafted
 }

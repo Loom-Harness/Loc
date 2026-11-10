@@ -119,6 +119,9 @@
         "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}",
+        "params": {
+          "type": "Catalog.Listing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -133,6 +136,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/listings/by_sku",
+        "params": {
+          "type": "Catalog.Listing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -253,6 +259,9 @@
         "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}/discontinue",
+        "params": {
+          "type": "Catalog.Listing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -267,6 +276,9 @@
         "code": "problem.not-found",
         "detail": "Listing {id} not found",
         "instance": "/api/listings/{id}/discontinue",
+        "params": {
+          "type": "Catalog.Listing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

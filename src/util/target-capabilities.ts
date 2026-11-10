@@ -46,6 +46,7 @@ import type { Platform } from "../ir/types/loom-ir.js";
 export type TargetRefusalSlug =
   | "datagrid"
   | "chart"
+  | "money-locale-format"
   | "entity-history-read"
   | "match-await-standard-op"
   | "lifecycle-guard-event-sourced"
@@ -72,6 +73,8 @@ export type RefusableUiConstruct =
   | "primitive:DataGrid@body"
   /** `Chart { … }` in a page or component body. */
   | "primitive:Chart@body"
+  /** `Money { …, format: "locale" }` — the opt-in locale-formatted display. */
+  | "primitive:Money-locale-format@body"
   /** `QueryView { of: <api>.<Agg>.history(id) }` — the derived entity-history
    *  read — in a page or component body. */
   | "read:entity-history@body"
@@ -213,6 +216,7 @@ export type BackendConstruct =
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
   "primitive:DataGrid@body",
   "primitive:Chart@body",
+  "primitive:Money-locale-format@body",
   "read:entity-history@body",
   "stmt:match-await-standard-op@action",
   "return:payload-or-error@api-client",
@@ -282,6 +286,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
 export const UI_CONSTRUCT_REFUSAL: Readonly<Record<RefusableUiConstruct, TargetRefusalSlug>> = {
   "primitive:DataGrid@body": "datagrid",
   "primitive:Chart@body": "chart",
+  "primitive:Money-locale-format@body": "money-locale-format",
   "read:entity-history@body": "entity-history-read",
   "stmt:match-await-standard-op@action": "match-await-standard-op",
   "return:payload-or-error@api-client": "feature-composition-broken",
@@ -478,6 +483,8 @@ const COMMON_OWNED: Readonly<Record<OwnedUiConstruct, CapabilityVerdict>> = {
 const JS_FRONTEND_UI: Readonly<Record<UiConstruct, CapabilityVerdict>> = {
   "primitive:DataGrid@body": SUPPORTED,
   "primitive:Chart@body": SUPPORTED,
+  // `moneyText` hands the digit string to `Intl.NumberFormat`.
+  "primitive:Money-locale-format@body": SUPPORTED,
   "read:entity-history@body": SUPPORTED,
   "stmt:match-await-standard-op@action": SUPPORTED,
   // The api module names the success payload's response type and never
@@ -760,6 +767,9 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "primitive:DataGrid@body": refused("datagrid"),
         // Inline SVG over rows already in a server assign.
         "primitive:Chart@body": SUPPORTED,
+        // The HEEx `Money` renders the value's own text and reads neither
+        // `decimals:` nor `format:`.
+        "primitive:Money-locale-format@body": refused("money-locale-format"),
         // An in-process `load_<agg>_history/2` in the same OTP app.
         "read:entity-history@body": SUPPORTED,
         "stmt:match-await-standard-op@action": SUPPORTED,
@@ -900,6 +910,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "primitive:DataGrid@body": refused("datagrid"),
         // A `CustomPainter` over rows the client has already decoded.
         "primitive:Chart@body": SUPPORTED,
+        // `LoomMoney.display` splices the digit string into `intl`'s pattern.
+        "primitive:Money-locale-format@body": SUPPORTED,
         "read:entity-history@body": SUPPORTED,
         // `models.dart` declares every payload.
         "return:payload-or-error@api-client": SUPPORTED,

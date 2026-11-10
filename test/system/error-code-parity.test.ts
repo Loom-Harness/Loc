@@ -26,10 +26,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WIRE_ERROR_MESSAGES } from "../../src/generator/_i18n/wire-error-text.js";
-import { FIELD_LIMIT_REASONS, fieldCode, fieldParams } from "../../src/ir/enrich/wire-policy.js";
+import {
+  aggregateRouteTypes,
+  FIELD_LIMIT_REASONS,
+  fieldCode,
+  fieldParams,
+} from "../../src/ir/enrich/wire-policy.js";
 import { allPlatforms } from "../../src/platform/registry.js";
 import { ERROR_CODE_ROWS, type ErrorCodeRow } from "../_helpers/error-code-rows.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { buildLoomModel } from "../_helpers/ir.js";
 
 const CORPUS = join(__dirname, "../fixtures/corpus");
 
@@ -66,9 +72,14 @@ const DECLARED_ERROR_CODE = /"[A-Z]\w*\.[A-Z]\w*\.message"/;
  *  message catalog looked like.  A fan-out filling in a backend adds its
  *  entry here when it flips the row. */
 const BACKEND_FACTS: Readonly<
-  Record<ErrorCodeRow["platform"], { schema: readonly RegExp[]; catalog: RegExp }>
+  Record<
+    ErrorCodeRow["platform"],
+    { schema: readonly RegExp[]; catalog: RegExp; typeParams: RegExp }
+  >
 > = {
   node: {
+    // Every router's problem body reads the addressed aggregate off the path.
+    typeParams: /const TYPED_CODES: ReadonlySet<string> = new Set\(\[[^\]]*"problem\.not-found"/,
     schema: [
       /code: z\.string\(\)\.nullish\(\)/,
       /params: z\.record\(z\.string\(\), z\.unknown\(\)\)/,
@@ -76,6 +87,8 @@ const BACKEND_FACTS: Readonly<
     catalog: /localizeMessage|\/http\/messages\.ts/,
   },
   dotnet: {
+    // The app-wide filter reads the addressed aggregate off the request path.
+    typeParams: /Problem\(context, \d+, [^\n]*"problem\.not-found", TypeParams\(context\)\);/,
     schema: [
       /\["code"\] = new OpenApiSchema \{ Type = JsonSchemaType\.String/,
       /\["params"\] = new OpenApiSchema/,
@@ -83,10 +96,12 @@ const BACKEND_FACTS: Readonly<
     catalog: /LoomMessages|Localization\/LoomMessages\.cs/,
   },
   python: {
+    typeParams: /code="problem\.not-found", params=_type_params\(request\)\)/,
     schema: [/code: str \| None = None/, /params: dict\[str, Any\] \| None = None/],
     catalog: /localize_message|app\/i18n\.py/,
   },
   java: {
+    typeParams: /respond\(typed\(problem\([^\n]*"problem\.not-found", request\), request\)/,
     schema: [
       /problem\.addProperty\("code", new StringSchema\(\)\)/,
       /problem\.addProperty\("params", paramsSchema\(\)\)/,
@@ -95,6 +110,8 @@ const BACKEND_FACTS: Readonly<
     catalog: /MessageSource|messages\.properties/,
   },
   elixir: {
+    typeParams:
+      /defp params_for\(code, conn, _trace_id\) when code in \[[^\]]*"problem\.not-found"[^\]]*\], do: type_params\(conn\)/,
     schema: [
       /code: %OpenApiSpex\.Schema\{type: :string\}/,
       /params: %OpenApiSpex\.Schema\{type: :object, additionalProperties: true/,
@@ -127,6 +144,28 @@ async function backendFiles(platform: string): Promise<Map<string, string>> {
     }
   }
   return out;
+}
+
+/** The `params.type` of every aggregate the fixtures serve on `platform`
+ *  (`aggregateRouteTypes` over the contexts its deployables host). */
+async function aggregateTypeKeys(platform: string): Promise<string[]> {
+  const keys = new Set<string>();
+  for (const id of FIXTURES) {
+    const source = readFileSync(join(CORPUS, `${id}.ddd`), "utf8").replace(
+      /__PLATFORM__/g,
+      platform,
+    );
+    const model = await buildLoomModel(source);
+    for (const sys of model.systems) {
+      for (const d of sys.deployables.filter((d) => d.platform === platform)) {
+        const hosted = sys.subdomains
+          .flatMap((sub) => sub.contexts)
+          .filter((c) => d.contextNames.includes(c.name));
+        for (const [, key] of aggregateRouteTypes(hosted)) keys.add(key);
+      }
+    }
+  }
+  return [...keys].sort();
 }
 
 /** The codes the emitted text spells, as string literals. */
@@ -180,6 +219,15 @@ describe("error-code parity — one row per backend (error-code-rows.ts)", () =>
           ).toBeGreaterThan(0);
           const all = [...(await load()).values()].join("\n");
           for (const marker of facts.schema) expect(all).toMatch(marker);
+        }, 120_000);
+
+        it("answers a refusal on an aggregate's routes with params.type = its identity key", async () => {
+          const all = [...(await load()).values()].join("\n");
+          expect(all).toMatch(facts.typeParams);
+          // Every aggregate a fixture serves on this backend is named by its key.
+          const keys = await aggregateTypeKeys(row.platform);
+          expect(keys.length).toBeGreaterThan(0);
+          expect(keys.filter((k) => !all.includes(`"${k}"`))).toEqual([]);
         }, 120_000);
 
         it("ships no message catalog of its own", async () => {

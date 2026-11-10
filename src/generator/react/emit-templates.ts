@@ -5,6 +5,7 @@
 // Extracted from index.ts so the orchestrator stays focused on assembly.
 // ---------------------------------------------------------------------------
 
+import { PROBLEM_KEY_TS } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 
 // Shared `moneySchema` helper for React projects — emitted to
@@ -94,12 +95,14 @@ export type ServerErrorOutcome =
   | { kind: "global"; title: string }
   | { kind: "unhandled" };
 
-/** The localized text of a refusal: its catalog \`code\`, falling back to the
- *  English the server sent, its placeholders filled from \`params\`.  A
- *  message whose placeholders the params cannot fill keeps the English. */
+${PROBLEM_KEY_TS}
+/** The localized text of a refusal: its catalog \`code\` (or its aggregate's
+ *  own sentence, \`problemKey\`), falling back to the English the server sent,
+ *  its placeholders filled from \`params\`.  A message whose placeholders the
+ *  params cannot fill keeps the English. */
 export function localizeProblem(code: string, fallback: string, params?: Record<string, unknown>): string {
   try {
-    return t(code, fallback, params as Parameters<typeof t>[2]);
+    return t(problemKey(code, params), fallback, params as Parameters<typeof t>[2]);
   } catch {
     return fallback;
   }

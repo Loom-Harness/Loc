@@ -153,6 +153,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Shop.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

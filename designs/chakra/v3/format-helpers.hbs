@@ -92,9 +92,9 @@ export function NumberValue({ value, decimals = 0 }: { value: number | string | 
  *  page source declared (`Money(x, currency: "EUR")`); `decimals`
  *  re-scales the digit string.  Neither is invented here — Loom money
  *  has no currency dimension.  Semantics live in `moneyText` below. */
-export function MoneyValue({ value, currency, decimals }: { value: number | string | { toString(): string } | null | undefined; currency?: string; decimals?: number }) {
+export function MoneyValue({ value, currency, decimals, localized }: { value: number | string | { toString(): string } | null | undefined; currency?: string; decimals?: number; localized?: boolean }) {
   if (isEmpty(value)) return <EmptyValue />;
-  return <Text as="span" css=\{{ fontVariantNumeric: "tabular-nums" }}>{moneyText(value as number | string | { toString(): string }, currency, decimals)}</Text>;
+  return <Text as="span" css=\{{ fontVariantNumeric: "tabular-nums" }}>{moneyText(value as number | string | { toString(): string }, currency, decimals, localized, {{#if i18nEnabled}}localized ? getLocale() : undefined{{else}}undefined{{/if}})}</Text>;
 }
 
 export function PlainValue({ value }: { value: unknown }) {

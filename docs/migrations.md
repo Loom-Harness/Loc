@@ -749,18 +749,21 @@ live rows. A warning never changes the exit code.
 
 Deleting (or renaming) a member of an `enum` that a persisted field uses
 narrows the column's [value-set `CHECK`](#how-ir-maps-to-tables). The re-added
-constraint is `NOT VALID`, so the migration itself always applies — but the rows
+constraint is `NOT VALID`, so the migration itself would apply — but the rows
 already holding the removed value stay, and the app cannot live with them:
 python, java, .NET and elixir map the stored string onto the enum when they load
 a row, so one such row fails the whole list route that reads it; node serves it
 off-contract; and any `UPDATE` of the row is refused by the new check.
 
-The rule is the one a `unique (…)` on a populated table follows, because it is
-the same situation — a new constraint that rows already stored may violate, and
-a diff that cannot see the rows. It is a **warning**, not a destructive-change
-refusal: nothing is dropped and nothing fails at apply time (that is what puts
-a NULL→NOT NULL flip behind `--allow-destructive`), and the fix is a data step
-the author writes, not a flag:
+So a narrowing on a table the baseline already has is **breaking-for-data**:
+`ddd diff` reports it as such, and `ddd migrate add` refuses it until something
+says what the stored values become. Three things do:
+
+- a declared [enum value rename](#enum-value-renames--enumold---new) of each
+  removed value (`Status.Draft -> Pending`) — the usual fix;
+- any `sql` step for the module in the same generation — `sql before` or a
+  trailing one: the remapped row satisfies the new check either way;
+- `--allow-destructive`, the author asserting no row can hold a removed value.
 
 ```ddd
 enum EmploymentType { permanent }          // was { permanent, contractor }
@@ -768,30 +771,93 @@ aggregate Employee { kind: EmploymentType }
 ```
 
 ```text
-loom.migration-enum-narrowed warning: migration for module "Hr": enum check employees_kind_enum on existing table employees no longer admits 'contractor' in column kind. Rows already stored may still hold a removed value. … Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):
-    migration "remap-…" { sql before "UPDATE employees SET kind = <one of 'permanent'> WHERE kind IN ('contractor')" }
+main.ddd: migration for module "Hr": enum check employees_kind_enum on existing table employees no longer admits 'contractor' in column kind. Rows already stored may still hold a removed value: … Declare what the stored values become — a value rename updates every column that stores the enum:
+    migration "rename-…" { EmploymentType.contractor -> <one of permanent> }
+or remap them yourself with a `sql` step in the same generation, or — when no row can hold a removed value — record it with --allow-destructive.
 ```
+
+Not raised for a widening (members only added), a module's first generation,
+or a table created this generation. The check is matched by name, so a
+narrowing that lands in the same generation as a rename of its table or column
+is not compared. Turning a plain `string` column into an enum adds a check with
+no baseline value set to compare against, so it is not refused either. The
+detection reads the baseline's `CHECK`s, so it covers exactly the columns that
+carry one ([covered shapes](#how-ir-maps-to-tables)); an enum **array** and the
+projection / workflow-state tables carry no value-set check, so a removal that
+only they store is not detected — a declared rename still updates them.
+
+### Enum value renames — `Enum.Old -> New`
+
+A stored enum value is the value's **name** (`status = 'Draft'`), so renaming a
+value in the model is a data change. Declare it in a `migration` block, in the
+same keyword-free form as a column rename — the left side names the enum
+instead of an aggregate:
 
 ```ddd
-migration "remap-contractor" {
-  sql before "UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor'"
+enum Status { Pending, Placed }          // was { Draft, Placed }
+aggregate Order {
+  status: Status
+  tags: Status[]
+  spot: Spot?                            // valueobject Spot { status: Status? }
+  contains lines: Line[]                 // entity Line { status: Status }
 }
+migration "rename-draft" { Status.Draft -> Pending }
 ```
+
+`ddd migrate add` records one `UPDATE` per column that stores the enum, after
+the generation's structural steps (the old `CHECK` does not admit `Pending`;
+the re-added one does):
 
 ```sql
-UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor';
-ALTER TABLE "employees" DROP CONSTRAINT IF EXISTS "employees_kind_enum";
--- NOT VALID: already-stored rows are not re-checked. To verify them, run ALTER TABLE "employees" VALIDATE CONSTRAINT "employees_kind_enum"
-ALTER TABLE "employees" ADD CONSTRAINT "employees_kind_enum" CHECK ("kind" IN ('permanent')) NOT VALID;
+ALTER TABLE "sales"."orders" DROP CONSTRAINT IF EXISTS "orders_status_enum";
+ALTER TABLE "sales"."orders" ADD CONSTRAINT "orders_status_enum" CHECK ("status" IN ('Pending', 'Placed')) NOT VALID;
+UPDATE "sales"."lines" SET "status" = 'Pending' WHERE "status" = 'Draft';
+UPDATE "sales"."orders" SET "status" = 'Pending' WHERE "status" = 'Draft';
+UPDATE "sales"."orders" SET "tags" = array_replace("tags", 'Draft', 'Pending') WHERE 'Draft' = ANY("tags");
+UPDATE "sales"."orders" SET "spot_status" = 'Pending' WHERE "spot_status" = 'Draft';
 ```
 
-As with the unique-index warning, any `sql before` step for the module in the
-same generation silences it, and a trailing `sql` step does not (it runs after
-the check). Not raised for a widening (members only added), a module's first
-generation, or a table created this generation. The check is matched by name, so
-a narrowing that lands in the same generation as a rename of its table or
-column is not compared. Turning a plain `string` column into an enum adds a
-check with no baseline value set to compare against, so it does not warn either.
+The statements are `sqlExec` steps of the shared chain, so every backend applies
+them unchanged: the node `.sql` migrations (drizzle), EF and Dapper, Alembic,
+Flyway, and Ecto's `execute/1` (one statement per call, which is why each column
+gets its own). `persistence: mikroorm` has no chain and refuses the step
+(`loom.mikroorm-unsupported`), like every declared migration step.
+
+**What is updated.** Every column the schema creates for the enum, decided by
+the same column mapper that creates it: aggregate roots (TPH shared and TPC
+tables included), part tables, flattened value-object leaves, value-collection
+child tables, enum arrays (`TEXT[]`, element replaced in place), and the
+projection and workflow-state tables.
+
+**What is not, and why.**
+
+- The audit and provenance logs: append-only history of what was written at
+  the time. Rewriting it would falsify the record.
+- JSON storage — a `shape: document` aggregate's `data`, an embedded
+  containment, a value object collapsed to one column — and the payloads of an
+  event-sourced stream's log. Their layout is each backend's serialisation, and
+  an event log is the immutable history its state is folded from (it is read by
+  stream, never queried by value). A rename whose enum reaches one is announced
+  as `loom.migration-enum-value-unmigrated`, naming each place, so the author
+  remaps it with a `sql` step or upcasts the value where the event is read.
+
+**Rules.**
+
+- It runs exactly once: the step's ledger key `"<block>#<index>"` lands in the
+  snapshot's `appliedDataMigrations`, like a `sql` step. On a module's Initial
+  generation no row exists, so the key is recorded with no `UPDATE`.
+- A not-yet-applied rename covers its old value's removal from the `CHECK`, so
+  the [narrowing refusal](#an-enum-that-loses-a-member--loommigration-enum-narrowed)
+  does not fire for it. A removed value no rename names still does.
+- The new value must be a value the enum declares
+  (`loom.migration-enum-value-unknown`); the old one need not be — a ledger
+  block outlives the rename. A value may be renamed from once
+  (`loom.rename-duplicate-source`), never onto itself (`loom.rename-to-self`);
+  two old values may merge into one new value. The `=` backfill form is for
+  aggregate fields only (`loom.migration-enum-value-form`).
+- The value's translated label is carried too: `ddd i18n sync` re-keys
+  `<Ctx>.<Enum>.value.<Old>` to `<Ctx>.<Enum>.value.<New>`, exactly as a field
+  rename re-keys its label. There is no rename syntax for labels themselves.
 
 ### A unique index follows a `softDeletable` flip (partial ↔ full)
 
@@ -1326,9 +1392,10 @@ an enum can never fail a deploy) while refusing every future write of a removed
 value; the emitted comment names the `VALIDATE CONSTRAINT` an operator runs to
 audit the old rows deliberately. The deploy surviving is not the app surviving,
 though: a row still holding a removed value fails to load on most backends, so
-a narrowing on a populated table raises
-[`loom.migration-enum-narrowed`](#an-enum-that-loses-a-member--loommigration-enum-narrowed)
-until a `sql before` remap is declared.
+a narrowing on a populated table is refused
+([`loom.migration-enum-narrowed`](#an-enum-that-loses-a-member--loommigration-enum-narrowed))
+until an [enum value rename](#enum-value-renames--enumold---new) or a `sql` remap
+says what the stored values become.
 
 Covered: a scalar enum column, at either nullability, on the aggregate root, a
 TPH shared table (where a concrete's column is forced nullable, so it gains the

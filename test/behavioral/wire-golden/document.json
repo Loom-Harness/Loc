@@ -158,6 +158,9 @@
         "code": "problem.not-found",
         "detail": "Article {id} not found",
         "instance": "/api/articles/{id}",
+        "params": {
+          "type": "Cms.Article"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -229,6 +232,9 @@
         "code": "problem.not-found",
         "detail": "Draft {id} not found",
         "instance": "/api/drafts/{id}",
+        "params": {
+          "type": "Cms.Draft"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -457,6 +463,9 @@
         "code": "problem.not-found",
         "detail": "Article {id} not found",
         "instance": "/api/articles/{id}/bump",
+        "params": {
+          "type": "Cms.Article"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -471,6 +480,9 @@
         "code": "problem.not-found",
         "detail": "Article {id} not found",
         "instance": "/api/articles/{id}/bump",
+        "params": {
+          "type": "Cms.Article"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

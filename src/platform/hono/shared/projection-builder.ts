@@ -196,7 +196,7 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
       bodyText.includes("ForbiddenError")
         ? 'import { AggregateNotFoundError, ForbiddenError } from "../domain/errors";'
         : 'import { AggregateNotFoundError } from "../domain/errors";',
-      'import { ProblemDetails } from "./problem-details";',
+      'import { ProblemDetails, problemParams } from "./problem-details";',
       // decimal.js only when a money column is actually folded through
       // `Decimal` arithmetic — an unused import is an error under the
       // generated-project Biome config.
@@ -741,7 +741,7 @@ function emitProjectionRoutes(
   out.push(`  app.onError((err, c) => {`);
   out.push(`    const trace_id = c.get("requestId") ?? "";`);
   out.push(
-    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, wireStatus("internal")] : [notFoundStatus, wireStatus("internal")])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, wireStatus("internal")] : [notFoundStatus, wireStatus("internal")])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   if (anyGate) {
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;

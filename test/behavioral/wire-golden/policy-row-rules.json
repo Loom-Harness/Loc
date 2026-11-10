@@ -60,6 +60,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -87,6 +90,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -181,6 +187,9 @@
         "code": "problem.not-found",
         "detail": "CategoryShare {id} not found",
         "instance": "/api/category_shares/{id}",
+        "params": {
+          "type": "Catalog.CategoryShare"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -225,6 +234,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -271,6 +283,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -285,6 +300,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/update",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -299,6 +317,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -383,6 +404,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -397,6 +421,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/update",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -411,6 +438,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -425,6 +455,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -455,6 +488,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -557,6 +593,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -580,6 +619,9 @@
         "code": "problem.not-found",
         "detail": "Org {id} not found",
         "instance": "/api/orgs/{id}",
+        "params": {
+          "type": "Catalog.Org"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -607,6 +649,9 @@
         "code": "problem.not-found",
         "detail": "Org {id} not found",
         "instance": "/api/orgs/{id}/update",
+        "params": {
+          "type": "Catalog.Org"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -621,6 +666,9 @@
         "code": "problem.not-found",
         "detail": "Org {id} not found",
         "instance": "/api/orgs/{id}",
+        "params": {
+          "type": "Catalog.Org"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -700,6 +748,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -714,6 +765,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -750,6 +804,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -861,6 +918,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -927,6 +987,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -994,6 +1057,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1037,6 +1103,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1078,6 +1147,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1108,6 +1180,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Catalog.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1153,6 +1228,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1198,6 +1276,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1228,6 +1309,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Catalog.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

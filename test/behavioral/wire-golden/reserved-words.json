@@ -146,6 +146,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
+        "params": {
+          "type": "Orders.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

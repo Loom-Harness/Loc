@@ -3,6 +3,7 @@ import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
+import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -1017,6 +1018,7 @@ function emitProjectFromContexts(
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
+      aggregateRouteTypes: aggregateRouteTypes(contexts),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in

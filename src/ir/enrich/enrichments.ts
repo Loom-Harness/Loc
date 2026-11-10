@@ -155,6 +155,7 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     tableRenameIntents: loom.tableRenameIntents,
     backfillIntents: loom.backfillIntents,
     sqlMigrationSteps: loom.sqlMigrationSteps,
+    enumValueRenameIntents: loom.enumValueRenameIntents,
     ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;

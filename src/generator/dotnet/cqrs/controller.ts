@@ -1,5 +1,9 @@
 import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
-import { errorVariantCode, errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
+import {
+  aggregateTypeKey,
+  errorVariantCode,
+  errorVariantResponse,
+} from "../../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
@@ -255,6 +259,7 @@ export function emitController(
   out.set(
     `Api/${upperFirst(plural(agg.name))}Controller.cs`,
     renderController(agg, repo, ns, {
+      typeKey: aggregateTypeKey(ctx.name, agg.name),
       idClass,
       idClrType: csIdValueClrType(),
       createAction: createActionOverride ?? derivedOps.some((o) => o.kind === "create"),
