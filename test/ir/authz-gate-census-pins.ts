@@ -168,6 +168,15 @@ export const R = {
    *  path — so the second principal is refused exactly as the first is, and a
    *  ladder arm would restate the fixture's own `toThrow(404)`.  The refusal IS
    *  asserted: by that `test e2e`. */
+  /** COVERED (by the fixture).  An in-app `exists` gate decides on OTHER rows
+   *  (a share, a sibling, a seal), not on who is calling: the fixture's own
+   *  `test e2e` drives the refused arm (403 / 409) and the admitted arm with the
+   *  same principal, by changing those rows.  A second principal would restate
+   *  the data arm, not discriminate a missing gate. */
+  rowDataGate:
+    "row-data gate (an in-app `exists` over other rows), so the refusal turns on data, not on the " +
+    "caller; the fixture's own `test e2e` drives both the refused (403/409) and the admitted arm " +
+    "— see the gate-position block in the .ddd",
   principalFreeGate:
     "principal-FREE gate (`policy deny` renders an always-false filter for every caller), so a " +
     "second principal cannot be discriminated; the refusal is asserted by the fixture's own " +
@@ -353,6 +362,13 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/products/{id}/update": R.sharedPrincipalId,
     "find GET /api/products": R.sharedPrincipalId,
     "explicitHandler GET /api/products/shared_with/{g}": R.sharedPrincipalId,
+    "create POST /api/racks": R.rowDataGate,
+    "destroy DELETE /api/racks/{id}": R.rowDataGate,
+    "operation POST /api/racks/{id}/relabel": R.rowDataGate,
+    "gateProbe GET /api/racks/{id}/can_relabel": R.rowDataGate,
+    "create POST /api/seals": R.principalFreeGate,
+    "destroy DELETE /api/seals/{id}": R.principalFreeGate,
+    "operation POST /api/seals/{id}/update": R.principalFreeGate,
   },
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
@@ -523,7 +539,8 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
-  principalFreeGate: 17,
+  principalFreeGate: 20,
+  rowDataGate: 4,
   sharedTenancyIdentity: 105,
   oneSeededId: 6,
 };

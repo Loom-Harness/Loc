@@ -299,13 +299,25 @@ export type ExprIR = (
    * aggregate's own read scope>)`.  The quantified aggregate's read scope —
    * tenant floor, capability filters, deny — always applies inside the
    * subquery, so an `exists` never sees a row its caller could not read.
-   * `loom.exists-outside-query` keeps it out of in-memory positions.
+   *
+   * `for write` (`forWrite`) quantifies over the rows the caller may WRITE:
+   * the aggregate's write scope (`writeScopeFilter`) is ANDed on top of its
+   * read scope, exactly as an instance mutation's command load applies both.
+   *
+   * In an in-app position (a `requires` gate, an operation `when`) there is no
+   * enclosing query, so enrichment derives `read`: a synthesized single-row
+   * find on the quantified aggregate's repository whose filter is `where` with
+   * the row as `this` and every row-free subterm lifted into a parameter.  The
+   * find applies the read scope like any read, so both positions see the same
+   * rows; the gate calls it with `args` and tests for a row.
    */
   | {
       kind: "exists";
       aggregate: string;
       binding: string;
       where: ExprIR;
+      forWrite?: true;
+      read?: ExistsReadIR;
     }
   | { kind: "paren"; inner: ExprIR }
   | { kind: "unary"; op: "-" | "!"; operand: ExprIR }
@@ -617,3 +629,13 @@ export const lit = (kind: LiteralKind, value: string): ExprIR => ({
   lit: kind,
   value,
 });
+
+/** The repository read behind an in-app `exists` (see `ExprIR` `exists`). */
+export interface ExistsReadIR {
+  /** The quantified aggregate's repository. */
+  repository: string;
+  /** The synthesized find on it (`synthesized`, `takeFirst`, `T?`). */
+  find: string;
+  /** One argument per find parameter, in the gate's own scope. */
+  args: ExprIR[];
+}

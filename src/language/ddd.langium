@@ -2830,8 +2830,10 @@ PrimaryExpr infers Expression:
 // parenthesise the quantifier to combine it (`(exists … where p) && q`).
 // `exists` is soft (see `SoftKeywordsExceptSort`): it starts this form only
 // when an aggregate name and `as` follow.
+// `for write` quantifies over the rows the caller may WRITE (the quantified
+// aggregate's read scope AND its write scope) instead of the rows it may read.
 ExistsExpr:
-    'exists' aggregate=[Aggregate:ID] 'as' binding=ID 'where' where=Expression;
+    'exists' aggregate=[Aggregate:ID] (forWrite?='for' 'write')? 'as' binding=ID 'where' where=Expression;
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

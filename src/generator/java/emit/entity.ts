@@ -17,6 +17,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -625,8 +626,11 @@ export function renderJavaEntity(
       ...op.params.map((p) => jid(p.name)),
       ...(operationBodyUsesCurrentUser(op) ? ["currentUser"] : []),
     ]);
+  // A `when` that reads a repository (an in-app `exists`) is the service's
+  // alone: the domain has no repository, and phase ⑦ refuses an in-app call
+  // to such an operation (`loom.exists-outside-query#guarded-call`).
   const whenGate = (op: (typeof operations)[number]): string | null =>
-    op.when
+    op.when && !readsRepository(op.when)
       ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
           disallowedDetail(op.name, entity.name),
         )});`
