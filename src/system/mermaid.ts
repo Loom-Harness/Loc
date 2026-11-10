@@ -350,7 +350,8 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
     case "repo-delete":
       return { id, decl: `${id}["${label(`${s.repoName}.delete(${s.aggName})`)}"]` };
     case "resource-call": {
-      const op = s.call.kind === "call" ? s.call.resourceOp : undefined;
+      const op =
+        s.call.kind === "call" && s.call.callKind === "resource-op" ? s.call.resourceOp : undefined;
       return { id, decl: `${id}["${label(`${op?.resourceName}.${op?.verb}()`)}"]` };
     }
     case "domain-service-call":
@@ -594,7 +595,8 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
     case "assign":
       return [note(`${s.target.segments.join(".")} := ...`)];
     case "resource-call": {
-      const op = s.call.kind === "call" ? s.call.resourceOp : undefined;
+      const op =
+        s.call.kind === "call" && s.call.callKind === "resource-op" ? s.call.resourceOp : undefined;
       return [call(op?.resourceName ?? "resource", `${op?.verb ?? "op"}()`)];
     }
     case "domain-service-call":

@@ -1,5 +1,5 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
-import { lookupOp, observableWorkflows } from "../../ir/plan/index.js";
+import { isWorkflowSelfType, lookupOp, observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -630,7 +630,7 @@ function workflowRoute(
   // An expected-failure result (`T or E`): the tagged dict at 200 (its schema
   // is injected by `install_openapi`), each error arm at its mapped status.
   const er = commandCreateEntryResult(wf, ctx);
-  const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+  const selfResult = isWorkflowSelfType(wf, result?.type);
   const returnAnnotation = er
     ? `dict[str, object] | ${H.JSONResponse}`
     : selfResult

@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
+import { expectCallKind } from "../../_helpers/call-kind.js";
 import { parseRawResult, parseString } from "../../_helpers/parse.js";
 
 const wf = (body: string) => `
@@ -40,11 +41,9 @@ describe("object literal — reserved-keyword field keys", () => {
     const st = ctx.workflows[0]!.statements.find((s) => s.kind === "resource-call");
     expect(st).toBeDefined();
     const call = (st as Extract<typeof st, { kind: "resource-call" }>).call;
-    expect(call.kind).toBe("call");
-    if (call.kind === "call") {
-      expect(call.resourceOp?.verb).toBe("enqueue");
-      expect(call.args[0]?.kind).toBe("object");
-    }
+    expectCallKind(call, "resource-op");
+    expect(call.resourceOp.verb).toBe("enqueue");
+    expect(call.args[0]?.kind).toBe("object");
   });
 
   it("preserves the key name through lowering", async () => {

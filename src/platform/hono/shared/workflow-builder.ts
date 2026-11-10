@@ -58,7 +58,12 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { eventSourcedWorkflows, hasStateRow, lookupOp } from "../../../ir/plan/index.js";
+import {
+  commandCreateReturnsSelf,
+  eventSourcedWorkflows,
+  hasStateRow,
+  lookupOp,
+} from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -1019,7 +1024,7 @@ function emitWorkflowRoute(
         `      ${s.status}: { description: ${JSON.stringify(reasonPhrase(s.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${s.arms.map((a) => a.problemName).join(", ")}]) } } },`,
       );
     }
-  } else if (result && workflowSelfResult(wf)) {
+  } else if (result && commandCreateReturnsSelf(wf)) {
     out.push(
       `      200: { description: "OK", content: { "application/json": { schema: ${upperFirst(wf.name)}InstanceResponse } } },`,
     );
@@ -1218,7 +1223,7 @@ function emitWorkflowRoute(
   // commit.  `!`: assigned in a callback TS's flow analysis cannot see into.
   if (result) {
     out.push(
-      `    let workflowResult!: ${er ? "{ type: string } & Record<string, unknown>" : workflowSelfResult(wf) ? "unknown" : workflowResultTsType(result.type)};`,
+      `    let workflowResult!: ${er ? "{ type: string } & Record<string, unknown>" : commandCreateReturnsSelf(wf) ? "unknown" : workflowResultTsType(result.type)};`,
     );
   }
   const renderValue = (e: ExprIR) =>
@@ -1234,7 +1239,7 @@ function emitWorkflowRoute(
         ]
       : result
         ? [
-            `${ind}workflowResult = ${workflowSelfResult(wf) ? selfRow : renderValue(result.value)};`,
+            `${ind}workflowResult = ${commandCreateReturnsSelf(wf) ? selfRow : renderValue(result.value)};`,
           ]
         : [];
   if (wrapsFrame) {
@@ -1398,7 +1403,7 @@ function emitWorkflowRoute(
   const answered =
     split && result
       ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
-      : result && workflowSelfResult(wf)
+      : result && commandCreateReturnsSelf(wf)
         ? `workflowResult as z.infer<typeof ${upperFirst(wf.name)}InstanceResponse>`
         : "workflowResult";
   out.push(
@@ -1407,13 +1412,6 @@ function emitWorkflowRoute(
   out.push(`  },`);
   out.push(`);`);
   return out;
-}
-
-/** True when the routed create answers the workflow itself (`create(…):
- *  <Wf> { …; return this }`) — its instance state, not a scalar. */
-function workflowSelfResult(wf: WorkflowIR): boolean {
-  const r = commandCreateResult(wf);
-  return r?.type.kind === "entity" && r.type.name === wf.name;
 }
 
 /** The TS test that the answered `workflowResult` is an `error` variant. */
