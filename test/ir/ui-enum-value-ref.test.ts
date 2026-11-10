@@ -72,7 +72,7 @@ describe("ui body — bare enum-value reference", () => {
     );
     expect(found).toBeDefined();
     expect(found?.refKind).toBe("enum-value");
-    expect(found?.enumName).toBe("Visibility");
+    expect(found?.refKind === "enum-value" && found.enumName).toBe("Visibility");
     expect(found?.type).toEqual({ kind: "enum", name: "Visibility" });
   });
 

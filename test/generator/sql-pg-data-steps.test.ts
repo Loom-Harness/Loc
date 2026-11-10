@@ -95,7 +95,10 @@ describe("renderSqlScalarExpr (M-T2.3)", () => {
 
   it("renders enum values as their stored text", () => {
     expect(
-      renderSqlScalarExpr({ kind: "ref", name: "Confirmed", refKind: "enum-value" }, ctx),
+      renderSqlScalarExpr(
+        { kind: "ref", name: "Confirmed", refKind: "enum-value", enumName: "OrderStatus" },
+        ctx,
+      ),
     ).toBe(`'Confirmed'`);
   });
 

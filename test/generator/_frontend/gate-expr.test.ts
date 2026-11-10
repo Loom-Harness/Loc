@@ -221,9 +221,15 @@ describe("tryRenderGate — the null contract, over every ExprIR kind", () => {
   });
 
   it("returns null for a ref that is not the principal, and for the non-gate literals", () => {
-    for (const refKind of ["param", "let", "this-prop", "store-field", "unknown"] as const) {
+    for (const refKind of ["param", "let", "this-prop", "unknown"] as const) {
       expect(tryRenderGate({ kind: "ref", name: "x", refKind }, "currentUser")).toBeNull();
     }
+    expect(
+      tryRenderGate(
+        { kind: "ref", name: "x", refKind: "store-field", storeName: "S" },
+        "currentUser",
+      ),
+    ).toBeNull();
     for (const lit of ["money", "now"] as const) {
       expect(tryRenderGate({ kind: "literal", lit, value: "1" }, "currentUser")).toBeNull();
     }

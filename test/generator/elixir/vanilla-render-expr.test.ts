@@ -15,7 +15,12 @@ const ctx: RenderCtx = {
   filterArgs: true,
 };
 
-const enumVal: ExprIR = { kind: "ref", name: "Confirmed", refKind: "enum-value" };
+const enumVal: ExprIR = {
+  kind: "ref",
+  name: "Confirmed",
+  refKind: "enum-value",
+  enumName: "OrderStatus",
+};
 const filterParam: ExprIR = { kind: "ref", name: "minTotal", refKind: "param" };
 // `status == Confirmed` — the shorthand-view / find filter shape.
 const filter: ExprIR = {
