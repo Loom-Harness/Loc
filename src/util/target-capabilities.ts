@@ -129,6 +129,9 @@ export type BackendConstruct =
   /** `with tenantOwned` on a `persistedAs: eventLog` aggregate — a stream
    *  that carries its tenant as stored-event metadata (`stream-tenancy.ts`). */
   | "capability:tenantOwned@event-sourced"
+  /** `with shareable` on a state aggregate — the share aggregate it unfolds to
+   *  and the row rules that open the row to its grantees (D-SHARING). */
+  | "capability:shareable@aggregate"
   /** `resource r { kind: replica, … }` — a read-replica binding. */
   | "resource:replica@resource"
   /** `resource r { kind: cache, … }` — a read-through cache binding. */
@@ -168,6 +171,10 @@ export type BackendConstruct =
   /** A context reading `organizationContext.ancestors` hosted on a deployable
    *  that does not host the tenancy registry: the walk reads its table. */
   | "tenancy:remote-registry@deployable"
+  /** A query-time projection reading a `shareable` aggregate, served by a
+   *  deployable that does not host the aggregate's context: it would read the
+   *  table past the share rules. */
+  | "read:shareable-off-host@deployable"
   /** A typed `kind: api` resource whose api is served by an `auth: required`
    *  deployable: the call must forward the caller's credentials. */
   | "call:auth-required-api@resource"
@@ -243,6 +250,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "stmt:requires@event-sourced-create",
   "effect:mutate-held-row@command-body",
   "capability:tenantOwned@event-sourced",
+  "capability:shareable@aggregate",
   "resource:replica@resource",
   "resource:cache@resource",
   "resource:snapshot@resource",
@@ -262,6 +270,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "storage:nats@declaration",
   "publish:event-sourced@broker-channel",
   "tenancy:remote-registry@deployable",
+  "read:shareable-off-host@deployable",
   "call:auth-required-api@resource",
   "timer:broker-channel@deployable",
   "derived:reads-masked-field@aggregate",
@@ -387,7 +396,14 @@ export const FEATURE_AXES = {
   persistence: ["state", "eventLog", "document"],
   /** A prelude capability applied with `with <cap>`; `provenanced` is a field
    *  modifier, counted when any field of the aggregate carries it. */
-  capability: ["versioned", "softDeletable", "auditable", "tenantOwned", "provenanced"],
+  capability: [
+    "versioned",
+    "softDeletable",
+    "auditable",
+    "tenantOwned",
+    "provenanced",
+    "shareable",
+  ],
   /** Where an aggregate sits in an inheritance hierarchy, per table layout
    *  (TPH = `sharedTable`, TPC = `ownTable`). */
   inheritance: ["tph-base", "tph-subtype", "tpc-base", "tpc-subtype"],
@@ -561,6 +577,17 @@ const STAMP_ON_EVENT_SOURCED: CompositionVerdict = {
   code: "loom.stamp-on-event-sourced-invalid",
 };
 
+/** Owned by the `exists` check: the share rules quantify over the shared row. */
+const SHARE_RULES_UNRENDERED: CompositionVerdict = {
+  verdict: "owned",
+  code: "loom.exists-unsupported",
+};
+/** Owned by the row-rule hierarchy check. */
+const SHARE_RULES_ON_HIERARCHY: CompositionVerdict = {
+  verdict: "owned",
+  code: "loom.policy-scope-inheritance-unsupported",
+};
+
 /** The feature-tuple verdicts every backend shares unless it says otherwise.
  *
  *  `feature-composition-broken` marks a pair whose generated code is known
@@ -587,6 +614,14 @@ const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = 
     construct: "capability:tenantOwned@event-sourced",
   },
   "persistence:eventLog+capability:provenanced": UNWITNESSED,
+  // The share rules quantify over the shared row with `exists`, which no
+  // event-sourced or document read renders.
+  "persistence:state+capability:shareable": {
+    verdict: "supported",
+    construct: "capability:shareable@aggregate",
+  },
+  "persistence:eventLog+capability:shareable": SHARE_RULES_UNRENDERED,
+  "persistence:document+capability:shareable": SHARE_RULES_UNRENDERED,
   "persistence:document+capability:versioned": witnessed("paged-nonrelational"),
   "persistence:document+capability:softDeletable": witnessed("find-bypass"),
   "persistence:document+capability:auditable": UNWITNESSED,
@@ -612,6 +647,11 @@ const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = 
   "capability:provenanced+inheritance:tph-subtype": UNWITNESSED,
   "capability:provenanced+inheritance:tpc-base": UNWITNESSED,
   "capability:provenanced+inheritance:tpc-subtype": UNWITNESSED,
+  // Row rules on an inheritance hierarchy are refused (the share rules among them).
+  "capability:shareable+inheritance:tph-base": SHARE_RULES_ON_HIERARCHY,
+  "capability:shareable+inheritance:tph-subtype": SHARE_RULES_ON_HIERARCHY,
+  "capability:shareable+inheritance:tpc-base": SHARE_RULES_ON_HIERARCHY,
+  "capability:shareable+inheritance:tpc-subtype": SHARE_RULES_ON_HIERARCHY,
 };
 
 /** The feature-pair constructs every backend shares unless it says otherwise.
@@ -620,6 +660,7 @@ const COMMON_PAIRS: Pick<
   Record<BackendConstruct, CapabilityVerdict>,
   | "publish:event-sourced@broker-channel"
   | "tenancy:remote-registry@deployable"
+  | "read:shareable-off-host@deployable"
   | "call:auth-required-api@resource"
   | "timer:broker-channel@deployable"
   | "derived:reads-masked-field@aggregate"
@@ -634,6 +675,7 @@ const COMMON_PAIRS: Pick<
   // Phase ⑦ refuses an `organizationContext.ancestors` reader on a deployable
   // that does not host the registry: its database holds no registry table.
   "tenancy:remote-registry@deployable": owned("loom.tenancy-registry-remote-unsupported"),
+  "read:shareable-off-host@deployable": owned("loom.share-host-bypass"),
   // A request-originated call forwards the caller's own credential
   // (`api-call-e2e` runs it on every caller); a call with no request principal
   // is refused by `loom.api-call-principal-unsupported`.
@@ -688,6 +730,7 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
   // A tenant-scoped event stream is stamped, scoped and carried as event
   // metadata (the node MikroORM event store is refused in `ADAPTER_REFUSALS`).
   "capability:tenantOwned@event-sourced": SUPPORTED,
+  "capability:shareable@aggregate": SUPPORTED,
   ...UNREALIZED_RESOURCES,
   ...COMMON_PAIRS,
   ...METHOD_BODY_ROWS,
@@ -810,6 +853,7 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       "stmt:requires@event-sourced-create": SUPPORTED,
       "effect:mutate-held-row@command-body": SUPPORTED,
       "capability:tenantOwned@event-sourced": SUPPORTED,
+      "capability:shareable@aggregate": SUPPORTED,
       ...UNREALIZED_RESOURCES,
       ...COMMON_PAIRS,
       // The changeset casts the nested value object inline and never runs its

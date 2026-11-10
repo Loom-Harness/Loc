@@ -256,6 +256,14 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
       source: `${ctx.name}/aggregate ${agg.name}`,
       origin: agg.origin,
     })),
+  "capability:shareable@aggregate": (ctx) =>
+    ctx.aggregates
+      .filter((agg) => agg.capabilities.includes("shareable"))
+      .map((agg) => ({
+        what: `shareable aggregate '${agg.name}'`,
+        source: `${ctx.name}/aggregate ${agg.name}`,
+        origin: agg.origin,
+      })),
   "resource:replica@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) =>
       ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
@@ -310,6 +318,25 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
         origin: ctx.origin,
       },
     ];
+  },
+  "read:shareable-off-host@deployable": (ctx, sys, d) => {
+    const contexts = sys.subdomains.flatMap((s) => s.contexts);
+    return (ctx.projections ?? []).flatMap((p) => {
+      if (!p.query || (p.query.sourceKind ?? "aggregate") !== "aggregate") return [];
+      const home = p.query.sourceContext ?? ctx.name;
+      if (d.contextNames.includes(home)) return [];
+      const source = contexts
+        .find((c) => c.name === home)
+        ?.aggregates.find((a) => a.name === p.query?.source);
+      if (!source?.capabilities.includes("shareable")) return [];
+      return [
+        {
+          what: `projection '${p.name}' reads the shareable aggregate '${source.name}' off its host`,
+          source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
+        },
+      ];
+    });
   },
   "call:auth-required-api@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) => {

@@ -9,9 +9,31 @@
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = ["tenancy", "tenant", "org", "cross"] as const;
+export const segments = ["tenancy", "tenant", "org", "cross", "shareable", "share"] as const;
 
 export const messages = {
+  // ----------------------------------------------------------------------
+  // `shareable` (D-SHARING) — src/macros/expander.ts and
+  // src/ir/validate/checks/policy-scope-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.shareable-no-tenancy": (p: { name: unknown }) =>
+    `aggregate '${p.name}' is \`shareable\`, but the system declares no \`tenancy by user.<claim> of <Registry>\`: ` +
+    `a share names its grantee by registry org, and visibility beyond one's org needs an org to start from.  ` +
+    `Declare the tenancy, or drop \`shareable\`.`,
+  "loom.shareable-not-tenant-owned": (p: { name: unknown }) =>
+    `aggregate '${p.name}' is \`shareable\` but not \`tenantOwned\`: its rows are already visible to every ` +
+    `caller, so a share opens nothing.  Add \`with tenantOwned\`, or drop \`shareable\`.`,
+  "loom.share-host-bypass": (p: {
+    deployable: unknown;
+    projection: unknown;
+    aggregate: unknown;
+    context: unknown;
+  }) =>
+    `deployable '${p.deployable}': projection '${p.projection}' reads the shareable aggregate ` +
+    `'${p.aggregate}', but '${p.deployable}' does not host its context '${p.context}' — the read ` +
+    `would query the table directly, past the share rules (and the rest of its read scope) that ` +
+    `only its host applies.  Host the projection on the deployable that serves '${p.context}', ` +
+    `or read '${p.aggregate}' through that deployable's api.`,
   // ----------------------------------------------------------------------
   // src/language/validators/inheritance.ts
   // ----------------------------------------------------------------------

@@ -221,6 +221,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3378",
   },
   {
+    code: "loom.policy-scope-inheritance-unsupported",
+    kind: "gap",
+    // Raised by `push(…)` in policy-scope-checks.ts; this is the capability
+    // table's verdict that names it for the shareable × hierarchy cells.
+    site: "src/util/target-capabilities.ts:581",
+    what:
+      "a composing policy rule — a row rule, an `own` / `when` level, or the share rules a " +
+      "`shareable` aggregate unfolds to — on an aggregate in an inheritance hierarchy: the " +
+      "composed scope would need per-subtype hosting on the shared or per-concrete table",
+    mission: "#5074",
+  },
+  {
     code: "loom.exists-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/exists-checks.ts:173",
@@ -305,7 +317,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // proves every supported cell renders and every refused one is raised.
     code: "loom.target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/target-capability-checks.ts:706",
+    site: "src/ir/validate/checks/target-capability-checks.ts:744",
     what:
       "a construct × position, or a feature pair, its target cannot render, per the capability " +
       "table.  `DataGrid` on flutter and phoenixLiveView is a settled never (D-DATAGRID-TARGETS); " +

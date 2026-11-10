@@ -2573,10 +2573,15 @@ own — or a grantee's re-share — opens nothing.
 | a policy-function call cycle | error |
 | a cross-deployable read of a `shareable` aggregate that bypasses its host | error |
 
-Capability-table rows: `shareable` × `persistedAs: eventLog` (supported — shares
-are state-stored), × `softDeletable` (supported — a deleted row's shares are
-hidden with it), × TPH base (supported — shares on the root), × cross-deployable
-read (refused).
+Capability-table rows: `shareable` × state (supported), × `softDeletable`
+(supported — a deleted row's shares are hidden with it), × `persistedAs:
+eventLog` and × `shape: document` (refused by `loom.exists-unsupported`: the
+share rules quantify over the row, which neither read path renders), × an
+inheritance hierarchy (refused by `loom.policy-scope-inheritance-unsupported`,
+like every row rule there), × cross-deployable read (refused,
+`loom.share-host-bypass`).  A query-time projection over a shareable aggregate
+on its OWN deployable applies only the source's tenancy floor, not its share
+rules: it under-shows a grantee's rows and never leaks one.
 
 **Alternatives rejected.**
 

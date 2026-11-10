@@ -40,6 +40,7 @@ export const FEATURE_DETECTORS: Readonly<Record<Feature, AtomDetector>> = {
   "capability:softDeletable": hasCapability("softDeletable"),
   "capability:auditable": hasCapability("auditable"),
   "capability:tenantOwned": hasCapability("tenantOwned"),
+  "capability:shareable": hasCapability("shareable"),
   "capability:provenanced": (agg) => agg.fields.some((f) => f.provenanced),
   "inheritance:tph-base": inHierarchy("sharedTable", "base"),
   "inheritance:tph-subtype": inHierarchy("sharedTable", "subtype"),
