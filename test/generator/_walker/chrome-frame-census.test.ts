@@ -50,7 +50,6 @@ const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {
     "`Run ${humanize(wf.name)}`",
     "is required",
   ],
-  "angular/form-fields.ts": ["${humanize(f.name)} is invalid"],
 };
 
 /** The emitters that write UI text (the backends emit error text through the
