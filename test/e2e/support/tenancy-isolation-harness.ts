@@ -80,12 +80,21 @@ export async function startPostgres(label: string): Promise<Postgres> {
   const override = process.env.LOOM_TENANCY_PG_URL;
   if (override) {
     const u = new URL(override);
+    // One database per boot: a CI job boots several fixtures against the one
+    // `services:` server, and two apps sharing a database share a migration
+    // history, so the second skips the migrations its tables need.
+    const db = `${u.pathname.replace(/^\//, "") || "app"}_${label.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
+    for (const sql of [`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`, `CREATE DATABASE "${db}"`]) {
+      execSync(`psql ${JSON.stringify(override)} -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`, {
+        stdio: "pipe",
+      });
+    }
     return {
       host: u.hostname,
       port: Number(u.port || "5432"),
       user: decodeURIComponent(u.username || "postgres"),
       password: decodeURIComponent(u.password || "postgres"),
-      db: u.pathname.replace(/^\//, "") || "app",
+      db,
       stop: () => {},
     };
   }
