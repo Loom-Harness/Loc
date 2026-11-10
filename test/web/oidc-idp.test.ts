@@ -359,11 +359,11 @@ describe("followNavigation — the sign-in redirect chain", () => {
   const res = (
     status: number,
     headers: Record<string, string> = {},
-    setCookies?: string[],
+    body = "",
   ): DispatchResult => ({
     ok: true,
     durationMs: 0,
-    response: { status, statusText: "", headers, body: "", ...(setCookies ? { setCookies } : {}) },
+    response: { status, statusText: "", headers, body },
   });
 
   it("walks login → the login page → callback → the app, and stops when the login page is cancelled", async () => {
@@ -398,11 +398,7 @@ describe("followNavigation — the sign-in redirect chain", () => {
 
   it("reports a backend error instead of landing on the app", async () => {
     const out = await followNavigation("/api/auth/callback?code=x", {
-      dispatch: async () =>
-        ({
-          ...res(400),
-          response: { ...res(400).response, body: '{"error":"invalid_state"}' },
-        }) as DispatchResult,
+      dispatch: async () => res(400, {}, '{"error":"invalid_state"}'),
       issuers: [ISSUER],
       apiBase: "/api",
       choosePersona: async () => "demo",
