@@ -605,7 +605,11 @@ ${cuBind}${showBody}
   const opActions = memberOps
     .map((op) => {
       if (isReturningOperation(op)) {
-        return renderReturningOpControllerAction(appModule, ctxModule, agg, op, ctx);
+        return renderReturningOpControllerAction(appModule, ctxModule, agg, op, ctx, {
+          loadFn: cmdGet,
+          loadActor: getActor,
+          bindsActor: principal,
+        });
       }
       const opSnake = snake(op.name);
       // The `checksVersion` fact: this route lays the client's `If-Match` over

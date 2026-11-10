@@ -310,6 +310,8 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       .map((s) => /^opfs-ahp:\/\/loom-(.+)$/.exec(s.dataDir ?? "")?.[1])
       .find((i) => i !== undefined);
     await infra.configureResources(island ?? null, opts?.fresh);
+    // The external-API mocks answer from the specs the storages declare.
+    for (const { origin, spec } of plan.restSpecs ?? []) await infra.service("httpMock", "registerSpec", { origin, spec });
     // A deployable that left the system takes its worker with it.
     const slugs = new Set(plan.backends.map((b) => b.slug));
     for (const [slug, rt] of this.runtimes) {

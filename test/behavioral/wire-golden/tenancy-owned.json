@@ -126,13 +126,30 @@
     },
     {
       "seq": 10,
+      "method": "POST",
+      "path": "/api/invoices/{id}/defer",
+      "status": 200,
+      "body": {
+        "reason": "parts",
+        "type": "Deferred"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/invoices/{id}/owed",
+      "status": 200,
+      "body": 250
+    },
+    {
+      "seq": 12,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -146,7 +163,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -159,21 +176,21 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "GET",
       "path": "/api/invoices/by_number/INV-1B",
       "status": 200,
       "body": []
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "DELETE",
       "path": "/api/plans/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "GET",
       "path": "/api/plans/{id}",
       "status": 404,
@@ -187,7 +204,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "GET",
       "path": "/api/plans",
       "status": 200,
@@ -200,7 +217,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/organizations",
       "status": 201,
@@ -209,7 +226,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/organizations/{id}",
       "status": 404,
@@ -223,7 +240,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/organizations",
       "status": 200,
@@ -236,7 +253,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -250,7 +267,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -264,7 +281,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,
@@ -278,7 +295,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -288,7 +305,70 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/invoices/{id}/owed",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/owed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/invoices/{id}/owed",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/owed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/invoices/{id}/owed",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/invoices/{id}/owed",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/invoices/{id}/defer",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "reason is required",
+            "pointer": "/reason"
+          }
+        ],
+        "instance": "/api/invoices/{id}/defer",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -297,7 +377,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 31,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -317,7 +397,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 32,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -330,7 +410,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 33,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -350,7 +430,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 34,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -362,7 +442,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 35,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -376,7 +456,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 36,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -388,7 +468,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 37,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -397,14 +477,14 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 38,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 33,
+      "seq": 39,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 404,
@@ -418,14 +498,14 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 40,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 35,
+      "seq": 41,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -434,7 +514,7 @@
       }
     },
     {
-      "seq": 36,
+      "seq": 42,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -448,7 +528,7 @@
       }
     },
     {
-      "seq": 37,
+      "seq": 43,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,

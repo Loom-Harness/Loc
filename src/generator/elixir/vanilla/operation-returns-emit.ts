@@ -1683,6 +1683,11 @@ export function renderReturningOpControllerAction(
   agg: AggregateIR,
   op: OperationIR,
   ctx: BoundedContextIR,
+  /** The controller's command-load seam: the context fn that loads the row
+   *  (`get_<agg>` or `get_<agg>_for_write`), the trailing actor arg it takes,
+   *  and whether the controller already binds `current_user` for it (a
+   *  principal-filtered aggregate's reads are scoped by the request actor). */
+  load: { loadFn: string; loadActor: string; bindsActor: boolean },
 ): string {
   const opSnake = snake(op.name);
   const aggSnake = snake(agg.name);
@@ -1798,7 +1803,8 @@ export function renderReturningOpControllerAction(
   // `current_user \\ nil` arity); bind it off `conn.assigns`.
   const opActor = opUsesCurrentUser(op);
   const opReadsIfMatch = readsIfMatch(operationVersionCheck(agg, op));
-  const opCuBind = opActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
+  const opCuBind =
+    opActor || load.bindsActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
   return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
@@ -1813,7 +1819,7 @@ ${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogC
   )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
-    with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
+    with {:ok, record} <- ${ctxModule}.${load.loadFn}(id${load.loadActor}) do
       ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
     else
       {:error, :not_found} ->

@@ -11,9 +11,19 @@ system TenantOwned {
 
   subdomain Core {
     context Billing {
+      payload Settled { note: string }
+      payload Deferred { reason: string }
       aggregate Invoice with tenantOwned, crudish {
         number: string
         amountDue: int
+        // Returning operations load the row through the tenant scope like
+        // `getById`/`update` do: one answers a union, one a scalar.
+        operation defer(reason: string): Settled or Deferred {
+          return Deferred { reason: reason }
+        }
+        operation owed(): int {
+          return this.amountDue
+        }
       }
       aggregate Plan crossTenant with crudish {
         code: string
@@ -92,6 +102,14 @@ system TenantOwned {
     let plans = api.plans.all()
     expect(plans.items.length).toBe(1)
     expect(plans.total).toBe(1)
+
+    // A union-returning and a scalar-returning operation on the tenant's own
+    // row: the load carries the principal, so the row is found and the
+    // success variant / value answers 200.
+    let deferred = api.invoices.defer(inv, { reason: "parts" })
+    expect(deferred.type).toBe("Deferred")
+    expect(deferred.reason).toBe("parts")
+    expect(api.invoices.owed(inv)).toBe(250)
 
     // DELETE on both stances.  The tenant-owned delete must load through the
     // tenant scope before removing (the same narrowing the update above proved
