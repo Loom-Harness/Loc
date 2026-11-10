@@ -21,7 +21,12 @@ import {
 } from "../emit/audit-history.js";
 import { renderQuery, renderQueryHandler } from "../emit.js";
 import { csFindMethodName } from "../find-method-name.js";
-import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
+import {
+  collectCsExprUsings,
+  csExistsReadDeps,
+  renderCsExpr,
+  renderCsType,
+} from "../render-expr.js";
 import { csNotFoundException } from "../wire-policy-cs.js";
 
 /** `<ns>.Domain.Common` holds the types a DTO PROJECTION can name —
@@ -86,6 +91,7 @@ export function emitCanOpQueriesAndHandlers(
           `${ns}.Domain.Common`,
           ...collectCsExprUsings(op.when!, new Set<string>(), ns),
         ],
+        extraDeps: csExistsReadDeps([op.when]),
         body:
           `        var aggregate = await _repo.GetByIdAsync(query.Id, cancellationToken)\n` +
           `            ?? throw ${csNotFoundException(null, `${agg.name} {query.Id}`)};\n` +

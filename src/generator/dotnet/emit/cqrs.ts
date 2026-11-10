@@ -65,7 +65,21 @@ export function renderCommandHandler(args: {
     "_repo = repo",
     ...deps.map((d) => `${d.field} = ${d.field.replace(/^_/, "")}`),
   ].join("; ");
-  const extraUsings = (args.extraUsings ?? []).map((u) => `using ${u};`).join("\n");
+  // Deduped against the fixed set below (CS0105): a gate quantifying over
+  // the handler's own aggregate names its namespace again.
+  const fixedUsings = new Set(
+    [
+      "Domain.Common",
+      "Domain.Ids",
+      "Domain.ValueObjects",
+      "Domain.Enums",
+      `Domain.${plural(args.aggName)}`,
+    ].map((n) => `${args.ns}.${n}`),
+  );
+  const extraUsings = [...new Set(args.extraUsings ?? [])]
+    .filter((u) => !fixedUsings.has(u))
+    .map((u) => `using ${u};`)
+    .join("\n");
   return `// Auto-generated.
 using System.Threading;
 using System.Threading.Tasks;
@@ -142,7 +156,21 @@ export function renderQueryHandler(args: {
     "_repo = repo",
     ...deps.map((d) => `${d.field} = ${d.field.replace(/^_/, "")}`),
   ].join("; ");
-  const extraUsings = (args.extraUsings ?? []).map((u) => `using ${u};`).join("\n");
+  // Deduped against the fixed set below (CS0105): a gate quantifying over
+  // the handler's own aggregate names its namespace again.
+  const fixedUsings = new Set(
+    [
+      "Domain.Ids",
+      "Domain.ValueObjects",
+      "Domain.Enums",
+      `Domain.${plural(args.aggName)}`,
+      `Application.${plural(args.aggName)}.Responses`,
+    ].map((n) => `${args.ns}.${n}`),
+  );
+  const extraUsings = [...new Set(args.extraUsings ?? [])]
+    .filter((u) => !fixedUsings.has(u))
+    .map((u) => `using ${u};`)
+    .join("\n");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
