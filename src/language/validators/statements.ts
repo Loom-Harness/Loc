@@ -6,6 +6,7 @@
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { nearestName } from "../../util/edit-distance.js";
+import { REMOVED_DATA_KEY_FIELD } from "../../util/principal.js";
 import type {
   ActionDecl,
   Aggregate,
@@ -1142,7 +1143,13 @@ export function lvalueType(lv: LValue, accept: ValidationAcceptor): Ty {
       !["unresolved-name", "unresolved-member", "not-a-value"].includes(t.cause)
     )
       return T.unknown;
-    if (i === 0) {
+    if (i === 0 && lv.head === REMOVED_DATA_KEY_FIELD) {
+      accept("error", diagMessage("loom.tenancy-data-key-removed", { where: "this assignment" }), {
+        node: lv,
+        property: "head",
+        code: "loom.tenancy-data-key-removed",
+      });
+    } else if (i === 0) {
       accept("error", diagMessage("loom.unresolved-lvalue-head", { head: lv.head }), {
         node: lv,
         property: "head",

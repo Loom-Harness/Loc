@@ -18,6 +18,7 @@
 import type { BinOp, ExprIR, OperationIR, TypeIR, UiIR, UserIR } from "../../ir/types/loom-ir.js";
 import { operationActionGates } from "../../ir/util/op-gates.js";
 import { upperFirst } from "../../util/naming.js";
+import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { fsString } from "./fs-expr.js";
 import { typeToFs } from "./type-fs.js";
 import { decoderExprFor } from "./wire.js";
@@ -92,14 +93,21 @@ export const AUTH_MODULE_CLAIMS = `module Auth =
   let signOut () : unit = window.location.href <- "/api/auth/logout"`;
 
 /** The `forbiddenView` fallback a gated page renders when the predicate fails —
- *  the client mirror of the backend's 403.  Pack-agnostic plain elements. */
-export const FORBIDDEN_VIEW = `let forbiddenView =
+ *  the client mirror of the backend's 403.  Pack-agnostic plain elements.  Under
+ *  i18n its two strings read the shared `chrome.*` catalog. */
+export function renderForbiddenView(i18n: boolean): string {
+  const text = (name: string): string =>
+    i18n
+      ? `(I18n.t ${fsString(chromeKey(name))} ${fsString(authGateMessage(name))})`
+      : fsString(AUTH_GATE_CHROME[chromeKey(name)]!);
+  return `let forbiddenView =
   Html.div [ prop.className "alert alert-error"; prop.children [
     Html.div [ prop.children [
-      Html.h2 [ prop.className "font-bold"; prop.text "Forbidden" ]
-      Html.p [ Html.text "You do not have access to this page." ]
+      Html.h2 [ prop.className "font-bold"; prop.text ${text("forbiddenTitle")} ]
+      Html.p [ Html.text ${text("forbiddenBody")} ]
     ] ]
   ] ]`;
+}
 
 /** Render a currentUser-only gate `ExprIR` to an F# boolean expression, with
  *  `userVar` the bound session-user local (`currentUser`).  Throws on any node

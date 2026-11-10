@@ -38,8 +38,10 @@
 import type { ExprIR, OperationIR, UserIR } from "../../ir/types/loom-ir.js";
 import { operationActionGates } from "../../ir/util/op-gates.js";
 import { lines } from "../../util/code-builder.js";
+import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
+import { dartStringLit } from "./i18n.js";
 
 /** The `CurrentUser` claims record, built through the SAME `renderDartModel`
  *  every wire model rides — so a claim's Dart spelling and its `fromJson` are
@@ -67,7 +69,14 @@ export function renderFlutterAuthModule(
    *  `package:http/http.dart`, which credentials EVERY call site at once
    *  (D-FLUTTER-BEARER).  False keeps the emitted bytes identical. */
   credentialed = false,
+  /** True when the ui ships the translation runtime: the gate's own text then
+   *  reads the shared `chrome.*` catalog keys through `t(…)`. */
+  i18n = false,
 ): string {
+  const chromeText = (name: string): string =>
+    i18n
+      ? `t(${dartStringLit(chromeKey(name))}, ${dartStringLit(authGateMessage(name))})`
+      : dartStringLit(AUTH_GATE_CHROME[chromeKey(name)]!);
   const currentUser = renderCurrentUserClass(user);
   // A claim typed as a value object / entity decodes through a class that lives
   // in `models.dart`.  Detect it the way the rest of this generator decides an
@@ -88,6 +97,7 @@ export function renderFlutterAuthModule(
     "import 'package:url_launcher/url_launcher.dart';",
     "",
     "import 'config.dart';",
+    i18n ? "import 'i18n.dart';" : undefined,
     needsModels ? "import 'models.dart';" : undefined,
     "",
     "/// The verified session claims, as declared by the system's `user { … }`",
@@ -146,9 +156,9 @@ export function renderFlutterAuthModule(
     "    return Column(",
     "      mainAxisSize: MainAxisSize.min,",
     "      children: <Widget>[",
-    "        const Text('You are not signed in.'),",
+    `        ${i18n ? "" : "const "}Text(${chromeText("notSignedIn")}),`,
     "        const SizedBox(height: 12),",
-    "        ElevatedButton(onPressed: signIn, child: const Text('Sign in')),",
+    `        ElevatedButton(onPressed: signIn, child: ${i18n ? "" : "const "}Text(${chromeText("signIn")})),`,
     "      ],",
     "    );",
     "  }",
@@ -168,8 +178,8 @@ export function renderFlutterAuthModule(
     "          mainAxisSize: MainAxisSize.min,",
     "          crossAxisAlignment: CrossAxisAlignment.start,",
     "          children: <Widget>[",
-    "            Text('Forbidden', style: Theme.of(context).textTheme.titleMedium),",
-    "            const Text('You do not have access to this page.'),",
+    `            Text(${chromeText("forbiddenTitle")}, style: Theme.of(context).textTheme.titleMedium),`,
+    `            ${i18n ? "" : "const "}Text(${chromeText("forbiddenBody")}),`,
     "          ],",
     "        ),",
     "      ),",

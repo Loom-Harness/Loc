@@ -111,8 +111,42 @@ export const DRIZZLE_ORM_SYMBOLS: readonly string[] = [
 export function stripStringLiterals(src: string): string {
   return src.replace(
     /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
-    (m) => (m[0] === "/" ? "" : `${m[0]}${m[0]}`),
+    (m) => {
+      if (m[0] === "/") return "";
+      if (m[0] !== "`") return `${m[0]}${m[0]}`;
+      // A template literal keeps its `${…}` holes: a hole is code (a drizzle
+      // `sql` tag interpolates operators and accessor calls — an `exists`
+      // subquery's whole predicate sits in one), so what it calls must stay
+      // visible to the import scans.
+      return `\`\`${templateHoles(m)
+        .map((h) => ` ${stripStringLiterals(h)} `)
+        .join("")}`;
+    },
   );
+}
+
+/** The `${…}` hole sources of one template literal (backticks included). */
+function templateHoles(literal: string): string[] {
+  const holes: string[] = [];
+  let i = 1;
+  while (i < literal.length - 1) {
+    if (literal[i] === "\\") {
+      i += 2;
+    } else if (literal[i] === "$" && literal[i + 1] === "{") {
+      let depth = 1;
+      let j = i + 2;
+      while (j < literal.length && depth > 0) {
+        if (literal[j] === "{") depth++;
+        else if (literal[j] === "}") depth--;
+        j++;
+      }
+      holes.push(literal.slice(i + 2, j - 1));
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return holes;
 }
 
 /**

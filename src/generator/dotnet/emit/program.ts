@@ -214,12 +214,6 @@ export function renderProgram(
      *  rows stamp the per-dispatch frame's scope / parent ids, so it also
      *  forces the `ExecutionContextBehavior` frame-opener to be registered. */
     hasProvenance?: boolean;
-    /** Tenant hierarchy (multi-tenancy): the registry opts into
-     *  `tenantRegistry`, so register the scoped `IOrgPathResolver` →
-     *  `EfOrgPathResolver` that UserMiddleware calls per request to materialize
-     *  `currentUser.orgPath` from the registry's `data_key`.  Implies
-     *  `authRequired`. */
-    orgPathResolver?: boolean;
     /** A typed in-system call to an `auth: required` callee forwards the
      *  caller's credential: hand `ApiClients` the request accessor at startup.
      *  Implies `authRequired`. */
@@ -302,7 +296,6 @@ ${schemaOverrides.map((o) => `        ["${o.clrFullName}"] = "${o.schemaId}",\n`
 `;
   const authRequired = !!options?.authRequired;
   const oidc = !!options?.oidc;
-  const orgPathResolver = !!options?.orgPathResolver;
   const usesValidators = !!options?.usesValidators;
   const usesStamping = !!options?.usesStamping;
   const hasEmbeddedSpa = !!options?.hasEmbeddedSpa;
@@ -740,16 +733,7 @@ builder.Services.AddScoped<IUserVerifier, OidcUserVerifier>();`
 builder.Services.AddScoped<IUserVerifier, DevStubUserVerifier>();`
       }
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();${
-        orgPathResolver
-          ? `
-// Tenant hierarchy (multi-tenancy): the per-request \`orgPath\` resolver —
-// currentUser.orgPath = the caller org's materialized \`data_key\`, read once
-// per request by UserMiddleware and memoized on the principal (fail-safe to
-// the claim).  Scoped: it holds the request-scoped ${usingDapper ? "connection source" : "AppDbContext"}.
-builder.Services.AddScoped<IOrgPathResolver, ${usingDapper ? "DapperOrgPathResolver" : "EfOrgPathResolver"}>();`
-          : ""
-      }
+builder.Services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();
 `
     : "";
   const authVerify = authRequired
@@ -831,11 +815,11 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
   // `ExcludeFromDescription()` keeps it out of the OpenAPI contract — it's
   // an internal probe, not a business operation, and the Hono `/auth/me`
   // lives outside its OpenAPI doc too (cross-backend parity).
-  // The body is the DECLARED `user { … }` shape, BY DECLARED NAME (#2548).
-  // Serialising the `User` record itself also shipped the DERIVED members
-  // (`OrgPath` / `RootOrg` are public computed properties, so System.Text.Json
-  // emitted them) — per-request tenancy scoping state that is not part of the
-  // declared principal, and that python/java never sent.  A `Dictionary` keeps
+  // The body is the DECLARED `user { … }` shape, BY DECLARED NAME.
+  // Serialising the `User` record itself would also ship its derived members
+  // (the operating org is a public property, so System.Text.Json would emit
+  // it) — per-request scoping state that is not part of the declared
+  // principal.  A `Dictionary` keeps
   // the declared spelling verbatim (the web defaults' camelCase policy applies
   // to PROPERTY names, not dictionary keys) and sidesteps C# identifier rules.
   const meProjection = (options?.userFields ?? [])

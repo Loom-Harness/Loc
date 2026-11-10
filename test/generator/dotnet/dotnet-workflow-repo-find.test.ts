@@ -66,13 +66,10 @@ describe(".NET workflow handler — repository call sites", () => {
 });
 
 // A `getById` repo-let returns `Task<T?>`; the emitter appends a `?? throw
-// AggregateNotFoundException` guard whenever the bound name is DEREFERENCED.
-// The deref scan used to see only op-call TARGETS (`cu.touch()`) and
-// domain-service args — a load deref'd exclusively via a member read inside an
-// expression (an op-call arg, an emit field seed: `loaded.DataKey + "." + seg`)
-// stayed unguarded, a CS8602 under /warnaserror.  Found by the
-// tenancy-hierarchy corpus fixture's signUpChild workflow on the dotnet
-// compile tier.
+// AggregateNotFoundException` guard whenever the bound name is DEREFERENCED —
+// as an op-call TARGET (`cu.touch()`), a domain-service arg, or a member read
+// inside an expression (an op-call arg, an emit field seed: `cu.name`).  An
+// unguarded deref is a CS8602 under /warnaserror.
 describe(".NET workflow handler — getById load-or-throw guard covers expression derefs", () => {
   it("guards a load deref'd only via a member read inside an emit field", async () => {
     const src = await handler(

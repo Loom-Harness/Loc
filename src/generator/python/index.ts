@@ -1,8 +1,4 @@
-import {
-  forwardsCallerCredential,
-  hostedHierarchyRegistry,
-} from "../../ir/enrich/hosting-facts.js";
-import { registryTableName } from "../../ir/enrich/storage-names.js";
+import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import {
   fieldCode,
   fieldFixedMessage,
@@ -14,6 +10,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
+import { observableWorkflows } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -151,11 +148,7 @@ import { buildPyRoutesFile } from "./routes-builder.js";
 import { anyPyTimerUsesCron, renderPyTimerScheduler } from "./scheduler-builder.js";
 import { renderPySecurityHeaders } from "./security-headers.js";
 import { pySentence } from "./wire-policy-py.js";
-import {
-  buildPyWorkflowsFile,
-  commandWorkflowsOf,
-  observableWorkflowsOf,
-} from "./workflows-builder.js";
+import { buildPyWorkflowsFile, commandWorkflowsOf } from "./workflows-builder.js";
 // ---------------------------------------------------------------------------
 // Python / FastAPI generator orchestrator.
 //
@@ -444,7 +437,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // exists and `main` mounts it (an event-triggered-only saga is still
   // observable, parity with Hono / .NET).
   const hasWorkflows =
-    commandWorkflowsOf(merged).length > 0 || observableWorkflowsOf(merged).length > 0;
+    commandWorkflowsOf(merged).length > 0 || observableWorkflows(merged.workflows).length > 0;
   // FOLDED projections drive projections_routes.py; query-time projections
   // (read-path-architecture.md rev.13) get their own query_projections_routes.py.
   const hasProjections = merged.projections.some(isMaterializedProjection);
@@ -504,34 +497,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // An `auth { oidc }` block drives the generated OIDC verifier + handshake;
   // absent it, the dev stub keeps a fresh stack callable out of the box.
   const oidc = authRequired ? args.sys.auth : undefined;
-  // Hierarchy (multi-tenancy): when the tenant registry opts into
-  // `tenantRegistry` (a `data_key` column exists), `currentUser.orgPath`
-  // resolves from that registry's table.  Pass the schema-qualified table so
-  // the auth middleware can `SELECT data_key … WHERE id = <claim>`; `undefined`
-  // for flat tenancy keeps the claim-copy.
-  const orgPathRegistryTable = authRequired
-    ? (() => {
-        // Only a deployable hosting the registry's context has its table.
-        const reg = hostedHierarchyRegistry(
-          args.sys,
-          args.contexts.map((c) => c.name),
-        );
-        if (!reg) return undefined;
-        const owning = args.contexts.find((c) => c.aggregates.some((a) => a.name === reg.name));
-        const ds = owning
-          ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
-          : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${registryTableName(args.sys)}`;
-        return ds?.schema ? `${ds.schema}.${table}` : table;
-      })()
-    : undefined;
   if (authRequired && args.sys.user)
     emitPyAuthFiles(
       args.sys.user,
       out,
       oidc,
       args.sys.tenancy?.claimField,
-      orgPathRegistryTable,
       systemReadsOrgContext(args.sys),
     );
   // First-boot seeding (database-seeding.md): emitted only when a
@@ -1990,9 +1961,18 @@ function collectOpUnions(
   return out;
 }
 
-/** True when some aggregate declares an `extern` operation. */
-function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
-  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+/** True when some aggregate declares an `extern` operation or the context
+ *  declares an `extern` command/query handler — the seams whose scaffold-once
+ *  stub raises `ExternNotImplementedError` (answered 501). */
+function hasExternOperation(ctx: {
+  aggregates: readonly EnrichedAggregateIR[];
+  commandHandlers?: readonly { extern?: boolean }[];
+  queryHandlers?: readonly { extern?: boolean }[];
+}): boolean {
+  return (
+    ctx.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some((h) => h.extern)
+  );
 }
 
 // RFC 7807 problem responder + exception handlers — DomainError → 422

@@ -43,7 +43,12 @@ import {
   localizedText,
   registerI18nImport,
 } from "../i18n-emit.js";
-import { formFieldModelTextTokens, opModelText, paramLabelOwner } from "../model-text-sites.js";
+import {
+  formFieldModelTextTokens,
+  opModelText,
+  paramLabelOwner,
+  workflowRunModelText,
+} from "../model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
@@ -767,7 +772,10 @@ function emitFormOfAggregate(
   const slug = routeSegmentFor(agg.name);
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
     mutationCall: "const out = await create.mutateAsync(vals);",
-    successMessage: `${humanize(agg.name)} created`,
+    successMessage:
+      onSubmitJs === null
+        ? localizedPageChromeValue(ctx, sentenceChromeName("created", agg.name))
+        : "",
     redirectStmt: `navigate(\`/${slug}/\${out.id}\`)`,
     submitPendingExpr: "create.isPending",
     submitLabel: opModelText(ctx, bc, agg.name, "create")?.markup ?? "Create",
@@ -858,10 +866,13 @@ function emitFormRuns(
   });
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
     mutationCall: "await run.mutateAsync(vals);",
-    successMessage: `${humanize(workflow.name)} completed`,
+    successMessage:
+      onSubmitJs === null
+        ? localizedPageChromeValue(ctx, sentenceChromeName("completed", workflow.name))
+        : "",
     redirectStmt: `navigate("/workflows")`,
     submitPendingExpr: "run.isPending",
-    submitLabel: "Run",
+    submitLabel: workflowRunModelText(ctx, bc, workflow.name) ?? "Run",
   });
 }
 
@@ -1040,6 +1051,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
     // type-zero seed and needs no `record` prop — so answering `true` here would
     // thread a prop nothing reads.  The two vocabularies must move together,
     // which is what the `never` below enforces.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":

@@ -35,6 +35,7 @@ export function isConstantDefault(e: ExprIR): boolean {
       return isConstantDefault(e.inner);
     case "unary":
       return isConstantDefault(e.operand);
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":

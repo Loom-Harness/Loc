@@ -134,7 +134,7 @@ describe("vue walker — scaffold pages", () => {
     // create-then-redirect body (success toast then redirect), single-
     // quoted handler attr.
     expect(newPage).toContain(
-      "@submit.prevent='form.handleSubmit(async (vals) => { const out = await create.mutateAsync(vals); pushToast(\"Customer created\"); navigate(`/customers/${out.id}`); })($event)'",
+      '@submit.prevent=\'form.handleSubmit(async (vals) => { const out = await create.mutateAsync(vals); pushToast(t("chrome.created.Customer", "Customer created")); navigate(`/customers/${out.id}`); })($event)\'',
     );
     expect(newPage).toContain('v-model="form.values.name"');
     expect(newPage).toContain(`:error-messages='form.errors["name"]'`);

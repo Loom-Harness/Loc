@@ -1224,12 +1224,10 @@ StampEvent returns string:
 
 // ---- policy block ------------------------------------------------
 //
-// A `policy {}` context member declares record-level read reachability for
-// tenant-owned aggregates: the directional read ladder
-// `local`/`deep`/`global`.  Each `allow <level> on <Aggregate>` rule selects
-// one aggregate's read scope, lowering to a rewrite of that aggregate's
-// `tenantOwned` capability filter (its `contextFilters` entry) — so it rides
-// the exact per-backend query-filter seams the tenant floor already uses.
+// A `policy {}` context member declares record-level read rules for
+// aggregates.  `allow [write] local on <Aggregate>` names the tenant floor (the
+// only level — data visibility is flat); `deny [write] on <Aggregate>` is the
+// carve-out.
 //
 // Beside the ladder, `read <Aggregate> requires <expr>` gates who may read the
 // aggregate at all (see `PolicyReadRule`).  The rest of the policy DSL
@@ -1262,20 +1260,17 @@ PolicyDecl:
     );
 
 // `allow [write] <level> on <Aggregate>` — the optional `write` verb selects
-// the ladder: bare = the read reachability ladder; `write` gates INSTANCE
-// mutations (update-style ops, destroy, applier dispatch) on the target row's
-// write scope.  `write global` PARSES but is an IR validator error
-// (`loom.policy-write-global-invalid`) — root-subtree-wide mutation is a
-// footgun; only `write local` (the default floor) and `write deep` are
-// offered.  There is deliberately NO `read` verb synonym on the ladder: bare
+// the ladder: bare = reads; `write` = INSTANCE mutations (update-style ops,
+// destroy, applier dispatch).  There is deliberately NO `read` verb synonym on
+// the ladder: bare
 // already means read, and `read` heads the gate rule below (as an identifier,
 // not a keyword).  The rule name stays
 // `PolicyReadRule` (every form is a policy rule structurally); the IR splits
 // them by effect and verb.
 //
 // `deny [write] on <Aggregate>` — the DENY-WINS carve-out.  `effect`
-// discriminates the two forms: `allow` carries a widening `level`
-// (local/deep/global); `deny` is ALL-OR-NOTHING at the aggregate — no level
+// discriminates the two forms: `allow` carries a `level`; `deny` is
+// ALL-OR-NOTHING at the aggregate — no level
 // word (a partial deny is field-mask / `data {}` row-clause territory of a
 // later slice).  Deny reuses the same optional `write` verb: bare `deny on X`
 // denies READ (the aggregate becomes invisible; the write command load —
@@ -1310,12 +1305,11 @@ PolicyGateVerb returns string:
 PolicyVerb returns string:
     'write';
 
-// The directional read ladder:
-//   - `local`  — the caller's own org node (today's `tenantId ==` floor; default)
-//   - `deep`   — the caller's org + all descendants (`dataKey` path prefix)
-//   - `global` — all in the caller's tenant (tenant-root-floored)
-// A closed set — an unknown level name is a parse error, so no validator arm
-// is needed for it.
+// The level of an `allow` rule.  `local` — the caller's own org, the
+// `tenantId ==` floor — is the only level.  `deep` and `global` still PARSE so a
+// model written against the removed hierarchical ladder gets the named
+// `loom.policy-level-removed` error (with its replacement) instead of a parse
+// error; lowering drops the rule.
 ReadLevel returns string:
     'local' | 'deep' | 'global';
 
@@ -1841,7 +1835,7 @@ DomainService:
 // NOT carry `private` / `extern` / `audited` / `when` — those are
 // aggregate-operation-only.
 DomainServiceOperation:
-    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
     CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         stmts+=Statement*
     '}';
@@ -2039,7 +2033,7 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    CallableLeadModifiers 'operation' name=(ID | 'write') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
         CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
@@ -2152,7 +2146,7 @@ SoftKeywordsExceptSort returns string:
       | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
-      | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
+      | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
       | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
@@ -2791,7 +2785,8 @@ Lambda:
     );
 
 PrimaryExpr infers Expression:
-      BuilderCall
+      ExistsExpr
+    | BuilderCall
     | ObjectLit
     | ParenExpr
     | ListLit
@@ -2803,6 +2798,21 @@ PrimaryExpr infers Expression:
     | ThisRef
     | IdRef
     | NameRef;
+
+// Existential quantifier over an aggregate's rows —
+// `exists CategoryShare as s where s.category == c && s.grantee == currentUser.id`.
+// `binding` names one row of `aggregate` inside `where`; the enclosing row is
+// still `this` (or its own binding), and params / `currentUser` stay in scope.
+// It is a QUERY predicate: it lowers to a SQL `EXISTS (SELECT 1 …)` on every
+// backend, so it is admitted only where a predicate is compiled into a query
+// (`criterion`, a find / retrieval `where`, a row `filter`); everywhere else
+// `loom.exists-outside-query` refuses it.  `where` takes a whole
+// `Expression`, so the predicate runs to the end of the enclosing expression —
+// parenthesise the quantifier to combine it (`(exists … where p) && q`).
+// `exists` is soft (see `SoftKeywordsExceptSort`): it starts this form only
+// when an aggregate name and `as` follow.
+ExistsExpr:
+    'exists' aggregate=[Aggregate:ID] 'as' binding=ID 'where' where=Expression;
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

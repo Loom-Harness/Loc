@@ -15,6 +15,7 @@ import {
   partTableName,
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
+import { eventSourcedWorkflows, hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -761,8 +762,7 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
   // columns and is keyed by `(tenantId, <key>)` — a composite primary key.
   const tenancy = foldTenancyFor(proj);
   if (tenancy) {
-    for (const m of tenancy.metadata)
-      cols.push(TEXT(m.field, m.required ? { primary: true } : { nullable: true }));
+    for (const m of tenancy.metadata) cols.push(TEXT(m.field, { primary: true }));
   }
   return cols;
 }
@@ -885,7 +885,7 @@ export function renderMikroEntities(
   const eventLogOwners = [
     ...new Set([
       ...aggs.filter((agg) => agg.persistedAs === "eventLog").map((agg) => streamOwner(agg.name)),
-      ...(ctx.workflows ?? []).filter((wf) => wf.eventSourced).map((wf) => streamOwner(wf.name)),
+      ...eventSourcedWorkflows(ctx.workflows ?? []).map((wf) => streamOwner(wf.name)),
     ]),
   ];
   for (const agg of aggs) {
@@ -1091,7 +1091,7 @@ export function renderMikroEntities(
   // An event-sourced workflow folds its `<ctx>_events` stream instead (no state
   // table), and a plain command workflow has no correlation field → no Row.
   for (const wf of ctx.workflows ?? []) {
-    if (wf.eventSourced || !wf.correlationField) continue;
+    if (!hasStateRow(wf)) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroWorkflowRowClass(wf),
       workflowStateTableName(wf.name),

@@ -13,7 +13,8 @@ below).  It is not silent: every read that drops a tenancy filter raises
 `loom.tenancy-filter-bypass`, in every `auth { enforcement: }` mode.
 
 Design record: [`proposals/multi-tenancy-design-note.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/multi-tenancy-design-note.md)
-(R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).
+(R1–R5); data visibility is flat by
+[D-TENANCY-FLAT](decisions.md#d-tenancy-flat--data-visibility-is-flat-the-org-tree-manages-sub-tenants-the-operating-org-and-its-ancestors-are-resolved-per-request).
 
 ## Surface
 
@@ -57,11 +58,7 @@ system Billder {
     amountDue: decimal
     // — what `with tenantOwned` expands to —
     tenantId: string internal
-    dataKey: string? internal
-    stamp onCreate {
-      tenantId := currentUser.tenantId
-      dataKey := currentUser.orgPath
-    }
+    stamp onCreate { tenantId := currentUser.tenantId }
     filter this.tenantId == currentUser.tenantId
   }
   ```
@@ -69,8 +66,8 @@ system Billder {
   The `tenantId` column lands in the migrations automatically — **with a
   derived non-unique `<table>_tenant_id_idx`** (every tenant read prefixes on
   that column; derived in the shared `MigrationsIR`, so all DB backends emit
-  it); `internal` keeps both columns out of create inputs (the client can
-  never pass them); the filter is AND-ed into **every** generated read on all
+  it); `internal` keeps the column out of create inputs (the client can
+  never pass it); the filter is AND-ed into **every** generated read on all
   five backends; the stamp copies the claim at create.
 
   **The two `tenantId`s are different things.** The one on the row is the
@@ -83,26 +80,37 @@ system Billder {
   `tenantId: currentUser.orgId`. The capability itself cannot see the
   declaration (a prelude definition has no system in scope), so enrichment
   binds the principal side in phase ⑥ — the same pass that derives the
-  registry self-scope, which is why both halves now agree on one claim.
+  registry self-scope, which is why both halves agree on one claim.
 
-  **`dataKey`** (multi-tenancy Phase 2, plan P2.3) is the materialized
-  DataKey path, stamped unconditionally from `currentUser.orgPath` — the
-  **same** claim-copy stamp mechanism as `tenantId`, riding the identical
-  `contextStamp` pipeline (no per-backend code: every backend already renders
-  `currentUser.orgPath` for the P2.1/P2.2 filter use-site; a stamp assignment
-  is the same expression renderer, a different call site). It is stamped on
-  every `tenantOwned` aggregate regardless of whether the registry has opted
-  into `implements tenantRegistry` — under flat tenancy `orgPath` resolves to
-  the tenancy claim itself (P2.1's fallback, a correct root-only path); once
-  the registry opts into hierarchy, `orgPath` resolves to the real
-  materialized path with nothing here needing to change. Unlike `tenantId`,
-  `dataKey` is **not just `internal`** — `authorization.md §2` calls it a
-  persistence column only, so `wireFieldsForAggregate`
-  (`src/ir/enrich/enrichments.ts`) drops it from `wireShape` **entirely**: it
-  never appears in `.loom/wire-spec.json`, a DTO, or any read response — a
-  stricter exclusion than `tenantId`'s (which stays in `wireShape`, just
-  filtered out of API reads). No read-side filtering rides `dataKey` yet —
-  that is the `policy { data {} }` ladder, P2.4.
+  The node stamp, for the `Invoice` above:
+
+  ```ts
+  // db/audit-stamp.ts (generated)
+  export function stampInsertInvoice<T extends Record<string, unknown>>(row: T): T {
+    const ctx = requestContext();
+    if (!ctx) return row;
+    const currentUser = ctx.currentUser as User | null;
+    if (!currentUser) return row;
+    if (currentUser.tenantId == null || currentUser.tenantId === "") {
+      throw new ForbiddenError("Forbidden: the access token carries no \"tenantId\" claim, which this system stamps into tenantId on every write. Obtain a token whose \"tenantId\" claim is set.");
+    }
+    return { ...row, tenantId: currentUser.tenantId };
+  }
+  ```
+
+  ```sql
+  -- db/migrations/…_billing_initial.sql (generated)
+  CREATE TABLE "invoicing"."invoices" (
+    …
+    "tenant_id" TEXT NOT NULL,
+    …
+  );
+  CREATE INDEX "invoices_tenant_id_idx" ON "invoicing"."invoices" ("tenant_id");
+  ```
+
+  `tenantId` is the only column tenancy adds to a row. Where an org sits in
+  the registry tree takes no part in a data read: a row is visible to its own
+  org only.
 - **`crossTenant`** — an aggregate-header modifier, for shared reference data
   (`Plan`, `Country`). A stance marker: attaches nothing, generates nothing — it
   exists so "no tenant filter" is a declared decision, never an accident. It sits
@@ -111,15 +119,15 @@ system Billder {
   with them — `aggregate Plan crossTenant { … }`. It is deliberately *not* a
   leading adjective like `abstract`: `abstract` says what the aggregate **is**,
   while `crossTenant` declares how it **participates** in the `tenancy by`
-  facility. (M-T5.17 sort-by-meaning amendment.)
+  facility.
 - **The registry** gets no marker — it is self-keyed (its "tenant" IS its own
-  id), so neither stance fits it. Since Phase 1b it DOES get generated read
-  behavior: the **derived self-scope filter** (below). Who may read or edit
+  id), so neither stance fits it. It does get generated read behavior: the
+  **derived self-scope filter** (below). Who may read or edit
   organizations beyond that is authorization's job.
 
-## The registry: derived self-scope + claim-less bootstrap (Phase 1b)
+## The registry: derived self-scope + claim-less bootstrap
 
-`tenantId ≡ <Registry>.id` is a **derived type link** (capstone decision 4):
+`tenantId ≡ <Registry>.id` is a **derived type link**:
 from the `tenancy by` declaration alone, every read of the registry is scoped
 to the caller's own org. You never write this filter — enrichment appends it
 to the registry's capability filters, so it rides the exact pipeline
@@ -169,14 +177,11 @@ is coerced in the host language *before* it reaches the database, so a value
 the `guid` id cannot represent binds NULL and matches no row. A **missing**
 principal claim takes the same path, for the same reason.
 
-.NET has always done this (`Guid.TryParse`); the other four parsed
-unconditionally and answered a bad token with a stack trace until M-T3.7(c).
 Pinned on every behavioural leg by `corpus/tenancy-owned` (the harness
 principal's claim is not a uuid, so the registry reads 404 / empty, never 500),
 by the remaining .NET and Java `tenancy-registry-self-scope` generator suites
 for the guid-claim and Criteria arms, and end-to-end by
-`assertCrossTenantIsolation` (the `tenancy-e2e` matrix, all five
-backends × {flat, hierarchy}).
+`assertCrossTenantIsolation` (the `tenancy-e2e` matrix, every backend).
 
 Per-backend registry read scope (all five compile-gated, and all five
 runtime-gated by the isolation e2e):
@@ -203,8 +208,7 @@ with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
 (`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
 matched no registry row ever (eval-closure #26). A matching first-boot registry
 row ships through the ordinary seed path: enrichment appends a `raw` seed row
-(`id` = that uuid, `dataKey` = the same uuid when the registry is a
-`tenantRegistry` root, a synthetic value for every other required scalar
+(`id` = that uuid, a synthetic value for every other required scalar
 column) in its own dataset, `loomDemoTenant`, and the generated dev compose
 sets `LOOM_SEED: "loomDemoTenant"` on the backend hosting the registry. Like
 every non-`default` dataset it runs only when `LOOM_SEED` names it, so a
@@ -273,7 +277,7 @@ bases are exempt; a subtype inherits its base's stance). An unmarked aggregate i
 | Code | Fires when | Severity |
 |---|---|---|
 | `loom.tenancy-stance-unmarked` | unmarked aggregate under a `tenancy by` system | error |
-| linking error (`Could not resolve reference …`) | `user.<claim>` not on the `user {}` shape, or `of` names a non-existent aggregate — both bindings are real cross-references since 1b.1 (navigation / rename / find-refs work) | error |
+| linking error (`Could not resolve reference …`) | `user.<claim>` not on the `user {}` shape, or `of` names a non-existent aggregate — both bindings are real cross-references (navigation / rename / find-refs work) | error |
 | `loom.tenancy-duplicate` | more than one `tenancy by` | error |
 | `loom.tenant-owned-without-tenancy` | `with tenantOwned` but no `tenancy by` | error |
 | `loom.cross-tenant-without-tenancy` | `crossTenant` but no `tenancy by` | warning |
@@ -310,19 +314,20 @@ The principal-side spellings below assume the common `tenancy by
 user.tenantId` declaration; under any other claim name the `currentUser.…`
 half follows the declaration while the row column stays `tenantId`.
 
-| Backend | Read scope | Create stamp (`tenantId` + `dataKey`) |
+| Backend | Read scope | Create stamp (`tenantId`) |
 |---|---|---|
-| node (Hono/Drizzle) | `.where(and(…, eq(t.tenantId, requireCurrentUser().tenantId)))` on every repository read | `stampInsert` copies both claims off the ambient principal — `tenantId: currentUser.tenantId, dataKey: currentUser.orgPath` (no-op for system/seed saves) |
-| .NET (EF Core) | `HasQueryFilter(x => x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)` | `SaveChangesInterceptor` sets both on `Added` — `x.TenantId` off `…CurrentUser!.TenantId`, `x.DataKey` off `…CurrentUser!.OrgPath` |
-| elixir (Ecto) | a `Repo.prepare_query/3` clause on the schema, fail-closed `^(current_user && current_user.tenant_id)` against the read's `current_user:` or the ambient principal; raises when neither is set (`Repo.async/1` carries it into a task) | `put_change(:tenant_id, current_user && current_user.tenant_id) \|> put_change(:data_key, current_user && current_user.org_path)` |
-| python (FastAPI/SQLAlchemy) | one `do_orm_execute` hook (`app/db/read_scope.py`) adds `with_loader_criteria(<Row>, <Row>.tenant_id == user.tenant_id)` to every ORM read; `false()` with no principal | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
-| java (Spring/JPA) | an auto-enabled `@Filter(condition = "tenant_id = :__cuTenantId")` on the entity (a TPH hierarchy's on its root), the claim a per-query `@ParamDef` resolver; `ignoring tenantOwned` disables it for that read | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` and `this.dataKey = currentUser.orgPath()` |
+| node (Hono/Drizzle) | `.where(and(…, eq(t.tenantId, requireCurrentUser().tenantId)))` on every repository read | `stampInsert<Agg>` copies the claim off the ambient principal — `{ ...row, tenantId: currentUser.tenantId }` (no-op for system/seed saves) |
+| .NET (EF Core) | `HasQueryFilter(x => x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)` | the `AuditableInterceptor` (a `SaveChangesInterceptor`) sets `Property(x => x.TenantId).CurrentValue = RequestContext.Current!.CurrentUser!.TenantId` on `Added` |
+| elixir (Ecto) | a `Repo.prepare_query/3` clause on the schema, fail-closed `^(current_user && current_user.tenant_id)` against the read's `current_user:` or the ambient principal; raises when neither is set (`Repo.async/1` carries it into a task) | `Ecto.Changeset.put_change(:tenant_id, current_user && current_user.tenant_id)` |
+| python (FastAPI/SQLAlchemy) | one `do_orm_execute` hook (`app/db/read_scope.py`) adds `with_loader_criteria(<Row>, <Row>.tenant_id == user.tenant_id)` to every ORM read; `false()` with no principal | `self._tenant_id = current_user.tenant_id` in the create factory |
+| java (Spring/JPA) | an auto-enabled `@Filter(condition = "tenant_id = :__cuTenantId")` on the entity (a TPH hierarchy's on its root), the claim a per-query `@ParamDef` resolver; `ignoring tenantOwned` disables it for that read | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` |
 
-Frontends need nothing: enforcement is server-side, and neither `tenantId` nor
-`dataKey` ever appears in create forms. `tenantId` (like `softDeletable`'s
-`isDeleted`) is wire-visible on reads today — internals aren't hidden from
-read DTOs by default. `dataKey` is the exception: it is dropped from
-`wireShape` entirely (see above), so it never reaches any read DTO either.
+Every stamp refuses a create whose principal carries an empty claim with a 403
+(`ForbiddenError` / `ForbiddenException`), so a row never lands with no tenant.
+
+Frontends need nothing: enforcement is server-side, and `tenantId` never
+appears in create forms. `tenantId` (like `softDeletable`'s `isDeleted`) is
+wire-visible on reads — internals aren't hidden from read DTOs by default.
 
 Cross-tenant reads of another tenant's row return **404** (existence hidden),
 falling out of the filter semantics: the row simply isn't found.
@@ -359,47 +364,46 @@ aggregate Ledger persistedAs: eventLog with tenantOwned {
 }
 ```
 
-- **Storage.** The context's event log (`<ctx>_events`) gains two nullable
-  metadata columns, `tenant_id` and `data_key`, through the ordinary migration
-  chain. A log holding no tenant-scoped stream is unchanged; the rows of its
-  other streams (a `crossTenant` aggregate, an `eventSourced` workflow) leave
-  them null.
+- **Storage.** The context's event log (`<ctx>_events`) gains one nullable
+  metadata column, `tenant_id`, through the ordinary migration chain. A log
+  holding no tenant-scoped stream is unchanged; the rows of its other streams
+  (a `crossTenant` aggregate, an `eventSourced` workflow) leave it null.
 - **Stamp.** The creation command stamps the new stream from the principal —
-  the capability's own `onCreate` stamp (`tenantId := currentUser.<claim>`,
-  `dataKey := currentUser.orgPath`). Every later append copies the loaded
-  stream's tenant forward, never the caller's.
+  the capability's own `onCreate` stamp (`tenantId := currentUser.<claim>`).
+  Every later append copies the loaded stream's tenant forward, never the
+  caller's.
 - **Scope.** Every stream load — by id, the list, and the load an operation
-  (append) runs first — applies the tenancy restrictions of the aggregate's
-  `readScope` fact over the metadata columns: the flat floor, or the `policy`
-  `deep` / `global` subtree. A foreign tenant's `GET /api/ledgers/<id>` is a
-  404, its list never shows the stream, and it cannot append to a stream it
-  cannot load. `ignoring tenantOwned` drops the scope for that read only, as
-  on a table (and raises `loom.tenancy-filter-bypass`).
+  (append) runs first — applies the tenant floor over the metadata column
+  (`tenant_id = currentUser.<claim>`). A foreign tenant's
+  `GET /api/ledgers/<id>` is a 404, its list never shows the stream, and it
+  cannot append to a stream it cannot load. `ignoring tenantOwned` drops the
+  scope for that read only, as on a table (and raises
+  `loom.tenancy-filter-bypass`).
 - **Events.** A folded event's tenant is its stream's: the stored-event row
-  carries it, and so does the CloudEvents channel envelope (`tenantid` /
-  `loomorgpath`), so a reactor or a cross-deployable consumer runs in the
-  stream's tenant.
+  carries it, and so does the CloudEvents channel envelope (`tenantid`), so a
+  reactor or a cross-deployable consumer runs in the stream's tenant.
 - **Fold.** A load adopts the metadata onto the aggregate's `tenantOwned`
-  fields, so the folded instance answers exactly like a `tenantOwned` row.
+  field, so the folded instance answers exactly like a `tenantOwned` row.
 
 The fact is `streamTenancyFor` / `eventTenantMetadataFor`
-(`src/ir/enrich/stream-tenancy.ts`). On node it renders as:
+(`src/ir/enrich/stream-tenancy.ts`). On node (context `Invoicing`) it renders
+as:
 
 ```ts
 // db/read-scopes.ts
 export function ledgerStreamScope(use: ScopeUse = {}): SQL | undefined {
   return and(
-    drops(use, "tenantOwned") ? undefined : eq(schema.cEvents.tenantId, requireCurrentUser().tenantId),
+    drops(use, "tenantOwned") ? undefined : eq(schema.invoicingEvents.tenantId, requireCurrentUser().tenantId),
   );
 }
 
 // db/repositories/ledger-repository.ts — findById
-.where(and(eq(schema.cEvents.streamType, "Ledger"), eq(schema.cEvents.streamId, id as string), ledgerStreamScope()))
+.where(and(eq(schema.invoicingEvents.streamType, "Ledger"), eq(schema.invoicingEvents.streamId, id as string), ledgerStreamScope()))
 
 // save — a new stream is stamped, an append carries the stream's tenant
 const meta = aggregate._streamVersion === 0
-  ? stampInsertLedger({ tenantId: aggregate.tenantId, dataKey: aggregate.dataKey })
-  : { tenantId: aggregate.tenantId, dataKey: aggregate.dataKey };
+  ? stampInsertLedger({ tenantId: aggregate.tenantId })
+  : { tenantId: aggregate.tenantId };
 ```
 
 `loom.stamp-on-event-sourced-invalid` still refuses a genuine lifecycle stamp
@@ -410,7 +414,7 @@ tenancy capability's stamp is not one.
 Drizzle persistence), `dotnet` (EF and Dapper), `java`, `python` (through the
 repository's `_stream_scope`) and `elixir` (the scope lives on the aggregate's
 event-log schema, where `Repo.prepare_query/3` applies it).  node's
-`persistence: mikroorm` event store does not carry it yet, so there a
+`persistence: mikroorm` event store does not carry it, so there a
 `tenantOwned` event-sourced aggregate is refused with `loom.target-unsupported`
 (`#tenant-owned-event-sourced`) rather than emitted as an unscoped stream.
 
@@ -423,18 +427,16 @@ rows no tenant command owns. Under `tenancy by`, a fold over events raised by a
 - **Stamp.** The fold reads the event's tenant from its metadata — the event
   origin of the frame the event is dispatched in (the raising request, the
   stream tenant's frame for an event-sourced append, or the frame the outbox
-  relay / broker consumer opens from `tenantid` / `loomorgpath`) — and stamps
-  the row's `tenant_id` and `data_key` (the origin's org path, else the
-  tenant), the two columns a `tenantOwned` table carries. An event with no
+  relay / broker consumer opens from `tenantid`) — and stamps the row's
+  `tenant_id`, the column a `tenantOwned` table carries. An event with no
   tenant (raised outside any principal) folds into no row.
 - **Key.** The row is keyed by `(tenant_id, <key>)`, so two tenants folding
-  the same business key get two rows. The migration chain adds the columns
+  the same business key get two rows. The migration chain adds the column
   and the composite primary key.
 - **Scope.** Every read — `GET /api/projections/<p>`, the by-key read, and so
   any page `QueryView` over it — applies the fold row's read scope
   (`foldRowReadScope` in `read-scope.ts`): the tenant floor
-  `tenant_id = currentUser.<claim>`. A `policy` that widens a producer to
-  `deep` / `global` does not widen the read model.
+  `tenant_id = currentUser.<claim>`.
 
 ```ddd
 aggregate Acct with tenantOwned, crudish {
@@ -453,11 +455,15 @@ projection Totals keyed by acct {
 const __origin = currentEventOrigin();
 const __tenant = __origin?.tenant;
 if (__tenant == null) return;
-const state = (await loadTotals(db, __key, __tenant))
-  ?? { acct: __key, tenantId: __tenant, dataKey: __origin?.orgPath ?? __tenant };
+const state = (await loadTotals(db, __key, __tenant)) ?? { acct: __key, tenantId: __tenant };
 // GET /projections/totals
-await db.select().from(schema.totalses)
-  .where(eq(schema.totalses.tenantId, String(requireCurrentUser().tenantId)));
+const rows = await db.select().from(schema.totalses).where(eq(schema.totalses.tenantId, String(requireCurrentUser().tenantId)));
+```
+
+```sql
+-- the fold table: one row per (tenant, key)
+"tenant_id" TEXT NOT NULL,
+PRIMARY KEY ("tenant_id", "acct")
 ```
 
 A fold whose events all come from `crossTenant` aggregates is **exempt**: no
@@ -476,9 +482,9 @@ The fact is `foldTenancyVerdict` / `foldTenancyFor`
 
 An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
 stamps inside it use the **triggering event's tenant**: the system principal
-copies the tenancy claim and `orgPath` from the principal of the request that
-raised the event, so a reactor reads and writes in exactly the tenant its event
-came from. A `timerSource` tick has no originating request and therefore **no
+copies the tenancy claim from the principal of the request that raised the
+event, so a reactor reads and writes in exactly the tenant its event came from.
+A `timerSource` tick has no originating request and therefore **no
 tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
 so it must be explicitly cross-tenant: widen the read with `ignoring
 tenantOwned` (`Repo.all(C) ignoring tenantOwned`, `Repo.getBy(…) ignoring
@@ -497,314 +503,232 @@ workflow sweepRun {
 ```
 
 An event that crosses the transactional outbox or a broker carries its
-**origin** — tenant, `orgPath`, `causedBy` — on the outbox row and as the
-envelope's `tenantid` / `loomorgpath` / `loomcausedby` attributes, and the
-relay / consumer delivers it as the system principal of that tenant, so a
-relay- or broker-fed reactor reads and writes in the event's tenant too
+**origin** — `{tenant, causedBy}` — on the outbox row and as the envelope's
+`tenantid` / `loomcausedby` attributes, and the relay / consumer delivers it as
+the system principal of that tenant, so a relay- or broker-fed reactor reads
+and writes in the event's tenant too
 ([`channels.md` § Event origin](channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)).
 
-## Hierarchy — the registry tree (`implements tenantRegistry`, Phase 2)
+```ts
+// node — the stream's reactors run in the stream's tenant
+await runAsEventOrigin({ tenant: aggregate.tenantId, causedBy: origin?.causedBy ?? null }, dispatchAll);
+```
 
-The tenant registry opts into a hierarchy by carrying `implements
-tenantRegistry` — a built-in prelude capability
-(`src/macros/prelude.ts`, next to `tenantOwned`). It **provides** two managed
-tree fields; the author writes neither (unfold the capability to see them):
+## The registry tree — `implements tenantRegistry`
+
+The tenant registry becomes a tree of orgs by carrying `implements
+tenantRegistry` — a built-in prelude capability (`src/macros/prelude.ts`, next
+to `tenantOwned`). It **provides** one field, which the author does not write
+(unfold the capability to see it):
 
 ```ddd
 tenancy by user.tenantId of Organization
 
-aggregate Organization {
+aggregate Organization with crudish {
   name: string
   implements tenantRegistry
   // — what `implements tenantRegistry` provides —
-  //   parent: Organization id?   immutable   // self-FK; null = root org
-  //   dataKey: string?           managed     // the materialized path
+  //   parent: Organization id?   immutable   // self-FK; null = a top-level org
 }
 ```
 
+```sql
+-- db/migrations/…_billing_initial.sql (generated, node)
+CREATE TABLE "accounts"."organizations" (
+  …
+  "parent" UUID NULL,
+  …
+  FOREIGN KEY ("parent") REFERENCES "accounts"."organizations" ON DELETE RESTRICT
+);
+CREATE INDEX "organizations_parent_idx" ON "accounts"."organizations" ("parent");
+```
+
 - **`parent: Self id?`** — an immutable, nullable self-FK (`Self` resolves to
-  the registry aggregate). `immutable` keeps it settable at create (the signup
-  bootstrap passes it) but frozen after — **reparent is out of scope** (immutable
-  paths are what make `deep` a cheap prefix scan). It lands in migrations as a
-  nullable self-referential FK (`parent uuid null references organizations(id)`)
-  plus an `organizations_parent_idx`.
-- **`dataKey: string?`** — the managed materialized path (`data_key text null`,
-  off create/update inputs, present on reads). Its **value** is computed
-  server-side in the author-written `signUp` create factory via the workflow-tier
-  `repo-let` on the parent (`dataKey := parent.dataKey + "." + <segment>`); a
-  capability is a pure mixin, so it carries the field but cannot inject a
-  repo-reading create body. Root orgs get a root-segment path; children extend
-  the parent's.
+  the registry aggregate). `immutable` keeps it settable at create (a child
+  org's signup passes it) and frozen after. It lands in migrations as a
+  nullable self-referential FK plus a `<table>_parent_idx`.
+- **The tree is for managing sub-tenants, not for reading data.** It records
+  which org sits under which, so the author's registry operations and
+  workflows can create and administer child orgs. It takes no part in a data
+  read: a `tenantOwned` row stays visible to its own org only, and a parent
+  org does not see its child orgs' rows (nor a child its parent's). Who may
+  create or administer a child org is the author's ordinary `requires` and
+  `policy` on the registry — the capability gates nothing by itself.
+
+A child-org signup is an ordinary create factory that loads the parent and
+creates the child with its `parent` FK:
+
+```ddd
+workflow signUpChild {
+  create(nm: string, seg: string, par: Org id) {
+    let loaded = Orgs.get(par)
+    let child = Org.create(name: loaded.name + "." + seg + "." + nm, parent: par)
+  }
+}
+```
 
 Structural verification (`src/ir/validate/checks/tenancy-checks.ts`): only under
 a `tenancy by` system (`loom.tenant-registry-without-tenancy`), **exactly one**
 aggregate (`loom.tenancy-registry-duplicate`), and it must be the `of <Registry>`
 target (`loom.tenancy-registry-not-target`). `parent`'s immutability and
 self-reference are structural (the access modifier + `Self`), so neither needs a
-check.
+check. A reference to `dataKey` — on a row, the registry or `currentUser` — is
+`loom.tenancy-data-key-removed`: rows carry `tenantId` only.
 
-### `currentUser.orgPath` under hierarchy
+## The `policy {}` block — `local` and `deny`
 
-`orgPath` (the P2.1 principal member) is the caller's materialized path. With no
-`tenantRegistry` (flat tenancy) it is the tenancy claim itself — the
-root-segment path, since there is no `dataKey` column to read. Once the registry
-`implements tenantRegistry`, the principal resolves `orgPath` from the registry's
-`data_key` column, **memoized per request**, keyed by the tenancy claim:
+A `policy {}` context member sets, per tenant-owned aggregate, what the caller
+may read and write beyond the tenant floor `with tenantOwned` installs. The read
+level is `local` — the caller's own org, `tenant_id = currentUser.<claim>`, and
+the default for an aggregate no rule names. `deny` narrows it.
 
-```sql
-select data_key from organizations where id = <currentUser.tenantId>
-```
-
-**Fail-safe:** a missing row, a null `data_key` (pre-tree data), or any lookup
-error falls back to the claim value — never null, never a crash. Wired on **all
-five backends**, each through its own request-scoped principal seam:
-
-| Backend | Registry read | Memoization |
-|---|---|---|
-| node (Hono/Drizzle) | boot registers `registerOrgPathResolver` (a db-backed closure — the auth layer can't reach the injected db); middleware `await`s it | once in middleware, on the request principal |
-| .NET (EF Core) | `IOrgPathResolver`/`EfOrgPathResolver` (`IgnoreQueryFilters().Where(id).Select(DataKey)`), method-injected into `UserMiddleware` | scoped resolver; `user.OrgPath` slot set once per request |
-| Java (Spring/JPA) | `OrgPathResolver` holder + a boot `@Component` registering a `JdbcTemplate` `SELECT data_key … WHERE id = ?` closure | per-request `ThreadLocal` memo, cleared in `UserFilter` |
-| Python (FastAPI/SQLAlchemy) | Starlette middleware queries `text("SELECT data_key … WHERE id = :claim")` via the module-level `session_factory` | written once onto the frozen principal (off `asdict()`/wire) |
-| Elixir (Ecto) | `put_org_path/1` reads via `Repo.one(from o in <Registry>, where: o.id == ^claim, select: o.data_key)` (schema-prefix + binary_id cast) | the plug runs once per request → memoized on the principal map |
-
-## The `policy {}` read ladder (`local` / `deep` / `global`, Phase 2 P2.4)
-
-A `policy {}` context member selects a per-aggregate **read reachability level**
-for tenant-owned aggregates — the directional ladder from
-[`proposals/authorization.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/authorization.md) §3 (`Self` /
-`Descendants` / `All` ≈ `local` / `deep` / `global`). It is the read side of the
-hierarchy: P2.1–P2.3 wrote `dataKey`; P2.4 reads by it.
-
-```loom
-context Ledger {
-  aggregate Invoice with tenantOwned { amount: Money }
-  aggregate Org { name: string  implements tenantRegistry }
+```ddd
+context Books {
+  aggregate Memo with tenantOwned, crudish { label: string }
+  aggregate Note with tenantOwned, crudish { label: string  hits: int }
   // …
   policy {
-    allow deep on Invoice        // caller's org + all descendant orgs
+    allow local on Memo       // the floor, spelled out
+    deny write on Note        // readable, never mutated
   }
 }
 ```
 
-Each rule rewrites the aggregate's `tenantOwned` capability filter (its
-`contextFilters` entry), riding the exact per-backend query seams the flat
-tenant floor already uses (Drizzle `.where`, EF `HasQueryFilter`, SQLAlchemy
-`with_loader_criteria` hook, JPA `@Query`/`Specification`, pinned Ecto `where:`) — no new backend
-plumbing. The levels:
-
-| Level | Emitted scope |
+| Rule | Effect |
 |---|---|
-| `local` | `tenantId == currentUser.tenantId` — the caller's own org node. **The default** (an omitted / `local` aggregate keeps today's flat floor). |
-| `deep` | descendant-or-self on the materialized path: `dataKey = orgPath OR dataKey` is under `orgPath || '.'` — the caller's org and every org beneath it. |
-| `global` | the caller's **root-org subtree** (P2.5): the same descendant-or-self prefix scan as `deep` but anchored at `currentUser.rootOrg` (the first `orgPath` segment). Under flat tenancy `rootOrg == orgPath == the tenant floor`, so all three levels coincide (see the decision below). |
+| no rule / `allow local on X` | the tenant floor: `X` rows of the caller's own org, read and write. |
+| `deny write on X` | `X` stays readable at the floor; every mutation (update, delete, operation) answers the op route's 404. |
+| `deny on X` | no read and no write of `X` at all. |
 
-**The descendant test is two terms** — an escaped `LIKE` *prefilter* and an
-anchored *recheck*, in that order (M-T3.17):
+The read scope rides the same per-backend query seam as the floor (Drizzle
+`.where`, EF `HasQueryFilter`, the SQLAlchemy `with_loader_criteria` hook, the
+JPA `@Filter`, Ecto `prepare_query`). On node, `deny write on Note` keeps the
+floor on reads and makes the mutation load find nothing:
 
-```sql
-data_key LIKE <escaped-anchor> || '.%' ESCAPE '!'   -- sargable: rides <table>_data_key_idx
-  AND strpos(data_key, <anchor> || '.') = 1         -- decides the row; no pattern language
+```ts
+// db/read-scopes.ts — reads: the floor
+export function noteScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : eq(schema.notes.tenantId, requireCurrentUser().tenantId),
+  );
+}
+
+// db/repositories/note-repository.ts — the load every mutation runs first
+async getById(id: Ids.NoteId): Promise<Note> {
+  const inScope = await this.db.select({ id: schema.notes.id }).from(schema.notes).where(and(eq(schema.notes.id, id), and(isNull(schema.notes.id), isNotNull(schema.notes.id)))).limit(1);
+  if (inScope.length === 0) throw new AggregateNotFoundError(`Note ${id} not found`);
+  …
+}
 ```
 
-The row is admitted by the **anchored** test, which has no pattern language at
-all — that is what keeps an org legitimately named `acme_corp` from reading
-`acmeXcorp.…` (#2562's `orgXa.leak` trap). The `LIKE` in front exists only so the
-planner can turn the pattern's fixed prefix into an index range over the
-`data_key text_pattern_ops` index instead of sequentially scanning the tenant's
-whole table; `!`, `%` and `_` in the anchor are escaped with `ESCAPE '!'`. The
-two-term split is deliberate: a mistake in the escaping can only make the
-prefilter *wider*, and the recheck still throws the extra rows away, so
-sargability can never cost isolation. `EXPLAIN` proof:
-`test/e2e/tenancy-subtree-explain.test.ts`.
+A workflow that mutates every row a criterion read returns fails whole when one
+row lies outside the caller's write scope: the op route's 404, and the
+transaction rolls back.
 
-Generated `deep` filter, one line per backend (for `allow deep on Account`):
+**Reach beyond the own org is an explicit act**, never a consequence of where
+an org sits in the registry tree. `allow deep on X` and `allow global on X`
+(read or write) are refused with `loom.policy-level-removed`, naming the
+replacement — a share or a row rule (D-SHARING):
 
-| Backend | Emitted predicate |
-|---|---|
-| node (Hono/Drizzle) | ``or(and(isNotNull(t.dataKey), or(eq(t.dataKey, p.orgPath), and(sql`${t.dataKey} like ${esc(p.orgPath)} escape '!'`, sql`strpos(${t.dataKey}, ${p.orgPath + "."}) = 1`))), and(isNull(t.dataKey), eq(t.tenantId, p.tenantId)))`` |
-| node (Hono/MikroORM) | (in the entity's default `tenantOwned` schema filter) `raw("((data_key is not null and (data_key = ? or (data_key like ? escape '!' and strpos(data_key, ?) = 1))) or (data_key is null and tenant_id = ?))", […])` |
-| .NET (EF Core) | `(x.DataKey != null && (x.DataKey == u.OrgPath \|\| (EF.Functions.Like(x.DataKey, esc(u.OrgPath), "!") && x.DataKey.StartsWith(u.OrgPath + ".")))) \|\| (x.DataKey == null && x.TenantId == u.TenantId)` |
-| Python (SQLAlchemy) | `or_(and_(R.data_key.isnot(None), or_(R.data_key == u.org_path, and_(R.data_key.like(esc(u.org_path), escape="!"), func.strpos(R.data_key, u.org_path + ".") == 1))), and_(R.data_key.is_(None), R.tenant_id == u.tenant_id))` |
-| Java (Hibernate `@Filter`) | `((data_key is not null and (data_key = :__cuOrgPath or (data_key like :__cuSubtreeOrgPath escape '!' and position(concat(:__cuOrgPath, '.') in data_key) = 1))) or (data_key is null and tenant_id = :__cuTenantId))`, each `:__cu…` a `@ParamDef` resolved from the request principal per query |
-| Elixir (Ecto) | `fragment("(? IS NOT NULL AND (? = ? OR (? LIKE ? ESCAPE '!' AND strpos(?, ? \|\| '.') = 1))) OR (? IS NULL AND ? = ?)", …)` with `^`-pinned fail-closed principal |
+```ddd
+policy {
+  allow deep on Account
+}
+```
 
-(`esc(…)` above is each language's inline escape chain — `!`→`!!`, `%`→`!%`,
-`_`→`!_`, then `+ ".%"`. The five spellings live together in
-[`src/generator/_expr/subtree-like.ts`](../src/generator/_expr/subtree-like.ts).)
+```text
+error: `allow deep on Account`: the 'deep' level no longer exists — data visibility is flat, so a tenant-owned row is visible to its own org only ('local', the default).  To reach rows of other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule or write `allow local on …`.
+```
 
-**Three settled semantics decisions** (authorization.md §9 leaves them to P2.4):
-
-1. **NULL-`dataKey` fallback (OR-fallback, not pure fail-closed LIKE).** Rows
-   stamped before P2.3 — or by a principal-less save — carry a NULL `data_key`,
-   which a bare prefix LIKE silently hides. `deep` therefore ORs in
-   `dataKey IS NULL AND tenantId == currentUser.tenantId`: NULL rows degrade to
-   exactly the `local` floor, staying visible to their own tenant and **never
-   widening past it** (no cross-tenant leak). This preserves flat-tenancy
-   correctness for legacy rows while the tree fills in.
-2. **Delimiter-correct prefix.** The descendant match is `path` exactly OR
-   `path || '.'` + more (the `.` segment separator), so `org_a` never
-   prefix-matches `org_ab`. The `text_pattern_ops` opclass on `data_key` ships
-   as P2.5 and is what the escaped-`LIKE` prefilter rides (M-T3.17).
-3. **`global` = the caller's root-org subtree (P2.5).** authorization.md §2 says
-   "all in my tenant, never the whole table." Under a hierarchy `global` is the
-   full **root subtree** — every org descending from the caller's *root* org —
-   emitted as the same descendant-or-self prefix scan as `deep` but anchored at
-   `currentUser.rootOrg` (the first `orgPath` segment) instead of `orgPath`. The
-   accessor is a pure string derivation off the already-resolved `orgPath` (no
-   extra DB read); every backend exposes it beside `orgPath`. Under **flat**
-   tenancy every org is its own root, so `rootOrg == orgPath == the tenant floor`
-   and `global == deep == local` all coincide — and `global`/`deep` still
-   require a `tenantRegistry` hierarchy (`loom.policy-level-requires-hierarchy`),
-   so a flat model keeps the fail-closed floor. It never leaks past the tenant
-   root.
-
-**The ladder is still a compiler-owned sentinel, not `startsWith` (yet).** Both
-levels lower to an `authz-filter { kind: "scope" }` node that each backend
-renders natively — see `buildDeepScopeFilter` / `buildGlobalScopeFilter` in
-[`src/ir/util/tenant-stance.ts`](../src/ir/util/tenant-stance.ts). The reconciled
-surface ([tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md)
-decision 2) retires that sentinel in favour of an ordinary `filter` written in
-the language, and its **prefix operator now ships**: `startsWith` is queryable
-on every backend ([`stdlib.md`](stdlib.md) → `string`), lowering to an anchored
-`strpos(col, $p) = 1` rather than a `LIKE` so a `%`/`_` in the prefix VALUE
-matches literally. What the swap still needs is two more queryable shapes the
-sublanguage lacks — string concatenation (`currentUser.orgPath + "."`) and
-`!= null` on the internal `dataKey` column — because the sentinel's
-NULL-`dataKey` OR-fallback (decision 1 below) is load-bearing and must survive
-it. Until then the operator is available to authors and the ladder keeps its
-sentinel.
-
-**Validation (fail closed).** `deep`/`global` need a `tenantRegistry` hierarchy
-(`loom.policy-level-requires-hierarchy`); the target must be a tenant-owned
-aggregate in the same context (`loom.policy-unknown-aggregate`,
-`loom.policy-target-not-tenant-owned`); one level per aggregate
-(`loom.policy-duplicate-target`). The minimal surface is the read ladder only —
-operation/view/field gates, `deny`, and policy `function`/`let` helpers stay
-later proposal work.
+**Validation (fail closed).** The target must be a tenant-owned aggregate in
+the same context (`loom.policy-unknown-aggregate`,
+`loom.policy-target-not-tenant-owned`); one rule per aggregate
+(`loom.policy-duplicate-target`).
 
 ## `organizationContext` — the operating scope and its switch gate
 
 `currentUser` is the **principal**: who is calling, their permissions, and —
-through `currentUser.orgPath` — their own org. `organizationContext` is the
-**operating scope**: the org this request acts *in*. The two coincide unless the
-request asks to operate in a descendant org, by sending an `x-org-context`
-header carrying that org's materialized path. Design record:
-[organization-context](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/organization-context.md); reconciled
-surface decisions 3–5 of
-[tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md).
+through the tenancy claim — their home org. `organizationContext` is the
+**operating scope**: the org this request acts *in*. It has exactly one member,
+`organizationContext.org` — the operating org's **id**. The two coincide unless
+the request sends an `x-org-context` header naming an org.
 
-It has exactly one member, `organizationContext.orgPath`, and its first use is
-the tenant **write** stamp — an admin at `org_a` creating a row that belongs to
-`org_a.b` without a per-write registry read:
+Its use is the tenant **write** stamp — a capability that stamps the row's
+tenant from the operating org while the read filter stays on the principal:
 
 ```ddd
 system OrgContext {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
 
-  // The reconciled surface's tenantOwned: the WRITE stamp follows the operating
-  // scope, the read filter stays on the principal.  A user-declared capability
-  // of the same name replaces the prelude's.
+  // A user-declared capability of the same name replaces the prelude's: the
+  // WRITE stamp follows the operating org, the read filter stays on the principal.
   capability tenantOwned {
     tenantId: string internal
-    dataKey: string? internal
     stamp onCreate {
-      tenantId := currentUser.tenantId
-      dataKey := organizationContext.orgPath
+      tenantId := organizationContext.org
     }
     filter this.tenantId == currentUser.tenantId
   }
-  // … Org implements tenantRegistry, Account with tenantOwned,
-  //   policy { allow deep on Account }, an `auth: required` deployable
+  // … Account with tenantOwned, an `auth: required` deployable
 }
 ```
 
-```ts
-// node — auth/middleware.ts (generated): the gate, between resolving the
-// principal's orgPath and building the principal
-const orgPath = await resolveOrgPath(String(claims.tenantId ?? ""));
-const requestedOrgContext = c.req.header("x-org-context");
-const orgContextPath = orgContextFor(orgPath, requestedOrgContext);
-if (orgContextPath === null) return orgContextForbidden(c, requestedOrgContext ?? "", orgPath);
-const user: User = { ...claims, orgPath, rootOrg: rootOrgOf(orgPath), orgContextPath };
+`organizationContext.org` lowers to the principal member
+`currentUser.operatingOrg`, set once per request by the auth middleware's gate:
 
-// db/audit-stamp.ts (generated): the stamp reads the operating scope
-return { ...row, tenantId: currentUser.tenantId, dataKey: currentUser.orgContextPath };
+```ts
+// node — auth/middleware.ts (generated)
+function orgContextFor(homeOrg: string, requested: string | undefined): string | null {
+  if (requested === undefined || requested === "") return homeOrg;
+  if (homeOrg === "") return null;
+  return requested === homeOrg ? requested : null;
+}
+// …
+const homeOrg = String(claims.tenantId ?? "");
+const requestedOrgContext = c.req.header("x-org-context");
+const operatingOrg = orgContextFor(homeOrg, requestedOrgContext);
+if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);
+const user: User = { ...claims, operatingOrg };
+
+// db/audit-stamp.ts (generated): the stamp reads the operating org
+return { ...row, tenantId: currentUser.operatingOrg };
 ```
 
 **The gate.** The accessor re-roots the write stamp from an unforgeable claim
 onto a value the caller *submits*, so it exists only together with a
 fail-closed, per-backend gate. Each backend's auth middleware resolves the
-operating scope **once per request, before any handler runs**:
+operating org **once per request, before any handler runs**, with no registry
+read:
 
-| `x-org-context` | Caller's `orgPath` | Result |
+| `x-org-context` | Caller's tenancy claim | Result |
 |---|---|---|
-| absent or empty | any | the principal's own `orgPath` — never a widening |
-| equal to `orgPath`, or `orgPath` + `.` + more | non-empty | admitted: `organizationContext.orgPath` is the header value |
-| anything else (an ancestor, a sibling, the delimiter trap `org_ab` under `org_a`, an unrelated root) | non-empty | **403**, `org_context_denied` logged with `reason: "outside_scope"` |
+| absent or empty | any | the home org (the claim) |
+| equal to the claim | non-empty | admitted: `organizationContext.org` is the home org |
+| any other org id | non-empty | **403**, `org_context_denied` logged with `reason: "outside_scope"` |
 | any value | empty (no tenancy claim) | **403**, `reason: "no_principal_scope"` |
 
-The containment test is the delimiter-correct prefix every `deep` read uses —
-equality, or `startsWith(orgPath + ".")` — so `org_a` never admits `org_ab`. A
-refused request never reaches a handler: nothing is written, and the 403 is an
-RFC 7807 problem (`"title": "Forbidden"`). The deny is logged through the
+A refused request never reaches a handler: nothing is written, and the 403 is
+an RFC 7807 problem (`"title": "Forbidden"`). The deny is logged through the
 neutral catalog (`org_context_denied`, `warn`, fields `org_context` / `reason`
 / `status`) on all five backends.
 
-| Backend | Where the gate runs | Where the operating scope lives |
+| Backend | Where the gate runs | Where the operating org lives |
 |---|---|---|
-| node (Hono) | `authMiddleware`, after `resolveOrgPath` | `User.orgContextPath` on the request principal |
-| .NET | `UserMiddleware`, after the `IOrgPathResolver` read | `User.OrgContextPath` (settable, defaults to `OrgPath`) |
-| Java (Spring) | `UserFilter`, inside the request `try` (the `finally` clears it) | the `OrgContext` `ThreadLocal`; `User.orgContextPath()` falls back to `orgPath()` |
-| Python (FastAPI) | `AuthMiddleware`, after `_resolve_org_path` | `user.org_context_path` (off `asdict()` / the `/auth/me` wire) |
-| Elixir (Phoenix) | the `Auth` plug's `call/2`, via `org_context_gate/2` | `current_user.org_context_path` (seeded with `org_path` on every principal the plug builds) |
+| node (Hono) | `authMiddleware`, via `orgContextFor` | `User.operatingOrg` on the request principal |
+| .NET | `UserMiddleware` | `User.OperatingOrg` (settable, defaults to the claim) |
+| Java (Spring) | `UserFilter` | `User.operatingOrg()` |
+| Python (FastAPI) | `AuthMiddleware` | `user.operating_org` (off `asdict()` / the `/auth/me` wire) |
+| Elixir (Phoenix) | the `Auth` plug's `call/2`, via `org_context_gate/2` | `current_user.operating_org` (seeded by `put_operating_org/1` on every principal the plug builds) |
 
-**Reads stay principal-anchored** (reconciled decision 4, verified — not
-rebuilt): every derived tenant filter and the `deep`/`global` ladder anchor on
-`currentUser`, never on `organizationContext`. A switched request reads exactly
-what the caller would read without the header. A read that an author anchors on
-`organizationContext.orgPath` can only *narrow*: the gate guarantees the
-operating scope lies inside the principal's subtree.
-
-**What it does not do (yet).** `tenantId` stays principal-anchored, so a row
-created under a switch carries the caller's `tenantId` and the target org's
-`dataKey`: it is visible to `deep` reads from the caller's org and the target's
-ancestors, and to `deep` reads from the target org itself, but not to the target
-org's `local` floor. There is no `organizationContext.orgId` (deriving an org id
-from a submitted path needs a registry read by `dataKey`). The prelude's own
-`tenantOwned` still stamps `currentUser.orgPath`; re-rooting it (so every
-tenant-owned write follows the operating scope) is a separate, owner-decided
-change, because it would put the gate in front of every tenancy system.
+**Reads stay principal-anchored**: every derived tenant filter anchors on
+`currentUser`, never on `organizationContext`. A request with the header reads
+exactly what the caller would read without it.
 
 **Validation (fail closed).** `loom.org-context-surface` — a bare
-`organizationContext`, any member but `orgPath`, or any read inside a `ui` (a
-frontend has no switch gate). `loom.org-context-gate-unmet` — a read with no
-`tenancy by … of <Registry>` whose registry `implements tenantRegistry`
-(nothing to switch within), or a read in a context hosted by a backend
+`organizationContext`, any member but `org`, or any read inside a `ui` (a
+frontend has no switch gate). `organizationContext.orgPath` is
+`loom.tenancy-principal-member-removed`, naming `organizationContext.org`.
+`loom.org-context-gate-unmet` — a read in a context hosted by a backend
 deployable without `auth: required`. The runtime proof is the `org-context`
 leg of `tenancy-e2e` on all five backends (`npm run test:tenancy-org-context*`).
-
-## Scope and roadmap
-
-Phase 1 is flat tenancy (`local` reads — tenant-id equality). The registry
-self-scope + claim-less bootstrap shipped as Phase 1b (above). The registry tree
-(`implements tenantRegistry` → `parent` + managed `dataKey`) + the `orgPath`
-registry read on all five backends shipped as Phase 2 P2.2 (above). Stamping
-`dataKey` on every `tenantOwned` aggregate (P2.3, above) shipped too. The
-`deep`/`global` `policy {}` read ladder (P2.4, above) shipped. The
-materialized-path `dataKey` prefix index (`text_pattern_ops`) + the
-`currentUser.rootOrg` accessor that widens `global` to the root-org subtree
-shipped as P2.5 (above) — **closing multi-tenancy Phase 2**. Also shipped since:
-
-- **The `claim`/`registry` cross-reference upgrade** (capstone decision 5) —
-  the `tenancy by` bindings are now real Langium cross-references
-  (`claim=[UserField:UserFieldName] 'of' registry=[Aggregate:ID]` in
-  `src/language/ddd.langium`), so an unknown claim/registry is a linking error
-  (with navigation/rename) rather than a themed validator code. Byte-identical
-  surface.
-- **`tenant_id` index** — the derived non-unique `<table>_tenant_id_idx` is
-  emitted for every `tenantOwned` table (via `derive("tenant_id")` in
-  `withTenantIndex`, `src/system/migrations-builder.ts`), riding the shared
-  `MigrationsIR` directly like the `dataKey` prefix index — a derived,
-  non-authored index that needed no `index:` surface. (Consistent with the
-  `tenant_id_idx` note under `with tenantOwned` above.)

@@ -26,16 +26,26 @@ function declares(bc: BoundedContextIR, typeName: string): "own" | "system" | un
 
 /** The context name `typeName` is keyed under, looked up first in `home` (the
  *  context the rendering form belongs to), then in `others`; `undefined` for a
- *  system-level (root-declared) type or one no given context declares. */
+ *  system-level (root-declared) type or one no given context declares.
+ *
+ *  The home context wins outright: a type it declares is the one its own pages
+ *  mean, exactly as an unqualified `label(X)` there reads.  A type the home
+ *  does not declare is looked up across `others`; when several contexts declare
+ *  it the explicit `label(X)` path reports the name ambiguous and asks the
+ *  author to qualify it, and this implicit path has nobody to ask, so it takes
+ *  the alphabetically first owner — a choice that depends on the names alone,
+ *  never on the order the contexts were enumerated in. */
 export function modelTextContextOf(
   typeName: string,
   home: BoundedContextIR | undefined,
   others: Iterable<BoundedContextIR> = [],
 ): string | undefined {
-  for (const bc of home ? [home, ...others] : others) {
-    const d = declares(bc, typeName);
-    if (d === "own") return bc.name;
+  if (home) {
+    const d = declares(home, typeName);
+    if (d === "own") return home.name;
     if (d === "system") return undefined;
   }
-  return undefined;
+  const owners = new Set<string>();
+  for (const bc of others) if (declares(bc, typeName) === "own") owners.add(bc.name);
+  return [...owners].sort()[0];
 }

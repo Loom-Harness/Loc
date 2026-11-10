@@ -423,31 +423,20 @@ export interface BoundedContextIR extends Sourced {
    *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
    *  names shadow.  Undefined when the model has a single context. */
   siblingEnums?: EnumIR[];
-  /** Per-aggregate read reachability levels declared by `policy {}` blocks in
-   *  this context (authorization.md §3; tenancy.md).  Each
-   *  entry names a tenant-owned aggregate and its directional read level
-   *  (`local`/`deep`/`global`).  Consumed by `enrichLoomModel`
-   *  (`applyPolicyReadLevels`), which rewrites the aggregate's `tenantOwned`
-   *  capability filter (`contextFilters`) to the level-appropriate predicate.
-   *  Undefined / empty when the context declares no policy. */
+  /** `policy { allow local on X }` read rules declared in this context
+   *  (tenancy.md).  `local` is the tenant floor the `tenantOwned` capability
+   *  already applies, so a rule only names an aggregate for the phase-⑦
+   *  target checks.  Undefined / empty when the context declares none. */
   policyReadLevels?: PolicyReadLevelIR[];
-  /** Per-aggregate WRITE reachability levels declared by `policy { allow write
-   *  <level> on X }` blocks in this context
-   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  A write level gates INSTANCE
-   *  mutations (update-style ops, destroy, applier dispatch) on the target
-   *  row's write scope; `local` is the flat `tenantId ==` floor (the default),
-   *  `deep` the caller's org + descendants.  Consumed by `enrichLoomModel`,
-   *  which derives each tenant-owned aggregate's `writeScopeFilter` from the
-   *  read + write levels.  Undefined / empty when the context declares no
-   *  `allow write` rule. */
+  /** `policy { allow write local on X }` write rules declared in this context
+   *  — the floor every mutation already loads through, named for the phase-⑦
+   *  target checks.  Undefined / empty when the context declares none. */
   policyWriteLevels?: PolicyWriteLevelIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
-   *  blocks in this context
-   *  (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  Each entry names an aggregate
+   *  blocks in this context.  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
    *  invisible; `write` = read-only carve-out).  Consumed by `enrichLoomModel`
-   *  (`applyPolicyDenies`), which — AFTER the allow read/write-level passes, so
-   *  DENY WINS — appends an always-false predicate to the aggregate's read
+   *  (`applyPolicyDenies`), which appends an always-false predicate to the aggregate's read
    *  `contextFilters` (deny read) or overwrites its `writeScopeFilter` (deny
    *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
    *  no `deny` rule. */
@@ -477,35 +466,29 @@ export interface PolicyReadGateIR extends Sourced {
   source: string;
 }
 
-/** One `allow <level> on <Aggregate>` rule lowered from a `policy {}` block —
- *  a tenant-owned aggregate's directional read reachability level
- *  (tenancy.md).  `local` is the flat `tenantId ==` tenant
- *  floor (and the default when no policy names an aggregate); `deep` widens to
- *  the caller's org + all descendants (a `dataKey` materialized-path prefix
- *  match); `global` is all rows in the caller's tenant (tenant-root-floored). */
+/** One `allow local on <Aggregate>` rule lowered from a `policy {}` block — a
+ *  tenant-owned aggregate's read level (tenancy.md).  `local`, the flat
+ *  `tenantId ==` floor, is the only level and the default (D-TENANCY-FLAT). */
 export interface PolicyReadLevelIR {
   /** The tenant-owned aggregate this level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
-  /** The directional read level. */
-  level: "local" | "deep" | "global";
-  /** Source span text for diagnostics (`allow deep on Invoice`). */
+  /** The read level. */
+  level: "local";
+  /** Source span text for diagnostics (`allow local on Invoice`). */
   source: string;
 }
 
-/** One `allow write <level> on <Aggregate>` rule lowered from a `policy {}`
- *  block (authorization.md).  `local` is the flat `tenantId ==`
- *  tenant floor (and the default write scope when no rule names an aggregate);
- *  `deep` widens to the caller's org + all descendants (a `dataKey`
- *  materialized-path prefix).  `global` parses but is rejected
- *  (`loom.policy-write-global-invalid`). */
+/** One `allow write local on <Aggregate>` rule lowered from a `policy {}`
+ *  block (authorization.md).  `local`, the flat `tenantId ==` floor, is the
+ *  only write level and the default. */
 export interface PolicyWriteLevelIR {
   /** The tenant-owned aggregate this write level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
-  /** The directional write level. */
-  level: "local" | "deep" | "global";
-  /** Source span text for diagnostics (`allow write deep on Invoice`). */
+  /** The write level. */
+  level: "local";
+  /** Source span text for diagnostics (`allow write local on Invoice`). */
   source: string;
 }
 

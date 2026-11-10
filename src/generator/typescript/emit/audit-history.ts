@@ -51,7 +51,7 @@ export function historyMapperName(agg: EnrichedAggregateIR): string {
  *  declared name and nothing else — the same projection `/api/auth/me` answers
  *  — or null when no principal is bound.  Storing the principal object as-is
  *  recorded whatever the verifier carried: every claim the dev stub was handed,
- *  and under tenancy the derived `orgPath` / `rootOrg` scoping members.  `user`
+ *  and the derived `operatingOrg` scoping member.  `user`
  *  is undefined on a deployable with no auth, where there is never an actor. */
 export function renderAuditActorModule(user: UserIR | undefined): string {
   const body = user

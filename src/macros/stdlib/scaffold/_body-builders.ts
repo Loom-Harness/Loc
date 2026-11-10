@@ -1174,7 +1174,7 @@ function labelReads(agg: Aggregate, label: ListLabel): string[] {
  *  (`forApiRead`, src/ir/enrich/wire-projection.ts), so the client DTO never
  *  carries them — a scaffold that displayed them would reference a column that
  *  doesn't exist on the response type and fail `tsc`.  Capability mixins inject
- *  exactly such fields (`tenantOwned` → `tenantId`/`dataKey` internal,
+ *  exactly such fields (`tenantOwned` → `tenantId` internal,
  *  `softDeletable` → `isDeleted` internal), which is why a plain `with
  *  scaffold` over a `tenantOwned`/`softDeletable` aggregate would otherwise
  *  emit an uncompilable frontend.  Applied at the crudish aggregate

@@ -1,7 +1,6 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { foldProducersOf, foldTenancyVerdict } from "../../enrich/fold-tenancy.js";
-import { remoteRegistryReaders } from "../../enrich/hosting-facts.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
@@ -9,7 +8,6 @@ import {
   classifyTenantStance,
   hasTenantOwned,
   hasTenantRegistry,
-  hierarchyRegistry,
   type TenantStance,
   tenancyClaimBinding,
 } from "../../util/tenant-stance.js";
@@ -54,9 +52,9 @@ function typeName(t: TypeIR): string {
   return t.kind === "primitive" ? t.name : t.kind;
 }
 
-/** Structural checks for the `tenantRegistry` hierarchy capability
+/** Structural checks for the `tenantRegistry` tree capability
  *  (tenancy.md).  The capability PROVIDES the registry
- *  tree fields (`parent: Self id?`, managed `dataKey`); this verifies the
+ *  tree field (`parent: Self id?`); this verifies the
  *  facts the design lists that aren't field-presence (which the capability
  *  guarantees by construction): it is opted into only under a `tenancy by`
  *  system, exactly one aggregate carries it, and that aggregate is the
@@ -74,8 +72,8 @@ function validateTenantRegistry(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
   if (registries.length === 0) return;
 
-  // Hierarchy has no meaning without the `tenancy by` declaration that names
-  // the claim keying `currentUser.orgPath` into the registry — fail-closed.
+  // The tree has no meaning without the `tenancy by` declaration that names
+  // the registry — fail-closed.
   if (!sys.tenancy) {
     for (const r of registries) {
       diags.push({
@@ -109,8 +107,8 @@ function validateTenantRegistry(sys: SystemIR, diags: LoomDiagnostic[]): void {
     return;
   }
 
-  // The one registry must BE the `of <Registry>` target — the hierarchy fields
-  // hang off the aggregate the tenancy claim keys into, nowhere else.
+  // The one registry must BE the `of <Registry>` target — the tree field
+  // hangs off the aggregate the tenancy claim keys into, nowhere else.
   const only = registries[0];
   if (only && only.agg !== sys.tenancy.registryName) {
     diags.push({
@@ -125,8 +123,10 @@ function validateTenantRegistry(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
-/** Validate `policy { allow <level> on <Aggregate> }` read-reachability rules
- *  (authorization.md §3; tenancy.md).  Fail-closed:
+/** Validate `policy { allow local on <Aggregate> }` read rules (tenancy.md).
+ *  `local` is the only level (D-TENANCY-FLAT); a removed `deep`/`global` is
+ *  refused at the AST (`loom.policy-level-removed`) and never lowered.
+ *  Fail-closed:
  *
  *   - `loom.policy-unknown-aggregate` — the target names no aggregate in the
  *     policy's own context (the read ladder scopes a concrete tenant-owned
@@ -134,16 +134,11 @@ function validateTenantRegistry(sys: SystemIR, diags: LoomDiagnostic[]): void {
  *   - `loom.policy-target-not-tenant-owned` — the target exists but isn't
  *     `with tenantOwned`.  A read level only refines the tenant floor, which
  *     only tenant-owned aggregates carry (`crossTenant` / unscoped / the
- *     self-keyed registry have no `tenantId`/`dataKey` to scope by).
- *   - `loom.policy-level-requires-hierarchy` — `deep` / `global` need the
- *     materialized-path tree (`implements tenantRegistry`); without it the
- *     directional ladder is meaningless (`local` is the only defined level
- *     under flat tenancy — every org is its own root).
+ *     self-keyed registry have no `tenantId` to scope by).
  *   - `loom.policy-duplicate-target` — two rules select the same aggregate, so
  *     the effective level is ambiguous.
  */
 function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const hierarchy = hierarchyRegistry(sys) !== undefined;
   for (const mod of sys.subdomains) {
     for (const ctx of mod.contexts) {
       const rules = ctx.policyReadLevels ?? [];
@@ -194,52 +189,22 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
             source: src,
             origin: ctx.origin,
           });
-          continue;
-        }
-        if ((rule.level === "deep" || rule.level === "global") && !hierarchy) {
-          diags.push({
-            severity: "error",
-            code: "loom.policy-level-requires-hierarchy",
-            message: diagMessage("loom.policy-level-requires-hierarchy#read", {
-              name: ctx.name,
-              source: rule.source,
-              level: rule.level,
-            }),
-            source: src,
-            origin: ctx.origin,
-          });
         }
       }
     }
   }
 }
 
-/** Validate `policy { allow write <level> on <Aggregate> }` rules
- *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Fail-closed:
- *
- *   - the shared target checks (`loom.policy-unknown-aggregate`,
- *     `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`) —
- *     a write rule scopes a concrete tenant-owned aggregate, and a context may
- *     hold at most one write rule per aggregate.
- *   - `loom.policy-write-global-invalid` — `write global` is rejected in
- * (root-subtree-wide mutation is a footgun); only `write local` (the
- *     floor) and `write deep` are offered.
- *   - `loom.policy-level-requires-hierarchy` — `write deep` needs the
- *     materialized-path tree (`implements tenantRegistry`), same as read `deep`.
- *   - `loom.policy-write-wider-than-read` — `write deep` requires a matching
- *     `allow deep`/`allow global` read rule (you cannot write what you cannot
- *     read).
- */
+/** Validate `policy { allow write local on <Aggregate> }` rules.  Fail-closed
+ *  with the shared target checks (`loom.policy-unknown-aggregate`,
+ *  `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`): a
+ *  write rule scopes a concrete tenant-owned aggregate, and a context may hold
+ *  at most one write rule per aggregate. */
 function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const hierarchy = hierarchyRegistry(sys) !== undefined;
-  const rank: Record<string, number> = { local: 0, deep: 1, global: 2 };
   for (const mod of sys.subdomains) {
     for (const ctx of mod.contexts) {
       const rules = ctx.policyWriteLevels ?? [];
       if (rules.length === 0) continue;
-      const readByAgg = new Map(
-        (ctx.policyReadLevels ?? []).map((r) => [r.aggregate, r.level] as const),
-      );
       const seen = new Set<string>();
       for (const rule of rules) {
         const src = `${ctx.name}/policy`;
@@ -286,53 +251,6 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
             source: src,
             origin: ctx.origin,
           });
-          continue;
-        }
-        if (rule.level === "global") {
-          diags.push({
-            severity: "error",
-            code: "loom.policy-write-global-invalid",
-            message: diagMessage("loom.policy-write-global-invalid", {
-              name: ctx.name,
-              source: rule.source,
-            }),
-            source: src,
-            origin: ctx.origin,
-          });
-          continue;
-        }
-        if (rule.level === "deep" && !hierarchy) {
-          diags.push({
-            severity: "error",
-            code: "loom.policy-level-requires-hierarchy",
-            message: diagMessage("loom.policy-level-requires-hierarchy#write", {
-              name: ctx.name,
-              source: rule.source,
-            }),
-            source: src,
-            origin: ctx.origin,
-          });
-          continue;
-        }
-        // Coherence: you cannot write wider than you can read.  `write deep`
-        // requires the aggregate's read level to be at least `deep`
-        // (`allow deep` or `allow global`).
-        if (rule.level === "deep") {
-          const readLevel = readByAgg.get(rule.aggregate) ?? "local";
-          if ((rank[readLevel] ?? 0) < (rank.deep ?? 1)) {
-            diags.push({
-              severity: "error",
-              code: "loom.policy-write-wider-than-read",
-              message: diagMessage("loom.policy-write-wider-than-read", {
-                name: ctx.name,
-                source: rule.source,
-                aggregate: rule.aggregate,
-                readLevel,
-              }),
-              source: src,
-              origin: ctx.origin,
-            });
-          }
         }
       }
     }
@@ -434,14 +352,10 @@ const ORG_CONTEXT_GATE_FAMILIES: ReadonlySet<string> = new Set([
 ]);
 
 /** `loom.org-context-gate-unmet` — the operating-scope accessor
- *  (`organizationContext.orgPath`, organization-context.md; M-T3.6 items 3+5)
- *  lands ONLY together with its fail-closed switch gate, so a model that reads
- *  it where the gate's preconditions are not derivable is refused by name:
+ *  (`organizationContext.org`) lands ONLY together with its fail-closed switch
+ *  gate, so a model that reads it where the gate's preconditions are not
+ *  derivable is refused by name:
  *
- *   #no-hierarchy — the gate admits a requested org only inside the caller's
- *     `orgPath` subtree, so a `tenancy by … of <Registry>` whose registry
- *     `implements tenantRegistry` must exist (no hierarchy ⇒ nothing to switch
- *     within, and no subtree to check against).
  *   #no-auth — every BACKEND deployable hosting a reading context must carry
  *     `auth: required` (with a `user { … }` block): the gate lives in the auth
  *     middleware, so a deployable without one would serve a read of a value
@@ -454,21 +368,7 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
     .flatMap((mod) => mod.contexts)
     .filter((ctx) => contextReadsOrgContext(ctx));
   if (readers.length === 0) return;
-  const hierarchy = hierarchyRegistry(sys) !== undefined;
   for (const ctx of readers) {
-    if (!hierarchy) {
-      diags.push({
-        severity: "error",
-        code: "loom.org-context-gate-unmet",
-        message: diagMessage("loom.org-context-gate-unmet#no-hierarchy", {
-          ctx: ctx.name,
-          name: sys.name,
-        }),
-        source: `${sys.name}/${ctx.name}`,
-        origin: ctx.origin,
-      });
-      continue;
-    }
     for (const dep of sys.deployables) {
       if (!dep.contextNames.includes(ctx.name)) continue;
       const family = platformFamily(dep.platform);
@@ -543,33 +443,8 @@ function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[])
   }
 }
 
-/** `loom.tenancy-registry-remote-unsupported` — a backend deployable hosts a
- *  context that depends on the registry's materialized path (a `tenantOwned`
- *  aggregate stamps `dataKey := currentUser.orgPath`; any `orgPath` / `rootOrg`
- *  / operating-scope read) but does not host the registry.  Its database has
- *  no registry table, and no backend resolves the path across deployables, so
- *  the rows it writes would be keyed by the bare claim and a `deep` read would
- *  see only the caller's own org. */
-function validateRegistryHosting(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const r of remoteRegistryReaders(sys)) {
-    diags.push({
-      severity: "error",
-      code: "loom.tenancy-registry-remote-unsupported",
-      message: diagMessage("loom.tenancy-registry-remote-unsupported", {
-        name: r.deployable.name,
-        context: r.context,
-        registry: sys.tenancy?.registryName,
-        registryContext: r.registryContext,
-      }),
-      source: `${sys.name}/${r.deployable.name}`,
-      origin: r.deployable.origin,
-    });
-  }
-}
-
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateOrgContextGate(sys, diags);
-  validateRegistryHosting(sys, diags);
   validateTenantRegistry(sys, diags);
   validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);

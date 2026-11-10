@@ -296,7 +296,7 @@ export function renderJavaService(
         ...createLets,
         `        var aggregate = ${agg.name}.create(${createArgs});`,
         // A DOCUMENT root is a plain POJO with no JPA persistence context, so
-        // its claim stamps (`tenantOwned`'s tenantId/dataKey) cannot ride an
+        // its claim stamps (`tenantOwned`'s tenantId) cannot ride an
         // @PrePersist hook — entity.ts emits them as a plain `_stampOnCreate()`
         // and the call belongs here, mirroring python's route calling
         // `_stamp_on_create`.  Both halves read `hookStampsFor` so a method
@@ -863,17 +863,17 @@ export function renderJavaService(
     ...(isTenantScopedStream(agg)
       ? [
           // The events' origin is their STREAM's tenant: the outbox capture and
-          // the channel envelope (`tenantid` / `loomorgpath`) read the ambient
-          // principal, so when the raising principal's tenant is not the
-          // stream's (a `policy`-widened subtree append) the publish runs in the
-          // stream tenant's event-origin frame.  Same tenant: the request's own.
+          // the channel envelope (`tenantid`) read the ambient principal, so
+          // when the raising principal's tenant is not the stream's the
+          // publish runs in the stream tenant's event-origin frame.  Same
+          // tenant: the request's own.
           `    private void publishEvents(${agg.name} aggregate) {`,
           `        var __origin = User.currentEventOrigin();`,
           `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), aggregate.tenantId())) {`,
           `            publishAll(aggregate);`,
           `        } else {`,
           `            CurrentUserAccessor.runAsEventOrigin(`,
-          `                new EventOrigin(aggregate.tenantId(), aggregate.dataKey(), __origin == null ? null : __origin.causedBy()),`,
+          `                new EventOrigin(aggregate.tenantId(), __origin == null ? null : __origin.causedBy()),`,
           `                () -> publishAll(aggregate));`,
           `        }`,
           `    }`,

@@ -66,6 +66,12 @@ export function registerI18nImport(ctx: WalkContext): void {
   addImport(ctx, I18N_MODULE, "t");
 }
 
+/** Register the `tRich` import — the rich-text sentence twin of `t` on the four
+ *  JS frontends. */
+export function registerI18nRichImport(ctx: WalkContext): void {
+  addImport(ctx, I18N_MODULE, "tRich");
+}
+
 /** True when `rendered` carries a PACK-DECLARED chrome binding, i.e. the file
  *  it lands in has to resolve `t`.  The map-level twin of
  *  {@link wirePackChromeImport}, for a page-shell that assembles a pack

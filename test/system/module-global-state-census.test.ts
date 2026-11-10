@@ -138,6 +138,10 @@ const PINNED: Record<string, Pin> = {
     reason:
       "`withSourceOverrides` saves the previous override set and restores it in a `finally`; `sourceText` only reads it.",
   },
+  "src/generator/python/find-predicate.ts:existsScope": {
+    discipline: "scoped-restore",
+    reason: "`lowerOver` saves the prior scope and restores it in a `finally`.",
+  },
   "src/language/print/print-expr.ts:currentCol": {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",

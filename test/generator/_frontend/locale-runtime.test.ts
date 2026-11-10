@@ -55,7 +55,11 @@ interface Runtime {
   LOCALES: Array<{ tag: string; name: string; dir: string }>;
   env: {
     storage: Map<string, string>;
-    doc: { documentElement: { lang: string; dir: string }; cookie: string };
+    doc: {
+      documentElement: { lang: string; dir: string };
+      cookie: string;
+      querySelector: (selector: string) => null;
+    };
     replaced: string[];
   };
 }
@@ -78,7 +82,7 @@ function load(
   const storage = new Map<string, string>();
   if (browser.stored !== undefined) storage.set("loom.locale", browser.stored);
   const replaced: string[] = [];
-  const doc = { documentElement: { lang: "", dir: "" }, cookie: "" };
+  const doc = { documentElement: { lang: "", dir: "" }, cookie: "", querySelector: () => null };
   const win = {
     location: {
       search: browser.search ?? "",

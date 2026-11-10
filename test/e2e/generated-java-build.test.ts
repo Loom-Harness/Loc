@@ -81,14 +81,6 @@ const FIXTURES: Array<[string, string]> = [
   // Tenancy under a REIFIED criterion retrieval: the JpaSpecificationExecutor
   // path runs the bare criterion spec under the entity's tenant @Filter.
   ["test/e2e/fixtures/java-build/tenancy-reified.ddd", "api1"],
-  // Multi-tenancy P2.2: HIERARCHY — the registry (`implements tenantRegistry`)
-  // carries a `data_key` column, so `currentUser.orgPath` resolves to the
-  // caller org's materialized path, read per request via the generated
-  // OrgPathResolver (a JdbcTemplate `SELECT data_key … WHERE id = <claim>`
-  // closure registered at boot), fail-safe to the claim.  A `with tenantOwned`
-  // aggregate's @Filter binds `currentUser.orgPath` and its escaped subtree
-  // LIKE pattern as @ParamDef parameters.
-  ["test/e2e/fixtures/java-build/tenancy-hierarchy.ddd", "api1"],
   // DEBT-24 — a PRINCIPAL criterion used directly in a find/retrieval `where`.
   // java does not reify a principal criterion into a `Criteria` factory; it
   // routes to the inline JPA `@Query` binding the principal via the ambient

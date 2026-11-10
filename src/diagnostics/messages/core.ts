@@ -184,7 +184,7 @@ export const messages = {
     `'${p.member}()' on it.  Expose the value as a \`derived\` field (derived fields ship on ` +
     `the wire), or compute it in the ui from the record's fields.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
-    `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+    `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the built-in 'isSystem'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
   "loom.unknown-user-claim#no-user-block": (p: { member: unknown }) =>
     `'currentUser.${p.member}' reads a claim, but the system declares no 'user { }' block, so the principal carries none. Declare it ('user { ${p.member}: <type> }', with 'auth' on the deployable that serves it); without a declaration the claim has no type, and its generated read is a guess.`,
   "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>

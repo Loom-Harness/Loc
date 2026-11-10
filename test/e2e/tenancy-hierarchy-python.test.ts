@@ -12,16 +12,15 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation — PYTHON/FastAPI backend
-// (sibling of tenancy-hierarchy.test.ts).  Same corpus fixture + shared
-// `assertHierarchyIsolation`; only the boot differs (uv sync + uvicorn).  Proves
-// the deep/global/local materialized-path scopes agree at RUNTIME on
-// FastAPI/SQLAlchemy — the orgPath resolver reads the registry `data_key` in
-// Starlette middleware, the stamp copies it, and the SQLAlchemy startswith
-// prefix scopes the reads to the subtree.
-//
-// Opt-in: LOOM_TENANCY_E2E_PYTHON=1.  Needs `uv` on PATH + docker (postgres
-// sidecar) or LOOM_TENANCY_PG_URL.  The NULL-dataKey probe needs `psql` too.
+// The registry tree beside flat data visibility, booted on the Python/FastAPI
+// backend. Boots the `tenancy-hierarchy.ddd` corpus fixture (a registry
+// `implements tenantRegistry` + `tenantOwned` aggregates under the default
+// floor, `allow local` and `deny write`) against a throwaway postgres and runs
+// the shared `assertHierarchyIsolation` sequence: every org reads exactly its
+// own rows — a parent never its child's — no `data_key` column exists, and the
+// write scope is the same floor. Opt-in: LOOM_TENANCY_E2E_PYTHON=1. Needs
+// python on PATH + docker (postgres sidecar) or LOOM_TENANCY_PG_URL, and
+// `psql`.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,9 +39,9 @@ function hasUv(): boolean {
 }
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated python backend (LOOM_TENANCY_E2E_PYTHON=1)",
+  "registry-tree isolation over the generated python backend (LOOM_TENANCY_E2E_PYTHON=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       if (!hasUv()) throw new Error("LOOM_TENANCY_E2E_PYTHON=1 set but `uv` is not on PATH.");
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-py-"));
       let child: ReturnType<typeof spawn> | undefined;

@@ -67,13 +67,13 @@ export function streamScopeWhere(
 /** The event-origin frame for the dispatch of a tenant-scoped stream's events:
  *  the stream's tenant, entered only when it differs from the raising principal's
  *  (the common case keeps the request's own frame).  The outbox capture and the
- *  CloudEvents envelope (`tenantid` / `loomorgpath`) read the ambient origin. */
+ *  CloudEvents envelope (`tenantid`) read the ambient origin. */
 export function streamOriginFrameLines(ns: string, indent: string): string[] {
   return [
     `${indent}var __ambientOrigin = global::${ns}.Auth.User.CurrentEventOrigin();`,
     `${indent}using var __streamOrigin = __ambientOrigin?.Tenant == aggregate.TenantId`,
     `${indent}    ? null`,
-    `${indent}    : global::${ns}.Auth.User.EnterEventOrigin(new global::${ns}.Auth.EventOrigin(aggregate.TenantId, aggregate.DataKey, __ambientOrigin?.CausedBy));`,
+    `${indent}    : global::${ns}.Auth.User.EnterEventOrigin(new global::${ns}.Auth.EventOrigin(aggregate.TenantId, __ambientOrigin?.CausedBy));`,
   ];
 }
 

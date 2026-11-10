@@ -30,7 +30,7 @@ export default function PlaceOrderWorkflow() {
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
                     await run.mutateAsync(vals);
-                    notifications.show({ color: "green", message: "Place Order completed" });
+                    notifications.show({ color: "green", message: t("chrome.completed.placeOrder", "Place Order completed") });
                     navigate("/workflows");
                   } catch (e) {
                     const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
@@ -61,7 +61,7 @@ export default function PlaceOrderWorkflow() {
             />
     
             <Group justify="flex-end" gap="xs" mt="md">
-              <Button type="submit" loading={ run.isPending } data-testid="workflow-place_order-submit">Run</Button>
+              <Button type="submit" loading={ run.isPending } data-testid="workflow-place_order-submit">{t("Orders.placeOrder.op.run", "Run")}</Button>
             </Group>
           </Stack>
         </form>

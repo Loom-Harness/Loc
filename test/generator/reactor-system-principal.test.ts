@@ -110,10 +110,9 @@ describe("reactor binds the system principal (ruling D1)", () => {
     expect(d).toContain("from app.domain.errors import ForbiddenError");
   });
 
-  it("python, hierarchical tenancy: `system_principal()` assigns its User before setting org_path", async () => {
-    // A `tenantRegistry` TREE makes `org_path` a resolved slot, so the factory
-    // builds the User, sets the slot, then returns it.  It rendered
-    // `user User(` — a SyntaxError in every hierarchical python project.
+  it("python, `tenantRegistry` tenancy: `system_principal_for()` returns a flat User", async () => {
+    // Tenancy is flat, so a registry tree adds no path slot to the principal:
+    // the factory returns the User it builds directly.
     const files = await generateSystemFiles(`
 system S {
   user { id: guid  tenantId: string }
@@ -131,8 +130,10 @@ system S {
   deployable api { platform: python, contexts: [Acc], dataSources: [st], port: 3000, auth: required }
 }`);
     const u = files.get("api/app/auth/user.py") ?? "";
-    expect(u).toContain("    user = User(");
-    expect(u).toContain('    object.__setattr__(user, "org_path", org_path)');
+    expect(u).toContain("def system_principal_for(origin: Mapping[str, object] | None) -> User:");
+    expect(u).toContain("    return User(");
+    // Absence check: the principal carries no hierarchy path.
+    expect(u).not.toContain("org_path");
   });
 
   it("elixir: binds `system_principal/0` and threads it to the gated context fn", async () => {

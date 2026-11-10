@@ -92,12 +92,12 @@ export const VARIANTS: readonly Variant[] = [
 
 /** One conjunct of an aggregate's read scope the census tracks.  Only the
  *  AUTHORIZATION conjuncts: a principal-referencing capability filter (the
- *  `tenantOwned` floor, a registry self-scope, a `filter` over `currentUser`),
- *  the `policy` subtree scope, and the `policy { deny }` carve-out.  A
+ *  `tenantOwned` floor, a registry self-scope, a `filter` over `currentUser`)
+ *  and the `policy { deny }` carve-out.  A
  *  principal-FREE capability filter (`softDeletable`) is not an authorization
  *  surface and is out of this census's scope. */
 export interface FilterFact {
-  readonly kind: "principal" | "scope" | "deny";
+  readonly kind: "principal" | "deny";
   /** The `currentUser.<claim>` names the conjunct reads — what its emitted
    *  rendering must reference.  Empty for `deny`. */
   readonly claims: readonly string[];
@@ -153,10 +153,7 @@ function claimsOf(e: ExprIR): string[] {
 }
 
 function filterFact(e: ExprIR, origin: string | undefined): FilterFact | undefined {
-  if (e.kind === "authz-filter") {
-    if (e.filter.kind === "deny") return { kind: "deny", claims: [], origin };
-    return { kind: "scope", claims: claimsOf(e), origin };
-  }
+  if (e.kind === "authz-filter") return { kind: "deny", claims: [], origin };
   if (exprUsesCurrentUser(e)) return { kind: "principal", claims: claimsOf(e), origin };
   return undefined;
 }
@@ -326,13 +323,7 @@ export type ReadKind =
   | "write"
   /** A private loader whose every caller is itself a site (java's document
    *  `rehydrateAll()` — the conjunct is applied by the caller). */
-  | "helper"
-  /** The tenant-registry `orgPath` resolver: the auth layer's lookup of the
-   *  CALLER'S OWN registry row, keyed on the tenancy claim itself, to derive
-   *  `currentUser.orgPath`.  Its key IS the self-scope conjunct and it runs to
-   *  BUILD the principal the conjunct would read, so it is recorded (counted in
-   *  the site total) but carries no conjunct to assert. */
-  | "resolver";
+  | "helper";
 
 /** A predicate a read window can delegate to: `ref` finds a reference in the
  *  window (capture 1 = its name), `def` finds that name's definition, looked up
@@ -388,11 +379,6 @@ const TS_FUNCTION = /^[ \t]*(?:export\s+)?(?:async\s+)?function\s+(\w+)/m;
 const TS_ROUTE_PATH = /^\s*path:\s*"([^"]+)"/m;
 const TS_ROUTE_CALL = /\bapp\.(?:get|post|put|patch|delete)\(\s*"([^"]+)"/m;
 const TS_REGISTER = /^[ \t]*(register\w+)\(/m;
-
-/** The tenant-registry `orgPath` resolver's scope, in every backend's spelling
- *  (`registerOrgPathResolver`, `EfOrgPathResolver.ResolveAsync`,
- *  `OrgPathResolverConfig`, `resolve_org_path`, …). */
-const RESOLVER = /orgpathresolver|resolveorgpath/;
 
 /** The in-app spelling of the deny carve-out: an always-false conjunct inside a
  *  document read's predicate (`… && (false)`). */
@@ -1253,9 +1239,6 @@ export function classifySite(variant: VariantId, site: ReadSite, agg: AggFacts):
       own: proj.own,
     };
   }
-  if (RESOLVER.test(label) || RESOLVER.test(fileLabel)) {
-    return { ...site, aggregate: agg.name, kind: "resolver", bypass: NO_BYPASS };
-  }
   const k = loc.classify(site.scope, site.fileLabel);
   if (k) return { ...site, aggregate: agg.name, kind: k, bypass: NO_BYPASS };
   return { ...site, aggregate: agg.name, kind: "unclassified", bypass: NO_BYPASS };
@@ -1349,7 +1332,7 @@ export function scopeFilterSweep(
       scope: c.scope,
       kind: c.kind,
     };
-    if (c.kind === "write" || c.kind === "helper" || c.kind === "resolver") continue;
+    if (c.kind === "write" || c.kind === "helper") continue;
     if (c.kind === "unclassified") {
       findings.push({ ...base, problem: "unclassified" });
       continue;

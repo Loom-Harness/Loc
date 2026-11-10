@@ -34,12 +34,11 @@ system ExternHandlerSys {
 
   // The scaffold's contract until the user fills an impl (docs/extern.md): the
   // routed handler is mounted under `/api` on every backend, and the stub
-  // fails LOUDLY — a 500 — rather than answering a silent no-op.  (An
-  // unimplemented extern OPERATION answers 501 on node; #3543 settles one
-  // status for both, and this block's golden moves with it.)
+  // answers 501 `problem.not-implemented` — the same answer an unimplemented
+  // extern operation gives — rather than a silent no-op or a 500 fault.
   test e2e "a routed extern handler is mounted and fails loudly until implemented" against d {
-    expect(api.sales.getQuote("SKU-1")).toThrow(500)
-    expect(api.sales.placeOrder("c-1")).toThrow(500)
+    expect(api.sales.getQuote("SKU-1")).toThrow(501)
+    expect(api.sales.placeOrder("c-1")).toThrow(501)
     // The failed command wrote nothing.  `Order` declares no create, so its
     // derived reads answer an empty table.
     expect(api.orders.all().items.length).toBe(0)

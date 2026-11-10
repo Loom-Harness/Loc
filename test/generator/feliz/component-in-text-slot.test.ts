@@ -54,7 +54,7 @@ async function appFs(uiBody: string): Promise<string> {
  *  `"` inside one is exactly the defect under test. */
 function unbalancedStringLiterals(fs: string): string[] {
   return fs.split("\n").filter((l) => {
-    const quotes = l.match(/(^|[^\\])"/g) ?? [];
+    const quotes = l.match(/(?<!\\)"/g) ?? [];
     return quotes.length % 2 === 1;
   });
 }

@@ -1,27 +1,9 @@
-// `tenancy by user.<claim> of <Registry>` is a SYSTEM member, and top-level
-// deployment members fold into the project's single system — so, exactly like
-// `user { }` and `theme { }` (which `checkProjectSingletons` already resolves
-// across the import graph), it may be written in any file of the project.
-//
-// `checkOrgPathReferences` scanned only the CURRENT document for it. The
-// `tenantOwned` capability contributes a read filter over
-// `currentUser.orgPath`, so every tenant-owned aggregate in an IMPORTED file
-// reported:
-//
-//   model/dom.ddd:1:1 error: 'currentUser.orgPath' requires a
-//     'tenancy by user.<claim> of <Registry>' declaration — … Add the tenancy
-//     line, or drop the 'orgPath' reference.
-//
-// while `main.ddd`, one import away, declared exactly that. Generation was
-// refused, and the line could not be moved into the imported file either —
-// `tenancy` is not admitted at file root (`Expecting token of type 'EOF'`). So
-// multi-file projects and multi-tenancy, both headline features, were mutually
-// exclusive: every `tenantOwned` aggregate had to live in the same file as the
-// `system` block.
-//
-// The check must stay FAIL-CLOSED when the project genuinely declares no
-// tenancy — `currentUser.orgPath` would resolve to nothing at runtime — so the
-// negative case is asserted here too, not just the positive one.
+// `tenancy by` resolves across the import graph.  The line is a system member,
+// and top-level deployment members fold into the project's single system, so it
+// may be written in any file — a `tenantOwned` aggregate in an IMPORTED file
+// must validate against the entry file's tenancy line, exactly like `user` /
+// `theme`.  (`tenancy` is not admitted at file root, so it cannot move into the
+// imported file instead.)
 
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -104,19 +86,5 @@ describe("`tenancy by` resolves across the import graph", () => {
       errors,
       "the tenancy line is declared in main.ddd, one import away from the aggregate",
     ).toEqual([]);
-  });
-
-  it("stays fail-closed when the project declares no tenancy at all", async () => {
-    writeProject(tmp, {
-      "model/dom.ddd": DOMAIN,
-      "main.ddd": main(""),
-    });
-    const errors = await projectErrors(path.join(tmp, "main.ddd"));
-    // Vacuity guard on the positive test above: if this stopped erroring, the
-    // first case would pass for the wrong reason.
-    expect(
-      errors.some((m) => m.includes("requires a 'tenancy by user.<claim> of <Registry>'")),
-      `expected the orgPath-without-tenancy error, got: ${JSON.stringify(errors)}`,
-    ).toBe(true);
   });
 });

@@ -217,7 +217,12 @@ export function renderMikroEmbeddedRepository(
     // implicit key match.
     const own = f.filter;
     const filter = own
-      ? mikroFilterOrRefuse(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
+      ? mikroFilterOrRefuse(
+          own,
+          usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
+          agg.associations,
+          pool,
+        )
       : "{}";
     if (paged) {
       const pagedParams = [
@@ -298,6 +303,7 @@ export function renderMikroEmbeddedRepository(
         `    });`,
       ],
       mikroFilterOption(agg, pool, { bypassAll: r.bypassAll, bypassCaps: r.bypassCaps }),
+      pool,
     ),
   );
 

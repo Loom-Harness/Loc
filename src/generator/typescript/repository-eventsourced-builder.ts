@@ -205,11 +205,10 @@ export function buildEventSourcedRepositoryFile(
     ...(tenancy
       ? [
           // The events' origin is their STREAM's tenant (`eventTenantMetadataFor`):
-          // the outbox capture and the CloudEvents envelope (`tenantid` /
-          // `loomorgpath`) read the ambient origin, so when the raising
-          // principal's tenant is not the stream's (a `policy`-widened subtree
-          // append) the dispatch runs in the stream tenant's frame.  The common
-          // case — same tenant — keeps the request's own frame.
+          // the outbox capture and the CloudEvents envelope (`tenantid`) read
+          // the ambient origin, so when the raising principal's tenant is not
+          // the stream's the dispatch runs in the stream tenant's frame.  The
+          // common case — same tenant — keeps the request's own frame.
           `    const dispatchAll = async (): Promise<void> => {`,
           `      for (const event of pending) {`,
           `        ${renderHonoStoreLogCall("eventDispatched", `event_type: event.type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
@@ -220,7 +219,7 @@ export function buildEventSourcedRepositoryFile(
           `    if ((origin?.tenant ?? null) === aggregate.tenantId) {`,
           `      await dispatchAll();`,
           `    } else {`,
-          `      await ${T.runAsEventOrigin}({ tenant: aggregate.tenantId, orgPath: aggregate.dataKey, causedBy: origin?.causedBy ?? null }, dispatchAll);`,
+          `      await ${T.runAsEventOrigin}({ tenant: aggregate.tenantId, causedBy: origin?.causedBy ?? null }, dispatchAll);`,
           `    }`,
         ]
       : [

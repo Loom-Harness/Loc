@@ -1,8 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
-import {
-  forwardsCallerCredential,
-  hostedHierarchyRegistry,
-} from "../../ir/enrich/hosting-facts.js";
+import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
@@ -64,9 +61,18 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 
-/** True when some aggregate declares an `extern` operation. */
-function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
-  return ctx.aggregates.some((a) => a.operations.some((o) => o.extern));
+/** True when some aggregate declares an `extern` operation or the context
+ *  declares an `extern` command/query handler — the seams whose scaffold-once
+ *  stub raises `ExternNotImplementedException` (answered 501). */
+function hasExternOperation(ctx: {
+  aggregates: readonly EnrichedAggregateIR[];
+  commandHandlers?: readonly { extern?: boolean }[];
+  queryHandlers?: readonly { extern?: boolean }[];
+}): boolean {
+  return (
+    ctx.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some((h) => h.extern)
+  );
 }
 
 import { apiRoutePrefix } from "../../util/api-base.js";
@@ -701,16 +707,7 @@ function emitProjectFromContexts(
   // the auditable interceptor can rely on ICurrentUserAccessor.
   const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   if (authRequired) {
-    // The persistence adapter picks the `IOrgPathResolver` implementation the
-    // hierarchy seam emits — the EF one references AppDbContext, which a
-    // `persistence: dapper` project does not have.
-    emitAuthFiles(
-      system.sys,
-      ns,
-      out,
-      system.deployable.persistence === "dapper",
-      system.deployable.contextNames,
-    );
+    emitAuthFiles(system.sys, ns, out);
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor
@@ -1173,13 +1170,6 @@ function emitProjectFromContexts(
     resourceNugetDeps: resourceEmission.nugetDeps,
     fileUpload,
     oidc: !!(authRequired && system.sys.auth),
-    // Tenant hierarchy (multi-tenancy): the registry opts into
-    // `tenantRegistry` (a `dataKey` column), so Program.cs registers the scoped
-    // `IOrgPathResolver` → `EfOrgPathResolver` the auth middleware calls to
-    // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
-    orgPathResolver: !!(
-      authRequired && hostedHierarchyRegistry(system.sys, system.deployable.contextNames)
-    ),
     forwardCallerCredential:
       authRequired && !!system && forwardsCallerCredential(system.deployable, system.sys),
   });
@@ -1828,10 +1818,6 @@ function emitProject(
     /** OIDC turnkey auth (D-AUTH-OIDC): the system declares `auth { oidc }`,
      *  so emit the generated verifier registration + its NuGet refs. */
     oidc?: boolean;
-    /** Tenant hierarchy (multi-tenancy): register the scoped
-     *  `IOrgPathResolver` → `EfOrgPathResolver` for the per-request
-     *  `currentUser.orgPath` registry `data_key` read. */
-    orgPathResolver?: boolean;
     /** Typed calls to an `auth: required` callee forward the caller's credential. */
     forwardCallerCredential?: boolean;
     /** TimerSource scheduling (scheduling.md, M-T4.1): the owned timers this
@@ -1910,7 +1896,6 @@ function emitProject(
       hasHistory: !!options?.hasHistory,
       fileUpload: options?.fileUpload,
       oidc: !!options?.oidc,
-      orgPathResolver: !!options?.orgPathResolver,
       forwardCallerCredential: !!options?.forwardCallerCredential,
       hasProvenance: !!options?.hasProvenance,
       timerServices: timerServiceFqns(timers, ns),

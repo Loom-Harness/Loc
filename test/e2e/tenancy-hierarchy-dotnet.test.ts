@@ -12,17 +12,15 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation — .NET/ASP.NET Core + EF Core
-// backend (sibling of tenancy-hierarchy.test.ts).  Same corpus fixture + shared
-// `assertHierarchyIsolation`; boots via `dotnet run`.  Proves the deep/global/
-// local `StartsWith` scopes agree at RUNTIME on EF Core — the EfOrgPathResolver
-// reads the registry `data_key` per request, the SaveChangesInterceptor stamps
-// it, and the HasQueryFilter descendant-or-self predicate (re-evaluated per
-// request off the scoped ICurrentUserAccessor) scopes reads to the subtree.
-//
-// Opt-in: LOOM_TENANCY_E2E_DOTNET=1.  Needs the .NET SDK on PATH + docker
-// (postgres sidecar) or LOOM_TENANCY_PG_URL.  The NULL-dataKey probe needs
-// `psql` too.
+// The registry tree beside flat data visibility, booted on the .NET/ASP.NET
+// Core + EF Core backend. Boots the `tenancy-hierarchy.ddd` corpus fixture (a
+// registry `implements tenantRegistry` + `tenantOwned` aggregates under the
+// default floor, `allow local` and `deny write`) against a throwaway postgres
+// and runs the shared `assertHierarchyIsolation` sequence: every org reads
+// exactly its own rows — a parent never its child's — no `data_key` column
+// exists, and the write scope is the same floor. Opt-in:
+// LOOM_TENANCY_E2E_DOTNET=1. Needs the .NET SDK on PATH + docker (postgres
+// sidecar) or LOOM_TENANCY_PG_URL, and `psql`.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -41,9 +39,9 @@ function hasDotnet(): boolean {
 }
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated .NET backend (LOOM_TENANCY_E2E_DOTNET=1)",
+  "registry-tree isolation over the generated .NET backend (LOOM_TENANCY_E2E_DOTNET=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       if (!hasDotnet())
         throw new Error("LOOM_TENANCY_E2E_DOTNET=1 set but `dotnet` is not on PATH.");
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-dotnet-"));

@@ -31,6 +31,7 @@ import {
   escapeJsFamilyText,
   hookFnName,
   hookVarName,
+  jsRichTranslateCall,
   lowerFirstName,
   referencesIdent,
   renderJsMatch,
@@ -459,6 +460,11 @@ export const tsxTarget: WalkerTarget = {
   /** JSX child-position interpolation — the brace wrap. */
   renderInterpolation(jsExpr: string): string {
     return `{${jsExpr}}`;
+  },
+
+  /** A rich-text sentence: the runtime's escaped HTML as inner HTML. */
+  renderRichText(spec): string {
+    return `<span dangerouslySetInnerHTML={{ __html: ${jsRichTranslateCall(spec)} }} />`;
   },
 
   /** JSX dynamic attribute — `name={expr}`, leading space included. */

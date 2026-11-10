@@ -978,7 +978,7 @@ function _cloneAstNode(node: Record<string, unknown>): Record<string, unknown> {
  *      enrichment merge), then its own — whose `access` is NOT `internal` and
  *      NOT `secret` (the `forApiRead` matrix).  The macro-added managed/token
  *      fields (`createdAt`, `rowVersion`) stay, exactly as in the wire shape;
- *      `tenantOwned`'s `dataKey` is `internal`, so the access filter drops it.
+ *      `tenantOwned`'s `tenantId` is `internal`, so the access filter drops it.
  *      A `provenanced` field keeps the flag, so the record lowers to the same
  *      `Provenanced<T>` carrier `wireTypeForField` puts on the wire.
  *   2. one synthesized field per containment — an explicit `contains` or an

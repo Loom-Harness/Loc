@@ -1,23 +1,8 @@
-import type {
-  AggregateIR,
-  AuthzFilterKind,
-  ExprIR,
-  FieldIR,
-  TypeIR,
-} from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { type DurationExprIR, durationCtorOperand } from "../../ir/util/temporal.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  guidClaimAccessorName,
-  guidFromStringSelfScope,
-  ORG_PATH_CLAIM_FIELD,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
+import { guidClaimAccessorName, guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
-import { javaSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { javaRef } from "../_imports/java.js";
 import { jid } from "./java-ident.js";
 import { J } from "./java-symbols.js";
@@ -54,27 +39,14 @@ export function renderCriteriaPredicate(e: ExprIR, ctx: CriteriaCtx): string {
 /** Render `e` as a `jakarta.persistence.criteria.Predicate` expression. */
 function bool(e: ExprIR, ctx: CriteriaCtx): string {
   switch (e.kind) {
-    case "authz-filter":
-      // Authorization/tenancy filter sentinels (M-T9.9) — a discriminated node
-      // so a missing arm is a `tsc` error here, not a silent authorization
-      // bypass.
-      switch (e.filter.kind) {
-        // DENY carve-out (authorization — deny-wins).  `cb.disjunction`
-        // is the JPA Criteria always-false predicate (an empty OR).
-        case "deny":
-          return "cb.disjunction()";
-        // `deep`/`global` read level (multi-tenancy) —
-        // descendant-or-self materialized-path scope with the NULL-dataKey
-        // fallback to the tenant floor (see `DEEP_SCOPE_SEMANTICS`), as a JPA
-        // Criteria predicate over the `tenantScope(User currentUser)`
-        // Specification's null-safe principal.
-        case "scope":
-          return deepScopeCriteria(e.filter, ctx);
-        default: {
-          const _exhaustive: never = e.filter;
-          throw unsupported(`authz-filter kind '${(_exhaustive as { kind: string }).kind}'`);
-        }
-      }
+    case "authz-filter": {
+      // The DENY carve-out (authorization — deny-wins): `cb.disjunction` is
+      // the JPA Criteria always-false predicate (an empty OR).  `deny` is the
+      // only filter kind; the typed binding makes a new kind a `tsc` error
+      // here, not a silent authorization bypass.
+      const _deny: "deny" = e.filter.kind;
+      return "cb.disjunction()";
+    }
     case "paren":
       return bool(e.inner, ctx);
     case "unary":
@@ -103,9 +75,6 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
       if (e.lit === "bool") return e.value === "true" ? "cb.conjunction()" : "cb.disjunction()";
       throw unsupported(`literal '${e.lit}'`);
     case "method-call":
-      // (The `deep` / DENY authorization filter sentinels moved to the
-      // discriminated `authz-filter` kind in M-T9.9 — handled in its own case
-      // above, not a `method-call` marker here.)
       // Reference-collection membership.
       if (e.member === "contains" && e.receiverType.kind === "array" && e.args.length === 1) {
         const segs = pathSegments(e.receiver);
@@ -114,7 +83,7 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
         return `cb.isMember(${value(e.args[0]!, ctx)}, root.<${J.List}<${elem}>>get(${segs.map((s) => JSON.stringify(jid(s))).join(").get(")}))`;
       }
       // A bool-returning queryable intrinsic standing alone in a PREDICATE
-      // position (`filter this.dataKey.startsWith(p)`).  Its snippet already IS
+      // position (`filter this.code.startsWith(p)`).  Its snippet already IS
       // a `Predicate` (`cb.equal(cb.locate(…), 1)`), so there is no `cb.isTrue`
       // to wrap — unlike the bare boolean field arms above.  A scalar intrinsic
       // never reaches here: it only ever appears as a comparison operand, which
@@ -413,53 +382,6 @@ function value(e: ExprIR, ctx: CriteriaCtx): string {
   return renderJavaExpr(
     e,
     ctx.paramExpr ? { thisName: "root", paramExpr: ctx.paramExpr } : { thisName: "root" },
-  );
-}
-
-/** The `deep` read-level sentinel as a JPA Criteria predicate.  `dataKey` /
- *  `tenantId` are typed candidate paths; the principal claims render null-safe
- *  against the `currentUser` the `tenantScope` factory is handed (no actor →
- *  null → matches no rows, fail-closed).  The descendant test is an anchored
- *  position (`cb.locate(dataKey, orgPath + ".") = 1`), not a LIKE pattern — see
- *  the comment on the emission below for why. */
-function deepScopeCriteria(
-  f: Extract<AuthzFilterKind, { kind: "scope" }>,
-  ctx: CriteriaCtx,
-): string {
-  const dataKeyPath = path([TENANT_OWNED_DATA_KEY_FIELD], ctx);
-  const tenantIdPath = path([TENANT_OWNED_TENANT_ID_FIELD], ctx);
-  const orgVal = value(f.anchorClaim, ctx);
-  const tenantVal = value(f.tenantClaim, ctx);
-  const orgMember =
-    f.anchorClaim.kind === "member"
-      ? (f.anchorClaim as { member: string }).member
-      : ORG_PATH_CLAIM_FIELD;
-  // Descendant test as an ANCHORED POSITION, not `cb.like(path, org + ".%")`.
-  // The anchor is a principal CLAIM, so `_`/`%` inside it are LIKE wildcards:
-  // an org named `acme_corp` yields `acme_corp.%`, which matches `acmeXcorp.…`
-  // — a cross-tenant read with no attacker, just an underscore in a name.
-  // `cb.locate(x, pattern) = 1` has no pattern language; the needle is lifted
-  // with `cb.literal` because `locate` takes Expressions, and it stays
-  // null-safe for an absent principal (a null needle yields a null predicate
-  // operand → no rows, fail-closed).
-  const orgNeedle = `cb.literal((currentUser == null ? null : currentUser.${orgMember}() + "${DATA_KEY_PATH_DELIMITER}"))`;
-  const anchored = `cb.equal(cb.locate(${dataKeyPath}, ${orgNeedle}), 1)`;
-  // SARGABLE PREFILTER (M-T3.17).  `locate(...) = 1` is a function of the
-  // column, so the planner cannot use the `data_key text_pattern_ops` index and
-  // every deep/global read seq-scans.  A prefix `like` IS what that opclass
-  // indexes, so it is ANDed IN FRONT as a prefilter with the anchored test kept
-  // as the recheck — an escaping slip could only WIDEN a LIKE, and the recheck
-  // still decides the row, so `acme_corp` can never reach `acmeXcorp.…`.  The
-  // pattern is `cb.literal`-lifted exactly like the needle, so a null principal
-  // yields a null literal (`like null` → no rows), same fail-closed stance.
-  const orgPattern = `cb.literal((currentUser == null ? null : ${javaSubtreeLikePattern(`currentUser.${orgMember}()`)}))`;
-  const prefilter = `cb.like(${dataKeyPath}, ${orgPattern}, '${DATA_KEY_LIKE_ESCAPE}')`;
-  const descendant = `cb.and(${prefilter}, ${anchored})`;
-  return (
-    `cb.or(` +
-    `cb.and(cb.isNotNull(${dataKeyPath}), ` +
-    `cb.or(cb.equal(${dataKeyPath}, ${orgVal}), ${descendant})), ` +
-    `cb.and(cb.isNull(${dataKeyPath}), cb.equal(${tenantIdPath}, ${tenantVal})))`
   );
 }
 

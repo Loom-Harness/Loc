@@ -31,7 +31,7 @@ export const VUE_LOCALE_SWITCHER_PATH = "src/components/LocaleSwitcher.vue";
 export function renderVueLocaleComposable(): string {
   return `// Auto-generated.  Do not edit by hand.
 import { ref, type Ref } from "vue";
-import { getLocale as baseGetLocale, subscribe, t as baseT } from "../i18n";
+import { getLocale as baseGetLocale, subscribe, t as baseT, tRich as baseTRich } from "../i18n";
 
 const locale = ref(baseGetLocale());
 // Lives as long as the app: the store is module-level, so is this subscription.
@@ -58,6 +58,16 @@ export function t(
 ): string {
   void locale.value;
   return baseT(key, defaultMessage, values);
+}
+
+/** \`tRich\` (a rich-text sentence, as HTML) that re-runs its caller on a switch. */
+export function tRich(
+  key: string,
+  defaultMessage: string,
+  values?: Parameters<typeof baseT>[2],
+): string {
+  void locale.value;
+  return baseTRich(key, defaultMessage, values);
 }
 `;
 }

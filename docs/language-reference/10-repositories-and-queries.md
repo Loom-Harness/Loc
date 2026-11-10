@@ -233,6 +233,44 @@ Sibling codes: `loom.criterion-not-selectable`, the `loom.retrieval-where-*` twi
 
 The oracle comes in two halves, because a predicate and a value are different questions. `firstNonQueryableNode` asks "could this node reach SQL at all", which is right for a comparison OPERAND. `firstNonQueryablePredicate` (same file) asks the PREDICATE question: every leaf must TEST a column — a comparison with a column-rooted operand, a bare boolean column (`this.active`, `this.flags.active`), a `.contains(<value>)` membership, a bool-returning queryable intrinsic (`this.path.startsWith(p)`), or an authorization sentinel — combined with `&&` / `||` / `!`. So `where true`, `where f` (a `bool` parameter), `where currentUser.isAdmin` and `where 1 == 1` are refused: every relational lowerer's output vocabulary is `<fn>(<column>, <value>)`, with no bare-value position for them to land in.
 
+## `exists` — quantifying over another aggregate
+
+`exists <Aggregate> as <row> where <predicate>` is true when at least one row of `<Aggregate>` satisfies `<predicate>`. Inside the predicate, `<row>` names that row (`s.category`), while `this` and bare field names still name the row being filtered. Parameters and `currentUser` stay in scope. Every backend compiles it to a correlated SQL `EXISTS (SELECT 1 …)` subquery.
+
+```ddd
+aggregate CategoryShare with crudish {
+  category: Category id
+  grantee: guid
+  revoked: bool
+  filter !this.revoked
+}
+aggregate Product with crudish {
+  name: string
+  category: Category id
+  // the policy position: a product is readable while a live share grants its category to the caller
+  filter exists CategoryShare as s where s.category == this.category && s.grantee == currentUser.id
+}
+criterion SharedWith(g: guid) of Product = exists CategoryShare as s where s.category == this.category && s.grantee == g
+```
+
+```sql
+SELECT … FROM products
+WHERE EXISTS (SELECT 1 FROM category_shares q_s
+              WHERE q_s.category = products.category AND q_s.grantee = $1
+                AND NOT q_s.revoked)
+```
+
+**The quantified aggregate's own read scope applies inside the subquery.** Its tenant floor, its capability filters and any `policy` deny are ANDed into the `EXISTS`, so an `exists` never sees a row its caller could not read. Above, a revoked share grants nothing, because `CategoryShare`'s own `filter !this.revoked` is part of the subquery.
+
+`where` takes a whole expression, so the predicate runs to the end of the enclosing expression. Parenthesise the quantifier to combine it: `(exists S as s where s.a == this.b) || this.public`.
+
+The rules:
+
+- **A query predicate only.** `exists` is admitted where a predicate is compiled into a query: a `criterion` read through `Repo.all` / `Repo.find`, a `retrieval` `where`, and a row `filter`. Anywhere else (an operation body, a `requires` gate, a `derived`, a page, a projection `where`) it is refused with `loom.exists-outside-query`.
+- **Same context.** The quantified aggregate must be declared in the same context as the filtered row, because the subquery reads the same database (`loom.exists-cross-context`).
+- **Another aggregate, stored as plain rows.** Quantifying over the row's own aggregate is refused (`loom.exists-unsupported`), as is either side being event-sourced, stored with `shape: document` / `embedded`, or part of an inheritance hierarchy.
+- **The row's fields are columns.** `s.<field>` and `s.<vo>.<sub>` read the quantified row's columns. The bare row (`s == x`), an intrinsic over its column (`s.name.trim()`) and date arithmetic over its column are refused by the queryable subset.
+
 ## Return shapes
 
 A single-row read is `T` (`getById`, `getBy` — a miss answers the standard ProblemDetails 404) or `T?` (`findById`, `findBy`, `find(C)`). A list read is `T[]` (`findAll`, `run`) or the `paged` envelope `{ items, page, pageSize, total, totalPages }` — the implicit `all` of a plain relational aggregate, `run` with `page:`, and a paged `queryHandler`.

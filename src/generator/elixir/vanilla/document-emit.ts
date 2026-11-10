@@ -522,7 +522,7 @@ export function docFilterLambdaArg(pred: string): string {
  *  the values are merged into the inbound `attrs` BEFORE `document_changeset`
  *  casts them into the embed.  Until this existed the stamps were dropped
  *  entirely, which was not merely a missing value: `tenantOwned` never stamped
- *  `tenant_id`/`data_key` (so a tenancy filter could never match), `auditable`
+ *  `tenant_id` (so a tenancy filter could never match), `auditable`
  *  left its NOT-NULL `created_by` unset (422 on every create), and — because
  *  the context facade emits `create_<agg>(attrs, current_user \\ nil)` off the
  *  MODEL, not the shape — the delegate pointed at an `insert/1` that does not
