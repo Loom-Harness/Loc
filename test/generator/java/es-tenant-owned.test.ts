@@ -95,9 +95,7 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
 
   it("the events publish in the stream tenant's event origin (channel envelope tenantid)", () => {
     const svc = file(files, "features/ledgers/LedgerService.java");
-    expect(svc).toContain(
-      "var __tenant = java.util.Objects.toString(aggregate.tenantId(), null);",
-    );
+    expect(svc).toContain("var __tenant = java.util.Objects.toString(aggregate.tenantId(), null);");
     expect(svc).toContain(
       "java.util.Objects.equals(__origin == null ? null : __origin.tenant(), __tenant)",
     );
