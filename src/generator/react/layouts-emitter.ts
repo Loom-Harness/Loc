@@ -9,6 +9,7 @@
 // into the App.tsx shell's import list (deduped).
 
 import type { ComponentIR, LayoutIR, ParamIR, SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBodyToTsx } from "./body-walker.js";
 import type { ExtraPageRoute } from "./templating/preparers/app-shell.js";
@@ -26,6 +27,7 @@ function walkSlot(
   body: NonNullable<LayoutIR["header"]>,
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
+  i18nPrefix: string | undefined,
 ): WalkedSlot {
   const { tsx, imports, usesNavigate, usesRouterLink, usedUserComponents } = walkBodyToTsx(
     body,
@@ -33,6 +35,17 @@ function walkSlot(
     new Set(),
     new Set(),
     userComponents,
+    [],
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Map(),
+    new Set(),
+    new Set(),
+    false,
+    i18nPrefix,
   );
   return { jsx: tsx, imports, usesNavigate, usesRouterLink, usedUserComponents };
 }
@@ -76,6 +89,7 @@ export function prepareNamedLayouts(
   pack: LoadedPack,
   routesByLayout: ReadonlyMap<string, ExtraPageRoute[]>,
   topLevelComponents: readonly ComponentIR[] = [],
+  i18nEnabled = false,
 ): { namedLayouts: PreparedNamedLayout[]; extraImports: ImportVM[] } {
   if (sys.layouts.length === 0) return { namedLayouts: [], extraImports: [] };
   const referenced = new Set<string>();
@@ -93,9 +107,16 @@ export function prepareNamedLayouts(
   const aggregatedUserComponents = new Set<string>();
   for (const layout of sys.layouts) {
     if (!referenced.has(layout.name)) continue;
-    const header = layout.header ? walkSlot(layout.header, pack, userComponents) : undefined;
-    const sidebar = layout.sidebar ? walkSlot(layout.sidebar, pack, userComponents) : undefined;
-    const footer = layout.footer ? walkSlot(layout.footer, pack, userComponents) : undefined;
+    const prefix = i18nEnabled ? layoutKeyPrefix(ui, layout) : undefined;
+    const header = layout.header
+      ? walkSlot(layout.header, pack, userComponents, prefix)
+      : undefined;
+    const sidebar = layout.sidebar
+      ? walkSlot(layout.sidebar, pack, userComponents, prefix)
+      : undefined;
+    const footer = layout.footer
+      ? walkSlot(layout.footer, pack, userComponents, prefix)
+      : undefined;
     let usesNavigate = false;
     let usesRouterLink = false;
     for (const slot of [header, sidebar, footer]) {
@@ -141,6 +162,12 @@ export function prepareNamedLayouts(
   ]);
   const extraImports: ImportVM[] = [];
   for (const [from, symbols] of aggregatedImports) {
+    // The shell already imports `t` from the runtime beside App.tsx; only the
+    // rich-text twin is added here.
+    if (from === "../i18n") {
+      if (symbols.has("tRich")) extraImports.push({ specifier: "{ tRich }", from: "./i18n" });
+      continue;
+    }
     if (PACK_INTRINSIC_ORIGINS.has(from)) continue;
     if (from.startsWith("@/components/ui/")) continue; // shadcn
     for (const symbol of symbols) {

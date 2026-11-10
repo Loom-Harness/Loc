@@ -1,7 +1,7 @@
 {
               try {
                 {{{mutationCall}}}
-                notifications.show({ color: "green", message: "{{successMessage}}" });
+                notifications.show({ color: "green", message: {{{successMessage}}} });
                 {{{redirectStmt}}};
               } catch (e) {
                 const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

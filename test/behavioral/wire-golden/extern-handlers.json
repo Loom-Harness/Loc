@@ -6,16 +6,13 @@
       "seq": 0,
       "method": "GET",
       "path": "/api/quotes/SKU-1",
-      "status": 500,
+      "status": 501,
       "body": {
-        "code": "problem.internal",
-        "detail": "internal",
+        "code": "problem.not-implemented",
+        "detail": "This operation is not implemented.",
         "instance": "/api/quotes/SKU-1",
-        "params": {
-          "requestId": "<volatile:key>"
-        },
-        "status": 500,
-        "title": "Internal Server Error",
+        "status": 501,
+        "title": "Not Implemented",
         "type": "about:blank"
       }
     },
@@ -23,16 +20,13 @@
       "seq": 1,
       "method": "POST",
       "path": "/api/orders",
-      "status": 500,
+      "status": 501,
       "body": {
-        "code": "problem.internal",
-        "detail": "internal",
+        "code": "problem.not-implemented",
+        "detail": "This operation is not implemented.",
         "instance": "/api/orders",
-        "params": {
-          "requestId": "<volatile:key>"
-        },
-        "status": 500,
-        "title": "Internal Server Error",
+        "status": 501,
+        "title": "Not Implemented",
         "type": "about:blank"
       }
     },

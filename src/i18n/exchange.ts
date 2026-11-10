@@ -22,6 +22,8 @@ export interface ExchangeUnit {
   state: UnitState;
   /** Translator-facing context lines (`family: page`, `page: Home`, …). */
   notes: string[];
+  /** Where the string was written in the `.ddd` source. */
+  locations?: readonly { file: string; line: number }[];
   previousSource?: string;
   previousTranslation?: string;
 }
@@ -111,6 +113,14 @@ export function renderXliff(
       if (u.target !== undefined && state) {
         out.push(`        <target state="${state}">${xmlEscape(u.target)}</target>`);
       }
+      for (const loc of u.locations ?? []) {
+        out.push(
+          '        <context-group purpose="location">',
+          `          <context context-type="sourcefile">${xmlEscape(loc.file)}</context>`,
+          `          <context context-type="linenumber">${loc.line}</context>`,
+          "        </context-group>",
+        );
+      }
       for (const n of u.notes) out.push(`        <note from="loom">${xmlEscape(n)}</note>`);
       if (u.previousSource !== undefined) {
         out.push(`        <note from="loom-previous-source">${xmlEscape(u.previousSource)}</note>`);
@@ -187,6 +197,7 @@ export function renderPo(units: readonly ExchangeUnit[], opts: { targetLocale: s
   ];
   for (const u of units) {
     for (const n of u.notes) out.push(`#. ${n.replace(/\n/g, " ")}`);
+    for (const loc of u.locations ?? []) out.push(`#: ${loc.file.replace(/\s/g, "_")}:${loc.line}`);
     if (u.previousTranslation !== undefined) {
       out.push(`#. previous translation: ${u.previousTranslation.replace(/\n/g, " ")}`);
     }

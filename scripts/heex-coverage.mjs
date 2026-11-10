@@ -10,9 +10,10 @@
 // tells which accumulators the walk filled.  A body with no primitive at all
 // fills nothing worth measuring.
 //
-// `ACCUMULATORS` maps each `WalkResult` field to the `WalkContext` field that
-// backs it.  `test/generator/elixir/heex-coverage.test.ts` pins that the map
-// covers every `WalkResult` field.
+// `ACCUMULATORS` maps each accumulated `WalkResult` field to the `WalkContext`
+// field that backs it (the rendered `heex` and page `titleExpr` are outputs,
+// not accumulators).  `test/generator/elixir/heex-coverage.test.ts` pins that
+// the map covers every other `WalkResult` field.
 //
 // Used by `scripts/heex-corpus-diff.mjs coverage` (the whole HEEx corpus) and
 // by `heex-coverage.test.ts` (the HEEx showcase fixture alone).

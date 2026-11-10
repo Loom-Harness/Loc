@@ -1,7 +1,7 @@
 {
               try {
                 {{{mutationCall}}}
-                toaster.create({ type: "success", title: "{{successMessage}}" });
+                toaster.create({ type: "success", title: {{{successMessage}}} });
                 {{{redirectStmt}}};
               } catch (e) {
                 const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

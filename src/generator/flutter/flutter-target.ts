@@ -1162,6 +1162,16 @@ export const flutterTarget: WalkerTarget = {
     }
     return `t(${args.join(", ")})`;
   },
+  // A rich-text sentence → the runtime's `tRich`, a `Text.rich` of styled spans.
+  // Paren-wrapped so the pack's text slot takes it as an already-built widget.
+  renderRichText: ({ key, message, values }) => {
+    const args = [dartStringLit(key), dartStringLit(message)];
+    if (values && values.length > 0) {
+      const pairs = values.map((v) => `${dartStringLit(v.name)}: ${v.expr}`).join(", ");
+      args.push(`<String, Object>{${pairs}}`);
+    }
+    return `(tRich(${args.join(", ")}))`;
+  },
   // Implicit model-text sites (form labels, enum options, submit buttons, the
   // `EnumBadge` value) are keyed by identity through `renderTranslate`.
   modelTextImplicitSites: true,

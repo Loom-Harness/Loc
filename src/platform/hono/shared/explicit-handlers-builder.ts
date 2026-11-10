@@ -976,6 +976,12 @@ export function buildExplicitRoutesFile(
   ]);
   if (exHasUniqueKeys) exStatuses.add(exUniquenessStatus);
   if (exNeedsConcurrency) exStatuses.add(exConcurrencyStatus);
+  // An unfilled extern handler stub throws `NotImplementedError`: the
+  // implementation is absent (501), not a server fault.
+  const exHasExternHandler = contexts.some((c) =>
+    [...(c.commandHandlers ?? []), ...(c.queryHandlers ?? [])].some((h) => h.extern),
+  );
+  if (exHasExternHandler) exStatuses.add(wireStatus("not-implemented"));
   const exProblemUnion = [...exStatuses].sort((a, b) => a - b).join(" | ");
   body.push(
     `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
@@ -1012,6 +1018,13 @@ export function buildExplicitRoutesFile(
   if (exNeedsConcurrency) {
     body.push(
       `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
+    );
+  }
+  if (exHasExternHandler) {
+    body.push(
+      // The stub's message names the file to fill in: log only; the wire gets the
+      // constant 501 detail.
+      `    if (err instanceof NotImplementedError) { ${renderHonoLogCall("internalError", `error: err.message, status: ${wireStatus("not-implemented")}`)} return problem(${wireStatus("not-implemented")}, ${JSON.stringify(wireTitle("not-implemented"))}, ${JSON.stringify(wireFixedDetail("not-implemented"))}, ${JSON.stringify(wireCode("not-implemented"))}); }`,
     );
   }
   body.push(
@@ -1064,6 +1077,7 @@ export function buildExplicitRoutesFile(
     "DisallowedError",
     "ForbiddenError",
     "ExternHandlerError",
+    "NotImplementedError",
     "ConcurrencyError",
   ].filter(hasRef);
 
@@ -1157,7 +1171,7 @@ export function buildExplicitRoutesFile(
  *  imports `<camelName>Impl` and calls it; this file is the user's — Loom
  *  writes it once (the `loom:scaffold-once` marker on line 1 tells the CLI
  *  writer to PRESERVE it on regen), and the default body throws loudly so a
- *  forgotten implementation surfaces as a 500 naming the file, not a silent
+ *  forgotten implementation answers 501 (the message naming the file goes to the log), not a silent
  *  no-op.  Params are domain-typed (the route coerces wire→domain before the
  *  call); the return type is the user's contract. */
 function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
@@ -1186,7 +1200,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
   ]
     .filter(refersTo)
     .sort();
-  const imports: string[] = [`import { ExternHandlerError } from "../domain/errors";`];
+  const imports: string[] = [`import { NotImplementedError } from "../domain/errors";`];
   imports.push(tsImportSlot("~/domain/ids"));
   for (const agg of aggRefs) {
     imports.push(`import { ${agg} } from "../domain/${lowerFirst(agg)}";`);
@@ -1201,11 +1215,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
 ${imports.join("\n")}
 
 ${sig} {
-  throw new ExternHandlerError(
-    ${JSON.stringify(h.name)},
-    ${JSON.stringify(ctx.name)},
-    new Error(${JSON.stringify(throwMsg)}),
-  );
+  throw new NotImplementedError(${JSON.stringify(throwMsg)});
 }
 `;
 }
