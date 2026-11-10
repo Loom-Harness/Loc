@@ -6,7 +6,9 @@
 //     facades (`node:fs`, `nodemailer`, `@sendgrid/mail`; see
 //     `engine/npm/resource-facades.ts`) call.
 //   - a `fetch` wrapper that hands SigV4-signed S3 / SES requests (the real
-//     `@aws-sdk/client-*` run unchanged) to the fake endpoints, and
+//     `@aws-sdk/client-*` run unchanged) to the fake endpoints, every request
+//     under the deployable's `OIDC_ISSUER` to the fake identity provider (the
+//     generated OIDC verifier's discovery + JWKS fetches), and
 //     `__loomInfra.restFetch` for `restApi` resources.
 
 import type { InfraPort } from "./infra-port.js";
@@ -58,6 +60,19 @@ async function viaFake(
   return new Response(bodyless ? null : (res.body as unknown as BodyInit), { status: res.status, headers: res.headers });
 }
 
+/** The deployable's `OIDC_ISSUER` (its compose env), or null: requests under
+ *  it are the fake identity provider's.  Set at every load. */
+let oidcIssuer: string | null = null;
+
+export function setOidcIssuer(issuer: string | null): void {
+  oidcIssuer = issuer ? issuer.replace(/\/$/, "") : null;
+}
+
+/** Whether `url` is under the deployable's issuer. */
+export function isIssuerUrl(url: string, issuer: string | null): boolean {
+  return issuer !== null && (url === issuer || url.startsWith(`${issuer}/`));
+}
+
 /** Compose hosts of in-browser deployables (`service-fetch.ts` routes them). */
 let routedHosts: ReadonlySet<string> = new Set();
 
@@ -95,7 +110,7 @@ export function prepareResourceFakes(): void {
     const req = input instanceof Request ? input : null;
     const url = new URL(req ? req.url : String(input), self.location.href);
     const headers = new Headers(init?.headers ?? req?.headers);
-    const service = awsServiceOf(url, headers);
+    const service = isIssuerUrl(url.href, oidcIssuer) ? "oidc" : awsServiceOf(url, headers);
     if (!service) return realFetch(input, init);
     const method = init?.method ?? req?.method ?? "GET";
     const body = init?.body ?? (req && method !== "GET" && method !== "HEAD" ? await req.clone().arrayBuffer() : null);

@@ -312,10 +312,13 @@ export function makeVfsNpmPlugin(
         }
         // async_hooks — generated obs/als.ts constructs
         // `new AsyncLocalStorage()`.  The empty stub makes the
-        // constructor undefined → crash at module init.  Synchronous
-        // polyfill: keeps the same surface (run/getStore/enterWith)
-        // working in a single async context — sufficient for the
-        // playground worker where request flow is one chain.
+        // constructor undefined → crash at module init.  The polyfill keeps
+        // one store slot: `run` holds `store` until `fn` returns — or, when
+        // `fn` returns a promise, until that promise settles — so the request
+        // context (`requireCurrentUser()`, the request logger) survives the
+        // awaits inside a request.  It is correct while one request runs at a
+        // time, which the runtime worker guarantees by serving its RPCs in
+        // order (`runtime.worker.ts`).
         if (name === "async_hooks") {
           return {
             contents: [
@@ -324,7 +327,13 @@ export function makeVfsNpmPlugin(
               "  run(store, fn, ...a) {",
               "    const prev = this._store;",
               "    this._store = store;",
-              "    try { return fn(...a); } finally { this._store = prev; }",
+              "    let out;",
+              "    try { out = fn(...a); } catch (e) { this._store = prev; throw e; }",
+              "    if (out && typeof out.then === 'function') {",
+              "      return Promise.resolve(out).finally(() => { this._store = prev; });",
+              "    }",
+              "    this._store = prev;",
+              "    return out;",
               "  }",
               "  getStore() { return this._store; }",
               "  enterWith(store) { this._store = store; }",
