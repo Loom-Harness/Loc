@@ -17,6 +17,7 @@ import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
   dumpPreviewDiagnostics,
+  fatalConsoleErrors,
   recordAndGenerate,
   startFromExample,
   waitForBundle,
