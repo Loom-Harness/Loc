@@ -554,6 +554,14 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A response record typed onto a stored aggregate field.
+  "loom.transport-type-position": `
+system S {
+  subdomain M { context C {
+    response Ok { n: int }
+    aggregate Doc with crudish { title: string  last: Ok }
+  } }
+}`,
   // An `exists` in an operation guard: not a position compiled into a query.
   "loom.exists-outside-query": `
 system S {

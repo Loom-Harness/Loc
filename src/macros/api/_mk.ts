@@ -102,7 +102,7 @@ type AstLiteral<T> = Omit<T, "$container" | "$containerProperty" | "$containerIn
  * The `as-unknown-as-T` here is the **only** structural escape hatch
  * needed to bridge the pre-link literal shape and Langium's post-link
  * AST type.  Public factories never cast. */
-function mkAst<T extends { $type: string }>(node: AstLiteral<T>): T {
+export function mkAst<T extends { $type: string }>(node: AstLiteral<T>): T {
   return node as unknown as T;
 }
 

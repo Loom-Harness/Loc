@@ -46,6 +46,24 @@ export function isOrgAncestorsRead(e: ExprIR): boolean {
   );
 }
 
+/** `organizationContext.ancestors.contains(<arg>)` — the operating org's
+ *  lineage tested against one value.  In a query predicate (a row rule, a
+ *  policy function inlined into one, a capability filter) the argument is a
+ *  COLUMN and every backend renders `<column> = ANY(<ancestors>)` / `IN`, with
+ *  the ancestor set bound from the request principal.  Returns the argument, or
+ *  null for any other shape. */
+export function orgAncestorsMembershipArg(e: ExprIR): ExprIR | null {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (
+    inner.kind === "method-call" &&
+    inner.member === "contains" &&
+    inner.args.length === 1 &&
+    isOrgAncestorsRead(inner.receiver)
+  )
+    return inner.args[0]!;
+  return null;
+}
+
 /** Does any expression in `ctx` read `organizationContext.ancestors`?  The
  *  ancestors walk reads the registry's table, so only a deployable hosting the
  *  registry can serve such a context (`loom.tenancy-registry-remote-unsupported`),

@@ -16,23 +16,15 @@
 // model-level check is what restricts v1 to the supported subset.
 //
 // A second rule pins *position*: a generic carrier is a transport shape, so it
-// may only appear as a repository find's return type or as a payload field —
-// never as a stored property, parameter, or signature elsewhere.  This keeps
-// `genericInstance` out of the storage-side emitters entirely.
+// stands only where the type-position table admits it — never as a stored
+// property, parameter, or signature elsewhere.  This keeps `genericInstance`
+// out of the storage-side emitters entirely.
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
-import {
-  isCapability,
-  isPayloadDecl,
-  isProperty,
-  isQueryHandler,
-  isSelfType,
-  isSlotType,
-  isTypeAtom,
-  isTypeRef,
-} from "../generated/ast.js";
+import { isCapability, isSelfType, isSlotType, isTypeAtom, isTypeRef } from "../generated/ast.js";
+import { admittedPositionsText, positionAdmits, typeRefPosition } from "../type-positions.js";
 
 /** `Self id` (the anchored capability type, typed-capabilities.md) is only
  *  meaningful inside a `capability` body, where it resolves to the implementing
@@ -57,10 +49,8 @@ export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): 
       checkOptionDeprecated(node, accept);
       checkEnvelopeRemoved(node, accept);
     }
-    if (isTypeRef(node)) {
-      checkTypeRefCarrier(node, accept);
-      checkTypeRefPosition(node, accept);
-    }
+    if (isTypeRef(node)) checkTypeRefCarrier(node, accept);
+    if (isTypeRef(node) || isTypeAtom(node)) checkTypeRefPosition(node, accept);
   }
 }
 
@@ -95,35 +85,28 @@ function checkEnvelopeRemoved(t: TypeRef | TypeAtom, accept: ValidationAcceptor)
 
 /** The constructors that build a transport carrier — `option` is `T?` and a
  *  refused `envelope` is its argument, so neither is one. */
-const carrierCtors = (t: TypeRef): string[] =>
+const carrierCtors = (t: TypeRef | TypeAtom): string[] =>
   t.ctors.filter((c) => c !== "option" && c !== "envelope");
 
-/** A generic carrier is a transport shape, not a stored value — it may only
- *  appear as a queryHandler's return type or as a field of a payload
- *  (payload-transport-layer.md, P3b).  Anywhere else (a stored aggregate /
- *  value-object property, a parameter, a derived/state field, a function
- *  signature) is rejected, which also keeps the storage-side emitters
- *  (migrations, schema columns, wire-spec) free of `genericInstance`. */
-function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
+/** A generic carrier is a transport shape, not a stored value: it stands only
+ *  where the type-position table admits it (`type-positions.ts`).  Anywhere
+ *  else (a stored property, a parameter, a function signature) is rejected,
+ *  which also keeps the storage-side emitters (migrations, schema columns,
+ *  wire-spec) free of `genericInstance`. */
+function checkTypeRefPosition(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
   // `option` is `T?`, legal in any position; only the transport carriers stay
   // bound to one.
   const carriers = carrierCtors(t);
   if (carriers.length === 0) return;
-  const container = t.$container;
-  // A queryHandler's return type: the TypeRef sits directly on the QueryHandler
-  // (`queryHandler X(...): <T> paged`).  A paged read exposed through the
-  // application layer is the durable read-path vehicle (read-path-architecture.md,
-  // "The ergonomic default") — the criterion runs through the read-only port and
-  // the handler returns the `Paged<T>` envelope, so `paged` is legal here.  Params are wrapped in `Parameter` nodes,
-  // so a param carrier still doesn't match.
-  if (isQueryHandler(container)) return;
-  // A payload field: a `Property` whose owner is a `PayloadDecl`.
-  if (isProperty(container) && isPayloadDecl(container.$container)) return;
-  accept("error", diagMessage("loom.generic-position", { ctors: carriers.join(" ") }), {
-    node: t,
-    property: "ctors",
-    code: "loom.generic-position",
-  });
+  if (positionAdmits("carrier", typeRefPosition(t))) return;
+  accept(
+    "error",
+    diagMessage("loom.generic-position", {
+      ctors: carriers.join(" "),
+      positions: admittedPositionsText("carrier"),
+    }),
+    { node: t, property: "ctors", code: "loom.generic-position" },
+  );
 }
 
 function checkTypeRefCarrier(t: TypeRef, accept: ValidationAcceptor): void {

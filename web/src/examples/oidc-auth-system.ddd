@@ -4,7 +4,10 @@
 // projected onto `currentUser`.  The Auth tab lists the personas of the
 // generated dev Keycloak realm (`keycloak/realm.json`) and mints a token for
 // the one you pick; the API console and the preview send it as
-// `Authorization: Bearer …`.
+// `Authorization: Bearer …`.  The preview's "Sign in" runs the generated
+// login handshake instead: `/api/auth/login` → the provider's login page
+// (pick a persona) → `/api/auth/callback` (code + PKCE) → session cookies,
+// refreshed on expiry and cleared by "Sign out".
 //
 // Try it: as `demo` `close` is refused with 403; `demo-admin` holds the
 // `support.closeNotes` permission (a realm role) and goes through.  Each
@@ -39,6 +42,7 @@ system Desk {
     context Notes {
       aggregate Org with crudish {
         name: string
+        derived display: string = name
         implements tenantRegistry
       }
       repository Orgs for Org { }
@@ -60,6 +64,9 @@ system Desk {
   resource noteState { for: Notes, kind: state, use: primary }
   api DeskApi from Support
 
+  ui DeskWeb with scaffold(subdomains: [Support]) {
+  }
+
   deployable api {
     platform: node
     contexts: [Notes]
@@ -67,5 +74,13 @@ system Desk {
     dataSources: [noteState]
     port: 3000
     auth: required
+  }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: DeskWeb
+    port: 3001
+    auth: ui
   }
 }

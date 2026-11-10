@@ -10,6 +10,7 @@ import {
   platformBackendOwnedBy,
 } from "../../../util/target-capabilities.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../types/loom-ir.js";
+import { orgAncestorsMembershipArg } from "../../util/org-context.js";
 import { principalTerm } from "../../util/principal-term.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
 import { walkExprDeep } from "../../util/walk.js";
@@ -422,6 +423,22 @@ export function firstNonQueryablePredicate(
   if (inner.kind === "exists") return firstNonQueryablePredicate(inner.where, opts);
   if (isColumnRootedBool(inner)) return null;
   if (isRowColumn(inner) && isBoolTyped(inner)) return null;
+  // `organizationContext.ancestors.contains(<column>)` — the operating org's
+  // lineage tested against a column: `<column> = ANY(<ancestors>)`.  Admitted
+  // only where principal terms are (row rules, policy functions inlined into
+  // them, capability filters): every scope renderer binds the ancestor set
+  // from the request principal, and a `find` / criterion `where` has no such
+  // renderer arm.
+  const lineageArg = orgAncestorsMembershipArg(inner);
+  if (lineageArg && opts.admitPrincipalTerms) {
+    const col = lineageArg.kind === "paren" ? lineageArg.inner : lineageArg;
+    if (isColumnRef(col) || isRowColumn(col)) return firstNonQueryableNode(col);
+    return (
+      `'organizationContext.ancestors.contains(...)' over a value — in a query it tests a ` +
+      `COLUMN ('this.<field>' or an 'exists' row's '<row>.<field>') against the operating ` +
+      `org's lineage; test a value in the operation body instead`
+    );
+  }
   if (inner.kind === "method-call") {
     // `this.<refColl>.contains(x)` membership and a bool-returning queryable
     // intrinsic are both whole predicates; `firstNonQueryableNode` owns the

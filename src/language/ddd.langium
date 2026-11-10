@@ -2279,11 +2279,11 @@ NamedType:
 
 // EventDecl / PayloadDecl join the union so a bare name in a type position can
 // resolve to a transport type (an `event` or a `command`/`query`/… payload).
-// The scope provider (ddd-scope.ts) only *offers* these in a workflow
-// `create` parameter position — `create(e: PaymentReceived) by …`,
-// `create(c: SettleOrder)` — so they cannot leak into aggregate field /
-// operation-param / UI positions, where a bare event name stays unresolved.
-// IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
+// The scope provider (ddd-scope.ts) offers them in front of the ordinary types
+// only at a transport boundary the type-position table admits
+// (type-positions.ts); elsewhere they resolve behind the ordinary types and the
+// position check refuses them (`loom.transport-type-position`).  IdType (`X id`)
+// ranks them behind aggregates and parts — `PaymentReceived id` is meaningless.
 // A Workflow joins for one position only: a workflow `create`'s result type
 // may name its own workflow (`create(…): Fulfillment { …; return this }`),
 // and the scope provider offers it nowhere else.
