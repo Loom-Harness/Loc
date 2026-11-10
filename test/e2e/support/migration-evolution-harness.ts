@@ -649,15 +649,15 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
     const qualifiedTable = moneySchema ? `"${moneySchema}"."${moneyTable}"` : `"${moneyTable}"`;
 
     // A row only the unbounded column can hold: 6 fractional digits.
-    // `status` is NOT NULL with no default (it carries the base fixture's
-    // string → enum narrowing), so a raw INSERT has to supply it.  Any value
-    // does here — this gate is about the money column's BOUNDS, and the row is
-    // written before the v2 enum constraint exists.
+    // `status` and `stage` are NOT NULL with no default (they carry the base
+    // fixture's string → enum narrowing and its enum value rename), so a raw
+    // INSERT has to supply them.  Any declared value does here — this gate is
+    // about the money column's BOUNDS.
     psql(
       server,
       "catchup",
-      `INSERT INTO ${qualifiedTable} ("id", "name", "status", "${moneyColumn}") ` +
-        `VALUES (gen_random_uuid(), 'pre-2575 row', 'draft', 9.999995)`,
+      `INSERT INTO ${qualifiedTable} ("id", "name", "status", "stage", "${moneyColumn}") ` +
+        `VALUES (gen_random_uuid(), 'pre-2575 row', 'draft', 'draft', 9.999995)`,
     );
 
     // (a) The catch-up is diffed out but GATED: regeneration without the flag
