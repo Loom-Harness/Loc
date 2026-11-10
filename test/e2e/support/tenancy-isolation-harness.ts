@@ -592,8 +592,47 @@ export async function assertOrgContextGate(
   expect(forged.status, forged.body).toBe(403);
   expect(rowCount("forged")).toBe("0");
 
-  // === (4) Reads stay principal-anchored. ===
+  // === (4) Reads anchor on the operating org (the home org here). ===
   expect(await labels(actingAs(orgA, orgA))).toEqual(await labels(actingAs(orgA)));
+  expect(await labels(actingAs(orgA))).not.toContain("own-ab");
+
+  // === (5) `organizationContext.ancestors`: the operating org and every org
+  // above it, read in an operation body and through a policy function. ===
+  async function probe(who: string, account: string, org: string) {
+    const r = await fetch(`${base}/api/accounts/${account}/probe`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify({ org }),
+      signal: AbortSignal.timeout(20_000), // a non-terminating walk fails here
+    });
+    expect([200, 204], await r.clone().text()).toContain(r.status);
+    const read = (await (
+      await fetch(`${base}/api/accounts/${account}`, { headers: actingAs(who) })
+    ).json()) as { lineage?: number | null; underOrg?: boolean | null };
+    return { lineage: read.lineage, underOrg: read.underOrg };
+  }
+  async function move(who: string, org: string, to: string): Promise<void> {
+    const r = await fetch(`${base}/api/orgs/${org}/move`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify({ to }),
+    });
+    expect([200, 204], await r.clone().text()).toContain(r.status);
+  }
+  const ownAB = await create(actingAs(orgAB), "own-ab");
+  expect(ownAB.status, ownAB.body).toBe(201);
+  expect(tenantOf("own-ab")).toBe(orgAB);
+  expect(await probe(orgAB, ownAB.id!, orgA)).toEqual({ lineage: 2, underOrg: true });
+  expect(await probe(orgA, own.id!, orgAB)).toEqual({ lineage: 1, underOrg: false });
+
+  // === (6) An AUTHORED move re-parents A under Z: the next request sees it. ===
+  await move(orgA, orgA, orgZ);
+  expect(await probe(orgAB, ownAB.id!, orgZ)).toEqual({ lineage: 3, underOrg: true });
+  expect(await probe(orgA, own.id!, orgZ)).toEqual({ lineage: 2, underOrg: true });
+
+  // === (7) A deliberate cycle (Z under A.B: Z → A.B → A → Z) terminates. ===
+  await move(orgZ, orgZ, orgAB);
+  expect(await probe(orgAB, ownAB.id!, orgZ)).toEqual({ lineage: 3, underOrg: true });
 
   // === The deny is logged through the neutral catalog. ===
   const deadline = Date.now() + 15_000;

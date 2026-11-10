@@ -136,9 +136,19 @@ describe("organizationContext — lowering (one frame underneath)", () => {
     expect(contextReadsOrgContext(books)).toBe(true);
   });
 
-  it("a system that never reads it derives false (the gate is not emitted)", async () => {
+  it("a `tenantOwned` floor reads it: the prelude anchors on the operating org", async () => {
     const plain = fs.readFileSync(
       path.resolve(here, "../../fixtures/corpus/tenancy-hierarchy.ddd"),
+      "utf8",
+    );
+    const model = await parseValid(plain.replace("__PLATFORM__", "node"));
+    const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
+    expect(systemReadsOrgContext(loom.systems[0]!)).toBe(true);
+  });
+
+  it("a system without tenancy derives false (the gate is not emitted)", async () => {
+    const plain = fs.readFileSync(
+      path.resolve(here, "../../fixtures/corpus/auth-simple.ddd"),
       "utf8",
     );
     const model = await parseValid(plain.replace("__PLATFORM__", "node"));

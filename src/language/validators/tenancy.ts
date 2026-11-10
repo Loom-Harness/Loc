@@ -18,7 +18,7 @@ import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   ORG_CONTEXT_ACCESSOR,
-  ORG_CONTEXT_ORG,
+  ORG_CONTEXT_MEMBERS,
   REMOVED_PRINCIPAL_MEMBERS,
 } from "../../util/principal.js";
 import {
@@ -79,7 +79,7 @@ export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor)
     const chain = node.$container;
     const first = isPostfixChain(chain) && chain.head === node ? chain.suffixes[0] : undefined;
     const wellFormed =
-      !!first && isMemberSuffix(first) && !first.call && first.member === ORG_CONTEXT_ORG;
+      !!first && isMemberSuffix(first) && !first.call && ORG_CONTEXT_MEMBERS.includes(first.member);
     if (
       !wellFormed &&
       first &&

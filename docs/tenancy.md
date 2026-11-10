@@ -482,8 +482,9 @@ The fact is `foldTenancyVerdict` / `foldTenancyFor`
 
 An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
 stamps inside it use the **triggering event's tenant**: the system principal
-copies the tenancy claim from the principal of the request that raised the
-event, so a reactor reads and writes in exactly the tenant its event came from.
+takes the operating org of the request that raised the event (its home org, or
+the org an admitted `x-org-context` switch named), so a reactor reads and
+writes in exactly the tenant its event came from.
 A `timerSource` tick has no originating request and therefore **no
 tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
 so it must be explicitly cross-tenant: widen the read with `ignoring
@@ -528,7 +529,12 @@ aggregate Organization with crudish {
   name: string
   implements tenantRegistry
   // — what `implements tenantRegistry` provides —
-  //   parent: Organization id?   immutable   // self-FK; null = a top-level org
+  //   parent: Organization id?               // self-FK; null = a top-level org
+
+  // Re-parenting is an operation the author writes; the capability generates none.
+  operation move(to: Organization id) requires currentUser.role == "admin" {
+    parent := to
+  }
 }
 ```
 
@@ -543,10 +549,17 @@ CREATE TABLE "accounts"."organizations" (
 CREATE INDEX "organizations_parent_idx" ON "accounts"."organizations" ("parent");
 ```
 
-- **`parent: Self id?`** — an immutable, nullable self-FK (`Self` resolves to
-  the registry aggregate). `immutable` keeps it settable at create (a child
-  org's signup passes it) and frozen after. It lands in migrations as a
-  nullable self-referential FK plus a `<table>_parent_idx`.
+- **`parent: Self id?`** — an ordinary, mutable, nullable self-FK (`Self`
+  resolves to the registry aggregate). A child org's signup passes it at
+  create; an author-written operation (`parent := to`) moves an org later. A
+  move is one `parent` update — nothing positional is stamped on any other row.
+  It lands in migrations as a nullable self-referential FK plus a
+  `<table>_parent_idx`.
+- **No generated `move`.** Guarding a move against cycles or against moving an
+  org under another customer is the author's operation's job (its `requires`
+  and `policy`). The generated code stays correct whatever the author's move
+  allows: the ancestors walk terminates on a cycle
+  ([`organizationContext.ancestors`](#organizationcontext--the-operating-scope-and-its-switch-gate)).
 - **The tree is for managing sub-tenants, not for reading data.** It records
   which org sits under which, so the author's registry operations and
   workflows can create and administer child orgs. It takes no part in a data
@@ -570,9 +583,8 @@ workflow signUpChild {
 Structural verification (`src/ir/validate/checks/tenancy-checks.ts`): only under
 a `tenancy by` system (`loom.tenant-registry-without-tenancy`), **exactly one**
 aggregate (`loom.tenancy-registry-duplicate`), and it must be the `of <Registry>`
-target (`loom.tenancy-registry-not-target`). `parent`'s immutability and
-self-reference are structural (the access modifier + `Self`), so neither needs a
-check. A reference to `dataKey` — on a row, the registry or `currentUser` — is
+target (`loom.tenancy-registry-not-target`). `parent`'s self-reference is
+structural (`Self`), so it needs no check. A reference to `dataKey` — on a row, the registry or `currentUser` — is
 `loom.tenancy-data-key-removed`: rows carry `tenantId` only.
 
 ## The `policy {}` block — `local` and `deny`
@@ -649,63 +661,90 @@ the same context (`loom.policy-unknown-aggregate`,
 
 `currentUser` is the **principal**: who is calling, their permissions, and —
 through the tenancy claim — their home org. `organizationContext` is the
-**operating scope**: the org this request acts *in*. It has exactly one member,
-`organizationContext.org` — the operating org's **id**. The two coincide unless
-the request sends an `x-org-context` header naming an org.
+**operating scope**: the org this request acts *in*. It has two members:
 
-Its use is the tenant **write** stamp — a capability that stamps the row's
-tenant from the operating org while the read filter stays on the principal:
+- `organizationContext.org` — the operating org's **id**: the home org, unless
+  the request sends an `x-org-context` header naming an org the gate admits.
+- `organizationContext.ancestors` — the operating org **and** every org above
+  it on the registry tree, typed `<Registry> id[]`.
+
+Reads, writes and the tenant stamp **anchor on the operating org**: the
+prelude `tenantOwned` filters and stamps on `organizationContext.org`.
+`currentUser` is never rewritten by a switch — `currentUser.tenantId` still
+names the home org.
 
 ```ddd
 system OrgContext {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
 
-  // A user-declared capability of the same name replaces the prelude's: the
-  // WRITE stamp follows the operating org, the read filter stays on the principal.
-  capability tenantOwned {
-    tenantId: string internal
-    stamp onCreate {
-      tenantId := organizationContext.org
+  subdomain Core {
+    context Books {
+      policy InLineage(org: Org id): bool = organizationContext.ancestors.contains(org)
+
+      aggregate Account with tenantOwned, crudish {   // filter + stamp: organizationContext.org
+        label: string
+        lineage: int?
+        underOrg: bool?
+        operation probe(org: Org id) {
+          lineage := organizationContext.ancestors.count()
+          underOrg := InLineage(org)
+        }
+      }
+      aggregate Org with crudish {
+        name: string
+        implements tenantRegistry
+        operation move(to: Org id) { parent := to }
+      }
     }
-    filter this.tenantId == currentUser.tenantId
   }
-  // … Account with tenantOwned, an `auth: required` deployable
+  // … an `auth: required` deployable hosting Books
 }
 ```
 
 `organizationContext.org` lowers to the principal member
-`currentUser.operatingOrg`, set once per request by the auth middleware's gate:
+`currentUser.operatingOrg` and `.ancestors` to `currentUser.operatingAncestors`,
+both set once per request by the auth middleware:
 
 ```ts
 // node — auth/middleware.ts (generated)
-function orgContextFor(homeOrg: string, requested: string | undefined): string | null {
+async function orgContextFor(homeOrg: string, requested: string | undefined): Promise<string | null> {
   if (requested === undefined || requested === "") return homeOrg;
   if (homeOrg === "") return null;
-  return requested === homeOrg ? requested : null;
+  if (requested === homeOrg) return requested;
+  return orgRegistry !== null && (await orgRegistry.canRead(requested)) ? requested : null;
 }
 // …
-const homeOrg = String(claims.tenantId ?? "");
-const requestedOrgContext = c.req.header("x-org-context");
-const operatingOrg = orgContextFor(homeOrg, requestedOrgContext);
+const homeUser: User = { ...claims, operatingOrg: homeOrg, operatingAncestors: [] };
+const frame = requestContext();
+if (frame) frame.currentUser = homeUser;           // the admission read runs as the caller
+const operatingOrg = await orgContextFor(homeOrg, requestedOrgContext);
 if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);
-const user: User = { ...claims, operatingOrg };
+const user: User = { ...homeUser, operatingOrg, operatingAncestors: await operatingAncestorsOf(operatingOrg) };
 
-// db/audit-stamp.ts (generated): the stamp reads the operating org
+// db/read-scopes.ts — the floor anchors on the operating org
+eq(schema.accounts.tenantId, requireCurrentUser().operatingOrg)
+// db/audit-stamp.ts — so does the stamp
 return { ...row, tenantId: currentUser.operatingOrg };
+// domain/account.ts — probe()
+this._lineage = (currentUser.operatingAncestors).length;
+this._underOrg = (currentUser.operatingAncestors).includes(org);
 ```
 
-**The gate.** The accessor re-roots the write stamp from an unforgeable claim
-onto a value the caller *submits*, so it exists only together with a
-fail-closed, per-backend gate. Each backend's auth middleware resolves the
-operating org **once per request, before any handler runs**, with no registry
-read:
+**The gate.** A switch re-roots every read and the write stamp onto a value the
+caller *submits*, so it is fail-closed and runs **once per request, before any
+handler**. A requested org is admitted when the caller can **read that registry
+row through the registry's own read rules** — the same read scope a `GET` of
+the row applies, evaluated for the caller's home principal. The registry's
+derived self-scope admits the home org; the registry's read rules decide what
+else a caller may switch into.
 
 | `x-org-context` | Caller's tenancy claim | Result |
 |---|---|---|
 | absent or empty | any | the home org (the claim) |
-| equal to the claim | non-empty | admitted: `organizationContext.org` is the home org |
-| any other org id | non-empty | **403**, `org_context_denied` logged with `reason: "outside_scope"` |
+| equal to the claim | non-empty | admitted: the home org |
+| an org id whose registry row the caller can read | non-empty | admitted: that org |
+| any other value (unreadable, unknown, not a uuid) | non-empty | **403**, `org_context_denied` logged with `reason: "outside_scope"` |
 | any value | empty (no tenancy claim) | **403**, `reason: "no_principal_scope"` |
 
 A refused request never reaches a handler: nothing is written, and the 403 is
@@ -713,22 +752,49 @@ an RFC 7807 problem (`"title": "Forbidden"`). The deny is logged through the
 neutral catalog (`org_context_denied`, `warn`, fields `org_context` / `reason`
 / `status`) on all five backends.
 
-| Backend | Where the gate runs | Where the operating org lives |
-|---|---|---|
-| node (Hono) | `authMiddleware`, via `orgContextFor` | `User.operatingOrg` on the request principal |
-| .NET | `UserMiddleware` | `User.OperatingOrg` (settable, defaults to the claim) |
-| Java (Spring) | `UserFilter` | `User.operatingOrg()` |
-| Python (FastAPI) | `AuthMiddleware` | `user.operating_org` (off `asdict()` / the `/auth/me` wire) |
-| Elixir (Phoenix) | the `Auth` plug's `call/2`, via `org_context_gate/2` | `current_user.operating_org` (seeded by `put_operating_org/1` on every principal the plug builds) |
+**The ancestors walk.** `organizationContext.ancestors` is resolved once per
+request (memoized on the principal) by one recursive query over the registry's
+`parent`, shared by all five backends (`src/generator/_persistence/registry-walk.ts`).
+`UNION` — set semantics — is the cycle guard: an author-written move can close
+a loop, and the walk stops the first time a row repeats. It is computed only
+on a deployable that hosts a context reading it.
 
-**Reads stay principal-anchored**: every derived tenant filter anchors on
-`currentUser`, never on `organizationContext`. A request with the header reads
-exactly what the caller would read without it.
+```sql
+WITH RECURSIVE up(id, parent) AS (
+  SELECT id, parent FROM "books"."orgs" WHERE id = $1
+  UNION SELECT o.id, o.parent FROM "books"."orgs" o JOIN up ON o.id = up.parent)
+SELECT id FROM up
+```
+
+| Backend | Where the gate runs | Admission read | Where the operating org / ancestors live |
+|---|---|---|---|
+| node (Hono) | `authMiddleware` | `registerOrgRegistry` in `boot.ts` (drizzle `orgScope()` / MikroORM filters) | `User.operatingOrg` / `User.operatingAncestors` |
+| .NET | `UserMiddleware` | `I<Registry>Repository.GetByIdAsync` (EF query filters / Dapper scope) | `User.OperatingOrg` / `User.OperatingAncestors` |
+| Java (Spring) | `UserFilter` | `OrgRegistry.canRead` → `<Registry>Repository.findById` (Hibernate filters) | record components `operatingOrg()` / `operatingAncestors()`, set via `User.inOrg(…)` |
+| Python (FastAPI) | `AuthMiddleware` | an ORM `select` under the home principal (the `do_orm_execute` read scope) | `user.operating_org` / `user.operating_ancestors` (off `asdict()` / `/auth/me`) |
+| Elixir (Phoenix) | the `Auth` plug, `org_context_gate/2` | `<Registry>Repository.find_by_id/2` with the home principal | `current_user.operating_org` / `.operating_ancestors` (seeded on every principal the plug builds) |
+
+**A deployable that does not host the registry** has no registry table: its
+gate admits the home org only, and a context it hosts that reads
+`organizationContext.ancestors` is refused at compile time
+(`loom.tenancy-registry-remote-unsupported`, naming the fix — host the
+registry's context there too). No registry copy is generated for it.
+
+**Reactors.** An event reactor runs as the system principal, whose operating
+org is the triggering event's tenant — the operating org of the request that
+raised the event. It carries no ancestor set, so a reactor that reads
+`organizationContext.ancestors` (directly, or through an operation it calls) is
+`loom.org-context-ancestors-in-reactor`.
 
 **Validation (fail closed).** `loom.org-context-surface` — a bare
-`organizationContext`, any member but `org`, or any read inside a `ui` (a
-frontend has no switch gate). `organizationContext.orgPath` is
+`organizationContext`, any member but `org` / `ancestors`, or any read inside a
+`ui` (a frontend has no switch gate). `organizationContext.orgPath` is
 `loom.tenancy-principal-member-removed`, naming `organizationContext.org`.
 `loom.org-context-gate-unmet` — a read in a context hosted by a backend
-deployable without `auth: required`. The runtime proof is the `org-context`
-leg of `tenancy-e2e` on all five backends (`npm run test:tenancy-org-context*`).
+deployable without `auth: required`. A `tenantOwned` write whose request has no
+operating org (a token without the tenancy claim) is a 403 naming the operating
+organization, not a 500. The runtime proof is the `org-context` leg of
+`tenancy-e2e` on all five backends (`npm run test:tenancy-org-context*`): an
+admitted and a refused switch, the stamp and reads on the operating org, the
+ancestors before and after an authored move, and a deliberate cycle that still
+answers.

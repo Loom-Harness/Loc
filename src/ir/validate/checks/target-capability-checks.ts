@@ -52,6 +52,7 @@ import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregatesWithTuple } from "../../util/feature-atoms.js";
+import { contextReadsOrgAncestors, registryContextName } from "../../util/org-context.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
@@ -294,6 +295,18 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
       });
     }
     return out;
+  },
+  "tenancy:remote-registry@deployable": (ctx, sys, d) => {
+    const registryCtx = registryContextName(sys);
+    if (!registryCtx || d.contextNames.includes(registryCtx) || !contextReadsOrgAncestors(ctx))
+      return [];
+    return [
+      {
+        what: `context '${ctx.name}' reads 'organizationContext.ancestors' (its registry '${sys.tenancy?.registryName}' is hosted by another deployable)`,
+        source: ctx.name,
+        origin: ctx.origin,
+      },
+    ];
   },
   "call:auth-required-api@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) => {

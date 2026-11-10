@@ -174,6 +174,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.tenancy-registry-remote-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/tenancy-checks.ts",
+    what:
+      "a backend deployable hosting a context that reads `organizationContext.ancestors` " +
+      "without hosting the registry's context.  The ancestors walk reads the registry's " +
+      "table, and no registry copy is generated for another deployable.",
+    mission: "#4956",
+  },
+  {
     code: "loom.api-call-principal-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/resource-capability-checks.ts:311",

@@ -50,6 +50,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import {
   enumPool,
   valueObjectFieldLookup,
@@ -74,6 +75,7 @@ import {
   requestComponentNamerFor,
 } from "../_openapi/request-component-names.js";
 import { unionMembers } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -1453,7 +1455,21 @@ function emitProjectFromContexts(
   // Auth surface — only when the deployable opts in via auth: required
   // and the system declares a user block.
   if (authRequired && system?.sys) {
-    for (const [name, content] of renderAuthFiles(system.sys, basePkg, routePrefix)) {
+    const plan = orgContextPlan(system.sys, system.deployable.contextNames);
+    const registry = plan.registry
+      ? {
+          name: plan.registry.name,
+          repoPkg: pkgFor("repository-interface", plan.registry.name),
+          tableSql: registryTableSql(system.sys)!,
+        }
+      : undefined;
+    for (const [name, content] of renderAuthFiles(
+      system.sys,
+      basePkg,
+      routePrefix,
+      plan,
+      registry,
+    )) {
       out.set(mainSourcePath(`${basePkg}.auth`, name), content);
     }
   }

@@ -51,6 +51,7 @@ import {
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
@@ -60,6 +61,7 @@ import {
   resolveDataSourceConfig,
 } from "../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 
 /** True when some aggregate declares an `extern` operation. */
 function hasExternOperation(ctx: { aggregates: readonly EnrichedAggregateIR[] }): boolean {
@@ -698,7 +700,14 @@ function emitProjectFromContexts(
   // the auditable interceptor can rely on ICurrentUserAccessor.
   const authRequired = !!(system.deployable.auth?.required && system.sys.user);
   if (authRequired) {
-    emitAuthFiles(system.sys, ns, out);
+    emitAuthFiles(
+      system.sys,
+      ns,
+      out,
+      orgContextPlan(system.sys, system.deployable.contextNames),
+      registryTableSql(system.sys),
+      system.deployable.persistence === "dapper",
+    );
   }
   // The principal's id property on the User record (PascalCased; the claim
   // named `id`, else the first field).  Drives the carrier's ActorId accessor

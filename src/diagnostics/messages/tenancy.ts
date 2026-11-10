@@ -142,6 +142,22 @@ export const messages = {
     `system '${p.name}' has ${p.length} aggregates implementing 'tenantRegistry' ` +
     `(${p.registries}); the tenant registry is singular — ` +
     `keep it on exactly one aggregate (the '${p.registryName}' named in 'tenancy by … of').`,
+  "loom.org-context-ancestors-in-reactor": (p: { reactor: unknown; ctx: unknown }) =>
+    `reactor '${p.reactor}' in context '${p.ctx}' reads 'organizationContext.ancestors' ` +
+    `(directly or through an operation it calls).  A reactor runs as the system principal, ` +
+    `scoped to the triggering event's tenant, and carries no ancestor set.  Read the ancestors ` +
+    `in the request that raises the event and pass what the reactor needs on the event.`,
+  "loom.tenancy-registry-remote-unsupported": (p: {
+    name: unknown;
+    context: unknown;
+    registry: unknown;
+    registryContext: unknown;
+  }) =>
+    `deployable '${p.name}' hosts context '${p.context}', which reads ` +
+    `'organizationContext.ancestors', but the registry '${p.registry}' lives in context ` +
+    `'${p.registryContext}', which '${p.name}' does not host.  The ancestors walk reads the ` +
+    `registry's table, which '${p.name}'s database does not have, and no registry copy is ` +
+    `generated for another deployable.  Host '${p.registryContext}' on '${p.name}' as well.`,
   "loom.tenancy-registry-not-target": (p: { agg: unknown; registryName: unknown }) =>
     `aggregate '${p.agg}' implements 'tenantRegistry' but the tenancy registry is ` +
     `'${p.registryName}' ('tenancy by … of ${p.registryName}').  The tree ` +

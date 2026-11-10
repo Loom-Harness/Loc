@@ -147,7 +147,7 @@ end
 ```
 ::: end
 
-> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads `organizationContext.org` also gets one server-side member, `operatingOrg` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
+> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads the operating scope (every `tenantOwned` floor does) also gets the server-side members `operatingOrg` and, where `organizationContext.ancestors` is read, `operatingAncestors` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
 
 ## `auth: required` — per-deployable middleware + verifier seam
 

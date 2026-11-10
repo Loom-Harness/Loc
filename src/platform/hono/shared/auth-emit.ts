@@ -18,7 +18,7 @@ import type {
   TypeIR,
   UserIR,
 } from "../../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
+import { type OrgContextPlan, orgContextPlan } from "../../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
@@ -50,19 +50,23 @@ import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 // /openapi.json, /swagger (plus /auth for the OIDC handshake).
 // ---------------------------------------------------------------------------
 
-export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
+export function emitAuthFiles(
+  sys: SystemIR,
+  out: Map<string, string>,
+  hostedContextNames: readonly string[] = [],
+): void {
   if (!sys.user) return;
   const oidc = sys.auth;
   // The tenancy claim field, when the system declares `tenancy by …`.
   const tenantClaim = sys.tenancy?.claimField;
-  // The operating-scope switch gate (`organizationContext`): emitted only when
-  // the system declares tenancy and something in it reads the operating scope.
-  // Otherwise the header is never consulted and the principal is exactly the
-  // declared claims.
-  const orgContext = !!tenantClaim && systemReadsOrgContext(sys);
-  out.set("auth/user-types.ts", renderUserTypes(sys.user, orgContext));
+  // The operating-scope facts (`organizationContext`): the switch gate is
+  // emitted only when the system declares tenancy and something in it reads
+  // the operating scope (a `tenantOwned` floor does).  Otherwise the header is
+  // never consulted and the principal is exactly the declared claims.
+  const plan = orgContextPlan(sys, hostedContextNames);
+  out.set("auth/user-types.ts", renderUserTypes(sys.user, plan));
   out.set("auth/verifier.ts", renderVerifier());
-  out.set("auth/middleware.ts", renderMiddleware(sys.user, !!oidc, tenantClaim, orgContext));
+  out.set("auth/middleware.ts", renderMiddleware(sys.user, !!oidc, tenantClaim, plan));
   // The session routes (always `/auth/me`, plus the OIDC redirect handshake
   // when an `auth { oidc }` block is present) are emitted whenever a
   // backend has auth — the frontend `auth: ui` guard probes `/auth/me`,
@@ -207,8 +211,10 @@ function envOverridableExpr(envVar: string, v: AuthValueIR | undefined): string 
  *  this the generated project fails `tsc` with
  *  `TS2503: Cannot find namespace 'Ids'` (D6/P2).  Empty when no claim is
  *  id-typed, so the common shape keeps its current byte-for-byte output. */
-function idsImport(user: UserIR): string[] {
-  return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
+function idsImport(user: UserIR, ancestors = false): string[] {
+  return claimsReferenceIds(user.fields) || ancestors
+    ? ['import * as Ids from "../domain/ids";', ""]
+    : [];
 }
 
 /** The enum types a claim shape names live in `domain/value-objects.ts`;
@@ -219,7 +225,8 @@ function enumsImport(user: UserIR): string[] {
   return [`import type { ${names.join(", ")} } from "../domain/value-objects";`, ""];
 }
 
-function renderUserTypes(user: UserIR, orgContext = false): string {
+function renderUserTypes(user: UserIR, plan: OrgContextPlan): string {
+  const orgContext = plan.gate;
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
   // pulling the verifier registry alongside.
@@ -252,10 +259,17 @@ function renderUserTypes(user: UserIR, orgContext = false): string {
     ...(orgContext
       ? [
           "  /** The request's OPERATING org (`organizationContext.org`) — the",
-          `   *  caller's home org (the tenancy claim); a \`${ORG_CONTEXT_HEADER}\` header`,
-          "   *  naming any other org is refused.  Set once, by the auth middleware's",
-          "   *  fail-closed switch gate; never read off the token. */",
+          `   *  caller's home org (the tenancy claim), or the org a \`${ORG_CONTEXT_HEADER}\``,
+          "   *  header names when the caller can read that registry row.  Set once,",
+          "   *  by the auth middleware's fail-closed switch gate; never read off the token. */",
           "  operatingOrg: string;",
+        ]
+      : []),
+    ...(plan.ancestors && user.registry
+      ? [
+          "  /** `organizationContext.ancestors` — the operating org and every org",
+          "   *  above it on the registry tree, resolved once per request. */",
+          `  operatingAncestors: ${renderTsType({ kind: "array", element: { kind: "id", targetName: user.registry } })};`,
         ]
       : []),
     "}",
@@ -268,7 +282,7 @@ function renderUserTypes(user: UserIR, orgContext = false): string {
       "// derives the request principal `User` from it.  Downstream route",
       "// handlers / workflow handlers reference `User` via the magic",
       "// `currentUser` identifier.",
-      ...idsImport(user),
+      ...idsImport(user, plan.ancestors),
       ...enumsImport(user),
       "export interface UserClaims {",
       ...fields,
@@ -330,9 +344,12 @@ export function assertUserVerifierRegistered(): void {
 function renderMiddleware(
   user: UserIR,
   oidc: boolean,
-  tenantClaim?: string,
-  orgContext = false,
+  tenantClaim: string | undefined,
+  plan: OrgContextPlan,
 ): string {
+  const orgContext = plan.gate;
+  const host = !!plan.registry;
+  const ancestors = plan.ancestors;
   const idField = actorIdField(user);
   const stampActorId = idField ? `\n  if (ctx) ctx.actorId = String(user.${idField});` : "";
   // The caller's home org: the tenancy claim value, "" when absent.  Read only
@@ -356,36 +373,90 @@ function renderMiddleware(
     .map((f) => `${f.name}: claims.${f.name} ?? []`);
   const claimsSpread =
     arrayClaimDefaults.length > 0 ? `...claims, ${arrayClaimDefaults.join(", ")}` : "...claims";
-  // The operating-scope switch gate runs BEFORE the principal is built: a
-  // refused switch answers 403 before the principal is attached, so no handler
-  // — and no write — ever runs.
+  // The operating-scope switch gate runs BEFORE the principal is attached: a
+  // refused switch answers 403 before any handler — and no write — runs.  The
+  // admission check reads the registry under the HOME principal (the caller's
+  // own read scope), so it is bound to the ambient frame first.
+  const ancestorsSlot = ancestors ? ", operatingAncestors: [] " : " ";
   const buildUser = orgContext
-    ? `const homeOrg = ${homeOrgExpr};\n  const requestedOrgContext = c.req.header("${ORG_CONTEXT_HEADER}");\n  const operatingOrg = orgContextFor(homeOrg, requestedOrgContext);\n  if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);\n  const user: User = { ${claimsSpread}, operatingOrg };`
+    ? [
+        `const homeOrg = ${homeOrgExpr};`,
+        `  const requestedOrgContext = c.req.header("${ORG_CONTEXT_HEADER}");`,
+        `  const homeUser: User = { ${claimsSpread}, operatingOrg: homeOrg${ancestorsSlot}};`,
+        "  const frame = requestContext();",
+        "  if (frame) frame.currentUser = homeUser;",
+        "  const operatingOrg = await orgContextFor(homeOrg, requestedOrgContext);",
+        '  if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);',
+        ancestors
+          ? "  const user: User = { ...homeUser, operatingOrg, operatingAncestors: await operatingAncestorsOf(operatingOrg) };"
+          : "  const user: User = { ...homeUser, operatingOrg };",
+      ].join("\n")
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
   // The same derivation for a principal built OUTSIDE a request (a context
   // integration test): no header, so the operating org is the home org.
   const buildPrincipal = orgContext
-    ? `const user: User = { ${claimsSpread}, operatingOrg: ${homeOrgExpr} };`
+    ? `const user: User = { ${claimsSpread}, operatingOrg: ${homeOrgExpr}${ancestorsSlot}};${
+        ancestors
+          ? "\n  user.operatingAncestors = await operatingAncestorsOf(user.operatingOrg);"
+          : ""
+      }`
     : arrayClaimDefaults.length > 0
       ? `const user: User = { ${claimsSpread} };`
       : `const user: User = claims;`;
   // The operating-scope switch gate (`organizationContext`).  A request-level
   // fact: the `x-org-context` header names the org the request operates
   // in.  Absent (or empty) ⇒ the caller's home org (the tenancy claim).
-  // Present ⇒ admitted only when it names the home org itself, and refused
-  // outright when the principal has no home org.  Refusal is a pre-body 403,
-  // logged through the neutral catalog (`org_context_denied`).
-  const orgContextSeam = orgContext
+  // Present ⇒ admitted when it names the home org, or — on the deployable
+  // that hosts the registry — a registry row the caller can read through the
+  // registry's own read scope.  Refused outright when the principal has no
+  // home org.  Refusal is a pre-body 403, logged through the neutral catalog
+  // (`org_context_denied`).
+  const registrySeam = host
     ? `
+/** The registry reads the switch gate needs, bound to the database at boot
+ *  (boot.ts).  \`canRead\` loads the requested registry row through the
+ *  registry's read scope under the ambient (home) principal; \`ancestors\` walks
+ *  \`parent\` upward with set semantics, so it terminates on a cycle. */
+export interface OrgRegistry {
+  canRead(org: string): Promise<boolean>;
+  ancestors(org: string): Promise<string[]>;
+}
+
+let orgRegistry: OrgRegistry | null = null;
+
+/** Bind the registry reads (boot.ts).  Unbound, only the home org is admitted
+ *  and the ancestor set is empty — fail-closed. */
+export function registerOrgRegistry(registry: OrgRegistry): void {
+  orgRegistry = registry;
+}
+${
+  ancestors
+    ? `
+/** \`organizationContext.ancestors\` for \`org\` — the org and every org above
+ *  it.  Called once per request; the principal carries the result. */
+async function operatingAncestorsOf(org: string): Promise<User["operatingAncestors"]> {
+  if (orgRegistry === null || org === "") return [];
+  return (await orgRegistry.ancestors(org)) as User["operatingAncestors"];
+}
+`
+    : ""
+}`
+    : "";
+  const orgContextSeam = orgContext
+    ? `${registrySeam}
 /** The request's operating org (\`organizationContext.org\`): the caller's
- *  home org when none is requested or the request names it, and \`null\`
- *  (refuse) when the request asks for anything else — fail-closed. */
-function orgContextFor(homeOrg: string, requested: string | undefined): string | null {
+ *  home org when none is requested or the request names it, ${
+   host
+     ? "the requested org when the caller can read that registry row, "
+     : "(this deployable does not host the registry, so no other org is admitted) "
+}and \`null\` (refuse) otherwise — fail-closed. */
+async function orgContextFor(homeOrg: string, requested: string | undefined): Promise<string | null> {
   if (requested === undefined || requested === "") return homeOrg;
   if (homeOrg === "") return null;
-  return requested === homeOrg ? requested : null;
+  if (requested === homeOrg) return requested;
+  ${host ? "return orgRegistry !== null && (await orgRegistry.canRead(requested)) ? requested : null;" : "return null;"}
 }
 
 /** RFC 7807 403 for a refused operating-scope switch — answered before the
@@ -606,7 +677,7 @@ export async function actAsUser(claims: UserClaims): Promise<void> {
       : ""
   }
 }
-${renderSystemPrincipal(user, tenantClaim, orgContext)}`;
+${renderSystemPrincipal(user, tenantClaim, plan)}`;
 }
 
 /** `systemPrincipal()` — the principal an event reactor runs as (ruling D1,
@@ -619,7 +690,13 @@ ${renderSystemPrincipal(user, tenantClaim, orgContext)}`;
  *  that request's user id (or its own `causedBy` when the dispatcher is itself
  *  a reactor).  With no dispatching principal (a timer tick) the tenant is
  *  empty, which matches no tenant-owned row. */
-function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = false): string {
+function renderSystemPrincipal(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  plan: OrgContextPlan,
+): string {
+  const orgContext = plan.gate;
+  const ancestors = plan.ancestors;
   const idField = actorIdField(user);
   const entries = user.fields.map((f) => {
     const v =
@@ -628,10 +705,19 @@ function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = 
         : systemValueFor(f);
     return `    ${snakeToCamel(f.name)}: ${v},`;
   });
-  const tenantSlots = orgContext ? ['    operatingOrg: origin?.tenant ?? "",'] : [];
-  const tenantOf = tenantClaim
-    ? `user.${tenantClaim} == null || String(user.${tenantClaim}) === "" ? null : String(user.${tenantClaim})`
-    : "null";
+  const tenantSlots = [
+    ...(orgContext ? ['    operatingOrg: origin?.tenant ?? "",'] : []),
+    // A reactor reading the ancestors is refused at phase ⑦
+    // (`loom.org-context-ancestors-in-reactor`): the system principal has none.
+    ...(ancestors ? ["    operatingAncestors: [],"] : []),
+  ];
+  // The event's tenant is the OPERATING org of the raising request: a reactor
+  // runs in the org the triggering write happened in, switched or not.
+  const tenantOf = orgContext
+    ? `user.operatingOrg === "" ? null : user.operatingOrg`
+    : tenantClaim
+      ? `user.${tenantClaim} == null || String(user.${tenantClaim}) === "" ? null : String(user.${tenantClaim})`
+      : "null";
   const causedByOf = idField
     ? `user.isSystem ? (user.causedBy ?? null) : String(user.${idField})`
     : "user.causedBy ?? null";
