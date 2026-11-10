@@ -254,7 +254,7 @@ describe("java: tenant-scoped fold", async () => {
 
   it("a workflow's publish of a tenant-scoped stream runs in the stream tenant's origin", () => {
     expect(workflows).toContain(
-      "com.loom.api.auth.CurrentUserAccessor.runAsEventOrigin(new com.loom.api.auth.EventOrigin(__s.tenantId(), __o == null ? null : __o.causedBy()), __pub);",
+      "com.loom.api.auth.CurrentUserAccessor.runAsEventOrigin(new com.loom.api.auth.EventOrigin(__t, __o == null ? null : __o.causedBy()), __pub);",
     );
   });
 });

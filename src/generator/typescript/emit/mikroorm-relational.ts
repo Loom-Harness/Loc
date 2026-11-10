@@ -44,6 +44,7 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
+import { inRowTenant } from "../row-tenant.js";
 import {
   applySavedVersion,
   savedVersionDecl,
@@ -61,7 +62,7 @@ import {
 } from "./audit-stamp.js";
 import {
   MIKRO_OUTBOX_DRAIN_LINES,
-  MIKRO_OUTBOX_RECORD_LINE,
+  mikroOutboxRecordLine,
   mikroSaveTxLines,
 } from "./mikroorm-config.js";
 import {
@@ -948,14 +949,14 @@ export function renderMikroRepository(
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
-      MIKRO_OUTBOX_RECORD_LINE,
+      mikroOutboxRecordLine(agg),
     ]),
     versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
     `    for (const event of dispatchAfterCommit) {`,
     `      requestLog().info({ event: "event_dispatched", event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string });`,
-    `      await this.events.dispatch(event);`,
+    `      await ${inRowTenant(agg, "this.events.dispatch(event)")};`,
     `    }`,
     `  }`,
     deleteMethod ? "" : null,

@@ -4,7 +4,9 @@
 // (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
+import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { inRowTenant } from "../row-tenant.js";
 import { T } from "../ts-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -81,7 +83,11 @@ export const MIKRO_OUTBOX_DRAIN_LINES: readonly string[] = [
  *  without the hook, and then every event stays on the after-commit path,
  *  byte-identical in behaviour to before. */
 
-export const MIKRO_OUTBOX_RECORD_LINE = `    dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, em)) ?? pendingEvents;`;
+export function mikroOutboxRecordLine(
+  agg: Pick<AggregateIR, "capabilities" | "persistedAs">,
+): string {
+  return `    dispatchAfterCommit = (await ${inRowTenant(agg, "this.events.recordDurable?.(pendingEvents, em)")}) ?? pendingEvents;`;
+}
 
 export function mikroSaveTxLines(writeLines: readonly (string | null)[]): (string | null)[] {
   return [

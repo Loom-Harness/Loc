@@ -1067,6 +1067,25 @@ ${entries.join("\n")}
 
   def with_event_origin(_origin, fun), do: fun.()
 
+  @doc """
+  Run \`fun\` with the event origin of a tenant-owned ROW: the outbox capture,
+  the channel envelope and a tenant-scoped fold read the ambient origin, so an
+  event raised on a row of another org (a write share) is dispatched in the
+  row tenant's frame.  Same tenant: the request's own.
+  """
+  def in_row_tenant(nil, fun), do: fun.()
+
+  def in_row_tenant(tenant, fun) do
+    origin = current_event_origin()
+    row = to_string(tenant)
+
+    if origin != nil and origin["tenant"] == row do
+      fun.()
+    else
+      with_event_origin(%{"tenant" => row, "causedBy" => origin && origin["causedBy"]}, fun)
+    end
+  end
+
   defp origin_claim(origin, key), do: Map.get(origin, key, Map.get(origin, Atom.to_string(key)))
 
   defp blank_to_nil(nil), do: nil

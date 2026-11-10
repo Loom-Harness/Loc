@@ -16,7 +16,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
+import { eventsCarryRowTenant, isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
@@ -41,6 +41,9 @@ import { csClaimStampsFor } from "./entity.js";
 import {
   eventDbSetName,
   eventRecordClass,
+  recordDurableLines,
+  rowDispatchLines,
+  rowOriginDeclLines,
   streamOriginFrameLines,
   streamScopePredicate,
   streamScopeWhere,
@@ -608,7 +611,12 @@ export function renderRepositoryImpl(
       // `__deferred` is what still needs dispatching post-commit (everything,
       // when no durable channel is wired — the inline at-most-once path).
       "        var __pending = aggregate.PullEvents();",
-      "        var __deferred = await _events.RecordDurableAsync(__pending, null, cancellationToken);",
+      ...recordDurableLines(
+        ns,
+        eventsCarryRowTenant(agg),
+        "_events.RecordDurableAsync(__pending, null, cancellationToken)",
+        "        ",
+      ),
       // tx_* (trace) — emitted ONLY under --trace.  EF's SaveChangesAsync
       // runs an implicit transaction; the trio (begin/commit/rollback)
       // brackets it so an operator can correlate a failed save with
@@ -654,21 +662,23 @@ export function renderRepositoryImpl(
               { name: "id", valueExpr: "aggregate.Id.Value" },
             ])}`,
           ]),
-      "        foreach (var ev in __deferred)",
-      "        {",
-      // event_dispatched (info) per drained event.  `ev.GetType().Name`
-      // gives the concrete DomainEvent subclass name, which on .NET IS the
-      // event identity — C# events are emitted as real classes.  (The Hono
-      // side used to be described as "the same identity via
-      // `constructor.name`"; it was not — TS emits events as interfaces, so
-      // that read `"Object"`. Hono now reads the `type` discriminator.)
-      `            ${renderDotnetLogCall("eventDispatched", [
-        { name: "event_type", valueExpr: "ev.GetType().Name" },
-        { name: "aggregate", valueExpr: `"${agg.name}"` },
-        { name: "id", valueExpr: "aggregate.Id.Value" },
-      ])}`,
-      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
-      "        }",
+      ...rowDispatchLines(ns, eventsCarryRowTenant(agg), [
+        "        foreach (var ev in __deferred)",
+        "        {",
+        // event_dispatched (info) per drained event.  `ev.GetType().Name`
+        // gives the concrete DomainEvent subclass name, which on .NET IS the
+        // event identity — C# events are emitted as real classes.  (The Hono
+        // side used to be described as "the same identity via
+        // `constructor.name`"; it was not — TS emits events as interfaces, so
+        // that read `"Object"`. Hono now reads the `type` discriminator.)
+        `            ${renderDotnetLogCall("eventDispatched", [
+          { name: "event_type", valueExpr: "ev.GetType().Name" },
+          { name: "aggregate", valueExpr: `"${agg.name}"` },
+          { name: "id", valueExpr: "aggregate.Id.Value" },
+        ])}`,
+        "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+        "        }",
+      ]),
       "    }",
       // Hard delete — gated on a canonical `destroy`.  `Remove` + Save;
       // containment children and join-table rows drop via the schema's
@@ -1219,15 +1229,18 @@ export function renderDocumentRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
-      "        foreach (var ev in aggregate.PullEvents())",
-      "        {",
-      `            ${renderDotnetLogCall("eventDispatched", [
-        { name: "event_type", valueExpr: "ev.GetType().Name" },
-        { name: "aggregate", valueExpr: `"${agg.name}"` },
-        { name: "id", valueExpr: "aggregate.Id.Value" },
-      ])}`,
-      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
-      "        }",
+      ...(eventsCarryRowTenant(agg) ? rowOriginDeclLines(ns, "        ") : []),
+      ...rowDispatchLines(ns, eventsCarryRowTenant(agg), [
+        "        foreach (var ev in aggregate.PullEvents())",
+        "        {",
+        `            ${renderDotnetLogCall("eventDispatched", [
+          { name: "event_type", valueExpr: "ev.GetType().Name" },
+          { name: "aggregate", valueExpr: `"${agg.name}"` },
+          { name: "id", valueExpr: "aggregate.Id.Value" },
+        ])}`,
+        "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+        "        }",
+      ]),
       "    }",
       // Hard delete — gated on a canonical `destroy` (declared or via `crudish`),
       // exactly like the relational impl.  The DbSet holds `<Agg>Document` rows

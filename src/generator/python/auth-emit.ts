@@ -352,6 +352,21 @@ function renderPySystemPrincipal(
     "        yield",
     "    finally:",
     "        current_user_var.reset(token)",
+    "",
+    "",
+    "@contextmanager",
+    "def row_tenant_frame(tenant: object) -> Iterator[None]:",
+    '    """The event origin of a tenant-owned ROW for the block: the outbox',
+    "    capture, the channel envelope and a tenant-scoped fold read the ambient",
+    "    origin, so an event raised on a row of another org (a write share) is",
+    '    dispatched in the row tenant\'s frame.  Same tenant: the request\'s own."""',
+    "    origin = current_event_origin()",
+    '    if tenant is None or (origin is not None and origin.get("tenant") == str(tenant)):',
+    "        yield",
+    "        return",
+    '    caused_by = None if origin is None else origin.get("causedBy")',
+    '    with event_origin_frame({"tenant": str(tenant), "causedBy": caused_by}):',
+    "        yield",
   ];
 }
 

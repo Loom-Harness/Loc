@@ -1,4 +1,4 @@
-import { eventLogCarriesTenant } from "../../../ir/enrich/stream-tenancy.js";
+import { eventsKeepOriginFrame } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { tsImportSlot } from "../../_imports/ts.js";
@@ -24,11 +24,11 @@ export function renderEvents(ctx: BoundedContextIR): string {
   };
   for (const ev of ctx.events) for (const f of ev.fields) visit(f.type);
 
-  // Some stream is tenant-scoped (`stream-tenancy.ts`): an append may raise
-  // inside its stream tenant's event-origin frame, which has closed by the time
+  // Some aggregate dispatches inside an event-origin frame of its own (a
+  // tenant-scoped stream's, or a tenantOwned row's), which has closed by the time
   // a deferred buffer flushes — so each buffered event keeps its raising async
   // context and is dispatched back inside it.
-  const keepFrame = eventLogCarriesTenant(ctx);
+  const keepFrame = eventsKeepOriginFrame(ctx);
   const voList = [...voImports];
   const enumList = [...enumImports];
 

@@ -77,6 +77,60 @@ export function streamOriginFrameLines(ns: string, indent: string): string[] {
   ];
 }
 
+/** The row-tenant event origin of a state `tenantOwned` save
+ *  (`eventsCarryRowTenant`): `__rowOrigin` is null when the raising
+ *  principal's operating org is the row's tenant (the common case keeps the
+ *  request's own frame), else the row tenant's origin.  Declared once ahead of
+ *  the outbox record; {@link inRowOriginLines} enters it around the outbox
+ *  record and around the post-commit dispatch — never around the save, whose
+ *  audit stamps read the request's own principal. */
+export function rowOriginDeclLines(ns: string, indent: string): string[] {
+  return [
+    `${indent}var __ambientRowOrigin = global::${ns}.Auth.User.CurrentEventOrigin();`,
+    `${indent}var __rowTenant = global::System.Convert.ToString(aggregate.TenantId);`,
+    `${indent}global::${ns}.Auth.EventOrigin? __rowOrigin = __ambientRowOrigin?.Tenant == __rowTenant`,
+    `${indent}    ? null`,
+    `${indent}    : new global::${ns}.Auth.EventOrigin(__rowTenant, __ambientRowOrigin?.CausedBy);`,
+  ];
+}
+
+/** `body` run inside the row-tenant origin `__rowOrigin` (when it is set). */
+export function inRowOriginLines(ns: string, indent: string, body: string[]): string[] {
+  return [
+    `${indent}using (__rowOrigin is null ? null : global::${ns}.Auth.User.EnterEventOrigin(__rowOrigin))`,
+    `${indent}{`,
+    ...body,
+    `${indent}}`,
+  ];
+}
+
+/** A save's post-commit dispatch `body`, in the row-tenant origin when the
+ *  aggregate's events carry its row's tenant (`__rowOrigin` declared earlier). */
+export function rowDispatchLines(ns: string, rowTenant: boolean, body: string[]): string[] {
+  if (!rowTenant) return body;
+  return inRowOriginLines(
+    ns,
+    "        ",
+    body.map((l) => `    ${l}`),
+  );
+}
+
+/** The outbox record of a save's pending events, in the row-tenant origin when
+ *  the aggregate's events carry its row's tenant. */
+export function recordDurableLines(
+  ns: string,
+  rowTenant: boolean,
+  call: string,
+  indent: string,
+): string[] {
+  if (!rowTenant) return [`${indent}var __deferred = await ${call};`];
+  return [
+    ...rowOriginDeclLines(ns, indent),
+    `${indent}global::System.Collections.Generic.IReadOnlyList<global::${ns}.Domain.Events.IDomainEvent> __deferred;`,
+    ...inRowOriginLines(ns, indent, [`${indent}    __deferred = await ${call};`]),
+  ];
+}
+
 /** The persistence record (POCO) class name for a context's event log —
  *  `<Ctx>EventRecord`.  ONE per bounded context (not one shared type): EF Core
  *  maps each CLR entity type to a single table, so a deployable hosting several

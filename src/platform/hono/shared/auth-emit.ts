@@ -795,6 +795,16 @@ function renderSystemPrincipal(
     "    fn,",
     "  );",
     "}",
+    "",
+    "/** Run `fn` with the event origin of a tenant-owned ROW: the outbox capture,",
+    " *  the channel envelope and a tenant-scoped fold read the ambient origin, so",
+    " *  an event raised on a row of another org (a write share) is recorded and",
+    " *  dispatched in the row tenant's frame.  Same tenant: the request's own. */",
+    "export function runInRowTenant<T>(tenant: unknown, fn: () => Promise<T>): Promise<T> {",
+    "  const origin = currentEventOrigin();",
+    "  if (tenant == null || (origin?.tenant ?? null) === String(tenant)) return fn();",
+    "  return runAsEventOrigin({ tenant: String(tenant), causedBy: origin?.causedBy ?? null }, fn);",
+    "}",
   );
 }
 

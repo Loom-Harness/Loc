@@ -1,6 +1,13 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
-import { streamOriginFrameLines, streamScopePredicate, streamScopeWhere } from "./event-store.js";
+import {
+  recordDurableLines,
+  rowDispatchLines,
+  rowOriginDeclLines,
+  streamOriginFrameLines,
+  streamScopePredicate,
+  streamScopeWhere,
+} from "./event-store.js";
 // ---------------------------------------------------------------------------
 // dapper — minimal-real persistence emitters for the .NET backend
 // (D-REALIZATION-AXES).  An ALTERNATE persistence implementation
@@ -51,7 +58,7 @@ import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/u
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
+import { eventsCarryRowTenant, guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
@@ -2205,14 +2212,21 @@ export function renderDapperRepository(
       // still needs dispatching post-commit (everything, when no durable
       // channel is wired).
       "        var __pending = aggregate.PullEvents();",
-      "        var __deferred = await _events.RecordDurableAsync(__pending, __tx, cancellationToken);",
+      ...recordDurableLines(
+        ns,
+        eventsCarryRowTenant(agg),
+        "_events.RecordDurableAsync(__pending, __tx, cancellationToken)",
+        "        ",
+      ),
       // Commit the write set atomically before events fire — a rolled-back save
       // (concurrency conflict throw, mid-replace crash) must not dispatch events.
       `        ${DAPPER_COMMIT_TX}`,
-      "        foreach (var ev in __deferred)",
-      "        {",
-      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
-      "        }",
+      ...rowDispatchLines(ns, eventsCarryRowTenant(agg), [
+        "        foreach (var ev in __deferred)",
+        "        {",
+        "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+        "        }",
+      ]),
       "    }",
       deleteMethod ? "" : null,
       deleteMethod || null,
@@ -2536,10 +2550,13 @@ export function renderDapperDocumentRepository(
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, ${saveParamsCs(agg)})`,
       "    {",
       ...saveLines,
-      "        foreach (var ev in aggregate.PullEvents())",
-      "        {",
-      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
-      "        }",
+      ...(eventsCarryRowTenant(agg) ? rowOriginDeclLines(ns, "        ") : []),
+      ...rowDispatchLines(ns, eventsCarryRowTenant(agg), [
+        "        foreach (var ev in aggregate.PullEvents())",
+        "        {",
+        "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
+        "        }",
+      ]),
       "    }",
       deleteMethod ? "" : null,
       deleteMethod || null,

@@ -12,6 +12,7 @@ import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { eventsCarryRowTenant } from "../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -258,7 +259,12 @@ export function buildPyDocumentRepositoryFile(
     ...(ctx.events.length > 0
       ? [
           "        for event in aggregate.pull_events():",
-          "            await self._events.dispatch(event)",
+          ...(eventsCarryRowTenant(agg)
+            ? [
+                `            with ${PY.row_tenant_frame}(aggregate.tenant_id):`,
+                "                await self._events.dispatch(event)",
+              ]
+            : ["            await self._events.dispatch(event)"]),
         ]
       : []),
     ...(emitsDelete

@@ -35,6 +35,7 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
+import { eventsCarryRowTenant } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -813,13 +814,13 @@ export function renderJavaService(
         const pkg = ctx.repoPkgOf?.(n) ?? ctx.domainRepoPkg;
         return pkg !== ctx.pkg ? `import ${pkg}.${n}Repository;` : null;
       }),
-    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+    needsUserAccessor || historyMasks || publishesInRowTenant(agg)
       ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;`
       : null,
-    needsUserAccessor || historyMasks || isTenantScopedStream(agg)
+    needsUserAccessor || historyMasks || publishesInRowTenant(agg)
       ? `import ${ctx.basePkg}.auth.User;`
       : null,
-    isTenantScopedStream(agg) ? `import ${ctx.basePkg}.auth.EventOrigin;` : null,
+    publishesInRowTenant(agg) ? `import ${ctx.basePkg}.auth.EventOrigin;` : null,
     anyAudited ? `import ${ctx.basePkg}.config.RequestContext;` : null,
     // Entity history — the shared wire records + read-time helpers
     // (`api-common`, so one copy serves every audited aggregate).
@@ -888,20 +889,21 @@ export function renderJavaService(
     ...destroyLines,
     ...voMappers,
     ...auditActorLines,
-    ...(isTenantScopedStream(agg)
+    ...(publishesInRowTenant(agg)
       ? [
-          // The events' origin is their STREAM's tenant: the outbox capture and
-          // the channel envelope (`tenantid`) read the ambient principal, so
-          // when the raising principal's tenant is not the stream's the
-          // publish runs in the stream tenant's event-origin frame.  Same
-          // tenant: the request's own.
+          // The events' origin is their row's (or stream's) tenant: the outbox
+          // capture and the channel envelope (`tenantid`) read the ambient
+          // principal, so when the raising principal's tenant is not the row's
+          // (a write share) the publish runs in the row tenant's event-origin
+          // frame.  Same tenant: the request's own.
           `    private void publishEvents(${agg.name} aggregate) {`,
           `        var __origin = User.currentEventOrigin();`,
-          `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), aggregate.tenantId())) {`,
+          `        var __tenant = java.util.Objects.toString(aggregate.tenantId(), null);`,
+          `        if (java.util.Objects.equals(__origin == null ? null : __origin.tenant(), __tenant)) {`,
           `            publishAll(aggregate);`,
           `        } else {`,
           `            CurrentUserAccessor.runAsEventOrigin(`,
-          `                new EventOrigin(aggregate.tenantId(), __origin == null ? null : __origin.causedBy()),`,
+          `                new EventOrigin(__tenant, __origin == null ? null : __origin.causedBy()),`,
           `                () -> publishAll(aggregate));`,
           `        }`,
           `    }`,
@@ -942,4 +944,12 @@ function collectVoNames(
     for (const f of voLookup.get(t.name) ?? []) collectVoNames(f.type, into, voLookup);
   } else if (t.kind === "array") collectVoNames(t.element, into, voLookup);
   else if (t.kind === "optional") collectVoNames(t.inner, into, voLookup);
+}
+
+/** True when `agg`'s events carry its row's tenant — a tenant-scoped stream,
+ *  or a state `tenantOwned` row a principal of another org may write. */
+export function publishesInRowTenant(
+  agg: Parameters<typeof isTenantScopedStream>[0] & Parameters<typeof eventsCarryRowTenant>[0],
+): boolean {
+  return isTenantScopedStream(agg) || eventsCarryRowTenant(agg);
 }

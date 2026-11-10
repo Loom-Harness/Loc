@@ -57,6 +57,7 @@ import {
 } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
+import { eventsCarryRowTenant } from "../../ir/util/tenant-stance.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { mapExprChildren } from "../../ir/util/walk.js";
@@ -1529,7 +1530,12 @@ function saveMethod(
     out.push(
       `            ${PY.log}("info", "event_dispatched", event_type=type(event).__name__, aggregate=${JSON.stringify(agg.name)}, id=str(${aggVar}.id))`,
     );
-    out.push("            await self._events.dispatch(event)");
+    if (eventsCarryRowTenant(agg)) {
+      out.push(`            with ${PY.row_tenant_frame}(${aggVar}.tenant_id):`);
+      out.push("                await self._events.dispatch(event)");
+    } else {
+      out.push("            await self._events.dispatch(event)");
+    }
   }
   // Provenance flush (provenance.md): drain the per-request trace buffer and
   // insert one `provenance_records` row per write, stamped with the ambient

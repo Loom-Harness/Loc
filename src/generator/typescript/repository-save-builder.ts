@@ -27,6 +27,7 @@ import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/aud
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
 import { drizzleKindPredicate } from "./repository-find-predicate.js";
+import { inRowTenant } from "./row-tenant.js";
 import {
   applySavedVersion,
   savedVersionDecl,
@@ -300,7 +301,7 @@ export function saveMethod(
     `    const pendingEvents = aggregate.pullEvents();`,
     `    let dispatchAfterCommit = pendingEvents;`,
   ];
-  const recordLine = `      dispatchAfterCommit = (await this.events.recordDurable?.(pendingEvents, tx)) ?? pendingEvents;`;
+  const recordLine = `      dispatchAfterCommit = (await ${inRowTenant(agg, "this.events.recordDurable?.(pendingEvents, tx)")}) ?? pendingEvents;`;
   const versioned = rowVersionGuarded(agg);
   return lines(
     saveSig,
@@ -343,7 +344,7 @@ export function saveMethod(
     // `event_type` (not `event`) so it doesn't collide with the envelope's
     // `event` key.
     `      ${renderHonoStoreLogCall("eventDispatched", `event_type: (event as { type: string }).type, aggregate: "${agg.name}", id: aggregate.id as string`)}`,
-    `      await this.events.dispatch(event);`,
+    `      await ${inRowTenant(agg, "this.events.dispatch(event)")};`,
     `    }`,
     `  }`,
   );

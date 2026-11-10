@@ -33,7 +33,11 @@ import type {
   EventIR,
 } from "../types/loom-ir.js";
 import type { AggPool } from "../util/inheritance.js";
-import { hasTenantOwned, TENANT_OWNED_TENANT_ID_FIELD } from "../util/tenant-stance.js";
+import {
+  eventsCarryRowTenant,
+  hasTenantOwned,
+  TENANT_OWNED_TENANT_ID_FIELD,
+} from "../util/tenant-stance.js";
 import { type ReadRestriction, type ReadScopeOptions, readScopeFor } from "./read-scope.js";
 
 /** One tenant metadata slot of a stored event: the aggregate field it folds
@@ -107,6 +111,14 @@ export function streamTenancyFor(
  *  workflow) leave them null. */
 export function eventLogCarriesTenant(ctx: Pick<BoundedContextIR, "aggregates">): boolean {
   return ctx.aggregates.some(isTenantScopedStream);
+}
+
+/** True when some aggregate of the context may dispatch its events inside an
+ *  event-origin frame of its own — a tenant-scoped stream's, or a tenantOwned
+ *  row's (`eventsCarryRowTenant`) — so a delivery deferred past the commit must
+ *  run in a copy of the RAISING frame to keep the event's origin. */
+export function eventsKeepOriginFrame(ctx: Pick<BoundedContextIR, "aggregates">): boolean {
+  return ctx.aggregates.some((a) => isTenantScopedStream(a) || eventsCarryRowTenant(a));
 }
 
 /** The tenant metadata an event carries when it is stored or published, or
