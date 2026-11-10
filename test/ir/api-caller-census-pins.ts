@@ -1198,6 +1198,14 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // no-switch default the behavioural tier COULD drive is `tenancy-hierarchy`'s
   // cell, which waits on #2976's registry-row principal.  Reasoned entry.
   "org-context",
+  // RUNTIME HOME IS TENANCY-E2E (`shareable`).  A grantee is a REAL registry
+  // org id carried as the tenancy claim, and a Subtree grant is a statement
+  // about principals in different parts of the tree — the literal `as { … }`
+  // claims of a `test e2e` block cannot name either.  The booted
+  // `tenancy-org-context*` leg (`assertShareable`) drives every surface on five
+  // backends: the share gate's 403, each grantee kind, write shares, revoke,
+  // no re-share, an authored move, a mask, a soft delete.
+  "shareable",
   // `workflow-command-payload` DRAINED (wave C3 packet 3g, defects D2 + D7):
   // `api.claims` parses, and elixir rebinds a payload-typed workflow param to
   // an atom-keyed map over the payload's fields before the body reads it.

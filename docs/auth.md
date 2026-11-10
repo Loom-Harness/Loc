@@ -891,9 +891,9 @@ policy { allow share on Category when currentUser.role == "manager" }
 WHERE c.tenant_id = $org
    OR EXISTS (SELECT 1 FROM category_shares s
               WHERE s.category = c.id AND s.tenant_id = c.tenant_id AND NOT s.revoked
-                AND ((s.kind = 'Org' AND s.org::text = $org)
-                  OR (s.kind = 'Subtree' AND s.org = ANY($ancestors))
-                  OR (s.kind = 'User' AND s.user = $user))
+                AND ((s.grantee_kind = 'Org' AND s.org::text = $org)
+                  OR (s.grantee_kind = 'Subtree' AND s.org = ANY($ancestors))
+                  OR (s.grantee_kind = 'User' AND s.user = $user))
                 AND <CategoryShare's own read scope>)
 ```
 

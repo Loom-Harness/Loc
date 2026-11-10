@@ -635,7 +635,7 @@ Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--
 `with shareable` on a `tenantOwned` aggregate X lets its rows be shared beyond their org. It unfolds to ordinary context members (`unfold` ejects them as editable source, and an authored member of the same name wins):
 
 - `enum ShareGranteeKind { Org, Subtree, User }` — once per context;
-- `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`kind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`;
+- `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`granteeKind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`;
 - `policy GranteeIsMe(s: XShare)` — the share is live and addressed to the caller: `Org` matches the operating org, `Subtree` matches when the grantee org is in `organizationContext.ancestors` (so a move re-targets it on the next request), `User` matches `currentUser.id`;
 - `policy SharedWithMe(x: X)` — X has such a share **in X's own org**;
 - `policy XSharing` — a grantee reads the shares addressed to it, reads X where `SharedWithMe`, and writes X where a share with `write` is addressed to it.
@@ -653,7 +653,7 @@ policy { allow share on Category when currentUser.role == "manager" }
 == node
 ```ts
 // db/read-scopes.ts — Category's read scope: the floor OR a live share addressed to the caller
-or(eq(schema.categories.tenantId, requireCurrentUser().operatingOrg), sql`exists (select 1 from ${schema.categoryShares} where ${and(and(and(eq(schema.categoryShares.category, schema.categories.id), eq(schema.categoryShares.tenantId, schema.categories.tenantId)), and(not(eq(schema.categoryShares.revoked, true)), or(or(and(eq(schema.categoryShares.kind, "Org"), sql`${schema.categoryShares.org}::text = ${requireCurrentUser().operatingOrg}`), and(eq(schema.categoryShares.kind, "Subtree"), inArray(schema.categoryShares.org, requireCurrentUser().operatingAncestors))), and(eq(schema.categoryShares.kind, "User"), eq(schema.categoryShares.user, requireCurrentUser().id))))), /* CategoryShare's own read scope */)})`)
+or(eq(schema.categories.tenantId, requireCurrentUser().operatingOrg), sql`exists (select 1 from ${schema.categoryShares} where ${and(and(and(eq(schema.categoryShares.category, schema.categories.id), eq(schema.categoryShares.tenantId, schema.categories.tenantId)), and(not(eq(schema.categoryShares.revoked, true)), or(or(and(eq(schema.categoryShares.granteeKind, "Org"), sql`${schema.categoryShares.org}::text = ${requireCurrentUser().operatingOrg}`), and(eq(schema.categoryShares.granteeKind, "Subtree"), inArray(schema.categoryShares.org, requireCurrentUser().operatingAncestors))), and(eq(schema.categoryShares.granteeKind, "User"), eq(schema.categoryShares.user, requireCurrentUser().id))))), /* CategoryShare's own read scope */)})`)
 // http/categoryShare.routes.ts — the share gate
 if (!(currentUser.role === "manager")) throw new ForbiddenError("Forbidden: allow share on Category");
 ```
