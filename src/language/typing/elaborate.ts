@@ -16,6 +16,7 @@ import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
+import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType, isIntrinsicName } from "../../util/intrinsics.js";
 import {
@@ -56,6 +57,7 @@ import type {
   Lambda,
   MemberSuffix,
   Model,
+  NameRef,
   Operation,
   Page,
   PostfixChain,
@@ -1124,7 +1126,8 @@ export class Elaborator {
     scope: Scope,
   ): Ty | undefined {
     const of = entries.find((x) => x.name === "of")?.value;
-    if (!of || !isPostfixChain(of)) return undefined;
+    // `of:` is a read path, or a bare projection name (a ui with no `api`).
+    if (!of || !(isPostfixChain(of) || isNameRef(of))) return undefined;
     this.synth(of, scope);
     const t = this.apiReadType(of, scope);
     return t?.kind === "optional" ? t.inner : t;
@@ -1143,10 +1146,15 @@ export class Elaborator {
   /** The value a ui-side read `<handle>.<Agg>.<verb>(…)` (or
    *  `<handle>.<Projection>`) yields — the aggregate is the LAST suffix naming
    *  one, the verb the suffix after it. */
-  private apiReadType(of: PostfixChain, scope: Scope, upTo?: number): Ty | undefined {
+  private apiReadType(of: PostfixChain | NameRef, scope: Scope, upTo?: number): Ty | undefined {
     // The path segments: the head name, then each member suffix.
+    if (isNameRef(of)) return this.apiReadSegments([of.name], of, scope);
     const segs: string[] = [isNameRef(of.head) ? of.head.name : ""];
     for (const s of of.suffixes.slice(0, upTo)) if (isMemberSuffix(s)) segs.push(String(s.member));
+    return this.apiReadSegments(segs, of, scope);
+  }
+
+  private apiReadSegments(segs: string[], of: AstNode, scope: Scope): Ty | undefined {
     for (let i = segs.length - 1; i >= 0; i--) {
       const m = segs[i]!;
       if (!m) continue;
@@ -1900,6 +1908,10 @@ export class Elaborator {
         const p = bare.name;
         const field = primitiveFieldType(p, name);
         if (field) return withTags(Ty.prim(field), tags);
+        // A frontend or e2e body holds a `File` as its `FileRef` wire record.
+        const ref = p === "File" && !ms.call ? FILE_REF_MEMBERS.get(name) : undefined;
+        if (ref && (scope.frame.ui || scope.frame.e2e || inFrontendDecl(ms)))
+          return withTags(Ty.prim(ref), tags);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
         const sig = intrinsicFor(p, name);
         if (sig) {

@@ -22,7 +22,7 @@ export function validateUnresolvedTypes(loom: EnrichedLoomModel, diags: LoomDiag
     diags.push({
       severity: "error",
       code: UNRESOLVED_TYPE_CODE,
-      message: diagMessage(UNRESOLVED_TYPE_CODE, { text: site.text, why: why(site.cause) }),
+      message: diagMessage("loom.unresolved-type", { text: site.text, why: why(site.cause) }),
       source: site.text,
       ...(site.origin ? { origin: site.origin } : {}),
     });

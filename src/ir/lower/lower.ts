@@ -595,9 +595,9 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     tableRenameIntents: models.flatMap((m) => m.tableRenameIntents),
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
-    ...(models.some((m) => m.unresolvedTypes)
-      ? { unresolvedTypes: models.flatMap((m) => m.unresolvedTypes ?? []) }
-      : {}),
+    unresolvedTypes: models.some((m) => m.unresolvedTypes)
+      ? models.flatMap((m) => m.unresolvedTypes ?? [])
+      : undefined,
   };
 }
 

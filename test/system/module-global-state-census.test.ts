@@ -101,6 +101,11 @@ const PINNED: Record<string, Pin> = {
     reason:
       "M-T5.47 shadow-mode observer: unset outside the typing differential, which installs it per document and clears it in a `finally`.",
   },
+  "src/ir/lower/lower-expr.ts:unresolvedSink": {
+    discipline: "scoped-restore",
+    reason:
+      "`collectUnresolvedTypes` installs a fresh sink per `lowerProject` run and restores the outer one in a `finally`.",
+  },
   "src/ir/lower/lower-expr.ts:uiEnumIndexByRoot": {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the AST root node.",

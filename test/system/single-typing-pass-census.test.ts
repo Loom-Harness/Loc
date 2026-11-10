@@ -49,6 +49,10 @@ const ALLOWED: Record<string, string> = {
     "`typingFor(node).synthAt(node)` — or `synthAtFor(node, host)` in a context-level filter / stamp",
   "src/ir/lower/lower-expr.ts:passTargetSteps":
     "`typingFor(lv).lvalueStepsAt(lv)` through `irType`",
+  "src/ir/lower/lower-expr.ts:passTypeUnrecorded":
+    "`passType` with the unresolved-read recorder detached, for an observer",
+  "src/ir/lower/lower-expr.ts:recordUnresolved":
+    "records a node the pass left unknown; answers the fixed placeholder, infers nothing",
   "src/ir/lower/lower-expr.ts:passType":
     "`passSynth` through `irType`, plus the two §D7 REPRESENTATION rules for a ui element",
   "src/ir/lower/lower-expr.ts:unwrapGuardedIntrinsicReceiver":
