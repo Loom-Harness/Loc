@@ -545,7 +545,7 @@ export function entityTypeOf(
   return { kind: "entity", name: decl.name, declKind: entityDeclKindOf(decl) };
 }
 
-export function entityDeclKindOf(
+function entityDeclKindOf(
   decl: Aggregate | EntityPart | EventDecl | PayloadDecl | Workflow | Projection,
 ): EntityDeclKind {
   if (isAggregate(decl)) return "aggregate";
