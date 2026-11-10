@@ -92,6 +92,7 @@ import {
 import { emptyDependencySet } from "./engine";
 import { recordAndGcOpfs } from "./engine/opfs-gc";
 import type { MigrationPlan, QueryResult } from "./runtime/protocol";
+import { memoryStorageRequested } from "./runtime/storage-placement";
 import {
   CUSTOM_ENDPOINT,
   buildConcretePath,
@@ -1726,7 +1727,7 @@ export default function App(): JSX.Element {
       // One database per storage.  A system with one storage keeps the
       // island key it always had, so its stored rows survive this layout.
       const plan = bootPlan(backends, planned.plan, planned.storages, (storageKey) => {
-        if (!isDesktop) return { dataDir: ":memory:", island: null };
+        if (!isDesktop || memoryStorageRequested()) return { dataDir: ":memory:", island: null };
         const island =
           planned.storages.length > 1
             ? fnv1a32(`${workspace.activeId}\u0000${current.entryPath}\u0000${storageKey}`)

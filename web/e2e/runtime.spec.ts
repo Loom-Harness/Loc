@@ -31,7 +31,7 @@ import {
 // The cold path: no seeded PGlite snapshot, so this Boot runs initdb (and
 // dumps the snapshot every later fresh storage starts from).  The other boot
 // specs start from the seeded snapshot.
-test.use({ pgliteSnapshot: false });
+test.use({ pgliteSnapshot: false, pgliteStorage: "opfs" });
 
 test("editor → generate → bundle → boot → dispatch", async ({ page }) => {
   const consoleErrors: string[] = [];
