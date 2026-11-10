@@ -4,6 +4,7 @@
 // value child via the shared `walk`.
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { isMoneyLocaleFormatCall } from "../../../ir/util/money-locale-format.js";
 import { rowShapeByKey } from "../../_frontend/optional-member.js";
 import { giveUp } from "../give-up.js";
 import {
@@ -81,6 +82,24 @@ function attrExprValue(nav: { expr: string; dynamic: boolean }, ctx: WalkContext
   return nav.expr;
 }
 
+/** True when `Money { …, format: "locale" }` opts into locale-formatted
+ *  display.  The accepted values are the closed `Money.format` vocabulary in
+ *  `src/util/walker-primitive-arg-values.ts`. */
+export function moneyLocaleFormat(call: ExprIR & { kind: "call" }): boolean {
+  return isMoneyLocaleFormatCall(call);
+}
+
+/** `, a, undefined, c` for `[a, undefined, c]` — optional trailing positional
+ *  arguments with the gaps filled and the unset tail dropped. */
+function positionalTail(parts: readonly (string | undefined)[]): string {
+  let last = parts.length - 1;
+  while (last >= 0 && parts[last] === undefined) last--;
+  return parts
+    .slice(0, last + 1)
+    .map((p) => `, ${p ?? "undefined"}`)
+    .join("");
+}
+
 export function emitMoney(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
@@ -91,12 +110,26 @@ export function emitMoney(
   const valueExpr = value ? emitExpr(value, ctx) : "0";
   const currency = stringNamed(call, "currency");
   const decimals = numericNamed(call, "decimals");
+  const localeFormat = moneyLocaleFormat(call);
+  const currencyLit = currency !== undefined ? JSON.stringify(currency) : "";
+  const decimalsLit = decimals !== undefined ? String(decimals) : "";
   return renderPrimitive(ctx, "primitive-money", {
     valueExpr,
     hasCurrency: currency !== undefined,
-    currency: currency !== undefined ? JSON.stringify(currency) : "",
+    currency: currencyLit,
     hasDecimals: decimals !== undefined,
-    decimals: decimals !== undefined ? String(decimals) : "",
+    decimals: decimalsLit,
+    hasLocaleFormat: localeFormat,
+    // Feliz reads the active locale off its generated `I18n` module, which
+    // exists exactly when the ui has translatable strings.
+    hasI18n: ctx.i18nPrefix !== undefined,
+    // The positional tail the call-style packs append to `formatMoney(value…)`:
+    // `(currency?, decimals?, localized?)`, trimmed of trailing gaps.
+    moneyTail: positionalTail([
+      currency !== undefined ? currencyLit : undefined,
+      decimals !== undefined ? decimalsLit : undefined,
+      localeFormat ? "true" : undefined,
+    ]),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

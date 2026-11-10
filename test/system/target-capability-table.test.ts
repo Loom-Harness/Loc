@@ -100,6 +100,11 @@ const UI_WITNESSES: Readonly<Record<RefusableUiConstruct, (framework: string) =>
         select tier = c.tier, spend = sum(c.spend)
       }`,
     ),
+  "primitive:Money-locale-format@body": (fw) =>
+    uiWitness(
+      fw,
+      `QueryView { of: Sales.Customer.byId(id), data: c => Money { c.spend, currency: "EUR", format: "locale" } }`,
+    ),
   "read:entity-history@body": (fw) =>
     uiWitness(
       fw,
