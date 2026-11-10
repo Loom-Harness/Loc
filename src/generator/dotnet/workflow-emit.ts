@@ -1,5 +1,6 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
+import { observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -2606,7 +2607,7 @@ export function emitWorkflowInstanceReads(
   ownerOf: OwnerOf,
   options?: { routePrefix?: string; usingDapper?: boolean },
 ): void {
-  const observable = ctx.workflows.filter((wf) => !!wf.instanceWireShape);
+  const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return;
   for (const wf of observable) {
     out.set(
