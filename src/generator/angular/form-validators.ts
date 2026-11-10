@@ -3,6 +3,8 @@ import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
 import { type ClientLimitCheck, clientLimitChecks } from "../_frontend/error-codes.js";
+import { namedRuleText } from "../_i18n/rule-text.js";
+import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 import { type AngularFormControlSpec, addNg } from "./form-fields.js";
@@ -48,6 +50,10 @@ export function angularValidatorMap(
 export interface AngularFieldMessage {
   errorKey: string;
   code: string;
+  /** The catalog English of `code` — a named rule's text, else the generic
+   *  sentence of its `field.<reason>`; the default `t(code, text, params)`
+   *  carries and what a string-less app shows. */
+  text: string;
   params: Readonly<Record<string, number>>;
 }
 
@@ -65,9 +71,10 @@ export function angularRuleCodes(
   for (const [field, validators] of fieldValidators(invariants, available)) {
     out.set(
       field,
-      validators.map(({ errorKey, limit }) => ({
+      validators.map(({ errorKey, limit, text }) => ({
         errorKey,
         code: limit.code,
+        text,
         params: limit.params,
       })),
     );
@@ -80,6 +87,7 @@ interface AngularValidator {
   call: string;
   errorKey: string;
   limit: ClientLimitCheck;
+  text: string;
 }
 
 /** Every constrained field's validators, through the shared
@@ -191,24 +199,25 @@ export function applyAngularValidators(
  *  `maxlength` pair under the one `field.length` code. */
 function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularValidator[] {
   return clientLimitChecks(inv, p).flatMap((limit): AngularValidator[] => {
+    const text = inv.message ? namedRuleText(inv.message) : wireErrorMessage(limit.code);
     const n = limit.check.bound ?? 0;
     switch (limit.check.reason) {
       case "min":
-        return [{ call: `Validators.min(${n})`, errorKey: "min", limit }];
+        return [{ call: `Validators.min(${n})`, errorKey: "min", limit, text }];
       case "greater-than":
-        return [{ call: exclusiveBoundValidator(">", n), errorKey: "greater-than", limit }];
+        return [{ call: exclusiveBoundValidator(">", n), errorKey: "greater-than", limit, text }];
       case "max":
-        return [{ call: `Validators.max(${n})`, errorKey: "max", limit }];
+        return [{ call: `Validators.max(${n})`, errorKey: "max", limit, text }];
       case "less-than":
-        return [{ call: exclusiveBoundValidator("<", n), errorKey: "less-than", limit }];
+        return [{ call: exclusiveBoundValidator("<", n), errorKey: "less-than", limit, text }];
       case "min-length":
-        return [{ call: codePointLengthValidator(">=", n), errorKey: "minlength", limit }];
+        return [{ call: codePointLengthValidator(">=", n), errorKey: "minlength", limit, text }];
       case "max-length":
-        return [{ call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit }];
+        return [{ call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit, text }];
       case "length":
         return [
-          { call: codePointLengthValidator(">=", n), errorKey: "minlength", limit },
-          { call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit },
+          { call: codePointLengthValidator(">=", n), errorKey: "minlength", limit, text },
+          { call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit, text },
         ];
       case "pattern":
         // The pattern is a JS-compatible regex source (parse-time validated via
@@ -221,6 +230,7 @@ function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularV
             call: `Validators.pattern(${asRegexLiteral(limit.check.regex ?? "")})`,
             errorKey: "pattern",
             limit,
+            text,
           },
         ];
       default: {
