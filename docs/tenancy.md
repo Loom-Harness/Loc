@@ -426,8 +426,10 @@ rows no tenant command owns. Under `tenancy by`, a fold over events raised by a
 
 - **Stamp.** The fold reads the event's tenant from its metadata — the event
   origin of the frame the event is dispatched in (the raising request, the
-  stream tenant's frame for an event-sourced append, or the frame the outbox
-  relay / broker consumer opens from `tenantid`) — and stamps the row's
+  stream tenant's frame for an event-sourced append, the row tenant's frame
+  for a state `tenantOwned` row a principal of another org wrote through a
+  write share, or the frame the outbox relay / broker consumer opens from
+  `tenantid`) — and stamps the row's
   `tenant_id`, the column a `tenantOwned` table carries. An event with no
   tenant (raised outside any principal) folds into no row.
 - **Key.** The row is keyed by `(tenant_id, <key>)`, so two tenants folding
