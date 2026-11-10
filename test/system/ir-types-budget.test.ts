@@ -31,7 +31,10 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "deployment.ts": 22,
   "expr.ts": 36,
   "members.ts": 16,
-  "model.ts": 9, // EnumValueRenameIntentIR.context: a root-level enum has no declaring context
+  // +2: `LoomModel.unresolvedTypes` (absent on every model that validates) and
+  // `UnresolvedTypeSite.origin` (absent for a node with no source span); +1:
+  // `EnumValueRenameIntentIR.context` (a root-level enum has no declaring context).
+  "model.ts": 11,
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,

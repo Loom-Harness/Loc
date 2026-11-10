@@ -178,6 +178,7 @@ import {
 import { lowerDeployable } from "./lower-deployment.js";
 import { lowerDomainService } from "./lower-domain-service.js";
 import {
+  collectUnresolvedTypes,
   criterionRefOf,
   lowerExpr,
   setAmbientEnumIndex,
@@ -256,6 +257,13 @@ export function lowerModel(model: Model): RawLoomModel {
  *  (`loom.top-level-domain-needs-single-system`), but its contexts are
  *  still lowered loose here so nothing is silently dropped. */
 export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
+  // Every read of an expression the typing pass left unresolved travels with
+  // the model, for `validateLoomModel` to refuse it (`loom.unresolved-type`).
+  const { result, sites } = collectUnresolvedTypes(() => lowerProjectBody(models));
+  return sites.length > 0 ? { ...result, unresolvedTypes: sites } : result;
+}
+
+function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
   const allMembers = models.flatMap((m) => m.members);
   // Index the project-global ambient root-level enums (value name → enum
   // name) so a bare enum-value reference (`priority: Normal`) resolves to
@@ -605,6 +613,9 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
     enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
+    unresolvedTypes: models.some((m) => m.unresolvedTypes)
+      ? models.flatMap((m) => m.unresolvedTypes ?? [])
+      : undefined,
   };
 }
 
