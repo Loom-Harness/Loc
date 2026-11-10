@@ -930,7 +930,7 @@ export function renderMikroRepository(
     `    return loaded;`,
     `  }`,
     "",
-    ...mikroGetByIdLines(agg, `${TT.Ids}.${agg.name}Id`, row),
+    ...mikroGetByIdLines(agg, `${TT.Ids}.${agg.name}Id`, row, ctx.aggregates),
     "",
     `  async findManyByIds(ids: ${TT.Ids}.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,

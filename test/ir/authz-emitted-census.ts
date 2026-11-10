@@ -55,8 +55,14 @@ import {
 import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
+import { principalTerm } from "../../src/ir/util/principal-term.js";
 import { projectionSourceContext } from "../../src/ir/util/projection-source.js";
-import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
+import {
+  walkExprChildren,
+  walkExprDeep,
+  walkStmtsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
@@ -142,13 +148,20 @@ export interface AggFacts {
 
 const NO_BYPASS: BypassFact = { bypassAll: false, bypassCaps: [] };
 
+/** The claims a filter binds into its query.  A principal term
+ *  (`currentUser.role == "clerk"`, a policy `when`) reads no column: every
+ *  backend decides it in the host language and drops a constant into the
+ *  query, so its claims never appear as a query parameter and are not counted. */
 function claimsOf(e: ExprIR): string[] {
   const out = new Set<string>();
-  walkExprDeep(e, (n) => {
+  const visit = (n: ExprIR): void => {
+    if (principalTerm(n)) return;
     if (n.kind === "member" && n.receiver.kind === "ref" && n.receiver.refKind === "current-user") {
       out.add(n.member);
     }
-  });
+    walkExprChildren(n, { expr: visit });
+  };
+  visit(e);
   return [...out].sort();
 }
 
@@ -686,7 +699,13 @@ export const LOCATORS: Record<VariantId, Locator> = {
   python: {
     files: (p) => p.endsWith(".py") && !/(^|\/)(tests?|migrations|alembic)\//.test(p),
     openers: [/^[ \t]*(?:async\s+)?def\s+(\w+)/m],
-    reads: [/\bselect\((\w+)(?:\.\w+)?[,)]/, /\.select_from\((\w+)\)/, /\bsession\.get\((\w+)/],
+    // An `exists` subquery inside a `with_loader_criteria(...)` read scope is
+    // part of that scope's predicate, not a read of its own.
+    reads: [
+      /(?<!with_loader_criteria\([^\n]*)\bselect\((\w+)(?:\.\w+)?[,)]/,
+      /\.select_from\((\w+)\)/,
+      /\bsession\.get\((\w+)/,
+    ],
     classify: pyClassify,
     carries: (f, site, agg, files) => {
       const inline =
@@ -723,7 +742,8 @@ export const LOCATORS: Record<VariantId, Locator> = {
       /\b([A-Z][\w.]*?)\.base_query\(\)/,
       // A module, never a query variable: `from(record in query, limit: 1)`
       // narrows the read above it, so it must not cut that read's window.
-      /\bfrom\(\s*\w+\s+in\s+([A-Z][\w.]*)(?=[\s,)])/,
+      // …and never an `exists(Ecto.Query.from(…))` subquery inside a predicate.
+      /(?<!exists\(Ecto\.Query\.)\bfrom\(\s*\w+\s+in\s+([A-Z][\w.]*)(?=[\s,)])/,
       /\bRepo\.(?:get|get_by|one|all)\(\s*([A-Z][\w.]+)/,
       /\bEcto\.Query\.(?:order_by|where|select|limit)\(\s*([A-Z][\w.]+)/,
       /^\s*([A-Z][\w.]+)\s*\n\s*\|>[^\n]*\n?(?:\s*\|>[^\n]*\n?)*?\s*\|>\s*Repo\.all\(\)/m,
@@ -778,7 +798,7 @@ function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExH
   const base = /def base_query, do: Ecto\.Query\.from\(record in __MODULE__, where: (.*)\)$/m.exec(
     schema,
   )?.[1];
-  for (const part of base ? base.split(/\) and \(/) : []) {
+  for (const part of base ? splitTopLevelAnd(base) : []) {
     const g = guardOf(part);
     out.push({ text: part, ...(g ? { guard: g } : {}) });
   }
@@ -786,7 +806,7 @@ function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExH
     /def __loom_filter__\(query, :(\w+), _?current_user\),\s*do: Ecto\.Query\.where\(query, \[record\], (.*)\)$/gm,
   )) {
     // A clause conjoins every restriction sharing its key.
-    for (const part of m[2]!.split(/\) and \(/)) {
+    for (const part of splitTopLevelAnd(m[2]!)) {
       const g = guardOf(part);
       out.push({
         text: part,
@@ -795,6 +815,30 @@ function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExH
       });
     }
   }
+  return out;
+}
+
+/** A hosted Ecto predicate's top-level conjuncts — `(A) and (B)` split at
+ *  parenthesis depth 0 only, so one restriction that nests its own `and`s
+ *  (a policy composite) stays whole. */
+function splitTopLevelAnd(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0 && text.startsWith(") and (", i)) {
+        out.push(text.slice(start, i));
+        start = i + ") and (".length;
+        i = start - 1;
+        depth = 1;
+      }
+    }
+  }
+  out.push(text.slice(start));
   return out;
 }
 

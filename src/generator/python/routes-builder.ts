@@ -1191,7 +1191,14 @@ function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): st
   return unionMoneyArms(variants, ctx).flatMap((arm) => {
     const enc = arm.keys.map(({ key, optional }) => {
       const access = `result[${JSON.stringify(key)}]`;
-      const wire = numericEncode(PY_NUMERIC, "money", "dto-map", access);
+      // The tagged result is a `dict[str, object]`; the cast names the
+      // `Decimal` the variant field holds so `mypy --strict` accepts the encode.
+      const wire = numericEncode(
+        PY_NUMERIC,
+        "money",
+        "dto-map",
+        `${PY.cast}(${PY.Decimal}, ${access})`,
+      );
       return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
     });
     return [

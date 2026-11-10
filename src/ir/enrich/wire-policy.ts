@@ -162,6 +162,12 @@ interface WireRejectionRow {
  *  (`hono/validator`), which is why node can let that layer raise it. */
 export const MALFORMED_BODY_DETAIL = "Malformed JSON in request body";
 
+/** The sentence a multipart upload with no `file` part earns.  It answers the
+ *  `malformed-body` class (400, `problem.malformed-body`): the request cannot
+ *  be read as the upload the route expects, which is a transport fault, not a
+ *  field-level one. */
+export const MISSING_FILE_PART_DETAIL = "Expected a 'file' part in the multipart request body";
+
 /** The wire-validation rung's `title` and `detail` (RS-29) — deliberately not
  *  the 422 reason phrase, which belongs to the domain floor. */
 const VALIDATION_FAILED_TITLE = "Validation failed";

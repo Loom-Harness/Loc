@@ -1,0 +1,1244 @@
+{
+  "case": "policy-row-rules",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/category_shares",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/category_shares",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/category_shares",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "grantee": "globex",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "write": false
+          },
+          {
+            "category": "<uuid>",
+            "grantee": "initech",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "write": true
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/category_shares",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "grantee": "globex",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "write": false
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/category_shares/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "grantee": "globex",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "write": false
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/category_shares/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "CategoryShare {id} not found",
+        "instance": "/api/category_shares/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Tools",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Tools",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Hammer",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "id": "<volatile:key>",
+        "name": "Hammer",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Hammer",
+            "rowVersion": 1
+          },
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Ball",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "category": "<uuid>",
+        "id": "<volatile:key>",
+        "name": "Mallet",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/category_shares/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Gear",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 36,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Mallet",
+            "rowVersion": 2
+          },
+          {
+            "category": "<uuid>",
+            "id": "<volatile:key>",
+            "name": "Ball",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 38,
+      "method": "DELETE",
+      "path": "/api/category_shares/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 39,
+      "method": "GET",
+      "path": "/api/category_shares",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 40,
+      "method": "GET",
+      "path": "/api/categories",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 41,
+      "method": "GET",
+      "path": "/api/products",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 42,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Product {id} not found",
+        "instance": "/api/products/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/orgs",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "GET",
+      "path": "/api/orgs/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Org {id} not found",
+        "instance": "/api/orgs/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "GET",
+      "path": "/api/orgs",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/orgs/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Org {id} not found",
+        "instance": "/api/orgs/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "DELETE",
+      "path": "/api/orgs/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Org {id} not found",
+        "instance": "/api/orgs/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 48,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 49,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 50,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 51,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "draft",
+            "createdAt": "<timestamp>",
+            "createdBy": "carol",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "carol"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 52,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "draft",
+        "createdAt": "<timestamp>",
+        "createdBy": "carol",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "carol"
+      }
+    },
+    {
+      "seq": 53,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 54,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 55,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 56,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "final",
+        "createdAt": "<timestamp>",
+        "createdBy": "carol",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "carol"
+      }
+    },
+    {
+      "seq": 57,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 58,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "memo",
+            "createdAt": "<timestamp>",
+            "createdBy": "alice",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "alice"
+          },
+          {
+            "body": "final",
+            "createdAt": "<timestamp>",
+            "createdBy": "carol",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "carol"
+          },
+          {
+            "body": "chores",
+            "createdAt": "<timestamp>",
+            "createdBy": "dave",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "dave"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 59,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "chores",
+        "createdAt": "<timestamp>",
+        "createdBy": "dave",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "dave"
+      }
+    },
+    {
+      "seq": 60,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "memo",
+            "createdAt": "<timestamp>",
+            "createdBy": "alice",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "alice"
+          },
+          {
+            "body": "final",
+            "createdAt": "<timestamp>",
+            "createdBy": "carol",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "carol"
+          },
+          {
+            "body": "chores",
+            "createdAt": "<timestamp>",
+            "createdBy": "dave",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "dave"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 61,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 62,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 63,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "memo",
+            "createdAt": "<timestamp>",
+            "createdBy": "alice",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "alice"
+          },
+          {
+            "body": "final",
+            "createdAt": "<timestamp>",
+            "createdBy": "carol",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "carol"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 64,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 65,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 66,
+      "method": "PATCH",
+      "path": "/api/categories",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/categories",
+        "instance": "/api/categories",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 67,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 68,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/categories",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 69,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin",
+        "tenantId": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 70,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 71,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 72,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 73,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "LADDER-C",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 74,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 75,
+      "method": "GET",
+      "path": "/api/categories/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "LADDER-C",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 76,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 77,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 78,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 79,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 80,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 81,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 82,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 83,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 84,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "LADDER-N",
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin"
+      }
+    },
+    {
+      "seq": 85,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 86,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "LADDER-N",
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin"
+      }
+    },
+    {
+      "seq": 87,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 88,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 89,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 90,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 91,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 92,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 93,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    }
+  ]
+}

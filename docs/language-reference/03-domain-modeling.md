@@ -797,7 +797,7 @@ A **performance** index (non-unique) is not a domain fact — it lives on the st
 
 ## `sensitive(...)`
 
-`sensitive(tag1, tag2, …)` tags a field with one or more information-flow classifications. Tags are bare identifiers, opaque to the compiler — `pii`, `phi`, `cred`, `audited` are conventional but any identifier is accepted. The downstream effect today: the field is **redacted in the aggregate's `inspect` / `ToString()` debug form** (so it never lands in logs, exceptions, or debugger watches). It is orthogonal to access — combine `sensitive(...) secret` for a field that is both write-only and log-redacted.
+`sensitive(tag1, tag2, …)` tags a field with one or more data-category classifications. Tags are bare identifiers, opaque to the compiler — `pii`, `phi`, `cred`, `audited` are conventional but any identifier is accepted. The downstream effect today: the field is **redacted in the aggregate's `inspect` / `ToString()` debug form** (so it never lands in logs, exceptions, or debugger watches). It is orthogonal to access — combine `sensitive(...) secret` for a field that is both write-only and log-redacted.
 
 ```ddd
 context Orders {

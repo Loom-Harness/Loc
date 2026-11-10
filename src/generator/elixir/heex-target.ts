@@ -1,23 +1,13 @@
 // ---------------------------------------------------------------------------
-// HEEx `WalkerTarget` — Phoenix LiveView implementation of the
-// cross-framework walker contract.  See `src/generator/_walker/target.ts`
-// for the contract definition and scope.
+// HEEx `WalkerTarget` — the Phoenix LiveView implementation of the
+// cross-framework walker contract (`src/generator/_walker/target.ts`).
 //
-// This module is the *standalone* impl: it lifts the seams the
-// inline Phoenix walker (`heex-walker.ts`) already implements into the
-// `WalkerTarget` interface.  The walker itself still inlines these
-// seams; the extraction is gated on the
-// `mix compile --warnings-as-errors` suite.
-//
-// Mapping (file:line at time of extraction):
-//   renderStateRead   — heex-walker.ts:253-259 (this/id position branches)
-//                       + line 366 (state-field ref-case path)
-//   renderStateWrite  — heex-walker.ts:1565-1572 (case "assign")
-//   bindDataAccess / renderApiCall — the in-process context-function call
-//   renderDataBindings — empty array (LiveView declares no per-page binding)
-//   renderMatch       — heex-walker.ts:543-552 (renderMatch — cond do...end)
-//   renderNavigate    — heex-walker.ts:690-715 (push_navigate + ~p sigil)
-//   defaultInitFor    — Elixir literals per type
+// A HEEx body runs through the shared walker core.  The primitives in
+// `HEEX_SHARED_PRIMITIVES` render through their shared `emit*` functions and
+// the procedural `heex-pack.ts`; every other node goes to the HEEx engine
+// (`heex-walker-core.ts`) through `renderNodeOverride`, and the expression and
+// text overrides send the shared emitters' arguments to that engine too, so
+// both halves render a value the same way.
 //
 // `framework: "phoenixLiveView"` matches the IR enum.
 // ---------------------------------------------------------------------------
@@ -26,8 +16,18 @@ import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
-import type { WalkContext } from "../_walker/walker-core.js";
-import { escapeHeexAttr, escapeHeexText, heexContextOf, renderExpr } from "./heex-walker-core.js";
+import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
+import { HEEX_SHARED_PRIMITIVES } from "./heex-pack.js";
+import {
+  escapeHeexAttr,
+  escapeHeexText,
+  type WalkContext as HeexWalkContext,
+  heexContextOf,
+  renderChild,
+  renderExpr,
+  renderInTemplate,
+} from "./heex-walker-core.js";
+import { pgettextCall } from "./i18n.js";
 
 export const heexTarget: WalkerTarget = {
   // Rich text renders through the parallel HEEx engine (`heex-walker-core.ts`),
@@ -38,14 +38,56 @@ export const heexTarget: WalkerTarget = {
 
   // --- Bridge seam ----------------------------------------------------------
 
-  /** Every node of a HEEx body renders through the HEEx engine
-   *  (`heex-walker-core.ts`), under the HEEx walk context `walkBodyToHeex`
-   *  seeds into the sink.  The engine recurses into the node's subtree itself,
-   *  so the shared core only ever sees the body root.  A walk with no HEEx
-   *  context in its sink falls through to the shared path. */
-  renderNodeOverride(expr, ctx) {
+  /** A node of a HEEx body renders through the HEEx engine
+   *  (`heex-walker-core.ts`) under the HEEx walk context the sink carries,
+   *  unless it is a call to a primitive the shared core renders
+   *  (`HEEX_SHARED_PRIMITIVES`).  The engine recurses into the node's subtree
+   *  itself.  Below the body root it renders the node as a child and the
+   *  result is re-indented to the shared core's absolute convention.  A walk
+   *  with no HEEx context in its sink falls through to the shared path. */
+  renderNodeOverride(expr, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
-    return heex ? renderExpr(expr, heex) : undefined;
+    if (!heex) return undefined;
+    if (expr.kind === "call" && HEEX_SHARED_PRIMITIVES.has(expr.name)) {
+      if (expr.name === "Tabs" && expr.args.some((_, i) => !expr.argNames?.[i])) {
+        // Number the group on entry, before its panels walk, so a nested
+        // group gets a later id than its parent (see `tabSeq`).
+        heex.tabSeq.value += 1;
+        heex.tabSeq.reserved = [...(heex.tabSeq.reserved ?? []), heex.tabSeq.value];
+      }
+      return undefined;
+    }
+    const engine = engineContext(heex, ctx);
+    return depth === 0 ? renderExpr(expr, engine) : indentTail(renderChild(expr, engine), depth);
+  },
+
+  /** Every expression a shared emitter renders goes through the HEEx engine,
+   *  in template position — a ported primitive's `testid:` binding, `style:`
+   *  value or ICU hole reads exactly as the engine reads it. */
+  renderExprOverride(expr, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex) return undefined;
+    return renderExpr(expr, { ...engineContext(heex, ctx), position: "template" });
+  },
+
+  /** A non-literal primitive TEXT (a caption, a label) renders as the engine
+   *  renders a template slot: `<%= expr %>`, a `label(…)` as its gettext call
+   *  or escaped English, a nested primitive as its markup.  A string literal
+   *  takes the shared path, which escapes it with `escapeText`. */
+  renderTextContentOverride(expr, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || (expr.kind === "literal" && expr.lit === "string")) return undefined;
+    return renderInTemplate(expr, engineContext(heex, ctx));
+  },
+
+  /** A call into the Gettext runtime: `pgettext(<key>, <English>)`, wrapped in
+   *  `loom_icu/2` with a keyword list of the holes for an interpolated message.
+   *  The context is Loom's catalog key, so the `.po` entry and the other
+   *  frontends' catalogs stay the same message. */
+  renderTranslate({ key, message, values }) {
+    const call = pgettextCall(key, message);
+    if (!values || values.length === 0) return call;
+    return `loom_icu(${call}, [${values.map((v) => `${v.name}: ${v.expr}`).join(", ")}])`;
   },
 
   // Expression-syntax leaves — HEEx runs a PARALLEL walker
@@ -176,27 +218,22 @@ export const heexTarget: WalkerTarget = {
 
   // --- Markup seams ---------------------------------------------------------
   //
-  // The HEEx walker is a parallel sibling (heex-walker.ts) that never
-  // routes through the shared markup walker, so these exist for
-  // contract completeness.  `renderComment` / `renderStyleAttr` /
-  // `escapeText` return the HEEx forms the inline walker uses;
-  // `renderConditionalChild` is unreachable (the heex walker has its
-  // own ternary path) and throws, mirroring `bindDataAccess`.
+  // The shared emitters of the ported primitives (`HEEX_SHARED_PRIMITIVES`)
+  // render through these.  `renderConditionalChild` and the `For` / picker
+  // seams stay unreachable while the HEEx engine renders those nodes, and
+  // throw, mirroring `bindDataAccess`.
 
   /** HEEx template comment. */
   renderComment(text: string): string {
     return `<%!-- ${text} --%>`;
   },
 
-  /** Modern HEEx body interpolation (`{expr}`) — unreachable in
-   *  practice (the parallel heex-walker emits `<%= %>` / `{}` forms
-   *  inline); returned for contract completeness. */
-  renderInterpolation(jsExpr: string): string {
-    return `{${jsExpr}}`;
+  /** An Elixir expression in HEEx text position: `<%= expr %>`. */
+  renderInterpolation(expr: string): string {
+    return `<%= ${expr} %>`;
   },
 
-  /** HEEx dynamic attribute (`attr={expr}`) — unreachable in
-   *  practice, contract completeness. */
+  /** HEEx dynamic attribute: ` attr={expr}`. */
   renderAttrBinding(name: string, jsExpr: string): string {
     return ` ${name}={${jsExpr}}`;
   },
@@ -318,6 +355,23 @@ export function renderHeexStoreActionCall(
 // ---------------------------------------------------------------------------
 // Internals.
 // ---------------------------------------------------------------------------
+
+/** The HEEx walk context for a node the shared core hands to the engine: the
+ *  sink's state, entered from `shared`, at the shared walk's heading depth. */
+function engineContext(heex: HeexWalkContext, shared: SharedWalkContext): HeexWalkContext {
+  return { ...heex, sharedWalk: shared, headingDepth: shared.headingDepth };
+}
+
+/** Indent every non-empty line after the first by `depth` levels — the engine
+ *  renders a fragment relative to its own first column, the shared core
+ *  expects later lines at their absolute indent. */
+function indentTail(fragment: string, depth: number): string {
+  const pad = "  ".repeat(depth);
+  return fragment
+    .split("\n")
+    .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
+    .join("\n");
+}
 
 /** Elixir literal-zero per type.  HEEx walker doesn't have a
  *  centralized version of this today (state inits in Phoenix are

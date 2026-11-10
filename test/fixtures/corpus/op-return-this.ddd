@@ -2,7 +2,10 @@
 // `withdraw`'s success arm is the aggregate itself.  The route answers the
 // aggregate's wire projection — the same `AccountResponse` fields a GET reads
 // (`id`, `owner`, `balance`, `version`), tagged `type: "Account"` for the union
-// arm — never the domain object's own representation.
+// arm — never the domain object's own representation.  `ownerName` and
+// `unitPrice` are deliberately MULTI-WORD, and the `quote` success variant
+// carries a multi-word `money` field: the wire keys are camelCase on every
+// backend, and a single-word field cannot tell snake from camel.
 //
 // `withdraw` returns early from an `if` branch; lowering moves the statements
 // after it into the other branch, so every backend renders a tail `return`.
@@ -10,10 +13,16 @@ system OpReturnThis {
   subdomain Banking {
     context Ledger {
       error Insufficient { available: int }
+      payload Quote { unitCost: money, ownerName: string }
 
       aggregate Account with crudish {
         owner: string
+        ownerName: string
+        unitPrice: money
         balance: int
+        operation quote(): Quote or Insufficient {
+          return Quote { unitCost: unitPrice, ownerName: ownerName }
+        }
         operation bump(): Account {
           balance := balance + 1
           return this
@@ -43,13 +52,15 @@ system OpReturnThis {
   }
 
   test e2e "an operation returning its aggregate answers the aggregate's wire shape" against d {
-    let a = api.accounts.create({ owner: "ann", balance: 100 })
+    let a = api.accounts.create({ owner: "ann", ownerName: "Ann Lee", unitPrice: money("12.50"), balance: 100 })
 
     // `return this` answers AccountResponse.
     let b = api.accounts.bump(a)
     expect(b.id).toBe(a.id)
     expect(b.owner).toBe("ann")
     expect(b.balance).toBe(101)
+    expect(b.ownerName).toBe("Ann Lee")
+    expect(b.unitPrice).toBe("12.5000")
 
     // The aggregate arm of a union answers AccountResponse tagged `Account`.
     let w = api.accounts.withdraw(a, { amt: 10 })
@@ -58,12 +69,19 @@ system OpReturnThis {
     expect(w.owner).toBe("ann")
     expect(w.balance).toBe(91)
 
+    // A payload success arm keys its fields by their camelCase wire names;
+    // `money` rides as the fixed-scale string.
+    let q = api.accounts.quote(a)
+    expect(q.type).toBe("Quote")
+    expect(q.unitCost).toBe("12.5000")
+    expect(q.ownerName).toBe("Ann Lee")
+
     // The error arm answers its mapped status and leaves no trace.
     expect(api.accounts.withdraw(a, { amt: 500 })).toThrow(409)
     expect(api.accounts.getById(a).balance).toBe(91)
 
     // The remaining generated routes.
-    api.accounts.update(a, { owner: "bea", balance: 91 })
+    api.accounts.update(a, { owner: "bea", ownerName: "Bea", unitPrice: money("12.50"), balance: 91 })
     expect(api.accounts.getById(a).owner).toBe("bea")
     let listed = api.accounts.all()
     expect(listed.items.length).toBe(1)

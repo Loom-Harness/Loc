@@ -20,7 +20,9 @@
         "balance": 101,
         "id": "<volatile:key>",
         "owner": "ann",
-        "rowVersion": 2
+        "ownerName": "Ann Lee",
+        "rowVersion": 2,
+        "unitPrice": "12.5000"
       }
     },
     {
@@ -32,12 +34,25 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "ann",
+        "ownerName": "Ann Lee",
         "rowVersion": 3,
-        "type": "Account"
+        "type": "Account",
+        "unitPrice": "12.5000"
       }
     },
     {
       "seq": 3,
+      "method": "POST",
+      "path": "/api/accounts/{id}/quote",
+      "status": 200,
+      "body": {
+        "ownerName": "Ann Lee",
+        "type": "Quote",
+        "unitCost": "12.5000"
+      }
+    },
+    {
+      "seq": 4,
       "method": "POST",
       "path": "/api/accounts/{id}/withdraw",
       "status": 409,
@@ -55,7 +70,7 @@
       }
     },
     {
-      "seq": 4,
+      "seq": 5,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -63,18 +78,20 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "ann",
-        "rowVersion": 3
+        "ownerName": "Ann Lee",
+        "rowVersion": 4,
+        "unitPrice": "12.5000"
       }
     },
     {
-      "seq": 5,
+      "seq": 6,
       "method": "POST",
       "path": "/api/accounts/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -82,11 +99,13 @@
         "balance": 91,
         "id": "<volatile:key>",
         "owner": "bea",
-        "rowVersion": 4
+        "ownerName": "Bea",
+        "rowVersion": 5,
+        "unitPrice": "12.5000"
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -96,7 +115,9 @@
             "balance": 91,
             "id": "<volatile:key>",
             "owner": "bea",
-            "rowVersion": 4
+            "ownerName": "Bea",
+            "rowVersion": 5,
+            "unitPrice": "12.5000"
           }
         ],
         "page": 1,
@@ -106,14 +127,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -130,7 +151,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -144,7 +165,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -158,7 +179,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -168,23 +189,6 @@
         "instance": "/api/accounts",
         "status": 400,
         "title": "Bad Request",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 13,
-      "method": "POST",
-      "path": "/api/accounts/{id}/bump",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Account {id} not found",
-        "instance": "/api/accounts/{id}/bump",
-        "params": {
-          "type": "Ledger.Account"
-        },
-        "status": 404,
-        "title": "Not Found",
         "type": "about:blank"
       }
     },
@@ -209,6 +213,23 @@
       "seq": 15,
       "method": "POST",
       "path": "/api/accounts/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/bump",
+        "params": {
+          "type": "Ledger.Account"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/accounts/{id}/bump",
       "status": 415,
       "body": {
         "code": "problem.unsupported-media-type",
@@ -220,7 +241,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "POST",
       "path": "/api/accounts/{id}/withdraw",
       "status": 422,

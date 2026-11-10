@@ -623,6 +623,11 @@ export function mikroFilterOrRefuse(
   }
 }
 
+function isBooleanCombination(e: ExprIR): boolean {
+  const inner = e.kind === "paren" ? e.inner : e;
+  return inner.kind === "binary" && (inner.op === "&&" || inner.op === "||");
+}
+
 export function whereToMikroFilter(
   e: ExprIR,
   acc: string = AMBIENT_PRINCIPAL,
@@ -636,7 +641,15 @@ export function whereToMikroFilter(
 ): string {
   const inner = e.kind === "paren" ? e.inner : e;
   if (inner.kind === "binary" && inner.op === "&&") {
-    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs, aggs));
+    const conjuncts = flattenAnd(inner);
+    // A conjunct that is itself a boolean combination (a policy composite's
+    // `(a || b) && …`) has no single-key spelling, and two `$or` keys in one
+    // object literal would silently keep only the last — so each conjunct
+    // becomes its own object under `$and`.
+    if (conjuncts.some(isBooleanCombination)) {
+      return `{ $and: [${conjuncts.map((c) => whereToMikroFilter(c, acc, assocs, aggs)).join(", ")}] }`;
+    }
+    const entries = conjuncts.map((c) => predicateEntry(c, acc, assocs, aggs));
     return `{ ${entries.join(", ")} }`;
   }
   if (inner.kind === "binary" && inner.op === "||") {
@@ -900,9 +913,12 @@ function orBranches(e: Extract<ExprIR, { kind: "binary" }>): ExprIR[] {
 /** The aggregate's `writeScopeFilter` as a MikroORM FilterQuery object-literal
  *  string, or null when the write scope does not narrow the read scope. */
 
-function mikroWriteScopeFilter(agg: EnrichedAggregateIR): string | null {
+function mikroWriteScopeFilter(
+  agg: EnrichedAggregateIR,
+  aggs: readonly EnrichedAggregateIR[],
+): string | null {
   if (!agg.writeScopeFilter) return null;
-  return whereToMikroFilter(agg.writeScopeFilter, AMBIENT_PRINCIPAL, agg.associations);
+  return whereToMikroFilter(agg.writeScopeFilter, AMBIENT_PRINCIPAL, agg.associations, aggs);
 }
 
 /** The `getById` body lines for a QUERYABLE-COLUMN shape (relational /
@@ -913,8 +929,10 @@ export function mikroGetByIdLines(
   agg: EnrichedAggregateIR,
   idVar: string,
   rowClass: string,
+  /** The context's aggregates — resolves an `exists` in the write scope. */
+  aggs: readonly EnrichedAggregateIR[] = [],
 ): readonly string[] {
-  const writeFilter = mikroWriteScopeFilter(agg);
+  const writeFilter = mikroWriteScopeFilter(agg, aggs);
   const guard = writeFilter
     ? [
         `    const em = this.em.fork({ keepTransactionContext: true });`,

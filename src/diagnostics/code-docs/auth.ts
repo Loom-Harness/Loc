@@ -8,9 +8,6 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
 
-  // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
-  "loom.sensitivity-drop": "03-domain-modeling.md#sensitive",
-
   // --- src/language/validators/types.ts (M-T9.56 drain) --------------------
   "loom.mask-unless-not-bool":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
@@ -42,6 +39,11 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.policy-level-removed": "17-auth.md#policy-----the-local-floor-and-deny",
+  "loom.policy-row-not-queryable": "17-auth.md#row-rules-when-and-own",
+  "loom.policy-when-not-caller-only": "17-auth.md#row-rules-when-and-own",
+  "loom.policy-own-no-creator": "17-auth.md#row-rules-when-and-own",
+  "loom.policy-scope-inheritance-unsupported": "17-auth.md#row-rules-when-and-own",
+  "loom.policy-row-cycle": "17-auth.md#row-rules-when-and-own",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",

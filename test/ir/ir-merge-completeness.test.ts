@@ -69,6 +69,7 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   // note.
   policyReadLevels: "consumed by enrichment before the merge; no post-merge reader",
   policyWriteLevels: "consumed by enrichment before the merge; no post-merge reader",
+  policyRowRules: "consumed by enrichment before the merge; no post-merge reader",
   policyDenies: "consumed by enrichment before the merge; no post-merge reader",
   policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
 };

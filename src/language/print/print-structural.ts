@@ -749,9 +749,11 @@ function printPolicyDecl(node: import("../generated/ast.js").PolicyDecl): string
     (node.rules ?? []).map((r) => {
       if (r.effect === "read")
         return `read ${r.target} requires ${r.gate ? printExpr(r.gate) : ""}`;
-      return r.effect === "deny"
-        ? `deny ${r.verb ? `${r.verb} ` : ""}on ${r.target}`
-        : `allow ${r.verb ? `${r.verb} ` : ""}${r.level} on ${r.target}`;
+      const verb = r.verb ? `${r.verb} ` : "";
+      if (r.effect === "deny") return `deny ${verb}on ${r.target}`;
+      if (r.row) return `allow ${verb}on ${r.target} as ${r.binding} where ${printExpr(r.row)}`;
+      const when = r.when ? ` when ${printExpr(r.when)}` : "";
+      return `allow ${verb}${r.level} on ${r.target}${when}`;
     }),
   );
 }

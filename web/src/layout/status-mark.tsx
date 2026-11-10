@@ -1,5 +1,5 @@
 import { Badge, Box, VisuallyHidden } from "@mantine/core";
-import type { LayoutCtx } from "./ctx";
+import { devClaimsHeader, type LayoutCtx } from "./ctx";
 import { countOf, PANE } from "./vocabulary";
 
 // Status marks for tabs and stream options (M-T8.16 slice 3, audit M11):
@@ -96,8 +96,9 @@ export function agentMark(ctx: LayoutCtx): Mark | null {
 }
 
 /** Auth: the dev identity is injected into requests. */
-export function authMark(ctx: LayoutCtx, active: boolean): Mark | null {
-  return active ? { colour: "green", label: `dev identity active` } : null;
+export function authMark(ctx: LayoutCtx): Mark | null {
+  if (ctx.oidc.active) return ctx.oidc.token ? { colour: "green", label: `signed in as ${ctx.oidc.token.persona}` } : null;
+  return devClaimsHeader(ctx.authStub) != null ? { colour: "green", label: "dev identity active" } : null;
 }
 
 /** The worst of several marks — a count wins over a dot, red over yellow

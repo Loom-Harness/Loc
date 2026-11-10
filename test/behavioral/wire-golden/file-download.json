@@ -157,6 +157,20 @@
     {
       "seq": 12,
       "method": "POST",
+      "path": "/files",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Expected a 'file' part in the multipart request body",
+        "instance": "/files",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
       "path": "/api/attachments/{id}/update",
       "status": 404,
       "body": {

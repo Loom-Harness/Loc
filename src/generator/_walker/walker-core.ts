@@ -1672,6 +1672,8 @@ const EMPTY_ROW_SET: ReadonlySet<string> = new Set<string>();
  *  refs render as bare identifiers (they're in scope via
  *  `useState` / `useParams` destructure). */
 export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
+  const overridden = ctx.target.renderExprOverride?.(expr, ctx);
+  if (overridden !== undefined) return overridden;
   // A data read in expression position renders as its access site.
   const access = detectDataAccess(expr, ctx);
   if (access) {
@@ -2805,6 +2807,8 @@ export function firstPositionalContent(
 }
 
 export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | undefined {
+  const overridden = ctx.target.renderTextContentOverride?.(expr, ctx);
+  if (overridden !== undefined) return overridden;
   if (expr.kind === "literal" && expr.lit === "string") {
     return JSON.stringify(expr.value);
   }

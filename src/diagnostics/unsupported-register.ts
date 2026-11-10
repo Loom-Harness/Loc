@@ -773,7 +773,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:368",
+    site: "src/ir/validate/checks/query-checks.ts:389",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "#3370",
     verified: true,

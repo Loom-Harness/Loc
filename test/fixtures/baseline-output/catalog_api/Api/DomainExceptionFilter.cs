@@ -330,4 +330,25 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             Extensions = { ["code"] = "problem.not-found" },
         }, statusCode: 404, contentType: "application/problem+json");
     }
+
+    // The 400 for a multipart upload that carries no `file` part.  The minimal
+    // `/files` endpoint binds the part as optional and answers through here, so
+    // the refusal is the same problem body as every other unreadable request
+    // rather than the bodiless framework 400 that `UseStatusCodePages` would
+    // fill with the bare reason phrase.
+    public static Microsoft.AspNetCore.Http.IResult MissingFilePartProblem(Microsoft.AspNetCore.Http.HttpContext http, ILogger<DomainExceptionFilter> _log)
+    {
+        var trace_id = Activity.Current?.TraceId.ToString() ?? "";
+        _log.LogWarning("{Event} error={Error} status={Status}", "client_error", "Expected a 'file' part in the multipart request body", 400);
+        http.Response.Headers["x-request-id"] = trace_id;
+        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Bad Request",
+            Status = 400,
+            Detail = "Expected a 'file' part in the multipart request body",
+            Instance = http.Request.Path,
+            Extensions = { ["code"] = "problem.malformed-body" },
+        }, statusCode: 400, contentType: "application/problem+json");
+    }
 }

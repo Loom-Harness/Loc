@@ -25,7 +25,9 @@ import { irTypeModules } from "../_helpers/ir-types-source.js";
 const BUDGET = 800;
 const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
-  "context.ts": 28,
+  // +3: a policy level's `when` (absent = every caller) and the context's
+  // `policyRowRules` list, absent like its `policyReadLevels` siblings.
+  "context.ts": 31,
   "deployment.ts": 22,
   "expr.ts": 36,
   "members.ts": 16,
@@ -35,7 +37,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "stmt.ts": 16,
   "system.ts": 29,
   "traceability.ts": 5,
-  "types.ts": 3,
+  "types.ts": 2,
   "ui.ts": 20,
   "workflow.ts": 14,
   "workflow-stmt.ts": 26,

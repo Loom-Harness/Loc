@@ -82,8 +82,6 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   needs: "#4636",
   overlap: "#4636",
   policyDenies: "#4636",
-  policyReadLevels: "#4636",
-  policyWriteLevels: "#4636",
   priority: "#4636",
   readonly: "#4636",
   resourceInterfaces: "#4636",

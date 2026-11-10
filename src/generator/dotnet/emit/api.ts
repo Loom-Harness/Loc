@@ -1,6 +1,7 @@
 import {
   fieldCode,
   INTEGER_RANGE_PARAMS,
+  MISSING_FILE_PART_DETAIL,
   wireSentenceFor,
   wireStatus,
 } from "../../../ir/enrich/wire-policy.js";
@@ -1415,6 +1416,30 @@ ${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
             Instance = http.Request.Path,
             Extensions = { ["code"] = ${csCode("not-found")} },
         }, statusCode: ${notFoundStatus}, contentType: "application/problem+json");
+    }
+
+    // The 400 for a multipart upload that carries no \`file\` part.  The minimal
+    // \`/files\` endpoint binds the part as optional and answers through here, so
+    // the refusal is the same problem body as every other unreadable request
+    // rather than the bodiless framework 400 that \`UseStatusCodePages\` would
+    // fill with the bare reason phrase.
+    public static Microsoft.AspNetCore.Http.IResult MissingFilePartProblem(Microsoft.AspNetCore.Http.HttpContext http, ILogger<DomainExceptionFilter> _log)
+    {
+        var trace_id = Activity.Current?.TraceId.ToString() ?? "";
+        ${renderDotnetLogCall("clientError", [
+          { name: "error", valueExpr: csLit(MISSING_FILE_PART_DETAIL) },
+          { name: "status", valueExpr: `${wireStatus("malformed-body")}` },
+        ])}
+        http.Response.Headers["x-request-id"] = trace_id;
+        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = ${csTitle("malformed-body")},
+            Status = ${wireStatus("malformed-body")},
+            Detail = ${csLit(MISSING_FILE_PART_DETAIL)},
+            Instance = http.Request.Path,
+            Extensions = { ["code"] = ${csCode("malformed-body")} },
+        }, statusCode: ${wireStatus("malformed-body")}, contentType: "application/problem+json");
     }
 }
 `;

@@ -25,7 +25,12 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
+import {
+  guidFromStringSelfScope,
+  isDenyFilter,
+  TENANCY_SELF_SCOPE_ORIGIN,
+  TENANT_OWNED_CAPABILITY,
+} from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { type RenderCtx, renderExpr, renderGuidClaimSelfScopeEcto } from "../render-expr.js";
@@ -66,6 +71,7 @@ export function quantifiesOver(
     t.kind === "entity" && t.name === agg.name;
   const exprs: ExprIR[] = [
     ...(agg.contextFilters ?? []),
+    ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
     ...(ctx.criteria ?? []).filter((c) => over(c.targetType)).map((c) => c.body),
     ...(ctx.retrievals ?? []).filter((r) => over(r.targetType)).map((r) => r.where),
     ...(ctx.repositories ?? [])
@@ -168,7 +174,12 @@ function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | und
  *  no write-scope narrowing.  Rendered exactly like a principal capability read
  *  filter (the principal side pinned fail-closed), so the write guard needs no
  *  new render path. */
-export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string): string | null {
+export function vanillaWriteScopeFilter(
+  agg: AggregateIR,
+  contextModule: string,
+  /** The context's aggregates — resolves an `exists` quantifier in the scope. */
+  pool: readonly AggregateIR[] = [],
+): string | null {
   if (!agg.writeScopeFilter) return null;
   // See `vanillaCapabilityFilter`: rendered into an Ecto `where:`, so money/
   // decimal/datetime must use the native-query form (`filterArgs: true`).
@@ -176,8 +187,26 @@ export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string)
     thisName: "record",
     contextModule,
     filterArgs: true,
+    pool,
   };
-  return renderPrincipalFilter(agg.writeScopeFilter, ctx);
+  const write = renderPrincipalFilter(agg.writeScopeFilter, ctx);
+  // The write load swaps the read restrictions for the write scope
+  // (`skip_filters: :all`), but a writable row is a readable one on every
+  // backend: a policy-composed tenant scope (row rules, `own`, `when`) is
+  // ANDed back in.  Without a policy rule it equals the floor the write scope
+  // already holds, and the deny sentinel needs nothing more.
+  const slot = agg.contextFilterOrigins.findIndex(
+    (o) => o === TENANT_OWNED_CAPABILITY || o === TENANCY_SELF_SCOPE_ORIGIN,
+  );
+  const read = slot >= 0 ? agg.contextFilters[slot] : undefined;
+  if (!read || isDenyFilter(agg.writeScopeFilter) || sameExpr(read, agg.writeScopeFilter))
+    return write;
+  return `(${renderPrincipalFilter(read, ctx)}) and (${write})`;
+}
+
+function sameExpr(a: ExprIR, b: ExprIR): boolean {
+  const strip = (k: string, v: unknown) => (k === "origin" ? undefined : v);
+  return JSON.stringify(a, strip) === JSON.stringify(b, strip);
 }
 
 // ---------------------------------------------------------------------------
