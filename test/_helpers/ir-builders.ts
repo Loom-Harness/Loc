@@ -74,8 +74,11 @@ export const litExpr = (lit: LiteralKind, value: string): ExprOf<"literal"> => (
   value,
 });
 
+/** A `refKind` whose ref carries no resolved payload (`RefTarget`). */
+type PlainRefKind = Exclude<RefKind, "enum-value" | "resource" | "store-field" | "workflow-fn">;
+
 /** `{ kind: "ref", name, refKind }`, with the optional resolved `type`. */
-export const refExpr = (name: string, refKind: RefKind, type?: TypeIR): ExprOf<"ref"> =>
+export const refExpr = (name: string, refKind: PlainRefKind, type?: TypeIR): ExprOf<"ref"> =>
   type === undefined ? { kind: "ref", name, refKind } : { kind: "ref", name, refKind, type };
 
 /** A `refKind: "param"` reference. */

@@ -27,7 +27,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
   "context.ts": 28,
   "deployment.ts": 22,
-  "expr.ts": 36,
+  "expr.ts": 31,
   "members.ts": 16,
   "model.ts": 8,
   "projection.ts": 16,

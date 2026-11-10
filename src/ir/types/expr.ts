@@ -88,46 +88,11 @@ export type ExprIR = (
   | { kind: "literal"; lit: LiteralKind; value: string }
   | { kind: "this" }
   | { kind: "id" }
-  | {
+  | ({
       kind: "ref";
       name: string;
-      refKind: RefKind;
-      enumName?: string;
-      /** Populated when `refKind === "enum-value"` and MORE THAN ONE enum in
-       *  scope declares this value name (`enum OrderStatus { Draft, ... }` +
-       *  `enum InvoiceStatus { Draft, ... }`).  Holds every candidate enum
-       *  name in resolution order; `enumName` carries the provisional
-       *  first-wins pick so nothing downstream sees an unqualified value.
-       *
-       *  Lowering resolves the ambiguity CONTEXTUALLY -- `lowerExprInContext`
-       *  (field / param default, `:=` RHS, `emit` field) and the binary-chain
-       *  cross-typing in `lower-expr.ts` retarget the ref to the enum the SITE
-       *  expects and clear this field.  A ref that still carries candidates
-       *  when it reaches phase (7) had no contextual type at all, and
-       *  `loom.ambiguous-enum-value` reports it rather than letting the
-       *  first-declared enum win silently (F-022).  Backends never see it: the
-       *  IR is resolved, or the build failed. */
-      enumCandidates?: readonly string[];
       type?: TypeIR;
-      /** Populated when `refKind === "resource"` — the resource's
-       *  declared name and infra kind, so a `.verb(...)` call on it can
-       *  lower to a `resource-op` without re-resolving. */
-      resourceName?: string;
-      resourceKind?: DataSourceKind;
-      /** Populated when the resource binds an in-system `api` (M-T4.8) — a
-       *  `.op(...)` call on it resolves against that api's derived operation
-       *  set, not the closed per-kind verb registry. */
-      resourceApiName?: string;
-      /** Populated when `refKind === "store-field"` — the declaring store's
-       *  name, so a `<Store>.<field>` read renders against the right store
-       *  module without re-resolving the receiver (Stage 5).  `name` is the
-       *  field; `type` its declared type. */
-      storeName?: string;
-      /** Populated when `refKind === "workflow-fn"` — the enclosing workflow's
-       *  name, so a bare reference renders the scoped helper name `<wf><fn>`
-       *  (workflows share a file, so helpers are namespaced by workflow). */
-      wfScope?: string;
-    }
+    } & RefTarget)
   | {
       kind: "member";
       receiver: ExprIR;
@@ -489,6 +454,55 @@ export type ExprIR = (
 /** What a `call` expression resolves to, keyed on `callKind`: each kind
  *  carries exactly the resolved payload its backends render from, and a
  *  payload exists only on its own kind. */
+/** What a `ref` names, keyed on `refKind`: a kind that needs resolved facts
+ *  to render carries them as required fields, and no other kind has them. */
+export type RefTarget =
+  | {
+      refKind: Exclude<RefKind, "enum-value" | "resource" | "store-field" | "workflow-fn">;
+    }
+  | {
+      refKind: "enum-value";
+      /** The enum declaring the value. */
+      enumName: string;
+      /** Set when MORE THAN ONE enum in scope declares this value name (`enum OrderStatus { Draft,
+       *  ... }` + `enum InvoiceStatus { Draft, ... }`). Holds every candidate enum name in
+       *  resolution order; `enumName` carries the provisional first-wins pick so nothing downstream
+       *  sees an unqualified value.
+       *
+       *  Lowering resolves the ambiguity CONTEXTUALLY -- `lowerExprInContext`
+       *  (field / param default, `:=` RHS, `emit` field) and the binary-chain
+       *  cross-typing in `lower-expr.ts` retarget the ref to the enum the SITE
+       *  expects and clear this field.  A ref that still carries candidates
+       *  when it reaches phase (7) had no contextual type at all, and
+       *  `loom.ambiguous-enum-value` reports it rather than letting the
+       *  first-declared enum win silently (F-022).  Backends never see it: the
+       *  IR is resolved, or the build failed. */
+      enumCandidates?: readonly string[];
+    }
+  | {
+      refKind: "resource";
+      /** The resource's declared name and infra kind, so a `.verb(...)` call on it can lower to a
+       *  `resource-op` without re-resolving. */
+      resourceName: string;
+      resourceKind: DataSourceKind;
+      /** Set when the resource binds an in-system `api` — a `.op(...)` call on it resolves
+       *  against that api's derived operation set, not the closed per-kind verb registry. */
+      resourceApiName?: string;
+    }
+  | {
+      refKind: "store-field";
+      /** The declaring store's name, so a `<Store>.<field>` read renders against the right store
+       *  module without re-resolving the receiver (Stage 5). `name` is the field; `type` its
+       *  declared type. */
+      storeName: string;
+    }
+  | {
+      refKind: "workflow-fn";
+      /** The enclosing workflow's name, so a bare reference renders the scoped helper name
+       *  `<wf><fn>` (workflows share a file, so helpers are namespaced by workflow). */
+      wfScope: string;
+    };
+
 export type CallTarget =
   | { callKind: "function" | "value-object-ctor" | "action" | "free" }
   | {
