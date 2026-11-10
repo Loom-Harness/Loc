@@ -226,6 +226,11 @@ export interface FormBinding {
   /** kind:"operation" only — submit runs `<op>_<agg>(record, %{})` itself
    *  (`liveViewCallsOp`) instead of the CRUD `update_<agg>`. */
   callsOp?: boolean;
+  /** kind:"operation" only — the LiveView assign holding the record this form
+   *  operates on: the assign the enclosing `QueryView` bound its data lambda
+   *  param to.  Absent for the by-name `OperationForm(of:, op:)` shape, which
+   *  names no instance. */
+  recordAssign?: string;
 }
 
 export interface QueryBinding {

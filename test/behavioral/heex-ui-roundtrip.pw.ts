@@ -57,3 +57,25 @@ test("create → list → detail round-trips through the rendered LiveView", asy
   await expect(detail.field("name")).toContainText("Flywheel");
   await expect(detail.field("rank")).toContainText("42");
 });
+
+// A detail page whose QueryView data lambda param is `widget`, not `data`: the
+// op-form's submit clause must read and rewrite the assign that param was bound
+// to.  A clause reading a fixed `socket.assigns.data` raises at the first submit
+// while `mix compile` stays clean, so the assertion is on the rank rendered
+// after the modal's submit.
+test("an operation form under a non-`data` QueryView binding submits and updates the record", async ({
+  page,
+}) => {
+  const list = await new WidgetListPage(page).goto();
+  const form = await list.create();
+  await form.fill({ name: "Cog", rank: 7 });
+  const created = await form.submit();
+
+  await page.goto(`/widget-bumps/${created.id}`);
+  await expect(page.getByTestId("bump-rank")).toHaveText("7");
+
+  await page.getByRole("button", { name: "Bump" }).first().click();
+  await page.locator("#widget-op-bump-modal").getByRole("button", { name: "Bump" }).click();
+
+  await expect(page.getByTestId("bump-rank")).toHaveText("8");
+});

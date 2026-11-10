@@ -42,6 +42,10 @@ system HeexUiSystem {
         name: string
         rank: int
         invariant name.length > 0
+
+        operation bump() {
+          rank := rank + 1
+        }
       }
 
       repository Widgets for Widget { }
@@ -54,6 +58,27 @@ system HeexUiSystem {
   resource catalogState { for: Catalog, kind: state, use: primary }
 
   ui Web with scaffold(subdomains: [Catalog]) {
+    api C: CatalogApi
+
+    // A hand-written detail page whose QueryView data lambda param is NOT
+    // `data`: the bump form's validate/submit clauses must read the assign
+    // the lambda param was bound to (`widget`), not a fixed `data` assign.
+    page WidgetBump(id: Widget id) {
+      route: "/widget-bumps/:id"
+      title: "Bump widget"
+      body: QueryView {
+        of: C.Widget.byId(id),
+        single: true,
+        data: widget => Stack {
+          Text { widget.rank, testid: "bump-rank" },
+          Modal {
+            OperationForm { widget.bump },
+            trigger: Button { "Bump" },
+            title: "Bump"
+          }
+        }
+      }
+    }
   }
 
   deployable phoenixApp {
@@ -61,7 +86,7 @@ system HeexUiSystem {
     contexts: [Catalog]
     dataSources: [catalogState]
     serves: CatalogApi
-    ui: Web
+    ui: Web { C: phoenixApp }
     port: 4000
   }
 
