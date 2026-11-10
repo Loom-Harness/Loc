@@ -53,7 +53,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 //
 // The capability prelude is the false-positive hazard this check is shaped
 // around: `auditable` (createdAt/updatedAt/createdBy/updatedBy), `tenantOwned`
-// (tenantId/dataKey), `versioned` (version) and `softDeletable` (deletedAt) all
+// (tenantId), `versioned` (version) and `softDeletable` (deletedAt) all
 // put `managed` fields on an aggregate — and all of them either STAMP the field
 // or declare it optional, which is exactly what the two exemptions below read.
 // ---------------------------------------------------------------------------

@@ -761,8 +761,7 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
   // columns and is keyed by `(tenantId, <key>)` — a composite primary key.
   const tenancy = foldTenancyFor(proj);
   if (tenancy) {
-    for (const m of tenancy.metadata)
-      cols.push(TEXT(m.field, m.required ? { primary: true } : { nullable: true }));
+    for (const m of tenancy.metadata) cols.push(TEXT(m.field, { primary: true }));
   }
   return cols;
 }

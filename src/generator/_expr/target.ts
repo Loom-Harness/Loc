@@ -421,9 +421,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
       // position, which the IR validator should already have rejected.
       throw new Error("renderExprWith: 'action-ref' is not a domain expression");
     case "authz-filter":
-      // An authorization/tenancy filter sentinel (M-T9.9).  It lives ONLY in an
-      // aggregate's context/write-scope filters and every backend's query-filter
-      // translator special-cases it (`isDenyFilter` / `isDeepScopeFilter`)
+      // An authorization filter sentinel.  It lives ONLY in an aggregate's
+      // context/write-scope filters and every backend's query-filter
+      // translator special-cases it (`isDenyFilter`)
       // BEFORE reaching this generic dispatch — so reaching it here means a
       // backend's filter translator forgot the sentinel arms.  Throw LOUDLY
       // (a codegen crash) rather than fall through to a wrong render: a silently

@@ -6,7 +6,11 @@ import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
-import { ORG_CONTEXT_ACCESSOR } from "../../util/principal.js";
+import {
+  ORG_CONTEXT_ACCESSOR,
+  REMOVED_DATA_KEY_FIELD,
+  REMOVED_PRINCIPAL_MEMBERS,
+} from "../../util/principal.js";
 import {
   isValueObjectEqualsIntrinsic,
   valueObjectEqualsSignature,
@@ -242,7 +246,7 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     const chain = node as PostfixChain;
     // `organizationContext.<m>` — the operating-scope accessor's surface is
     // owned by `loom.org-context-surface` (validators/tenancy.ts), which
-    // admits `.orgPath` only; it types against the principal record, so
+    // admits `.org` only; it types against the principal record, so
     // without this an unknown member would ALSO read as an undeclared claim.
     if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
     // A `test e2e` body reads RESPONSE fields through the generated client;
@@ -311,6 +315,17 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // a user expression the original still carries its own CST and is
         // reported exactly once.
         const claims = ms.$cstNode ? absentUserClaim(recvType, ms.member) : undefined;
+        if (claims && REMOVED_PRINCIPAL_MEMBERS.includes(ms.member)) {
+          accept(
+            "error",
+            diagMessage("loom.tenancy-principal-member-removed", {
+              shape: `currentUser.${ms.member}`,
+              replacement: "'organizationContext.org' (the id of the org the request operates in)",
+            }),
+            { node: ms, property: "member", code: "loom.tenancy-principal-member-removed" },
+          );
+          break;
+        }
         if (claims) {
           const declared =
             recvType.kind === "record" &&
@@ -430,6 +445,14 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           break;
         }
         const record = absentRecordMember(recvType, ms.member);
+        if (record && ms.member === REMOVED_DATA_KEY_FIELD) {
+          accept(
+            "error",
+            diagMessage("loom.tenancy-data-key-removed", { where: `'.${ms.member}' on ${record}` }),
+            { node: ms, property: "member", code: "loom.tenancy-data-key-removed" },
+          );
+          break;
+        }
         if (record) {
           accept("error", diagMessage("loom.unknown-member", { member: ms.member, record }), {
             node: ms,

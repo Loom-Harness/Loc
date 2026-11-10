@@ -27,8 +27,7 @@
 //               header's `query.requires`, `RepositoryIR.historyFind.requires`,
 //               `WorkflowIR.instanceReadGate`, and a `requires` statement in a
 //               workflow command entry or a route-bound explicit handler.
-//   policy    — an `authz-filter` sentinel (`policy { allow deep|global / deny
-//               [write] }`) in the aggregate's read `contextFilters` or its
+//   policy    — an `authz-filter` sentinel (`policy { deny [write] }`) in the aggregate's read `contextFilters` or its
 //               `writeScopeFilter`.
 //   mask      — a `maskUnless` predicate on a field the surface RETURNS.
 //   tenancy   — a PRINCIPAL-referencing capability filter (the `tenantOwned`

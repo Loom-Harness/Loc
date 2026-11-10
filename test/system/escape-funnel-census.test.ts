@@ -249,25 +249,6 @@ function isDecimalNewArg(site: CallSite, fullLine: string): boolean {
   return fullLine.includes(`Decimal.new(\${JSON.stringify(${site.arg})`);
 }
 
-/** `_expr/subtree-like.ts` builds the five-language hierarchical-tenancy
- *  LIKE prefilter (M-T3.17) — every `JSON.stringify` there wraps either a
- *  fixed internal constant or one escapable char (never `.ddd`-authored
- *  text). One file, one reviewed shape. */
-const SUBTREE_LIKE_SAFE_ARGS = new Set([
-  "SUBTREE_LIKE_SUFFIX",
-  "from",
-  "to",
-  "ch",
-  "DATA_KEY_LIKE_ESCAPE + ch",
-  "`${DATA_KEY_LIKE_ESCAPE}$&`",
-]);
-
-function isSubtreeLikeSafe(site: CallSite): boolean {
-  return (
-    site.file === "src/generator/_expr/subtree-like.ts" && SUBTREE_LIKE_SAFE_ARGS.has(site.arg)
-  );
-}
-
 /** `_walker/i18n-emit.ts` / `primitives/layout.ts` / `primitives/table.ts`
  *  already route the AUTHOR string through the funnel FIRST —
  *  `ctx.target.renderStringLiteral?.(text) ?? JSON.stringify(text)` — so
@@ -340,7 +321,6 @@ function classify(site: CallSite, fullLine: string): Classified {
   if (isJsFamily(site.file)) return { bucket: "js-family" };
   if (safeTargetDirFor(site.file)) return { bucket: "safe-target" };
   if (isDecimalNewArg(site, fullLine)) return { bucket: "safe-pattern" };
-  if (isSubtreeLikeSafe(site)) return { bucket: "safe-pattern" };
   if (isRenderStringLiteralFallback(fullLine)) return { bucket: "safe-pattern" };
   if (isSafeCompilerExpr(site.arg)) return { bucket: "safe-pattern" };
   const waiver = DANGER_WAIVERS.find((w) => w.file === site.file && w.arg === site.arg);

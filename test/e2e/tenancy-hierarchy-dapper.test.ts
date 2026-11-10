@@ -12,37 +12,16 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation on the SECOND .NET persistence
-// adapter — `platform: dotnet { persistence: dapper }`.  Byte-for-byte the same
-// harness as tenancy-hierarchy-dotnet.test.ts (the EF Core leg); only the
-// realization clause substituted into the fixture differs.  The MikroORM leg
-// (tenancy-hierarchy-mikroorm.test.ts) is the node-side twin of this argument.
-//
-// Why a second .NET leg rather than a parameter on the first: the subtree
-// predicate is the ONE filter shape whose two .NET adapters lower through
-// completely different machinery.  EF Core registers a `HasQueryFilter`
-// expression tree and lets the provider translate `StartsWith` / `EF.Functions
-// .Like`; Dapper has no model-level filter at all, so the predicate is a raw
-// SQL STRING spliced into every SELECT with four named parameters bound by
-// hand.  A raw fragment is exactly the construct a compile tier cannot check:
-// a parameter the fragment names but the anonymous object never binds is a
-// runtime "parameter not supplied", a filter reaching three of four reads is a
-// cross-tenant leak, and `dotnet build /warnaserror` is green on both.
-//
-// This adapter was REFUSED on this shape until wave C2 packet 2b
-// (`loom.dapper-unsupported#deep-scope`), so there was nothing to run; the
-// refusal's stated reason — that the principal claims could not be bound — is
-// what this leg now falsifies at runtime rather than on paper.
-//
-// And the assertion set is the one that matters for this rendering choice: the
-// harness seeds the WILDCARD trap (`orgXa.leak`, unreachable from `org_a` only
-// if the prefix test escapes the `_` in the caller's own path) and the
-// DELIMITER trap (`org_ab` vs `org_a`) alongside the ordinary subtree reads, so
-// a `LIKE`-shaped regression fails here even though it compiles.
-//
-// Opt-in: LOOM_TENANCY_E2E_DAPPER=1.  Needs the .NET SDK on PATH + docker
-// (postgres sidecar) or LOOM_TENANCY_PG_URL.  The NULL-dataKey probe needs
-// `psql` too.
+// The registry tree beside flat data visibility, booted on the .NET with
+// `persistence: dapper` (raw SQL filter fragments, not a model-level filter)
+// backend. Boots the `tenancy-hierarchy.ddd` corpus fixture (a registry
+// `implements tenantRegistry` + `tenantOwned` aggregates under the default
+// floor, `allow local` and `deny write`) against a throwaway postgres and runs
+// the shared `assertHierarchyIsolation` sequence: every org reads exactly its
+// own rows — a parent never its child's — no `data_key` column exists, and the
+// write scope is the same floor. Opt-in: LOOM_TENANCY_E2E_DAPPER=1. Needs the
+// .NET SDK on PATH + docker (postgres sidecar) or LOOM_TENANCY_PG_URL, and
+// `psql`.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -61,9 +40,9 @@ function hasDotnet(): boolean {
 }
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated .NET/Dapper backend (LOOM_TENANCY_E2E_DAPPER=1)",
+  "registry-tree isolation over the generated .NET/Dapper backend (LOOM_TENANCY_E2E_DAPPER=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       if (!hasDotnet())
         throw new Error("LOOM_TENANCY_E2E_DAPPER=1 set but `dotnet` is not on PATH.");
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-dapper-"));

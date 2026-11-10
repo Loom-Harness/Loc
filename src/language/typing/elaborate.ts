@@ -27,11 +27,9 @@ import {
 } from "../../util/openapi-ids.js";
 import {
   ORG_CONTEXT_ACCESSOR,
-  ORG_CONTEXT_ORG_PATH,
+  ORG_CONTEXT_ORG,
   PRINCIPAL_IS_SYSTEM,
-  PRINCIPAL_ORG_CONTEXT_PATH,
-  PRINCIPAL_ORG_PATH,
-  PRINCIPAL_ROOT_ORG,
+  PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
@@ -1706,14 +1704,7 @@ export class Elaborator {
         return f ? this.propertyType(f, scope) : Ty.unknown("unresolved-member");
       }
       case "principal": {
-        if (
-          name === PRINCIPAL_ORG_PATH ||
-          name === PRINCIPAL_ROOT_ORG ||
-          name === PRINCIPAL_ORG_CONTEXT_PATH ||
-          name === ORG_CONTEXT_ORG_PATH
-        ) {
-          return Ty.prim("string");
-        }
+        if (name === PRINCIPAL_OPERATING_ORG || name === ORG_CONTEXT_ORG) return Ty.prim("string");
         // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
         if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);

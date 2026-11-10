@@ -3,7 +3,7 @@ import { AstUtils } from "langium";
 import type { PrimitiveName, SensitivityTags } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
 import { intrinsicsForReceiver } from "../util/intrinsics.js";
-import { PRINCIPAL_IS_SYSTEM, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
+import { PRINCIPAL_IS_SYSTEM } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import {
   isValueObjectEqualsIntrinsic,
@@ -357,16 +357,10 @@ export function suffixType(suffix: PostfixSuffix): Ty {
  *  at the only layer that still has a CST node to point at.
  *
  *  Valid members = the declared `UserField`s (none without a `user { }`
- *  block) PLUS the two derived tenancy
- *  members (`orgPath` / `rootOrg`), which are computed per-request from the
- *  tenancy claim rather than declared in `user { }`.  Referencing either
- *  WITHOUT a `tenancy by` line is already its own diagnostic
- *  (`loom.orgpath-without-tenancy`, `validators/tenancy.ts`), so they are
- *  accepted here unconditionally — never double-reported. */
+ *  block) PLUS the built-in `isSystem` flag. */
 export function absentUserClaim(recvType: Ty, name: string): string[] | undefined {
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   if (t.kind !== "record" || t.shape.of !== "principal") return undefined;
-  if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
   if (name === PRINCIPAL_IS_SYSTEM) return undefined;
   // No `user { }` block: the principal declares no claim at all.
   const user = t.shape.ref;
@@ -933,8 +927,6 @@ export function membersOfType(t: Ty): MemberCompletion[] {
                 detail: typeToString(resolveTypeRef(f.type)),
               }),
             ),
-            { name: PRINCIPAL_ORG_PATH, kind: "field", detail: "string" },
-            { name: PRINCIPAL_ROOT_ORG, kind: "field", detail: "string" },
             { name: PRINCIPAL_IS_SYSTEM, kind: "field", detail: "bool" },
           ];
         default:

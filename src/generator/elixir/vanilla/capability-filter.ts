@@ -25,21 +25,10 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import {
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  isDeepScopeFilter,
-} from "../../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
-import {
-  type RenderCtx,
-  renderDeepScopeEcto,
-  renderDeepScopeInApp,
-  renderExpr,
-  renderGuidClaimSelfScopeEcto,
-} from "../render-expr.js";
+import { type RenderCtx, renderExpr, renderGuidClaimSelfScopeEcto } from "../render-expr.js";
 
 export { aggregateUsesPrincipalContextFilter };
 
@@ -136,8 +125,7 @@ export function listUsesPrincipal(
  *  `:binary_id` field, so Ecto casts it and a MALFORMED claim raised
  *  `Ecto.Query.CastError` (a 500 for an ordinary bad token).  That one routes to
  *  `renderGuidClaimSelfScopeEcto`, which casts in Elixir and pins nil on
- *  failure.  (The deep-scope sentinel is intercepted by the callers, which own
- *  actor gating.) */
+ *  failure. */
 function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
   const selfScope = guidFromStringSelfScope(p);
   if (selfScope) return renderGuidClaimSelfScopeEcto(ctx.thisName, selfScope.claim);
@@ -145,10 +133,8 @@ function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
 }
 
 /** One read restriction as an Ecto predicate under the `record` binding — the
- *  rendering `Repo.prepare_query/3` and `base_query/0` apply.  The deep/global
- *  subtree sentinel renders its own fail-closed pinned fragment (both claims:
- *  the anchor and the system's tenancy claim, which the NULL-`data_key` floor
- *  compares against); every other principal side is pinned by `renderExpr`. */
+ *  rendering `Repo.prepare_query/3` and `base_query/0` apply.  Every principal
+ *  side is pinned by `renderExpr`. */
 export function renderEctoRestriction(
   p: ExprIR,
   contextModule: string,
@@ -156,9 +142,7 @@ export function renderEctoRestriction(
   pool: readonly AggregateIR[] = [],
 ): string {
   const ctx: RenderCtx = { thisName: "record", contextModule, filterArgs: true, pool };
-  return isDeepScopeFilter(p)
-    ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
-    : renderPrincipalFilter(p, ctx);
+  return renderPrincipalFilter(p, ctx);
 }
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
@@ -182,8 +166,8 @@ function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | und
 /** The aggregate's `writeScopeFilter` (authorization — the WRITE
  *  ladder) as a single Ecto `where:` predicate, or null when the aggregate has
  *  no write-scope narrowing.  Rendered exactly like a principal capability read
- *  filter (deep sentinel → the fail-closed pinned LIKE fragment; the floor →
- *  `pinPrincipal(...)`), so the write guard needs no new render path. */
+ *  filter (the principal side pinned fail-closed), so the write guard needs no
+ *  new render path. */
 export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string): string | null {
   if (!agg.writeScopeFilter) return null;
   // See `vanillaCapabilityFilter`: rendered into an Ecto `where:`, so money/
@@ -193,10 +177,7 @@ export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string)
     contextModule,
     filterArgs: true,
   };
-  const p = agg.writeScopeFilter;
-  return isDeepScopeFilter(p)
-    ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
-    : renderPrincipalFilter(p, ctx);
+  return renderPrincipalFilter(agg.writeScopeFilter, ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,14 +191,12 @@ export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string)
 //
 // Two things differ from the Ecto rendering above, and both are load-bearing:
 //
-//   1. The `authz-filter` SENTINELS (`deny` / `scope`) have no in-app column
-//      predicate to be.  They are desugared to ordinary `ExprIR` FIRST, by the
-//      shared `desugarAuthzFilterInApp` the other three in-app backends already
-//      use — so `deny` becomes `false`, and `allow deep` becomes the
-//      DEEP_SCOPE_SEMANTICS expression over the row's own `dataKey`/`tenantId`
-//      (both of which live INSIDE the blob on a document aggregate).  Rendering
-//      the sentinel unchanged would emit an Ecto `fragment(...)`, which is not
-//      valid Elixir outside a query.
+//   1. The `authz-filter` `deny` SENTINEL has no in-app column predicate to
+//      be.  It is desugared to ordinary `ExprIR` FIRST, by the shared
+//      `desugarAuthzFilterInApp` the other in-app backends use (or rendered as
+//      the `__denied?/1` membership test below).  Rendering the sentinel
+//      unchanged would emit an Ecto `fragment(...)`, which is not valid Elixir
+//      outside a query.
 //   2. A principal claim can't be `^`-pinned (there is no query to pin into),
 //      so fail-closed has to be spelled out in Elixir: `current_user.<claim>`
 //      becomes `(current_user && current_user.<claim>)` (nil-safe access — an
@@ -272,14 +251,6 @@ export function renderDocPredicate(
   contextModule: string,
   rowVar: string,
 ): string {
-  // The `deep`/`global` sentinel renders its own already-fail-closed in-memory
-  // fragment (Elixir's `nil <> "."` raises, so the descendant prefix has to be
-  // interpolated rather than concatenated — see `renderDeepScopeInApp`).  Do
-  // NOT run it through `guardPrincipalInApp`: it pins its claims itself, the
-  // same split `vanillaCapabilityFilter` makes for the Ecto path.
-  if (isDeepScopeFilter(p)) {
-    return renderDeepScopeInApp("record", deepScopeAnchorClaim(p), deepScopeTenantClaim(p));
-  }
   // The `deny` carve-out is always-false, but it must NOT render as the literal
   // `false`.  Elixir 1.18's type checker folds it: `… and false` is reported as
   // a typing violation, and a `find_by_id` that can only return

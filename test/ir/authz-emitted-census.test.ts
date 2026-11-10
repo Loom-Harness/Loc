@@ -335,7 +335,7 @@ const maskResult = (c: Case, v: Variant): Promise<MaskSweep | null> =>
 
 /** The sites a sweep CHECKED (not write / helper / resolver). */
 const checked = (r: SweepResult, agg: string) =>
-  r.sites.filter((s) => s.aggregate === agg && !["write", "helper", "resolver"].includes(s.kind));
+  r.sites.filter((s) => s.aggregate === agg && !["write", "helper"].includes(s.kind));
 
 const TIMEOUT = 120_000;
 
@@ -495,7 +495,7 @@ describe("M-T9.41 — the census reached what it claims to reach", () => {
           }
         }
         expect(t.sites, `${v.id}: no read sites censused`).toBeGreaterThan(50);
-        for (const kind of ["principal", "scope", "deny", "writeScope", "own", "bypass"]) {
+        for (const kind of ["principal", "deny", "writeScope", "own", "bypass"]) {
           expect(
             [...t.conjuncts],
             `${v.id}: no checked read exercised the "${kind}" conjunct`,

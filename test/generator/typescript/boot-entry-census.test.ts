@@ -32,7 +32,6 @@ const STARTUP_SYMBOLS = [
   "runSeeds",
   "registerDevStubVerifier",
   "registerOidcVerifier",
-  "registerOrgPathResolver",
   "createInProcessDispatcher",
   "createOutboxDispatcher",
   "realtimeTee",

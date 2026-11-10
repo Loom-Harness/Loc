@@ -117,19 +117,15 @@ const ALLOWLIST = new Set<string>([
   // parity/blast-radius reason as folded `Projection` above.
   "ProjectionJoin",
   "ProjectionSelect",
-  // `policy {}` (+ its `PolicyReadRule` rows) is the tenant read-reachability
-  // ladder (multi-tenancy Phase 2 P2.4).  It is NOT grammar-only — enrichment
-  // (`applyPolicyReadLevels`/`applyPolicyWriteLevels`/`applyPolicyDenies`)
-  // rewrites each aggregate's `tenantOwned` scope stance from the ladder, which
-  // every backend then emits into its generated tenant filters; the rows are
-  // validated by the `loom.policy-*` gates.  It only validates on a `tenancy
-  // by` system with `tenantOwned` aggregates (`deep`/`global` also need an
-  // `implements tenantRegistry` hierarchy), so adding it to showcase.ddd would
+  // `policy {}` (+ its `PolicyReadRule` rows) is the tenant policy block.  It
+  // is NOT grammar-only — enrichment (`applyPolicyDenies`) turns a `deny` into
+  // each aggregate's read / write filters, which every backend then emits; the
+  // rows are validated by the `loom.policy-*` gates.  It only validates on a `tenancy
+  // by` system with `tenantOwned` aggregates, so adding it to showcase.ddd would
   // require tenancy-izing the whole fixture — the same reason `TenancyDecl` is
   // excluded above.  Covered end-to-end across all five backends by
-  // test/fixtures/corpus/tenancy-hierarchy.ddd (the `policy` deep/global/local
-  // read ladder), plus test/ir/policy-read-levels.test.ts +
-  // test/generator/policy-deep-scope.test.ts.
+  // test/fixtures/corpus/tenancy-hierarchy.ddd (`allow local` / `deny write`),
+  // plus test/ir/policy-levels.test.ts.
   "PolicyDecl",
   "PolicyReadRule",
   // The explicit application/transport layer (unfoldable-api-derivation.md) —

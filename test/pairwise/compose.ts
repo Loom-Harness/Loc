@@ -79,12 +79,6 @@ function subjectIsTenantOwned(cap: Capability, authz: Authz): boolean {
   return cap === "tenantOwned" || authz === "policyAllow";
 }
 
-/** `implements tenantRegistry` — the registry only grows the TREE fields when
- *  a `deep` ladder rung actually needs a materialized path. */
-function needsRegistryTree(authz: Authz): boolean {
-  return authz === "policyAllow";
-}
-
 function needsUser(cap: Capability, authz: Authz): boolean {
   return authz !== "none" || needsTenancy(cap, authz);
 }
@@ -228,7 +222,7 @@ function repositoryBlock(read: Read): string[] {
 }
 
 function policyBlock(authz: Authz): string[] {
-  if (authz === "policyAllow") return ["      policy {", "        allow deep on Thing", "      }"];
+  if (authz === "policyAllow") return ["      policy {", "        allow local on Thing", "      }"];
   // WRITE-deny rather than read-deny: it keeps both seams emitted (reads stay
   // open, the write-scope filter becomes the always-false sentinel), so the
   // fixture exercises the command-load site #2492 crashed on.
@@ -285,7 +279,6 @@ export function composeSource(c: SourceCase): string {
       "    context Registry {",
       `      aggregate Org with crudish {`,
       "        name: string",
-      ...(needsRegistryTree(authz) ? ["        implements tenantRegistry"] : []),
       "      }",
       "      repository Orgs for Org { }",
       "    }",

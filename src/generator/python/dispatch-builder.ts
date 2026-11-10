@@ -560,9 +560,7 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const seed = cols
-    ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant, ${snake(cols.dataKey.field)}=__origin.get("orgPath") or __tenant`
-    : `${corr}=__key`;
+  const seed = cols ? `${corr}=__key, ${snake(cols.tenant.field)}=__tenant` : `${corr}=__key`;
   const out: string[] = [
     `async def ${fn}(`,
     `    session: AsyncSession, _events: "InProcessDispatcher", ${param}: ${on.event}`,

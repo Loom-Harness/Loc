@@ -173,7 +173,7 @@ interface Inventory {
   Retrieval: Map<string, AstNode>;
   /** FUNCTION-form authorization predicates (`policy X(...): bool = …`) keyed
    * by name — the `requires:` target of `crudish`.  The read-ladder form
-   * (`policy { allow deep on X }`) is deliberately excluded: it has no name
+   * (`policy { allow local on X }`) is deliberately excluded: it has no name
    * to call and is not a boolean gate, so a macro that splices
    * `requires <Name>()` must never resolve one. */
   Policy: Map<string, AstNode>;

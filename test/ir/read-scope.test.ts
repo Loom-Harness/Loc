@@ -42,8 +42,7 @@ system Fleets {
       repository Entries for Entry { }
       repository Secrets for Secret { }
       policy {
-        allow deep on Account
-        allow global on Entry
+        allow local on Account
         deny on Secret
       }
     }
@@ -165,13 +164,13 @@ describe("readScope — TPH root", () => {
 });
 
 describe("readScope — tenancy stance", () => {
-  it("reads the stance off the predicate: floor, deep, global, registry self-scope", async () => {
+  it("reads the stance off the filter's origin: tenant floor, registry self-scope", async () => {
     const aggs = await pool();
     const stance = (n: string) =>
       readScopeFor(named(aggs, n), aggs).restrictions.find((r) => r.kind === "tenancy")?.tenancy;
     expect(stance("Truck")).toBe("tenant");
-    expect(stance("Account")).toBe("deep");
-    expect(stance("Entry")).toBe("global");
+    expect(stance("Account")).toBe("tenant");
+    expect(stance("Entry")).toBe("tenant");
     expect(stance("Org")).toBe("self");
   });
 

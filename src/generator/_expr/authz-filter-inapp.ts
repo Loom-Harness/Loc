@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // The `authz-filter` sentinel, desugared for the IN-APP filter path.
 //
-// An `authz-filter` node (M-T9.9) is a SENTINEL, not an expression: each
+// An `authz-filter` node is a SENTINEL, not an expression: each
 // backend's QUERY-FILTER translator intercepts it and renders its native
 // column predicate (Drizzle operator tree / EF `false` / JPQL `1 = 0` /
 // SQLAlchemy contradiction / Ecto fragment).  The shared expression dispatcher
@@ -17,14 +17,11 @@
 // … }` crashed codegen on node, java and python; .NET's EF `HasQueryFilter`
 // intercepts it, and Elixir has no `document` shape at all).
 //
-// The fix is not another per-backend translator.  Both sentinel decisions are
-// expressible as ORDINARY `ExprIR` over the rehydrated row, and the row carries
-// everything they need: `dataKey` and `tenantId` are `tenantOwned` fields, so on
-// a document aggregate they live INSIDE the blob and are on the instance.  So
-// this module lowers the sentinel to plain IR ONCE, and the four in-app render
-// sites feed the result to their existing expression renderer — which already
-// handles every node used here (`==`/`!=` against a null literal, `&&`/`||`,
-// string `+`, and the `string.startsWith` intrinsic) on all four backends.
+// The fix is not another per-backend translator.  The sentinel's decision
+// (`deny`) is expressible as ORDINARY `ExprIR` over the rehydrated row — the
+// `false` literal — so this module lowers the sentinel to plain IR ONCE, and
+// the in-app render sites feed the result to their existing expression
+// renderer.
 //
 // Only the IN-APP (document) path desugars.  The relational and embedded paths
 // keep their native column translators: a SQL `where` is strictly better than
@@ -33,137 +30,7 @@
 // exists in the first place.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
-import {
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
-
-const STRING_T: TypeIR = { kind: "primitive", name: "string" };
-const OPT_STRING_T: TypeIR = { kind: "optional", inner: STRING_T };
-const BOOL_T: TypeIR = { kind: "primitive", name: "bool" };
-
-const NULL_LIT: ExprIR = { kind: "literal", lit: "null", value: "null" };
-
-/** `currentUser.<claim>` as a resolved member node — rebuilt rather than reused
- *  from the sentinel so the claim NAMES come from the sentinel's own accessors
- *  ({@link deepScopeAnchorClaim} / {@link deepScopeTenantClaim}) and the shape
- *  is identical to the tenant-floor filter every backend already renders. */
-function claim(name: string): ExprIR {
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
-  return {
-    kind: "member",
-    receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
-    member: name,
-    receiverType: userShape,
-    memberType: STRING_T,
-  };
-}
-
-/** `this.<field>` on the filtered row.  The in-app render sites rebind `this`
- *  to the rehydrated instance's variable (`thisName`), so this is the same node
- *  shape `buildTenantFloorFilter` emits — nothing new to render. */
-function rowField(aggName: string, field: string, memberType: TypeIR): ExprIR {
-  return {
-    kind: "member",
-    receiver: { kind: "this" },
-    member: field,
-    receiverType: { kind: "entity", name: aggName },
-    memberType,
-  };
-}
-
-/**
- * `leftType`/`rightType` are NOT decoration here.  Java renders `==` on a
- * reference type as `Objects.equals(l, r)` and native `==` otherwise, keyed
- * off `leftType` — so an untyped string comparison emits a Java REFERENCE
- * comparison that compiles green and is silently wrong at runtime (two equal
- * paths from different rows would not match).  Every operand type this builds
- * is therefore spelled out, exactly as `buildTenantFloorFilter` spells its own.
- * A null-literal comparison keeps native `==`/`!=` on Java by its own
- * short-circuit, so typing it is harmless.
- */
-function binary(
-  op: "==" | "!=" | "&&" | "||" | "+",
-  left: ExprIR,
-  right: ExprIR,
-  operandType?: TypeIR,
-): ExprIR {
-  return {
-    kind: "binary",
-    op,
-    left,
-    right,
-    leftType: operandType,
-    rightType: operandType,
-    resultType: op === "+" ? STRING_T : BOOL_T,
-  };
-}
-
-/**
- * The in-app form of a `scope` decision — `DEEP_SCOPE_SEMANTICS` verbatim,
- * evaluated over the rehydrated row instead of as a column predicate:
- *
- *   (R.dataKey != null
- *      && (R.dataKey == P.<anchor>                    -- the caller's own node
- *          || R.dataKey.startsWith(P.<anchor> + ".")))-- + all descendants
- *   || (R.dataKey == null                             -- legacy / principal-less
- *       && R.tenantId == P.<tenantClaim>)             --   degrade to the floor
- *
- * The delimiter-correct prefix is what keeps `org_a` from matching `org_ab`
- * (the SQL side spells the same thing as `LIKE anchor || '.%'`).  The null
- * branch is the same deliberate OR-fallback the SQL translators carry: a row
- * stamped before has a NULL `dataKey` and would otherwise vanish from its
- * own tenant's reads.
- *
- * The receiver of `.startsWith` is typed as a bare `string` (not the field's
- * declared `string?`): the null guard has already narrowed it, and the
- * intrinsic table is keyed on the receiver's primitive name.
- */
-function scopeInApp(e: ExprIR, aggName: string): ExprIR {
-  const anchor = claim(deepScopeAnchorClaim(e));
-  const dataKeyOpt = rowField(aggName, TENANT_OWNED_DATA_KEY_FIELD, OPT_STRING_T);
-  const dataKeyStr = rowField(aggName, TENANT_OWNED_DATA_KEY_FIELD, STRING_T);
-  const descendantPrefix: ExprIR = {
-    kind: "method-call",
-    receiver: dataKeyStr,
-    member: "startsWith",
-    args: [
-      binary(
-        "+",
-        anchor,
-        { kind: "literal", lit: "string", value: DATA_KEY_PATH_DELIMITER },
-        STRING_T,
-      ),
-    ],
-    receiverType: STRING_T,
-    isCollectionOp: false,
-  };
-  const present = binary("&&", binary("!=", dataKeyOpt, NULL_LIT, OPT_STRING_T), {
-    kind: "paren",
-    inner: binary("||", binary("==", dataKeyStr, anchor, STRING_T), descendantPrefix, BOOL_T),
-  });
-  const legacyFloor = binary(
-    "&&",
-    binary("==", dataKeyOpt, NULL_LIT, OPT_STRING_T),
-    binary(
-      "==",
-      rowField(aggName, TENANT_OWNED_TENANT_ID_FIELD, STRING_T),
-      claim(deepScopeTenantClaim(e)),
-      STRING_T,
-    ),
-    BOOL_T,
-  );
-  return binary(
-    "||",
-    { kind: "paren", inner: present },
-    { kind: "paren", inner: legacyFloor },
-    BOOL_T,
-  );
-}
+import type { ExprIR } from "../../ir/types/loom-ir.js";
 
 /**
  * Rewrite every `authz-filter` sentinel in `e` into ordinary `ExprIR` that the
@@ -172,7 +39,7 @@ function scopeInApp(e: ExprIR, aggName: string): ExprIR {
  * filter without a sentinel keeps its exact node objects and emission stays
  * byte-identical).
  *
- * `deny` becomes the plain `false` literal.  It is a sentinel on the SQL side
+ * `deny`, the only decision, becomes the plain `false` literal.  It is a sentinel on the SQL side
  * only because a bare boolean is not a legal standalone Drizzle/Ecto/SQLAlchemy
  * predicate; in-app it is exactly a `false` conjunct, and the always-false
  * result — the aggregate reads as invisible — is the same one the column
@@ -185,9 +52,7 @@ function scopeInApp(e: ExprIR, aggName: string): ExprIR {
 export function desugarAuthzFilterInApp(e: ExprIR, aggName: string): ExprIR {
   switch (e.kind) {
     case "authz-filter":
-      return e.filter.kind === "deny"
-        ? { kind: "literal", lit: "bool", value: "false" }
-        : scopeInApp(e, aggName);
+      return { kind: "literal", lit: "bool", value: "false" };
     case "paren":
       return { ...e, inner: desugarAuthzFilterInApp(e.inner, aggName) };
     case "unary":
@@ -200,9 +65,8 @@ export function desugarAuthzFilterInApp(e: ExprIR, aggName: string): ExprIR {
       };
     // Identity for every other kind — and NOT merely "safe by default": a
     // sentinel cannot be nested under one.  `authz-filter` nodes have exactly
-    // three construction sites (`buildDenyFilter` / `buildScopeFilter` via
-    // `buildDeepScopeFilter` / `buildGlobalScopeFilter`, all in
-    // `src/ir/util/tenant-stance.ts`), and enrichment installs each as a WHOLE
+    // one construction site (`buildDenyFilter` in
+    // `src/ir/util/tenant-stance.ts`), and enrichment installs it as a WHOLE
     // `contextFilters[i]` entry or a whole `writeScopeFilter` — never as a
     // sub-expression of a user predicate.  The three recursive arms above are
     // the defensive envelope around a hand-composed conjunction.  Named rather

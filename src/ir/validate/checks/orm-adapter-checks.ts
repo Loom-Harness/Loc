@@ -163,17 +163,7 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
         // the EF AuditableInterceptor.  A principal stamp on a no-auth
         // deployable stays rejected by the category-A loom.stamp-principal-without-auth.
         //
-        // HIERARCHICAL TENANCY is supported (wave C2 packet 2b).  The
-        // `deep`/`global` read level lowers to the materialized-path
-        // `authz-filter` sentinel, which `authzFilterToSql` now renders as the
-        // raw-Postgres descendant-or-self fragment (`data_key = @anchor OR
-        // (data_key LIKE @pattern ESCAPE '!' AND strpos(data_key, @needle) =
-        // 1)`, with the NULL-`data_key` flat-tenant fallback) — the twin of the
-        // MikroORM `raw()` rendering.  The sentinel carries no child
-        // `currentUser.<claim>` node, so `collectFilterPrincipalRefs`
-        // contributes its four bindings BY KIND; that gap in a hand-rolled walk
-        // was the whole of the old refusal, and the collector now rides
-        // `walkExprDeep`.  The `deny` sentinel renders `1 = 0` as before.
+        // The `deny` authorization sentinel renders `1 = 0`.
         // Capability filters are supported too (spliced into every SELECT's
         // WHERE); a principal-referencing one lowers `currentUser.<claim>` to a
         // `@__cu_<claim>` Dapper param bound from the same ambient principal.

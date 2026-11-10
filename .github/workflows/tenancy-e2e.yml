@@ -46,8 +46,8 @@ name: Tenancy isolation (runtime e2e)
 #   * the five `flat` cells (tenancy-owned.ddd, one boot per backend) run
 #     PER-PR, path-scoped, binding through `pr-gate` — ~1-2 runner-minutes a
 #     cell, ~7 a firing (measured 2026-10-05, Actions API, last 10 `main` runs);
-#   * every other cell (hierarchy, the two second-adapter cells, org-context,
-#     the subtree EXPLAIN) runs in the MERGE QUEUE, which is their only
+#   * every other cell (hierarchy, the two second-adapter cells, org-context)
+#     runs in the MERGE QUEUE, which is their only
 #     pre-merge run; on a PR they need the `run-tenancy` label and fire on the
 #     next push (an earlier signal, not the gate).
 # Both halves also run in the queue and on `push: main` (the post-merge net).
@@ -86,14 +86,13 @@ on:
       - 'src/generator/elixir/vanilla/schema-emit.ts'
       - 'src/generator/elixir/vanilla/shell-emit.ts'
       - 'src/platform/hono/**'
-      # The MikroORM adapter's own emitter: it owns the hierarchical subtree
-      # predicate (a `raw()` FilterQuery key) that the `node-mikroorm` cell
-      # boots.  Missing from this list, a mikroorm-emitter-only change skipped
-      # the whole workflow.
+      # The MikroORM adapter's own emitter: it owns the tenant-floor filter
+      # registration that the `node-mikroorm` cell boots.  Missing from this
+      # list, a mikroorm-emitter-only change skipped the whole workflow.
       - 'src/generator/typescript/emit/mikroorm.ts'
-      # Same argument, .NET side: the Dapper adapter splices the subtree
-      # predicate into every SELECT as a raw SQL string with four hand-bound
-      # parameters, which the `dotnet-dapper` cell boots.
+      # Same argument, .NET side: the Dapper adapter splices the tenant floor
+      # into every SELECT as a raw SQL string with hand-bound parameters, which
+      # the `dotnet-dapper` cell boots.
       - 'src/generator/dotnet/emit/dapper.ts'
       - 'test/e2e/tenancy-isolation.test.ts'
       - 'test/e2e/tenancy-isolation-python.test.ts'
@@ -109,7 +108,6 @@ on:
       - 'test/e2e/tenancy-hierarchy-elixir.test.ts'
       - 'test/e2e/tenancy-hierarchy-mikroorm.test.ts'
       - 'test/e2e/tenancy-hierarchy-dapper.test.ts'
-      - 'test/e2e/tenancy-subtree-explain.test.ts'
       # The organizationContext switch-gate leg (M-T3.6 items 3+5): its own
       # test file + fixture, and the auth-layer emitters that host the gate
       # which the lines above do not already reach (python/elixir auth, and
@@ -235,7 +233,7 @@ jobs:
           echo "## Tenancy isolation runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the run step above for the captured server stdout.' >> $GITHUB_STEP_SUMMARY
-          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an in-scope x-org-context switch stamps the sub-scope, an out-of-subtree or forged one is 403 with no write.' >> $GITHUB_STEP_SUMMARY
+          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch (the caller own org) stamps it, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
 
 
   tenancy-e2e:
@@ -253,26 +251,19 @@ jobs:
       matrix:
         # One job per backend, its suites in sequence (the database is
         # recreated empty before each):
-        #   hierarchy   — the hierarchical-tenancy suite (deep/self scope over a
-        #                 registry tree).
-        #   org-context — the organizationContext switch gate: an in-scope
-        #                 `x-org-context` switch stamps the sub-scope dataKey
-        #                 (deep-visible from the parent, hidden from a sibling),
-        #                 an out-of-subtree switch and a forged one on an
-        #                 orgPath-less token are 403 with NO write, and reads
-        #                 stay principal-anchored.  The accessor re-roots the
-        #                 write stamp onto a caller-submitted value, so the gate
-        #                 on EVERY backend is the security control and this boot
-        #                 is its only runtime proof.
-        #   explain     — the subtree read is INDEX-USABLE, not merely correct:
-        #                 it builds the schema from the emitted migration SQL,
-        #                 lifts the predicate out of a generated repository,
-        #                 seeds 20k rows and asserts the PLAN (`Index Scan` on
-        #                 `<table>_data_key_idx`).  Spins its own postgres
-        #                 container, so it ignores the service container.
+        #   hierarchy   — the registry-tree suite: every org reads only its
+        #                 own rows, whatever the tree (flat data visibility).
+        #   org-context — the organizationContext switch gate: an admitted
+        #                 `x-org-context` switch stamps the caller's org, any
+        #                 other org and a forged header on a claim-less token
+        #                 are 403 with NO write, and reads stay
+        #                 principal-anchored.  The accessor re-roots the write
+        #                 stamp onto a caller-submitted value, so the gate on
+        #                 EVERY backend is the security control and this boot is
+        #                 its only runtime proof.
         include:
           - backend: node
-            scripts: test:tenancy-hierarchy test:tenancy-org-context test:tenancy-subtree-explain
+            scripts: test:tenancy-hierarchy test:tenancy-org-context
           - backend: python
             scripts: test:tenancy-hierarchy-python test:tenancy-org-context-python
           - backend: java
@@ -367,7 +358,7 @@ jobs:
           echo "## Tenancy isolation runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the run step above for the captured server stdout.' >> $GITHUB_STEP_SUMMARY
-          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an in-scope x-org-context switch stamps the sub-scope, an out-of-subtree or forged one is 403 with no write.' >> $GITHUB_STEP_SUMMARY
+          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an admitted x-org-context switch (the caller own org) stamps it, any other org or a forged header is 403 with no write.' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix

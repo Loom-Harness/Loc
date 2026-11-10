@@ -122,9 +122,7 @@ function renderProjectionFoldHandler(
   const findPred = cols
     ? `x => x.${tenantProp} == __tenant && x.${corrPascal} == __key`
     : `x => x.${corrPascal} == __key`;
-  const seed = cols
-    ? `${corrPascal} = __key, ${tenantProp} = __tenant, ${upperFirst(cols.dataKey.field)} = __origin?.OrgPath ?? __tenant`
-    : `${corrPascal} = __key`;
+  const seed = cols ? `${corrPascal} = __key, ${tenantProp} = __tenant` : `${corrPascal} = __key`;
   return (
     `// Auto-generated.
 using System.Threading;

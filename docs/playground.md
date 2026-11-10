@@ -132,8 +132,7 @@ playground surfaces this explicitly instead of failing silently.
 
 The runtime worker boots the generated backend through its own start-up
 sequence — `bootApp` in the deployable's `boot.ts`, the same function the
-generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
-tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the channel consumers, the outbox relay
 and the timers all run in the preview as they do deployed. The worker passes
 the browser's answers, each announced at warn level in the runtime log:
 

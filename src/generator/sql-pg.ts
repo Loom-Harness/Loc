@@ -313,14 +313,7 @@ function renderAddIndex(idx: IndexShape, schema?: string, concurrently = false):
   // Partial index (`WHERE …`) — set on a `unique` index derived for a
   // softDeletable aggregate so re-create after soft-delete is allowed.
   const where = idx.predicate ? ` WHERE ${idx.predicate}` : "";
-  // Per-column opclass (materialized-path prefix index): `text_pattern_ops`
-  // after the column makes `LIKE 'prefix.%'` index-usable under any collation.
-  const cols = idx.columns
-    .map((c) => {
-      const oc = idx.opclasses?.[c];
-      return oc ? `${ident(c)} ${oc}` : ident(c);
-    })
-    .join(", ");
+  const cols = idx.columns.map((c) => ident(c)).join(", ");
   return (
     `CREATE ${unique}INDEX ${conc}${ident(idx.name)} ON ${qualified(schema, idx.table)} ` +
     `(${cols})${where};`

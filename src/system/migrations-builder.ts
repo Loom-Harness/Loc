@@ -441,9 +441,7 @@ function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
   const key = (i: IndexShape): string => JSON.stringify(i.columns);
   const uniqueKeys = new Set(indexes.filter((i) => i.unique && !i.predicate).map(key));
   if (uniqueKeys.size === 0) return indexes;
-  return indexes.filter(
-    (i) => i.unique || !!i.predicate || !!i.opclasses || !uniqueKeys.has(key(i)),
-  );
+  return indexes.filter((i) => i.unique || !!i.predicate || !uniqueKeys.has(key(i)));
 }
 
 /** Persisted workflow-correlation state table (mirrors `tableForAggregate`):
@@ -672,9 +670,9 @@ function projectionTableShape(
   const tenancy = foldTenancyFor(proj);
   if (tenancy) {
     for (const m of tenancy.metadata)
-      columns.push({ name: m.column, type: { kind: "text" }, nullable: !m.required });
+      columns.push({ name: m.column, type: { kind: "text" }, nullable: false });
   }
-  const tenantKey = tenancy?.metadata.filter((m) => m.required).map((m) => m.column) ?? [];
+  const tenantKey = tenancy?.metadata.map((m) => m.column) ?? [];
   return {
     name: tableName,
     ownerModule,
@@ -814,7 +812,7 @@ function documentTableForAggregate(tableName: string, ownerModule: string): Tabl
  *  order — DB-assigned, carried inert until the rebuild reader lands.  `type`
  *  discriminates the event for the fold; `data` is the JSON payload.  A log
  *  holding a `tenantOwned` stream also carries the stream tenant metadata
- *  columns `tenant_id` / `data_key` (`stream-tenancy.ts`). */
+ *  column `tenant_id` (`stream-tenancy.ts`). */
 function eventLogTableForStream(
   snakeCtxName: string,
   ownerModule: string,
@@ -1242,7 +1240,7 @@ function diffTable(
   // Index diff — match by index name (deterministic, see tableForAggregate).
   // A name-only shift that is otherwise the SAME index — identical columns
   // (after mapping the old names through this table's column renames),
-  // uniqueness, partial-index predicate, and per-column opclasses — is the
+  // uniqueness, and partial-index predicate — is the
   // derived-name churn a table/column rename produces (the FK-index name embeds
   // the table/column stem).  Collapse it to a single `renameIndex` (M-T2.1 a)
   // instead of the non-destructive-but-noisy drop+recreate.
@@ -1320,8 +1318,7 @@ function diffTable(
 /** True when a dropped and an added index are the SAME index whose DERIVED name
  *  shifted because a table/column rename this generation changed its stem: same
  *  columns (after mapping the dropped index's columns through the table's
- *  column renames), same uniqueness, same partial-index predicate, same
- *  per-column opclasses.  Both indexes belong to one already-paired table, so
+ *  column renames), same uniqueness, same partial-index predicate.  Both indexes belong to one already-paired table, so
  *  the relation is guaranteed identical — only the name needs reconciling, and
  *  the names necessarily differ (or they'd have matched by name and never
  *  entered the drop/add lists).  A genuine drop + unrelated add never collides
@@ -1337,15 +1334,7 @@ function indexRenamed(
   const mapCol = (c: string): string => colRename.get(c) ?? c;
   const dCols = di.columns.map(mapCol);
   if (dCols.length !== ai.columns.length) return false;
-  if (!dCols.every((c, k) => c === ai.columns[k])) return false;
-  // Per-column opclasses (keyed by column) must agree after mapping the keys.
-  const dOc = di.opclasses ?? {};
-  const aOc = ai.opclasses ?? {};
-  if (Object.keys(dOc).length !== Object.keys(aOc).length) return false;
-  for (const [k, v] of Object.entries(dOc)) {
-    if (aOc[mapCol(k)] !== v) return false;
-  }
-  return true;
+  return dCols.every((c, k) => c === ai.columns[k]);
 }
 
 // ---------------------------------------------------------------------------
@@ -3455,18 +3444,11 @@ function applyManualIndexes(tables: readonly TableShape[], specs: readonly Manua
  *  blob/stream (no column) and are skipped naturally, as are parts and join
  *  tables (the filter targets the root).  Deduped against a hand-declared
  *  `unique (tenantId, ...)`-style index only by exact single-column shape —
- *  a unique composite still benefits from the plain prefix index.
- *
- *  Multi-tenancy adds a SECOND derived index on `data_key`: the
- *  `deep` / `global` read levels prefix-match the materialized path with
- *  `LIKE 'prefix.%'`, so `data_key` gets a non-unique `<table>_data_key_idx`
- *  with the `text_pattern_ops` opclass — the opclass that makes a prefix `LIKE`
- *  index-usable under ANY locale/collation (the default opclass only does so
- *  under the C collation).  Same column-existence gating as `tenant_id` (the
- *  registry, id-keyed and NOT `tenantOwned`, is read by id and gets none). */
+ *  a unique composite still benefits from the plain prefix index.  The
+ *  registry, id-keyed and NOT `tenantOwned`, is read by id and gets none. */
 function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
   if (!(agg.capabilities?.includes("tenantOwned") ?? false)) return tables;
-  const derive = (column: string, opclasses?: Record<string, string>): void => {
+  const derive = (column: string): void => {
     for (const t of tables) {
       if (!t.columns.some((c) => c.name === column)) continue;
       const already = t.indexes.some((ix) => ix.columns.length === 1 && ix.columns[0] === column);
@@ -3476,12 +3458,10 @@ function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
         table: t.name,
         columns: [column],
         unique: false,
-        ...(opclasses ? { opclasses } : {}),
       });
     }
   };
   derive("tenant_id");
-  derive("data_key", { data_key: "text_pattern_ops" });
   return tables;
 }
 
@@ -3495,7 +3475,7 @@ function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
  *  name — what `stampCapabilityColumns` recognises on an aggregate's table. */
 const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   softDeletable: ["is_deleted", "deleted_at"],
-  tenantOwned: ["tenant_id", "data_key"],
+  tenantOwned: ["tenant_id"],
   auditable: ["created_at", "updated_at", "created_by", "updated_by"],
   versioned: [ROW_VERSION_COLUMN],
 };
@@ -3512,7 +3492,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  *      are unknown, and `created_by` has no defensible placeholder;
  *    - `versioned.row_version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
  *      add is never blocking;
- *    - the nullable ones (`deleted_at`, `data_key`) — a nullable add needs none.
+ *    - the nullable `deleted_at` — a nullable add needs none.
  *  Rides `addColumnDefault`, the M-T2.16 path: added WITH the default, which
  *  fills every existing row, then the default is dropped in the same migration,
  *  so the column ends up exactly as a fresh `CREATE TABLE` lays it down. */

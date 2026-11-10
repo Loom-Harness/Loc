@@ -152,7 +152,7 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 ├── package.json                     # deps: hono, @hono/node-server, @hono/zod-openapi, zod, drizzle-orm, pg
 ├── tsconfig.json
 ├── index.ts                         # pg Pool → drizzle → migrations → bootApp(db) → @hono/node-server.serve → shutdown
-├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, orgPath resolver, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
+├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
 ├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`

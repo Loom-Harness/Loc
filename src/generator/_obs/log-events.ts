@@ -245,11 +245,11 @@ export const LogEvents = {
     fields: ["aggregate", "op", "message", "status"],
   },
   /** The auth middleware's fail-closed OPERATING-scope switch gate refused a
-   *  request (`organizationContext`, docs/tenancy.md; M-T3.6 items 3+5): its
-   *  `x-org-context` header named an org outside the caller's `orgPath`
-   *  subtree (`reason: "outside_scope"`), or the caller has no `orgPath` to
-   *  anchor a switch on (`reason: "no_principal_scope"`).  Answered 403 before
-   *  any handler runs.  `org_context` is the requested path as submitted. */
+   *  request (`organizationContext`, docs/tenancy.md): its `x-org-context`
+   *  header named an org the caller may not operate in
+   *  (`reason: "outside_scope"`), or the caller has no home org to anchor a
+   *  switch on (`reason: "no_principal_scope"`).  Answered 403 before any
+   *  handler runs.  `org_context` is the requested org id as submitted. */
   orgContextDenied: {
     event: "org_context_denied",
     level: "warn",

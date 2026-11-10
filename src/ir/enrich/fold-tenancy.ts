@@ -5,13 +5,11 @@
 // rows no tenant command owns: the fold runs when an event is dispatched.  Under
 // `tenancy by`, an event raised by a `tenantOwned` aggregate (state or
 // event-sourced) carries its tenant as METADATA — the dispatching frame's event
-// origin (`tenantid` / `loomorgpath` on the outbox row and the CloudEvents
-// envelope; the stream's tenant for an event-sourced stream, see
+// origin (`tenantid` on the outbox row and the CloudEvents envelope; the stream's tenant for an event-sourced stream, see
 // `stream-tenancy.ts`).  A scoped fold therefore:
 //
 //   - stamps every row it writes with the event's tenant: `tenant_id` from the
-//     origin's tenant, `data_key` from its org path (the tenant itself when the
-//     origin has none) — the two columns a `tenantOwned` table carries;
+//     origin's tenant — the column a `tenantOwned` table carries;
 //   - keys the row by `(tenant_id, <key>)`, so two tenants folding the same
 //     business key never share a row;
 //   - reads through `scope` (`foldRowReadScope` in `read-scope.ts`): the tenant
@@ -52,9 +50,8 @@ export interface FoldProducers {
 /** The tenancy fact of one scoped folded projection. */
 export interface FoldTenancy {
   projection: string;
-  /** The tenant columns every fold row carries (`tenant_id` NOT NULL and part
-   *  of the primary key; `data_key` nullable), named like a `tenantOwned`
-   *  table's. */
+  /** The tenant column every fold row carries (`tenant_id`, NOT NULL and part
+   *  of the primary key), named like a `tenantOwned` table's. */
   metadata: readonly StreamTenantMetadataField[];
   /** The principal claim the floor compares `tenantId` against. */
   claim: string;
@@ -169,12 +166,7 @@ export function foldFloorTerms(t: FoldTenancy): FoldFloorTerm[] {
 }
 
 /** The tenant column every scoped fold row is keyed by (`tenant_id`), with its
- *  aggregate-field spelling, and the org-path column stamped beside it. */
-export function foldTenantColumns(t: FoldTenancy): {
-  tenant: StreamTenantMetadataField;
-  dataKey: StreamTenantMetadataField;
-} {
-  const tenant = t.metadata.find((m) => m.required)!;
-  const dataKey = t.metadata.find((m) => !m.required)!;
-  return { tenant, dataKey };
+ *  aggregate-field spelling. */
+export function foldTenantColumns(t: FoldTenancy): { tenant: StreamTenantMetadataField } {
+  return { tenant: t.metadata[0]! };
 }
