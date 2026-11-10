@@ -54,7 +54,7 @@ const CURRENT_USER: ExprIR = {
   kind: "ref",
   name: "currentUser",
   refKind: "current-user",
-  type: { kind: "entity", name: "__User__" },
+  type: { kind: "entity", name: "__User__", declKind: "principal" },
 };
 
 /** Nodes whose write scope has been ANDed in. */
