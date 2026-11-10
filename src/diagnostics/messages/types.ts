@@ -11,6 +11,7 @@ import type { MessageEntry } from "./_shared.js";
 /** The code first-segments this family owns. */
 export const segments = [
   "collection",
+  "transport",
   "payload",
   "union",
   "generic",
@@ -135,9 +136,9 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/generics.ts
   // ----------------------------------------------------------------------
-  "loom.generic-position": (p: { ctors: unknown }) =>
-    `A generic carrier ('${p.ctors}') is a transport shape — it may only appear as a ` +
-    `query-handler return type or a payload field, not in this position.`,
+  "loom.generic-position": (p: { ctors: unknown; positions: unknown }) =>
+    `A generic carrier ('${p.ctors}') is a transport shape — it may only appear as ` +
+    `${p.positions}, not in this position.`,
   "loom.generic-arg-not-carrier#nested-generic-carriers": (p: {
     ctors: unknown;
     ctors2: unknown;
@@ -429,18 +430,34 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/unions.ts
   // ----------------------------------------------------------------------
-  "loom.union-position":
-    `An inline 'or' union is a transport shape — it may appear only as an operation's or a ` +
-    `domainService operation's return type, or, with at least one 'error' variant, as the ` +
-    `result of a workflow 'create', a 'commandHandler' or a 'queryHandler' ` +
-    `('create(…): Receipt or PaymentDeclined'), where the error answers its mapped status. ` +
-    `Not in this position.`,
+  "loom.union-position": (p: { positions: unknown }) =>
+    `An inline 'or' union is a transport shape — it may appear only as ${p.positions} ` +
+    `('create(…): Receipt or PaymentDeclined'), where an error variant answers its mapped ` +
+    `status. Not in this position.`,
+  "loom.union-position#named": (p: {
+    name: unknown;
+    position: unknown;
+    positions: unknown;
+    inline: unknown;
+  }) =>
+    `'${p.name}' is a named union ('payload ${p.name} = A | B'); it cannot be ${p.position}. ` +
+    `A named union may be named only as ${p.positions}. Where a value is one of the variants, ` +
+    `write the inline union ('A or B') in a position that admits it: ${p.inline}.`,
   "loom.union-position#payload-field":
     `An inline 'or' union cannot be a payload field: the tagged union wire is emitted only ` +
     `at the top of an operation or find return, and no backend renders one nested inside a ` +
     `record (an error payload, a command or workflow input).  Return the union from the ` +
     `operation itself ('operation x(): A or B'), or give the payload one field per variant ` +
     `('circle: Circle?', 'square: Square?').`,
+  "loom.transport-type-position": (p: {
+    name: unknown;
+    kind: unknown;
+    position: unknown;
+    positions: unknown;
+  }) =>
+    `'${p.name}' is ${p.kind}, a transport record — it may be named as a type only as ` +
+    `${p.positions}, not as ${p.position}. A stored value or a domain signature takes a ` +
+    `value object, an enum, a primitive or an '<Aggregate> id' instead.`,
   "loom.union-variant-not-carrier": `'slot' is a UI-only marker, not a union variant — every variant must be a carrier type.`,
   "loom.union-duplicate-variant":
     `Duplicate union variant — each variant must be a distinct type so the wire ` +

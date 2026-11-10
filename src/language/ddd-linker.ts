@@ -129,8 +129,8 @@ function unknownTypeMessage(name: string, container: AstNode): string {
   const hint = hints.map((h) => `'${h}'`).join(" or ");
   return (
     `Unknown type '${name}'.${hint ? ` Did you mean ${hint}?` : ""}  Field types are: ` +
-    `${primitives.join(", ")} — or an enum / valueobject / event / payload declared in ` +
-    `scope; a reference to another aggregate is spelled '<Aggregate> id'.`
+    `${primitives.join(", ")} — or an enum / valueobject declared in scope; a reference ` +
+    `to another aggregate is spelled '<Aggregate> id'.`
   );
 }
 
