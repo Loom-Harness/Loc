@@ -176,7 +176,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.tenancy-registry-remote-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/tenancy-checks.ts",
+    site: "src/ir/validate/checks/tenancy-checks.ts:437",
     what:
       "a backend deployable hosting a context that reads `organizationContext.ancestors` " +
       "without hosting the registry's context.  The ancestors walk reads the registry's " +

@@ -211,7 +211,7 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     // CODE, not comments — the emitted `__denied?/1` doc comment cites
     // `fragment("false")` when explaining why the SQL path needs no equivalent.
     expect(codeOf(repo)).not.toContain("fragment(");
-    expect(repo).toContain("record.tenant_id == (current_user && current_user.tenant_id)");
+    expect(repo).toContain("record.tenant_id == (current_user && current_user.operating_org)");
     // Visibility is flat: no org path is read (D-TENANCY-FLAT).
     expect(repo).not.toContain("data_key");
   });

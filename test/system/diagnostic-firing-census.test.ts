@@ -1213,6 +1213,60 @@ system OrgCtx {
   // The operating scope read on a deployable with no auth:
   // there is no auth middleware, so no switch gate, so the read would be an
   // unvalidated caller-submitted value.
+  // `organizationContext.ancestors` read on a deployable that does not host
+  // the registry's context — its database has no registry table to walk.
+  "loom.tenancy-registry-remote-unsupported": `
+system OrgAnc {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Registry {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Orgs for Org
+    }
+    context Books {
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Notes for Note
+    }
+  }
+  storage primary { type: postgres }
+  resource r { for: Registry, kind: state, use: primary }
+  resource b { for: Books, kind: state, use: primary }
+  deployable reg { platform: node, contexts: [Registry], dataSources: [r], port: 3001, auth: required }
+  deployable books { platform: node, contexts: [Books], dataSources: [b], port: 3002, auth: required }
+}`,
+  // A reactor reaching `organizationContext.ancestors` through an operation:
+  // the system principal it runs as carries no ancestor set.
+  "loom.org-context-ancestors-in-reactor": `
+system OrgAncReactor {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Books {
+      event Probed { note: Note id  org: Org id }
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Orgs for Org
+      repository Notes for Note
+      workflow onProbed {
+        note: Note id
+        create(e: Probed) by e.note {
+          let n = Notes.get(e.note)
+          n.probe(e.org)
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Books, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], port: 3000, auth: required }
+}`,
   "loom.org-context-gate-unmet": `
 system OrgCtx {
   user { id: guid  tenantId: string }

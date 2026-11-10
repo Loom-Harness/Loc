@@ -449,9 +449,10 @@ async function operatingAncestorsOf(org: string): Promise<User["operatingAncesto
 /** The request's operating org (\`organizationContext.org\`): the caller's
  *  home org when none is requested or the request names it, ${
    host
-     ? "the requested org when the caller can read that registry row, "
-     : "(this deployable does not host the registry, so no other org is admitted) "
-}and \`null\` (refuse) otherwise — fail-closed. */
+     ? "the requested org when the caller can read that registry row,"
+     : "no other org (this deployable does not host the registry),"
+}
+ *  and \`null\` (refuse) otherwise — fail-closed. */
 async function orgContextFor(homeOrg: string, requested: string | undefined): Promise<string | null> {
   if (requested === undefined || requested === "") return homeOrg;
   if (homeOrg === "") return null;

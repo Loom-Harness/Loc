@@ -12,6 +12,7 @@ import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
+import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { registryAncestorsSql } from "../_persistence/registry-walk.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
@@ -439,13 +440,15 @@ function renderAuthMiddleware(
   // the registry's read scope; elsewhere only the home org is admitted.
   const registryRow = orgContext && plan.registry ? `${plan.registry.name}Row` : undefined;
   const ancestors = orgContext && plan.ancestors && !!registryTable;
+  const sessionFactory = pyRef("app.db.engine", "session_factory");
+  const rowRef = registryRow ? pyRef("app.db.schema", registryRow) : "";
   const registrySeam = registryRow
     ? [
         "",
-        `_ORG_ID = re.compile(r"${UUID_PATTERN}", re.IGNORECASE)`,
+        `_ORG_ID = ${PY.re}.compile(r"${UUID_PATTERN}", ${PY.re}.IGNORECASE)`,
         "",
         "",
-        "async def _can_read_org(home: User, org: str) -> bool:",
+        `async def _can_read_org(home: ${pyRef("app.auth.user", "User")}, org: str) -> bool:`,
         '    """True when the caller (its HOME principal) can read the registry row',
         "    `org` through the registry's read scope — the switch gate's admission",
         '    rule.  A value that is not a uuid names no registry row."""',
@@ -453,8 +456,8 @@ function renderAuthMiddleware(
         "        return False",
         "    token = current_user_var.set(home)",
         "    try:",
-        "        async with session_factory() as session:",
-        `            found = await session.scalar(select(${registryRow}.id).where(${registryRow}.id == org))`,
+        `        async with ${sessionFactory}() as session:`,
+        `            found = await session.scalar(${pyRef("sqlalchemy", "select")}(${rowRef}.id).where(${rowRef}.id == org))`,
         "            return found is not None",
         "    finally:",
         "        current_user_var.reset(token)",
@@ -468,9 +471,9 @@ function renderAuthMiddleware(
               '    once per request; the principal carries the result."""',
               "    if not _ORG_ID.match(org):",
               "        return ()",
-              "    async with session_factory() as session:",
+              `    async with ${sessionFactory}() as session:`,
               "        rows = await session.execute(",
-              `            text(${JSON.stringify(registryAncestorsSql(registryTable!, ":org"))}),`,
+              `            ${pyRef("sqlalchemy", "text")}(${JSON.stringify(registryAncestorsSql(registryTable!, ":org"))}),`,
               '            {"org": org},',
               "        )",
               "        return tuple(str(r[0]) for r in rows)",
@@ -502,21 +505,12 @@ function renderAuthMiddleware(
     "anonymous so smoke tests + the OpenAPI cross-check don't need tokens.",
     '"""',
     "",
-    ...(registryRow ? ["import re", ""] : []),
     "from fastapi import Request, Response",
     "from fastapi.responses import JSONResponse",
-    ...(registryRow
-      ? [ancestors ? "from sqlalchemy import select, text" : "from sqlalchemy import select"]
-      : []),
     "from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint",
     "",
-    registryRow
-      ? "from app.auth.user import User, current_user_var"
-      : "from app.auth.user import current_user_var",
+    "from app.auth.user import current_user_var",
     "from app.auth.verifier import MalformedDevClaimsError, verify_user_or_throw",
-    ...(registryRow
-      ? ["from app.db.engine import session_factory", `from app.db.schema import ${registryRow}`]
-      : []),
     "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,

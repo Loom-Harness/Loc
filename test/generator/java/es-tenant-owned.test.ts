@@ -52,7 +52,7 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
     expect(ledgerRepo).toContain("select type, data, tenant_id from");
     expect(ledgerRepo).toContain(`inst._adoptStreamTenant((String) rows.get(0).get("tenant_id"));`);
     expect(ledgerRepo).toContain(
-      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.tenantId())));",
+      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.operatingOrg())));",
     );
     // `getById` (the command / append load) rides `findById`.
     expect(ledgerRepo).toMatch(/public Ledger getById[\s\S]*?var found = findById\(id\);/);
@@ -70,7 +70,7 @@ describe("java: a tenantOwned event-sourced stream carries and scopes its tenant
 
   it("every tenantOwned stream is scoped by the flat tenant floor", () => {
     expect(bookRepo).toContain(
-      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.tenantId())));",
+      "return Optional.of(inst).filter(x -> currentUser != null && (Objects.equals(x.tenantId(), currentUser.operatingOrg())));",
     );
   });
 

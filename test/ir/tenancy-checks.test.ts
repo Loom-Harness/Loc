@@ -504,7 +504,7 @@ const ANCESTORS_SYSTEM = (opts: { split: boolean; reactor: boolean }) => `
         repository Orgs for Org { }
       }
       context Books {
-        event Probed { account: Account id }
+        event Probed { account: Account id  org: Org id }
         aggregate Account with tenantOwned, crudish {
           label: string
           under: bool?
@@ -519,7 +519,7 @@ const ANCESTORS_SYSTEM = (opts: { split: boolean; reactor: boolean }) => `
           account: Account id
           create(e: Probed) by e.account {
             let a = Accounts.get(e.account)
-            a.probe(a.id)
+            a.probe(e.org)
           }
         }`
             : ""
