@@ -775,8 +775,9 @@ SELECT id FROM up
 | Elixir (Phoenix) | the `Auth` plug, `org_context_gate/2` | `<Registry>Repository.find_by_id/2` with the home principal | `current_user.operating_org` / `.operating_ancestors` (seeded on every principal the plug builds) |
 
 **A deployable that does not host the registry** has no registry table: its
-gate admits the home org only, and a context it hosts that reads
-`organizationContext.ancestors` is refused at compile time
+gate admits the home org only — any other `x-org-context` is a runtime 403 —
+and a context it hosts that reads `organizationContext.ancestors` is refused at
+compile time
 (`loom.tenancy-registry-remote-unsupported`, naming the fix — host the
 registry's context there too). No registry copy is generated for it.
 

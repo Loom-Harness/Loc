@@ -252,6 +252,8 @@ function renderAuthPlug(
       true -> {:error, requested, "outside_scope"}
     end
   end
+
+  defp org_context_gate(user, _), do: {:ok, user}
 ${
   host
     ? `
@@ -289,8 +291,6 @@ ${
 `
     : ""
 }
-  defp org_context_gate(user, _), do: {:ok, user}
-
   # RFC 7807 403 for a refused operating-scope switch — sent + halted before
   # the principal is assigned, so no controller runs and nothing is written.
   defp send_org_context_forbidden(conn, requested, reason) do
