@@ -159,7 +159,7 @@ function renderOne(
   // An arg-less read (`<handle>.<Agg>.all`) is likewise unaffected — the common
   // case, and it stays supported.
   const inputNames = c.params.map((p) => p.name);
-  const readsAnInput = [...result.usedApiHooks.values()].some(
+  const readsAnInput = [...result.dataBindings.values()].some(
     (h) =>
       !h.reactiveQuery &&
       h.argsRendered.some((a) => inputNames.some((n) => new RegExp(`(?<![.\\w])${n}\\b`).test(a))),

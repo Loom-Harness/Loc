@@ -49,7 +49,7 @@ import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
-import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
+import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
@@ -847,7 +847,7 @@ function renderPage(
   let usesState = false;
   let usesRouteId = false;
   const usedActions = new Set<string>();
-  let usedApiHooks = new Map<string, ApiHookUse>();
+  let dataBindings = new Map<string, DataBinding>();
   const usedComponents = new Set<string>();
   let usedStores = new Map<string, Set<string>>();
   // `derived` first — each is a pure function of the page's `state {}`, its
@@ -909,7 +909,7 @@ function renderPage(
     bodyWidget = result.tsx.trim() || bodyWidget;
     usesState = result.usesState;
     usesRouteId = result.usesRouteId;
-    usedApiHooks = result.usedApiHooks;
+    dataBindings = result.dataBindings;
     usedStores = result.usedStores ?? usedStores;
     usesCurrentUser = result.usesCurrentUser;
     for (const a of result.usedActions ?? []) usedActions.add(a);
@@ -962,7 +962,7 @@ function renderPage(
   // `WidgetRef` for the same reason a store-reading page does — a StatelessWidget
   // has no `ref` to bind `currentUser` against.
   const pageGate = authUi && (page.requires !== undefined || usesCurrentUser);
-  const consumer = stateful || usedApiHooks.size > 0 || usedStores.size > 0 || pageGate;
+  const consumer = stateful || dataBindings.size > 0 || usedStores.size > 0 || pageGate;
   const apiParamNames = new Map(ui.apiParams.map((p) => [p.name, p.apiName]));
   const usesComponent = usedComponents.size > 0;
   const source = consumer
@@ -972,7 +972,7 @@ function renderPage(
         {
           usesState,
           usedActions,
-          usedApiHooks,
+          dataBindings,
           usesRouteId,
           routeParams: [...paramNames],
           stateful,
@@ -1038,7 +1038,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
 interface ConsumerBindings {
   usesState: boolean;
   usedActions: ReadonlySet<string>;
-  usedApiHooks: ReadonlyMap<string, ApiHookUse>;
+  dataBindings: ReadonlyMap<string, DataBinding>;
   usesRouteId: boolean;
   /** Route params the page DECLARES (`route: "/products/:id"`), bound from the
    *  route arguments alongside the magic `id`. */
@@ -1307,8 +1307,8 @@ function renderConsumerPage(
   // value.
   bindings.push(...b.derivedLines);
   // QueryView read hoists (`final <var> = ref.watch(<var>Provider…);`).
-  if (b.usedApiHooks.size > 0) {
-    const uses: ApiCallSite[] = [...b.usedApiHooks.values()].map((h) => ({
+  if (b.dataBindings.size > 0) {
+    const uses: ApiCallSite[] = [...b.dataBindings.values()].map((h) => ({
       apiHandle: "",
       aggregateName: "",
       operation: "",
@@ -1317,7 +1317,7 @@ function renderConsumerPage(
       varName: h.varName,
       argsRendered: h.argsRendered,
     }));
-    bindings.push(...flutterTarget.renderApiHoisting(uses));
+    bindings.push(...flutterTarget.renderDataBindings(uses));
   }
   if (b.stateful) {
     // Controlled-input setter tear-offs — each bound input dispatches a bare
@@ -1365,7 +1365,7 @@ function renderConsumerPage(
   ];
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.navMenu) imports.push("import '../nav_menu.dart';");
-  if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
+  if (b.dataBindings.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");

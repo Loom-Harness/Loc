@@ -1,4 +1,5 @@
 import { migratesAtBoot } from "../../../ir/util/databases.js";
+import { frontendAxesOf } from "../../../util/frontend-axes.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -608,15 +609,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // LiveView pages over the plain-Ecto context API — `emitLiveViewPages` reads
   // through the `list_<agg>s()` / `get_<agg>(id)` tuple-returning fetches.
   // The collected `liveRoutes` are spliced into the
-  // router's `live_session` by `emitVanillaShellFiles` below.  An embedded-SPA
-  // (`framework: react|vue|svelte|angular`) ui owns its own UI, so no
-  // LiveView pages.
-  const embedReact =
-    deployable.uiFramework === "react" ||
-    deployable.uiFramework === "vue" ||
-    deployable.uiFramework === "svelte" ||
-    deployable.uiFramework === "angular" ||
-    deployable.uiFramework === "feliz";
+  // router's `live_session` by `emitVanillaShellFiles` below.  A ui whose
+  // state lives in the client is an embedded SPA that owns its own UI, so no
+  // LiveView pages; the server-session ui is the LiveView one.
+  const embedReact = frontendAxesOf(deployable.uiFramework)?.stateHome === "client";
   // --- Embedded SPA (fullstack Phoenix) --------------------------------------
   // A `hosts:` React/Vue/Svelte/Angular ui means the Phoenix deployable is a JSON-API
   // backend that ALSO serves a client-side SPA.  Emit that SPA under `assets/`

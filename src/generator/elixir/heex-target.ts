@@ -13,8 +13,8 @@
 //   renderStateRead   — heex-walker.ts:253-259 (this/id position branches)
 //                       + line 366 (state-field ref-case path)
 //   renderStateWrite  — heex-walker.ts:1565-1572 (case "assign")
-//   renderApiCall     — heex-walker.ts:647-683 (direct context-function call)
-//   renderApiHoisting — empty array (LiveView reads inline; no hoisting)
+//   bindDataAccess / renderApiCall — the in-process context-function call
+//   renderDataBindings — empty array (LiveView declares no per-page binding)
 //   renderMatch       — heex-walker.ts:543-552 (renderMatch — cond do...end)
 //   renderNavigate    — heex-walker.ts:690-715 (push_navigate + ~p sigil)
 //   defaultInitFor    — Elixir literals per type
@@ -23,8 +23,10 @@
 // ---------------------------------------------------------------------------
 
 import type { TypeIR } from "../../ir/types/loom-ir.js";
+import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
+import type { WalkContext } from "../_walker/walker-core.js";
 import { escapeHeexAttr, escapeHeexText, heexContextOf, renderExpr } from "./heex-walker-core.js";
 
 export const heexTarget: WalkerTarget = {
@@ -32,6 +34,7 @@ export const heexTarget: WalkerTarget = {
   // never through this shim.
   renderRichText: () => "",
   framework: "phoenixLiveView",
+  axes: requireFrontendAxes("phoenixLiveView"),
 
   // --- Bridge seam ----------------------------------------------------------
 
@@ -76,34 +79,43 @@ export const heexTarget: WalkerTarget = {
     );
   },
 
-  // --- API binding seam ---------------------------------------------------
+  // --- Data-access seam ----------------------------------------------------
 
-  /** Phoenix calls the context module's public function directly — no hook
-   *  hoisting.  Shape: `<App>.<Context>.<op>_<aggregate_snake>(args)`.
-   *  Naming convention matches `heex-walker.ts:647-683` (codeIntfFnName).
-   *  The `<App>.<Context>` prefix is not visible to the contract —
-   *  caller (the future delegating walker) prepends it from the
-   *  `BoundedContextIR` in scope. */
-  renderApiCall(call: ApiCallSite, renderedArgs: string): string {
+  /** LiveView keeps page state in the session process, so a body's data
+   *  access is an in-process call to the aggregate's Phoenix context module:
+   *  `<App>.<Context>.<op>_<aggregate_snake>!(args)`.  The binding IS that
+   *  call — there is no client handle to declare — and its arguments render
+   *  through the HEEx engine under the walk context in `ctx.sink`, since the
+   *  shared expression renderer does not speak Elixir. */
+  bindDataAccess(access, _renderArg, ctx) {
+    const heex = heexContextOf(ctx?.sink);
+    if (!heex) {
+      throw new Error("heexTarget.bindDataAccess: no HEEx walk context in the sink");
+    }
+    const contextModule = heex.contextModuleByAggName.get(access.aggregateName) ?? heex.appModule;
+    const fn = codeInterfaceFnName(access.aggregateName, access.operation);
+    const argsRendered = access.args.map((a) => renderExpr(a, heex));
+    return {
+      varName: `${contextModule}.${fn}(${argsRendered.join(", ")})`,
+      hookName: fn,
+      importFrom: contextModule,
+      argsRendered,
+    };
+  },
+
+  /** The in-process context call, written at the site.  A site the shared
+   *  core binds carries the whole call as `varName`; the HEEx engine passes
+   *  the bare operation and prepends the context module itself. */
+  renderApiCall(call: ApiCallSite, renderedArgs: string, ctx?: WalkContext): string {
+    if (ctx !== undefined && call.varName !== undefined) return call.varName;
     const fn = codeInterfaceFnName(call.aggregateName, call.operation);
     return renderedArgs.length === 0 ? `${fn}()` : `${fn}(${renderedArgs})`;
   },
 
-  /** Empty — LiveView reads in `mount/3` and writes from
-   *  `handle_event/3`; there's no per-page hoisted hook declaration. */
-  renderApiHoisting(_uses: ApiCallSite[]): string[] {
+  /** Empty — LiveView reads in `mount/3` / `handle_params/3` and writes from
+   *  `handle_event/3`; a page declares no per-page binding. */
+  renderDataBindings(_uses: ApiCallSite[]): string[] {
     return [];
-  },
-
-  /** Unreachable for HEEx — Phoenix LiveView doesn't lower api calls
-   *  to hoisted hooks (the heex-walker never invokes
-   *  `tryDetectApiHook`).  Stays on the interface for cross-target
-   *  uniformity; throwing documents the contract for future
-   *  contributors who might hook this up by mistake. */
-  buildHookUse(): never {
-    throw new Error(
-      "heexTarget.buildHookUse: Phoenix LiveView does not hoist api calls; this should never be called.",
-    );
   },
 
   // --- Match expression seam ----------------------------------------------
@@ -169,7 +181,7 @@ export const heexTarget: WalkerTarget = {
   // contract completeness.  `renderComment` / `renderStyleAttr` /
   // `escapeText` return the HEEx forms the inline walker uses;
   // `renderConditionalChild` is unreachable (the heex walker has its
-  // own ternary path) and throws, mirroring `buildHookUse`.
+  // own ternary path) and throws, mirroring `bindDataAccess`.
 
   /** HEEx template comment. */
   renderComment(text: string): string {

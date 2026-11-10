@@ -94,7 +94,7 @@ describe("feliz entity-history read — MVU projection", () => {
     expect(app).toContain("| OrderHistoryLoaded of Result<AuditEntry list, string>");
     // Never bound to the unfiltered list — the page has no `.all` read, so the
     // `All<Plural>` field must not exist AT ALL (the misbinding the old
-    // `buildHookUse` fallback would have produced).
+    // `bindDataAccess` fallback would have produced).
     expect(app).not.toContain("AllOrders");
   });
 

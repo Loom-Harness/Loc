@@ -27,7 +27,7 @@
 // Detection is PURE IR analysis — no framework assumptions, no
 // emission.  Kept out of `react/walker/api-hooks.ts` so any walker
 // (Vue/Svelte/Blazor included) can reuse the detector verbatim and plug in its
-// own naming via the WalkerTarget's `buildHookUse` method.
+// own naming via the WalkerTarget's `bindDataAccess` method.
 //
 // The returned `DetectedApiCall` carries everything the framework-
 // specific naming layer needs: which aggregate is invoked,
@@ -39,7 +39,7 @@ import type { ExprIR } from "../../ir/types/loom-ir.js";
 
 /** A framework-agnostic detected api call.  Produced by
  *  `tryDetectApiHook` from an `ExprIR` that matches one of the
- *  documented patterns; consumed by `WalkerTarget.buildHookUse` to
+ *  documented patterns; consumed by `WalkerTarget.bindDataAccess` to
  *  produce the per-framework hook naming (var, hook fn, import path). */
 export interface DetectedApiCall {
   /** The aggregate PascalCase name (Patterns A/B/D/E), or the workflow
