@@ -60,7 +60,7 @@ describe("dotnet generator — when canCommand gate", () => {
     const filter = [...map.entries()].find(([k]) => k.endsWith("DomainExceptionFilter.cs"))![1];
     expect(filter).toContain("if (context.Exception is DisallowedException dx)");
     expect(filter).toContain(
-      'Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate")',
+      'Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate", TypeParams(context))',
     );
     const common = [...map.entries()].find(([k]) => k.endsWith("Common/Errors.cs"))?.[1];
     if (common) expect(common).toContain("class DisallowedException");

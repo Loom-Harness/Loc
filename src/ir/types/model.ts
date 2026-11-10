@@ -86,6 +86,13 @@ export interface LoomModel {
    *  ledger) after the generation's structural steps.  Empty when none are
    *  declared. */
   sqlMigrationSteps: SqlStepIR[];
+  /** Enum VALUE rename intents — lowered from `Enum.Old -> New` steps in a
+   *  `migration` block.  Consumed only by the migration builder, which emits
+   *  one data `UPDATE` per column storing the enum (exactly once, through the
+   *  `appliedDataMigrations` ledger) and reads a declared rename as covering
+   *  that value's removal from the enum's CHECK.  Empty when none are
+   *  declared. */
+  enumValueRenameIntents: EnumValueRenameIntentIR[];
   /** Every expression lowering read whose type the typing pass could not
    *  resolve.  Lowering gives each a placeholder type and records it here;
    *  `validateLoomModel` turns the record into `loom.unresolved-type` errors,
@@ -163,6 +170,27 @@ export interface BackfillIntentIR extends Sourced {
   /** The backfill expression, restricted to the SQL-renderable subset
    *  (`sqlRenderableExpr` — validated at phase ⑦, rendered at phase ⑨). */
   value: ExprIR;
+}
+
+/** One `Enum.Old -> New` step lowered from a `migration` block.  `from` is
+ *  the value stored rows still hold (the model may no longer declare it);
+ *  `to` is a live value of `enum`.  `context` is the enum's declaring bounded
+ *  context, absent for a root-level enum — the i18n label carry keys on it.
+ *  `index` is the step's position among its block's steps: the ledger key
+ *  `"<migration>#<index>"` makes the `UPDATE`s run exactly once. */
+export interface EnumValueRenameIntentIR extends Sourced {
+  /** Block label — the `"<name>"` on the owning `migration` block. */
+  migration: string;
+  /** Position among the owning block's steps (ledger key component). */
+  index: number;
+  /** The enum's name. */
+  enum: string;
+  /** Declaring bounded context; absent for a root-level enum. */
+  context?: string;
+  /** Old value — the spelling stored rows hold. */
+  from: string;
+  /** New value — a live member of `enum`. */
+  to: string;
 }
 
 /** One raw `sql "…"` step (M-T2.3) lowered from a `migration` block.

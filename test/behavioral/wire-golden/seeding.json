@@ -102,6 +102,9 @@
         "code": "problem.not-found",
         "detail": "Gadget {id} not found",
         "instance": "/api/gadgets/{id}",
+        "params": {
+          "type": "Catalog.Gadget"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -123,6 +126,9 @@
         "code": "problem.not-found",
         "detail": "Widget {id} not found",
         "instance": "/api/widgets/{id}",
+        "params": {
+          "type": "Catalog.Widget"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

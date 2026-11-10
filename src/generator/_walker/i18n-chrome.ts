@@ -36,6 +36,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
@@ -104,6 +105,9 @@ export const CHROME_MESSAGES: Record<string, string> = {
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
+  // The body of a page that declares none, on the targets that draw a
+  // placeholder for it (`HAND_BUILT_FORM_SENTENCES.rowsAndGuards`).
+  [chromeKey("emptyPage")]: "Empty page",
 };
 
 /** The chrome names an operation dialog's two dismissing controls carry, given
@@ -189,12 +193,33 @@ export const SENTENCE_CHROME: Record<string, (subject: string) => string> = {
   column: (position) => `Column ${position}`,
   created: (aggregate) => `${humanize(aggregate)} created`,
   completed: (workflow) => `${humanize(workflow)} completed`,
+  // A dynamic-row form's per-row button.  The subject is the value object each
+  // row holds, so a locale can word it per item type; the English names no
+  // noun.
+  removeItem: () => "Remove",
+  // The "Add" button of a scalar-array row editor (`tags: string[]`).  The
+  // subject is the field, for the same reason.
+  addValue: () => "Add",
+  // The guard a required `File` input raises when nothing was picked.  The
+  // subject is the input's name; the sentence is whole, so no translated label
+  // is spliced into it.
+  fieldRequired: (field) => `${humanize(field)} is required`,
 };
 
-/** The sentence bases a HAND-BUILT form (Angular, Feliz: no design-pack form
- *  templates) renders itself — its dynamic-row "Add <item>" button.  A pack's
- *  own `sentenceChrome` names the rest for the pack-rendered frontends. */
-export const HAND_BUILT_FORM_SENTENCES: readonly string[] = ["addItem"];
+/** The sentence bases a HAND-BUILT form (no design-pack form templates) renders
+ *  itself, by the set its framework declares (`FrameworkFacts.
+ *  handBuiltFormSentences`).  A pack's own `sentenceChrome` names the rest for
+ *  the pack-rendered frontends.
+ *
+ *   - `rows`: the dynamic-row "Add <item>" and "Remove" buttons;
+ *   - `rowsAndGuards`: the "Add <item>" button, the scalar-array "Add" button,
+ *     the required-file guard, and the empty-page placeholder. */
+export const HAND_BUILT_FORM_SENTENCES: Readonly<
+  Record<"rows" | "rowsAndGuards", readonly string[]>
+> = {
+  rows: ["addItem", "removeItem"],
+  rowsAndGuards: ["addItem", "addValue", "fieldRequired", "emptyPage"],
+};
 
 /** The chrome name of the `base` sentence about `subject`. */
 export function sentenceChromeName(base: string, subject: string): string {
@@ -340,13 +365,51 @@ export interface FormSentenceScope {
   /** The rendering frontend draws its own session gate (sign-in prompt,
    *  forbidden view), so {@link AUTH_GATE_CHROME} belongs in the catalog. */
   readonly authGate?: boolean;
+  /** The rendering frontend ships the generated session view (a loading state
+   *  and a sign-in screen, no forbidden view), so {@link SESSION_VIEW_CHROME}
+   *  belongs in the catalog. */
+  readonly sessionView?: boolean;
   /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
   readonly fallbackLabels?: boolean;
 }
 
-/** The `X[]`-of-value-object field types a form over `params` repeats. */
-function arrayElements(params: readonly { type: TypeIR }[], out: Set<string>): void {
-  for (const p of params) arrayElementValueObjects(p.type, out);
+/** What a hand-built form over some inputs renders sentences for: the value
+ *  objects its dynamic rows repeat, the scalar-array inputs, and the required
+ *  `File` inputs (each by input name). */
+interface FormLeaves {
+  readonly elements: Set<string>;
+  readonly scalarArrays: Set<string>;
+  readonly requiredFiles: Set<string>;
+}
+
+type FormInput = { readonly name: string; readonly type: TypeIR; readonly optional?: boolean };
+
+/** Collect {@link FormLeaves} from a form's inputs.  A value-object input
+ *  flattens into its fields (recursively, and optional as a whole when the
+ *  object is), because the hand-built forms render each leaf as its own input. */
+function collectFormLeaves(
+  params: readonly FormInput[],
+  vos: ReadonlyMap<string, readonly FormInput[]>,
+  out: FormLeaves,
+  optional = false,
+  depth = 0,
+): void {
+  for (const p of params) {
+    const isOptional = optional || p.optional === true || p.type.kind === "optional";
+    let t = p.type;
+    while (t.kind === "optional") t = t.inner;
+    if (t.kind === "array") {
+      arrayElementValueObjects(t, out.elements);
+      let el = t.element;
+      while (el.kind === "optional") el = el.inner;
+      if (el.kind !== "valueobject" && el.kind !== "array") out.scalarArrays.add(p.name);
+    } else if (t.kind === "valueobject") {
+      const fields = vos.get(t.name);
+      if (fields && depth < 8) collectFormLeaves(fields, vos, out, isOptional, depth + 1);
+    } else if (t.kind === "primitive" && t.name === "File" && !isOptional) {
+      out.requiredFiles.add(p.name);
+    }
+  }
 }
 
 /** Resolve a form call's `of:` aggregate name (a ref, or a string literal). */
@@ -383,7 +446,15 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
     for (const agg of bc.aggregates) aggregates.set(agg.name, agg);
     for (const wf of bc.workflows) workflows.set(wf.name, wf);
   }
-  const elements = new Set<string>();
+  const vos = new Map<string, readonly FormInput[]>();
+  for (const bc of scope?.contexts ?? []) {
+    for (const vo of valueObjectPool(bc)) vos.set(vo.name, vo.fields);
+  }
+  const leaves: FormLeaves = {
+    elements: new Set(),
+    scalarArrays: new Set(),
+    requiredFiles: new Set(),
+  };
 
   const visit = (body: ExprIR | undefined) =>
     walkExprDeep(body, (e) => {
@@ -403,12 +474,10 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
         if (opName === "") return;
         if (wants("operationSucceeded"))
           names.add(sentenceChromeName("operationSucceeded", opName));
-        if (wants("addItem")) {
-          const owner = ofName(e, "of");
-          for (const agg of owner ? [aggregates.get(owner)] : aggregates.values()) {
-            for (const op of agg?.operations ?? []) {
-              if (op.name === opName) arrayElements(op.params, elements);
-            }
+        const owner = ofName(e, "of");
+        for (const agg of owner ? [aggregates.get(owner)] : aggregates.values()) {
+          for (const op of agg?.operations ?? []) {
+            if (op.name === opName) collectFormLeaves(op.params, vos, leaves);
           }
         }
       } else if (e.name === "Table" || e.name === "DataGrid") {
@@ -416,24 +485,34 @@ export function sentenceChromeNamesForUi(ui: UiIR, scope?: FormSentenceScope): s
       } else if (e.name === "CreateForm") {
         const owner = ofName(e, "of");
         const agg = aggregates.get(owner ?? "");
-        if (agg && wants("addItem"))
-          arrayElements(
+        if (agg)
+          collectFormLeaves(
             createInputFields(agg).filter((f) => !f.optional),
-            elements,
+            vos,
+            leaves,
           );
         if (owner && wants("created") && !hasCustomSubmit(e))
           names.add(sentenceChromeName("created", owner));
       } else if (e.name === "WorkflowForm") {
         const runs = ofName(e, "runs");
         const wf = workflows.get(runs ?? "");
-        if (wf && wants("addItem")) arrayElements(wf.params, elements);
+        if (wf) collectFormLeaves(wf.params, vos, leaves);
         if (runs && wants("completed") && !hasCustomSubmit(e))
           names.add(sentenceChromeName("completed", runs));
       }
     });
   for (const page of ui.pages) visit(page.body);
   for (const component of ui.components) visit(component.body);
-  for (const el of elements) names.add(sentenceChromeName("addItem", el));
+  if (wants("addItem"))
+    for (const el of leaves.elements) names.add(sentenceChromeName("addItem", el));
+  if (wants("removeItem"))
+    for (const el of leaves.elements) names.add(sentenceChromeName("removeItem", el));
+  if (wants("addValue"))
+    for (const f of leaves.scalarArrays) names.add(sentenceChromeName("addValue", f));
+  if (wants("fieldRequired"))
+    for (const f of leaves.requiredFiles) names.add(sentenceChromeName("fieldRequired", f));
+  if (wants("emptyPage") && ui.pages.some((page) => page.body === undefined))
+    names.add("emptyPage");
   return [...names].sort();
 }
 
@@ -580,11 +659,22 @@ export const AUTH_GATE_CHROME: Record<string, string> = {
   [chromeKey("forbiddenBody")]: "You do not have access to this page.",
 };
 
-/** The source-language text of a session-gate chrome string, as the emitted
- *  `t(key, default)` carries it (the translator's source override applies). */
+/** Chrome the session view of the pack-rendered frontends (React, Vue, Svelte,
+ *  Angular) renders: the loading state while `/auth/me` is probed, and the
+ *  sign-in screen's heading and button.  Merged only for a frontend that ships
+ *  that view (`FormSentenceScope.sessionView`), under the same already-enabled
+ *  gate as the other tables.  The sign-in text is the gate's own `signIn`. */
+export const SESSION_VIEW_CHROME: Record<string, string> = {
+  [chromeKey("sessionLoading")]: "Loading…",
+  [chromeKey("signIn")]: AUTH_GATE_CHROME[chromeKey("signIn")]!,
+};
+
+/** The source-language text of a session-gate or session-view chrome string, as
+ *  the emitted `t(key, default)` carries it (the translator's source override
+ *  applies). */
 export function authGateMessage(name: string): string {
   const key = chromeKey(name);
-  const message = AUTH_GATE_CHROME[key];
+  const message = AUTH_GATE_CHROME[key] ?? SESSION_VIEW_CHROME[key];
   if (message === undefined) throw new Error(`i18n-chrome: unknown auth-gate string "${name}"`);
   return sourceText(key, message);
 }
@@ -629,6 +719,7 @@ export function chromeMergedWhenEnabled(
     ...WIRE_ERROR_MESSAGES,
   };
   if (scope?.authGate) Object.assign(out, AUTH_GATE_CHROME);
+  if (scope?.sessionView) Object.assign(out, SESSION_VIEW_CHROME);
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);

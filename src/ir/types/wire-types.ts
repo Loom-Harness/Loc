@@ -34,7 +34,7 @@
 //     will be lost.  No source today exercises that path.
 // ---------------------------------------------------------------------------
 
-import type { TypeIR } from "./loom-ir.js";
+import type { EntityDeclKind, TypeIR } from "./loom-ir.js";
 
 /** Which side of the wire contract a field appears on.  `request`
  *  selects the input/create shape (e.g. nested value objects emit as
@@ -116,6 +116,9 @@ export interface WireTypeInfo {
   /** Populated iff `refKind === "id"`.  The name of the aggregate the
    *  id targets (caller pairs this with its own suffix, e.g. `${idTarget}Id`). */
   idTarget?: string;
+  /** Populated iff `refKind === "entity"`.  Which declaration the record
+   *  names. */
+  declKind?: EntityDeclKind;
   /** Populated iff `refKind === "provenanced"`.  The type the carrier wraps —
    *  the `value` member's type. */
   carried?: TypeIR;
@@ -228,6 +231,7 @@ export function wireTypeInfo(t: TypeIR, dir: WireDirection): WireTypeInfo {
       return {
         base: cur.name,
         refKind: "entity",
+        declKind: cur.declKind,
         isCollection: collection,
         isNullable: nullable,
         dir,

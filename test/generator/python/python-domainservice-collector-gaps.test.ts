@@ -145,12 +145,15 @@ describe("M-T6.50 (c) — every statement kind derives the imports its rendered 
       subjectType: {
         kind: "union",
         variants: [
-          { kind: "entity", name: "A" },
-          { kind: "entity", name: "B" },
+          { kind: "entity", name: "A", declKind: "aggregate" },
+          { kind: "entity", name: "B", declKind: "aggregate" },
         ],
       },
       arms: [
-        { varType: { kind: "entity", name: "A" }, body: [{ kind: "return", value: moneyLit }] },
+        {
+          varType: { kind: "entity", name: "A", declKind: "aggregate" },
+          body: [{ kind: "return", value: moneyLit }],
+        },
       ],
       elseBody: [{ kind: "return", value: moneyLit }],
     };

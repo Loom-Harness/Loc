@@ -52,7 +52,7 @@ describe("paged queryHandler — enrich synthesis", () => {
     expect(find?.returnType).toEqual({
       kind: "genericInstance",
       ctor: "paged",
-      arg: { kind: "entity", name: "Order" },
+      arg: { kind: "entity", name: "Order", declKind: "aggregate" },
     });
     expect(find?.criterionRef?.name).toBe("InRegion");
     expect(find?.params.map((p) => p.name)).toEqual(["rgn"]);

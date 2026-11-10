@@ -312,7 +312,7 @@ describe("ts renderTsExpr — A4 reductions min(λ)/max(λ)", () => {
       kind: "member",
       receiver: { kind: "ref", name: "x", refKind: "lambda" },
       member: "price",
-      receiverType: { kind: "entity", name: "Line" },
+      receiverType: { kind: "entity", name: "Line", declKind: "part" },
       memberType: MONEY,
     },
   };
@@ -399,7 +399,7 @@ describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () =
       kind: "member",
       receiver: { kind: "ref", name: "x", refKind: "lambda" },
       member,
-      receiverType: { kind: "entity", name: "Line" },
+      receiverType: { kind: "entity", name: "Line", declKind: "part" },
       memberType,
     },
   });
@@ -455,14 +455,14 @@ describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () =
           kind: "member",
           receiver: { kind: "ref", name: "l", refKind: "lambda" },
           member: "price",
-          receiverType: { kind: "entity", name: "Line" },
+          receiverType: { kind: "entity", name: "Line", declKind: "part" },
           memberType: MONEY,
         },
         right: {
           kind: "member",
           receiver: { kind: "ref", name: "l", refKind: "lambda" },
           member: "qty",
-          receiverType: { kind: "entity", name: "Line" },
+          receiverType: { kind: "entity", name: "Line", declKind: "part" },
           memberType: INT,
         },
         leftType: MONEY,
@@ -470,7 +470,7 @@ describe("ts renderTsExpr — sum type-awareness (money folds decimal.js)", () =
         resultType: MONEY,
       },
     };
-    expect(renderTsExpr(sumMc({ kind: "entity", name: "Line" }, [arith]))).toBe(
+    expect(renderTsExpr(sumMc({ kind: "entity", name: "Line", declKind: "part" }, [arith]))).toBe(
       "(this._items).reduce((acc, x) => acc.plus(((l) => l.price.times(l.qty))(x)), new Decimal(0))",
     );
   });
@@ -903,7 +903,7 @@ describe("ts renderTsType — generic carriers (P3b)", () => {
     const t: TypeIR = {
       kind: "genericInstance",
       ctor: "paged",
-      arg: { kind: "entity", name: "Order" },
+      arg: { kind: "entity", name: "Order", declKind: "aggregate" },
     };
     expect(renderTsType(t)).toBe(
       "{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }",

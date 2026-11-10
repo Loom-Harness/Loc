@@ -41,16 +41,6 @@ const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {
   "elixir/liveview-emit.ts": ["${b.opHuman} succeeded"],
   "elixir/heex-primitives.ts": ["is not available in the current state"],
   "elixir/heex-walker-core.ts": ["${upperFirst(aggName)} not found"],
-  "feliz/feliz-target.ts": [
-    '"Create ${upperFirst(form.aggregate)}"',
-    '"Run ${upperFirst(form.workflow)}"',
-  ],
-  "flutter/forms-emit.ts": [
-    "`Create ${humanize(agg.name)}`",
-    "`Run ${humanize(wf.name)}`",
-    "is required",
-  ],
-  "angular/form-fields.ts": ["${humanize(f.name)} is invalid"],
 };
 
 /** The emitters that write UI text (the backends emit error text through the

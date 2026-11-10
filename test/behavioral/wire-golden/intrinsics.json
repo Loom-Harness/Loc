@@ -401,6 +401,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

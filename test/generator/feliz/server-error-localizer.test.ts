@@ -55,7 +55,8 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
 
   it("renders both through I18n.tf by code, when the view renders", async () => {
     const app = await appFs();
-    expect(app).toContain("try I18n.tf issue.Code issue.Message issue.Params");
+    expect(app).toContain("try I18n.tf (key issue) issue.Message issue.Params");
+    expect(app).toContain("let key (issue: ServerIssue) : string =");
     expect(app).toContain("with _ -> issue.Message");
     // The view helpers localize at render time, not at decode time.
     expect(app).toContain("prop.text (ServerIssue.text m)");

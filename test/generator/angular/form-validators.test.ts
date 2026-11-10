@@ -109,7 +109,7 @@ describe("angular generator — invariant-derived form Validators", () => {
     expect(page).toContain(
       // A server 422's message for the field (`errors.server`) takes the slot
       // over the client sentence.
-      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.[\'server\']; as serverError) { {{ serverError }} } @else { Sku is invalid }</mat-error>}</mat-form-field>',
+      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.[\'server\']; as serverError) { {{ serverError }} } @else { Not in the expected format }</mat-error>}</mat-form-field>',
     );
     expect(page).toContain('data-testid="products-new-error-quantity"');
   });

@@ -332,7 +332,10 @@ function projectionViewFind(agg: EnrichedAggregateIR, view: AggregateReadShape):
     name: view.name,
     // The projection's own parameters — its inlined `where` names them.
     params: view.params ?? [],
-    returnType: { kind: "array", element: { kind: "entity", name: agg.name } },
+    returnType: {
+      kind: "array",
+      element: { kind: "entity", name: agg.name, declKind: "aggregate" },
+    },
     ...(view.filter ? { filter: view.filter } : {}),
     ...(view.bypassAll ? { bypassAll: true } : {}),
     ...(view.bypassCaps ? { bypassCaps: view.bypassCaps } : {}),

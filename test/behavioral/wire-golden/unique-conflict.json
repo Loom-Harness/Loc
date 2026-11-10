@@ -29,6 +29,9 @@
         "code": "problem.unique-conflict",
         "detail": "A resource with these values already exists.",
         "instance": "/api/members",
+        "params": {
+          "type": "Directory.Member"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -69,6 +72,9 @@
         "code": "problem.unique-conflict",
         "detail": "A resource with these values already exists.",
         "instance": "/api/members/{id}/update",
+        "params": {
+          "type": "Directory.Member"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -150,6 +156,9 @@
         "code": "problem.unique-conflict",
         "detail": "A resource with these values already exists.",
         "instance": "/api/listings",
+        "params": {
+          "type": "Directory.Listing"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -238,6 +247,9 @@
         "code": "problem.unique-conflict",
         "detail": "A resource with these values already exists.",
         "instance": "/api/listings/{id}/update",
+        "params": {
+          "type": "Directory.Listing"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"

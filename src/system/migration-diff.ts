@@ -35,6 +35,7 @@ export function migrationIntents(loom: EnrichedLoomModel) {
     tableRenameIntents: loom.tableRenameIntents,
     backfillIntents: loom.backfillIntents,
     sqlSteps: loom.sqlMigrationSteps,
+    enumValueRenameIntents: loom.enumValueRenameIntents,
   };
 }
 

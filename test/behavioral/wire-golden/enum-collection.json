@@ -122,6 +122,9 @@
         "code": "problem.not-found",
         "detail": "Tech {id} not found",
         "instance": "/api/teches/{id}",
+        "params": {
+          "type": "Dispatch.Tech"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

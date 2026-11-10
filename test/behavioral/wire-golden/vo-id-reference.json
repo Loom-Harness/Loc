@@ -231,6 +231,9 @@
         "code": "problem.not-found",
         "detail": "Dock {id} not found",
         "instance": "/api/docks/{id}",
+        "params": {
+          "type": "Docking.Dock"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -287,6 +290,9 @@
         "code": "problem.not-found",
         "detail": "Ship {id} not found",
         "instance": "/api/ships/{id}/update",
+        "params": {
+          "type": "Docking.Ship"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -292,6 +292,9 @@
         "code": "problem.not-found",
         "detail": "WorkOrder {id} not found",
         "instance": "/api/work_orders/{id}",
+        "params": {
+          "type": "Work.WorkOrder"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -358,6 +361,9 @@
         "code": "problem.not-found",
         "detail": "WorkOrder {id} not found",
         "instance": "/api/work_orders/{id}/claim",
+        "params": {
+          "type": "Work.WorkOrder"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -372,6 +378,9 @@
         "code": "problem.not-found",
         "detail": "WorkOrder {id} not found",
         "instance": "/api/work_orders/{id}/claim",
+        "params": {
+          "type": "Work.WorkOrder"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

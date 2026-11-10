@@ -29,6 +29,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
   "loom.model-text-unresolved": "02-systems-and-topology.md#model-text-label-and-plural",
+  "loom.model-text-implicit-ambiguous": "02-systems-and-topology.md#model-text-label-and-plural",
   "loom.model-text-plural-member": "02-systems-and-topology.md#model-text-label-and-plural",
   "loom.model-text-outside-ui": "02-systems-and-topology.md#model-text-label-and-plural",
   "loom.model-text-in-template": "02-systems-and-topology.md#model-text-label-and-plural",

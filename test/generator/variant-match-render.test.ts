@@ -33,8 +33,8 @@ import { renderTsExpr } from "../../src/generator/typescript/render-expr.js";
 import type { ExprIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 
 const STRING: TypeIR = { kind: "primitive", name: "string" };
-const A: TypeIR = { kind: "entity", name: "A" };
-const NF: TypeIR = { kind: "entity", name: "NF" };
+const A: TypeIR = { kind: "entity", name: "A", declKind: "aggregate" };
+const NF: TypeIR = { kind: "entity", name: "NF", declKind: "aggregate" };
 
 // `<binding>.<field>` where the receiver is the variant binding.
 const fieldOf = (binding: string, field: string): ExprIR => ({
@@ -188,7 +188,7 @@ describe("variant-match over a union find (absence shape) — per-backend render
 // Native-pattern backends escaped only by coincidence — their bound name IS
 // the source name, so the fallback happened to be right; that coincidence is
 // exactly why the bug survived.
-const B: TypeIR = { kind: "entity", name: "B" };
+const B: TypeIR = { kind: "entity", name: "B", declKind: "aggregate" };
 
 type MatchExpr = Extract<ExprIR, { kind: "match" }>;
 

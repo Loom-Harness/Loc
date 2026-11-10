@@ -1,8 +1,6 @@
 // The generated `test/locale_test.exs` exercises locale negotiation, so it is
 // emitted only where a LiveView app negotiates (two or more shipped locales,
-// or a LocaleSwitcher).  Emitting it into every i18n-enabled app made the build
-// harness run `mix test` on apps that cannot boot under test (an OIDC JWKS
-// fetch with no issuer), with nothing to negotiate.
+// or a LocaleSwitcher): an app with a single locale has nothing to negotiate.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";

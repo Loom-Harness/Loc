@@ -58,7 +58,7 @@ describe("feliz param-less workflow forms", () => {
     expect(app).toContain('prop.custom("data-testid", "workflow-close_books-submit")');
     // No validity guard (no required fields to guard) — just the dispatch.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch SubmitCloseBooksWorkflowForm); prop.text "Run CloseBooks" ]',
+      'Html.button [ prop.custom("data-testid", "workflow-close_books-submit"); prop.className "btn btn-primary"; prop.onClick (fun _ -> dispatch SubmitCloseBooksWorkflowForm); prop.text (I18n.t "Acc.closeBooks.op.run" "Run") ]',
     );
   });
 

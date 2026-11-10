@@ -908,16 +908,16 @@ export function isClaimsMap(item: unknown): item is ClaimsMap {
 export interface ColumnStep extends langium.AstNode {
     readonly $container: Migration;
     readonly $type: 'ColumnStep';
-    aggregate: langium.Reference<Aggregate>;
     field: PropertyName;
+    owner: langium.Reference<MigrationStepOwner>;
     renamedTo?: PropertyName;
     value?: Expression;
 }
 
 export const ColumnStep = {
     $type: 'ColumnStep',
-    aggregate: 'aggregate',
     field: 'field',
+    owner: 'owner',
     renamedTo: 'renamedTo',
     value: 'value'
 } as const;
@@ -2354,6 +2354,16 @@ export const MigrationStepDecl = {
 
 export function isMigrationStepDecl(item: unknown): item is MigrationStepDecl {
     return reflection.isInstance(item, MigrationStepDecl.$type);
+}
+
+export type MigrationStepOwner = Aggregate | EnumDecl;
+
+export const MigrationStepOwner = {
+    $type: 'MigrationStepOwner'
+} as const;
+
+export function isMigrationStepOwner(item: unknown): item is MigrationStepOwner {
+    return reflection.isInstance(item, MigrationStepOwner.$type);
 }
 
 export interface Model extends langium.AstNode {
@@ -4588,6 +4598,7 @@ export type DddAstType = {
     MenuSection: MenuSection
     Migration: Migration
     MigrationStepDecl: MigrationStepDecl
+    MigrationStepOwner: MigrationStepOwner
     Model: Model
     ModelMember: ModelMember
     ModelText: ModelText
@@ -4807,7 +4818,7 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     optional: true
                 }
             },
-            superTypes: [ContextMember.$type, NamedDecl.$type, ProjectionSource.$type, Targetable.$type, TestSubject.$type]
+            superTypes: [ContextMember.$type, MigrationStepOwner.$type, NamedDecl.$type, ProjectionSource.$type, Targetable.$type, TestSubject.$type]
         },
         AggregateMember: {
             name: AggregateMember.$type,
@@ -5186,12 +5197,12 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         ColumnStep: {
             name: ColumnStep.$type,
             properties: {
-                aggregate: {
-                    name: ColumnStep.aggregate,
-                    referenceType: Aggregate.$type
-                },
                 field: {
                     name: ColumnStep.field
+                },
+                owner: {
+                    name: ColumnStep.owner,
+                    referenceType: MigrationStepOwner.$type
                 },
                 renamedTo: {
                     name: ColumnStep.renamedTo,
@@ -5686,7 +5697,7 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     defaultValue: []
                 }
             },
-            superTypes: [ContextMember.$type, ModelMember.$type, NamedDecl.$type]
+            superTypes: [ContextMember.$type, MigrationStepOwner.$type, ModelMember.$type, NamedDecl.$type]
         },
         EnumValue: {
             name: EnumValue.$type,
@@ -6414,6 +6425,12 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         },
         MigrationStepDecl: {
             name: MigrationStepDecl.$type,
+            properties: {
+            },
+            superTypes: []
+        },
+        MigrationStepOwner: {
+            name: MigrationStepOwner.$type,
             properties: {
             },
             superTypes: []

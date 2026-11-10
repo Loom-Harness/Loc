@@ -56,24 +56,39 @@ export interface EntryResult {
 type EntryOwner = { returnType?: TypeIR; returnValue?: ExprIR; returnTags?: string[] };
 
 /** Classify one declared variant. */
-function entryResultArm(t: TypeIR, ctx: BoundedContextIR): EntryResultArm {
+function entryResultArm(t: TypeIR): EntryResultArm {
   const tag = variantTag(t);
   if (t.kind === "entity") {
-    const payload = ctx.payloads.find((p) => p.name === t.name);
-    if (payload?.kind === "error") return { kind: "error", tag, name: t.name };
-    if (payload) return { kind: "payload", tag, name: t.name };
-    if (ctx.aggregates.some((a) => a.name === t.name))
-      return { kind: "aggregate", tag, name: t.name };
-    if (ctx.workflows.some((w) => w.name === t.name))
-      return { kind: "workflow", tag, name: t.name };
+    switch (t.declKind) {
+      case "error":
+        return { kind: "error", tag, name: t.name };
+      case "payload":
+      case "event":
+      case "command":
+      case "query":
+      case "response":
+        return { kind: "payload", tag, name: t.name };
+      case "aggregate":
+      case "workflow":
+        return { kind: t.declKind, tag, name: t.name };
+      case "part":
+      case "projection":
+      case "principal":
+      case "synthetic":
+        break;
+      default: {
+        const unreachable: never = t.declKind;
+        return unreachable;
+      }
+    }
   }
   return { kind: "value", tag, type: t };
 }
 
 /** True when `owner`'s declared result is a union with an `error` variant. */
-function declaresEntryFailure(owner: EntryOwner, ctx: BoundedContextIR): boolean {
+function declaresEntryFailure(owner: EntryOwner): boolean {
   const t = owner.returnType;
-  return t?.kind === "union" && t.variants.some((v) => entryResultArm(v, ctx).kind === "error");
+  return t?.kind === "union" && t.variants.some((v) => entryResultArm(v).kind === "error");
 }
 
 /** True when a routed `commandHandler` / `queryHandler` of `ctx` answers an
@@ -81,16 +96,16 @@ function declaresEntryFailure(owner: EntryOwner, ctx: BoundedContextIR): boolean
  *  must provide, exactly as a workflow does. */
 export function answersEntryResults(ctx: BoundedContextIR): boolean {
   return [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].some(
-    (h) => !h.extern && entryResult(h, ctx) !== undefined,
+    (h) => !h.extern && entryResult(h) !== undefined,
   );
 }
 
 /** The leaves of an expected-failure result, or undefined when `owner` does
  *  not declare one (or has no answered value — an `extern` handler). */
-export function entryResult(owner: EntryOwner, ctx: BoundedContextIR): EntryResult | undefined {
+export function entryResult(owner: EntryOwner): EntryResult | undefined {
   const t = owner.returnType;
-  if (t?.kind !== "union" || !declaresEntryFailure(owner, ctx)) return undefined;
-  const arms = t.variants.map((v) => entryResultArm(v, ctx));
+  if (t?.kind !== "union" || !declaresEntryFailure(owner)) return undefined;
+  const arms = t.variants.map((v) => entryResultArm(v));
   const value = owner.returnValue;
   const tags = owner.returnTags ?? [];
   if (!value) return { arms, leaves: [] };

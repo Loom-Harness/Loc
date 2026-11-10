@@ -67,7 +67,7 @@ describe("python when gate + can-query", () => {
     // until #2300's follow-up, diverging from node/.NET/Java.  The sibling 409
     // rungs (UniquenessConflict / ConcurrencyConflict) keep "Conflict".
     expect(problem).toContain(
-      'return problem(request, 409, "Disallowed", str(err), code="problem.state-gate")',
+      'return problem(request, 409, "Disallowed", str(err), code="problem.state-gate", params=_type_params(request))',
     );
     const errors = files.get("api/app/domain/errors.py")!;
     expect(errors).toContain("class DisallowedError(Exception):");

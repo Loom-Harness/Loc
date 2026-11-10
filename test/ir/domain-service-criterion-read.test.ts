@@ -72,7 +72,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
     const m = await enriched(`operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`);
     const ret = allContexts(m)[0]!.retrievals.find((r) => r.name === "findAllByRich");
     expect(ret, "findAllByRich retrieval materialised").toBeDefined();
-    expect(ret?.targetType).toEqual({ kind: "entity", name: "Account" });
+    expect(ret?.targetType).toEqual({ kind: "entity", name: "Account", declKind: "aggregate" });
     expect(ret?.criterionRef?.name).toBe("Rich");
   });
 

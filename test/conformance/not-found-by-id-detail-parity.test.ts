@@ -204,7 +204,7 @@ describe("RS-27 — a 404-by-id detail is the same sentence on all five backends
     // The filter that renders it — `nf.Message` is what carries the sentence,
     // and `Problem(...)` is what supplies `about:blank` + `instance`.
     expect(sourceFor(files, ".cs")).toContain(
-      'context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found");',
+      'context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found", TypeParams(context));',
     );
   });
 
@@ -223,7 +223,7 @@ describe("RS-27 — a 404-by-id detail is the same sentence on all five backends
     expect(controller).not.toContain("ResponseEntity.notFound().build()");
     // The advice that renders it — `e.getMessage()` is what carries the sentence.
     expect(sourceFor(files, ".java")).toContain(
-      'return respond(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), 404);',
+      'return respond(typed(problem(404, "Not Found", e.getMessage(), "problem.not-found", request), request), 404);',
     );
   });
 

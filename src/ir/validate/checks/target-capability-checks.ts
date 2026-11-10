@@ -39,6 +39,7 @@ import {
   type DeployableIR,
   type EnrichedAggregateIR,
   type ExprIR,
+  isPayloadDeclKind,
   type Platform,
   type StmtIR,
   type SystemIR,
@@ -52,6 +53,7 @@ import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregatesWithTuple } from "../../util/feature-atoms.js";
+import { bodyUsesMoneyLocaleFormat } from "../../util/money-locale-format.js";
 import { contextReadsOrgAncestors, registryContextName } from "../../util/org-context.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
@@ -100,6 +102,10 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
     uiBodies(ui)
       .filter((b) => bodyUsesChart(b.body))
       .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
+  "primitive:Money-locale-format@body": (ui) =>
+    uiBodies(ui)
+      .filter((b) => bodyUsesMoneyLocaleFormat(b.body))
+      .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
   "read:entity-history@body": (ui, sys) => {
     const aggregates = new Set<string>();
     for (const sd of sys.subdomains) {
@@ -123,7 +129,7 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
       for (const ctx of sd?.contexts ?? []) {
         for (const agg of ctx.aggregates) {
           for (const op of agg.operations) {
-            const arm = payloadSuccessArm(op.returnType, ctx, agg.name);
+            const arm = payloadSuccessArm(op.returnType, agg.name);
             if (!arm) continue;
             out.push({
               what: `operation '${agg.name}.${op.name}' (returns \`${arm} or …\`) served to ui '${ui.name}'`,
@@ -140,16 +146,13 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
 
 /** The success arm of a `<payload> or <error>` return, when that arm is a
  *  declared non-error payload rather than the aggregate itself. */
-function payloadSuccessArm(
-  t: TypeIR | undefined,
-  ctx: BoundedContextIR,
-  aggName: string,
-): string | undefined {
+function payloadSuccessArm(t: TypeIR | undefined, aggName: string): string | undefined {
   if (t?.kind !== "union") return undefined;
-  const kindOf = (name: string) => ctx.payloads.find((p) => p.name === name)?.kind;
-  const named = t.variants.flatMap((v) => (v.kind === "entity" ? [v.name] : []));
-  if (!named.some((n) => kindOf(n) === "error")) return undefined;
-  return named.find((n) => n !== aggName && kindOf(n) !== undefined && kindOf(n) !== "error");
+  const named = t.variants.flatMap((v) => (v.kind === "entity" ? [v] : []));
+  if (!named.some((v) => v.declKind === "error")) return undefined;
+  return named.find(
+    (v) => v.name !== aggName && isPayloadDeclKind(v.declKind) && v.declKind !== "error",
+  )?.name;
 }
 
 /** The `resource` bindings of a context whose kind and storage type satisfy
@@ -604,6 +607,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#chart", { what: use.what, dName, target: t }),
+        use,
+      );
+      return;
+    case "money-locale-format":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#money-locale-format", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
         use,
       );
       return;

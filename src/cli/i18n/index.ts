@@ -50,8 +50,10 @@ import { PSEUDO_LOCALE, pseudoCatalog } from "../../i18n/pseudo.js";
 import {
   type AmbiguousRename,
   detectRenamesReport,
+  followTypeMoves,
   type KeyMove,
   moveKeys,
+  type RenameReport,
 } from "../../i18n/renames.js";
 import { extractProject } from "./extract.js";
 import { type LocaleEntry, type LocaleFilter, openReviewKeys, openTree, relPath } from "./open.js";
@@ -194,12 +196,34 @@ function movesInto(
   return new Map(moves.filter((m) => m.from in flat && !(m.to in flat)).map((m) => [m.from, m.to]));
 }
 
+/** The identity-key renames between the lock and the fresh extraction, plus
+ *  the moves of the optional keys that follow a renamed type. */
+function detectMoves(opened: {
+  tree: { base: ReadonlyMap<string, Catalog> };
+  catalog: Catalog;
+  renames: Parameters<typeof detectRenamesReport>[2];
+  optional: ReadonlyMap<string, string>;
+}): RenameReport {
+  const report = detectRenamesReport(joinCatalog(opened.tree.base), opened.catalog, opened.renames);
+  return {
+    ...report,
+    moves: [...report.moves, ...followTypeMoves(report.moves, opened.optional.keys())],
+  };
+}
+
 /** Merge one locale namespace by namespace, reporting in runtime keys. */
 function mergeLocale(
   baseIn: ReadonlyMap<string, Catalog>,
   entryIn: LocaleEntry,
   theirs: ReadonlyMap<string, Catalog>,
-  options: { keepStale?: boolean; moves?: readonly KeyMove[]; names?: ReadonlySet<string> },
+  options: {
+    keepStale?: boolean;
+    moves?: readonly KeyMove[];
+    names?: ReadonlySet<string>;
+    /** The optional keys (`ProjectCatalog.optional`): never in THEIRS, kept
+     *  as they are wherever the translator wrote one. */
+    optional?: ReadonlyMap<string, string>;
+  },
 ): {
   merged: Map<string, Catalog>;
   review: Map<string, Record<string, ReviewEntry>>;
@@ -246,16 +270,33 @@ function mergeLocale(
     updated: [],
     carried: [],
   };
+  // An optional key is never in THEIRS, so the merge would read it as deleted:
+  // set it aside and carry it through as written.
+  const optionalOurs = new Map<string, Catalog>();
+  const mergeable = new Map<string, Catalog>();
+  for (const [ns, file] of entry.files) {
+    const kept: Catalog = {};
+    const own: Catalog = {};
+    for (const [fileKey, value] of Object.entries(file)) {
+      if (options.optional?.has(runtimeKeyOf(fileKey, ns))) kept[fileKey] = value;
+      else own[fileKey] = value;
+    }
+    mergeable.set(ns, own);
+    if (Object.keys(kept).length > 0) optionalOurs.set(ns, kept);
+  }
   const namespaces = new Set([...base.keys(), ...entry.files.keys(), ...theirs.keys()]);
   for (const ns of [...namespaces].sort()) {
-    const result = mergeCatalog(
-      base.get(ns) ?? {},
-      entry.files.get(ns) ?? {},
-      theirs.get(ns) ?? {},
-      {
-        keepStale: options.keepStale,
-        review: entry.review.get(ns),
-      },
+    const result = mergeCatalog(base.get(ns) ?? {}, mergeable.get(ns) ?? {}, theirs.get(ns) ?? {}, {
+      keepStale: options.keepStale,
+      review: entry.review.get(ns),
+    });
+    const carried = optionalOurs.get(ns) ?? {};
+    for (const fileKey of Object.keys(carried)) report.kept.push(runtimeKeyOf(fileKey, ns));
+    const all = { ...result.merged, ...carried };
+    result.merged = Object.fromEntries(
+      Object.keys(all)
+        .sort()
+        .map((k) => [k, all[k]!]),
     );
     if (Object.keys(result.merged).length > 0) merged.set(ns, result.merged);
     if (Object.keys(result.review).length > 0) review.set(ns, result.review);
@@ -302,11 +343,7 @@ export async function runI18nSync(
   options: DirOption & LocaleFilter & { keepStale?: boolean },
 ): Promise<void> {
   let opened = await openTree(file, options);
-  let { moves, ambiguous } = detectRenamesReport(
-    joinCatalog(opened.tree.base),
-    opened.catalog,
-    opened.renames,
-  );
+  let { moves, ambiguous } = detectMoves(opened);
 
   // The source language's overrides are keyed like everything else: carry them
   // to the renamed key and extract again, so THEIRS (and the lock) hold the
@@ -320,13 +357,9 @@ export async function runI18nSync(
     }
     console.log(`  ${opened.source} (source): ${rekeyed.size} override(s) re-keyed`);
     opened = await openTree(file, options);
-    ({ moves, ambiguous } = detectRenamesReport(
-      joinCatalog(opened.tree.base),
-      opened.catalog,
-      opened.renames,
-    ));
+    ({ moves, ambiguous } = detectMoves(opened));
   }
-  const { dir, theirs, tree, source, catalog, names } = opened;
+  const { dir, theirs, tree, source, catalog, names, optional } = opened;
 
   if (tree.locales.length === 0) {
     console.error(
@@ -351,6 +384,7 @@ export async function runI18nSync(
       keepStale: options.keepStale,
       moves,
       names,
+      optional,
     });
     writeLocaleDir(dir, locale, merged, theirs.keys(), { review, stale });
     if (fromFlat) fs.rmSync(path.join(dir, `${locale}.json`));
@@ -375,8 +409,9 @@ export async function runI18nStatus(
   file: string,
   options: DirOption & LocaleFilter,
 ): Promise<void> {
-  const { theirs, tree, catalog, names, renames, source } = await openTree(file, options);
-  const { moves, ambiguous } = detectRenamesReport(joinCatalog(tree.base), catalog, renames);
+  const opened = await openTree(file, options);
+  const { theirs, tree, catalog, names, source, optional } = opened;
+  const { moves, ambiguous } = detectMoves(opened);
 
   if (tree.locales.length === 0) {
     console.log("No locale files — nothing to sync.");
@@ -407,7 +442,11 @@ export async function runI18nStatus(
       if (stale) pending = true;
       continue;
     }
-    const { report, moved, staleMoved } = mergeLocale(tree.base, entry, theirs, { moves, names });
+    const { report, moved, staleMoved } = mergeLocale(tree.base, entry, theirs, {
+      moves,
+      names,
+      optional,
+    });
     console.log(summarize(entry.locale, report, moved.length));
     reportMoves(moved);
     reportCarried(report);
@@ -432,10 +471,20 @@ export async function runI18nCheck(
   file: string,
   options: DirOption & LocaleFilter & { strict?: boolean },
 ): Promise<void> {
-  const { catalog: source, tree, source: sourceLocale } = await openTree(file, options);
-  const staleOverrides = Object.keys(joinCatalog(tree.overrides)).filter((k) => !(k in source));
+  const { catalog: source, tree, source: sourceLocale, optional } = await openTree(file, options);
+  const overrides = joinCatalog(tree.overrides);
+  const staleOverrides = Object.keys(overrides).filter((k) => !(k in source) && !optional.has(k));
+  // The text an optional key's translation is checked against: its source
+  // override, else the generic sentence it rewords.
+  const optionalSource = (key: string): string | undefined => {
+    const generic = optional.get(key);
+    return generic === undefined ? undefined : (overrides[key] ?? source[generic]);
+  };
 
-  if (tree.locales.length === 0 && staleOverrides.length === 0) {
+  const sourceHasIssues = Object.values(source).some(
+    (m) => validateTranslation(m, m, sourceLocale).length > 0,
+  );
+  if (tree.locales.length === 0 && staleOverrides.length === 0 && !sourceHasIssues) {
     console.log("No locale files to check.");
     // A tree with neither translations nor source overrides verifies nothing,
     // which a CI gate must not report as success.
@@ -456,17 +505,50 @@ export async function runI18nCheck(
     console.log(`  ${sourceLocale} (source): ${staleOverrides.length} stale override(s)`);
     for (const k of staleOverrides) console.log(`      stale override: ${k}`);
   }
+  // The source catalog is judged against the source locale's own plural
+  // categories and tag balance (a message is its own reference).
+  const sourceInvalid: { key: string; issues: IcuIssue[] }[] = [];
+  for (const key of Object.keys(source).sort()) {
+    const issues = validateTranslation(source[key]!, source[key]!, sourceLocale);
+    if (issues.length > 0) sourceInvalid.push({ key, issues });
+  }
+  if (sourceInvalid.length > 0) {
+    findings += sourceInvalid.length;
+    console.log(`  ${sourceLocale} (source): ${sourceInvalid.length} invalid`);
+    for (const { key, issues } of sourceInvalid) {
+      for (const issue of issues)
+        console.log(`      invalid:      ${key}: ${describeIssue(issue)}`);
+    }
+  }
+  // A source override of an optional key rewords its generic sentence, so it
+  // keeps that sentence's placeholders (a type name is never one).
+  const invalidOverrides: { key: string; issues: IcuIssue[] }[] = [];
+  for (const key of Object.keys(overrides)) {
+    const generic = optional.get(key);
+    if (generic === undefined || source[generic] === undefined) continue;
+    const issues = validateTranslation(source[generic]!, overrides[key]!, sourceLocale);
+    if (issues.length > 0) invalidOverrides.push({ key, issues });
+  }
+  if (invalidOverrides.length > 0) {
+    findings += invalidOverrides.length;
+    console.log(`  ${sourceLocale} (source): ${invalidOverrides.length} invalid override(s)`);
+    for (const { key, issues } of invalidOverrides) {
+      for (const issue of issues)
+        console.log(`      invalid:      ${key}: ${describeIssue(issue)}`);
+    }
+  }
   for (const entry of tree.locales) {
     const { locale } = entry;
     const catalog = joinCatalog(entry.files);
     const pseudo = locale === PSEUDO_LOCALE;
     const untranslated = pseudo ? [] : Object.keys(source).filter((k) => !(k in catalog));
     const review = openReviewKeys(entry).filter((k) => k in source);
-    const obsolete = Object.keys(catalog).filter((k) => !(k in source));
+    const obsolete = Object.keys(catalog).filter((k) => !(k in source) && !optional.has(k));
     const invalid: { key: string; issues: IcuIssue[] }[] = [];
     for (const key of Object.keys(catalog)) {
-      if (!(key in source)) continue;
-      const issues = validateTranslation(source[key]!, catalog[key]!, locale);
+      const against = key in source ? source[key] : optionalSource(key);
+      if (against === undefined) continue;
+      const issues = validateTranslation(against, catalog[key]!, locale);
       if (issues.length > 0) invalid.push({ key, issues });
     }
     const count =
@@ -539,13 +621,16 @@ export async function runI18nPrune(file: string, options: DirOption & LocaleFilt
     theirs,
     tree,
     source: sourceLocale,
+    optional,
   } = await openTree(file, options);
   assertConsistentLayout(dir);
 
   const prune = (files: ReadonlyMap<string, Catalog>): { kept: Catalog; stale: number } => {
     const all = joinCatalog(files);
     const kept: Catalog = {};
-    for (const key of Object.keys(all).sort()) if (key in source) kept[key] = all[key]!;
+    for (const key of Object.keys(all).sort()) {
+      if (key in source || optional.has(key)) kept[key] = all[key]!;
+    }
     return { kept, stale: Object.keys(all).length - Object.keys(kept).length };
   };
 

@@ -66,8 +66,7 @@ export function returnUnionSpec(
   if (op.returnType?.kind !== "union") return undefined;
   const variants = op.returnType.variants;
   const members = unionMembers(variants, ctx);
-  const isError = (v: TypeIR): boolean =>
-    v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
+  const isError = (v: TypeIR): boolean => v.kind === "entity" && v.declKind === "error";
   const arms = members.map((m, i) => ({
     tag: m.tag,
     member: m,

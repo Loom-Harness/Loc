@@ -260,7 +260,7 @@ function renderRecord(
   const params = flatHandlerParams(h, ctx)
     .map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`)
     .join(", ");
-  const retCs = ret ? handlerResultCs(h, ret, ctx, ns) : undefined;
+  const retCs = ret ? handlerResultCs(h, ret, ns) : undefined;
   const iface =
     kind === "Command" ? (retCs ? `ICommand<${retCs}>` : "ICommand") : `IQuery<${retCs!}>`;
   // A record whose return type is an aggregate needs that aggregate's domain
@@ -296,10 +296,10 @@ function renderHandlerClass(
   const recName = `${upperFirst(h.name)}${kind}`;
   const handlerName = `${upperFirst(h.name)}Handler`;
   const retType = internalReturnType(h, ctx);
-  const ret = retType ? handlerResultCs(h, retType, ctx, ns) : "Unit";
+  const ret = retType ? handlerResultCs(h, retType, ns) : "Unit";
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
-  const er = entryResult(h, ctx);
+  const er = entryResult(h);
   // A body that re-checks a held row's write scope runs in one transaction,
   // so a row outside the scope fails the whole command and rolls back the
   // rows it already changed.
@@ -928,15 +928,15 @@ function emitEntryUnion(
   ns: string,
   out: Map<string, string>,
 ): void {
-  if (h.returnType?.kind !== "union" || !entryResult(h, ctx)) return;
+  if (h.returnType?.kind !== "union" || !entryResult(h)) return;
   const f = renderEntryUnionFile(h.returnType, ctx, ns);
   if (!out.has(f.path)) out.set(f.path, f.content);
 }
 
 /** The C# type a handler answers: the entry-result union for `T or E`, else
  *  the domain type. */
-function handlerResultCs(h: Handler, t: TypeIR, ctx: EnrichedBoundedContextIR, ns: string): string {
-  return t.kind === "union" && entryResult(h, ctx)
+function handlerResultCs(h: Handler, t: TypeIR, ns: string): string {
+  return t.kind === "union" && entryResult(h)
     ? `global::${entryResultNs(ns)}.${entryUnionName(t)}`
     : renderCsType(t);
 }
@@ -1160,12 +1160,12 @@ export function emitExplicitRouteController(
     let successDecl = retType
       ? "    [ProducesResponseType(200)]"
       : "    [ProducesResponseType(204)]";
-    const er = h.extern ? undefined : entryResult(h, ctx);
+    const er = h.extern ? undefined : entryResult(h);
     let armDecls = "";
     if (er && retType?.kind === "union") {
       // An expected-failure result: an error record answers problem+json at
       // its mapped status, a success record 200 through the union base.
-      successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ctx, ns)}), 200)]`;
+      successDecl = `    [ProducesResponseType(typeof(${handlerResultCs(h, retType, ns)}), 200)]`;
       const declared = new Set(routedErrorStatuses(r, h, ctx));
       armDecls = entryErrorStatuses(er, ctx)
         .filter((st) => !declared.has(st))

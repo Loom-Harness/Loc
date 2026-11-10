@@ -128,7 +128,7 @@ export const WALKER_PRIMITIVE_NAMED_ARGS: Record<string, readonly string[]> = {
   ],
   DataGrid: ["rows", "multiSort", "columnVisibility", "pageSize", "selection"],
   Chart: ["of", "kind", "x", "y"],
-  Money: ["value", "currency", "decimals"],
+  Money: ["value", "currency", "decimals", "format"],
   DateDisplay: ["value"],
   EnumBadge: ["value", "color"],
   IdLink: ["of", "id"],

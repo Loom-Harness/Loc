@@ -894,6 +894,14 @@ system S {
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.migration-enum-value-form": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft = Open }`,
+  "loom.migration-enum-value-unknown": `
+enum Status { Open, Closed }
+${systemScope("")}
+migration "m" { Status.Draft -> Pending }`,
   "loom.migration-step-target-missing": `${systemScope("")}
 migration "m" { Gone -> Missing }`,
   "loom.migration-step-ambiguous": `
@@ -932,6 +940,17 @@ migration "m" { A.Note -> B.Note }`,
   // model element, a plural of a member, a call outside every page/component
   // body, and a call spliced into a template.
   "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  // `Home` references `Status`, declared by neither it nor the system level but by
+  // both `Alpha` and `Beta`: the implicit form labels have no single owner.
+  "loom.model-text-implicit-ambiguous": `
+system S {
+  subdomain D {
+    context Alpha { aggregate Widget with crudish { n: int } enum Status { On, Off } }
+    context Beta { aggregate Gadget with crudish { n: int } enum Status { Up, Down } }
+    context Home { aggregate Hub with crudish { s: Status } }
+  }
+  ui WebApp with scaffold(subdomains: [D]) { }
+}`,
   "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
   "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
       sku: string
@@ -4943,9 +4962,15 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
   // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
-  // BASELINE's value set. The pointed-at file drives the warning, its
-  // `sql before` silencing, and the widening / first-generation exemptions.
+  // BASELINE's value set. The pointed-at file drives the refusal, its
+  // declared-rename / `sql` / `--allow-destructive` releases, and the
+  // widening / first-generation exemptions.
   "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
+  // Phase ⑨, same reason: a declared enum value rename announces the JSON
+  // places it cannot rewrite only on a generation that runs it, against a
+  // BASELINE. The pointed-at file drives it on a document-shaped aggregate and
+  // its silence on a purely relational one.
+  "loom.migration-enum-value-unmigrated": "test/system/migration-enum-value-rename.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

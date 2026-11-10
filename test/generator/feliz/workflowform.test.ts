@@ -102,7 +102,7 @@ describe("feliz workflow forms", () => {
       'Html.input [ prop.custom("data-testid", "workflow-open_account-input-initial"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "initial"; prop.value model.OpenAccountWorkflowForm.initial; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormInitial v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "initial"))',
     );
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.openAccountWorkflowFormValid model.OpenAccountWorkflowForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountWorkflowForm); prop.text "Run OpenAccount" ]',
+      'Html.button [ prop.custom("data-testid", "workflow-open_account-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.openAccountWorkflowFormValid model.OpenAccountWorkflowForm)); prop.onClick (fun _ -> dispatch SubmitOpenAccountWorkflowForm); prop.text (I18n.t "Acc.openAccount.op.run" "Run") ]',
     );
   });
 

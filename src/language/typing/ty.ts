@@ -11,7 +11,13 @@
 // `toTypeIR` is the total projection onto the IR's name-keyed `TypeIR`, the
 // only way lowering obtains a type once a construct family has cut over.
 
-import type { GenericCtorName, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  EntityDeclKind,
+  GenericCtorName,
+  PayloadKind,
+  PrimitiveName,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
 import { SCALAR_WIRE_JSON } from "../../util/scalar-wire-json.js";
 import type {
   Aggregate,
@@ -174,6 +180,31 @@ function recordName(shape: RecordShape): string {
   }
 }
 
+/** The declaration kind a record shape carries in the IR's `entity` marker. */
+function recordDeclKind(shape: RecordShape): EntityDeclKind {
+  switch (shape.of) {
+    case "aggregate":
+    case "part":
+    case "workflow":
+    case "projection":
+    case "principal":
+      return shape.of;
+    case "event":
+      return "event";
+    case "payload":
+      return shape.ref.kind as PayloadKind;
+    case "wire":
+      return shape.ref.kind === "record" ? recordDeclKind(shape.ref.shape) : "synthetic";
+    case "resource":
+    case "store":
+    case "created":
+    case "tagged":
+    case "request":
+    case "fields":
+      return "synthetic";
+  }
+}
+
 /** `t` as a `test e2e` client holds it: the JSON value the backend sends.
  *  A scalar is its wire kind (`SCALAR_WIRE_JSON`): a JSON string for `money`,
  *  the calendar / instant types and `guid`; a JSON number keeps its numeric
@@ -225,7 +256,7 @@ export function toTypeIR(t: Ty): TypeIR {
     case "record":
       // The IR has no wire view: a wire record projects to the record it views.
       if (t.shape.of === "wire") return toTypeIR(t.shape.ref);
-      return { kind: "entity", name: recordName(t.shape) };
+      return { kind: "entity", name: recordName(t.shape), declKind: recordDeclKind(t.shape) };
     case "array":
       return { kind: "array", element: toTypeIR(t.element) };
     case "optional":

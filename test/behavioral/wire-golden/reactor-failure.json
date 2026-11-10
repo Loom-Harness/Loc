@@ -203,6 +203,9 @@
         "code": "problem.not-found",
         "detail": "Survey {id} not found",
         "instance": "/api/surveys/{id}",
+        "params": {
+          "type": "Desk.Survey"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -252,6 +255,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
+        "params": {
+          "type": "Desk.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -322,6 +328,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/resolve",
+        "params": {
+          "type": "Desk.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -336,6 +345,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/resolve",
+        "params": {
+          "type": "Desk.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -49,6 +49,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -63,6 +66,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/retitle",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -115,6 +121,9 @@
         "code": "problem.version-conflict",
         "detail": "Memo {id} was modified by another request",
         "instance": "/api/memos/{id}/rewrite",
+        "params": {
+          "type": "Docs.Memo"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -284,6 +293,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -316,6 +328,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -348,6 +363,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -380,6 +398,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -412,6 +433,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"

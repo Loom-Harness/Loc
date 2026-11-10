@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import { TrieRouter } from "hono/router/trie-router";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";
+import { emptyBodyAsEmptyObject, frameworkProblemBody, problemParams } from "./problem-details";
 import { sql } from "drizzle-orm";
 import { requestIdMiddleware } from "../obs/request-id";
 import { recordDomainFault, registry } from "../obs/metrics";
@@ -195,7 +195,7 @@ export function createApp(
   });
   app.onError((err, c) => {
     const trace_id = c.get("requestId") ?? "";
-    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
+    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     if (err instanceof ForbiddenError) {
       baseLogger.warn({ event: "forbidden", message: err.message, status: 403 });
       recordDomainFault("forbidden");

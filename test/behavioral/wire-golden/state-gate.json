@@ -36,6 +36,9 @@
         "code": "problem.state-gate",
         "detail": "operation 'cancel' is not allowed in the current state of Order.",
         "instance": "/api/orders/{id}/cancel",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 409,
         "title": "Disallowed",
         "type": "about:blank"
@@ -102,6 +105,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -178,6 +184,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/cancel",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -192,6 +201,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/cancel",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

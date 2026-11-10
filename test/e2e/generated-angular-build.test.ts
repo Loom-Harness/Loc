@@ -705,6 +705,64 @@ const NESTED_VO: Case = {
   `,
 };
 
+/** Arrays inside a value object: a scalar collection is one `string[]` control
+ *  of the nested group, a value-object collection a nested `FormArray` whose
+ *  accessors take the enclosing control (a group path, or a row's loop
+ *  variable).  Both only typecheck under `ng build`'s strict templates. */
+const NESTED_ARRAY: Case = {
+  name: "nested-array",
+  angularDir: "web",
+  mustEmit: [
+    "tags: new FormControl<string[]>([], { nonNullable: true })",
+    "rowsRouteStops(parent: AbstractControl | null)",
+    "@for (__row1 of rowsRoutesStops(__row)",
+  ],
+  source: `
+    system AArrays {
+      subdomain Core {
+        context Places {
+          valueobject Note { text: string  tags: string[] }
+          valueobject Stop { label: string  tags: string[] }
+          valueobject Route { name: string  tags: string[]  stops: Stop[] }
+          aggregate Venue {
+            name: string
+            note: Note
+            operation plan(route: Route, routes: Route[]) { }
+          }
+          repository Venues for Venue { }
+        }
+      }
+      api PlacesApi from Core
+      ui WebApp {
+        api Places: PlacesApi
+        page VenueNew {
+          route: "/"
+          body: CreateForm { of: Venue, testid: "venues-new" }
+        }
+        page VenuePlan {
+          route: "/plan/:id"
+          body: OperationForm { of: Venue, op: plan, testid: "venues-plan" }
+        }
+      }
+      storage primary { type: postgres }
+      resource placesState { for: Places, kind: state, use: primary }
+      deployable api {
+        platform: node
+        contexts: [Places]
+        dataSources: [placesState]
+        serves: PlacesApi
+        port: 3000
+      }
+      deployable web {
+        platform: angular
+        targets: api
+        ui: WebApp { Places: api }
+        port: 3004
+      }
+    }
+  `,
+};
+
 /** Translated page text: a rich `Text` (bound through `[innerHTML]` from the
  *  locale adapter's `tRich`) whose emphasis carries a plural hole, and a
  *  `WorkflowForm` whose run button reads the workflow's `op.run` key.  Both
@@ -775,6 +833,7 @@ const allCases: MatrixCase[] = [
   HISTORY,
   OPTIONAL,
   NESTED_VO,
+  NESTED_ARRAY,
   I18N_TEXT,
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 

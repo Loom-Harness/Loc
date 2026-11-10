@@ -76,10 +76,14 @@ Migration:
 // stays LL(k)), or a table step (`OldName -> NewName`, `A.Name -> B.Name`).
 // Disambiguation: `sql` keyword ⇒ raw step; `ID '->'` ⇒ table rename;
 // `ID '.' ID '->' ID '.'` ⇒ table move; any other `ID '.'` ⇒ column step.  A
-// column step's `aggregate` is a cross-reference to the still-present
-// aggregate.  The dead side (`field` as an old column name / `fromTable` /
-// `fromContext`) is a bare identifier the model may no longer declare — a
-// ledger block legitimately names things that have since moved on.
+// column step's `owner` is a cross-reference to the still-present aggregate
+// — or enum, for an enum VALUE rename (`Status.Draft -> Pending`), which has
+// the column-rename shape exactly and so cannot be told apart by the parser:
+// the linker resolves the owner and the validator and lowering branch on its
+// kind.  The dead side (`field` as an old column name or old enum value /
+// `fromTable` / `fromContext`) is a bare identifier the model may no longer
+// declare — a ledger block legitimately names things that have since moved
+// on.
 MigrationStepDecl:
     SqlStep | ColumnStep | TableRename;
 
@@ -98,17 +102,22 @@ MigrationStepDecl:
 SqlStep:
     'sql' (placement=ID)? sql=STRING;
 
-// A column step, left-factored on the shared `Agg.field` prefix:
+// A column step, left-factored on the shared `Owner.member` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
 //     OLD, now-absent column — the M-T2.1 ledger semantics)
 //   - backfill: `Order.status = <expr>`   (`value` set; `field` is a LIVE
 //     field — it names the newly-added / newly-required column, and the
 //     expression is lowered in the aggregate's scope so sibling fields
 //     resolve as columns)
+//   - enum value rename: `Status.Draft -> Pending` (owner an enum; `field`
+//     is the OLD value stored rows hold, `renamedTo` a LIVE value).  Only
+//     the `->` form is admitted on an enum (`loom.enum-value-rename-form`).
 // `=` carries the backfill intent exactly as `->` carries rename — no new
 // keyword.
+type MigrationStepOwner = Aggregate | EnumDecl;
+
 ColumnStep:
-    aggregate=[Aggregate:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
+    owner=[MigrationStepOwner:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
 
 // A table step renames and/or moves the table(s) of an aggregate, workflow or
 // projection, keeping their rows:

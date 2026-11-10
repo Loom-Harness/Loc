@@ -42,8 +42,8 @@ describe("unions — lowering (P4a)", () => {
     expect(t).toEqual({
       kind: "union",
       variants: [
-        { kind: "entity", name: "Order" },
-        { kind: "entity", name: "Cancel" },
+        { kind: "entity", name: "Order", declKind: "aggregate" },
+        { kind: "entity", name: "Cancel", declKind: "aggregate" },
       ],
     });
   });
@@ -51,7 +51,7 @@ describe("unions — lowering (P4a)", () => {
   it("lowers `T option` to `T?` (D-ABSENCE-MODEL)", async () => {
     expect(await findReturn(REPO("Order option"))).toEqual({
       kind: "optional",
-      inner: { kind: "entity", name: "Order" },
+      inner: { kind: "entity", name: "Order", declKind: "aggregate" },
     });
   });
 
@@ -86,8 +86,8 @@ describe("unions — named `payload Foo = A | B` (P4a)", () => {
     );
     const u = payloads.find((p) => p.name === "OrderEvent")!;
     expect(u.variants).toEqual([
-      { kind: "entity", name: "OrderPlaced" },
-      { kind: "entity", name: "OrderCancelled" },
+      { kind: "entity", name: "OrderPlaced", declKind: "event" },
+      { kind: "entity", name: "OrderCancelled", declKind: "event" },
     ]);
     expect(u.fields).toHaveLength(0);
   });
@@ -112,8 +112,8 @@ describe("unions — monomorphization (P4b)", () => {
 
 describe("unions — stdlib helpers (P4a)", () => {
   it("typeKey is associative-commutative — `A or B` keys equal `B or A`", () => {
-    const a: TypeIR = { kind: "entity", name: "A" };
-    const b: TypeIR = { kind: "entity", name: "B" };
+    const a: TypeIR = { kind: "entity", name: "A", declKind: "aggregate" };
+    const b: TypeIR = { kind: "entity", name: "B", declKind: "aggregate" };
     expect(typeKey({ kind: "union", variants: [a, b] })).toBe(
       typeKey({ kind: "union", variants: [b, a] }),
     );
