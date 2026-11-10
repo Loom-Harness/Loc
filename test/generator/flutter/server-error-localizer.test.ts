@@ -27,7 +27,8 @@ describe("Flutter — server errors and client rules localize by catalog code", 
   it("renders them through t by code when the form builds", async () => {
     const dart = await formsDart();
     expect(dart).toContain("import 'i18n.dart';");
-    expect(dart).toContain("return t(code, message, params);");
+    expect(dart).toContain("return t(key, message, params);");
+    expect(dart).toContain("String get key {");
     expect(dart).toContain("child: Text(_server!.fields[");
     expect(dart).toMatch(/_server!\.fields\[[^\]]+\]!\.text/);
     expect(dart).toContain("child: Text(_error!.text,");

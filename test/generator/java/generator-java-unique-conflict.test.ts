@@ -42,7 +42,7 @@ describe("java generator — unique breach maps to 409", () => {
     expect(advice).toContain("import org.springframework.dao.DataIntegrityViolationException;");
     expect(advice).toContain("@ExceptionHandler(DataIntegrityViolationException.class)");
     expect(advice).toContain(
-      'return respond(problem(409, "Conflict", "A resource with these values already exists.", "problem.unique-conflict", request), 409);',
+      'return respond(typed(problem(409, "Conflict", "A resource with these values already exists.", "problem.unique-conflict", request), request), 409);',
     );
     expect(advice).toContain(
       'CatalogLog.event("disallowed", "warn", "message", "A resource with these values already exists.", "status", 409);',
@@ -55,7 +55,7 @@ describe("java generator — unique breach maps to 409", () => {
     const guard = handler.indexOf(
       'if (!"23505".equals(sqlState(e))) return onUnhandled(e, request);',
     );
-    const conflict = handler.indexOf("return respond(problem(409");
+    const conflict = handler.indexOf("return respond(typed(problem(409");
     expect(guard).toBeGreaterThan(-1);
     // The guard precedes the 409, so a 23514 check violation never reaches it.
     expect(conflict).toBeGreaterThan(guard);

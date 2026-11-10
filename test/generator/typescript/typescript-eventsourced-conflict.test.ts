@@ -117,7 +117,7 @@ describe("hono/drizzle generator — event-sourced concurrency rider", () => {
     expect(routes).toContain("if (err instanceof ConcurrencyError) {");
     expect(routes).toContain('event: "conflict", aggregate: "Account"');
     expect(routes).toContain(
-      'return problem(409, "Conflict", err.message, "problem.version-conflict");',
+      'return problem(409, "Conflict", err.message, "problem.version-conflict", {"type":"Accounts.Account"});',
     );
   });
 

@@ -209,7 +209,7 @@ describe("java generator — versioned optimistic-concurrency", () => {
       "public ResponseEntity<ProblemDetail> onConcurrencyConflict(ObjectOptimisticLockingFailureException e, WebRequest request) {",
     );
     expect(advice).toContain('CatalogLog.event("conflict", "warn",');
-    expect(advice).toMatch(/return respond\(problem\(409, "Conflict",[\s\S]*?, 409\);/);
+    expect(advice).toMatch(/return respond\(typed\(problem\(409, "Conflict",[\s\S]*?, 409\);/);
   });
 
   // ── INHERITED aggregates ────────────────────────────────────────────────
