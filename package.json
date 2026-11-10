@@ -21,6 +21,7 @@
     "langium:generate": "langium generate",
     "langium:watch": "langium generate --watch",
     "docs:stdlib": "npm run build && node scripts/gen-stdlib-docs.mjs",
+    "docs:types": "npm run build && node scripts/gen-type-positions-doc.mjs",
     "test": "vitest run",
     "test:changed": "vitest run --changed origin/main",
     "test:gen": "vitest run test/generator",
