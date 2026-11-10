@@ -51,22 +51,10 @@ const CASE = process.env.LOOM_CORPUS_DAPPER_CASE;
 // validator silent (`validateCorpusCase` under `dapper` raises no diagnostic at
 // all — the oracle below proves it), and only the C# compiler objecting.
 //
-// DRAINED again (1 -> 0).  The single entry was `policy-document`, carrying two
-// independent EF leaks in the Dapper document/hierarchy path.  Both are fixed:
-//
-//   1. `Infrastructure/Persistence/EfOrgPathResolver.cs` was emitted whatever
-//      the persistence adapter was — it opens `using Microsoft.EntityFrameworkCore;`
-//      and takes an `AppDbContext`, neither of which a `persistence: dapper`
-//      project has (CS0234 + 2x CS0246).  The hierarchy seam now emits ONE
-//      resolver per adapter; the Dapper twin (`DapperOrgPathResolver.cs`) reads
-//      the registry's `data_key` with one raw Npgsql statement, and Program.cs
-//      registers whichever one was emitted.
-//   2. The DAPPER document repository did not implement `GetByIdForWriteAsync`,
-//      so the `allow` ladder's write-scope port member was unimplemented
-//      (CS0535).  The EF twin's `writeScopeMethod` is ported — along with the
-//      in-app `_CapabilityVisible` read filter the Dapper document repository
-//      had also never received, which was the SILENT half of the same defect
-//      (a `tenantOwned` document aggregate read across tenants here).
+// The skip list is empty.  The Dapper document repository implements the
+// write-scope port member `GetByIdForWriteAsync` (CS0535 otherwise) and applies
+// the in-app `_CapabilityVisible` read filter, so a `tenantOwned` document
+// aggregate never reads across tenants.
 //
 // Structural pin: `test/generator/dotnet/dapper-document-authz.test.ts`.
 const DAPPER_COMPILE_SKIP: Record<string, string> = {};

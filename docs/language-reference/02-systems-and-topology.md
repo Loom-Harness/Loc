@@ -104,6 +104,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/api_node"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_node"
@@ -125,6 +126,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api_dotnet;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_dotnet"
@@ -145,6 +147,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/api_java"
       SPRING_DATASOURCE_USERNAME: "postgres"
       SPRING_DATASOURCE_PASSWORD: "postgres"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_java"
@@ -164,6 +167,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/api_python"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_python"
@@ -187,6 +191,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       PHX_SERVER: "true"
       PORT: "4000"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_elixir"
@@ -340,15 +345,11 @@ web_flutter/
 
 ### The composed stack
 
-`generate system` emits one `docker-compose.yml` at the output root that ties the deployables together with a **single shared `db`** postgres service. Every backend that `needsDb` gets its *own database* inside that one postgres instance — created by a generated `db-init/` script the `db` service runs on first boot:
+`generate system` emits one `docker-compose.yml` at the output root that ties the deployables together with a **single shared `db`** postgres service. Each postgres `storage` is one database inside that instance (a backend that binds no storage gets its own) — created by a generated `db-init/` script the `db` service runs on first boot:
 
 ```sql
--- db-init/00-create-databases.sql (auto-generated)
-CREATE DATABASE api_node;
-CREATE DATABASE api_dotnet;
-CREATE DATABASE api_java;
-CREATE DATABASE api_python;
-CREATE DATABASE api_elixir;
+-- db-init/00-create-databases.sql (auto-generated, excerpt)
+SELECT 'CREATE DATABASE "primary"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'primary')\gexec
 ```
 
 ```yaml
@@ -367,7 +368,7 @@ CREATE DATABASE api_elixir;
       test: ["CMD", "pg_isready", "-U", "postgres"]
 ```
 
-Each backend's connection string targets its own database (`…/api_node`, `…/api_dotnet`, …) on the shared `db` host. The whole stack comes up with `docker compose up` from the output root. Schema migrations are owned per-module by exactly one backend deployable (the enrichment pass's `migrationsOwner`), so two backends hosting the same context don't both try to create the tables.
+Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend on a shared database must lay its tables out the same way, so `persistence: mikroorm` (which syncs its own entities instead of running the migrations) is refused on a shared storage (`loom.mikroorm-shared-database`), and so is `persistence: dapper` beside any other adapter (`loom.dapper-shared-database`) — give such a deployable a storage of its own.
 
 ## Backend platforms
 
@@ -619,40 +620,34 @@ system Shop {
 }
 ```
 
-The generated filters, stamps, hierarchical `dataKey` scoping, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
-
-### A registry and the deployables that read it
-
-Under a hierarchy registry (`implements tenantRegistry`), `currentUser.orgPath` is the caller org's materialized `dataKey`, read per request from the registry's table. Only the deployable that hosts the registry's context has that table. Any other deployable keeps `orgPath` as the bare claim, which is correct only when nothing it hosts reads the hierarchy. A backend deployable that hosts a `tenantOwned` aggregate (its `dataKey` stamp reads `orgPath`), or any `orgPath` / `rootOrg` / `organizationContext` read, without also hosting the registry's context, is refused with `loom.tenancy-registry-remote-unsupported`:
-
-```ddd
-deployable netSvc  { platform: node   contexts: [Orgs]  … }   // hosts `Org implements tenantRegistry`
-deployable shopSvc { platform: python contexts: [Sales] … }   // `Sale with tenantOwned` → refused
-```
-
-A deployable that hosts only `crossTenant` aggregates may live apart from the registry. Its generated auth layer carries no registry lookup:
-
-```python
-# catalog — app/auth/user.py (excerpt): the claim-copy, no `SELECT data_key FROM orgs`
-@property
-def org_path(self) -> str:
-    return "" if self.tenant_id is None else str(self.tenant_id)
-```
+Data visibility is flat: a `tenantOwned` row is visible to its own org only (`tenant_id = <claim>`), and `tenantId` is the only column tenancy adds. The registry tree (`parent`) is for managing sub-tenants and takes no part in a data read. The generated filters, stamps, and the `loom.tenancy-*` / `loom.policy-*` gate catalogue are covered in [`../tenancy.md`](../tenancy.md) and [Capabilities, filters & stamps](11-capabilities-filters-stamps.md).
 
 ### `organizationContext` — the operating scope
 
-Under a hierarchy (the registry `implements tenantRegistry`), backend code may read `organizationContext.orgPath` — the materialized path of the org the request operates *in*. It is the principal's own `currentUser.orgPath` unless the request carries an `x-org-context: <path>` header naming an org inside the caller's subtree; every backend's auth middleware validates that header before any handler runs and answers anything else with a 403. Its first use is the tenant write stamp:
+Backend code may read `organizationContext.org` — the id of the org the request operates *in*. It is the caller's home org (the tenancy claim) unless the request carries an `x-org-context: <org id>` header; every backend's auth middleware resolves that header once, before any handler runs, with no registry read: absent or empty is the home org, equal to the home org is admitted, and anything else — or any header on a token with no tenancy claim — is a 403. Its use is the tenant write stamp:
 
 ```ddd
 capability tenantOwned {
   tenantId: string internal
-  dataKey: string? internal
   stamp onCreate {
-    tenantId := currentUser.tenantId
-    dataKey := organizationContext.orgPath   // the operating scope
+    tenantId := organizationContext.org         // the operating org
   }
-  filter this.tenantId == currentUser.tenantId // reads stay on the principal
+  filter this.tenantId == currentUser.tenantId  // reads stay on the principal
 }
 ```
 
-`orgPath` is the only member, and it is backend-only (`loom.org-context-surface`); a read needs the hierarchy and `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). The gate table, the per-backend seams and what a switched write is visible to are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).
+`organizationContext.org` lowers to the principal member `currentUser.operatingOrg`, which the gate sets:
+
+```ts
+// node — auth/middleware.ts (generated)
+const homeOrg = String(claims.tenantId ?? "");
+const requestedOrgContext = c.req.header("x-org-context");
+const operatingOrg = orgContextFor(homeOrg, requestedOrgContext);
+if (operatingOrg === null) return orgContextForbidden(c, requestedOrgContext ?? "", homeOrg);
+const user: User = { ...claims, operatingOrg };
+
+// db/audit-stamp.ts (generated)
+return { ...row, tenantId: currentUser.operatingOrg };
+```
+
+`org` is the only member (`organizationContext.orgPath` is `loom.tenancy-principal-member-removed`), and it is backend-only (`loom.org-context-surface`); a read needs `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). The gate table and the per-backend seams are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).

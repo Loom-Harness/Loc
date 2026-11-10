@@ -39,7 +39,7 @@ import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.
 // shape) — the event log is the source of truth, not a query target.
 //
 // A `tenantOwned` stream (`stream-tenancy.ts`) carries its tenant as stored-event
-// metadata (`tenant_id` / `data_key`): a new stream is stamped from the principal,
+// metadata (`tenant_id`): a new stream is stamped from the principal,
 // the fold adopts it, and every read applies the fact's tenancy restrictions
 // IN-APP over the folded aggregate (the document shape's rule) — the by-id load
 // answers empty (404) for a foreign tenant's stream, lists never include it, and
@@ -335,7 +335,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     ...(tenancy
       ? [
           `        var byStream = new LinkedHashMap<String, List<DomainEvent>>();`,
-          `        var meta = new LinkedHashMap<String, Map<String, Object>>();`,
+          `        var meta = new LinkedHashMap<String, ${J.Map}<String, Object>>();`,
           `        for (var row : rows) {`,
           `            var sid = (String) row.get("stream_id");`,
           `            meta.putIfAbsent(sid, row);`,

@@ -139,8 +139,8 @@ system PS {
       );
     expect(addedBlock, "no EntityState.Added block emitted for Thing").not.toBeNull();
     const added = addedBlock![2]!;
-    // tenantOwned's two stamps AND auditable's two — not just whichever came first.
-    for (const prop of ["TenantId", "DataKey", "CreatedAt", "CreatedBy"]) {
+    // tenantOwned's stamp AND auditable's two — not just whichever came first.
+    for (const prop of ["TenantId", "CreatedAt", "CreatedBy"]) {
       expect(added, `create stamp for ${prop} was dropped`).toContain(`x => x.${prop}`);
     }
   });

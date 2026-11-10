@@ -3,11 +3,10 @@
 //
 // A system splits its contexts over deployables, each with its own database
 // and its own process.  A feature that reaches from one context into another
-// (the tenancy registry's `dataKey` read, a channel's publish and drain, a
-// typed `kind: api` call) is only correct when the emitter knows where the
-// other end lives.  Assuming co-hosting is the defect class: a deployable that
-// queries a registry table its database does not have, or a timer tick that is
-// dispatched in-process while its only consumer sits behind a broker.
+// (a channel's publish and drain, a typed `kind: api` call) is only correct
+// when the emitter knows where the other end lives.  Assuming co-hosting is the
+// defect class: a timer tick that is dispatched in-process while its only
+// consumer sits behind a broker.
 //
 // These are pure functions of the deployables' `contextNames` and the hosted
 // contexts' declarations — derived on demand, never stamped on the IR.  The
@@ -16,102 +15,10 @@
 // ---------------------------------------------------------------------------
 
 import { platformOwnsBackend } from "../../language/validators/data/platform-rules.js";
-import {
-  PRINCIPAL_ORG_CONTEXT_PATH,
-  PRINCIPAL_ORG_PATH,
-  PRINCIPAL_ROOT_ORG,
-} from "../../util/principal.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  DeployableIR,
-  ExprIR,
-  SystemIR,
-  TimerSourceIR,
-} from "../types/loom-ir.js";
+import type { BoundedContextIR, DeployableIR, SystemIR, TimerSourceIR } from "../types/loom-ir.js";
 import { apiResourceBindings } from "../util/api-resource-binding.js";
-import { forEachContextExpr } from "../util/model-exprs.js";
 import { reactorBodies } from "../util/system-principal.js";
-import { hasTenantOwned, hierarchyRegistry } from "../util/tenant-stance.js";
 import { walkWorkflowStmtExprsDeep } from "../util/walk.js";
-
-type HostingSys = Pick<SystemIR, "tenancy" | "subdomains" | "deployables">;
-
-// ── Tenancy registry ────────────────────────────────────────────────────────
-
-/** The context that declares the hierarchy registry, when the system has one. */
-function registryContextName(sys: HostingSys): string | undefined {
-  const reg = hierarchyRegistry(sys);
-  if (!reg) return undefined;
-  for (const sub of sys.subdomains) {
-    for (const ctx of sub.contexts) if (ctx.aggregates.includes(reg)) return ctx.name;
-  }
-  return undefined;
-}
-
-/** The hierarchy registry this deployable can read `dataKey` from — the
- *  registry aggregate when the deployable hosts the registry's context, else
- *  `undefined`.  This is the single signal every backend's `currentUser.orgPath`
- *  resolver keys on: a deployable that does not host the registry has no
- *  registry table in its database, so it never emits the lookup. */
-export function hostedHierarchyRegistry(
-  sys: HostingSys,
-  hostedContextNames: readonly string[],
-): AggregateIR | undefined {
-  const ctxName = registryContextName(sys);
-  if (!ctxName || !hostedContextNames.includes(ctxName)) return undefined;
-  return hierarchyRegistry(sys);
-}
-
-/** Is `e` a read of a principal member whose value comes from the registry's
- *  materialized path — `currentUser.orgPath` / `.rootOrg`, or the lowered
- *  `organizationContext.orgPath`? */
-function isHierarchyRead(e: ExprIR): boolean {
-  return (
-    e.kind === "member" &&
-    (e.member === PRINCIPAL_ORG_PATH ||
-      e.member === PRINCIPAL_ROOT_ORG ||
-      e.member === PRINCIPAL_ORG_CONTEXT_PATH) &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  );
-}
-
-/** Does this context depend on the registry's materialized path?  A
- *  `tenantOwned` aggregate stamps `dataKey := currentUser.orgPath` on every
- *  write, and any expression may read `orgPath` / `rootOrg` / the operating
- *  scope directly. */
-function contextReadsHierarchy(ctx: BoundedContextIR): boolean {
-  if (ctx.aggregates.some((a) => hasTenantOwned(a))) return true;
-  let found = false;
-  forEachContextExpr(ctx, (v) => {
-    if (!found && isHierarchyRead(v.expr)) found = true;
-  });
-  return found;
-}
-
-/** A backend deployable that hosts a hierarchy-reading context but not the
- *  registry: its `orgPath` would have to come from another deployable's
- *  database.  Each entry names the deployable and the first reading context. */
-export function remoteRegistryReaders(
-  sys: HostingSys,
-): { deployable: DeployableIR; context: string; registryContext: string }[] {
-  const registryContext = registryContextName(sys);
-  if (!registryContext) return [];
-  const ctxByName = new Map<string, BoundedContextIR>();
-  for (const sub of sys.subdomains) for (const c of sub.contexts) ctxByName.set(c.name, c);
-  const out: { deployable: DeployableIR; context: string; registryContext: string }[] = [];
-  for (const dep of sys.deployables) {
-    if (!platformOwnsBackend(dep.platform)) continue;
-    if (dep.contextNames.includes(registryContext)) continue;
-    const reader = dep.contextNames.find((n) => {
-      const ctx = ctxByName.get(n);
-      return ctx !== undefined && contextReadsHierarchy(ctx);
-    });
-    if (reader) out.push({ deployable: dep, context: reader, registryContext });
-  }
-  return out;
-}
 
 // ── Channels and timers ─────────────────────────────────────────────────────
 

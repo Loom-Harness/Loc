@@ -51,7 +51,7 @@ describe("permission implies — IR closure + gate expansion", () => {
     const edit = perms.find((p) => p.name === "edit")!;
     expect(edit.impliedBy).toEqual(["m.approve"]);
     const approve = perms.find((p) => p.name === "approve")!;
-    expect(approve.impliedBy).toBeUndefined(); // nothing implies approve
+    expect(approve.impliedBy).toEqual([]); // nothing implies approve
   });
 
   it("expands a `contains(read)` gate to accept read || edit || approve", async () => {

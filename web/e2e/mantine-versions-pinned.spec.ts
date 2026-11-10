@@ -7,7 +7,7 @@
 // independent proof that the pinning mechanic survives end-to-end
 // through worker generation, not just CLI smoke.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { clickWorkspaceCreate, waitForPlaygroundReady } from "./_helpers";
 
 test("playground dropdown lists both Mantine versions", async ({ page }) => {

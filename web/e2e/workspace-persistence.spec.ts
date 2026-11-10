@@ -10,7 +10,7 @@
 //
 // No network needed — runs everywhere the playground bundle does.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   fatalConsoleErrors,
   prependMarker,

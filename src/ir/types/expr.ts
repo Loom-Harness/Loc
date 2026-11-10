@@ -1,11 +1,10 @@
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
-import type { BypassReadIR, KeyLookupIR } from "./context.js";
+import type { Bypassing, BypassReadIR, KeyLookupIR } from "./context.js";
 import type { DataSourceKind, LoomInterface } from "./deployment.js";
-import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
-import type { PrimitiveName, TypeIR } from "./types.js";
+import type { PrimitiveName, Sourced, TypeIR } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Expressions — fully resolved, every name has a kind tag.
@@ -38,6 +37,7 @@ export type RefKind =
   | "resource" // ambient resource handle — `files`, `jobs`, …
   | "store-field" // a `<Store>.<field>` read from a page/component/store body (Stage 5)
   | "match-binding" // the narrowed variant binding of a variant-`match` arm (variant-match.md)
+  | "row" // the quantified row of an `exists <Agg> as <row> where …` (typed `entity{<Agg>}`)
   | "unknown";
 
 export type CallKind =
@@ -70,12 +70,9 @@ export type BinOp =
 
 /**
  * The discriminated policy decision carried by an `authz-filter` `ExprIR`
- * node (M-T9.9).  Each backend's filter translator switches over `kind` with
+ * node.  Each backend's filter translator switches over `kind` with
  * TypeScript exhaustiveness, so adding a variant is a `tsc` error at every
- * render site — the compile-time replacement for the pre-M-T9.9 chain of
- * `isDenyFilter` / `isDeepScopeFilter` runtime probes on a `method-call`
- * marker (where a forgotten arm was a SILENT authorization bypass, not a
- * build break).
+ * render site rather than a silent authorization bypass.
  *
  *  - `deny` — the always-false carve-out (`deny [write] on <Agg>`,
  *    deny-wins).  Principal-FREE: it routes to each
@@ -84,35 +81,13 @@ export type BinOp =
  *    trap.  Every backend renders it to its native always-false fragment
  *    (Drizzle `and(isNull, isNotNull)` / EF `false` / JPQL `1 = 0` /
  *    `cb.disjunction()` / SQLAlchemy contradiction / Ecto `fragment("false")`).
- *  - `scope` — the descendant-or-self materialized-path subtree scope
- *    (`deep`/`global` read levels).  PRINCIPAL-referencing
- *    (carries `currentUser.<anchor>` + `currentUser.tenantId` as resolved
- *    member sub-expressions), so it routes to the ambient-principal filter
- *    path and `exprUsesCurrentUser` classifies it by walking those children.
- *    Renders to the compound scope predicate with the NULL-dataKey fallback
- *    to the tenant floor (`DEEP_SCOPE_SEMANTICS`).  `anchorClaim` is
- *    `currentUser.orgPath` for `deep` (caller's node + descendants) or
- *    `currentUser.rootOrg` for `global` (caller's ROOT subtree).
  */
-export type AuthzFilterKind =
-  | { kind: "deny" }
-  | {
-      kind: "scope";
-      /** `currentUser.<anchor>` as a resolved `member` sub-expression — the
-       *  descendant-prefix anchor (`orgPath` for `deep`, `rootOrg` for
-       *  `global`).  Kept as ExprIR so a backend that renders the claim through
-       *  its own expression path (Java's null-safe SpEL accessor) reuses it
-       *  verbatim, and `exprUsesCurrentUser` sees the principal reference. */
-      anchorClaim: ExprIR;
-      /** `currentUser.tenantId` as a resolved `member` sub-expression — the
-       *  floor the NULL-dataKey fallback compares against. */
-      tenantClaim: ExprIR;
-    };
+export type AuthzFilterKind = { kind: "deny" };
 
-export type ExprIR =
-  | { kind: "literal"; lit: LiteralKind; value: string; origin?: OriginRef }
-  | { kind: "this"; origin?: OriginRef }
-  | { kind: "id"; origin?: OriginRef }
+export type ExprIR = (
+  | { kind: "literal"; lit: LiteralKind; value: string }
+  | { kind: "this" }
+  | { kind: "id" }
   | {
       kind: "ref";
       name: string;
@@ -152,7 +127,6 @@ export type ExprIR =
        *  name, so a bare reference renders the scoped helper name `<wf><fn>`
        *  (workflows share a file, so helpers are namespaced by workflow). */
       wfScope?: string;
-      origin?: OriginRef;
     }
   | {
       kind: "member";
@@ -160,7 +134,6 @@ export type ExprIR =
       member: string;
       receiverType: TypeIR;
       memberType: TypeIR;
-      origin?: OriginRef;
     }
   | {
       kind: "method-call";
@@ -198,7 +171,6 @@ export type ExprIR =
        *  method (`bypassReadMethodName`), which enrichment synthesises on the
        *  aggregate's repository from this source and stance. */
       bypassRead?: BypassReadIR;
-      origin?: OriginRef;
     }
   | {
       kind: "call";
@@ -274,7 +246,10 @@ export type ExprIR =
        *  `aggregate` its target aggregate, `method` the find / retrieval method
        *  to render against the generated repository, and `op` what the read
        *  does.  Backends render a real call into the generated repository
-       *  without re-recognising the AST. */
+       *  without re-recognising the AST.  Its `ignoring` stance is set on a
+       *  widened list read (`all(<Ref>) ignoring …`): `retrievalName` then
+       *  names the read's own retrieval (`widenedRetrievalName`), which
+       *  enrichment derives with this stance on it. */
       repoRead?: {
         repo: string;
         aggregate: string;
@@ -306,13 +281,7 @@ export type ExprIR =
          *  filters (`ignoring …`): `method` names the read's own method and
          *  there is no `retrievalName`. */
         bypassRead?: BypassReadIR;
-        /** The `ignoring` stance of a widened list read (`all(<Ref>) ignoring
-         *  …`): `retrievalName` then names the read's own retrieval
-         *  (`widenedRetrievalName`), which enrichment derives with this
-         *  stance on it. */
-        bypassAll?: boolean;
-        bypassCaps?: string[];
-      };
+      } & Bypassing;
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
        *  (not overloaded onto flat `name`) so backends bind the store action
@@ -335,7 +304,6 @@ export type ExprIR =
        *  `function` calls (functions are always private) and every other
        *  `callKind`. */
       targetPrivate?: boolean;
-      origin?: OriginRef;
     }
   | {
       /** A bare reference to a named page/component `action` in
@@ -356,7 +324,6 @@ export type ExprIR =
        *  seam (record the use, reference the shell-bound store-action local)
        *  instead of the page-action handler.  Absent for a page action. */
       storeName?: string;
-      origin?: OriginRef;
     }
   | {
       kind: "lambda";
@@ -369,7 +336,6 @@ export type ExprIR =
        *  emits, etc. are admissible.  React emitter lowers
        *  state mutations against `state {}` fields to `setX(...)`. */
       block?: StmtIR[];
-      origin?: OriginRef;
     }
   | {
       kind: "new";
@@ -383,12 +349,10 @@ export type ExprIR =
        *  false for a root-level part (`new Shipment`), which keeps passing the
        *  ambient `this` id — byte-identical. */
       nested?: boolean;
-      origin?: OriginRef;
     }
   | {
       kind: "object";
       fields: { name: string; value: ExprIR }[];
-      origin?: OriginRef;
     }
   | {
       /** Bracketed list literal — `[expr, expr, ...]`.  Produced by
@@ -399,7 +363,6 @@ export type ExprIR =
        *  validators decide whether to flag them. */
       kind: "list";
       elements: ExprIR[];
-      origin?: OriginRef;
     }
   /**
    * Authorization / tenancy filter sentinel (M-T9.9).  A synthesized,
@@ -423,8 +386,7 @@ export type ExprIR =
    * Never reaches a domain-logic expression position — it lives ONLY in an
    * aggregate's `contextFilters` / `writeScopeFilter`, special-cased by the
    * filter translators BEFORE the generic dispatch.  Build/inspect it through
-   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `buildDeepScopeFilter`
-   * / `buildGlobalScopeFilter`, `isDenyFilter` / `isDeepScopeFilter`).
+   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `isDenyFilter`).
    */
   | {
       kind: "authz-filter";
@@ -434,10 +396,33 @@ export type ExprIR =
        *  table/alias off their render context, not this — it is carried for
        *  provenance / debugging. */
       aggregate: string;
-      origin?: OriginRef;
     }
-  | { kind: "paren"; inner: ExprIR; origin?: OriginRef }
-  | { kind: "unary"; op: "-" | "!"; operand: ExprIR; origin?: OriginRef }
+  /**
+   * Existential quantifier over another aggregate's rows —
+   * `exists CategoryShare as s where s.category == this.id`.  Typed `bool`.
+   *
+   * `aggregate` names an aggregate of the SAME bounded context (it shares the
+   * enclosing row's database; `loom.exists-cross-context` refuses another
+   * context's).  Inside `where`, `binding` resolves to a `ref` with
+   * `refKind: "row"` typed `entity{<aggregate>}`, so `s.category` is an
+   * ordinary `member`; `this` / bare fields still name the ENCLOSING row, and
+   * params / `currentUser` stay in scope.
+   *
+   * A query predicate only: every backend renders it as a correlated
+   * `EXISTS (SELECT 1 FROM <aggregate's table> WHERE <where> AND <the
+   * aggregate's own read scope>)`.  The quantified aggregate's read scope —
+   * tenant floor, capability filters, deny — always applies inside the
+   * subquery, so an `exists` never sees a row its caller could not read.
+   * `loom.exists-outside-query` keeps it out of in-memory positions.
+   */
+  | {
+      kind: "exists";
+      aggregate: string;
+      binding: string;
+      where: ExprIR;
+    }
+  | { kind: "paren"; inner: ExprIR }
+  | { kind: "unary"; op: "-" | "!"; operand: ExprIR }
   | {
       kind: "binary";
       op: BinOp;
@@ -463,9 +448,8 @@ export type ExprIR =
        *  closed-money and numeric-widening rules.  Same population
        *  policy as `leftType`. */
       resultType?: TypeIR;
-      origin?: OriginRef;
     }
-  | { kind: "ternary"; cond: ExprIR; then: ExprIR; otherwise: ExprIR; origin?: OriginRef }
+  | { kind: "ternary"; cond: ExprIR; then: ExprIR; otherwise: ExprIR }
   /**
    * Explicit primitive conversion — `<target>(<value>)`.  Source-
    * level form: `string(age)`, `money(decimalField)`,
@@ -487,7 +471,6 @@ export type ExprIR =
       target: PrimitiveName;
       from: PrimitiveName | undefined;
       value: ExprIR;
-      origin?: OriginRef;
     }
   /**
    * Duration constructor (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) —
@@ -505,7 +488,6 @@ export type ExprIR =
       kind: "duration";
       unit: DurationUnit;
       amount: ExprIR;
-      origin?: OriginRef;
     }
   /**
    * i18n ICU format suffix on an interpolation hole (M-T1.11, i18n.md) — a
@@ -530,7 +512,6 @@ export type ExprIR =
       inner: ExprIR;
       /** Raw ICU suffix incl. the leading comma, e.g. `", number, ::currency/USD"`. */
       format: string;
-      origin?: OriginRef;
     }
   /**
    * The translated text a user sees for a model element — the lowered
@@ -548,7 +529,6 @@ export type ExprIR =
       kind: "modelText";
       key: string;
       defaultText: string;
-      origin?: OriginRef;
     }
   /**
    * Predicate-arms expression — first arm whose
@@ -614,8 +594,9 @@ export type ExprIR =
          *  (the generators have no context to re-derive it). */
         isError?: boolean;
       }[];
-      origin?: OriginRef;
-    };
+    }
+) &
+  Sourced;
 
 // Convenience constructors used by the lowering layer.
 export const lit = (kind: LiteralKind, value: string): ExprIR => ({

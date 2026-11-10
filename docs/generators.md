@@ -152,7 +152,7 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 ├── package.json                     # deps: hono, @hono/node-server, @hono/zod-openapi, zod, drizzle-orm, pg
 ├── tsconfig.json
 ├── index.ts                         # pg Pool → drizzle → migrations → bootApp(db) → @hono/node-server.serve → shutdown
-├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, orgPath resolver, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
+├── boot.ts                          # bootApp(db, opts) → { app, stop }: seeds, verifier, dispatchers, channel transports + consumers, outbox relay, timers (the playground runs it too)
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
 ├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`
@@ -200,10 +200,12 @@ where durability matters:
   history); on a later boot, if the previous boundary is > 60s old and later than
   the last recorded run, it replays that boundary **exactly once** (a 20-minute
   outage over four 5-minute boundaries fires one catch-up, not four).
-- **`every:` (sub-minute) timers → in-process** `setInterval` + a
-  transaction-scoped `pg_try_advisory_xact_lock` (single-fire) with a `running`
-  no-overlap guard. Durability is meaningless for a high-frequency poll
-  (resume-at-next-tick is correct) and pg-boss cron is minute-granularity.
+- **`every:` (sub-minute) timers → in-process**: a `setInterval` poll at half
+  the period with a `running` no-overlap guard. Each poll claims the current
+  period in the `__loom_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions.md)),
+  and only the poll that advances the row dispatches, so the tick fires once
+  per period across replicas. Durability is meaningless for a high-frequency
+  poll (resume-at-next-period is correct) and pg-boss cron is minute-granularity.
 - **Dispatch.** The tick event is constructed (id fields minted, `at` stamped)
   and dispatched through the same in-process dispatcher the sagas use, so an
   `on`/`create` reactor fires with no new machinery.
@@ -212,8 +214,10 @@ where durability matters:
 - **`infra: "in-process"`** (`startTimerScheduler`'s option, passed through from
   `bootApp` — the browser playground sets it): `cron:` timers run on an
   in-memory stand-in for pg-boss that fires each boundary in this process
-  (`timer_cron_in_process`, warn — not durable, no retry, no single-fire), and
-  `every:` ticks dispatch without the advisory-lock transaction.
+  (`timer_cron_in_process`, warn — not durable, no retry, no single-fire).
+  `every:` ticks claim their period exactly as deployed; the claim is one
+  autocommitted statement, so PGlite's single connection runs it without
+  deadlocking the tick's writes.
 
 **Delivery semantics (multi-pod).** Still **at-least-once**: pg-boss gives
 single-fire per boundary and durable retry, but a clock-skewed peer or a
@@ -224,15 +228,15 @@ goal — at-least-once + idempotent reactors is the contract.
 A deployable owning no timer emits no `scheduler.ts`, no `pg-boss` dep, and no
 boot wiring — byte-identical to before.
 
-**Phase-2 durable drivers (M-T4.1).** The advisory-lock path above is the
-*in-process* tier — correct for `every:` (sub-minute) cadences but at-least-once.
-`cron:` timers additionally get a **durable, store-coordinated** driver per
+**Durable drivers.** The claim path above is the *in-process* tier — correct
+for `every:` (sub-minute) cadences, at most once per period. `cron:` timers get a **durable, store-coordinated** driver per
 backend, so a boundary missed while every replica was down is replayed once on
 recovery (missed-run catch-up) and fires exactly once across replicas
 (single-fire), with retries. Each backend uses its ecosystem's Postgres-native
 job store: **node → pg-boss**, **.NET → Hangfire**, **Java → JobRunr**,
-**Python → procrastinate**, **Elixir → Oban**. The `every:` tier stays the
-in-process interval loop + `pg_try_advisory_xact_lock` on every backend.
+**Python → procrastinate**, **Elixir → Oban**. The `every:` tier is the
+in-process poll + the `__loom_timer` period claim on every backend (one shared
+statement, one shared `MigrationsIR` table).
 
 ### Per-aggregate detail
 
@@ -486,8 +490,10 @@ twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
 - `AddCors` (permissive default; pin to tighten in prod)
 - `AddSwaggerGen` — spec at `/openapi.json` (aligned across backends)
 - `app.MapGet("/health", ...)` + `UseCors() / UseSwagger() / MapControllers()`
-- `db.Database.EnsureCreated()` on first scope (per-deployable DB,
-  no race — see [`tools.md`](tools.md#per-deployable-databases))
+- the boot migration (`Database.Migrate()`, or `DbSchema.EnsureAsync` under
+  Dapper) on the database's migrator; a deployable whose storage's database
+  another deployable migrates runs none — see
+  [`migrations.md`](migrations.md#databases-and-who-migrates-them)
 
 ---
 
@@ -1400,7 +1406,7 @@ writes everything to a flat tree:
 ├── docker-compose.obs.yml       # opt-in: prometheus + jaeger + the OTLP export env
 ├── monitoring/prometheus.yml    # the overlay's scrape config, one job per backend
 ├── db-init/
-│   └── 00-create-databases.sql  # CREATE DATABASE per backend deployable
+│   └── 00-create-databases.sql  # CREATE DATABASE per postgres storage
 └── e2e/                  # generated DSL-level e2e suite (vitest+fetch)
     ├── package.json
     ├── tsconfig.json
@@ -1432,15 +1438,15 @@ via two `PlatformSurface` flags (`src/platform/surface.ts`):
 orchestrator consults these instead of hardcoding platform names, so
 adding a new platform extends the registry + the two flags only.
 
-### Per-deployable databases
+### Databases per storage
 
-The init script `db-init/00-create-databases.sql` creates one
-database per backend deployable.  Each backend's connection string
-points to its own DB.  This sidesteps a real bug observed on .NET:
-EF Core's `EnsureCreated` is all-or-nothing per database, so two
-backends sharing one DB silently leave the loser-of-the-race's
-tables uncreated.  React deployables don't connect to a DB and don't
-appear in the init script.
+The init script `db-init/00-create-databases.sql` creates one database per
+postgres `storage` a backend binds, plus one for each backend that binds none.
+Each backend's connection string points at its storage's database, so
+deployables bound to one storage share their rows.  The first deployable on a
+database applies its migrations; the others carry them and skip the boot run
+([`migrations.md`](migrations.md#databases-and-who-migrates-them)).  React
+deployables don't connect to a DB and don't appear in the init script.
 
 Every statement is idempotent (`SELECT 'CREATE DATABASE x' WHERE NOT
 EXISTS (…) \gexec`): Postgres runs `docker-entrypoint-initdb.d` only on an
@@ -1459,9 +1465,10 @@ Schema changes flow through a platform-neutral **MigrationsIR**
 one per entry of the committed migration chain (`migrations/` beside
 the `.ddd`, recorded by `ddd migrate add`).  The builder
 ([`src/system/migrations-builder.ts`](../src/system/migrations-builder.ts))
-derives each module's delta against the chain's head for every
-`(subdomain, storage)` pair owned by a deployable (`migrationsOwner`
-enrichment in `src/ir/enrich/enrichments.ts`).  Backends only translate
+derives each module's delta against the chain's head for every module with an
+owning deployable (`migrationsOwner` enrichment in
+`src/ir/enrich/enrichments.ts`); every deployable on a database carries the
+deltas of that database's modules, and its first deployable applies them.  Backends only translate
 steps to their syntax via the per-platform emitters listed below — they
 never recompute the schema themselves.  Shared SQL rendering for the
 Postgres-backed emitters lives in

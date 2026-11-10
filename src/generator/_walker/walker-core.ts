@@ -451,6 +451,7 @@ export function isWalkableLayoutBody(
         (body.variantArms ?? []).some((a) => walkable(a.value)) ||
         walkable(body.otherwise)
       );
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "binary":
@@ -550,6 +551,10 @@ export function walkBody(
    *  extractable strings; every other caller omits it → text renders raw
    *  (byte-identical). */
   i18nPrefix: string | undefined = undefined,
+  /** The walk's opaque per-target sink (see `WalkEnv.sink`).  A target that
+   *  needs per-walk state before the first seam runs seeds it here; every
+   *  other caller takes the empty default. */
+  sink: unknown = {},
 ): WalkResult {
   const apiParamNames = new Map<string, string>();
   for (const p of apiParams) apiParamNames.set(p.name, p.apiName);
@@ -587,13 +592,13 @@ export function walkBody(
     listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
     bcByWorkflow,
     formOfs: [],
-    // Shared opaque per-target sink.  Created ONCE on the root context (an
-    // empty container the walker never inspects) so child contexts — built by
+    // Shared opaque per-target sink.  One object on the root context (a
+    // container the walker never inspects) so child contexts — built by
     // `{ ...ctx }` spread — carry the same object reference; a target seam that
     // fills it from a nested walk therefore lands in the sink the root's
     // `WalkResult` returns.  Only the target knows the shape (Angular fills an
     // `AngularWalkerSink`).
-    sink: {},
+    sink,
     // Same shared-reference discipline as `sink`: created once here so every
     // `{ ...ctx }` child spread carries the SAME array, and a primitive hoisting
     // from a nested walk (a DataGrid inside a QueryView's `data:` lambda) lands
@@ -1200,6 +1205,10 @@ export function walk(
    *  sequence). */
   slot: ChildSlot = "value",
 ): string {
+  // A target still moving onto this core keeps an unported node on its
+  // previous renderer (see `WalkerTarget.renderNodeOverride`).
+  const overridden = ctx.target.renderNodeOverride?.(expr, ctx, depth, slot);
+  if (overridden !== undefined) return overridden;
   // Api hook injection (JSX-child position).  Detect
   // `<param>.<aggregate>.<op>` rooted at a UiApiParam; register
   // the hook for hoisting (renderApiHoisting consumes
@@ -1350,6 +1359,7 @@ export function walk(
     // They are enumerated rather than swept into a bare `default` so a NEW
     // `ExprIR.kind` is a compile error here (the `never` below), on all six
     // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "exists":
     case "this":
     case "id":
     case "lambda":
@@ -2345,6 +2355,13 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       throw new Error(
         `walker: authorization filter for '${expr.aggregate}' reached a page/component body. ` +
           "Record-level policy is enforced server-side; a UI gate belongs in `requires`.",
+      );
+    case "exists":
+      // A query predicate (`loom.exists-outside-query` keeps it out of every
+      // page / component body) — the backends compile it into SQL.
+      throw new Error(
+        `walker: 'exists ${expr.aggregate} …' reached a page/component body; it is a ` +
+          "query predicate — read the rows through a criterion on the server.",
       );
     default: {
       // EXHAUSTIVENESS — the frontend twin of `_expr/target.ts`'s `never`

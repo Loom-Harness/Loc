@@ -7,12 +7,14 @@ import { efcorePersistenceAdapter } from "../generator/dotnet/adapters/efcore-pe
 import { dotnetRootNamespace } from "../generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../generator/dotnet/emit/program.js";
 import { generateDotnetForContexts } from "../generator/dotnet/index.js";
+import { databaseOf } from "../ir/util/databases.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
 } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 /** Pascal-cased root namespace for a deployable's .NET project — the same
  *  value `generateDotnetForContexts` uses for `<ns>.csproj` (see
@@ -44,6 +46,7 @@ const dotnetPlatform: PlatformSurface = {
   // an explicit `ui:` declaration.
   mountsUi: true,
   capabilities: TARGET_CAPABILITIES.dotnet,
+  facts: TARGET_FACTS.dotnet,
   emitProject({
     contexts,
     deployable,
@@ -82,12 +85,13 @@ const dotnetPlatform: PlatformSurface = {
       { emitTrace, sourcemap, sourceTexts },
     );
   },
-  composeService({ slug }): ComposeServiceShape {
+  composeService({ slug, deployable, sys }): ComposeServiceShape {
+    const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
       env: [
         [
           "ConnectionStrings__Default",
-          `Host=db;Port=5432;Database=${slug};Username=postgres;Password=postgres`,
+          `Host=db;Port=5432;Database=${database};Username=postgres;Password=postgres`,
         ],
         // Runtime log-level knob (default info; overridable here / in k8s).
         ["LOG_LEVEL", "info"],

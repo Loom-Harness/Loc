@@ -20,6 +20,7 @@
 // codecs that body carries on the concrete's own route.
 // ---------------------------------------------------------------------------
 
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
@@ -48,7 +49,7 @@ export function routedJavaPolymorphicRead(
     const all = ctx.repositories
       .find((r) => r.aggregateName === v.aggregate)
       ?.finds.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !concrete.fields.some((f) => f.maskUnless);
+    return !!concrete && !!all && !all.requires && !carriesFieldMask(concrete);
   });
   return open ? read : undefined;
 }

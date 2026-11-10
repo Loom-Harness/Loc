@@ -84,7 +84,7 @@ describe("Flutter i18n runtime", () => {
     expect(i18n).toContain("const Map<String, String> _en = <String, String>{");
     expect(i18n).toContain("'Storefront',");
     expect(i18n).toContain(
-      "String t(String key, String defaultMessage, [Map<String, Object>? values]) {",
+      "String t(String key, String defaultMessage, [Map<String, Object>? values]) =>",
     );
     // ICU through package:intl's MessageFormat (already a pubspec dependency).
     expect(i18n).toContain("import 'package:intl/message_format.dart';");

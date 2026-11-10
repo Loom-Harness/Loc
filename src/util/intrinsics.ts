@@ -94,8 +94,7 @@ export interface IntrinsicSignature {
 //     `startsWith` is the one of the three that is also QUERYABLE — the
 //     prefix-match filter operator of
 //     `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2
-//     (the tenancy subtree ladder's `dataKey` reachability predicate is a
-//     prefix match, and nothing else in the language expresses one).  Every
+//     (nothing else in the language expresses a prefix match).  Every
 //     SQL path renders it as position-anchored search rather than `LIKE
 //     <arg> || '%'`: the argument is a VALUE, so a `%` or `_` inside it must
 //     match literally, and an anchored `strpos`/`locate` needs no

@@ -19,7 +19,7 @@ export function renderRelEnv(appName: string): string {
 `;
 }
 
-export function renderRelServer(appName: string): string {
+export function renderRelServer(appName: string, migrates = true): string {
   // `#!/bin/sh` here is dash on Debian, which doesn't support
   // `pipefail`.  Drop that flag — `set -eu` is enough for a one-line
   // exec, and the path is rooted relative to the release directory
@@ -32,13 +32,17 @@ export function renderRelServer(appName: string): string {
   // against a tableless DB and every query 500s with `42P01 relation does
   // not exist`.  Mirrors the .NET backend's migrate-on-startup; the SQL
   // migrations under priv/repo/migrations ship inside the release.
+  //
+  // A release whose storage's database another deployable migrates skips the
+  // `eval`: the schema is that deployable's, applied before this one starts.
+  const migrate = migrates
+    ? `./bin/${appName} eval "${snakeToModule(appName)}.Release.migrate()"\n\n`
+    : "";
   return `#!/bin/sh
 # Auto-generated.
 set -eu
 
-./bin/${appName} eval "${snakeToModule(appName)}.Release.migrate()"
-
-exec "./bin/${appName}" start
+${migrate}exec "./bin/${appName}" start
 `;
 }
 

@@ -32,7 +32,9 @@ export function useGeneratedConflicts(store: GitStore | null): string[] {
             hit.push(abs.slice(GENERATED_PREFIX.length));
           }
         }
-        if (!cancelled) setConflicts(hit);
+        // Keep the old identity when nothing changed: this re-scans after every
+        // keystroke, and a fresh empty array would re-render every reader.
+        if (!cancelled) setConflicts((prev) => (sameList(prev, hit) ? prev : hit));
       })();
     };
     scan();
@@ -48,4 +50,8 @@ export function useGeneratedConflicts(store: GitStore | null): string[] {
   }, [store]);
 
   return conflicts;
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
 }

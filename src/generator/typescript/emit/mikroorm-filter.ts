@@ -6,24 +6,18 @@
 // mikroorm.ts by packet 2.6 (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
+import { existsScopePredicates } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
 import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
-import {
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../../util/intrinsics.js";
 import { escapeTsIdent, snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
-import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
 import { QueryEmissionRefusal, refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
@@ -107,8 +101,7 @@ export const MIKRO_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) 
   // is a VALUE, so a `%`/`_` inside it must match LITERALLY (the corpus fixture
   // `prefix-filter.ddd` asserts exactly that, alongside the delimiter trap).
   // `starts_with` has no pattern language, so no ESCAPE discipline is needed —
-  // the same reasoning as the deep-scope subtree predicate above, and the twin
-  // of drizzle's `strpos(col, $p) = 1`.
+  // the twin of drizzle's `strpos(col, $p) = 1`.
   "string.startsWith": (r, a) => `starts_with(${r}, ${a[0]})`,
   "int.abs": (r) => `abs(${r})`,
   "long.abs": (r) => `abs(${r})`,
@@ -258,7 +251,7 @@ function mikroOperandSql(e: ExprIR, params: string[], acc: string): string | nul
  *  A FilterQuery has no arithmetic vocabulary at all, so unlike an intrinsic
  *  (which keeps the comparison's operator as a `$lt` payload) the WHOLE
  *  comparison becomes SQL text with the empty-array value — the same
- *  `RawQueryFragment` shape the deep-scope sentinel uses.  One path serves both
+ *  `RawQueryFragment` shape every raw entry here uses.  One path serves both
  *  orientations: the column side (`this.due + days(30) < q`) and the value side
  *  (`this.due < q + days(2)`), which differ only in which operand inlines a
  *  column and which binds.
@@ -427,6 +420,7 @@ function filterValue(e: ExprIR, acc: string): string {
     case "i18nFormat":
     case "modelText":
     case "match":
+    case "exists":
       throw new Error(`mikroorm: unsupported value '${e.kind}' in find`);
     default: {
       const _exhaustive: never = e;
@@ -466,7 +460,12 @@ function booleanColumnName(e: ExprIR): string | null {
  *  `active: true`), negated boolean columns (`!this.active` → `active:
  *  false`), and a general `!<compound>` (→ `$not: {...}`). */
 
-function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[] = []): string {
+function predicateEntry(
+  e: ExprIR,
+  acc: string,
+  assocs: readonly AssociationIR[] = [],
+  aggs: readonly EnrichedAggregateIR[] = [],
+): string {
   const inner = e.kind === "paren" ? e.inner : e;
   // Registry self-scope against a `string` tenancy claim (M-T3.7(c)) — the
   // MikroORM twin of the drizzle guard.  Binding the raw claim to a `uuid`
@@ -479,7 +478,8 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // `unsupported find predicate` throw at the bottom of this function — which
   // is how the `deny` carve-out becomes unreachable on this adapter.  That is
   // the whole point of giving the sentinel its own `ExprIR.kind`.
-  if (inner.kind === "authz-filter") return authzFilterEntry(inner, acc);
+  if (inner.kind === "authz-filter") return authzFilterEntry(inner);
+  if (inner.kind === "exists") return existsEntry(inner, acc, aggs);
   const selfScope = guidFromStringSelfScope(inner);
   if (selfScope) {
     const claim = `${acc}.${selfScope.claim}`;
@@ -490,7 +490,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   if (inner.kind === "unary" && inner.op === "!") {
     const negCol = booleanColumnName(inner.operand);
     if (negCol) return `${negCol}: false`;
-    return `$not: ${whereToMikroFilter(inner.operand, acc, assocs)}`;
+    return `$not: ${whereToMikroFilter(inner.operand, acc, assocs, aggs)}`;
   }
   // `this.<refColl>.contains(x)` — membership over an `X id[]` reference
   // collection, which persists as a join TABLE rather than a column, so it is
@@ -502,7 +502,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // the root table `e0` in the SQL it builds, so an EXISTS fragment correlating
   // on `<table>.id` would fail with "missing FROM-clause entry", while a bare
   // `id` resolves in the outer scope exactly like every other unqualified
-  // column this file emits (the deep-scope sentinel's own note).
+  // column this file emits.
   const membership = containsMembershipFragment(inner, acc, assocs);
   if (membership) return rawEntry(membership, "[]");
   // A principal term (`currentUser.role == "agent"`) reads no column, so it
@@ -576,7 +576,7 @@ function containsMembershipFragment(
  *  MikroORM twin of Dapper's `authzFilterToSql` (`1 = 0`) and Drizzle's
  *  `and(isNull(id), isNotNull(id))`. */
 
-function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: string): string {
+function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>): string {
   switch (e.filter.kind) {
     // DENY carve-out (authorization — deny-wins).  The always-false
     // term, ANDed into every read FilterQuery (and into the write-scope
@@ -587,62 +587,9 @@ function authzFilterEntry(e: Extract<ExprIR, { kind: "authz-filter" }>, acc: str
     // sibling entries `flattenAnd` merges into the same object literal.
     case "deny":
       return `$and: [{ id: null }, { id: { $ne: null } }]`;
-    // `deep`/`global` read level (hierarchical tenancy) — the
-    // materialized-path descendant-or-self sentinel, DEEP_SCOPE_SEMANTICS:
-    //
-    //   (data_key IS NOT NULL
-    //      AND (data_key = ?
-    //           OR (data_key like ? escape '!' AND strpos(data_key, ?) = 1)))
-    //   OR (data_key IS NULL AND tenant_id = ?)
-    //
-    // The FilterQuery *operator* vocabulary genuinely cannot express a prefix
-    // test — but MikroORM has a first-class escape hatch for exactly that, and
-    // the shape is ordinary SQL.  `raw(sql, params)` used as a FilterQuery KEY
-    // with an empty-array value (`{ [raw("…", […])]: [] }`) is the documented
-    // way to AND a bare SQL condition into a find (`RawQueryFragment`), and it
-    // composes with the sibling `$and` entries the same way every other entry
-    // here does.  It must be built INSIDE the object literal at each call site
-    // (never hoisted into a `const` shared by two queries): a raw fragment's
-    // cache key is consumed on use, so two statements need two fragments — the
-    // emitters splice this string per statement, which is what makes that true.
-    //
-    // The descendant test is TWO terms (M-T3.17).  The row is DECIDED by the
-    // anchored `strpos(data_key, ?) = 1`, which has no pattern language: the
-    // anchor is a principal CLAIM, i.e. data, and `_`/`%` inside it would be
-    // LIKE wildcards — an org legitimately named `org_a` would match
-    // `orgXa.leak`, a cross-tenant read with no attacker involved.  Binding the
-    // value (which `raw`'s `?` does) stops injection, not pattern semantics.
-    // The escaped `like ? escape '!'` in FRONT of it is a pure prefilter, there
-    // so the planner can turn the fixed prefix into an index range over
-    // `<table>_data_key_idx` instead of seq-scanning every row; an escaping
-    // slip could only widen it, and the recheck still gates the row.  Same
-    // two-term shape as the drizzle twin.
-    //
-    // The NULL branch is a deliberate OR-fallback, not fail-closed: a row
-    // stamped before (or by a principal-less save) has no `data_key`, and
-    // a bare prefix test would hide it from its own tenant.  It degrades to
-    // exactly the flat floor — never wider.
-    //
-    // Columns are UNQUALIFIED (`data_key`, not `<alias>.data_key`), matching the
-    // Dapper twin: every statement this fragment lands in is single-table
-    // (`em.find`/`em.count` over one Row entity, or the QueryBuilder's direct
-    // read of the source table), so there is nothing to be ambiguous with.
-    case "scope": {
-      const anchor = `${acc}.${deepScopeAnchorClaim(e)}`;
-      const tenant = `${acc}.${deepScopeTenantClaim(e)}`;
-      const col = snake(TENANT_OWNED_DATA_KEY_FIELD);
-      const tenantCol = snake(TENANT_OWNED_TENANT_ID_FIELD);
-      const sql =
-        `((${col} is not null and (${col} = ? ` +
-        `or (${col} like ? ${SQL_LIKE_ESCAPE_CLAUSE} and strpos(${col}, ?) = 1))) ` +
-        `or (${col} is null and ${tenantCol} = ?))`;
-      const needle = `${anchor} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`;
-      const params = `[${anchor}, ${tsSubtreeLikePattern(anchor)}, ${needle}, ${tenant}]`;
-      return `[raw(${JSON.stringify(sql)}, ${params})]: []`;
-    }
     default: {
-      const _exhaustive: never = e.filter;
-      throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+      const _exhaustive: never = e.filter.kind;
+      throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
     }
   }
 }
@@ -665,9 +612,10 @@ export function mikroFilterOrRefuse(
   e: ExprIR,
   acc: string,
   assocs: readonly AssociationIR[],
+  aggs: readonly EnrichedAggregateIR[] = [],
 ): string {
   try {
-    return whereToMikroFilter(e, acc, assocs);
+    return whereToMikroFilter(e, acc, assocs, aggs);
   } catch (err) {
     if (err instanceof QueryEmissionRefusal) throw err;
     const why = err instanceof Error ? err.message : String(err);
@@ -682,18 +630,203 @@ export function whereToMikroFilter(
    *  resolve a `this.<refColl>.contains(x)` membership predicate to its join
    *  table.  Omitted by callers whose subject owns none (byte-identical). */
   assocs: readonly AssociationIR[] = [],
+  /** The context's aggregates — needed only to resolve an `exists <Agg> …`
+   *  quantifier to the quantified table and its read scope. */
+  aggs: readonly EnrichedAggregateIR[] = [],
 ): string {
   const inner = e.kind === "paren" ? e.inner : e;
   if (inner.kind === "binary" && inner.op === "&&") {
-    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs));
+    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs, aggs));
     return `{ ${entries.join(", ")} }`;
   }
   if (inner.kind === "binary" && inner.op === "||") {
     return `{ $or: [${orBranches(inner)
-      .map((b) => whereToMikroFilter(b, acc, assocs))
+      .map((b) => whereToMikroFilter(b, acc, assocs, aggs))
       .join(", ")}] }`;
   }
-  return `{ ${predicateEntry(inner, acc, assocs)} }`;
+  return `{ ${predicateEntry(inner, acc, assocs, aggs)} }`;
+}
+
+// ---------------------------------------------------------------------------
+// `exists <Agg> as s where p` — a correlated EXISTS subquery.
+//
+// A FilterQuery cannot spell a subquery, so the whole quantifier is ONE
+// `raw()` key with the empty-array value (the shape every other raw entry
+// here takes).  Unlike the reference-collection membership above it IS
+// correlated, so it needs the root entity's alias: MikroORM names the root
+// table itself (`e0`), and hands that name to a `raw((alias) => …)` callback,
+// which is how `this.<col>` reaches `<alias>.<col>` inside the subquery.  The
+// quantified table takes its own alias (`loom_<row>`), so its columns never
+// resolve to the outer row's.
+//
+// The quantified aggregate's read scope is inlined into the subquery as raw
+// SQL: MikroORM's global filters apply to an entity query, never to a raw
+// fragment, so dropping it would let an `exists` see rows its caller cannot.
+// ---------------------------------------------------------------------------
+
+/** Where a raw EXISTS predicate's columns and values come from. */
+interface ExistsSqlScope {
+  /** `this.<col>` → the outer row's alias expression (a JS template hole). */
+  outer: string;
+  /** Each in-scope `exists … as <row>` binding → its table alias. */
+  rows: Map<string, string>;
+  acc: string;
+  aggs: readonly EnrichedAggregateIR[];
+  params: string[];
+}
+
+function existsEntry(
+  e: Extract<ExprIR, { kind: "exists" }>,
+  acc: string,
+  aggs: readonly EnrichedAggregateIR[],
+): string {
+  const scope: ExistsSqlScope = { outer: "${a}", rows: new Map(), acc, aggs, params: [] };
+  const sql = existsSql(e, scope);
+  if (sql === null) throw new Error(`mikroorm: unsupported 'exists ${e.aggregate}' predicate`);
+  // A JS template literal: the outer alias is spliced in at query time.
+  const body = sql.replace(/`/g, "\\`");
+  return `[raw((a: string) => \`${body}\`, [${scope.params.join(", ")}])]: []`;
+}
+
+function existsSql(e: Extract<ExprIR, { kind: "exists" }>, sc: ExistsSqlScope): string | null {
+  const inner = sc.aggs.find((a) => a.name === e.aggregate);
+  if (!inner) return null;
+  const alias = `loom_${snake(e.binding)}`;
+  const rows = new Map(sc.rows);
+  rows.set(e.binding, alias);
+  const sub: ExistsSqlScope = { ...sc, rows };
+  const terms: string[] = [];
+  const pred = rawPredicateSql(e.where, sub);
+  if (pred === null) return null;
+  terms.push(pred);
+  // The quantified aggregate's own read scope, over its own alias, reading the
+  // AMBIENT principal: the enclosing read may not have threaded one.
+  const own: ExistsSqlScope = { ...sc, outer: alias, rows, acc: AMBIENT_PRINCIPAL };
+  for (const pred of existsScopePredicates(inner.name, sc.aggs)) {
+    const t = rawPredicateSql(pred, own);
+    if (t === null) return null;
+    terms.push(t);
+  }
+  const table = aggregateTableName(inner, sc.aggs);
+  return `exists (select 1 from ${table} ${alias} where ${terms.map((t) => `(${t})`).join(" and ")})`;
+}
+
+/** A column-position operand: `this.<col>` / `this.<vo>.<sub>` on the outer
+ *  row, `<row>.<col>` / `<row>.<vo>.<sub>` on a quantified one. */
+function rawColumnSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  const x = e.kind === "paren" ? e.inner : e;
+  const outerCol = thisFieldColumn(x);
+  if (outerCol !== null) return `${sc.outer}.${mikroIdent(snake(outerCol))}`;
+  if (x.kind === "member" && x.receiver.kind === "ref" && x.receiver.refKind === "row") {
+    const alias = sc.rows.get(x.receiver.name);
+    return alias ? `${alias}.${mikroIdent(snake(x.member))}` : null;
+  }
+  if (
+    x.kind === "member" &&
+    x.receiver.kind === "member" &&
+    x.receiver.receiver.kind === "ref" &&
+    x.receiver.receiver.refKind === "row"
+  ) {
+    const alias = sc.rows.get(x.receiver.receiver.name);
+    return alias ? `${alias}.${mikroIdent(snake(`${x.receiver.member}_${x.member}`))}` : null;
+  }
+  return null;
+}
+
+/** A column or a bound value (`?`, its TS expression pushed onto `params`). */
+function rawOperandSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  const col = rawColumnSql(e, sc);
+  if (col !== null) return col;
+  try {
+    sc.params.push(filterValue(e, sc.acc));
+  } catch {
+    return null;
+  }
+  return "?";
+}
+
+function isBoolTyped(e: ExprIR): boolean {
+  const t = e.kind === "member" ? e.memberType : e.kind === "ref" ? e.type : undefined;
+  return t?.kind === "primitive" && t.name === "bool";
+}
+
+/** One predicate as raw Postgres SQL over the columns `sc` resolves. */
+function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  switch (e.kind) {
+    case "paren":
+      return rawPredicateSql(e.inner, sc);
+    case "exists":
+      return existsSql(e, sc);
+    case "authz-filter":
+      return e.filter.kind === "deny" ? "1 = 0" : null;
+    case "unary": {
+      if (e.op !== "!") return null;
+      const inner = rawPredicateSql(e.operand, sc);
+      return inner === null ? null : `not (${inner})`;
+    }
+    case "binary": {
+      if (e.op === "&&" || e.op === "||") {
+        const l = rawPredicateSql(e.left, sc);
+        if (l === null) return null;
+        const r = rawPredicateSql(e.right, sc);
+        if (r === null) return null;
+        return `(${l}) ${e.op === "&&" ? "and" : "or"} (${r})`;
+      }
+      const pt = principalTerm(e);
+      if (pt) {
+        const test = renderPrincipalTest(pt, {
+          claim: (field) => `${sc.acc}.${field}`,
+          value: (v) => filterValue(v, sc.acc),
+          isNull: (x) => `${x} == null`,
+          isNotNull: (x) => `${x} != null`,
+          eq: (l, r) => `${l} === ${r}`,
+          ne: (l, r) => `${l} !== ${r}`,
+        });
+        return test === null ? null : `\${(${test}) ? "1 = 1" : "1 = 0"}`;
+      }
+      const op = RAW_COMPARE_OP[e.op];
+      if (!op) return null;
+      const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+      if (isNull(e.right) || isNull(e.left)) {
+        const side = rawColumnSql(isNull(e.right) ? e.left : e.right, sc);
+        if (side === null || (e.op !== "==" && e.op !== "!=")) return null;
+        return `${side} ${e.op === "==" ? "is null" : "is not null"}`;
+      }
+      const l = rawOperandSql(e.left, sc);
+      if (l === null) return null;
+      const r = rawOperandSql(e.right, sc);
+      if (r === null) return null;
+      return `${l} ${op} ${r}`;
+    }
+    case "member":
+    case "ref": {
+      if (!isBoolTyped(e)) return null;
+      const col = rawColumnSql(e, sc);
+      return col === null ? null : `${col} = true`;
+    }
+    case "literal":
+      return e.lit === "bool" ? (e.value === "true" ? "1 = 1" : "1 = 0") : null;
+    case "method-call":
+    case "this":
+    case "id":
+    case "call":
+    case "new":
+    case "object":
+    case "list":
+    case "lambda":
+    case "action-ref":
+    case "ternary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "modelText":
+    case "match":
+      return null;
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
+  }
 }
 
 /** Split a `&&` chain into its conjuncts (each rendered by `predicateEntry`). */

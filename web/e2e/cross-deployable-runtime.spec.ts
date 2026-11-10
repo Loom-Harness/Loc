@@ -4,7 +4,7 @@
 // deployable's app, each running in its own worker.  Needs real internet, like
 // runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,

@@ -279,6 +279,7 @@ function leavesResolveToColumns(e: ExprIR, columns: ReadonlySet<string>): boolea
     // rather than emit code that raises at runtime.  `false` is the
     // conservative answer (no provenance row, never a broken one).  Named
     // rather than left to a `default:` so a new `ExprIR` kind is a decision.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":
@@ -327,6 +328,7 @@ function paramLeafNames(e: ExprIR, out: string[] = []): string[] {
     // required `leavesResolveToColumns`, whose admitted vocabulary is exactly
     // `literal | ref | paren | unary | binary`.  The two switches must stay
     // arm-for-arm aligned, which is what the `never` below enforces.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

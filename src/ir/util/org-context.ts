@@ -1,8 +1,8 @@
-// The OPERATING-scope accessor (`organizationContext`, organization-context.md;
-// M-T3.6 items 3+5) — derived facts over the lowered IR.
+// The OPERATING-scope accessor (`organizationContext`) — derived facts over the
+// lowered IR.
 //
-// Lowering rewrites `organizationContext.orgPath` to the derived principal
-// member `currentUser.orgContextPath` (`PRINCIPAL_ORG_CONTEXT_PATH`), so the
+// Lowering rewrites `organizationContext.org` to the derived principal
+// member `currentUser.operatingOrg` (`PRINCIPAL_OPERATING_ORG`), so the
 // accessor rides every backend's existing principal threading.  Whether a
 // context — and therefore a deployable hosting it — reads the operating scope
 // is a pure function of the expressions it holds, so it is DERIVED here on
@@ -11,16 +11,16 @@
 // auth emitter (which emits the fail-closed switch gate only where something
 // can read the switched value) ask the same question through the same walk.
 
-import { PRINCIPAL_ORG_CONTEXT_PATH } from "../../util/principal.js";
+import { PRINCIPAL_OPERATING_ORG } from "../../util/principal.js";
 import type { BoundedContextIR, ExprIR, SystemIR } from "../types/loom-ir.js";
 import { forEachContextExpr } from "./model-exprs.js";
 
-/** Is `e` the lowered operating-scope read — `organizationContext.orgPath`,
- *  i.e. the `orgContextPath` member of the `current-user` principal ref? */
+/** Is `e` the lowered operating-scope read — `organizationContext.org`,
+ *  i.e. the `operatingOrg` member of the `current-user` principal ref? */
 export function isOrgContextRead(e: ExprIR): boolean {
   return (
     e.kind === "member" &&
-    e.member === PRINCIPAL_ORG_CONTEXT_PATH &&
+    e.member === PRINCIPAL_OPERATING_ORG &&
     e.receiver.kind === "ref" &&
     e.receiver.refKind === "current-user"
   );

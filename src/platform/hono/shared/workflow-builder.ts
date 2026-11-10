@@ -20,6 +20,7 @@ import {
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -57,6 +58,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { eventSourcedWorkflows, hasStateRow, lookupOp } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -64,6 +66,7 @@ import {
   type EnrichedBoundedContextIR,
   type ExprIR,
   exprUsesCurrentUser,
+  type IsolationLevel,
   type TypeIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -156,7 +159,6 @@ import {
   emitWorkflowFoldHelpers,
   emitWorkflowStreamSerializers,
   esHelperNames,
-  eventSourcedWorkflows,
 } from "./workflow-eventsourced-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -213,6 +215,12 @@ export function buildWorkflowsFile(
    *  the system principal of that origin (`auth/middleware.ts`
    *  `runAsEventOrigin`).  Auth-less output is unchanged. */
   carriesOrigin = false,
+  /** The isolation level a `transactional` workflow opens its transaction
+   *  with: its own `transactional(<level>)`, else its OWNING context's state
+   *  dataSource `isolationLevel` (`resolveWorkflowIsolation`).  The caller
+   *  resolves it because a merged multi-context deployable's `ctx` is not the
+   *  workflow's owning context.  Absent → the workflow's own level only. */
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
 ): string {
   if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
@@ -416,6 +424,7 @@ export function buildWorkflowsFile(
         reqNameFor({ kind: "workflow", workflow: wf.name }),
         opFragments,
         usingMikro,
+        resolveIsolation,
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -706,7 +715,7 @@ export function buildWorkflowsFile(
   if (mikroNames.length > 0)
     imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
   const workflowRowsReferenced = ctx.workflows
-    .filter((w) => !w.eventSourced && !!w.correlationField)
+    .filter(hasStateRow)
     .map(mikroWorkflowRowClass)
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr));
   // An event-sourced workflow's fold helpers read/append the shared
@@ -863,6 +872,27 @@ function resourceOpsIn(wf: WorkflowIR): { resourceName: string; verb: string }[]
   return out;
 }
 
+/** True when `aggName` has an operation with a provenance write-site, so its
+ *  instances carry `drainProv()`; every flush gates on this. */
+function aggHasProvSite(ctx: BoundedContextIR, aggName: string): boolean {
+  const agg = ctx.aggregates.find((a) => a.name === aggName);
+  return !!agg && agg.operations.some((o) => opHasProvSite(o));
+}
+
+/** True when a body saves a provenanced aggregate INSIDE a block — a `for-each`
+ *  iteration, an `if let` branch or a `match` arm.  Those saves flush their
+ *  lineage where the binding is in scope, so the body needs the child frame
+ *  the flushed rows record their scope from. */
+function hasNestedProvSave(ctx: BoundedContextIR, stmts: readonly WorkflowStmtIR[]): boolean {
+  let found = false;
+  for (const top of stmts) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (!found && nestedSaves(s).some((sv) => aggHasProvSite(ctx, sv.aggName))) found = true;
+    });
+  }
+  return found;
+}
+
 /** Drain each provenanced aggregate's accumulated lineage into
  *  `provenance_records`, stamping the carrier ids.  Shared by the workflow
  *  command route and the event reactor — both invoke ops inline, so the
@@ -954,6 +984,7 @@ function emitWorkflowRoute(
    *  property under a durable channel; the allocate literal must spell it out.
    *  Drizzle builds stay byte-identical. */
   usingMikro = false,
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1175,7 +1206,7 @@ function emitWorkflowRoute(
   // it inline used to skip it — an audit-completeness gap).  Those rows also
   // want the child frame's scope / parent ids, so the frame opens for either.
   const auditsOps = hasAuditedOpCall(ctx, wf.statements);
-  const wrapsFrame = provSaves.length > 0 || auditsOps;
+  const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, wf.statements);
   // aggregate name → its repo variable, so an inline audited op-call can take
   // the before/after wire snapshots through the repo (`repo.toWire(agg)`).
   const repoVarByAgg = new Map(reposNeeded.map((r) => [r.aggName, lowerFirst(r.repoName)]));
@@ -1258,10 +1289,14 @@ function emitWorkflowRoute(
     // EntityManager has no `transaction` (TS2551).  The isolation option is
     // spelled per adapter too: drizzle takes the space-cased string, MikroORM
     // its `IsolationLevel` enum (a bare string literal is not assignable).
-    const txOpts = wf.isolation
+    // Only a `transactional` workflow pins a level; the implicit transaction
+    // an entry result or a write-scope re-check opens keeps the connection
+    // default — the same rule as the .NET `BeginTransactionAsync` path.
+    const isolation = wf.transactional ? resolveIsolation(wf) : undefined;
+    const txOpts = isolation
       ? usingMikro
-        ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
-        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
+        ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`
+        : `, { isolationLevel: "${pgIsolationLevel(isolation)}" }`
       : ``;
     // Aggregate events (an operation's `emit`) drain at each repository
     // `save()`, which here runs on the OUTER `tx` — its own
@@ -1283,7 +1318,14 @@ function emitWorkflowRoute(
     out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }, writeScope),
+      honoWorkflowStmtTarget(
+        ctx,
+        paramExprs,
+        wfThis,
+        { dbHandle: "tx", repoVarByAgg },
+        writeScope,
+        "tx",
+      ),
       `${bi}  `,
     );
     const audits = auditAfterSaveLines(stmtChunks.flat(), `${bi}  `);
@@ -1319,7 +1361,14 @@ function emitWorkflowRoute(
     out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }, writeScope),
+      honoWorkflowStmtTarget(
+        ctx,
+        paramExprs,
+        wfThis,
+        { dbHandle: "db", repoVarByAgg },
+        writeScope,
+        "db",
+      ),
       bi,
     );
     const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
@@ -1719,7 +1768,7 @@ function emitSubscriptionHandlers(
   // emitted once when any ES workflow is subscribed (workflow-and-applier.md
   // A2-S5b).  Reuses the aggregate event store's `eventToData` / `rowToEvent`.
   // Skipped when the instance-route prelude already emitted them.
-  if (eventSourcedWorkflows(ctx).length > 0 && !serializersDone) {
+  if (eventSourcedWorkflows(ctx.workflows).length > 0 && !serializersDone) {
     out.push(...emitWorkflowStreamSerializers(ctx));
     out.push("");
   }
@@ -2406,7 +2455,7 @@ function emitHandlerFn(
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
   const auditsOps = hasAuditedOpCall(ctx, statements);
-  const wrapsFrame = provSaves.length > 0 || auditsOps;
+  const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
   const bi = wrapsFrame ? "    " : "  ";
@@ -2416,7 +2465,14 @@ function emitHandlerFn(
   }
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    honoWorkflowStmtTarget(ctx, noParams, thisName, { dbHandle: "db", repoVarByAgg }),
+    honoWorkflowStmtTarget(
+      ctx,
+      noParams,
+      thisName,
+      { dbHandle: "db", repoVarByAgg },
+      undefined,
+      "db",
+    ),
     bi,
   );
   const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
@@ -2533,7 +2589,7 @@ function emitEventSourcedHandlerFn(
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
   const auditsOps = hasAuditedOpCall(ctx, statements);
-  const wrapsFrame = provSaves.length > 0 || auditsOps;
+  const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
   const bi = wrapsFrame ? "    " : "  ";
@@ -2543,7 +2599,14 @@ function emitEventSourcedHandlerFn(
   }
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    honoWorkflowStmtTarget(ctx, noParams, "state", { dbHandle: "db", repoVarByAgg }),
+    honoWorkflowStmtTarget(
+      ctx,
+      noParams,
+      "state",
+      { dbHandle: "db", repoVarByAgg },
+      undefined,
+      "db",
+    ),
     bi,
   );
   const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
@@ -2781,6 +2844,11 @@ export function honoWorkflowStmtTarget(
    *  workflow's command route, a command handler) in a context with a
    *  narrowed write scope; a reactor passes none. */
   writeScope?: WriteScopeContext,
+  /** Present on a workflow body (command route, reactor): the handle a save
+   *  INSIDE a block flushes its aggregate's provenance lineage on, right after
+   *  the save, where the binding is still in scope.  The exit saves flush in
+   *  the caller.  Absent → no nested flush (an explicit command handler). */
+  provDbHandle?: string,
 ): WorkflowStmtTarget {
   // Read-port wiring (domain-services.md rev. 4): a `reading`-tier
   // domain-service call is supplied its repository handle(s) ahead of the user
@@ -2794,6 +2862,23 @@ export function honoWorkflowStmtTarget(
   // Unique suffix per in-body audit capture so multiple audited op-calls in one
   // workflow don't collide on the before/after temp-var names.
   let auditSeq = 0;
+  // A block's dirty bindings save at the block's end; a provenanced one then
+  // drains its lineage there too (one flush per block, so one `reqCtx`).
+  const blockSaves = (
+    pad: string,
+    saves: readonly { name: string; repoName: string; aggName: string }[],
+  ): string[] => [
+    ...saves.map((sv) => `${pad}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`),
+    ...(provDbHandle
+      ? renderProvFlush(
+          saves
+            .filter((sv) => aggHasProvSite(ctx, sv.aggName))
+            .map((sv) => ({ name: escapeTsIdent(sv.name) })),
+          pad,
+          provDbHandle,
+        )
+      : []),
+  ];
   return {
     indentUnit: "  ",
     precondition: (st, indent) => {
@@ -2940,9 +3025,7 @@ export function honoWorkflowStmtTarget(
       // +2 indent (`indentUnit`); each iteration's dirty bindings save
       // INSIDE the loop (aggregate events drain through the same save).
       const inner = `${indent}  `;
-      const saveLines = st.savesPerIteration.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
-      );
+      const saveLines = blockSaves(inner, st.savesPerIteration);
       return [
         `${indent}for (const ${escapeTsIdent(st.var)} of ${renderArg(st.iterable)}) {`,
         ...bodyLines,
@@ -2970,12 +3053,8 @@ export function honoWorkflowStmtTarget(
             : st.op === "load-optional"
               ? `await ${repoVar}.findById(${args.join(", ")})`
               : firstRowOf(st.repoName, st.retrievalName, args);
-      const thenSaves = st.savesInThen.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
-      );
-      const elseSaves = st.savesInElse.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
-      );
+      const thenSaves = blockSaves(inner, st.savesInThen);
+      const elseSaves = blockSaves(inner, st.savesInElse);
       // A guard — nothing on a hit, the 404 on a miss — reads as one negated
       // branch; the binding stays narrowed to non-null after it.
       if (thenLines.length === 0 && thenSaves.length === 0 && elseLines.length > 0) {
@@ -3008,10 +3087,7 @@ export function honoWorkflowStmtTarget(
       // variant binds its carrier's `value`).  Each branch saves what it
       // dirtied at its own end, as an `if let` branch does.
       const subject = renderArg(st.subject);
-      const savesAt = (pad: string, saves: readonly { name: string; repoName: string }[]) =>
-        saves.map(
-          (sv) => `${pad}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
-        );
+      const savesAt = blockSaves;
       if (st.subjectShape === "absence") {
         const inner = `${indent}  `;
         const { present, absent } = presenceSides(st, armLines, elseLines);
@@ -3096,14 +3172,6 @@ export function honoWorkflowStmtTarget(
  *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`. */
 function firstRowOf(repoName: string, retrievalName: string, args: readonly string[]): string {
   return `(await ${lowerFirst(repoName)}.run${upperFirst(retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
-}
-
-function lookupOp(
-  ctx: BoundedContextIR,
-  aggName: string,
-  opName: string,
-): import("../../../ir/types/loom-ir.js").OperationIR | undefined {
-  return ctx.aggregates.find((a) => a.name === aggName)?.operations.find((o) => o.name === opName);
 }
 
 export function renderExprWithParams(
@@ -3250,7 +3318,7 @@ export function collectReposForWorkflow(wf: {
 /** MikroORM's `IsolationLevel` enum member for an IR isolation level — the
  *  mikroorm twin of `pgIsolationLevel` (`transactional`'s option is typed by
  *  the enum, so the string spelling does not type-check). */
-function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+function mikroIsolationLevel(level: IsolationLevel): string {
   switch (level) {
     case "readUncommitted":
       return "IsolationLevel.READ_UNCOMMITTED";
@@ -3263,7 +3331,7 @@ function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").Isola
   }
 }
 
-function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+function pgIsolationLevel(level: IsolationLevel): string {
   switch (level) {
     case "readUncommitted":
       return "read uncommitted";

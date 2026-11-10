@@ -46,7 +46,7 @@ alias D.Fleet.{Car, CarRepository, TruckRepository}
 alias D.Repo
 
 user = fn tenant ->
-  %{id: "u-" <> tenant, tenant_id: tenant, org_path: tenant, root_org: tenant, org_context_path: tenant, is_system: false}
+  %{id: "u-" <> tenant, tenant_id: tenant, is_system: false}
 end
 
 acme = user.("acme")

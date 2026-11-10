@@ -8,6 +8,12 @@ import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import {
+  BASELINE_SECURITY_HEADERS,
+  HSTS_HEADER,
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
+import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
   TEST_RESET_HEADER,
@@ -151,6 +157,11 @@ export function renderProgram(
      *  `PendingModelChangesWarning` that fires because our
      *  ModelSnapshot stub is intentionally empty. */
     hasMigrations?: boolean;
+    /** False on a deployable that shares its storage's database with the
+     *  deployable that migrates it: the schema is the migrator's, so this one
+     *  applies no migrations at boot and never runs `EnsureCreated()` (either
+     *  would race the migrator's DDL).  Defaults to true. */
+    migratesAtBoot?: boolean;
     /** When true (a `seed` block is present), adds a `Seed.RunSeeds(...)`
      *  startup call after `Database.Migrate()` (database-seeding.md). */
     hasSeeds?: boolean;
@@ -203,12 +214,6 @@ export function renderProgram(
      *  rows stamp the per-dispatch frame's scope / parent ids, so it also
      *  forces the `ExecutionContextBehavior` frame-opener to be registered. */
     hasProvenance?: boolean;
-    /** Tenant hierarchy (multi-tenancy): the registry opts into
-     *  `tenantRegistry`, so register the scoped `IOrgPathResolver` →
-     *  `EfOrgPathResolver` that UserMiddleware calls per request to materialize
-     *  `currentUser.orgPath` from the registry's `data_key`.  Implies
-     *  `authRequired`. */
-    orgPathResolver?: boolean;
     /** A typed in-system call to an `auth: required` callee forwards the
      *  caller's credential: hand `ApiClients` the request accessor at startup.
      *  Implies `authRequired`. */
@@ -291,11 +296,11 @@ ${schemaOverrides.map((o) => `        ["${o.clrFullName}"] = "${o.schemaId}",\n`
 `;
   const authRequired = !!options?.authRequired;
   const oidc = !!options?.oidc;
-  const orgPathResolver = !!options?.orgPathResolver;
   const usesValidators = !!options?.usesValidators;
   const usesStamping = !!options?.usesStamping;
   const hasEmbeddedSpa = !!options?.hasEmbeddedSpa;
   const hasMigrations = !!options?.hasMigrations;
+  const migratesAtBoot = options?.migratesAtBoot !== false;
   // In-process dispatch (channels.md): when the deployable has channel-routed
   // subscriptions, register the Mediator-notification dispatcher (Scoped — it
   // depends on the scoped IMediator) so emitted events reach their reactor /
@@ -728,16 +733,7 @@ builder.Services.AddScoped<IUserVerifier, OidcUserVerifier>();`
 builder.Services.AddScoped<IUserVerifier, DevStubUserVerifier>();`
       }
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();${
-        orgPathResolver
-          ? `
-// Tenant hierarchy (multi-tenancy): the per-request \`orgPath\` resolver —
-// currentUser.orgPath = the caller org's materialized \`data_key\`, read once
-// per request by UserMiddleware and memoized on the principal (fail-safe to
-// the claim).  Scoped: it holds the request-scoped ${usingDapper ? "connection source" : "AppDbContext"}.
-builder.Services.AddScoped<IOrgPathResolver, ${usingDapper ? "DapperOrgPathResolver" : "EfOrgPathResolver"}>();`
-          : ""
-      }
+builder.Services.AddScoped<ICurrentUserAccessor, HttpContextCurrentUserAccessor>();
 `
     : "";
   const authVerify = authRequired
@@ -819,11 +815,11 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
   // `ExcludeFromDescription()` keeps it out of the OpenAPI contract — it's
   // an internal probe, not a business operation, and the Hono `/auth/me`
   // lives outside its OpenAPI doc too (cross-backend parity).
-  // The body is the DECLARED `user { … }` shape, BY DECLARED NAME (#2548).
-  // Serialising the `User` record itself also shipped the DERIVED members
-  // (`OrgPath` / `RootOrg` are public computed properties, so System.Text.Json
-  // emitted them) — per-request tenancy scoping state that is not part of the
-  // declared principal, and that python/java never sent.  A `Dictionary` keeps
+  // The body is the DECLARED `user { … }` shape, BY DECLARED NAME.
+  // Serialising the `User` record itself would also ship its derived members
+  // (the operating org is a public property, so System.Text.Json would emit
+  // it) — per-request scoping state that is not part of the declared
+  // principal.  A `Dictionary` keeps
   // the declared spelling verbatim (the web defaults' camelCase policy applies
   // to PROPERTY names, not dictionary keys) and sidesteps C# identifier rules.
   const meProjection = (options?.userFields ?? [])
@@ -1196,8 +1192,13 @@ ${ns}.Resources.ApiClients.CallerContext = app.Services.GetRequiredService<Micro
 `
     : ""
 }${hangfireRecurringBlock}${
-  usingDapper
+  !migratesAtBoot
     ? `
+// This database belongs to a storage another deployable migrates: the
+// schema is that deployable's, applied before this one starts.
+`
+    : usingDapper
+      ? `
 ${renderDotnetBootDbWait()}
 await LoomWaitForDbAsync(
     async () =>
@@ -1214,8 +1215,8 @@ await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
     app.Services.GetRequiredService<${CS.NpgsqlDataSource}>(),
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
-    : hasMigrations
-      ? `
+      : hasMigrations
+        ? `
 ${renderDotnetBootDbWait()}
 // Apply pending EF Core migrations before serving traffic.  Idempotent —
 // EF tracks applied versions in the __EFMigrationsHistory table.  Runs
@@ -1273,7 +1274,7 @@ using (var migrationScope = app.Services.CreateScope())
     }
 }
 `
-      : ""
+        : ""
 }${seedBlock}
 // Catalog server-lifecycle events.  Same event names + level Hono and
 // Phoenix emit so a cross-backend dashboard pivots on one identity.
@@ -1355,6 +1356,7 @@ ${
 // http_requests_total / http_request_duration_seconds recorded by
 // RequestLoggingMiddleware) as the text exposition at /metrics.
 app.MapMetrics();
+${renderDotnetSecurityHeaders()}
 // Ambient execution context — births the RequestContext (correlation id,
 // locale, start time, scope id) and opens the root frame.  Mounted FIRST so
 // the frame covers the entire pipeline: the request log below rides its
@@ -1441,18 +1443,18 @@ app.MapFallbackToFile("index.html");
     : ""
 }
 ${
-  usingDapper || hasMigrations
+  usingDapper || hasMigrations || !migratesAtBoot
     ? // Dapper applied its migrations via DbSchema.EnsureAsync at startup; a
       // migrations-bearing deployable applied them via Database.Migrate().
       // Either way EnsureCreated must NOT also run: mixing it with
       // Migrate() is the classic EF trap — whichever runs first creates
       // *a* table, and the other then sees a non-empty database and
-      // no-ops, leaving the schema half-built with no error.
+      // no-ops, leaving the schema half-built with no error.  A deployable
+      // whose database another deployable migrates leaves the schema alone.
       ""
     : `// Dev-friendly schema bootstrap: create the schema from the model on
-// first boot.  System-mode compose isolates each deployable to its own
-// database (see db-init/), so EnsureCreated runs cleanly without
-// racing peers.  For production, replace this with
+// first boot.  No other deployable migrates this database, so
+// EnsureCreated runs cleanly without racing peers.  For production, replace this with
 // 'dotnet ef database update' and remove the block.
 using (var scope = app.Services.CreateScope())
 {
@@ -1733,6 +1735,17 @@ export function renderTestCsproj(
 `;
 }
 
+/** The runtime stage's switch to an unprivileged user — the aspnet image's
+ *  `app` user, named by its numeric `$APP_UID` so a k8s `runAsNonRoot` check can
+ *  verify it.  The published tree stays root-owned and read-only to it; data/
+ *  is the one directory the process writes (local object-store resources
+ *  default there). */
+const DOTNET_NON_ROOT_BLOCK = `# Run unprivileged (the image's \`app\` user, by number).  data/ is the one
+# directory the process writes (local object-store resources default there).
+RUN mkdir -p /app/data && chown $APP_UID /app/data
+USER $APP_UID
+`;
+
 export function renderDockerfile(
   ns: string,
   options?: {
@@ -1790,7 +1803,7 @@ COPY --from=dotnet-build /app/publish ./
 # SPA bundle lands under wwwroot/ so UseStaticFiles + MapFallbackToFile
 # can serve it on the same origin as the /api/* controller routes.
 COPY --from=spa-build /spa/${options?.spaOutDir ?? "dist"} ./wwwroot
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
   }
   if (options?.hasEmbeddedSpa) {
@@ -1830,7 +1843,7 @@ COPY --from=dotnet-build /app/publish ./
 # SPA bundle lands under wwwroot/ so UseStaticFiles + MapFallbackToFile
 # can serve it on the same origin as the /api/* controller routes.
 COPY --from=spa-build /spa/${options?.spaOutDir ?? "dist"} ./wwwroot
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
   }
   return `# syntax=docker/dockerfile:1
@@ -1858,7 +1871,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends wget \\
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 COPY --from=build /app/publish ./
-ENTRYPOINT ["dotnet", "${ns}.dll"]
+${DOTNET_NON_ROOT_BLOCK}ENTRYPOINT ["dotnet", "${ns}.dll"]
 `;
 }
 
@@ -1889,4 +1902,35 @@ function meClaimValue(f: FieldIR): string {
     return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
   }
   return access;
+}
+
+/** The Program.cs block that puts the shared baseline security headers
+ *  (`src/util/security-headers.ts`) on every response.  `Response.OnStarting`
+ *  rather than a header write before `next`: a response produced further down
+ *  (UseStatusCodePages, an exception handler that clears the response) still
+ *  carries them.  Not `UseHsts`: it skips plain-http requests, which is every
+ *  request behind a TLS-terminating proxy. */
+function renderDotnetSecurityHeaders(): string {
+  const offValues = SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(" or ");
+  return lines(
+    `// Baseline security headers on every response (API answers, problem`,
+    `// documents, the OpenAPI document, the embedded SPA).  Strict-Transport-`,
+    `// Security only while ${SECURE_TRANSPORT_ENV} is on (the default); the local compose`,
+    `// stack serves plain http and turns it off.`,
+    `var loomSecureTransport = (Environment.GetEnvironmentVariable(${JSON.stringify(SECURE_TRANSPORT_ENV)}) ?? "").Trim().ToLowerInvariant()`,
+    `    is not (${offValues});`,
+    `app.Use(async (HttpContext http, RequestDelegate next) =>`,
+    `{`,
+    `    http.Response.OnStarting(() =>`,
+    `    {`,
+    `        var headers = http.Response.Headers;`,
+    ...BASELINE_SECURITY_HEADERS.map(
+      ([name, value]) => `        headers[${JSON.stringify(name)}] = ${JSON.stringify(value)};`,
+    ),
+    `        if (loomSecureTransport) headers[${JSON.stringify(HSTS_HEADER[0])}] = ${JSON.stringify(HSTS_HEADER[1])};`,
+    `        return Task.CompletedTask;`,
+    `    });`,
+    `    await next(http);`,
+    `});`,
+  );
 }

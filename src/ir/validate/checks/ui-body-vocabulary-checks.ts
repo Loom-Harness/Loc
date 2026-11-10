@@ -643,6 +643,7 @@ function receiverTrust(e: ExprIR, scope: ReadonlyMap<string, Trust>): Trust {
     // Lowered at a type the expression does not fix (a call's result, an
     // object literal, a `match` value), or carrying none at all (`this`, an
     // api handle chain): never trusted.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

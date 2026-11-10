@@ -59,6 +59,7 @@ function renderStoreInit(e: ExprIR, field: string): string {
       if (e.target === "string") return `String(${r(e.value)})`;
       break;
     // Not constants: refused by `loom.store-init-not-constant`.
+    case "exists":
     case "this":
     case "id":
     case "member":

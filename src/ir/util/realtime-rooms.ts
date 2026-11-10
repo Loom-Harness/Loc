@@ -5,7 +5,7 @@
 // must degrade to a refetch ticket, and the PRINCIPAL claim member the room key
 // is read from.
 //
-// The single DataKey v1 derives is the TENANT — the equality part of the
+// The single room key v1 derives is the TENANT — the equality part of the
 // `tenantOwned` read policy (`this.tenantId == currentUser.<claim>`), the
 // canonical multi-tenancy scoping column.  Row column and principal claim are
 // DIFFERENT names: the capability owns `tenantId` on the row, while the
@@ -23,6 +23,7 @@
 // So an event carrying no id reference never broadcasts its full scalar payload
 // to every tenant's clients.
 
+import { factsFor } from "../../platform/metadata.js";
 import type { AggregateIR, BoundedContextIR, EventIR, StmtIR, SystemIR } from "../types/loom-ir.js";
 import { realtimeEventTypes } from "./channels.js";
 import { tenancyPrincipalClaim } from "./tenant-stance.js";
@@ -218,10 +219,10 @@ export type RealtimeStreamCredential =
  *  predicate, so a sixth frontend cannot quietly ship an uncredentialed
  *  stream. */
 export function realtimeStreamCredential(
-  /** The frontend deployable emitting the subscription.  `platform` selects the
-   *  CREDENTIAL SHAPE once the gate says there is one: `flutter` builds a
-   *  native surface where an HttpOnly cookie cannot exist (D-FLUTTER-BEARER);
-   *  every other frontend is browser-only and sends the cookie. */
+  /** The frontend deployable emitting the subscription.  Its platform's
+   *  `realtimeCredential` fact selects the CREDENTIAL SHAPE once the gate says
+   *  there is one: a native build has no HttpOnly cookie jar
+   *  (D-FLUTTER-BEARER), a browser-only frontend sends the cookie. */
   deployable: { readonly auth?: { readonly ui: boolean }; readonly platform?: string } | undefined,
   /** Its `targets:` backend deployable, when it resolves. */
   target: { readonly auth?: { readonly required: boolean } } | undefined,
@@ -229,5 +230,5 @@ export function realtimeStreamCredential(
   user: unknown,
 ): RealtimeStreamCredential {
   if (!(deployable?.auth?.ui && target?.auth?.required && user)) return "none";
-  return deployable.platform === "flutter" ? "cookie-web-bearer-native" : "session-cookie";
+  return factsFor(deployable.platform)?.realtimeCredential ?? "session-cookie";
 }

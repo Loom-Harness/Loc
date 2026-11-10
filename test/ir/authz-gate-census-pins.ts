@@ -62,8 +62,8 @@
 //  3. The `policy` and `tenancy` classes are NOT DISCRIMINABLE by the second
 //     principal, and the fixtures say so at the site.  `policy { deny … }` is
 //     always-false for every caller (principal-FREE by construction — it routes
-//     to each backend's STATIC filter path), and the tenant floor / `allow deep`
-//     subtree scope keys on `tenantId`, which `DEV_CLAIMS_UNAUTHORIZED` SHARES
+//     to each backend's STATIC filter path), and the tenant floor keys on
+//     `tenantId`, which `DEV_CLAIMS_UNAUTHORIZED` SHARES
 //     with `DEV_CLAIMS` deliberately.  So there is no 403 arm to assert, and the
 //     refusal that IS assertable is the one each fixture's own `test e2e`
 //     already makes (`toThrow(404)` on the denied surfaces).
@@ -173,8 +173,8 @@ export const R = {
     "second principal cannot be discriminated; the refusal is asserted by the fixture's own " +
     "`test e2e` (`toThrow(404)`) — see the note at the site in the .ddd" +
     REDIRECTED_TO_EMITTED_CENSUS,
-  /** UNREACHABLE (harness identity).  A tenant floor, a registry self-scope or
-   *  an `allow deep`/`global` subtree scope keys on `tenantId`, and
+  /** UNREACHABLE (harness identity).  A tenant floor or a registry self-scope
+   *  keys on `tenantId`, and
    *  `DEV_CLAIMS_UNAUTHORIZED` shares it with `DEV_CLAIMS` by design — that is
    *  what makes a 403 elsewhere mean "the gate denied" rather than "the tenant
    *  differs".  Discriminating these needs a second TENANCY identity, which is
@@ -186,6 +186,16 @@ export const R = {
     "statement is not an authorization refusal, and counting one as the other would let a gated " +
     "surface look covered while its `requires` went unexercised, so the cross-tenant rung is " +
     "deliberately not a refusal arm here" +
+    REDIRECTED_TO_EMITTED_CENSUS,
+  /** UNREACHABLE (harness identity).  A row filter keyed on `currentUser.id`
+   *  (`exists Share as s where s.grantee == currentUser.id`): both harness
+   *  identities carry the dev stub's built-in zero-guid id, so neither can be
+   *  refused by it.  The refused side is asserted by the fixture itself — a
+   *  row its filter hides reads `toThrow(404)`. */
+  sharedPrincipalId:
+    "row filter keyed on `currentUser.id`, which both harness identities share (the dev stub's " +
+    "zero guid), so neither can be refused by it; the fixture's own `toThrow(404)` reads of a " +
+    "hidden row assert the refused side" +
     REDIRECTED_TO_EMITTED_CENSUS,
   /** UNREACHABLE (shape).  A read mask redacts a FIELD inside a 200; there is no
    *  refusal status to assert.  Nor are the two identities distinguishable here
@@ -297,7 +307,7 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   },
 
   // ── the same two stances on a `shape: document` aggregate ────────────────
-  // `Note` is the deny carve-out (principal-free); `Thing` carries `allow deep`
+  // `Note` is the deny carve-out (principal-free); `Thing` carries `allow local`
   // — principal-REFERENCING, but anchored on the claim the two harness
   // identities share, so still not discriminable — and `Org` is the hierarchy
   // registry's self-scope.  This fixture is the one whose `.ddd` argues at the
@@ -335,6 +345,14 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
+  },
+  "corpus/exists-quantifier": {
+    "create POST /api/products": R.sharedPrincipalId,
+    "getById GET /api/products/{id}": R.sharedPrincipalId,
+    "destroy DELETE /api/products/{id}": R.sharedPrincipalId,
+    "operation POST /api/products/{id}/update": R.sharedPrincipalId,
+    "find GET /api/products": R.sharedPrincipalId,
+    "explicitHandler GET /api/products/shared_with/{g}": R.sharedPrincipalId,
   },
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
@@ -476,6 +494,7 @@ export const NON_PARSING_SOURCES: readonly string[] = [];
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   maskIsNotAStatus: 7,
+  sharedPrincipalId: 6,
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,

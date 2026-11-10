@@ -1,3 +1,4 @@
+import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
 // Hono platform surface and drives the shared neutral emitter library
@@ -11,8 +12,8 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../../../generator/_a
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../generator/_auth/dev-claims.js";
 import { brokerChannelBindings } from "../../../generator/_channels/bindings.js";
 import { hasDomainFloorMessages } from "../../../generator/_i18n/domain-floor.js";
-import { ref, spellMarkers } from "../../../generator/_imports/symbol.js";
-import { finalizeTsModule, tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
+import { spellMarkers } from "../../../generator/_imports/symbol.js";
+import { finalizeTsModule, tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
@@ -94,7 +95,6 @@ import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import {
   brokerBoundChannelsCarrying,
   forwardsCallerCredential,
-  hostedHierarchyRegistry,
 } from "../../../ir/enrich/hosting-facts.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
@@ -159,12 +159,13 @@ import {
   effectiveSavingShape,
   resolveContextSchema,
   resolveDataSourceConfig,
+  resolveWorkflowIsolation,
 } from "../../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
-import { lowerFirst, plural } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -331,7 +332,7 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
  *  repository save's guarded write have anything to throw, so a
  *  concurrency-free project's `domain/errors.ts` stays byte-identical.
  *  `emitNotImplemented` is the same kind of gate for `NotImplementedError`:
- *  only an `extern` OPERATION's scaffold-once stub raises it.
+ *  only an `extern` operation's or `extern` handler's scaffold-once stub raises it.
  *  `emitValueObjectInvariant` gates `ValueObjectInvariantError` the same way. */
 function errorsTs(
   emitConcurrency: boolean,
@@ -818,14 +819,24 @@ export interface ProvLineage {
 }
 `;
 
-/**
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
  *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
-  return (system.sys.timerSources ?? []).some((ts) => {
+  return ownedTimerSources(system).length > 0;
+}
+
+/** Does this deployable own an `every:` timer — the condition for the
+ *  `__loom_timer` claim entity on mikroorm (the same module-level condition
+ *  under which `buildMigrations` adds the table). */
+function ownsIntervalTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
+  return ownedTimerSources(system).some((ts) => ts.cadence.kind === "every");
+}
+
+function ownedTimerSources(system: { deployable: DeployableIR; sys: SystemIR }): TimerSourceIR[] {
+  return (system.sys.timerSources ?? []).filter((ts) => {
     const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
     return sub?.migrationsOwner === system.deployable.name;
   });
@@ -986,10 +997,12 @@ export function generateTypeScriptForContexts(
   // `ConcurrencyError` on a `(stream_id, version)` 23505 collision, so it needs
   // the same error class + 409 arm the `versioned` guarded write does.
   const emitConcurrency = aggregatesNeedConcurrency(merged.aggregates);
-  // The 501 arm + its error class ride on the presence of an `extern` OPERATION
-  // — the only seam whose generated stub throws it.  A project with none stays
+  // The 501 arm + its error class ride on the presence of an `extern` operation or
+  // handler — the only seams whose generated stub throws it.  A project with none stays
   // byte-identical.
-  const emitNotImplemented = merged.aggregates.some((a) => a.operations.some((o) => o.extern));
+  const emitNotImplemented =
+    merged.aggregates.some((a) => a.operations.some((o) => o.extern)) ||
+    [...(merged.commandHandlers ?? []), ...(merged.queryHandlers ?? [])].some((h) => h.extern);
   // `ValueObjectInvariantError` + its `domainFloorProblem` answer ride on a
   // hosted value object declaring an invariant (M-T5.1) — nothing else raises
   // it, so a project without one stays byte-identical.  The domain-floor code
@@ -1034,6 +1047,12 @@ export function generateTypeScriptForContexts(
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
     return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
   };
+  // Per-workflow transaction isolation — resolved against the workflow's
+  // OWNING context, whose state dataSource supplies the default level.
+  const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
+    const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
+    return owningCtx ? resolveWorkflowIsolation(wf, owningCtx, system.sys) : wf.isolation;
+  };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
     const owningCtx = contexts.find((c) => c.projections.some((p) => p.name === proj.name));
@@ -1076,6 +1095,9 @@ export function generateTypeScriptForContexts(
         // below (this deployable OWNS a timerSource).  It has to be an entity
         // on this adapter or `schema.update()` drops it on the second boot.
         timerRuns: ownsTimers(system),
+        // The `every:` claim table — the MigrationsIR table the drizzle path
+        // gets from its migrations; mikro's `schema.update()` needs an entity.
+        timerClaim: ownsIntervalTimers(system),
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
@@ -1124,6 +1146,7 @@ export function generateTypeScriptForContexts(
       resolveStreamContext,
       usingMikro,
       authRequired,
+      resolveWorkflowIsolationLevel,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1491,7 +1514,7 @@ export function generateTypeScriptForContexts(
   }
 
   if (authRequired) {
-    emitAuthFiles(system.sys, system.deployable.contextNames, out);
+    emitAuthFiles(system.sys, out);
   }
   // The OTel `service.name` resource attribute default — the deployable's
   // name (compose/k8s override it via OTEL_SERVICE_NAME per service).
@@ -1613,20 +1636,11 @@ export function generateTypeScriptForContexts(
   // for-event's context (single-fire lock owner == DB owner).  Filter the
   // system's timers to the ones THIS deployable owns; a timer-free deployable
   // stays byte-identical (no scheduler.ts, no import, no dep, no boot block).
-  const ownedTimers: TimerSourceIR[] = (system.sys.timerSources ?? []).filter((ts) => {
-    const sub = system.sys.subdomains.find((s) => s.contexts.some((c) => c.name === ts.context));
-    return sub?.migrationsOwner === system.deployable.name;
-  });
-  // Invariant the watermark entity relies on: `ownsTimers` (used above, before
-  // the entity file is rendered) must agree with this filter.
-  if (ownedTimers.length > 0 !== ownsTimers(system)) {
-    throw new Error(
-      "internal: timer ownership disagrees between the entity opt and the scheduler filter",
-    );
-  }
-  // Persistence-neutral since M-T6.23: the scheduler's watermark table
-  // and advisory lock run on the EntityManager under `persistence: mikroorm`
-  // (`TimerStore` in scheduler-builder.ts).
+  // The same filter the mikro entity opts above read, so the scheduler and the
+  // watermark / claim entities cannot disagree.  Persistence-neutral: the
+  // watermark and the period claim run on the EntityManager under
+  // `persistence: mikroorm` (`TimerStore` in scheduler-builder.ts).
+  const ownedTimers: TimerSourceIR[] = ownedTimerSources(system);
   const hasTimers = ownedTimers.length > 0;
   if (hasTimers) {
     const eventByName = new Map<string, EventIR>(merged.events.map((e) => [e.name, e]));
@@ -1710,7 +1724,10 @@ export function generateTypeScriptForContexts(
   // The single job of this file is to stop the upward search.
   out.set("vitest.config.ts", renderVitestConfig(projectImportsDecimalJs));
   const entryConfig: ProjectEntryConfig = {
-    runMigrationsAtBoot: hasMigrations,
+    // A deployable on a database another deployable migrates carries the
+    // migrations (its integration tests build the schema from them) but leaves
+    // the boot run to that migrator.
+    runMigrationsAtBoot: hasMigrations && migratesAtBoot(system.sys, system.deployable),
     userShape: authRequired ? system.sys.user : undefined,
     resourceImports,
     runSeedsAtBoot: hasSeeds,
@@ -1730,18 +1747,6 @@ export function generateTypeScriptForContexts(
     // OIDC turnkey auth: register the generated verifier instead of the
     // dev stub.
     oidc: !!oidcAuth,
-    // Hierarchy (multi-tenancy): the tenant-registry AGGREGATE name when
-    // it opts into `tenantRegistry` — boot registers the `orgPath` resolver
-    // (`SELECT data_key … WHERE id = <claim>`) that the auth middleware calls
-    // per request, on both persistence adapters.  `undefined` for flat
-    // tenancy.  The aggregate name (not the drizzle table var) is what
-    // crosses the seam: each branch needs a different spelling of it (the
-    // `orgs` schema var vs the `OrgRow` entity class).
-    // Only a deployable hosting the registry's context has its table; phase ⑦
-    // refuses any other that reads the path.
-    orgPathRegistryAgg: authRequired
-      ? hostedHierarchyRegistry(system.sys, system.deployable.contextNames)?.name
-      : undefined,
     // Timer scheduler (scheduling.md): boot wires startTimerScheduler
     // into the same in-process dispatcher the outbox relay uses.
     hasTimers,
@@ -2210,7 +2215,6 @@ interface ProjectEntryConfig {
   readonly outboxRelay: boolean;
   readonly hasRealtime: boolean;
   readonly oidc: boolean;
-  readonly orgPathRegistryAgg?: string;
   readonly hasTimers: boolean;
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
@@ -2232,9 +2236,8 @@ function indentBlock(text: string): string {
 /**
  * `boot.ts` — the deployable's whole start-up sequence as one function,
  * `bootApp(db, opts) → { app, stop }`: first-boot seeds, the user verifier,
- * the tenant-registry `orgPath` resolver, the event dispatchers, the channel
- * transports + publish tee + consumer loop, the outbox relay and the timer
- * scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
+ * the event dispatchers, the channel transports + publish tee + consumer loop,
+ * the outbox relay and the timer scheduler.  Two hosts run it: the generated `index.ts` (pool, migrations,
  * `serve`, shutdown around it) and the browser playground's runtime worker
  * (PGlite, no `serve`).  One function is what keeps the two from drifting —
  * `test/generator/typescript/boot-entry-census.test.ts` fails when `index.ts`
@@ -2250,11 +2253,9 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   const {
     userShape,
     runSeedsAtBoot,
-    usingMikro,
     outboxRelay,
     hasRealtime,
     oidc,
-    orgPathRegistryAgg,
     hasTimers,
     hasChannels,
     hasChannelConsumers,
@@ -2292,33 +2293,6 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     : oidc
       ? `\n// OIDC verifier — validates the IdP's tokens against its\n// JWKS and maps claims onto the typed User.  Configure the issuer /\n// client via the env vars the \`auth { oidc }\` block referenced.\n// \`verifier: "dev-stub"\` registers the dev stub instead: the browser\n// playground reaches no IdP.\nif (opts.verifier === "dev-stub") {\n${indentBlock(devStubRegistration)}} else {\n  ${T.registerOidcVerifier}();\n  ${T.baseLogger}.info({ event: "auth_oidc_verifier_registered" });\n}\n`
       : `\n${devStubDoc}${devStubGated}`;
-  // Tenant-registry orgPath resolver (multi-tenancy) — wired on BOTH
-  // persistence paths.  The auth middleware calls it per request; here we bind
-  // it to the db with a `SELECT data_key … WHERE id = <claim>`.
-  //
-  // NOT drizzle-only.  Letting mikroorm fall back to the claim via the
-  // unregistered-resolver path is fail-SAFE only in the flat sense: `orgPath`
-  // degrades to the bare claim, so a child org reads as its own root and the
-  // whole subtree ladder collapses — a silent wrong answer on an adapter that
-  // renders the subtree predicate.  The mikro branch reads the registry Row
-  // through the EntityManager instead
-  // (`findOne(<Reg>Row, { id: claim }, { filters: false })`), the same one-row
-  // lookup.  The registry Row carries the tenancy self-scope as a default
-  // filter that reads the principal — and this lookup runs to BUILD that
-  // principal, so it is the one read the filter must not scope.
-  // The drizzle schema-table var (`orgs`) and the MikroORM Row entity class
-  // (`OrgRow`) for the same registry aggregate — one name in, both spellings
-  // derived here rather than at the call site, so the two persistence branches
-  // cannot drift apart.
-  const orgPathRegistryTable = orgPathRegistryAgg && lowerFirst(plural(orgPathRegistryAgg));
-  const orgPathRegistryRow = orgPathRegistryAgg && `${orgPathRegistryAgg}Row`;
-  const orgPathRow = orgPathRegistryRow && ref(tsNamed("~/db/entities", orgPathRegistryRow));
-  const orgPathDoc = `\n// Register the tenant-registry \`orgPath\` resolver (multi-tenancy):\n// currentUser.orgPath = the caller org's materialized \`data_key\`, memoized\n// per request in the auth middleware; a missing row / dataKey falls back to\n// the claim (root-segment path) — fail-safe, never null/crash.\n`;
-  const orgPathRegistration = !orgPathRegistryAgg
-    ? ""
-    : usingMikro
-      ? `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
-      : `${orgPathDoc}${T.registerOrgPathResolver}(async (claim) => {\n  const rows = await db\n    .select({ dataKey: ${T.schema}.${orgPathRegistryTable}.dataKey })\n    .from(${T.schema}.${orgPathRegistryTable})\n    .where(${T.eq}(${T.schema}.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
   // The in-process dispatcher is constructed once and shared by the outbox
   // relay and/or the timer scheduler (scheduling.md).
   const needsDispatcher = outboxRelay || hasTimers || hasChannels;
@@ -2441,7 +2415,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
     stopLines.length === 0
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
-  const preamble = `${seedCall}${authStubCall}${orgPathRegistration}`.replace(/^\n/, "");
+  const preamble = `${seedCall}${authStubCall}`.replace(/^\n/, "");
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.
@@ -2609,7 +2583,13 @@ ENV NODE_ENV=production PORT=3000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
-__MIGRATIONS_COPY__EXPOSE 3000
+__MIGRATIONS_COPY__# Run unprivileged: the base image's \`node\` user (uid 1000), by number so a
+# k8s \`runAsNonRoot\` check can verify it.  The app tree stays root-owned and
+# read-only to it; data/ is the one directory the process writes (local
+# object-store resources default there).
+RUN mkdir -p /app/data && chown 1000:1000 /app/data
+USER 1000:1000
+EXPOSE 3000
 # --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
 # without it every stack-trace frame names dist/index.js and \`ddd trace\`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads

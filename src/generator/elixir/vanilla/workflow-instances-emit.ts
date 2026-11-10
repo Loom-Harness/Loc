@@ -28,6 +28,7 @@
 // This is the read-side analogue the visibility proposal promised.
 // ---------------------------------------------------------------------------
 
+import { observableWorkflows } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -56,7 +57,7 @@ export function emitVanillaWorkflowInstances(
   // path, correct only because the prefixed write happened to run second
   // (surfaced by the write-once `EmissionSink`).
 
-  const observable = ctx.workflows.filter((wf) => wf.instanceWireShape);
+  const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return [];
 
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;

@@ -606,16 +606,15 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by audit F-013 (S1).  `currentUser` appeared in the corpus only inside GATES (`requires …`) and inside the tenancy filters the ENRICHMENT synthesises — never inside a predicate an author wrote on a query, which is a different emitter path on every backend.  Elixir broke twice on that path: the principal was interpolated UNPINNED into the Ecto `where:` (`Ecto.Query.CompileError: unbound variable current_user in query` — the fail-closed `^(current_user && …)` pin came from a post-pass that only saw the derived filters, so the compiler-generated tenancy filter on the NEXT emitted line pinned while the author's did not), and the actor was never THREADED into the find/retrieval head, since the \"needs the principal\" predicate read the aggregate's capability `filter`s only.  Both are hard `mix compile` failures.  The fixture carries NO tenancy capability on purpose — with one, the derived filter threads the actor and MASKS the author-written half, which is exactly why this survived.",
   },
   { id: "tenancy-owned", title: "first-class tenancy — `tenancy by` + tenantOwned + crossTenant", doc: "tenancy", backends: ALL },
-  { id: "tenancy-hierarchy", title: "tenancy hierarchy — `implements tenantRegistry` + `policy` deep/global/local read ladder", doc: "tenancy", backends: ALL },
+  { id: "tenancy-hierarchy", title: "tenancy registry tree — `implements tenantRegistry` beside flat data visibility (`policy` local / deny write)", doc: "tenancy", backends: ALL },
   {
     id: "tenancy-registry-split",
-    title: "a hierarchy registry on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
+    title: "a registry tree on one deployable, and an `auth: required` deployable beside it hosting only `crossTenant` data",
     doc: "tenancy",
     backends: ALL,
-    // Two services on purpose — the defect is only reachable on the deployable
-    // that does not host the registry.
+    // Two services on purpose — the deployable that does not host the registry
+    // must emit nothing that names it.
     deployables: ["orgs", "catalog"],
-    note: "Every backend emitted its `currentUser.orgPath` registry lookup on every `auth: required` deployable of a hierarchy system, whether or not that deployable hosted the registry: node selected `schema.orgs` (TS2339), .NET emitted `EfOrgPathResolver` over a missing `DbSet` (CS0246/CS1061), elixir called an undefined schema module (`--warnings-as-errors`), python ran `SELECT data_key FROM orgs` on a database without the table.  The lookup now keys on `hostedHierarchyRegistry` (`src/ir/enrich/hosting-facts.ts`); the compile tier is the oracle.  The tenant-owned half of the pair is refused (`loom.tenancy-registry-remote-unsupported`).",
   },
   {
     id: "org-context",
@@ -623,11 +622,11 @@ export const CORPUS: readonly CorpusFeature[] = [
       "`organizationContext` — the operating-scope accessor re-rooting the tenantOwned write stamp, behind every backend's fail-closed `x-org-context` switch gate",
     doc: "tenancy",
     backends: ALL,
-    note: "M-T3.6 items 3+5.  The accessor lands only with its gate, so this fixture is what puts BOTH in front of all five compile tiers: the stamp (`dataKey := organizationContext.orgPath`) and an operation body read lower to the derived principal member `currentUser.orgContextPath`, and every backend's auth layer emits the gate that sets it.  No `test e2e` block and no wire golden: no wire shape is new (the accessor never reaches the wire), and the runtime proof — in-scope switch stamps + deep-read visibility, out-of-scope switch 403 with no write, forged header on an orgPath-less token 403, reads principal-anchored — is the booted `tenancy-org-context*` leg of tenancy-e2e.",
+    note: "The accessor lands only with its gate, so this fixture is what puts BOTH in front of all five compile tiers: the stamp (`tenantId := organizationContext.org`) and an operation body read lower to the derived principal member `currentUser.operatingOrg`, and every backend's auth layer emits the gate that sets it.  No `test e2e` block and no wire golden: no wire shape is new (the accessor never reaches the wire), and the runtime proof — an admitted switch stamps, a refused switch 403s with no write, a forged header on a claim-less token 403s, reads stay principal-anchored — is the booted `tenancy-org-context*` leg of tenancy-e2e.",
   },
   { id: "tenancy-claim-name", title: "tenancy claim not named `tenantId` — the declared claim binds the tenantOwned stamp/filter", doc: "tenancy", backends: ALL },
   { id: "policy-deny", title: "`policy { deny [write] on <Agg> }` — the deny-wins carve-out on both the read-filter and write-scope seams", doc: "auth", backends: ALL },
-  { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
+  { id: "policy-document", title: "`policy { allow local / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
   { id: "stamps", title: "lifecycle stamps (audit timestamps via stamp blocks)", doc: "capabilities", backends: ALL },
   { id: "field-defaults", title: "field `= default` — omittable create input, declared value applied", doc: "language", backends: ALL },
   { id: "create-contract", title: "a declared `create(…)`'s params ARE the create input — every unlisted field is initialised by the factory", doc: "language", backends: ALL },
@@ -926,6 +925,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "auth",
     backends: ALL,
     note: "the two halves render in DIFFERENT places — a create guard has no `this` yet, a destroy guard reads the row the caller already loaded; `Crate` carries the OTHER two shapes (an ungated create as the control, and a principal-ONLY destroy guard that leaves the loaded row unread)",
+  },
+  {
+    id: "exists-quantifier",
+    title:
+      "`exists <Aggregate> as <row> where …` — a correlated SQL EXISTS in a row `filter` (the policy position) and in a criterion read, with the quantified aggregate's own read scope applied inside the subquery",
+    doc: "criterion",
+    backends: ALL,
   },
   {
     id: "criterion-filter",

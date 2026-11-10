@@ -48,6 +48,7 @@ import {
   PANE,
   STAGE,
 } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The Explorer switcher, in the order a reader walks them: your source, the
 // emitted tree, the three `.loom/`-bundle views over it (M-T8.20), then the
@@ -92,7 +93,7 @@ const layoutStorage = typeof window !== "undefined" ? window.localStorage : unde
 //   ├────────┴────────────────────┴──────────┤
 //   │ Bottom — Dev Tools (tabbed)             │
 //   └─────────────────────────────────────────┘
-export function DesktopShell({ ctx }: Props): JSX.Element {
+function DesktopShellView({ ctx }: Props): JSX.Element {
   const { files, generateResult, reactBundleStatus, ddl, setSelectedPath, tree } = ctx;
 
   // Center area shows either the editable source (main.ddd) or a
@@ -353,25 +354,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                     // The single source-file explorer: create / rename /
                     // delete via right-click or the per-row kebab, and a
                     // click opens the file editable in the center editor.
-                    <SourceFilesTree
-                      variant="embedded"
-                      files={ctx.sourceFiles}
-                      activePath={ctx.activeSourcePath}
-                      onSelect={(p) => {
-                        ctx.setActiveSourcePath(p);
-                        setCenterView("source");
-                      }}
-                      onCreate={ctx.createSourceFile}
-                      onDelete={ctx.deleteSourceFile}
-                      onRename={ctx.renameSourceFile}
-                      emptyFolders={ctx.emptySourceFolders}
-                      onCreateFolder={ctx.createEmptySourceFolder}
-                      onDeleteFolder={ctx.deleteSourceFolder}
-                      writable={ctx.sourcesWritable}
-                      readOnlyReason={ctx.sourcesReadOnlyReason}
-                      error={ctx.sourceError}
-                      onDismissError={ctx.clearSourceError}
-                    />
+                    <ExplorerSourceTree ctx={ctx} />
                   )}
                 </Box>
               </Panel>
@@ -768,3 +751,33 @@ function DocTab({
     </UnstyledButton>
   );
 }
+
+export const DesktopShell = trackedCtx("DesktopShell", DesktopShellView);
+
+// The source-file explorer in its own tracked component: `sourceFiles` changes
+// on every keystroke (it carries the files' content), and read in the shell it
+// would re-render the whole desktop layout per keystroke.
+function ExplorerSourceTreeView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+  return (
+    <SourceFilesTree
+      variant="embedded"
+      files={ctx.sourceFiles}
+      activePath={ctx.activeSourcePath}
+      onSelect={(p) => {
+        ctx.setActiveSourcePath(p);
+        ctx.setCenterView("source");
+      }}
+      onCreate={ctx.createSourceFile}
+      onDelete={ctx.deleteSourceFile}
+      onRename={ctx.renameSourceFile}
+      emptyFolders={ctx.emptySourceFolders}
+      onCreateFolder={ctx.createEmptySourceFolder}
+      onDeleteFolder={ctx.deleteSourceFolder}
+      writable={ctx.sourcesWritable}
+      readOnlyReason={ctx.sourcesReadOnlyReason}
+      error={ctx.sourceError}
+      onDismissError={ctx.clearSourceError}
+    />
+  );
+}
+const ExplorerSourceTree = trackedCtx("ExplorerSourceTree", ExplorerSourceTreeView);

@@ -4,7 +4,7 @@
 // (an object read back over S3, a captured mail, a written file, a mocked
 // response), not just a 2xx.  Needs real internet (npm), like runtime.spec.ts.
 
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
   recordInitialMigration,
@@ -85,6 +85,14 @@ test("resource fakes: object round trip, mail, disk file, REST mock", async ({ p
 
   await test.step("restApi: the external call was answered by the mock", async () => {
     expect(await infra(page, "httpMock", "log")).toEqual([{ method: "GET", url: "https://fx.example.test/rate/usd" }]);
+    // The storage's `spec:` is registered with the mock: a request answers with
+    // sample data for the declared schema, not the `{ mock: true }` echo.
+    const sampled = (await infra(page, "httpMock", "request", {
+      method: "GET",
+      url: "https://fx.example.test/rate/eur",
+    })) as { status: number; body: Record<string, unknown> };
+    expect(sampled.status).toBe(200);
+    expect(Object.keys(sampled.body).sort()).toEqual(["ccy", "rate"]);
   });
 
   await test.step("smtp: the mail lands in the Mailbox", async () => {

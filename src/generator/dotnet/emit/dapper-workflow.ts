@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -41,7 +42,6 @@ import {
   renderProjectionRowEntity,
 } from "../projection-state-emit.js";
 import {
-  correlationWorkflows,
   renderWorkflowStateEntity,
   workflowStateClass,
   workflowStateTable,
@@ -125,15 +125,15 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
     return fieldColumn({ ...f, type: optionalType }, accBase);
   });
-  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant (part of the
-  // key) and its org path.
+  // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
+  // key.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
     const prop = upperFirst(m.field);
     cols.push({
       col: m.column,
       sql: csSqlType("string"),
-      nullable: !m.required,
-      rowCs: m.required ? "string" : "string?",
+      nullable: false,
+      rowCs: "string",
       cast: "",
       save: `${accBase}.${prop}`,
       stateProp: prop,
@@ -148,7 +148,7 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
 function dapperProjectionKeyColumns(proj: ProjectionIR): string[] {
   const tenancy = foldTenancyFor(proj);
   return [
-    ...(tenancy?.metadata ?? []).filter((m) => m.required).map((m) => m.column),
+    ...(tenancy?.metadata ?? []).map((m) => m.column),
     snake(proj.correlationField as string),
   ];
 }
@@ -312,7 +312,7 @@ function renderDapperPersistencePorts(
       "}",
     ].join("\n"),
   );
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     const cls = sagaStoreClass(wf);
     const poco = workflowStateClass(wf);
     blocks.push(
@@ -392,7 +392,7 @@ export function emitDapperWorkflowInfra(
       renderEventRecordPoco(ns, ctxName),
     );
   }
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     out.set(
       `Infrastructure/Persistence/Workflows/${workflowStateClass(wf)}.cs`,
       renderWorkflowStateEntity(wf, ns, durable),
@@ -425,7 +425,7 @@ export function dapperPortRegistrations(
   const regs: string[] = [
     `builder.Services.AddScoped<${ns}.Domain.Common.IUnitOfWork, ${ns}.Infrastructure.Persistence.DapperUnitOfWork>();`,
   ];
-  for (const wf of correlationWorkflows(workflows)) {
+  for (const wf of stateRowWorkflows(workflows)) {
     const poco = `${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
     regs.push(
       `builder.Services.AddScoped<${ns}.Domain.Common.ISagaStateStore<${poco}>, ${ns}.Infrastructure.Persistence.${sagaStoreClass(wf)}>();`,

@@ -239,7 +239,13 @@ function seedBuiltins(): void {
     supports: {
       api: { capabilities: set("request"), interfaces: set<LoomInterface>("rest") },
     },
-    configKeys: [{ name: "baseUrl", type: "string", required: true }],
+    // `spec`: the API's OpenAPI document (inline JSON, or a file beside the
+    // entry) — what the playground's mock samples responses from.  Generated
+    // backends ignore it.
+    configKeys: [
+      { name: "baseUrl", type: "string", required: true },
+      { name: "spec", type: "string" },
+    ],
   });
   // Mailer sourceTypes (surface `kind: mailer` → infra `email`).  All three
   // offer the single `send` capability over the `sdk` interface (each backend's

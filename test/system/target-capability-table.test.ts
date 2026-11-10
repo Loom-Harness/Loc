@@ -182,6 +182,21 @@ system W {
 }
 
 const OWNED_WITNESSES: Readonly<Record<OwnedUiConstruct, (framework: string) => string>> = {
+  "stmt:match-await@component-action": (fw) =>
+    ownedWitness(fw, {
+      aggBody: `operation reserve(): Customer { return this }`,
+      uiExtra: `component Confirmer(customer: Customer) {
+      state { note: string = "" }
+      action go() {
+        match await Sales.Customer.reserve() {
+          Customer o => { note := o.name }
+          else => { note := "x" }
+        }
+      }
+      body: Button { "Go", onClick: go }
+    }`,
+      body: `Confirmer(customer: Sales.Customer.byId(id))`,
+    }),
   "read:projection@body": (fw) =>
     ownedWitness(fw, {
       contextExtra: `projection Totals { n: int  from Customer as c  select n = count }`,
@@ -299,6 +314,48 @@ system S {
   storage db { type: postgres }
   resource st { for: C, kind: state, use: db }
   deployable api { platform: ${platform}  contexts: [C]  dataSources: [st]  port: 8080  auth: required }
+}
+`;
+
+/** A ledger context whose `Account.withdraw` answers `int or Insufficient`,
+ *  plus `members`, hosted on `platform`. */
+const ledgerWitness = (platform: string, members: string): string => `
+system Bank {
+  subdomain D {
+    context Ledger {
+      error Insufficient { needed: int }
+      aggregate Account with crudish {
+        balance: int
+        operation withdraw(amt: int): int or Insufficient {
+          balance := balance - amt
+          return balance
+        }
+      }
+      repository Accounts for Account
+      ${members}
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Ledger], dataSources: [st], port: 4000 }
+}
+`;
+
+/** A `Note` aggregate carrying `ops`, served on `platform`. */
+const noteWitness = (platform: string, ops: string, auth = false): string => `
+system W {
+  ${auth ? "user { id: guid  role: string }" : ""}
+  subdomain D { context Sales {
+    aggregate Note with crudish {
+      text: string
+      ${ops}
+    }
+    repository Notes for Note
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Sales, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Sales], dataSources: [st], serves: A, port: 4000${auth ? ", auth: required" : ""} }
 }
 `;
 
@@ -444,27 +501,6 @@ system Bk {
   deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
 }
 `,
-  "tenancy:remote-registry@deployable": (platform) => `
-system H {
-  user { id: string  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Net { context Orgs {
-    aggregate Org with crudish { name: string  implements tenantRegistry
-      operation setPath(p: string) { dataKey := p } }
-    repository Orgs for Org { } } }
-  subdomain Shop { context Sales {
-    aggregate Sale with tenantOwned, crudish { label: string }
-    repository Sales for Sale { }
-    policy { allow deep on Sale } } }
-  api NetApi from Net
-  api ShopApi from Shop
-  storage pg { type: postgres }
-  resource orgState { for: Orgs, kind: state, use: pg }
-  resource saleState { for: Sales, kind: state, use: pg }
-  deployable netSvc { platform: ${platform} contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
-  deployable shopSvc { platform: ${platform} contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
-}
-`,
   "call:auth-required-api@resource": (platform) => `
 system S {
   user { id: string  role: string }
@@ -507,26 +543,6 @@ system T {
   timerSource t { for: Tick, every: 30s }
   deployable up { platform: ${platform} contexts: [Clock] dataSources: [clockState] serves: ClockApi port: 4000 channels: [tb] }
   deployable down { platform: ${platform} contexts: [Billing] dataSources: [billState] serves: BillApi port: 4001 channels: [tb] }
-}
-`,
-  "read:wide-stance@tph-subtype": (platform) => `
-system F2 {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core {
-    context Books {
-      abstract aggregate Asset inheritanceUsing: sharedTable with tenantOwned { label: string }
-      aggregate Car extends Asset with tenantOwned, crudish { wheels: int }
-      aggregate Org with crudish { name: string  implements tenantRegistry  operation setPath(p: string) { dataKey := p } }
-      repository Cars for Car { }
-      repository Orgs for Org { }
-      policy { allow deep on Car }
-    }
-  }
-  api BooksApi from Core
-  storage primary { type: postgres }
-  resource booksState { for: Books, kind: state, use: primary }
-  deployable d { platform: ${platform}  contexts: [Books]  dataSources: [booksState]  serves: BooksApi  port: 4000  auth: required }
 }
 `,
   "derived:reads-masked-field@aggregate": (platform) => `
@@ -597,7 +613,117 @@ system M {
       `valueobject Amount { value: int  invariant value >= 0 }
       valueobject Discount { cap: Amount }
       aggregate Thing with crudish { label: string  discount: Discount }`,
+    ), // A mutating call whose `T or E` result is bound with `let` and matched.
+  "call:bound-mutating@entry-body": (platform) =>
+    ledgerWitness(
+      platform,
+      `workflow Pay {
+        create(id: Account id, amt: int) {
+          let a = Accounts.get(id)
+          let r = a.withdraw(amt)
+          match r { int n => { } Insufficient e => { } }
+        }
+      }`,
     ),
+  // A routed workflow `create` answering `T or E`.
+  "return:expected-failure@entry-point": (platform) =>
+    ledgerWitness(platform, `workflow W { create(n: int): int or Insufficient { return n } }`),
+  // A guard inside an operation's `match` arm.
+  "stmt:match-arm-shape@body": (platform) =>
+    noteWitness(
+      platform,
+      `operation set(n: string?) {
+          match n {
+            string s => { precondition s.length > 0  text := s }
+            else => { }
+          }
+        }`,
+    ),
+  // A reference collection read by an invariant.
+  "invariant:unvalidated-shape@aggregate": (platform) => `
+system S {
+  subdomain Shop { context Shop {
+    aggregate Order {
+      label: string
+      members: Member id[]
+      invariant members.count <= 6
+    }
+    aggregate Member { nick: string }
+    repository Orders for Order
+    repository Members for Member
+  } }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: ${platform} contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+  // A sibling-operation call bound with `let` rather than returned whole.
+  "call:op-self-non-tail@operation": (platform) =>
+    noteWitness(
+      platform,
+      `operation reserve(): string { return text }
+        operation summarize(): string {
+          let x = reserve()
+          return x
+        }`,
+    ),
+  // A bare call to a private operation whose body reads `currentUser`.
+  "call:private-op-reads-principal@operation": (platform) =>
+    noteWitness(
+      platform,
+      `operation bump() {
+          text := "b"
+          recompute()
+        }
+        private operation recompute() {
+          requires currentUser.role == "admin"
+          text := "r"
+        }`,
+      true,
+    ),
+  // A document operation guarded on a derived that calls a value-object
+  // function.
+  "op:document-residue@aggregate": (platform) => `
+system Shop {
+  subdomain Sales {
+    context Shop {
+      valueobject Price {
+        amount: int
+        currency: string
+        function caption(): string = currency
+      }
+      aggregate Cart shape: document with crudish {
+        qty: int
+        price: Price
+        derived tag: string = price.caption()
+        operation bump() {
+          precondition tag != ""
+          qty := qty + 1
+        }
+      }
+      repository Carts for Cart
+    }
+  }
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable api { platform: ${platform}, contexts: [Shop], dataSources: [shopState], port: 4000 }
+}`,
+  // A document aggregate's stamp computed from its own fields.
+  "stamp:reads-aggregate@document": (platform) => `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
 };
 
 // --- the cells ---------------------------------------------------------------

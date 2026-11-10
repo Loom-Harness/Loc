@@ -554,6 +554,32 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An `exists` in an operation guard: not a position compiled into a query.
+  "loom.exists-outside-query": `
+system S {
+  subdomain M { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Doc with crudish {
+      title: string
+      operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
+    }
+  } }
+}`,
+  // An `exists` over another context's aggregate: a different database.
+  "loom.exists-cross-context": `
+system S {
+  subdomain M {
+    context C { aggregate Doc with crudish { title: string  filter exists Tag as t where t.label == this.title } }
+    context D { aggregate Tag with crudish { label: string } }
+  }
+}`,
+  // An `exists` over the filtered row's own aggregate.
+  "loom.exists-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate Doc with crudish { title: string  filter exists Doc as d where d.title == this.title }
+  } }
+}`,
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
@@ -574,25 +600,64 @@ system S {
   deployable netSvc { platform: python contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
   deployable shopSvc { platform: node contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required port: 3001 }
 }`,
-  // A tenant-owned context on a deployable that does not host the hierarchy
-  // registry: its database has no registry table to resolve `orgPath` from.
-  "loom.tenancy-registry-remote-unsupported": `
-system H {
-  user { id: string  tenantId: string }
+  // The removed hierarchical surface (D-TENANCY-FLAT): each gets a named error
+  // with its replacement.
+  "loom.policy-level-removed": `
+system Flat {
+  user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
-  subdomain Net { context Orgs {
-    aggregate Org with crudish { name: string  implements tenantRegistry }
-    repository Orgs for Org { } } }
-  subdomain Shop { context Sales {
-    aggregate Sale with tenantOwned, crudish { label: string }
-    repository Sales for Sale { } } }
-  api NetApi from Net
-  api ShopApi from Shop
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
+      label: string
+      note: string?
+      
+    }
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    policy { allow deep on Account }
+  } }
   storage pg { type: postgres }
-  resource orgState { for: Orgs, kind: state, use: pg }
-  resource saleState { for: Sales, kind: state, use: pg }
-  deployable netSvc { platform: node contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
-  deployable shopSvc { platform: python contexts: [Sales] dataSources: [saleState] serves: ShopApi auth: required port: 3001 }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+}`,
+  "loom.tenancy-principal-member-removed": `
+system Flat {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
+      label: string
+      note: string?
+      operation m() { note := currentUser.orgPath }
+    }
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    
+  } }
+  storage pg { type: postgres }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
+}`,
+  "loom.tenancy-data-key-removed": `
+system Flat {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core { context Books {
+    aggregate Account with tenantOwned, crudish {
+      label: string
+      note: string?
+      operation m() { dataKey := "x" }
+    }
+    aggregate Org with crudish { name: string }
+    repository Accounts for Account { }
+    repository Orgs for Org { }
+    
+  } }
+  storage pg { type: postgres }
+  resource b { for: Books, kind: state, use: pg }
+  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
   // A masked value emitted on an event a channel publishes: every subscriber
   // would receive it in the clear.
@@ -607,6 +672,39 @@ system S {
     repository Ps for P
     event Pinged { p: P id  ssn: string }
     channel Out { carries: Pinged }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A part `derived` reading a nested part's masked member: the part's own
+  // projection knows only its own masks.
+  "loom.field-mask-on-part": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate T with crudish {
+      contains lines: Line[]
+      entity Note { text: string  secret: bool mask unless currentUser.role == "hr" }
+      entity Line {
+        contains notes: Note[]
+        derived anySecret: bool = notes.any(n => n.secret)
+      }
+    }
+    repository Ts for T
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A value object has no read boundary of its own, so its field cannot be masked.
+  "loom.field-mask-on-value-object": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    valueobject Addr { city: string mask unless currentUser.role == "hr" }
+    aggregate P with crudish { home: Addr }
+    repository Ps for P
   } }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -662,6 +760,22 @@ system S {
   }
 }
 migration "m" { Old -> Thing }`,
+  "loom.dapper-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
+  "loom.mikroorm-shared-database": `
+system S {
+  subdomain D { context A { aggregate Keep with crudish { name: string } } }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
+  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
+}`,
   "loom.migration-move-across-databases": `
 system S {
   subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep } }
@@ -920,6 +1034,19 @@ system IcuDrop {
     }
   } }
 }`,
+  // A plural with no `other` branch: no ICU runtime can render it.
+  "loom.interp-format-invalid": `
+system IcuInvalid {
+  subdomain S { context Sales {
+    aggregate Order with crudish { qty: int }
+    repository Orders for Order { }
+  } }
+  ui Web {
+    page Home(count: int) { route: "/:count"
+      body: Text { \`You have {count, plural, one {# order}}\` }
+    }
+  }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
@@ -1096,7 +1223,7 @@ system OrgCtx {
   resource b { for: Books, kind: state, use: primary }
   deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
-  // M-T3.6 items 3+5 — the operating scope read on a deployable with no auth:
+  // The operating scope read on a deployable with no auth:
   // there is no auth middleware, so no switch gate, so the read would be an
   // unvalidated caller-submitted value.
   "loom.org-context-gate-unmet": `
@@ -1108,7 +1235,7 @@ system OrgCtx {
       aggregate Note crossTenant {
         label: string
         scope: string?
-        operation stampScope() { scope := organizationContext.orgPath }
+        operation stampScope() { scope := organizationContext.org }
       }
       aggregate Org { name: string  implements tenantRegistry }
       repository Notes for Note

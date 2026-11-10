@@ -46,6 +46,7 @@ import type {
   TestOutcome,
   VerificationIR,
 } from "../../../src/ir/types/loom-ir.js";
+import { trackedCtx } from "./ctx-store";
 
 // Shape of the `.loom/traceability.json` slice the verification overlay
 // reads — emitted by `src/system/traceability.ts`.
@@ -82,7 +83,7 @@ interface UnitSuite {
 //     straight after Generate, no Boot.
 //   - api (`against <backend>`): hit the runtime dispatch — need Boot.
 //   - ui  (`against <react>`):  drive the preview iframe — need Boot.
-export function TestsBody({
+function TestsBodyView({
   ctx,
   active = true,
 }: {
@@ -846,3 +847,5 @@ function downloadProofReport(
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+export const TestsBody = trackedCtx("TestsBody", TestsBodyView);

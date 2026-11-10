@@ -9,9 +9,10 @@
 // browser-context cross-origin fetches.  GitHub Pages deploys and
 // any normal dev box pass this probe trivially.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
+  pgliteStarts,
   fatalConsoleErrors,
   recordInitialMigration,
   selectExample,
@@ -27,6 +28,11 @@ import {
 // Output tab; `btn-boot` only mounts on the Runtime ("backend") tab, so the
 // click waited forever for an element that was never rendered.  Switch to the
 // Runtime tab before booting (same idiom as workspace-history.spec.ts).
+// The cold path: no seeded PGlite snapshot, so this Boot runs initdb (and
+// dumps the snapshot every later fresh storage starts from).  The other boot
+// specs start from the seeded snapshot.
+test.use({ pgliteSnapshot: false });
+
 test("editor → generate → bundle → boot → dispatch", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
@@ -65,6 +71,25 @@ test("editor → generate → bundle → boot → dispatch", async ({ page }) =>
     await expect(page.getByTestId("backend-status")).toHaveText("booted", {
       timeout: 600_000,
     });
+    expect(await pgliteStarts(page), "an unseeded Boot runs initdb").toEqual(["primary: initdb"]);
+    // …and leaves the snapshot the next fresh storage starts from.
+    const cached = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const req = indexedDB.open("loom-pglite-snapshot", 1);
+          req.onsuccess = () => {
+            try {
+              const all = req.result.transaction("snapshots", "readonly").objectStore("snapshots").getAll();
+              all.onsuccess = () => resolve(all.result.filter((v) => v instanceof Blob && v.size > 0).length);
+              all.onerror = () => resolve(-1);
+            } catch {
+              resolve(0); // no store: nothing was ever cached
+            }
+          };
+          req.onerror = () => resolve(-1);
+        }),
+    );
+    expect(cached, "the cold Boot cached one PGlite snapshot").toBe(1);
   });
 
   await test.step("GET /products → 200 empty page", async () => {

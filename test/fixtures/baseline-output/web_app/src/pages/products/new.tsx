@@ -28,7 +28,7 @@ export default function ProductNew() {
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
                     const out = await create.mutateAsync(vals);
-                    notifications.show({ color: "green", message: "Product created" });
+                    notifications.show({ color: "green", message: t("chrome.created.Product", "Product created") });
                     navigate(`/products/${out.id}`);
                   } catch (e) {
                     const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

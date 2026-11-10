@@ -231,9 +231,8 @@ function renderProjectionFold(
         `        var __origin = ${basePkg}.auth.User.currentEventOrigin();`,
         `        if (__origin == null || __origin.tenant() == null) return;`,
         `        var __tenant = __origin.tenant();`,
-        `        var __dataKey = __origin.orgPath() != null ? __origin.orgPath() : __tenant;`,
         `        var __key = ${keyExpr};`,
-        `        var state = ${repo}.findByTenantAndKey(__tenant, __key).orElseGet(() -> ${cls}._allocate(__tenant, __dataKey, __key));`,
+        `        var state = ${repo}.findByTenantAndKey(__tenant, __key).orElseGet(() -> ${cls}._allocate(__tenant, __key));`,
       ]
     : [
         `        var __key = ${keyExpr};`,

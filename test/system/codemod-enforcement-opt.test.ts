@@ -138,7 +138,6 @@ describe("the repo's own .ddd corpus under the new default", () => {
     for (const f of [
       "test/fixtures/eval-models/eval/repro/F005-ui-gate-crash.ddd",
       "test/e2e/fixtures/auth-gate-e2e/auth-gate.ddd",
-      "test/e2e/fixtures/elixir-vanilla-build/vanilla-tenancy-hierarchy.ddd",
       "test/e2e/fixtures/elixir-vanilla-build/vanilla-tenancy-registry.ddd",
     ]) {
       expect(onDefault).toContain(f);

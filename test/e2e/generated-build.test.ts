@@ -488,8 +488,8 @@ describe.skipIf(!ENABLED)(
     }, 300_000);
 
     // A `tenantOwned` event-sourced aggregate (`stream-tenancy.ts`): the event
-    // log's tenant metadata columns, the `<agg>StreamScope` helpers (flat floor
-    // and `allow deep` subtree), the stamped append and the stream-origin
+    // log's tenant metadata columns, the `<agg>StreamScope` helpers (the flat
+    // floor), the stamped append and the stream-origin
     // dispatch all have to type-check against the drizzle schema.
     it("system tenantOwned event-sourced stream — generated project type-checks", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-es-tenant-"));

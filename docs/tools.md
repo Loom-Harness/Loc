@@ -654,21 +654,16 @@ The compose file is a generated artefact — pin it via `.loomignore`
 if you customise it, since regenerating would otherwise overwrite
 your changes.
 
-#### Per-deployable databases
+#### Databases per storage
 
-Each deployable owns its own postgres database, isolated from peers
-sharing the same `db` service.  This is necessary because EF Core's
-`EnsureCreated` is all-or-nothing per database: with two .NET
-deployables on a shared DB, whichever boots first creates only its
-own subset of tables, and the second deployable sees existing tables
-and creates nothing — silently leaving its own tables missing.
-
-`ddd generate system` emits `db-init/00-create-databases.sql` with
-one `CREATE DATABASE <slug>;` per deployable.  Postgres mounts the
-directory as `/docker-entrypoint-initdb.d/`, which runs once on the
-first boot of an empty `pgdata` volume.  Each deployable's
-connection string is then scoped to its own database
-(`Database=api`, `Database=catalog_api`, etc.).
+Each postgres `storage` is one database on the shared `db` service, and every
+deployable bound to it connects there — so two deployables on one storage
+share their rows.  `ddd generate system` emits
+`db-init/00-create-databases.sql` with one idempotent `CREATE DATABASE` per
+storage (and one per backend that binds no storage).  Postgres mounts the
+directory as `/docker-entrypoint-initdb.d/`, and the `db-bootstrap` one-shot
+re-applies it on every `up`.  The first deployable on a database applies its
+migrations at boot; the others wait for it to be healthy and apply none.
 
 To start fresh after schema changes that EF Core's `EnsureCreated`
 won't pick up (it only creates; it never alters), drop the volume:
@@ -1190,6 +1185,40 @@ npm install
 npx playwright install --with-deps chromium
 npx playwright test
 ```
+
+### Security response headers
+
+Every generated backend puts the same baseline headers on every response —
+API answers, problem documents, health probes, the OpenAPI document, Swagger
+UI, LiveView pages and an embedded SPA alike:
+
+| Header | Value |
+| ------ | ----- |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| `Strict-Transport-Security` | `max-age=31536000` — only while `LOOM_SECURE_TRANSPORT` is on |
+
+Each backend sets them through its own idiom: hono's `secureHeaders`
+middleware, an ASP.NET `Response.OnStarting` middleware, a Spring servlet
+filter, a pure-ASGI Starlette middleware, and a Phoenix endpoint plug (whose
+`before_send` values also win over the `:browser` pipeline's
+`put_secure_browser_headers` defaults). No `Content-Security-Policy` is sent:
+Swagger UI, LiveView and the embedded SPAs load inline scripts and styles a
+strict policy would block.
+
+`LOOM_SECURE_TRANSPORT` is the deploy flag that says the service is reached
+over TLS (directly or behind a TLS-terminating proxy). It is on unless set to
+`false`, `0`, `off` or `no`; it also gates the `Secure` attribute on the OIDC
+cookies ([`auth.md`](auth.md)). The generated `docker-compose.yml` serves
+plain http on localhost and sets it `false`; the k8s chart and a bare
+`docker run` keep the default. HSTS received over plain http is ignored by
+browsers (RFC 6797 §8.1), so the default is harmless on an http listener.
+
+Every backend image also runs its process as a non-root user (by numeric uid,
+so a k8s `runAsNonRoot` check can verify it); `data/` under the app directory —
+where local object-store resources write by default — is owned by that user.
 
 ### Proxy CAs (sandboxed builds)
 

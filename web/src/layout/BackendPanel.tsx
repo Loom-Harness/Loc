@@ -34,6 +34,7 @@ import { ConfirmAction, confirmSites } from "../util/confirm";
 import { OutputStreamLink } from "./OutputStreamLink";
 import { deployableRows } from "../backend/deployable-rows";
 import { DeploymentStatus, StorageSelect } from "../backend/DeploymentStatus";
+import { trackedCtx } from "./ctx-store";
 
 interface Props {
   ctx: LayoutCtx;
@@ -50,7 +51,7 @@ interface Props {
 // On desktop the Boot button lives on the header's pipeline strip
 // (`btn-boot` there — M-T8.16); mobile has no strip buttons, so the
 // banner keeps it.
-export function BackendHeader({ ctx }: Props): JSX.Element {
+function BackendHeaderView({ ctx }: Props): JSX.Element {
   const { isDesktop, pipeline, ddl, bootPending, honoBundle, runBoot } = ctx;
   return (
     <Group gap="xs" wrap="wrap" justify="flex-end">
@@ -89,7 +90,7 @@ const isSubview = (v: string): v is Subview => (SUBVIEWS as readonly string[]).i
 
 // The form body: method + path + body + send + response.  No
 // resize/scroll wrapper — the shell decides the surrounding box.
-export function BackendBody({ ctx }: Props): JSX.Element {
+function BackendBodyView({ ctx }: Props): JSX.Element {
   const {
     isDesktop,
     pipeline,
@@ -582,3 +583,6 @@ function ResetDatabase({ runWipe, storage }: { runWipe: () => void; storage: str
     </Stack>
   );
 }
+
+export const BackendHeader = trackedCtx("BackendHeader", BackendHeaderView);
+export const BackendBody = trackedCtx("BackendBody", BackendBodyView);

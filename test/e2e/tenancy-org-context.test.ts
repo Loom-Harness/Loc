@@ -16,8 +16,8 @@ import {
 
 // ---------------------------------------------------------------------------
 // `organizationContext` — the operating-scope switch gate, proven on a BOOTED
-// generated app per backend (M-T3.6 items 3+5; docs/tenancy.md →
-// "organizationContext").  The `tenancy-e2e` sibling of the hierarchy legs.
+// generated app per backend (docs/tenancy.md → "organizationContext").  The
+// `tenancy-e2e` sibling of the registry-tree legs.
 //
 // The accessor re-roots the tenant write stamp onto a caller-SUBMITTED value
 // (the `x-org-context` header), so it is only safe with a fail-closed gate on
@@ -25,10 +25,10 @@ import {
 // (`test/generator/org-context-gate.test.ts`); only a boot proves it HOLDS: the
 // middleware runs before the handler, the switched value reaches the stamp,
 // and a refused switch writes nothing.  The shared `assertOrgContextGate`
-// sequence drives all four arms (in-scope switch → sub-scope stamp + deep
-// visibility; out-of-subtree switch → 403 + no write; forged header on an
-// orgPath-less token → 403 + no write; reads principal-anchored) plus the
-// catalog `org_context_denied` log line.
+// sequence drives all four arms (own org → stamps the caller's org id; any
+// other org → 403 + no write; forged header on a claim-less token → 403 + no
+// write; reads principal-anchored) plus the catalog `org_context_denied` log
+// line.
 //
 // One file, one `describe` per backend, each behind the SAME env var its
 // hierarchy sibling uses, so a `tenancy-e2e` matrix cell runs exactly one boot:
@@ -214,7 +214,7 @@ for (const [platform, spec] of Object.entries(BOOTS)) {
   describe.skipIf(process.env[spec.env] !== "1")(
     `organizationContext switch gate over the generated ${platform} backend (${spec.env}=1)`,
     () => {
-      it("an in-scope switch stamps the sub-scope; an out-of-scope or forged one is 403 with no write", async () => {
+      it("an admitted switch stamps the caller's org; any other or a forged one is 403 with no write", async () => {
         if (spec.tool && !has(spec.tool)) {
           throw new Error(`${spec.env}=1 set but \`${spec.tool.split(" ")[0]}\` is not on PATH.`);
         }

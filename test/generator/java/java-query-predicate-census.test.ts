@@ -46,13 +46,13 @@ const FIXTURES = [
   "vo-cross-context",
 ].filter((id) => CORPUS.find((f) => f.id === id)?.backends.includes("java"));
 
-/** A tenancy or TPH restriction spelled in JPQL: the tenant / data-key
- *  columns, a read of the tenancy claims (SpEL or a bound `__cu…` parameter —
- *  `tenantIdAsUuid` is the registry self-scope's), or the TPH discriminator.
+/** A tenancy or TPH restriction spelled in JPQL: the tenant column, a read of
+ *  the tenancy claim (SpEL or a bound `__cu…` parameter — `tenantIdAsUuid` is
+ *  the registry self-scope's), or the TPH discriminator.
  *  A find's OWN `where` over another claim (`this.owner == currentUser.id`)
  *  is the read's predicate, not a restriction, and stays in its query. */
 const RESTRICTION_IN_JPQL =
-  /\be\.(?:tenantId|dataKey)\b|currentUserAccessor\.user\(\)\?\.(?:tenantId|orgPath)|:__cu(?:Subtree)?(?:TenantId|OrgPath)|\bkind\b|\btype\(e\)/;
+  /\be\.tenantId\b|currentUserAccessor\.user\(\)\?\.tenantId|:__cuTenantId|\bkind\b|\btype\(e\)/;
 
 /** Every JPQL string the emitted java hands Hibernate: `@Query("…")` and
  *  `createQuery("…")` (not `createNativeQuery`). */

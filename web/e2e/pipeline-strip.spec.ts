@@ -4,7 +4,7 @@
 // driven by the LSP (Validate) and the in-browser generator (Generate), and
 // the blocked segments are asserted through their tooltips.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./_test";
 import { readEditorSource, waitForPlaygroundReady } from "./_helpers";
 
 function encodeForHash(text: string): string {

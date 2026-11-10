@@ -48,10 +48,11 @@ system Acme {
       }
     }
   }
-  storage primary { type: postgres }
+  storage sales { type: postgres }
+  storage shipping { type: postgres }
   storage bus { type: redis }
-  resource ordersState   { for: Orders,   kind: state, use: primary }
-  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource ordersState   { for: Orders,   kind: state, use: sales }
+  resource shippingState { for: Shipping, kind: state, use: shipping }
   channelSource lifecycleBus { for: Lifecycle, use: bus }
   deployable salesApi { platform: node contexts: [Orders]   dataSources: [ordersState]   channels: [lifecycleBus] port: 3000 }
   deployable shipApi  { platform: node contexts: [Shipping] dataSources: [shippingState] channels: [lifecycleBus] port: 3001 }
@@ -265,12 +266,12 @@ A reactor runs as the **system principal of its triggering event's tenant**
 ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)).
 In-process that tenant is the raising request's; once the event crosses the
 outbox relay or a broker the request is gone, so on a deployable with
-`auth: required` the event carries its **origin** `{tenant, orgPath, causedBy}`:
+`auth: required` the event carries its **origin** `{tenant, causedBy}`:
 
 | Hop | Carrier |
 |---|---|
 | outbox row | reserved key `__loomOrigin` inside the JSON `payload` (no schema change; stripped before decode) |
-| envelope | CloudEvents extensions `tenantid`, `loomorgpath`, `loomcausedby` (omitted when absent) |
+| envelope | CloudEvents extensions `tenantid`, `loomcausedby` (omitted when absent) |
 
 The relay (per row) and the consumer (per envelope) deliver the event inside a
 frame whose ambient principal is the system principal of that origin, so the
@@ -290,7 +291,7 @@ workflow Fulfil {
 ```
 ```json
 { "specversion": "1.0", "type": "Orders.OrderPlaced", "loomchannel": "loom.Orders.Lifecycle",
-  "tenantid": "acme", "loomorgpath": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
+  "tenantid": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
 ```
 
 ## Not yet
@@ -312,11 +313,10 @@ workflow Fulfil {
   dispatcher decorator, and a HEEx/LiveView ui keeps consuming that topic
   in-process instead (`src/generator/elixir/realtime-liveview.ts`).
   **Tenant rooms ship on the four registry-based SSE backends** —
-  node/dotnet/java/python each key subscribers by the tenant DataKey from the
+  node/dotnet/java/python each key subscribers by the tenant from the
   shared `realtimeRoomPlan` derivation (`src/ir/util/realtime-rooms.ts`), so a
   tenant-scoped event reaches only the emitter's tenant room, never
-  cross-tenant (the former `loom.realtime-tenant-broadcast` honesty warning is
-  retired). Elixir has no emitter room hop — its shared PubSub broadcast
+  cross-tenant. Elixir has no emitter room hop — its shared PubSub broadcast
   carries the event struct alone, so the emitter's tenant is not observable at
   the subscriber — and therefore takes the *refetch-ticket* degrade the other
   four specify for a dispatch with no ambient tenant: a tenant-scoped event

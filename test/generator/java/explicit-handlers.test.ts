@@ -140,7 +140,7 @@ describe("java — extern commandHandler / queryHandler", () => {
     const impl = fileEndingWith(m, "PlaceOrderHandlerImpl.java");
     expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
     expect(impl).toContain("public class PlaceOrderHandlerImpl implements PlaceOrderPort");
-    expect(impl).toContain("throw new UnsupportedOperationException(");
+    expect(impl).toContain("throw new NotImplementedException(");
   });
 });
 

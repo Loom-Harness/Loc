@@ -143,6 +143,8 @@ export interface StorageBootPlan {
  *  the storage it binds. */
 export interface BootPlan {
   storages: StorageBootPlan[];
+  /** OpenAPI documents the external-API mocks answer from, by origin. */
+  restSpecs?: { origin: string; spec: object }[];
   /** In order of preference: the first one is the default dispatch target
    *  (the backend the frontend talks to). */
   backends: Array<{
@@ -306,6 +308,12 @@ export interface RuntimeProgress {
    *  died; this says how much work it was carrying, which is the difference
    *  between "inherently heavy on this device" and "should have been cheap". */
   note?: string;
+}
+
+/** Lines the deployable logged while no RPC was running — channel
+ *  consumers, the outbox relay, timers.  Posted unasked, in batches. */
+export interface RuntimeBackgroundLogs {
+  backgroundLogs: LogLine[];
 }
 
 export interface RuntimeRpcResponse {

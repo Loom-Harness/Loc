@@ -20,6 +20,12 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.criterion-retrieval-name-clash": "10-repositories-and-queries.md#retrieval",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.find-where-column-column": "10-repositories-and-queries.md#the-queryable-subset",
+  "loom.exists-outside-query":
+    "10-repositories-and-queries.md#exists--quantifying-over-another-aggregate",
+  "loom.exists-cross-context":
+    "10-repositories-and-queries.md#exists--quantifying-over-another-aggregate",
+  "loom.exists-unsupported":
+    "10-repositories-and-queries.md#exists--quantifying-over-another-aggregate",
   "loom.find-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.find-where-unknown-field": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.retrieval-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",

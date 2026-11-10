@@ -828,7 +828,7 @@ candidate, not only when a path matches:
 Everything *not* in these two tables stays out of the queue — `conformance-full`,
 `differential-report`, the `k8s-*` gates, the `generated-*-e2e` SPA smokes,
 `playground-*`, `frontend-fullstack-e2e`, `generated-a11y`, `phoenix-ui-e2e`,
-`elixir-vanilla-vo-e2e`, `ci-red-alarm`, `cleanup-artifacts`, `email-e2e`,
+`elixir-vanilla-vo-e2e`, `ci-red-alarm`, `cleanup-artifacts`, `email-e2e`, `timer-e2e`,
 `context-integration-e2e`. They must **not** be added to required checks (a
 required check with no `merge_group` trigger stalls the queue forever). Note
 that "out of the queue" is not "out of the PR": the four `generated-*-e2e`
@@ -1047,7 +1047,7 @@ the size that matches the blast radius is one label per feature family:
 |---|---|---|
 | ~~`run-obs`~~ | — | **No longer bound to anything.** The five `*-obs-e2e` legs are per-PR path-scoped since wave G1; the label drives no workflow and applying it does nothing. |
 | `run-oidc` | `elixir-oidc-e2e` + `auth-oidc-compose-e2e` | The two *compose* OIDC legs only. The four native legs (`hono/dotnet/java/python-oidc-e2e`) are per-PR path-scoped since wave G1 and no longer answer to the label. |
-| `run-tenancy` | `tenancy-e2e`'s non-`flat` cells (hierarchy, the mikroorm/dapper adapter cells, org-context, subtree EXPLAIN) | The five `flat` cells run per-PR path-scoped. The label is read on the NEXT push (`contains(labels)` on `synchronize`) and only on a PR the workflow's `paths:` match; the merge queue runs every cell regardless |
+| `run-tenancy` | `tenancy-e2e`'s non-`flat` cells (hierarchy, the mikroorm/dapper adapter cells, org-context) | The five `flat` cells run per-PR path-scoped. The label is read on the NEXT push (`contains(labels)` on `synchronize`) and only on a PR the workflow's `paths:` match; the merge queue runs every cell regardless |
 | ~~`run-migration-e2e`~~ | — | **No longer bound to anything (2026-10-05).** `migration-evolution-e2e` runs per-PR path-scoped and in the queue. |
 | `run-conformance` | `conformance-full` | cross-backend runtime conformance |
 | `run-channels` | `channels-e2e` | cross-deployable eventing — an earlier signal only: the merge queue runs every cell since 2026-10-05 |

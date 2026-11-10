@@ -25,10 +25,25 @@
 import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
-import { escapeHeexAttr, escapeHeexText } from "./heex-walker-core.js";
+import { escapeHeexAttr, escapeHeexText, heexContextOf, renderExpr } from "./heex-walker-core.js";
 
 export const heexTarget: WalkerTarget = {
+  // Rich text renders through the parallel HEEx engine (`heex-walker-core.ts`),
+  // never through this shim.
+  renderRichText: () => "",
   framework: "phoenixLiveView",
+
+  // --- Bridge seam ----------------------------------------------------------
+
+  /** Every node of a HEEx body renders through the HEEx engine
+   *  (`heex-walker-core.ts`), under the HEEx walk context `walkBodyToHeex`
+   *  seeds into the sink.  The engine recurses into the node's subtree itself,
+   *  so the shared core only ever sees the body root.  A walk with no HEEx
+   *  context in its sink falls through to the shared path. */
+  renderNodeOverride(expr, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    return heex ? renderExpr(expr, heex) : undefined;
+  },
 
   // Expression-syntax leaves — HEEx runs a PARALLEL walker
   // (heex-walker-core.ts) and never calls the shared `emitExpr`, so these are

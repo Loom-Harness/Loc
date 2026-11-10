@@ -100,7 +100,7 @@ export const messages = {
     "subtype instead.",
   "loom.seed-tenant-owned-needs-raw": (p: { name: unknown }) =>
     `Seed row on tenant-owned aggregate '${p.name}' uses the domain create path, which ` +
-    "stamps `tenantId`/`dataKey` FROM THE PRINCIPAL — and a first-boot seeder has none, so " +
+    "stamps `tenantId` FROM THE PRINCIPAL — and a first-boot seeder has none, so " +
     "the row is written with an empty/NULL tenant and no tenant can ever read it. Use " +
     "`seed <dataset> raw { … }` and spell the tenant columns (and the row's `id`) " +
     "explicitly instead.",
@@ -138,7 +138,7 @@ export const messages = {
     to: unknown;
     deployables: unknown;
   }) =>
-    `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on the same deployables, or migrate the data with a raw \`sql\` step.`,
+    `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on deployables that share a database (one \`storage\`), or migrate the data with a raw \`sql\` step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {

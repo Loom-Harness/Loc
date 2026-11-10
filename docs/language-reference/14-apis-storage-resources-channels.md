@@ -171,7 +171,7 @@ Each `storage` whose type needs a dev backing service becomes a **compose sideca
 
 | storage type | sidecar | when |
 |---|---|---|
-| `s3` | `minio/minio:latest` + a named data volume | always |
+| `s3` | `cgr.dev/chainguard/minio:latest` + a named data volume | always |
 | `smtp` | `axllent/mailpit:latest` (SMTP :1025, web inbox :8025) | always — `ses` / `sendgrid` are SaaS, no sidecar |
 | `redis` | `valkey/valkey:8-alpine` with `--requirepass` | only when it backs a `channelSource` a deployable wires; a cache-only redis emits nothing |
 | `rabbitmq` | `rabbitmq:4-management-alpine` + a mounted `broker-init/` definitions file (vhost + per-deployable user) | when wired as a channel transport; an unwired one falls back to plain `rabbitmq:3-management` |
@@ -182,7 +182,7 @@ Each `storage` whose type needs a dev backing service becomes a **compose sideca
 ```yaml
 # docker-compose.yml — an s3 storage and an smtp storage, from `generate system`
   blobs:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -445,7 +445,7 @@ export function realtimeRoutes(): OpenAPIHono { /* app.get("/events", streamSSE(
 ```
 ::: end
 
-**Rooms + policy-derived routing (v1 — all SSE backends).** In a **tenant-owned** context the wire scopes delivery by the tenant `DataKey` (`currentUser.tenantId`, the equality part of the `tenantOwned` read filter `this.tenantId == currentUser.tenantId`) instead of broadcasting to all. The relay's connection registry becomes `Map<tenant, Set<Subscriber>>`: a connection joins its own tenant room from the **verified principal** at connect (never a client-supplied room), and a tenant-scoped event (one whose payload references a `tenantOwned` aggregate) is routed to the **emitter's tenant room only — never cross-tenant**. When the tenant can't be derived at publish (an event dispatched outside a request — outbox drain / timer), delivery degrades to a **refetch ticket** (`{ type, <id fields> }`, no payload) so nothing privileged over-delivers; the authorised read is always the gate. A context with **no** `tenantOwned` aggregate keeps the byte-identical v1 broadcast wire. Rooms ship on **every** SSE backend — node/Hono, .NET, Java, and Python all key subscribers by tenant from the same shared `realtimeRoomPlan` derivation; Phoenix/LiveView re-renders server-side through the authorised read, so raw payloads never cross the boundary there either. A UI whose target backend can't relay a subscribed channel (it neither hosts the channel's context nor binds it) is rejected with `loom.relay-target-not-subscribed`.
+**Rooms + policy-derived routing (v1 — all SSE backends).** In a **tenant-owned** context the wire scopes delivery by the tenant (`currentUser.tenantId`, the equality part of the `tenantOwned` read filter `this.tenantId == currentUser.tenantId`) instead of broadcasting to all. The relay's connection registry becomes `Map<tenant, Set<Subscriber>>`: a connection joins its own tenant room from the **verified principal** at connect (never a client-supplied room), and a tenant-scoped event (one whose payload references a `tenantOwned` aggregate) is routed to the **emitter's tenant room only — never cross-tenant**. When the tenant can't be derived at publish (an event dispatched outside a request — outbox drain / timer), delivery degrades to a **refetch ticket** (`{ type, <id fields> }`, no payload) so nothing privileged over-delivers; the authorised read is always the gate. A context with **no** `tenantOwned` aggregate keeps the byte-identical v1 broadcast wire. Rooms ship on **every** SSE backend — node/Hono, .NET, Java, and Python all key subscribers by tenant from the same shared `realtimeRoomPlan` derivation; Phoenix/LiveView re-renders server-side through the authorised read, so raw payloads never cross the boundary there either. A UI whose target backend can't relay a subscribed channel (it neither hosts the channel's context nor binds it) is rejected with `loom.relay-target-not-subscribed`.
 
 ### The `.loom/asyncapi.yaml` artefact
 

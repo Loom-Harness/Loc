@@ -37,6 +37,7 @@ import { isTenantScopedStream } from "../../enrich/stream-tenancy.js";
 import {
   type BoundedContextIR,
   type DeployableIR,
+  type EnrichedAggregateIR,
   type ExprIR,
   type Platform,
   type StmtIR,
@@ -51,13 +52,20 @@ import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregatesWithTuple } from "../../util/feature-atoms.js";
-import { baseOf } from "../../util/inheritance.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
-import { TENANT_REGISTRY_CAPABILITY } from "../../util/tenant-stance.js";
 import { walkExprDeep, walkStmtsDeep } from "../../util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../util/write-scope-guards.js";
+import {
+  type OpSelfCallHit,
+  opSelfCallHits,
+  unvalidatedInvariants,
+} from "./backend-syntax-checks.js";
+import { boundMutatingCalls, callText, expectedFailureEntryPoints } from "./call-result-checks.js";
+import { documentResidue } from "./datasource-checks.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { matchArmShapeRefusals } from "./elixir-match-stmt-checks.js";
+import { documentStampSelfRead } from "./principal-guard-checks.js";
 import { mountedUis, standardOpAwaitUses } from "./ui-framework-checks.js";
 
 /** One use of a construct: where it sits, and the message parameters its
@@ -287,26 +295,6 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
-  "tenancy:remote-registry@deployable": (ctx, sys, d) => {
-    const registry = sys.tenancy?.registryName;
-    if (!registry) return [];
-    const registryCtx = sys.subdomains
-      .flatMap((sd) => sd.contexts)
-      .find((c) => c.aggregates.some((a) => a.name === registry));
-    // Only a `tenantRegistry` tree has an org path to resolve; a flat registry
-    // is never read at request time.
-    const tree = registryCtx?.aggregates
-      .find((a) => a.name === registry)
-      ?.capabilities?.includes(TENANT_REGISTRY_CAPABILITY);
-    if (!registryCtx || !tree || d.contextNames.includes(registryCtx.name)) return [];
-    return ctx.aggregates
-      .filter((a) => a.capabilities?.includes("tenantOwned"))
-      .map((a) => ({
-        what: `tenant-owned aggregate '${a.name}' (its registry '${registry}' is hosted by another deployable)`,
-        source: `${ctx.name}/aggregate ${a.name}`,
-        origin: a.origin,
-      }));
-  },
   "call:auth-required-api@resource": (ctx, sys) =>
     resourceUses(ctx, sys, (ds) => {
       if (ds.kind !== "api" || !ds.apiName) return undefined;
@@ -323,24 +311,6 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
         what: `timerSource '${t.name}' (its '${t.event}' rides a broker-bound channel)`,
         source: `${sys.name}/${t.name}`,
       }));
-  },
-  "read:wide-stance@tph-subtype": (ctx, sys) => {
-    const pool = sys.subdomains.flatMap((sd) => sd.contexts.flatMap((c) => c.aggregates));
-    const out: ConstructUse[] = [];
-    for (const rule of ctx.policyReadLevels ?? []) {
-      if (rule.level === "local") continue;
-      const agg = ctx.aggregates.find((a) => a.name === rule.aggregate);
-      const base = agg && baseOf(agg, pool);
-      if (!agg || !base?.capabilities?.includes("tenantOwned")) continue;
-      if ((agg.inheritanceUsing ?? base.inheritanceUsing ?? "sharedTable") !== "sharedTable")
-        continue;
-      out.push({
-        what: `\`allow ${rule.level} on ${agg.name}\` (a TPH subtype of tenant-owned base '${base.name}')`,
-        source: `${ctx.name}/policy ${rule.source}`,
-        origin: agg.origin,
-      });
-    }
-    return out;
   },
   "derived:reads-masked-field@aggregate": (ctx) => {
     const out: ConstructUse[] = [];
@@ -411,7 +381,57 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
+  "call:bound-mutating@entry-body": (ctx) =>
+    boundMutatingCalls(ctx).map(({ where, st }) => ({
+      what: `${where}: \`let ${st.result.name} = ${callText(st)}(…)\``,
+      source: `${ctx.name}/${where}`,
+      origin: st.origin,
+    })),
+  "return:expected-failure@entry-point": (ctx) =>
+    expectedFailureEntryPoints(ctx).map(({ where }) => ({
+      what: `${where} answering an expected failure`,
+      source: `${ctx.name}/${where}`,
+    })),
+  "stmt:match-arm-shape@body": (ctx) =>
+    matchArmShapeRefusals(ctx).map(({ where, slug }) => ({
+      what: `a statement \`match\` in ${where} (${slug})`,
+      source: `${ctx.name}/${where}`,
+    })),
+  "invariant:unvalidated-shape@aggregate": (ctx) =>
+    unvalidatedInvariants(ctx).map(({ agg, inv }) => ({
+      what: `invariant '${inv.source}' on '${agg.name}'`,
+      source: `${ctx.name}/${agg.name}`,
+    })),
+  "call:op-self-non-tail@operation": (ctx) => opSelfCalls(ctx, "position"),
+  "call:private-op-reads-principal@operation": (ctx) => opSelfCalls(ctx, "actor"),
+  "op:document-residue@aggregate": (ctx, sys) =>
+    documentResidue(ctx, sys).map(({ agg, bits }) => ({
+      what: `document aggregate '${agg.name}' (${bits})`,
+      source: `${ctx.name}/${agg.name}`,
+    })),
+  "stamp:reads-aggregate@document": (ctx, sys) =>
+    ctx.aggregates.flatMap((agg) => {
+      const read = documentStampSelfRead(agg as EnrichedAggregateIR, ctx, sys);
+      return read
+        ? [
+            {
+              what: `stamp of '${agg.name}.${read.field}' reading the aggregate`,
+              source: `${ctx.name}/${agg.name}`,
+            },
+          ]
+        : [];
+    }),
 };
+
+/** The operation self-calls of one kind, as construct uses. */
+function opSelfCalls(ctx: BoundedContextIR, kind: OpSelfCallHit["kind"]): ConstructUse[] {
+  return opSelfCallHits(ctx)
+    .filter((h) => h.kind === kind)
+    .map((h) => ({
+      what: `operation '${h.agg.name}.${h.op.name}' calling '${h.eName}'`,
+      source: `${ctx.name}/${h.agg.name}.${h.op.name}`,
+    }));
+}
 
 /** Where each owned mask-sink construct meets: the channel events carrying a
  *  masked value, and the unique keys over a masked field. */

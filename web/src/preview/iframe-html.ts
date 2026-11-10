@@ -64,6 +64,26 @@ const RUNTIME_FETCH_SHIM = `
     var u;
     try { u = new URL(req.url, document.baseURI); }
     catch (e) { return realFetch ? realFetch(input, init) : Promise.reject(e); }
+    // A presigned S3 URL (\`*.amazonaws.com\` + \`X-Amz-Credential\`) is answered
+    // by the playground's object store, not the internet: the bytes ride the
+    // port to the main thread, which hands them to the infra worker.
+    if (/\\.amazonaws\\.com$/.test(u.hostname) && /\\/s3\\/aws4_request/.test(u.searchParams.get("X-Amz-Credential") || "")) {
+      return req.arrayBuffer().then(function (buf) {
+        var hdrs = {};
+        req.headers.forEach(function (v, k) { hdrs[k] = v; });
+        var rid = nextId++;
+        return new Promise(function (resolve) {
+          netStart();
+          pending[rid] = function (reply) {
+            netEnd();
+            if (!reply.ok) { resolve(new Response((reply.message || "Object store error") + "\\n", { status: 502 })); return; }
+            var nb = reply.status === 204 || reply.status === 205 || reply.status === 304;
+            resolve(new Response(nb ? null : reply.body, { status: reply.status, headers: reply.headers }));
+          };
+          port.postMessage({ kind: "infra-http", rid: rid, service: "s3", method: req.method, url: u.href, headers: hdrs, body: new Uint8Array(buf) });
+        });
+      });
+    }
     if (!apiBase || u.pathname.indexOf(apiBase) !== 0) {
       return realFetch ? realFetch(input, init) : Promise.reject(new Error("fetch unavailable"));
     }

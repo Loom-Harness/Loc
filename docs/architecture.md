@@ -113,6 +113,45 @@ from workflows — see [`resources.md`](resources.md)).  The remaining
 types parse + validate but don't yet activate generator output.  A
 `config { k: v }` map carries vendor parameters, validated per sourceType.
 
+### One database per postgres storage
+
+A postgres `storage` is one database.  Every backend deployable whose `state`
+binding uses it runs on that database, so deployables bound to one storage share
+their rows: a write through one is a read through the other.  The generated
+compose file creates one database per storage (`db-init/00-create-databases.sql`)
+and gives each deployable its storage's `DATABASE_URL`; a backend that binds no
+postgres storage gets a database of its own.
+
+```ddd
+storage primary { type: postgres }
+resource catalogState { for: Catalog, kind: state, use: primary }
+deployable admin      { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3000 }
+deployable storefront { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3002 }
+```
+
+```sql
+-- db-init/00-create-databases.sql
+SELECT 'CREATE DATABASE "primary"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'primary')\gexec
+```
+
+```yaml
+  admin:
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/primary"
+  storefront:
+    depends_on:
+      admin:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/primary"
+```
+
+The first deployable on a database migrates it, for every module any deployable
+on it hosts; the rest wait for it and apply nothing.  Give two deployables two
+storages when they should not share data.  The playground boots the same
+topology.  The migration side is
+[`migrations.md`](migrations.md#databases-and-who-migrates-them).
+
 
 ## Resource bindings
 
@@ -473,7 +512,7 @@ shape end-to-end.
 | `resource X { for: C, kind: objectStore\|queue\|api, use: Y }` | Per-backend client module + dev-compose sidecar; consumed from workflows via the verb vocabulary.  See [`resources.md`](resources.md). |
 | UI `api X: Y` parameter + body refs | Walker hook injection (slices 11.24–11.25) |
 | Deployable `serves:` / `ui: X { ... }` | Validator + composition checks (slice 11.26) |
-| Deployable `contexts:` / `dataSources:` | IR-level coverage validator (every hosted (context, kind) pair must have a matching binding; every listed binding must cover at least one aggregate).  `migrationsOwner` derives one backend per subdomain for schema-migration emission. |
+| Deployable `contexts:` / `dataSources:` | IR-level coverage validator (every hosted (context, kind) pair must have a matching binding; every listed binding must cover at least one aggregate).  The `state` bindings place each backend on its storage's database (one migrator per database). |
 
 
 ## Slice trail

@@ -89,7 +89,7 @@ export function renderJavaDocumentRepositoryImpl(
   // even when no READ filter does, and it is the only other user of the
   // accessor bean — so the injection gate is the union of the two.
   const needsAccessor = hasPrincipal || writeScopeUsesPrincipal(agg);
-  // An `authz-filter` SENTINEL (`policy { allow deep … }` / `deny`) is desugared
+  // An `authz-filter` SENTINEL (a `deny`) is desugared
   // to ordinary IR first — it exists to be intercepted by a QUERY-filter
   // translator (the relational path's JPQL/Criteria/@SQLRestriction renderers),
   // and a document read has no query to translate into (pairwise finding F1).

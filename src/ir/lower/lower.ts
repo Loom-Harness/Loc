@@ -494,7 +494,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             migration: m.name,
             index,
             sql: step.sql,
-            ...(step.placement === "before" ? { before: true } : {}),
+            before: step.placement === "before",
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
@@ -682,6 +682,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           permissions.push({
             name: d.name,
             runtimeString: `${m.name.toLowerCase()}.${d.name}`,
+            impliedBy: [],
           });
           permEdges.push({ name: d.name, implies: d.implies ?? [] });
         }
@@ -697,7 +698,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         const impliedBy = impliedByNames
           .map((n) => runtimeOf.get(n))
           .filter((s): s is string => s !== undefined);
-        if (impliedBy.length > 0) p.impliedBy = impliedBy;
+        p.impliedBy = impliedBy;
       }
       subdomains.push({
         name: m.name,
@@ -743,7 +744,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
     // Test-kind dispatch.
     //   - `react` / `static` are frontend-only → only `ui` (Playwright).
     //   - `dotnet` / `hono` are backend-only → only `api` (vitest+fetch).
-    //   - `phoenixLiveView` is fullstack — it can carry EITHER kind, so the
+    //   - a fullstack platform (Phoenix) can carry EITHER kind, so the
     //     block's own CALL ROOT decides: a body written against `ui.<agg>.…`
     //     lowers to the Playwright spec, one written against `api.<agg>.…` to
     //     the fetch spec.
@@ -757,7 +758,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
     // api renderer throw outright, which would fail `generate system` on a
     // perfectly valid ui block.
     const isFrontendOnly = !!targetPlatform && descriptorFor(targetPlatform).isFrontend;
-    const isFullstack = targetPlatform === "elixir";
+    const isFullstack = !!targetPlatform && descriptorFor(targetPlatform).facts.fullstack;
     if (isFrontendOnly) {
       e2eTests.push(lowerE2E(b, e2eEnv, "ui"));
     } else if (isFullstack) {
@@ -1438,21 +1439,22 @@ function lowerContext(
         });
         continue;
       }
-      // Any other head word is `loom.policy-unknown-rule` (AST phase).
-      if (r.effect !== "allow") continue;
+      // Any other head word is `loom.policy-unknown-rule` (AST phase); a
+      // removed level is `loom.policy-level-removed` (AST phase).
+      if (r.effect !== "allow" || r.level !== "local") continue;
       // The optional `verb` selects the ladder: `write` gates mutations;
       // bare / `read` is the read ladder.
       if (r.verb === "write") {
         policyWriteLevels.push({
           aggregate: r.target,
-          level: r.level as PolicyWriteLevelIR["level"],
-          source: `allow write ${r.level} on ${r.target}`,
+          level: "local",
+          source: `allow write local on ${r.target}`,
         });
       } else {
         policyReadLevels.push({
           aggregate: r.target,
-          level: r.level as PolicyReadLevelIR["level"],
-          source: `allow ${r.level} on ${r.target}`,
+          level: "local",
+          source: `allow local on ${r.target}`,
         });
       }
     }
@@ -1480,8 +1482,8 @@ function lowerContext(
     aggregates,
     repositories,
     workflows,
-    ...(commandHandlers.length > 0 ? { commandHandlers } : {}),
-    ...(queryHandlers.length > 0 ? { queryHandlers } : {}),
+    commandHandlers,
+    queryHandlers,
     criteria,
     domainServices,
     channels,
@@ -1705,6 +1707,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
       kind: p.kind as PayloadIR["kind"],
       fields: [],
       variants: p.variants.map((v) => lowerAtom(v, env)),
+      synthesized: false,
     };
   }
   // Pass `env` so a field's NamedType reference resolves against the context
@@ -1717,6 +1720,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
     name: p.name,
     kind: p.kind as PayloadIR["kind"],
     fields: p.fields.map((f) => lowerField(f, env)),
+    synthesized: false,
   };
 }
 
@@ -1725,7 +1729,7 @@ function lowerPayload(p: PayloadDecl, env?: Env): PayloadIR {
  *  payload subtype").  Shares the underlying `FieldIR[]`; no copy needed
  *  since both views are read-only downstream. */
 function eventToPayload(e: EventIR): PayloadIR {
-  return { name: e.name, kind: "event", fields: e.fields };
+  return { name: e.name, kind: "event", fields: e.fields, synthesized: false };
 }
 
 function lowerAggregate(

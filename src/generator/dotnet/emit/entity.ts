@@ -734,9 +734,7 @@ export function renderEntity(
         "    /// <summary>Internal: adopt the stream's tenant metadata (stored-event metadata, never an event payload).</summary>",
         `    internal void _AdoptStreamTenant(${STREAM_TENANT_METADATA.map((m) => `string? ${m.field}`).join(", ")})`,
         "    {",
-        ...STREAM_TENANT_METADATA.map(
-          (m) => `        ${upperFirst(m.field)} = ${m.field}${m.required ? "!" : ""};`,
-        ),
+        ...STREAM_TENANT_METADATA.map((m) => `        ${upperFirst(m.field)} = ${m.field}!;`),
         "    }",
         "",
       );

@@ -1,10 +1,10 @@
 # 17. Authentication & authorization
 
-Identity and access for a Loom system, in one place: the system-scope `user` claim shape, the `auth { … }` OIDC config that generates a real verifier, the per-subdomain `permissions` catalogue (with `implies` grant hierarchy), the `requires` gate (HTTP 403), named `policy` functions, the `policy { … }` read/write ladder and its `deny` carve-outs, `mask unless` field redaction, the magic `currentUser`, and `sensitive(...)` tagging. Reach for this chapter when a request must be checked against *who the caller is* — distinct from `precondition`, which checks *what state the aggregate is in* (403 vs 422). Loom owns no auth runtime: declaring this surface generates the typed principal, the middleware, the verifier, the gates and the query filters; the IdP owns credentials, MFA and consent.
+Identity and access for a Loom system, in one place: the system-scope `user` claim shape, the `auth { … }` OIDC config that generates a real verifier, the per-subdomain `permissions` catalogue (with `implies` grant hierarchy), the `requires` gate (HTTP 403), named `policy` functions, the `policy { … }` block (the own-org `local` floor and its `deny` carve-outs), `mask unless` field redaction, the magic `currentUser`, and `sensitive(...)` tagging. Reach for this chapter when a request must be checked against *who the caller is* — distinct from `precondition`, which checks *what state the aggregate is in* (403 vs 422). Loom owns no auth runtime: declaring this surface generates the typed principal, the middleware, the verifier, the gates and the query filters; the IdP owns credentials, MFA and consent.
 
-> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework`, `loom.orgpath-without-tenancy` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
+> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework`, `loom.tenancy-principal-member-removed` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
 
-All five backends emit auth files. The middleware, verifier seam, `requires`→403 mapping, `permissions.<name>` lowering, the read/write ladder and `mask unless` redaction are structurally identical across them — the divergence is host-language syntax and, for Elixir, the topology (a plug plus context-function guards rather than route-level throws). The frontends consume only the session probe; the `auth: ui` page gate is covered in [UI pages](15-ui-pages-structure.md) and [`../auth.md`](../auth.md#ui-gate--page--requires-expr-).
+All five backends emit auth files. The middleware, verifier seam, `requires`→403 mapping, `permissions.<name>` lowering, the `policy { … }` rules and `mask unless` redaction are structurally identical across them — the divergence is host-language syntax and, for Elixir, the topology (a plug plus context-function guards rather than route-level throws). The frontends consume only the session probe; the `auth: ui` page gate is covered in [UI pages](15-ui-pages-structure.md) and [`../auth.md`](../auth.md#ui-gate--page--requires-expr-).
 
 The single example below threads every feature in this chapter; each section excerpts the lines it produces.
 
@@ -65,7 +65,7 @@ system Helpdesk {
       repository Organizations for Organization { }
 
       policy {
-        allow deep on Ticket
+        allow local on Ticket
         deny on Secret
         read Ticket requires currentUser.role == "agent"
       }
@@ -89,16 +89,21 @@ system Helpdesk {
 user { id: string  role: string  permissions: string[]  tenantId: string }
 ```
 
-The declared fields are the *claims*; under a `tenancy by` declaration the principal additionally carries two **derived** members resolved once per request — `orgPath` (the caller org's materialized registry path) and `rootOrg` (its first segment). They are server-side scoping state and stay off the `/api/auth/me` wire.
+The declared fields are the *claims*, and under a `tenancy by` declaration they are the whole principal: the tenancy claim is the caller's home org. Beside them the principal carries only the reactor members `isSystem` / `causedBy` (see [Reactors](#reactors--the-system-principal-currentuserissystem)).
 
 ::: tabs backend
 == node
 ```ts
 // auth/user-types.ts
-export interface UserClaims { id: string; role: string; permissions: string[]; tenantId: string; }
+export interface UserClaims {
+  id: string;
+  role: string;
+  permissions: string[];
+  tenantId: string;
+}
 export interface User extends UserClaims {
-  orgPath: string;   // caller's tenant materialized path (multi-tenancy)
-  rootOrg: string;   // first segment of orgPath — anchors `allow global`
+  isSystem?: boolean;
+  causedBy?: string | null;
 }
 ```
 == dotnet
@@ -106,13 +111,15 @@ export interface User extends UserClaims {
 // Auth/User.cs
 public sealed record User(string Id, string Role, List<string> Permissions, string TenantId)
 {
-    private string? _orgPath;   // resolved once per request by UserMiddleware, memoized
+    public bool IsSystem { get; init; }
+    public string? CausedBy { get; init; }
+    // …
 }
 ```
 == java
 ```java
 // auth/User.java
-public record User(String id, String role, List<String> permissions, String tenantId) { /* + orgPath/rootOrg accessors */ }
+public record User(String id, String role, List<String> permissions, String tenantId, boolean isSystem, String causedBy) { /* … */ }
 ```
 == python
 ```python
@@ -123,24 +130,28 @@ class User:
     role: str
     permissions: list[str]
     tenant_id: str
-    org_path = ""   # class attribute, NOT a field — never serialized by asdict()
+    is_system: bool = False
+    caused_by: str | None = None
 ```
 == elixir
 ```elixir
-# api_elixir_web/auth.ex — the principal is a plain map built from the claims
+# lib/<app>_web/auth.ex — the principal is a plain map built from the claims
 defp build_user(claims) do
-  %{id: get_claim(claims, "sub"), role: get_claim(claims, "realm_access.roles"),
+  %{
+    id: get_claim(claims, "sub"),
+    role: get_claim(claims, "realm_access.roles"),
     permissions: get_claim(claims, "resource_access.helpdesk.roles") || [],
-    tenant_id: get_claim(claims, "tenant_id")}
+    tenant_id: get_claim(claims, "tenantId")
+  }
 end
 ```
 ::: end
 
-> Referencing `currentUser.orgPath` / `.rootOrg` without a `tenancy by` line is `loom.orgpath-without-tenancy`.
+> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads `organizationContext.org` also gets one server-side member, `operatingOrg` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
 
 ## `auth: required` — per-deployable middleware + verifier seam
 
-The `user` block declares the shape; `auth: required` on a **deployable** opts it into the decode middleware. Without it the deployable stays open. With it but no `user` block, `loom.auth-no-user-block` fires (the sibling `loom.auth-without-user` is the *auth-block-without-user* case). The middleware decodes the token via the verifier hook, stashes the principal on the request context, and 401s on failure. A shared bypass list (`/health`, `/ready`, `/openapi.json`, `/swagger`, the OIDC handshake paths) keeps framework endpoints anonymous so smoke tests and the OpenAPI parity check work without tokens.
+The `user` block declares the shape; `auth: required` on a **deployable** opts it into the decode middleware. Without it the deployable stays open. With it but no `user` block, `loom.auth-no-user-block` fires (the sibling `loom.auth-without-user` is the *auth-block-without-user* case). The middleware decodes the token via the verifier hook, stashes the principal on the request context, and 401s on failure. A shared bypass list (`/health`, `/ready`, `/openapi.json`, `/swagger`, the OIDC handshake paths) keeps framework endpoints anonymous so smoke tests and the OpenAPI parity check work without tokens. Every backend decides on the path its router dispatches — percent-decoded, path parameters stripped, dot segments resolved — and a bypass prefix matches only its canonical spelling, so `/%61pi/docs`, `/api;x/docs` or `/%68ealth` are gated like `/api/docs`.
 
 `AuthMode` is a two-value union: `required` (backend — decode + enforce) and `ui` (frontend — the client-side session guard). `auth: ui` on a backend deployable is `loom.auth-ui-misplaced` (it replaced the older `auth-ui-on-backend` code); pointing it at a target that is not `auth: required` is `loom.auth-ui-target-open`; a framework outside `react`/`vue`/`svelte`/`angular`/`feliz`/`flutter` is `loom.auth-ui-unsupported-framework`.
 
@@ -149,9 +160,10 @@ The `user` block declares the shape; `auth: required` on a **deployable** opts i
 ```ts
 // auth/middleware.ts — mounted in http/index.ts as app.use("*", authMiddleware)
 export const authMiddleware = createMiddleware<{ Variables: { currentUser: User } }>(async (c, next) => {
-  const path = new URL(c.req.url).pathname;
-  for (const prefix of BYPASS_PREFIXES) if (path.startsWith(prefix)) { await next(); return; }
-  if (routeProbe && !routeProbe(c.req.method, path)) { await next(); return; }
+  const path = c.req.path; // the path the router dispatched on (percent-decoded)
+  if (path === new URL(c.req.url).pathname) // a bypass matches only its canonical spelling
+    for (const prefix of BYPASS_PREFIXES) if (path.startsWith(prefix)) { await next(); return; }
+  if (!routeMatched(c)) { await next(); return; } // the router's own match: no route → 404/405
   // … verifyUserOrThrow(c.req.raw) → 401 on failure, then c.set("currentUser", user)
 });
 ```
@@ -168,7 +180,9 @@ if (RequestContext.Current is { } rc) rc.CurrentUser = user;
 `Program.cs` registers exactly one `IUserVerifier` — `OidcUserVerifier` under an `auth { oidc }` block, otherwise `DevStubUserVerifier` — plus `ICurrentUserAccessor` + `IHttpContextAccessor`.
 == java
 ```java
-// auth/UserFilter.java — a servlet filter; auth/UserVerifier.java is the seam,
+// auth/UserFilter.java — a servlet filter deciding on getServletPath() + getPathInfo()
+// (the container-normalised dispatch path), gating any request whose raw URI reads
+// differently to Spring's per-segment matcher; auth/UserVerifier.java is the seam,
 // auth/CurrentUserAccessor.java exposes the principal (statically) to services and mappers.
 ```
 == python
@@ -466,44 +480,48 @@ if (!(currentUser.role === "agent" || (currentUser.permissions).includes("suppor
 | Return type is not `bool` | `loom.policy-fn-return-type` |
 | A policy function (transitively) references itself | `loom.policy-fn-cycle` |
 
-## `policy { … }` — the read/write ladder and `deny`
+## `policy { … }` — the `local` floor and `deny`
 
-The **block** form of `policy` is a context member that selects a per-aggregate reachability level, refining the tenant floor `with tenantOwned` installs. `allow` carries a widening `ReadLevel` (`local` / `deep` / `global`); the optional `write` verb switches to the write ladder; `deny` is the all-or-nothing carve-out and **wins** over any `allow`.
+The **block** form of `policy` is a context member that sets per-aggregate access on top of the tenant floor `with tenantOwned` installs. `allow` carries a `ReadLevel`, and the one level is `local` — the caller's own org, `tenantId == currentUser.<claim>`, which is also **the default** for an aggregate no rule names; the optional `write` verb selects the write access. `deny` is the all-or-nothing carve-out and **wins** over any `allow`.
 
 ```ddd
 policy {
-  allow deep on Ticket        // caller's org + every descendant org
-  allow write local on Ticket // (the default floor, spelled explicitly)
+  allow local on Ticket       // the own-org floor (the default, spelled explicitly)
+  allow write local on Ticket // the same floor for writes
   deny on Secret              // Secret is invisible: findAll → [], findById → 404
   deny write on Plan          // Plan is read-only: mutations 404
 }
 ```
 
-| Level | Read scope |
-| --- | --- |
-| `local` | `tenantId == currentUser.tenantId` — the caller's own org node. **The default.** |
-| `deep` | descendant-or-self on the materialized path: `dataKey == orgPath` OR `dataKey` under `orgPath || '.'`. |
-| `global` | the caller's **root-org** subtree — the same prefix scan anchored at `currentUser.rootOrg`. Under flat tenancy it stays the flat floor (fail-closed). |
+Data visibility is flat: no level reaches another org's rows. `allow deep on X` / `allow global on X` (read or write) parse — `deep` and `global` stay soft keywords — but are refused with `loom.policy-level-removed`, which names the replacement (a share or a row rule):
 
-Each rule rewrites the aggregate's capability filter and rides the query seams the flat floor already uses — no new backend plumbing:
+```text
+error: `allow deep on Ticket`: the 'deep' level no longer exists — data visibility is flat, so a tenant-owned row is visible to its own org only ('local', the default).  To reach rows of other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule or write `allow local on …`.
+```
+
+Each rule rides the query seams the tenant floor already uses — no new backend plumbing:
 
 ::: tabs backend
 == node
 ```ts
-// db/repositories/ticket-repository.ts — `allow deep on Ticket`
-.where(and(inArray(schema.tickets.id, ids),
-  or(and(isNotNull(schema.tickets.dataKey),
-    or(eq(schema.tickets.dataKey, requireCurrentUser().orgPath),
-       sql`${schema.tickets.dataKey} like ${… + ".%"} escape '!'`)), /* … */)))
-```
-```ts
-// db/repositories/secret-repository.ts — `deny on Secret` composes as an always-false predicate
-.where(and(eq(schema.secrets.id, id), and(isNull(schema.secrets.id), isNotNull(schema.secrets.id))))
+// db/read-scopes.ts — `allow local on Ticket`: the floor
+export function ticketScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : eq(schema.tickets.tenantId, requireCurrentUser().tenantId),
+  );
+}
+// `deny on Secret` composes as an always-false predicate beside the floor
+export function secretScope(use: ScopeUse = {}): SQL | undefined {
+  return and(
+    drops(use, "tenantOwned") ? undefined : eq(schema.secrets.tenantId, requireCurrentUser().tenantId),
+    and(isNull(schema.secrets.id), isNotNull(schema.secrets.id)),
+  );
+}
 ```
 == dotnet
 ```csharp
 // Infrastructure/Persistence/AppDbContext.cs
-modelBuilder.Entity<Ticket>().HasQueryFilter("Filter1", x => ((x.DataKey != null && (x.DataKey == _currentUser.User.OrgPath || …))));
+modelBuilder.Entity<Ticket>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);
 modelBuilder.Entity<Organization>().HasQueryFilter("IdFilter", x => x.Id == __SelfScopeId_Organization_0);  // registry self-scope
 ```
 ```csharp
@@ -512,10 +530,8 @@ builder.HasQueryFilter("Filter2", x => false);
 ```
 == python
 ```python
-# app/db/repositories/ticket_repository.py
-select(TicketRow).where(or_(and_(TicketRow.data_key.isnot(None),
-    or_(TicketRow.data_key == require_current_user().org_path,
-        TicketRow.data_key.like(…))), …))
+# app/db/read_scope.py
+out.append(with_loader_criteria(TicketRow, (TicketRow.tenant_id == user.tenant_id), include_aliases=True))
 ```
 ::: end
 
@@ -524,12 +540,10 @@ select(TicketRow).where(or_(and_(TicketRow.data_key.isnot(None),
 | Target names no aggregate in this context | `loom.policy-unknown-aggregate` / `loom.policy-deny-unknown-aggregate` |
 | Target is not `with tenantOwned` (a level refines the tenant floor) | `loom.policy-target-not-tenant-owned` |
 | Two rules select a level for the same aggregate / access | `loom.policy-duplicate-target` / `loom.policy-deny-duplicate` |
-| `deep`/`global` without `implements tenantRegistry` (no hierarchy) | `loom.policy-level-requires-hierarchy` |
-| `write global` (parses, always rejected — root-wide mutation is a footgun) | `loom.policy-write-global-invalid` |
-| Write scope wider than the read scope | `loom.policy-write-wider-than-read` |
+| `allow [write] deep` / `allow [write] global` | `loom.policy-level-removed` |
 | A `deny` that shadows an `allow` for the same aggregate (the allow is dead) | `loom.policy-deny-shadows-allow` |
 
-Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy.md`](../tenancy.md) and [`../auth.md`](../auth.md#deny-carve-outs-phase-4).
+Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy.md`](../tenancy.md) and [`../auth.md`](../auth.md#deny-carve-outs).
 
 ### `read` — who may read an aggregate
 
@@ -677,7 +691,7 @@ An event reactor — a workflow's event-triggered `create(e) by …` starter or 
 |---|---|
 | `currentUser.isSystem` | `true` (it is `false` on every request principal) |
 | every `user { }` claim | EMPTY — `""`, `0`, `false`, `[]`, `null`, the zero id — never a grant |
-| the tenancy claim / `orgPath` | the triggering event's tenant — the raising request's in-process; across the outbox relay or a broker, the **event origin** the outbox row / envelope carried (`tenantid` / `loomorgpath`, [`channels.md` § Event origin](../channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)) |
+| the tenancy claim | the triggering event's tenant — the raising request's in-process; across the outbox relay or a broker, the **event origin** `{tenant, causedBy}` the outbox row / envelope carried (`tenantid` / `loomcausedby`, [`channels.md` § Event origin](../channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)) |
 | `causedBy` | the originating user's id, kept across hops (`loomcausedby`) — audit and logs only, not a language member, no gate can read it |
 
 Gates are evaluated against it **normally**. A gate that should admit a reactor says so:
@@ -753,14 +767,14 @@ Multi-tenancy is the auth layer's data-partitioning half and shares its principa
 tenancy by user.tenantId of Organization
 aggregate Ticket with tenantOwned { … }        // stamped + filtered by the claim
 aggregate Plan crossTenant { … }               // shared reference data, opts out (header-region marker)
-aggregate Organization { implements tenantRegistry }   // the registry tree (parent + dataKey)
+aggregate Organization { implements tenantRegistry }   // the registry tree (parent)
 ```
 
-`with tenantOwned` splices `tenantId: string internal`, `dataKey: string? internal`, an `onCreate` stamp from `currentUser.tenantId` / `currentUser.orgPath`, and the filter `this.tenantId == currentUser.tenantId`. `implements tenantRegistry` adds `parent: Self id?` + the managed `dataKey` materialized path, turning `currentUser.orgPath` from a claim copy into a real registry lookup — and unlocking the `deep`/`global` levels above. `crossTenant` rides the aggregate **header region** (`aggregate Plan crossTenant { … }`), not a prefix.
+`with tenantOwned` splices `tenantId: string internal`, an `onCreate` stamp `tenantId := currentUser.tenantId`, and the filter `this.tenantId == currentUser.tenantId` — `tenantId` is the only column tenancy adds to a row. `implements tenantRegistry` adds `parent: Self id?` (`immutable`), the tree an author uses to manage sub-tenants; it takes no part in a data read, so a row stays visible to its own org only. `crossTenant` rides the aggregate **header region** (`aggregate Plan crossTenant { … }`), not a prefix.
 
-Every persisted aggregate under a `tenancy by` system must take a stance (`loom.tenancy-stance-unmarked`; a subtype inherits its abstract base's stance). The other gates: `loom.tenancy-duplicate`, `loom.tenancy-conflicting-stance`, `loom.tenancy-inherited-stance-conflict`, `loom.tenancy-claim-type-mismatch`, `loom.tenant-owned-claim-type`, `loom.tenant-owned-without-tenancy`, `loom.cross-tenant-without-tenancy` (warning), `loom.tenant-registry-without-tenancy`, `loom.tenancy-registry-duplicate`, `loom.tenancy-registry-not-target`, `loom.tenancy-registry-marked`, `loom.orgpath-without-tenancy`, and `loom.unique-missing-tenant-scope` (a `unique` on a tenant-owned aggregate that omits the discriminator is a *global* unique — usually a bug). A seed row on a tenant-owned aggregate must use `seed <dataset> raw { … }`, because the domain create path stamps from a principal a first-boot seeder does not have (`loom.seed-tenant-owned-needs-raw`).
+Every persisted aggregate under a `tenancy by` system must take a stance (`loom.tenancy-stance-unmarked`; a subtype inherits its abstract base's stance). The other gates: `loom.tenancy-duplicate`, `loom.tenancy-conflicting-stance`, `loom.tenancy-inherited-stance-conflict`, `loom.tenancy-claim-type-mismatch`, `loom.tenant-owned-claim-type`, `loom.tenant-owned-without-tenancy`, `loom.cross-tenant-without-tenancy` (warning), `loom.tenant-registry-without-tenancy`, `loom.tenancy-registry-duplicate`, `loom.tenancy-registry-not-target`, `loom.tenancy-registry-marked`, `loom.tenancy-data-key-removed`, `loom.tenancy-principal-member-removed`, and `loom.unique-missing-tenant-scope` (a `unique` on a tenant-owned aggregate that omits the discriminator is a *global* unique — usually a bug). A seed row on a tenant-owned aggregate must use `seed <dataset> raw { … }`, because the domain create path stamps from a principal a first-boot seeder does not have (`loom.seed-tenant-owned-needs-raw`).
 
-Declaration syntax also appears in [Systems & deployables](02-systems-and-topology.md#tenancy-by-userclaim-of-registry); the full design — registry bootstrap, per-backend filters, the hierarchy — is [`../tenancy.md`](../tenancy.md).
+Declaration syntax also appears in [Systems & deployables](02-systems-and-topology.md#tenancy-by-userclaim-of-registry); the full design — registry bootstrap, per-backend filters, the registry tree — is [`../tenancy.md`](../tenancy.md).
 
 ## `sensitive(...)` — field tagging
 
@@ -806,7 +820,7 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | `permissions.X` undeclared (or used outside any subdomain) | `loom.unknown-permission` |
 | `implies` targets itself / an undeclared name | `loom.permission-implies-self` / `loom.permission-implies-unknown` |
 | Policy function: bad arity / non-`bool` return / reference cycle | `loom.policy-fn-arity` / `loom.policy-fn-return-type` / `loom.policy-fn-cycle` |
-| `policy { … }` rule problems (unknown target, non-tenant-owned, duplicate, missing hierarchy, `write global`, write wider than read, dead allow) | `loom.policy-unknown-aggregate`, `loom.policy-deny-unknown-aggregate`, `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`, `loom.policy-deny-duplicate`, `loom.policy-level-requires-hierarchy`, `loom.policy-write-global-invalid`, `loom.policy-write-wider-than-read`, `loom.policy-deny-shadows-allow` |
+| `policy { … }` rule problems (unknown target, non-tenant-owned, duplicate, a removed `deep`/`global` level, dead allow) | `loom.policy-unknown-aggregate`, `loom.policy-deny-unknown-aggregate`, `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`, `loom.policy-deny-duplicate`, `loom.policy-level-removed`, `loom.policy-deny-shadows-allow` |
 | `mask unless` references a row field / an unsupported backend / a projection source | `loom.field-mask-not-current-user` / `loom.field-mask-unsupported` / `loom.field-mask-projection-source` |
 | `currentUser` in an invariant / derived / function body | `loom.currentuser-not-in-request-scope` |
 | A read gate (policy `read` / projection / workflow header) references a row field | `loom.policy-read-gate-not-current-user` / `loom.projection-gate-not-current-user` / `loom.workflow-gate-not-current-user` |
@@ -814,6 +828,6 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | Ungated client-reachable surface under `denyByDefault` / ungated `audited` history | `loom.default-deny-ungated` / `loom.audit-history-ungated` |
 | A gate or a principal stamp on a deployable without auth | `loom.guard-principal-without-auth` / `loom.stamp-principal-without-auth` |
 | A page reads `currentUser` on a deployable with no session binding | `loom.current-user-needs-auth-ui` |
-| Tenancy stance / registry / claim-type problems | `loom.tenancy-*`, `loom.tenant-owned-*`, `loom.tenant-registry-without-tenancy`, `loom.cross-tenant-without-tenancy`, `loom.orgpath-without-tenancy`, `loom.unique-missing-tenant-scope` |
+| Tenancy stance / registry / claim-type problems | `loom.tenancy-*`, `loom.tenant-owned-*`, `loom.tenant-registry-without-tenancy`, `loom.cross-tenant-without-tenancy`, `loom.tenancy-principal-member-removed`, `loom.tenancy-data-key-removed`, `loom.unique-missing-tenant-scope` |
 
 See [`../auth.md`](../auth.md) for the per-backend file layouts, the OIDC handshake route table, PKCE + refresh rotation, the bypass list, and the `auth: ui` frontend gate; [`../tenancy.md`](../tenancy.md) for the full multi-tenancy design.

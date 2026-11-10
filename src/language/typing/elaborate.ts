@@ -27,11 +27,9 @@ import {
 } from "../../util/openapi-ids.js";
 import {
   ORG_CONTEXT_ACCESSOR,
-  ORG_CONTEXT_ORG_PATH,
+  ORG_CONTEXT_ORG,
   PRINCIPAL_IS_SYSTEM,
-  PRINCIPAL_ORG_CONTEXT_PATH,
-  PRINCIPAL_ORG_PATH,
-  PRINCIPAL_ROOT_ORG,
+  PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
@@ -91,6 +89,7 @@ import {
   isEntityPart,
   isEnumDecl,
   isEventDecl,
+  isExistsExpr,
   isExpression,
   isForStmt,
   isFunctionDecl,
@@ -164,6 +163,8 @@ export type BindingKind =
   | "let"
   | "lambda"
   | "match"
+  /** The row an `exists <Agg> as <row> where …` quantifies over. */
+  | "row"
   | "event-param"
   | "state"
   | "derived"
@@ -676,6 +677,20 @@ export class Elaborator {
       return acc ?? Ty.unknown("no-rule");
     }
     if (isLambda(e)) return this.synthLambda(e, scope, scope.frame.rowElem).self;
+    if (isExistsExpr(e)) {
+      // `exists <Agg> as s where p` — `s` is one row of `<Agg>`; the enclosing
+      // row stays `this`, so the frame (owner, candidate alias) is unchanged.
+      const agg = e.aggregate?.ref;
+      const rowScope = scope.child();
+      rowScope.bind(
+        e.binding,
+        agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
+        e,
+        "row",
+      );
+      if (e.where) this.synth(e.where, rowScope);
+      return Ty.prim("bool");
+    }
     if (isListLit(e)) {
       let acc: Ty | undefined;
       for (const el of e.elements) {
@@ -1689,14 +1704,7 @@ export class Elaborator {
         return f ? this.propertyType(f, scope) : Ty.unknown("unresolved-member");
       }
       case "principal": {
-        if (
-          name === PRINCIPAL_ORG_PATH ||
-          name === PRINCIPAL_ROOT_ORG ||
-          name === PRINCIPAL_ORG_CONTEXT_PATH ||
-          name === ORG_CONTEXT_ORG_PATH
-        ) {
-          return Ty.prim("string");
-        }
+        if (name === PRINCIPAL_OPERATING_ORG || name === ORG_CONTEXT_ORG) return Ty.prim("string");
         // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
         if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);

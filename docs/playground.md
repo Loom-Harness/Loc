@@ -132,8 +132,7 @@ playground surfaces this explicitly instead of failing silently.
 
 The runtime worker boots the generated backend through its own start-up
 sequence — `bootApp` in the deployable's `boot.ts`, the same function the
-generated `index.ts` runs before `serve()` — so seeds, the user verifier, the
-tenant-registry `orgPath` resolver, the channel consumers, the outbox relay
+generated `index.ts` runs before `serve()` — so seeds, the user verifier, the channel consumers, the outbox relay
 and the timers all run in the preview as they do deployed. The worker passes
 the browser's answers, each announced at warn level in the runtime log:
 
@@ -142,7 +141,7 @@ the browser's answers, each announced at warn level in the runtime log:
 | `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
 | `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
-| `infra: "in-process"` — `every:` timers | fire without the advisory-lock transaction | one process, and PGlite's single connection would deadlock the tick's writes behind the lock |
+| `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `__loom_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
 
 The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
 `pg-boss`) are swapped at bundle time for stubs whose constructors throw
@@ -182,15 +181,28 @@ facades that forward there over the deployable's `InfraPort` (`src/runtime/resou
 
 | sourceType | In the bundle | In the infra worker |
 |---|---|---|
-| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an in-memory object map |
-| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one in-memory tree, shared by every deployable |
+| `s3` | the real `@aws-sdk/client-s3` + presigner; a `fetch` wrapper hands SigV4-signed requests to the fake | S3 REST subset (put / get / head / delete / list, path-style and virtual-hosted, presigned GET) over an object map, written through to OPFS |
+| `localDisk` | `node:fs` → a facade with the `fs.promises` verbs the generated client uses | one tree, shared by every deployable, written through to OPFS |
 | `smtp`, `sendgrid` | `nodemailer` / `@sendgrid/mail` → facades | the Mailbox |
 | `ses` | the real `@aws-sdk/client-ses`; its `SendEmail` is answered by the fake | the Mailbox |
-| `restApi` | the generated `fetch` → the `httpMock` service | echo response, or sample data from a registered OpenAPI document (`openapi-sampler`) |
+| `restApi` | the generated `fetch` → the `httpMock` service | sample data for the storage's `config: { spec }` OpenAPI document (`openapi-sampler`); an echo when it has none |
 
 The AWS SDKs get dummy credentials (`adaptResourceSource` in
 `src/engine/npm/resource-facades.ts`); the fakes ignore signatures. Objects,
-files and mail live as long as the infra worker: Reset or a re-boot empties them.
+files and mail are written through to an OPFS directory (`loomres-<island>`, the
+same island as the first storage's PGlite data, so it follows the workspace and
+`engine/opfs-gc.ts` collects it with it) and reloaded at boot, so they survive a
+page reload; the database Reset (and "Clear stored data") empties them. Where OPFS
+is unavailable (mobile's `:memory:` storages, private mode) they live in memory
+only: a re-boot empties them.
+
+A presigned S3 URL the generated frontend `fetch`es from the preview iframe is
+answered by the same object store: the iframe's fetch shim
+(`src/preview/iframe-html.ts`) forwards any `*.amazonaws.com` URL carrying an
+`X-Amz-Credential` over the bridge port to the `s3` service. Only `fetch` is
+intercepted — an `<img src>` or a download link to a presigned URL still goes to
+the real host (a page cannot be intercepted without a service worker), which the
+Runtime panel's "emulated" tooltip states.
 
 ### In-browser test runner
 
@@ -346,7 +358,7 @@ a spurious read-only banner.
 
 ## Runtime & evolution surfaces
 
-The dock's **Runtime** tab has four sub-views once the backend is booted: **API** (the spec-driven endpoint console), **Database** (the SQL console + Reset), **Tables** (read-only — `information_schema.tables` across every generated schema, click a table for its first 50 rows; a *Users* strip beside it names the identities requests carry: the generated dev stub's built-in identity and the Auth tab's override) and **Requests** (every OpenAPI operation with the number of requests it served, matched from the runtime log's `request_end` lines by `web/src/backend/route-match.ts`; unmatched paths collect in a *404s* list). Every raw runtime error — a boot failure, a 4xx/5xx body, a dispatch that produced no response — carries one line of interpretation and a *See Output → Runtime logs* link above the raw text.
+The dock's **Runtime** tab has four sub-views once the backend is booted: **API** (the spec-driven endpoint console), **Database** (the SQL console + Reset), **Tables** (read-only — `information_schema.tables` across every generated schema, click a table for its first 50 rows; a *Users* strip beside it names the identities requests carry: the generated dev stub's built-in identity and the Auth tab's override) and **Requests** (every OpenAPI operation with the number of requests it served, matched from the runtime log's `request_end` lines by `web/src/backend/route-match.ts`; unmatched paths collect in a *404s* list). Every raw runtime error — a boot failure, a 4xx/5xx body, a dispatch that produced no response — carries one line of interpretation and a *See Output → Runtime logs* link above the raw text. **Runtime logs** also shows what a deployable logs outside any request — its channel consumers, the outbox relay, its timers — batched every 100 ms and tagged with the deployable (`setBackgroundFlush` in `web/src/runtime/console-tee.ts`).
 
 The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd migrate add` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
 

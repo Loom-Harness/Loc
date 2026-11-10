@@ -1426,14 +1426,12 @@ system D {
 });
 
 // ---------------------------------------------------------------------------
-// M-T6.29 — the two `authz-filter` sentinels under `persistence: dapper`.
-// `deny` RENDERS (`1 = 0`, principal-free); the hierarchical `deep`/`global`
-// scope sentinel is an HONEST boundary.  Before this both fell through
-// `whereToSql`'s `default:` and CRASHED codegen — and the corpus map already
-// claimed the hierarchy case was validator-rejected, which it was not.
+// The authorization read scope under `persistence: dapper`: the flat tenant
+// floor and the `deny` sentinel (`1 = 0`, principal-free) both render as raw
+// SQL, and the registry self-scope binds its claim as a parsed uuid.
 // ---------------------------------------------------------------------------
-describe("dapper — authz-filter sentinels", () => {
-  const hierarchical = `
+describe("dapper — authorization read scope", () => {
+  const scoped = `
 system H {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
@@ -1447,7 +1445,7 @@ system H {
       }
       repository Accounts for Account { }
       repository Orgs for Org { }
-      policy { allow deep on Account }
+      policy { allow local on Account }
     }
   }
   storage pg { type: postgres }
@@ -1455,51 +1453,31 @@ system H {
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080  auth: required }
 }`;
 
-  // The hierarchical (`deep`/`global`) sentinel used to be REFUSED on this
-  // adapter (`loom.dapper-unsupported#deep-scope`) on the stated ground that the
-  // principal claims it reads could not be bound.  Wave C2 packet 2b renders it:
-  // this pins BOTH halves, because they are the pair that can disagree silently
-  // — a fragment naming a parameter nobody binds is a RUNTIME "parameter not
+  // The flat tenant floor is a raw-SQL fragment naming a principal parameter;
+  // the fragment and its binding are the pair that can disagree silently — a
+  // fragment naming a parameter nobody binds is a RUNTIME "parameter not
   // supplied", invisible to `dotnet build`.
-  it("renders the deep-scope subtree predicate as raw SQL on every read", async () => {
-    const { files, errors } = await emit(hierarchical);
+  it("renders the tenant floor on every read and binds every parameter it names", async () => {
+    const { files, errors } = await emit(scoped);
     expect(errors, `expected clean generation, got: ${errors.join(" | ")}`).toEqual([]);
     const rawRepo = files.get("api/Infrastructure/Repositories/AccountRepository.cs");
     expect(rawRepo, "no Dapper AccountRepository emitted").toBeDefined();
     const repo = inlineDapperScope(rawRepo!);
-    // Every SELECT over the aggregate's table carries the descendant-or-self
-    // predicate — the by-id read, the write-scope existence guard, the bulk
-    // by-ids load and the paged findAll.  Swept rather than spot-checked: a
-    // filter applied to three of four reads is the leak this predicate exists
-    // to stop (rule 11).
+    // Every SELECT over the aggregate's table carries the floor — the by-id
+    // read, the bulk by-ids load, the count and the paged findAll.  Swept
+    // rather than spot-checked: a filter applied to three of four reads is the
+    // leak this predicate exists to stop (rule 11).
     const selects = repo!.split("\n").filter((l) => /SELECT[^"]*FROM accounts/.test(l));
     expect(selects.length, "no SELECTs over `accounts`").toBeGreaterThanOrEqual(4);
     for (const line of selects) {
       expect(
         line,
-        `a read over accounts with no subtree predicate: ${line.trim().slice(0, 120)}`,
-      ).toMatch(/data_key IS NOT NULL AND \(data_key = @__cu_orgPath/);
-      // The anchored RECHECK is what decides the row; the LIKE beside it is only
-      // the sargable prefilter, so its absence would be a cross-subtree leak
-      // that still returns plausible rows (`orgXa.leak` under `org_a`).
-      expect(line).toContain("strpos(data_key, @__cu_orgPath__needle) = 1");
-      expect(line).toContain("escape '!'");
-      // …and the NULL-`data_key` fallback degrades to the flat floor.
-      expect(line).toContain("data_key IS NULL AND tenant_id = @__cu_tenantId");
+        `a read over accounts with no tenant floor: ${line.trim().slice(0, 120)}`,
+      ).toContain("tenant_id = @__cu_tenantId");
     }
-    // BINDINGS — the half `whereToSql` alone cannot get right.  All four
-    // parameters the fragment names must be supplied from the ambient principal,
-    // with the LIKE pattern escaped app-side (the shared `_expr/subtree-like.ts`
-    // chain, escape character FIRST).
-    expect(repo).toContain("__cu_orgPath = RequestContext.Current!.CurrentUser!.OrgPath");
     expect(repo).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
-    expect(repo).toContain(
-      '__cu_orgPath__like = RequestContext.Current!.CurrentUser!.OrgPath.Replace("!", "!!")' +
-        '.Replace("%", "!%").Replace("_", "!_") + ".%"',
-    );
-    expect(repo).toContain(
-      '__cu_orgPath__needle = RequestContext.Current!.CurrentUser!.OrgPath + "."',
-    );
+    // Visibility is flat: no path column is read (D-TENANCY-FLAT).
+    expect(repo).not.toContain("data_key");
     // No statement may name a parameter its own anonymous object does not bind.
     for (const line of selects) {
       for (const param of [...line.matchAll(/@(__cu_[A-Za-z0-9_]+)/g)].map((m) => m[1])) {
@@ -1517,7 +1495,7 @@ system H {
   // EVERY read of the registry — reproduced on a booted generated app, and
   // invisible to `dotnet build /warnaserror` because the predicate is a string.
   it("binds the registry self-scope claim as a PARSED uuid, not the text claim", async () => {
-    const { files, errors } = await emit(hierarchical);
+    const { files, errors } = await emit(scoped);
     expect(errors).toEqual([]);
     const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/OrgRepository.cs")!);
     expect(repo, "no Dapper OrgRepository emitted").toBeDefined();
@@ -1543,7 +1521,7 @@ system H {
 
   it("keeps the deny sentinel as the always-false term", async () => {
     const { files, errors } = await emit(
-      hierarchical.replace("allow deep on Account", "deny on Account"),
+      scoped.replace("allow local on Account", "deny on Account"),
     );
     expect(errors).toEqual([]);
     expect(files.get("api/Infrastructure/Repositories/AccountRepository.cs")).toContain("1 = 0");

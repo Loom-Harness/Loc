@@ -20,7 +20,7 @@
 //
 //   - Untenanted context (no `tenantOwned` aggregate): single-hop
 //     broadcast-to-all, byte-identical to the pre-rooms wire.
-//   - Tenant-owned context: delivery is scoped by the tenant DataKey
+//   - Tenant-owned context: delivery is scoped by the tenant key
 //     (`currentUser.<claim>`, the equality part of the `tenantOwned` read
 //     policy — the claim `tenancy by user.<claim>` bound, NOT the row column
 //     `tenantId`).  A tenant-scoped event reaches only subscribers in the
@@ -158,7 +158,7 @@ public sealed class RealtimeHub
 }
 
 /** Tenant-scoped hub (channels.md rooms + policy-derived routing v1): the
- *  subscriber registry is keyed by the tenant DataKey; tenant-scoped events
+ *  subscriber registry is keyed by the tenant key; tenant-scoped events
  *  reach only the emitter's tenant room, never cross-tenant. */
 function renderRoomScopedHub(ns: string, types: string[], plan: RealtimeRoomPlan): string {
   const typeList = types.map((t) => `"${t}"`).join(", ");
@@ -192,7 +192,7 @@ namespace ${ns}.Infrastructure.Realtime;
 
 /// <summary>Realtime SSE hub (channels.md rooms + policy-derived routing v1):
 /// this context hosts tenant-owned aggregates, so delivery is scoped by the
-/// tenant DataKey (<c>currentUser.${plan.tenantClaimField}</c>, the equality part of the
+/// tenant key (<c>currentUser.${plan.tenantClaimField}</c>, the equality part of the
 /// <c>tenantOwned</c> read policy).  A tenant-scoped event reaches only
 /// subscribers in the emitter's tenant room — never cross-tenant; the
 /// authorized read remains the gate.</summary>

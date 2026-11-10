@@ -37,6 +37,7 @@
 // v1 scope: full response-DTO projection rides with the contract-scaffold layer.
 // ---------------------------------------------------------------------------
 
+import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -293,7 +294,7 @@ function renderExternPort(h: Handler, basePkg: string, appPkg: string): string {
 }
 
 /** The scaffold-once user impl bean — `<Name>HandlerImpl.java` (marker on line
- *  1 → the CLI writer preserves it).  Throws loudly until filled in. */
+ *  1 → the CLI writer preserves it).  Throws `NotImplementedException` (answered 501) until filled in. */
 function renderExternImpl(
   h: Handler,
   kind: "commandHandler" | "queryHandler",
@@ -316,7 +317,7 @@ function renderExternImpl(
     `public class ${h.name}HandlerImpl implements ${h.name}Port {`,
     `    @Override`,
     `    public ${ret} handle(${params}) {`,
-    `        throw new UnsupportedOperationException(${JSON.stringify(msg)});`,
+    `        throw new NotImplementedException(${JSON.stringify(msg)});`,
     `    }`,
     `}`,
     ``,
@@ -823,7 +824,7 @@ function emitPagedRunAction(
   responsePkgs.add(responsePkgOf(agg));
   // A masked aggregate redacts its paged items fail-closed (authorization.md §5).
   const runAgg = ctx.aggregates.find((a) => a.name === agg);
-  const runFrom = runAgg?.fields.some((f) => f.maskUnless) ? "fromMasked" : "from";
+  const runFrom = runAgg && carriesFieldMask(runAgg) ? "fromMasked" : "from";
   const pathNames = pathParamNames(r.path);
   // The bound params share the action with the paging controls, the `result`
   // local and the injected handler field — a criterion param named `page` /
@@ -899,10 +900,10 @@ function projectReturn(
   responsePkgs.add(responsePkgOf(owning.name));
   // A `mask unless` aggregate redacts its response fields fail-closed
   // (authorization.md §5) — a handler returning such an aggregate projects
-  // through the redacting `fromMasked` mapper.  Only a masked AGGREGATE (never a
-  // part, which has no `fromMasked`) qualifies.
+  // through the redacting `fromMasked` mapper — including one masked only on a
+  // contained part, whose `fromMasked` the root's maps the containment through.
   const projectedAgg = ctx.aggregates.find((a) => a.name === info.base);
-  const masked = projectedAgg?.fields.some((f) => f.maskUnless) ?? false;
+  const masked = projectedAgg ? carriesFieldMask(projectedAgg) : false;
   const from = masked ? "fromMasked" : "from";
   if (retType.kind === "entity") return `${info.base}Response.${from}(result)`;
   // A bare (non-optional) entity gets the clean factory call; optional /

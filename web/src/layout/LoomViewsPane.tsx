@@ -6,6 +6,7 @@ import { diagramDocs, groupOperations, traceabilityDocs } from "../preview/loom-
 import type { LoomDoc } from "../preview/loom-views";
 import type { LayoutCtx } from "./ctx";
 import { API_VIEW, DIAGRAMS, TRACEABILITY_VIEW } from "./vocabulary";
+import { trackedCtx } from "./ctx-store";
 
 // The `.loom/` bundle as Explorer views (M-T8.20 slice 1).
 //
@@ -132,7 +133,7 @@ const METHOD_COLOR: Record<string, string> = {
   DELETE: "red",
 };
 
-export function ApiPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
+function ApiPaneView({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   const surface = ctx.apiSurface;
   const groups = useMemo(() => groupOperations(surface?.operations ?? []), [surface]);
 
@@ -213,3 +214,5 @@ function OperationRow({ op }: { op: ApiOperationView }): JSX.Element {
     </Group>
   );
 }
+
+export const ApiPane = trackedCtx("ApiPane", ApiPaneView);

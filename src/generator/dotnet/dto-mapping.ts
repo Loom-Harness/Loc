@@ -1,3 +1,4 @@
+import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
 import { fieldCode } from "../../ir/enrich/wire-policy.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import type {
@@ -50,9 +51,8 @@ import { csMoneyRangeMessage } from "./wire-policy-cs.js";
  *  `audited` operation, whose handler serializes the wire projection TWICE (the
  *  `__before` and `__after` snapshots) into the same handler body.  A lambda
  *  body would be no escape either, so the nested containment projections share
- *  the namer: C# forbids shadowing an enclosing local (CS0136).  (A contained
- *  PART cannot carry a mask today — `wireFieldsForPart` drops `maskUnless` —
- *  but threading it costs nothing and removes the trap if that changes.)
+ *  the namer: C# forbids shadowing an enclosing local (CS0136) — and a
+ *  contained part's own `mask unless` field wraps inside that lambda.
  *
  *  So the name is allocated, never hard-coded.  One namer spans one C# SCOPE:
  *  every emitter that renders more than one projection into a single method
@@ -846,8 +846,8 @@ export function projectEntityArgs(
       // containment is defaulted, so both project unguarded.
       const single = !wireTypeInfo(wf.type, "response").isCollection;
       // The nested projection shares this scope's namer.  A C# lambda body is
-      // not an escape hatch (shadowing an enclosing local is CS0136), so were a
-      // contained part ever to carry a mask it must not reuse an outer name.
+      // not an escape hatch (shadowing an enclosing local is CS0136), so a
+      // masked part member must not reuse an outer name.
       const nested = { maskNames: names, ...(opts?.unmasked ? { unmasked: true } : {}) };
       args.push(
         wireTypeInfo(wf.type, "response").isCollection
@@ -1015,7 +1015,7 @@ export function entityExposesProvenance(ent: { fields: FieldIR[] }): boolean {
  */
 export function projectionNamesDomainCommon(agg: EnrichedAggregateIR): boolean {
   return (
-    agg.fields.some((f) => f.maskUnless) ||
+    carriesFieldMask(agg) ||
     entityExposesProvenance(agg) ||
     agg.parts.some((p) => entityExposesProvenance(p))
   );

@@ -1,0 +1,31 @@
+// `src/ir/plan/` — derived views over the enriched IR.
+//
+// A plan is a backend-neutral fact about the model that more than one
+// consumer needs: the IR validators (phase ⑦) and the per-platform
+// generators (phase ⑧).  This directory is a library of pure functions, not
+// a pipeline phase; the compiler still runs ten phases.
+//
+// Rules every module here keeps:
+//
+//   - Computed on demand.  A plan is a pure function of IR nodes.  It is
+//     never written back onto an IR node or cached on one ("Derive, don't
+//     stamp").  Callers ask for it where they need it.
+//   - Platform-neutral.  A plan never branches on a backend, frontend or
+//     framework name.  A fact that differs per target belongs to that
+//     target's emitter or its platform descriptor, not here.
+//   - Downstream of enrichment.  A module here imports only `ir/types/`,
+//     `ir/util/`, `ir/enrich/`, `src/util/` and its siblings in `ir/plan/`.
+//     It never imports `generator/`, `platform/`, `system/` or `language/`,
+//     and `ir/lower/` / `ir/enrich/` never import it.
+//   - One implementation per fact.  A generator that needs a fact this
+//     layer provides imports it instead of recomputing it.
+//
+// `test/platform/pipeline-layering.test.ts` enforces the import rules.
+
+export { lookupOp } from "./operation-lookup.js";
+export {
+  eventSourcedWorkflows,
+  hasStateRow,
+  observableWorkflows,
+  stateRowWorkflows,
+} from "./workflow-sets.js";

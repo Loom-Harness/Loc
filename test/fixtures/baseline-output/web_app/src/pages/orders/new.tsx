@@ -28,7 +28,7 @@ export default function OrderNew() {
         <form onSubmit={handleSubmit(async (vals) => {
                   try {
                     const out = await create.mutateAsync(vals);
-                    notifications.show({ color: "green", message: "Order created" });
+                    notifications.show({ color: "green", message: t("chrome.created.Order", "Order created") });
                     navigate(`/orders/${out.id}`);
                   } catch (e) {
                     const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });

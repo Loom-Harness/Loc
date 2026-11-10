@@ -51,10 +51,10 @@ describe("event-sourced workflows — lowering", () => {
     }
   });
 
-  it("leaves eventSourced false and appliers undefined for a plain workflow", async () => {
+  it("leaves eventSourced false and appliers empty for a plain workflow", async () => {
     const wf = await lowerFirstWorkflow(`workflow Plain { create() { let x = 1 } }`);
     expect(wf.eventSourced).toBe(false);
-    expect(wf.appliers).toBeUndefined();
+    expect(wf.appliers).toEqual([]);
   });
 });
 

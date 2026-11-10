@@ -1,7 +1,8 @@
 // Resource fakes: one Node backend wired to every emulated resource kind.
 // The playground has no S3, SMTP, SES, SendGrid or external REST API, so each
 // is answered inside the browser: objects and files live in the infra worker,
-// mail lands in its Mailbox, and the `rates` API is a mock.
+// mail lands in its Mailbox, and the `rates` API is a mock that samples its
+// responses from the OpenAPI document in `spec:` (without one it echoes).
 //
 //   POST /notes/{name}      — put an object (s3), send mail (smtp), read `rates`
 //   GET  /notes/{name}      — read the object back (s3)
@@ -81,7 +82,7 @@ system ResourceFakes {
   storage smtpServer { type: smtp, config: { from: "desk@example.test" } }
   storage sesServer { type: ses, config: { from: "desk@example.test", region: "us-east-1" } }
   storage sgServer { type: sendgrid, config: { from: "desk@example.test" } }
-  storage fxApi { type: restApi, config: { baseUrl: "https://fx.example.test" } }
+  storage fxApi { type: restApi, config: { baseUrl: "https://fx.example.test", spec: "{\"openapi\":\"3.0.0\",\"info\":{\"title\":\"fx\",\"version\":\"1\"},\"paths\":{\"/rate/{ccy}\":{\"get\":{\"responses\":{\"200\":{\"description\":\"ok\",\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"properties\":{\"rate\":{\"type\":\"number\"},\"ccy\":{\"type\":\"string\"}}}}}}}}}}}" } }
 
   resource deskState { for: Desk, kind: state, use: pg }
   resource vaultState { for: Vault, kind: state, use: pg }

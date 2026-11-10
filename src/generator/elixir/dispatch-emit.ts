@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
+import { hasStateRow, lookupOp } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   CreateIR,
@@ -50,7 +51,6 @@ import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import {
-  lookupOp,
   opCallParamFields,
   resolveInlinedServiceClauses,
 } from "./vanilla/workflow-execution-emit.js";
@@ -241,7 +241,7 @@ export function emitWorkflowStateSchemas(
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   for (const wf of ctx.workflows) {
-    if (!wf.correlationField || wf.eventSourced) continue;
+    if (!hasStateRow(wf)) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
       renderStateSchema(contextModule, wf, enumPool(ctx), schema, durable),
@@ -291,8 +291,7 @@ export function emitDispatch(
   // (vanilla/index.ts), not here.
   const correlationWfs = new Map<string, WorkflowIR>();
   for (const sub of subs) {
-    if (sub.workflow.correlationField && !sub.workflow.eventSourced)
-      correlationWfs.set(sub.workflow.name, sub.workflow);
+    if (hasStateRow(sub.workflow)) correlationWfs.set(sub.workflow.name, sub.workflow);
   }
   const dispatchSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
   for (const wf of correlationWfs.values()) {
@@ -858,9 +857,7 @@ function renderProjectionFoldHandler(
   const lookup = cols
     ? `${appModule}.Repo.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
     : `${appModule}.Repo.get(${rowMod}, key)`;
-  const seed = cols
-    ? `${snake(corr)}: key, ${tenantCol}: tenant, ${snake(cols.dataKey.field)}: Map.get(origin, "orgPath") || tenant`
-    : `${snake(corr)}: key`;
+  const seed = cols ? `${snake(corr)}: key, ${tenantCol}: tenant` : `${snake(corr)}: key`;
   const body = [
     `    key = ${keyExpr}`,
     "",
@@ -881,11 +878,11 @@ function renderProjectionFoldHandler(
 
     case Map.get(origin, "tenant") do
       nil -> :ok
-      tenant -> fold(event, tenant, origin)
+      tenant -> fold(event, tenant)
     end
   end
 
-  defp fold(event, tenant, origin) do
+  defp fold(event, tenant) do
 ${body.join("\n")}
   end`
     : `  def handle(${event}) do

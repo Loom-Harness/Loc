@@ -65,14 +65,14 @@ npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile + ecto.migrate
 # per-PR (tenancy-e2e.yml's `tenancy-e2e-flat` job); every other cell below runs in the merge queue:
 npm run test:tenancy               # LOOM_TENANCY_E2E=1 — Hono
 npm run test:tenancy-{python,java,dotnet,elixir}   # LOOM_TENANCY_E2E_<BACKEND>=1 — same assertions per backend
-# Hierarchy siblings (tenantRegistry TREE: materialized-path setPath + per-request orgPath resolver + row stamp
-# + descendant-or-self predicate must AGREE → subtree-scoped reads):
+# Registry-tree siblings (tenantRegistry TREE beside flat data visibility: every org reads only its own rows,
+# no `data_key` column, the write scope is the same floor):
 npm run test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir}
-# …plus the two SECOND-persistence-adapter legs, whose subtree predicate is a raw SQL
-# fragment rather than an ORM filter (LOOM_TENANCY_E2E_MIKROORM / _DAPPER=1):
+# …plus the two SECOND-persistence-adapter legs, whose tenant floor is registered through their own
+# filter machinery rather than the default ORM's (LOOM_TENANCY_E2E_MIKROORM / _DAPPER=1):
 npm run test:tenancy-hierarchy-{mikroorm,dapper}
-# organizationContext switch-gate siblings (M-T3.6 (3)+(5): the `x-org-context` header must be the caller's
-# orgPath or a strict subtree → stamps the child dataKey; anything else → 403 before the handler, no write):
+# organizationContext switch-gate siblings (the `x-org-context` header must name the caller's own org id →
+# stamps it; anything else → 403 before the handler, no write):
 npm run test:tenancy-org-context{,-python,-java,-dotnet,-elixir}
 
 # Migration-evolution runtime e2e — proves migrations EVOLVE on data, not just emit/first-boot: per SQL
@@ -109,6 +109,7 @@ npm run test:channels-kafka{,-python,-dotnet,-java,-elixir}
 npm run test:channels-auth                               # broker-auth variant
 
 npm run test:api-call     # LOOM_API_CALL_E2E=1 — typed in-system `api` call between deployables, runtime round-trip
+npm run test:shared-storage # LOOM_SHARED_STORAGE_E2E=1 — generated compose stack, two deployables on one `storage`: a write through one is a read through the other (CI: conformance-parity.yml)
 
 # Email runtime e2e — workflow `mail.send(...)` delivered to a Mailpit sidecar (from/to/subject/body
 # asserted via its REST inbox), all five backends:

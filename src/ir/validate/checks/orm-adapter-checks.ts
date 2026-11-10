@@ -7,6 +7,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { BoundedContextIR, EnrichedAggregateIR, SystemIR } from "../../types/loom-ir.js";
+import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -162,17 +163,7 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
         // the EF AuditableInterceptor.  A principal stamp on a no-auth
         // deployable stays rejected by the category-A loom.stamp-principal-without-auth.
         //
-        // HIERARCHICAL TENANCY is supported (wave C2 packet 2b).  The
-        // `deep`/`global` read level lowers to the materialized-path
-        // `authz-filter` sentinel, which `authzFilterToSql` now renders as the
-        // raw-Postgres descendant-or-self fragment (`data_key = @anchor OR
-        // (data_key LIKE @pattern ESCAPE '!' AND strpos(data_key, @needle) =
-        // 1)`, with the NULL-`data_key` flat-tenant fallback) — the twin of the
-        // MikroORM `raw()` rendering.  The sentinel carries no child
-        // `currentUser.<claim>` node, so `collectFilterPrincipalRefs`
-        // contributes its four bindings BY KIND; that gap in a hand-rolled walk
-        // was the whole of the old refusal, and the collector now rides
-        // `walkExprDeep`.  The `deny` sentinel renders `1 = 0` as before.
+        // The `deny` authorization sentinel renders `1 = 0`.
         // Capability filters are supported too (spliced into every SELECT's
         // WHERE); a principal-referencing one lowers `currentUser.<claim>` to a
         // `@__cu_<claim>` Dapper param bound from the same ambient principal.
@@ -250,3 +241,58 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 // the deletion: every shape gets the same verdict on all four adapters, and
 // every admitted shape emits on all four.)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Self-provisioning and re-projecting adapters on a shared database.
+//
+// Deployables bound to one postgres `storage` share its database, and only the
+// first of them applies migrations (`src/ir/util/databases.ts`); the rest read
+// the tables that chain created.  That holds only while every deployable on
+// the database maps the same physical layout:
+//
+//   - MikroORM has no migration chain: it runs `orm.schema.update()` over its
+//     OWN entities at boot.  As the migrator it would create only the tables of
+//     the contexts it hosts; beside one it would rewrite the chain's columns to
+//     its entity metadata.
+//   - Dapper applies the chain projected onto its own column layout (a value
+//     object folds into one jsonb column), so it and a deployable on the
+//     relational layout would each read a table the other did not create.
+//     Dapper beside Dapper shares one layout and is sound.
+// ---------------------------------------------------------------------------
+
+export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const dep of sys.deployables) {
+    if (dep.persistence !== "mikroorm" && dep.persistence !== "dapper") continue;
+    const db = databaseOf(sys, dep);
+    if (!db?.storage) continue;
+    const peers = deployablesOnDatabase(sys, db.name).filter((d) => d.name !== dep.name);
+    const clashing =
+      dep.persistence === "mikroorm" ? peers : peers.filter((d) => d.persistence !== "dapper");
+    if (clashing.length === 0) continue;
+    const others = clashing.map((d) => `'${d.name}'`).join(", ");
+    const at = { source: `${sys.name}/${dep.name}`, origin: dep.origin };
+    if (dep.persistence === "mikroorm") {
+      diags.push({
+        severity: "error",
+        code: "loom.mikroorm-shared-database",
+        message: diagMessage("loom.mikroorm-shared-database", {
+          name: dep.name,
+          storage: db.storage,
+          others,
+        }),
+        ...at,
+      });
+    } else {
+      diags.push({
+        severity: "error",
+        code: "loom.dapper-shared-database",
+        message: diagMessage("loom.dapper-shared-database", {
+          name: dep.name,
+          storage: db.storage,
+          others,
+        }),
+        ...at,
+      });
+    }
+  }
+}

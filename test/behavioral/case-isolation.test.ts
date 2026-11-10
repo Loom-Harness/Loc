@@ -2,8 +2,8 @@
 //
 // An `import()`ed ES module is never unloaded, so a case bundle imported into
 // the runner keeps whatever its module scope reaches alive for the rest of the
-// run — module-level state in the bundle (the recorder's dispatch, the
-// generated auth module's `routeProbe`, …) reaches the case's app, its drizzle
+// run — module-level state in the bundle (the recorder's dispatch, …)
+// reaches the case's app, its drizzle
 // db and PGlite's ~230 MB WASM heap, so the leg grows by a database per leaking
 // case until the CI runner is OOM-killed with no failing test.  The memory
 // ceilings in run.mjs catch a regression on the leg itself; this pins the shape

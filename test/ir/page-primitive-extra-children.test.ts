@@ -112,7 +112,7 @@ describe("loom.page-primitive-extra-children — the gate", () => {
   it.each([
     ['EnumBadge { "x", "dropped" }', "EnumBadge"],
     ['Image { "/a.png", "/dropped.png", alt: "a" }', "Image"],
-    ['Text { "keep", "dropped" }', "Text"],
+    ['Text { "keep", Badge { "dropped" } }', "Text"],
     ['Money { 10, "dropped" }', "Money"],
     ['Heading { "H", "dropped" }', "Heading"],
     ['Anchor { "L", "dropped", to: "/x" }', "Anchor"],

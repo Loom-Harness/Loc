@@ -5,6 +5,7 @@ import {
   type PlatformDescriptor,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "./surface.js";
+import { TARGET_FACTS, type TargetFacts } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Platform METADATA — the client-safe half of the platform registry.
@@ -159,6 +160,7 @@ const reactDescriptor: PlatformDescriptor = {
   isFrontend: true,
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   capabilities: TARGET_CAPABILITIES.react,
+  facts: TARGET_FACTS.react,
 };
 
 const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
@@ -170,6 +172,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.dotnet,
+    facts: TARGET_FACTS.dotnet,
   },
   node: {
     name: "node",
@@ -179,6 +182,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.node,
+    facts: TARGET_FACTS.node,
   },
   react: reactDescriptor,
   // `static` is React's UI-only alias — same surface, same descriptor.
@@ -191,6 +195,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.svelte,
+    facts: TARGET_FACTS.svelte,
   },
   vue: {
     name: "vue",
@@ -200,6 +205,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.vue,
+    facts: TARGET_FACTS.vue,
   },
   angular: {
     name: "angular",
@@ -209,6 +215,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.angular,
+    facts: TARGET_FACTS.angular,
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
   // `dotnet fable` + `vite`, NOT the vite-only static pipeline, so it hosts
@@ -221,6 +228,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: new Set(["feliz"]),
     capabilities: TARGET_CAPABILITIES.feliz,
+    facts: TARGET_FACTS.feliz,
   },
   // Flutter (Dart/Material) mobile+web target — a self-hosting frontend built
   // by the Flutter SDK (`flutter build web`), NOT the vite-only static
@@ -235,6 +243,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: new Set(["flutter"]),
     capabilities: TARGET_CAPABILITIES.flutter,
+    facts: TARGET_FACTS.flutter,
   },
   elixir: {
     name: "elixir",
@@ -252,6 +261,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
       "feliz",
     ]),
     capabilities: TARGET_CAPABILITIES.elixir,
+    facts: TARGET_FACTS.elixir,
   },
   python: {
     name: "python",
@@ -261,6 +271,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.python,
+    facts: TARGET_FACTS.python,
   },
   java: {
     name: "java",
@@ -270,6 +281,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.java,
+    facts: TARGET_FACTS.java,
   },
 };
 
@@ -298,6 +310,17 @@ export function descriptorFor(name: Platform): PlatformDescriptor {
     );
   }
   return descriptor;
+}
+
+/** The facts of a `platform:` value (bareword, `family@version` pin or
+ *  frontend keyword), or `undefined` for an unknown or absent one — for the
+ *  callers that must not throw on a typo the validator reports separately. */
+export function factsFor(name: string | undefined): TargetFacts | undefined {
+  if (name === undefined) return undefined;
+  const parsed = parseBuiltinPlatformRef(name);
+  const key = parsed ? parsed.family : name;
+  if (!Object.hasOwn(PLATFORM_DESCRIPTORS, key)) return undefined;
+  return PLATFORM_DESCRIPTORS[key as Platform].facts;
 }
 
 /** Every platform's descriptor — replaces `allPlatforms()` for the

@@ -3,9 +3,11 @@ import { byFeatureLayoutAdapter } from "../generator/elixir/adapters/by-feature-
 import { ectoPersistenceAdapter } from "../generator/elixir/adapters/ecto-persistence.js";
 import { layeredStyleAdapter } from "../generator/elixir/adapters/layered-style.js";
 import { generateElixirProject } from "../generator/elixir/index.js";
+import { databaseOf } from "../ir/util/databases.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
+import { TARGET_FACTS } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Elixir platform — fullstack Phoenix deployable
@@ -51,6 +53,7 @@ const elixirPlatform: PlatformSurface = {
     "feliz",
   ]),
   capabilities: TARGET_CAPABILITIES.elixir,
+  facts: TARGET_FACTS.elixir,
   emitProject({
     contexts,
     deployable,
@@ -75,10 +78,11 @@ const elixirPlatform: PlatformSurface = {
       translations,
     });
   },
-  composeService({ slug, sys }): ComposeServiceShape {
+  composeService({ slug, sys, deployable }): ComposeServiceShape {
+    const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
       env: [
-        ["DATABASE_URL", `ecto://postgres:postgres@db:5432/${slug}`],
+        ["DATABASE_URL", `ecto://postgres:postgres@db:5432/${database}`],
         // Phoenix signs/encrypts sessions with secret_key_base and requires
         // ≥64 bytes.  DERIVED per (system, deployable) — 64 bytes → 128 hex
         // chars — so no two deployables and no two systems share a

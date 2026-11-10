@@ -29,6 +29,7 @@ import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerProject } from "../../../src/ir/lower/lower.js";
 import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
 import type { MigrationStep, TableShape } from "../../../src/ir/types/migrations-ir.js";
+import { databaseOf, hostedModules } from "../../../src/ir/util/databases.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
@@ -64,6 +65,7 @@ import type { SnapshotStore } from "../../../src/system/snapshot.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { chainDir, readChainFiles } from "./chain-files.js";
 import { loadProjectFromVfs } from "./project-loader.js";
+import { restSpecsOf } from "./rest-specs.js";
 import type { MigrationUnitPlan, UnrecordedChanges } from "../runtime/protocol.js";
 import type {
   BuildDiagnostic,
@@ -149,6 +151,8 @@ async function loadEvolutionTree(
       loom: EnrichedLoomModel;
       diagnostics: BuildDiagnostic[];
       chainFiles: { name: string; content: string }[] | undefined;
+      /** Read a file of the tree (a `restApi` spec). */
+      readFile: (path: string) => string | undefined;
     }
   | { error: BuildDiagnostic[] }
 > {
@@ -168,7 +172,12 @@ async function loadEvolutionTree(
       diagnostics.push(...ir);
       if (ir.some((d) => d.severity === "error")) return { error: diagnostics };
     }
-    return { loom, diagnostics, chainFiles: readChainFiles(vfs, tree.entryPath) };
+    return {
+      loom,
+      diagnostics,
+      chainFiles: readChainFiles(vfs, tree.entryPath),
+      readFile: (path) => vfs.read(path),
+    };
   } catch (err) {
     // Missing import / cycle (from the loader) or a lowering throw.
     return { error: [loweringDiag(err)] };
@@ -360,7 +369,7 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
   const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
   if (loaded.loom.systems.length === 0) {
-    return { ok: true, plan: { kind: "unversioned" }, storages: [], diagnostics: loaded.diagnostics };
+    return { ok: true, plan: { kind: "unversioned" }, storages: [], restSpecs: [], diagnostics: loaded.diagnostics };
   }
   let chain: MigrationChain;
   try {
@@ -394,11 +403,14 @@ export async function migrationPlan(params: MigrationPlanParams): Promise<Migrat
       storages.push({ key: s.key, deployables: s.deployables, plan: { kind: "chain", units, unrecorded } });
     }
   }
+  const entryDir = params.current.entryPath.slice(0, params.current.entryPath.lastIndexOf("/"));
+  const rest = loaded.loom.systems.map((sys) => restSpecsOf(sys.storages, loaded.readFile, entryDir));
   return {
     ok: true,
     plan: { kind: "chain", units: unitPlans(all), unrecorded },
     storages,
-    diagnostics: loaded.diagnostics,
+    restSpecs: rest.flatMap((r) => r.specs),
+    diagnostics: [...loaded.diagnostics, ...rest.flatMap((r) => r.diagnostics)],
   };
 }
 
@@ -422,29 +434,22 @@ function unitPlans(migrations: ReturnType<typeof chainMigrations>): MigrationUni
 type SystemOf = EnrichedLoomModel["systems"][number];
 
 /** The playground's databases for one system: the Node deployables grouped by
- *  the postgres `storage` their data sources bind, each group carrying the
- *  modules (subdomains) its deployables host — the same rule that decides
- *  which migrations a generated backend carries.  A Node deployable bound to
- *  no postgres storage gets a database of its own. */
+ *  the database they run on (`databaseOf` — the one the generated compose file
+ *  gives them), each group carrying the modules (subdomains) its deployables
+ *  host — the migrations that database receives.  A group's key is its postgres
+ *  `storage`, or `deployable:<slug>` for a Node deployable bound to none. */
 export function storageGroups(
   sys: SystemOf,
   slugOf: (deployableName: string) => string,
 ): Array<{ key: string; deployables: string[]; modules: Set<string> }> {
-  const postgres = new Set(sys.storages.filter((st) => st.type === "postgres").map((st) => st.name));
   const groups = new Map<string, { key: string; deployables: string[]; modules: Set<string> }>();
   for (const d of sys.deployables) {
     if (d.platform !== "node") continue;
     const slug = slugOf(d.name);
-    const bound = d.dataSourceNames
-      .map((n) => sys.dataSources.find((ds) => ds.name === n)?.storageName ?? "")
-      .find((st) => postgres.has(st));
-    const key = bound ?? `deployable:${slug}`;
+    const key = databaseOf(sys, d)?.storage ?? `deployable:${slug}`;
     const group = groups.get(key) ?? { key, deployables: [], modules: new Set<string>() };
     group.deployables.push(slug);
-    const hosted = new Set(d.contextNames);
-    for (const sd of sys.subdomains) {
-      if (sd.contexts.some((c) => hosted.has(c.name))) group.modules.add(sd.name);
-    }
+    for (const m of hostedModules(sys, d)) group.modules.add(m);
     groups.set(key, group);
   }
   return [...groups.values()];

@@ -286,7 +286,7 @@ end
 }
 
 /** The scaffold-once user impl module — `<App>.<Ctx>.Handlers.<Name>Impl` —
- *  that raises loudly until filled in (marker on line 1 → CLI writer preserves
+ *  that raises `NotImplementedError` (answered 501) until filled in (marker on line 1 → CLI writer preserves
  *  it on regen). */
 function renderExternImplModule(
   h: Handler,
@@ -313,7 +313,8 @@ defmodule ${moduleName} do
   @spec run(map()) :: {:ok, term()} | {:error, term()}
   def run(params) when is_map(params) do
     _ = params
-    raise "extern ${kindLabel} \`${h.name}\` is not implemented — fill in ${fileRel}"
+    raise ${appModule}.NotImplementedError,
+          "extern ${kindLabel} \`${h.name}\` is not implemented — fill in ${fileRel}"
   end
 end
 `;

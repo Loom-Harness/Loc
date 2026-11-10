@@ -169,6 +169,7 @@ describe("emission mode — vocabulary", () => {
       "unary",
       "binary",
       "authz-filter",
+      "exists",
       "method-call",
     ],
     "jpql-entity-manager": [
@@ -181,6 +182,7 @@ describe("emission mode — vocabulary", () => {
       "unary",
       "binary",
       "authz-filter",
+      "exists",
       "method-call",
     ],
     "sql-postgres-migration": ["literal", "ref", "paren", "unary", "binary", "ternary"],
@@ -192,6 +194,7 @@ describe("emission mode — vocabulary", () => {
       "member",
       "ref",
       "authz-filter",
+      "exists",
       "literal",
     ],
     "linq-efcore": [...ALL_EXPR_KINDS],
@@ -205,6 +208,7 @@ describe("emission mode — vocabulary", () => {
       "unary",
       "binary",
       "authz-filter",
+      "exists",
       "method-call",
     ],
     "drizzle-predicate": [
@@ -217,6 +221,7 @@ describe("emission mode — vocabulary", () => {
       "unary",
       "binary",
       "authz-filter",
+      "exists",
       "method-call",
     ],
     "mikroorm-filter": [
@@ -227,6 +232,7 @@ describe("emission mode — vocabulary", () => {
       "unary",
       "binary",
       "authz-filter",
+      "exists",
       "method-call",
     ],
     "ecto-fragment": [...ALL_EXPR_KINDS],

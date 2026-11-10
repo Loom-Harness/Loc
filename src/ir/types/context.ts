@@ -1,13 +1,12 @@
 import type { AggregateIR, TestIR } from "./aggregate.js";
 import type { ExprIR } from "./expr.js";
 import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
-import type { GenericCtorName, TypeIR } from "./types.js";
+import type { GenericCtorName, Sourced, TypeIR } from "./types.js";
 import type { CommandHandlerIR, QueryHandlerIR, WorkflowIR } from "./workflow.js";
 
-export interface EnumIR {
+export interface EnumIR extends Sourced {
   name: string;
   values: string[];
   /** Declared at the root of a file, outside every bounded context (the shared
@@ -16,13 +15,9 @@ export interface EnumIR {
    *  keys file under `_system` (`src/util/model-text-key.ts`), not under
    *  whichever context happens to render it. */
   systemLevel?: true;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
-   * diagnostic about this node print `path:line:col`. */
-  origin?: OriginRef;
 }
 
-export interface ValueObjectIR {
+export interface ValueObjectIR extends Sourced {
   name: string;
   fields: FieldIR[];
   /** Declared outside every bounded context — see {@link EnumIR.systemLevel}. */
@@ -34,19 +29,11 @@ export interface ValueObjectIR {
    *  hoisted `test … for <VO>`).  Same `TestIR` shape as `AggregateIR.tests`;
    *  emitted as a colocated unit file (test-placement.md). */
   tests: TestIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
-export interface EventIR {
+export interface EventIR extends Sourced {
   name: string;
   fields: FieldIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** A channel — the publisher-side contract for how a context's events are
@@ -90,9 +77,9 @@ export interface PayloadIR {
    *  inline instead of a named `PayloadIR`. */
   variants?: TypeIR[];
   /** True for compiler-synthesized payloads (P2's per-aggregate
-   *  `<Agg>Wire`), false/absent for author-declared ones.  Lets later
+   *  `<Agg>Wire`), false for author-declared ones.  Lets later
    *  phases and the validator distinguish derived shapes from source. */
-  synthesized?: boolean;
+  synthesized: boolean;
   /** Set on a payload monomorphized from a generic carrier instantiation
    *  (P3b) — carries the originating `ctor` + carrier `arg` so backends can
    *  emit it as a DTO and resolve a `genericInstance` reference to this
@@ -100,7 +87,21 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
-export interface FindIR {
+/** A read's `ignoring` stance (named-filter-bypass.md §11), shared by every
+ *  IR node that carries one.  `bypassAll` is `ignoring *`: bypass EVERY
+ *  capability query-filter on the aggregate for this read.  `bypassCaps` is
+ *  `ignoring A, B`: the resolved capability NAMES whose query-filters this
+ *  read bypasses; a backend maps each name to the predicate(s) it contributed
+ *  via `AggregateIR.contextFilterOrigins`, and derives the per-backend filter
+ *  identity (e.g. the EF `HasQueryFilter` name) in the emitter.  The two are
+ *  mutually exclusive, and both are absent on a read with no `ignoring`
+ *  clause — the common case. */
+export type Bypassing = {
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+};
+
+export interface FindIR extends Bypassing {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
@@ -122,17 +123,6 @@ export interface FindIR {
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
    *  composed/anonymous filters and non-reifying backends are unaffected. */
   criterionRef?: { name: string; args: ExprIR[] };
-  /** `ignoring *` — bypass EVERY capability query-filter on the aggregate for
-   *  this read (named-filter-bypass.md §11).  Resolved from the grammar
-   *  `bypassAll` flag.  Mutually exclusive with `bypassCaps`. */
-  bypassAll?: boolean;
-  /** `ignoring A, B` — the resolved capability NAMES whose query-filters this
-   *  read bypasses (named-filter-bypass.md §11).  Index-aligned with nothing;
-   *  a backend maps each name to the predicate(s) it contributed via
-   *  `AggregateIR.contextFilterOrigins`.  Only the capability *name* is stored
-   *  (fully-resolved IR) — the per-backend filter identity (e.g. the EF
-   *  `HasQueryFilter` name) is derived in the emitter. */
-  bypassCaps?: string[];
   /** A single-row find that answers the FIRST row its filter matches, in id
    *  order, where more than one row may match — the widened
    *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
@@ -180,10 +170,8 @@ export interface FindIR {
  *  repository method named by `keyLookupMethodName`, which enrichment
  *  synthesises (`synthesizeKeyLookupFinds`) as a `synthesized` find — one
  *  `WHERE` equality per column, capability filters applied as on any read. */
-export interface KeyLookupIR {
+export interface KeyLookupIR extends Bypassing {
   columns: string[];
-  bypassAll?: boolean;
-  bypassCaps?: string[];
 }
 
 /** A single-row read that widens its capability filters —
@@ -194,13 +182,11 @@ export interface KeyLookupIR {
  *  synthesises (`synthesizeBypassReadFinds`) as a `synthesized` find: the
  *  criterion's predicate (or `this.id == id`) with the read's stance as
  *  `bypassAll` / `bypassCaps`. */
-export interface BypassReadIR {
+export interface BypassReadIR extends Bypassing {
   source: { kind: "criterion"; name: string } | { kind: "id" };
-  bypassAll?: boolean;
-  bypassCaps?: string[];
 }
 
-export interface RepositoryIR {
+export interface RepositoryIR extends Sourced {
   name: string;
   aggregateName: string;
   finds: FindIR[];
@@ -227,10 +213,6 @@ export interface RepositoryIR {
    *  per-context backends cannot re-derive (they never see the deployables),
    *  hence stored.  Consumed through `read-gates.ts`. */
   readsDefaultDenied?: boolean;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** A named, parameterised, pure boolean predicate over a candidate
@@ -321,8 +303,12 @@ export type LoadPlanIR = { kind: "whole" } | { kind: "explicit"; paths: LoadSegm
  *  RetrievalIR bundle node (reified-criteria.md).
  *
  *  No `page` field — pagination is a call-site argument on
- *  `Repo.all(R(args), page?)`, never part of the declaration. */
-export interface RetrievalIR {
+ *  `Repo.all(R(args), page?)`, never part of the declaration.
+ *
+ *  Its `ignoring` stance is set only on the retrievals enrichment derives
+ *  for a widened `Repo.all(…) ignoring …` read (`widenedRetrievalName`);
+ *  a declared retrieval never carries one. */
+export interface RetrievalIR extends Sourced, Bypassing {
   name: string;
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
@@ -342,19 +328,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
-  /** The `ignoring` stance of a widened list read's own retrieval
-   *  (`widenedRetrievalName`): `ignoring *` → `bypassAll`, `ignoring A, B` →
-   *  `bypassCaps`.  Set only on the retrievals enrichment derives for a
-   *  `Repo.all(…) ignoring …` read; the shared retrieval never carries one.
-   *  See `FindIR.bypassAll`. */
-  bypassAll?: boolean;
-  bypassCaps?: string[];
-  /** Provenance back to the `retrieval` declaration — the span its
-   *  diagnostics point at. */
-  origin?: OriginRef;
 }
 
-export interface BoundedContextIR {
+export interface BoundedContextIR extends Sourced {
   name: string;
   enums: EnumIR[];
   valueObjects: ValueObjectIR[];
@@ -371,10 +347,10 @@ export interface BoundedContextIR {
   /** Top-level `commandHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3).  Present when the context declares
    *  any; they ride alongside the IR, unread by any backend. */
-  commandHandlers?: CommandHandlerIR[];
+  commandHandlers: CommandHandlerIR[];
   /** Top-level `queryHandler` application-layer members
    *  (unfoldable-api-derivation.md, Layer 3). */
-  queryHandlers?: QueryHandlerIR[];
+  queryHandlers: QueryHandlerIR[];
   /** Named predicate specifications declared in this context. */
   criteria: CriterionIR[];
   /** Stateless pure-calculator domain services declared in this context
@@ -447,35 +423,20 @@ export interface BoundedContextIR {
    *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
    *  names shadow.  Undefined when the model has a single context. */
   siblingEnums?: EnumIR[];
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
-  /** Per-aggregate read reachability levels declared by `policy {}` blocks in
-   *  this context (authorization.md §3; tenancy.md).  Each
-   *  entry names a tenant-owned aggregate and its directional read level
-   *  (`local`/`deep`/`global`).  Consumed by `enrichLoomModel`
-   *  (`applyPolicyReadLevels`), which rewrites the aggregate's `tenantOwned`
-   *  capability filter (`contextFilters`) to the level-appropriate predicate.
-   *  Undefined / empty when the context declares no policy. */
+  /** `policy { allow local on X }` read rules declared in this context
+   *  (tenancy.md).  `local` is the tenant floor the `tenantOwned` capability
+   *  already applies, so a rule only names an aggregate for the phase-⑦
+   *  target checks.  Undefined / empty when the context declares none. */
   policyReadLevels?: PolicyReadLevelIR[];
-  /** Per-aggregate WRITE reachability levels declared by `policy { allow write
-   *  <level> on X }` blocks in this context
-   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  A write level gates INSTANCE
-   *  mutations (update-style ops, destroy, applier dispatch) on the target
-   *  row's write scope; `local` is the flat `tenantId ==` floor (the default),
-   *  `deep` the caller's org + descendants.  Consumed by `enrichLoomModel`,
-   *  which derives each tenant-owned aggregate's `writeScopeFilter` from the
-   *  read + write levels.  Undefined / empty when the context declares no
-   *  `allow write` rule. */
+  /** `policy { allow write local on X }` write rules declared in this context
+   *  — the floor every mutation already loads through, named for the phase-⑦
+   *  target checks.  Undefined / empty when the context declares none. */
   policyWriteLevels?: PolicyWriteLevelIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
-   *  blocks in this context
-   *  (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  Each entry names an aggregate
+   *  blocks in this context.  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
    *  invisible; `write` = read-only carve-out).  Consumed by `enrichLoomModel`
-   *  (`applyPolicyDenies`), which — AFTER the allow read/write-level passes, so
-   *  DENY WINS — appends an always-false predicate to the aggregate's read
+   *  (`applyPolicyDenies`), which appends an always-false predicate to the aggregate's read
    *  `contextFilters` (deny read) or overwrites its `writeScopeFilter` (deny
    *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
    *  no `deny` rule. */
@@ -495,7 +456,7 @@ export interface BoundedContextIR {
  *  exactly like a projection gate, so it can reference `currentUser` and
  *  constants only — anything else is `loom.policy-read-gate-not-current-user`
  *  in phase ⑦. */
-export interface PolicyReadGateIR {
+export interface PolicyReadGateIR extends Sourced {
   /** The aggregate the gate applies to (by name, in this context).  Resolution
    *  is validated in phase ⑦ (`loom.policy-unknown-aggregate`). */
   aggregate: string;
@@ -503,39 +464,31 @@ export interface PolicyReadGateIR {
   gate: ExprIR;
   /** Source span text for diagnostics (`read Order requires …`). */
   source: string;
-  /** Provenance of the rule, for diagnostic locations. */
-  origin?: OriginRef;
 }
 
-/** One `allow <level> on <Aggregate>` rule lowered from a `policy {}` block —
- *  a tenant-owned aggregate's directional read reachability level
- *  (tenancy.md).  `local` is the flat `tenantId ==` tenant
- *  floor (and the default when no policy names an aggregate); `deep` widens to
- *  the caller's org + all descendants (a `dataKey` materialized-path prefix
- *  match); `global` is all rows in the caller's tenant (tenant-root-floored). */
+/** One `allow local on <Aggregate>` rule lowered from a `policy {}` block — a
+ *  tenant-owned aggregate's read level (tenancy.md).  `local`, the flat
+ *  `tenantId ==` floor, is the only level and the default (D-TENANCY-FLAT). */
 export interface PolicyReadLevelIR {
   /** The tenant-owned aggregate this level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
-  /** The directional read level. */
-  level: "local" | "deep" | "global";
-  /** Source span text for diagnostics (`allow deep on Invoice`). */
+  /** The read level. */
+  level: "local";
+  /** Source span text for diagnostics (`allow local on Invoice`). */
   source: string;
 }
 
-/** One `allow write <level> on <Aggregate>` rule lowered from a `policy {}`
- *  block (authorization.md).  `local` is the flat `tenantId ==`
- *  tenant floor (and the default write scope when no rule names an aggregate);
- *  `deep` widens to the caller's org + all descendants (a `dataKey`
- *  materialized-path prefix).  `global` parses but is rejected
- *  (`loom.policy-write-global-invalid`). */
+/** One `allow write local on <Aggregate>` rule lowered from a `policy {}`
+ *  block (authorization.md).  `local`, the flat `tenantId ==` floor, is the
+ *  only write level and the default. */
 export interface PolicyWriteLevelIR {
   /** The tenant-owned aggregate this write level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
-  /** The directional write level. */
-  level: "local" | "deep" | "global";
-  /** Source span text for diagnostics (`allow write deep on Invoice`). */
+  /** The write level. */
+  level: "local";
+  /** Source span text for diagnostics (`allow write local on Invoice`). */
   source: string;
 }
 

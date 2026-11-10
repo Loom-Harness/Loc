@@ -31,6 +31,24 @@ interface RuntimeForward {
   body: string | null;
 }
 
+/** A request the preview sent to a fake cloud endpoint (a presigned S3 URL). */
+interface InfraHttpForward {
+  kind: "infra-http";
+  rid: number;
+  service: "s3";
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: Uint8Array;
+}
+
+/** What an infra service answered (`HttpResponseData` of the infra worker). */
+export interface InfraHttpResult {
+  status: number;
+  headers: Record<string, string>;
+  body: Uint8Array;
+}
+
 /** Console / uncaught-error line the preview's console bridge forwards. */
 interface AppLogForward {
   kind: "console" | "error";
@@ -54,6 +72,14 @@ type RuntimeReply =
       statusText: string;
       headers: Record<string, string>;
       body: string;
+    }
+  | {
+      rid: number;
+      ok: true;
+      status: number;
+      statusText: string;
+      headers: Record<string, string>;
+      body: Uint8Array;
     }
   | { rid: number; ok: false; message: string };
 
@@ -87,6 +113,11 @@ export class SandboxBridge {
     /** Notified with the clicked element's `data-testid` (or null) when
      *  select mode fires — M-T8.20 slice 4. */
     private readonly onSelected?: (testid: string | null) => void,
+    /** Answers a presigned-URL request from the preview with the infra
+     *  worker's object store; absent → the preview gets a 502. */
+    private readonly infraHttp?: (
+      req: Omit<InfraHttpForward, "kind" | "rid">,
+    ) => Promise<InfraHttpResult>,
   ) {}
 
   /** The parent-side port, available after the handshake; null before
@@ -154,6 +185,7 @@ export class SandboxBridge {
   private async onRuntimeForward(ev: MessageEvent): Promise<void> {
     const data = ev.data as
       | RuntimeForward
+      | InfraHttpForward
       | AppLogForward
       | SelectedForward
       | undefined;
@@ -166,6 +198,19 @@ export class SandboxBridge {
       // toggle has to follow — `null` means "clicked something with no test
       // id", which the caller reports rather than silently ignoring.
       this.onSelected?.(data.testid);
+      return;
+    }
+    if (data && data.kind === "infra-http") {
+      let reply: RuntimeReply;
+      try {
+        if (!this.infraHttp) throw new Error("No object store is running — boot the backend first.");
+        const { kind: _k, rid: _r, ...req } = data;
+        const res = await this.infraHttp(req);
+        reply = { rid: data.rid, ok: true, status: res.status, statusText: "", headers: res.headers, body: res.body };
+      } catch (err) {
+        reply = { rid: data.rid, ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+      this.port?.postMessage(reply);
       return;
     }
     const m = data as RuntimeForward | undefined;

@@ -1,7 +1,6 @@
 import type { ExprIR } from "./expr.js";
 import type { ActionIR, DerivedIR, ParamIR, StoreIR } from "./members.js";
-import type { OriginRef } from "./origin.js";
-import type { TypeIR } from "./types.js";
+import type { Sourced, TypeIR } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Page metamodel
@@ -49,15 +48,15 @@ export interface UiIR {
   apiParams: UiApiParamIR[];
   /** Channel subscriptions (`channel Orders: Sales.Lifecycle`) — each
    *  binds a local handle to a context's broadcast channel (channels.md
-   *  Part I, ui surface).  Omitted when the ui declares none. */
-  channelParams?: UiChannelParamIR[];
+   *  Part I, ui surface).  Empty when the ui declares none. */
+  channelParams: UiChannelParamIR[];
   /** Live-event handlers (`on Orders.OrderShipped(e) { toast(…) }`).
-   *  Omitted when the ui declares none. */
-  notifications?: UiNotificationIR[];
+   *  Empty when the ui declares none. */
+  notifications: UiNotificationIR[];
   /** Extern frontend functions (`function f(…): T extern from "…"`) —
    *  the logic escape hatch (extern-function-hook-escape-hatch.md §3).
-   *  Omitted when the ui declares none. */
-  functions?: UiFunctionIR[];
+   *  Empty when the ui declares none. */
+  functions: UiFunctionIR[];
 }
 
 /** `function <name>(params): T extern from "<path>"` — a typed pure
@@ -112,8 +111,8 @@ export interface UiNotificationIR {
   /** One toast message expression per `toast(<expr>)` handler statement. */
   toasts: ExprIR[];
   /** One entry per aggregate named across the handler's `refetch(…)`
-   *  statements.  Omitted when the handler declares no refetch. */
-  refetches?: RefetchTargetIR[];
+   *  statements.  Empty when the handler declares no refetch. */
+  refetches: RefetchTargetIR[];
 }
 
 /** API declaration — first-class contract derived from a module's
@@ -189,7 +188,7 @@ export interface LayoutIR {
 }
 
 /** A page declaration: route + parameters + reactive state + body. */
-export interface PageIR {
+export interface PageIR extends Sourced {
   name: string;
   params: ParamIR[];
   /** Path-with-`:params` from `route: "..."`.  Always set for pages
@@ -229,9 +228,9 @@ export interface PageIR {
   emitPath?: string;
   /** Containing-area path (outermost → innermost), when the page is
    *  declared inside one or more `area { … }` blocks.  Drives `emitPath`
-   *  (`src/pages/<area-path>/<page>.tsx`); empty/absent for a top-level
+   *  (`src/pages/<area-path>/<page>.tsx`); empty for a top-level
    *  page.  Each segment is the snake-cased area name. */
-  area?: string[];
+  area: string[];
   /** Optional layout selector.  When undefined, the page receives
    *  the deployable's default app-shell chrome.  See `PageLayoutIR`
    *  for the preset value set; undefined is intentionally distinct
@@ -247,10 +246,6 @@ export interface PageIR {
    *  `ExprIR`.  Only the route-`/` page (or the first page when
    *  no `/` exists) contributes metadata to the shell. */
   metadata?: PageMetadataIR;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** Static page metadata — SEO + social-graph tags written into
@@ -272,7 +267,7 @@ export interface PageMetadataIR {
 /** A user-defined component: typed function from params (and optional
  *  local state) to a body expression.  Components compose other
  *  components but never produce pages or routes. */
-export interface ComponentIR {
+export interface ComponentIR extends Sourced {
   name: string;
   params: ParamIR[];
   state: StateFieldIR[];
@@ -290,17 +285,11 @@ export interface ComponentIR {
   /** True when the component is `extern` — the generator emits a
    *  typed `<Name>.props.ts` interface and imports the user's module
    *  at call sites instead of generating a body. */
-  extern?: boolean;
+  extern: boolean;
   /** Module specifier for the hand-written component, relative to the
    *  generated project's `src/` root (the `from "<path>"` clause).
    *  Always present when `extern` is true. */
   externPath?: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes.  Mirrors `PageIR.origin`; feeds the frontend
-   * generators' `SourceMapRecorder.file(...)` calls for per-component
-   * output regions (M8, source-map-debug-kickoff.md). */
-  origin?: OriginRef;
 }
 
 /** One reactive local field, inside a `page` or `component`. */

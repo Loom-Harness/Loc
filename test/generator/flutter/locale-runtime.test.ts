@@ -163,7 +163,7 @@ describe("the reactive store — a ValueNotifier", () => {
   it("t() reads the ACTIVE locale on every call", async () => {
     const dart = await i18nDart(["de"]);
     expect(dart).toContain("String get locale => localeNotifier.value;");
-    expect(dart).toContain("final String message = _catalogs[locale]?[key] ?? defaultMessage;");
+    expect(dart).toContain("_format(_catalogs[locale]?[key] ?? defaultMessage, values);");
   });
 
   it("the choice is stored with shared_preferences and restored by initLocale()", async () => {

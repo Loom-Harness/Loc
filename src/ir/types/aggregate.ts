@@ -15,8 +15,9 @@ import type {
 } from "./members.js";
 import type { OriginRef } from "./origin.js";
 import type { StmtIR } from "./stmt.js";
+import type { Sourced } from "./types.js";
 
-export interface AggregateIR {
+export interface AggregateIR extends Sourced {
   name: string;
   fields: FieldIR[];
   contains: ContainmentIR[];
@@ -82,16 +83,11 @@ export interface AggregateIR {
    * `contextFilterRefs` and this array always have exactly one slot per
    * `contextFilters` entry; every writer that appends a filter appends both. */
   contextFilterOrigins: (string | undefined)[];
-  /** The WRITE-scope predicate an INSTANCE mutation's command load must satisfy
-   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Derived in enrichment from the aggregate's `policy` read + write levels,
-   *  and set **only when the write scope is strictly narrower than the read
-   *  scope** — i.e. when the mutation load (which reuses the read filter on
-   *  every backend) must be tightened below what a read can see.  Two shapes:
-   *  the flat `tenantId ==` floor (`write local` under a widened read) or the
-   *  `deep` descendant-or-self sentinel (`write deep` under a `global` read).
-   *  `undefined` = the command load already matches the write scope, so the
-   *  mutation seam stays byte-identical.  Uses `currentUser`, so backends
-   *  render it through their existing principal-filter path. */
+  /** The WRITE-scope predicate an INSTANCE mutation's command load must
+   *  satisfy, on top of the read filter the load already reuses on every
+   *  backend.  Set by enrichment only for a `policy { deny write on X }`
+   *  carve-out (the always-false `buildDenyFilter` sentinel); `undefined`
+   *  keeps the mutation seam identical to a read. */
   writeScopeFilter?: ExprIR;
   /** Lifecycle stamping rules contributed by `stamp onCreate { ... }`
    * / `stamp onUpdate { ... }` declarations (hand-written or
@@ -173,10 +169,6 @@ export interface AggregateIR {
    * A `persistedAs: eventLog` / `shape: document` concrete of a `sharedTable`
    * base is forced to `ownTable` (D-ES-TPH; enforced by the validator). */
   inheritanceUsing?: InheritanceLayout;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; absent on purely
-   * derived nodes. */
-  origin?: OriginRef;
 }
 
 /** Inheritance table layout — the aggregate-inheritance layout axis
@@ -229,12 +221,8 @@ export interface ContextStampAssignmentIR {
   value: ExprIR;
 }
 
-export interface TestIR {
+export interface TestIR extends Sourced {
   name: string;
-  /** Provenance chain back to the `.ddd` source — see
-   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
-   * diagnostic about this node print `path:line:col`. */
-  origin?: OriginRef;
   statements: TestStmtIR[];
   /** Traceability back-link: the `verifies <TC-id>` clause
    *  naming the TestCase this executable test realises.  Undefined when
@@ -252,16 +240,14 @@ export interface TestIR {
  *  field name.  Every value is fixed data — a string, or a list of strings
  *  for a `string[]` claim — so each backend renders it as a literal of the
  *  claim's declared type, read off the system's user block. */
-export interface TestPrincipalIR {
+export interface TestPrincipalIR extends Sourced {
   claims: TestPrincipalClaimIR[];
-  origin?: OriginRef;
 }
 
-export interface TestPrincipalClaimIR {
+export interface TestPrincipalClaimIR extends Sourced {
   /** The `user { … }` field the claim sets. */
   name: string;
   value: string | readonly string[];
-  origin?: OriginRef;
 }
 
 export type TestStmtIR =

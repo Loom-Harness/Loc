@@ -44,6 +44,7 @@ export function storeInitNonConstant(e: ExprIR): ExprIR | undefined {
       return e.refKind === "enum-value" ? undefined : e;
     case "convert":
       return e.target === "string" ? first(e.value) : e;
+    case "exists":
     case "this":
     case "id":
     case "member":

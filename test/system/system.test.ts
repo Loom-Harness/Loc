@@ -67,25 +67,27 @@ describe("system / module / deployable", () => {
     expect(compose).toMatch(/wget -qO- http:\/\/localhost:3000\/ready/);
   });
 
-  it("isolates each deployable to its own postgres database", async () => {
+  // Wiring nothing in the fast tier boots: the behaviour (a write through one
+  // deployable is a read through the other) is `test/e2e/shared-storage-e2e.test.ts`.
+  it("provisions one postgres database per storage, shared by the deployables bound to it", async () => {
     const files = await filesFor("examples/acme.ddd");
     // Init script runs on first boot of an empty pgdata volume — and, being
     // idempotent, again on every `up` via the db-bootstrap one-shot (B-26).
     const init = files.get("db-init/00-create-databases.sql")!;
+    expect(init).toContain(
+      `SELECT 'CREATE DATABASE "primary_sql"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'primary_sql')\\gexec`,
+    );
     for (const db of ["api", "catalog_api", "catalog_web"]) {
-      expect(init).toContain(
-        `SELECT 'CREATE DATABASE ${db}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\\gexec`,
-      );
+      expect(init).not.toContain(`CREATE DATABASE "${db}"`);
     }
     // No bare (non-idempotent) CREATE DATABASE statement survives.
     expect(init).not.toMatch(/^CREATE DATABASE/m);
     const compose = files.get("docker-compose.yml")!;
     // Postgres mounts the init script.
     expect(compose).toMatch(/\.\/db-init:\/docker-entrypoint-initdb\.d:ro/);
-    // Each deployable's connection string targets its own database.
-    expect(compose).toMatch(/Database=api;/);
-    expect(compose).toMatch(/Database=catalog_api;/);
-    expect(compose).toMatch(/postgres:postgres@db:5432\/catalog_web/);
+    // Every deployable bound to `primary_sql` connects to its database.
+    expect(compose.match(/Database=primary_sql;/g)).toHaveLength(2);
+    expect(compose).toMatch(/postgres:postgres@db:5432\/primary_sql"/);
   });
 
   it("re-provisions every deployable's database on each `up` via the db-bootstrap one-shot (B-26)", async () => {
@@ -187,8 +189,10 @@ describe("system / module / deployable", () => {
 
   describe("boot migration lifecycle events (observability.md)", () => {
     it("Hono root index.ts brackets the drizzle boot migrate with catalog events", async () => {
-      const files = await filesFor("examples/acme.ddd");
-      const idx = files.get("catalog_web/index.ts")!;
+      // quickstart's node `api` is the first deployable on its storage, so it
+      // is the database's migrator.
+      const files = await filesFor("examples/quickstart.ddd");
+      const idx = files.get("api/index.ts")!;
       // drizzle's migrate() runs the whole batch in one opaque call, so
       // starting/complete bracket it and failed sits in the catch — no
       // per-migration migration_applied seam (Python/.NET emit that).

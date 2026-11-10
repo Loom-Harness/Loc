@@ -596,10 +596,11 @@ the IR consumers need.  Five derivations, in order:
 
 5. **Per-module `migrationsOwner`.**  For every module, picks the
    single backend deployable responsible for emitting schema
-   migrations against it (`assignMigrationsOwner` —
-   `enrichments.ts:124`).  Consumed in phase ⑨ by
-   `buildMigrations(...)` to decide which deployable's output map
-   receives the per-module migration file.
+   migrations against it (`assignMigrationsOwner` in
+   `enrichments.ts`).  Consumed in phase ⑨ by `buildMigrations(...)`:
+   a module with no owner gets no migrations.  Which deployables carry
+   and apply them is a property of the database
+   (`src/ir/util/databases.ts`).
 
 **Idempotent** — `enrich(enrich(m))` deep-equals `enrich(m)`.
 Asserted by `test/ir/enrichments.test.ts` ("enrichLoomModel is
@@ -939,8 +940,8 @@ web_app/e2e/<System>.ui.spec.ts
   (depends_on / env / healthcheck per platform), and a `pgdata`
   volume.
 - `db-init/00-create-databases.sql` — one idempotent `CREATE DATABASE` per
-  backend deployable so EF Core's `EnsureCreated` doesn't race
-  against peer backends sharing the same db; re-applied on every `up` by
+  postgres storage (deployables bound to one storage share it; the first of
+  them migrates it); re-applied on every `up` by
   the compose `db-bootstrap` one-shot, so a deployable added later gets
   its database on an existing volume.
 - `.loom/wire-spec.json` — JSON Schema derived from the

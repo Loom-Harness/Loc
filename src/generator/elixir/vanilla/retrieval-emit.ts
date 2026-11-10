@@ -27,15 +27,17 @@
 // Mirrors the established vanilla repository-emit.ts shape.
 // ---------------------------------------------------------------------------
 
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { exprReadsPrincipal, readSortFor } from "../../../ir/enrich/read-scope.js";
 import type {
   AggregateIR,
   BoundedContextIR,
+  ExprIR,
   RetrievalIR,
   SortTermIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -70,8 +72,18 @@ export function retrievalReadsActor(retrievalName: string, ctx: BoundedContextIR
   const targetName = r.targetType.name;
   const target = ctx.aggregates.find((a) => a.name === targetName);
   return (
-    (target ? aggregateUsesPrincipalContextFilter(target) : false) || exprUsesCurrentUser(r.where)
+    (target ? aggregateUsesPrincipalContextFilter(target) : false) ||
+    exprReadsPrincipal(r.where, ctx.aggregates)
   );
+}
+
+/** True when `e` holds an `exists` quantifier. */
+function quantifies(e: ExprIR): boolean {
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "exists") found = true;
+  });
+  return found;
 }
 
 /** Per-context fan-out: emit one Ecto query module per retrieval. */
@@ -97,7 +109,7 @@ export function emitVanillaRetrievals(
     // names a variable `run/1` never bound.  The target's own restrictions need
     // no binding here: `Repo.prepare_query/3` applies them, with the caller's
     // `current_user:` (or the ambient principal) and `skip_filters:` options.
-    const ownPrincipal = exprUsesCurrentUser(r.where);
+    const ownPrincipal = exprReadsPrincipal(r.where, ctx.aggregates);
     // A `shape: document` target keeps its fields in the jsonb embed: it has no
     // `base_query/0` and no columns to query, so the retrieval filters in-app
     // over the rehydrated embed, exactly as its repository's reads do.
@@ -128,6 +140,7 @@ export function emitVanillaRetrievals(
         // preloads is preloaded here too — an unloaded `has_many` is
         // `%Ecto.Association.NotLoaded{}`, which the serializer cannot map.
         target ? readPreloadRels(target, ctx, sys) : [],
+        ctx.aggregates,
       ),
     );
   }
@@ -142,6 +155,8 @@ function renderRetrievalModule(
   /** The target is an aggregate of this context, with a `base_query/0`. */
   scoped: boolean,
   preloadRels: readonly string[] = [],
+  /** The context's aggregates — resolves an `exists` quantifier in `r.where`. */
+  pool: readonly AggregateIR[] = [],
 ): string {
   const aggName = (r.targetType as { kind: "entity"; name: string }).name;
   const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
@@ -154,6 +169,7 @@ function renderRetrievalModule(
     filterArgs: true,
     // A reference-collection membership queries the association's join table.
     refCollOwnerModule: aggModule,
+    pool,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
   // The retrieval's own `where` predicate, over the target's `base_query/0`.
@@ -169,7 +185,10 @@ function renderRetrievalModule(
   // are absent.
   const pipeline: string[] = [];
   if (ownPrincipal) pipeline.push(`    current_user = opts[:current_user]`);
-  pipeline.push(`    query = from(record in ${source}, where: ${ownWhere})`);
+  // An `exists` subquery reaches the row as `parent_as(:record)`: a scoped
+  // source's `base_query/0` already names its root, a bare schema does not.
+  const as = !scoped && quantifies(r.where) ? "as: :record, " : "";
+  pipeline.push(`    query = from(record in ${source}, ${as}where: ${ownWhere})`);
   pipeline.push(`    query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query`);
   pipeline.push(`    query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query`);
   pipeline.push(`    query = ${sortClause}`);

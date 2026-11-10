@@ -33,7 +33,7 @@ export const SVELTE_LOCALE_SWITCHER_PATH = "src/lib/components/LocaleSwitcher.sv
 
 export function renderSvelteLocaleStore(): string {
   return `// Auto-generated.  Do not edit by hand.
-import { getLocale as baseGetLocale, subscribe, t as baseT } from "./i18n";
+import { getLocale as baseGetLocale, subscribe, t as baseT, tRich as baseTRich } from "./i18n";
 
 let current = $state(baseGetLocale());
 // Lives as long as the app: the store is module-level, so is this subscription.
@@ -55,6 +55,16 @@ export function t(
 ): string {
   void current;
   return baseT(key, defaultMessage, values);
+}
+
+/** \`tRich\` (a rich-text sentence, as HTML) that re-runs its caller on a switch. */
+export function tRich(
+  key: string,
+  defaultMessage: string,
+  values?: Parameters<typeof baseT>[2],
+): string {
+  void current;
+  return baseTRich(key, defaultMessage, values);
 }
 `;
 }

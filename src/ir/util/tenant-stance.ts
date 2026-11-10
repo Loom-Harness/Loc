@@ -6,33 +6,18 @@
 // so it is derived on demand (the `classifyPage` pattern in
 // `page-kind.ts`), never stamped onto AggregateIR.
 
-import type { AggregateIR, AuthzFilterKind, ExprIR, SystemIR, TypeIR } from "../types/loom-ir.js";
+import type { AggregateIR, ExprIR, SystemIR, TypeIR } from "../types/loom-ir.js";
 
 /** The prelude capability that marks an aggregate as tenant-scoped
  *  (`with tenantOwned` — see `src/macros/prelude.ts`). */
 export const TENANT_OWNED_CAPABILITY = "tenantOwned";
 
-/** The prelude capability that opts the tenant registry into hierarchy
- *  (`implements tenantRegistry`).  It
- *  PROVIDES the registry tree fields `parent: Self id?` (immutable self-FK,
- *  null = root) and the managed `dataKey` materialized path.  Only the
- *  registry (the `of <Registry>` target) may carry it, and its presence is
- *  what turns `currentUser.orgPath` from the claim-copy fallback into a real
- *  registry `dataKey` lookup.  See `src/macros/prelude.ts`. */
-export const TENANT_REGISTRY_CAPABILITY = "tenantRegistry";
-
-/** The field name the `tenantOwned` capability provides for the materialized
- *  DataKey path (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md`).  Unlike the
- *  `tenantRegistry`
- *  capability's own `dataKey` (a managed field that stays ON the wire — the
- *  registry's path is meant to be readable), `tenantOwned`'s `dataKey` is a
- *  **persistence-only column**: `authorization.md §2` calls for it "kept out
- *  of `wireShape`" entirely, never just access-gated.  `enrichLoomModel`
- *  (`wireFieldsForAggregate`) drops any field with this name on an aggregate
- *  where {@link hasTenantOwned} holds — the registry's own same-named field is
- *  unaffected since a `tenantOwned` aggregate and the registry are disjoint
- *  (`classifyTenantStance`). */
-export const TENANT_OWNED_DATA_KEY_FIELD = "dataKey";
+/** The prelude capability that makes the tenant registry a tree
+ *  (`implements tenantRegistry`).  It PROVIDES `parent: Self id?` (null =
+ *  top-level org), used to manage sub-tenants; data visibility never follows
+ *  the tree (D-TENANCY-FLAT).  Only the registry (the `of <Registry>` target)
+ *  may carry it.  See `src/macros/prelude.ts`. */
+const TENANT_REGISTRY_CAPABILITY = "tenantRegistry";
 
 /** `contextFilterOrigins` marker for the DERIVED registry self-scope filter
  *  (tenancy.md): under `tenancy by
@@ -212,151 +197,11 @@ function stringPrincipalClaim(x: ExprIR): string | undefined {
  *  stayed conflated — see `tenancy-claim-name.ddd`. */
 export const TENANT_OWNED_TENANT_ID_FIELD = "tenantId";
 
-/** The derived principal member that carries the caller's materialized org
- *  path (`currentUser.orgPath`). */
-export const ORG_PATH_CLAIM_FIELD = "orgPath";
-
-/** The derived principal member that carries the caller's ROOT-org segment
- *  (`currentUser.rootOrg`): the first segment of
- *  `orgPath` (everything before the first {@link DATA_KEY_PATH_DELIMITER}, or
- *  the whole path when it has none).  A pure string computation off the
- *  already-resolved `orgPath` — no DB read.  It anchors the `global` read
- *  level's root-subtree widening: under flat tenancy `orgPath` is the
- *  root-segment claim itself, so `rootOrg == orgPath` and `global == deep ==
- *  local` all coincide at the tenant floor. */
-export const ROOT_ORG_CLAIM_FIELD = "rootOrg";
-
-/** The materialized-path segment delimiter (`root.child.leaf`).  The `deep`
- *  read level prefix-matches on it so `org_a` does NOT match `org_ab` — a
- *  descendant is `path` exactly or `path` + delimiter + more.  (Full
- * delimiter/opclass index discipline is; the delimiter-correct prefix
- *  itself is emitted here.) */
-export const DATA_KEY_PATH_DELIMITER = ".";
-
-/** `ESCAPE` character for the SARGABLE PREFILTER half of the subtree read
- *  (see {@link DEEP_SCOPE_SEMANTICS}).
- *
- *  `!` rather than the conventional `\`: the pattern and its `ESCAPE` clause
- *  are spelled in five generated source languages plus HQL, and backslash is
- *  the one character whose literal meaning differs between them (a Java/HQL
- *  string literal, an Ecto fragment, a Postgres literal under
- *  `standard_conforming_strings`, a Python `re` replacement).  `!` has one
- *  meaning everywhere, so the five spellings cannot silently disagree. */
-export const DATA_KEY_LIKE_ESCAPE = "!";
-
-/** The characters a subtree LIKE pattern must escape, in the order the
- *  generated replace-chains apply them — {@link DATA_KEY_LIKE_ESCAPE} FIRST
- *  (escaping it after `%`/`_` would double-escape the escapes it just wrote),
- *  then the two Postgres `LIKE` wildcards.
- *
- *  Every backend emits the same chain; `tenant-subtree-sargable.test.ts` pins
- *  that all of them do, so a backend cannot drift to a different set. */
-export const DATA_KEY_LIKE_ESCAPED_CHARS: readonly string[] = [DATA_KEY_LIKE_ESCAPE, "%", "_"];
-
-/**
- * Semantics every backend renders the `scope` authorization filter to
- * (row R, principal P; fail-closed — no principal ⇒ matches nothing):
- *
- *   (R.dataKey IS NOT NULL
- *      AND (R.dataKey = P.orgPath                       -- the caller's own node
- *           OR (R.dataKey LIKE like(P.orgPath) ESCAPE '!'   -- sargable prefilter
- *               AND strpos(R.dataKey, P.orgPath || '.') = 1)))  -- exact recheck
- *   OR (R.dataKey IS NULL                               -- legacy / principal-less
- *       AND R.tenantId = P.tenantId)                    --   rows degrade to `local`
- *
- * **Why the descendant test is TWO terms.**  `strpos(col, needle) = 1`
- * (which closes the `orgXa.leak` wildcard leak) has no pattern language,
- * so it is correct for an anchor containing `%`/`_` — but it is a
- * function-of-column predicate, so Postgres cannot use the `data_key`
- * `text_pattern_ops` index for it and every deep/global read seq-scans.  A
- * prefix `LIKE` IS what that opclass indexes, so the LIKE is added as a
- * *prefilter* and the anchored test is kept as the *recheck*:
- *
- *   - Correctness is decided by the recheck, the anchored `strpos` predicate
- *     on its own.  An escaping bug in the pattern can only make
- *     the prefilter WIDER (an unescaped `_`/`%` matches more), never narrower,
- *     and the recheck then throws the extra rows away — so the `orgXa.leak`
- *     trap is green by construction rather than by trusting five escape
- *     helpers, which is exactly the failure mode this split exists to avoid.
- *   - Sargability comes from the LIKE: the planner extracts the fixed prefix
- *     (escapes included) and turns it into an index range over
- *     `<table>_data_key_idx`, leaving `strpos(...)` as a cheap recheck filter
- *     on the far fewer rows the index returned.
- *
- * No DDL change: the `text_pattern_ops` opclass the tenancy migration already
- * derives is precisely the index a prefix `LIKE` rides under ANY
- * database collation — which is also why the half-open-range alternative was
- * not taken (`data_key >= a || '.' AND data_key < a || '/'` is only the
- * descendant set under the C collation, and every ORM's `>=` uses the column's
- * collation).
- *
- * The NULL branch is the deliberate OR-fallback (not pure fail-closed LIKE):
- * every row stamped before (or by a principal-less workflow save) carries
- * a NULL `data_key`, which a bare prefix LIKE would silently hide.  Falling
- * those rows back to the flat `tenantId ==` floor keeps them visible to their
- * own tenant (never widening past it — no cross-tenant leak) and degrades
- * `deep` to exactly `local` for them, preserving flat-tenancy correctness.
- */
-export const DEEP_SCOPE_SEMANTICS =
-  "descendant-or-self path prefix (sargable LIKE prefilter + anchored recheck); NULL-dataKey ⇒ tenant floor";
-
-/** Build a subtree reachability predicate for a tenant-owned aggregate as an
- *  `authz-filter` sentinel node carrying a `scope` decision anchored at
- *  `anchorClaim`.  The `scope` decision carries the two principal
- *  claims (`currentUser.<anchorClaim>`, `currentUser.tenantId`) as
- *  fully-resolved `member` nodes so `exprUsesCurrentUser` classifies the filter
- *  as principal-referencing (routing it to each backend's ambient-principal
- *  query path), and each backend reads the anchor claim field name off
- *  `anchorClaim` (see {@link deepScopeAnchorClaim}).  The row columns
- *  (`dataKey`, `tenantId`) are fixed by the `tenantOwned` capability.  `deep`
- *  anchors at {@link ORG_PATH_CLAIM_FIELD} (the caller's own node +
- *  descendants); `global` anchors at {@link ROOT_ORG_CLAIM_FIELD} (the caller's
- *  ROOT node + descendants — the whole root subtree). */
-function buildScopeFilter(
-  agg: Pick<AggregateIR, "name">,
-  anchorClaim: string,
-  tenantClaim: string,
-): ExprIR {
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
-  const claim = (member: string): ExprIR => ({
-    kind: "member",
-    receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
-    member,
-    receiverType: userShape,
-    memberType: { kind: "primitive", name: "string" },
-  });
-  return {
-    kind: "authz-filter",
-    aggregate: agg.name,
-    filter: {
-      kind: "scope",
-      anchorClaim: claim(anchorClaim),
-      tenantClaim: claim(tenantClaim),
-    },
-  };
-}
-
-/** The `scope` decision of an `authz-filter` sentinel, or `undefined` when `e`
- *  is not one.  Thin narrower shared by the render/inspection helpers below. */
-function scopeOf(e: ExprIR): Extract<AuthzFilterKind, { kind: "scope" }> | undefined {
-  return e.kind === "authz-filter" && e.filter.kind === "scope" ? e.filter : undefined;
-}
-
-/** The `deep` read-level reachability predicate — the descendant-or-self
- *  materialized-path scope anchored at `currentUser.orgPath`.
- *  `tenantClaim` is the system's declared tenancy claim, used by the
- *  NULL-`dataKey` fallback branch that degrades to the flat tenant floor. */
-export function buildDeepScopeFilter(agg: Pick<AggregateIR, "name">, tenantClaim: string): ExprIR {
-  return buildScopeFilter(agg, ORG_PATH_CLAIM_FIELD, tenantClaim);
-}
-
 /** The flat tenant FLOOR predicate `this.tenantId == currentUser.<claim>` —
  *  the exact ExprIR shape the `tenantOwned` prelude capability filter lowers to
- *  (`src/macros/prelude.ts`), rebuilt here so the `local` WRITE level
- *  can restore the floor at a mutation's command
- *  load even when the READ filter has been widened to `deep`/`global` in
- *  enrichment.  Every backend already renders this shape (it is today's tenant
- *  floor), so the write guard needs no new render code.
+ *  (`src/macros/prelude.ts`), rebuilt here for the consumers that need the
+ *  floor as a standalone predicate.  Every backend already renders this shape,
+ *  so a consumer needs no new render code.
  *
  *  The two sides are NOT the same name: the left is the capability's row
  *  COLUMN ({@link TENANT_OWNED_TENANT_ID_FIELD}), the right is the system's
@@ -391,28 +236,6 @@ export function buildTenantFloorFilter(
   };
 }
 
-/** The `global` read-level reachability predicate — the ROOT-org-subtree scope
- *  (tenancy.md).  Structurally identical to `deep` but anchored
- *  at `currentUser.rootOrg` (the first `orgPath` segment) instead of `orgPath`,
- *  so it widens from the caller's own node to the caller's ENTIRE root subtree.
- *  Only emitted under a hierarchy registry; under flat tenancy `rootOrg ==
- *  orgPath == the tenant floor` so the levels coincide.  `tenantClaim` is the
- *  system's declared tenancy claim (see {@link buildDeepScopeFilter}). */
-export function buildGlobalScopeFilter(
-  agg: Pick<AggregateIR, "name">,
-  tenantClaim: string,
-): ExprIR {
-  return buildScopeFilter(agg, ROOT_ORG_CLAIM_FIELD, tenantClaim);
-}
-
-/** True when `e` is a subtree read-level sentinel (an `authz-filter` node
- *  carrying a `scope` decision — used by both `deep` and `global`).  Each
- *  backend's query-filter translator gates its native compound rendering on
- *  this. */
-export function isDeepScopeFilter(e: ExprIR): boolean {
-  return scopeOf(e) !== undefined;
-}
-
 /** The DENY carve-out predicate (deny-wins).  An
  *  `authz-filter` sentinel carrying a `deny` decision (no `currentUser`, so
  *  `exprUsesCurrentUser` is false → each backend routes it to its STATIC filter
@@ -425,7 +248,7 @@ export function isDeepScopeFilter(e: ExprIR): boolean {
  *  `cb.disjunction()` / SQLAlchemy contradiction / Ecto `fragment("false")`).
  *  A bare `literal: bool` node is deliberately NOT used — it is not a valid
  *  standalone predicate in Drizzle/Ecto/SQLAlchemy, which is why deny is a
- *  discriminated sentinel, exactly like the deep-scope one. */
+ *  discriminated sentinel. */
 export function buildDenyFilter(agg: Pick<AggregateIR, "name">): ExprIR {
   return {
     kind: "authz-filter",
@@ -440,34 +263,6 @@ export function isDenyFilter(e: ExprIR): boolean {
   return e.kind === "authz-filter" && e.filter.kind === "deny";
 }
 
-/** The anchor principal-claim field a subtree sentinel prefix-matches on —
- *  read off the `scope` decision's `anchorClaim` member name (`orgPath` for
- *  `deep`, `rootOrg` for `global`).  Each backend renders
- *  `currentUser.<anchorClaim>` as the LIKE prefix.  Falls back to
- *  {@link ORG_PATH_CLAIM_FIELD} for a hand-built sentinel whose anchor isn't a
- *  `member` (defensive; the builders always emit one). */
-export function deepScopeAnchorClaim(e: ExprIR): string {
-  const anchor = scopeOf(e)?.anchorClaim;
-  if (anchor?.kind === "member") return anchor.member;
-  return ORG_PATH_CLAIM_FIELD;
-}
-
-/** The TENANT principal-claim field a subtree sentinel's NULL-`dataKey`
- *  fallback branch compares against — read off the `scope` decision's
- *  `tenantClaim` member name, which enrichment binds to the system's declared
- *  `tenancy by user.<claim>`.  The twin of {@link deepScopeAnchorClaim}, and
- *  the reason the five backends must not reach for
- *  {@link TENANT_OWNED_TENANT_ID_FIELD} on the principal side: that constant is
- *  the ROW column, and the two names only coincide when the claim happens to
- *  be called `tenantId`.  Falls back to the constant for a hand-built sentinel
- *  whose `tenantClaim` isn't a `member` (defensive; the builders always emit
- *  one). */
-export function deepScopeTenantClaim(e: ExprIR): string {
-  const tenant = scopeOf(e)?.tenantClaim;
-  if (tenant?.kind === "member") return tenant.member;
-  return TENANT_OWNED_TENANT_ID_FIELD;
-}
-
 /** The PRINCIPAL member the tenant floor compares against — the system's
  *  declared `tenancy by user.<claim>`, falling back to
  *  {@link TENANT_OWNED_TENANT_ID_FIELD} when the system declares no tenancy
@@ -480,8 +275,7 @@ export function deepScopeTenantClaim(e: ExprIR): string {
  *  called `tenantId`.  The capability's principal side is already the declared
  *  claim when it is spliced (`resolveTenancyClaim`); emitters that reference the
  *  principal directly — the realtime room key on all four SSE backends — read
- *  it off the derived plan.  Twin of {@link deepScopeTenantClaim}, which
- *  answers the same question for a subtree sentinel. */
+ *  it off the derived plan. */
 export function tenancyPrincipalClaim(sys: Pick<SystemIR, "tenancy"> | undefined): string {
   return sys?.tenancy?.claimField ?? TENANT_OWNED_TENANT_ID_FIELD;
 }
@@ -495,33 +289,11 @@ export function hasTenantOwned(agg: Pick<AggregateIR, "capabilities">): boolean 
   return (agg.capabilities ?? []).includes(TENANT_OWNED_CAPABILITY);
 }
 
-/** True when the aggregate carries the `tenantRegistry` prelude capability —
- *  i.e. it opted into hierarchy and therefore has a `dataKey` column
- *  (tenancy.md).  Drives both the structural checks
- *  (exactly one, on the `of` target) and the `currentUser.orgPath` accessor
- *  swap (registry `dataKey` read only when hierarchy is enabled). */
+/** True when the aggregate carries the `tenantRegistry` prelude capability
+ *  (the registry tree's `parent`).  Drives the structural checks: exactly one,
+ *  on the `of` target. */
 export function hasTenantRegistry(agg: Pick<AggregateIR, "capabilities">): boolean {
   return (agg.capabilities ?? []).includes(TENANT_REGISTRY_CAPABILITY);
-}
-
-/** The system's tenant-registry aggregate when it has opted into hierarchy —
- *  the `of <Registry>` target that also carries `implements tenantRegistry`
- *  (so it has a `dataKey` column).  `undefined` for a flat system (no
- *  `tenancy by`, or a registry without the capability).  The single signal the
- * per-backend `currentUser.orgPath` emitters read to decide between the
- *  claim-copy fallback and the real registry `dataKey` lookup. */
-export function hierarchyRegistry(
-  sys: Pick<SystemIR, "tenancy" | "subdomains">,
-): AggregateIR | undefined {
-  if (!sys.tenancy) return undefined;
-  for (const mod of sys.subdomains) {
-    for (const ctx of mod.contexts) {
-      for (const agg of ctx.aggregates) {
-        if (agg.name === sys.tenancy.registryName && hasTenantRegistry(agg)) return agg;
-      }
-    }
-  }
-  return undefined;
 }
 
 /** Classify an aggregate's tenancy stance under its system.
