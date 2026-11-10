@@ -32,6 +32,7 @@
 // Platform-neutral and browser-safe: pure structural reads off the resolved IR.
 // -------------------------------------------------------------------------
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { partContentMask } from "../enrich/mask-taint.js";
 import { forHistoryDiff, wireFieldsFor } from "../enrich/wire-projection.js";
 import type { AggregateIR, FindIR, TypeIR, WireField } from "../types/loom-ir.js";
 import { aggHasAuditedTarget } from "./audit-capability.js";
@@ -105,9 +106,24 @@ export function auditEntryWireShape(): WireField[] {
  *  set minus stamp churn (`forHistoryDiff`).  A backend derives the diff by
  *  comparing these keys across the two snapshots; a key absent here is never
  *  looked at, so a `secret` or `internal` field cannot reach the timeline even
- *  though the snapshot holds it. */
+ *  though the snapshot holds it.
+ *
+ *  A containment whose part carries a `mask unless` member is diffed as a
+ *  whole value, so its change entry holds that member in the clear: the entry
+ *  carries the conjunction of every mask inside the part (`partContentMask`)
+ *  and is dropped for a caller who could not read all of it. */
 export function historyDiffFields(agg: AggregateIR): WireField[] {
-  return forHistoryDiff(wireFieldsFor(agg));
+  return forHistoryDiff(wireFieldsFor(agg)).map((wf) => {
+    if (wf.source !== "containment") return wf;
+    const part = agg.parts.find((p) => p.name === containedPartName(wf.type));
+    const mask = part ? partContentMask(part, agg.parts) : undefined;
+    return mask ? { ...wf, maskUnless: mask } : wf;
+  });
+}
+
+function containedPartName(t: TypeIR): string | undefined {
+  const inner = t.kind === "array" ? t.element : t.kind === "optional" ? t.inner : t;
+  return inner.kind === "entity" ? inner.name : undefined;
 }
 
 /** The diff fields carrying a `mask unless` predicate — the ones whose change

@@ -5,6 +5,7 @@ import type {
   FieldIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../../ir/validate/validate.js";
 import { lines } from "../../../util/code-builder.js";
 import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
@@ -42,7 +43,18 @@ export function criterionEligible(
   if (!agg) return null;
   if (firstNonQueryableNode(crit.body) !== null) return null;
   if (exprUsesCurrentUser(crit.body)) return null;
+  // An `exists` quantifier rides the JPQL `@Query` path, which renders it as a
+  // correlated subquery; the Criteria API factory has no spelling for it.
+  if (containsExists(crit.body)) return null;
   return agg;
+}
+
+function containsExists(e: CriterionIR["body"]): boolean {
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "exists") found = true;
+  });
+  return found;
 }
 
 export interface CriteriaFile {

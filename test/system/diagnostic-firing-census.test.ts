@@ -554,6 +554,32 @@ ${opts.e2e ?? ""}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An `exists` in an operation guard: not a position compiled into a query.
+  "loom.exists-outside-query": `
+system S {
+  subdomain M { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Doc with crudish {
+      title: string
+      operation touch() { precondition exists Tag as t where t.label == this.title  title := "x" }
+    }
+  } }
+}`,
+  // An `exists` over another context's aggregate: a different database.
+  "loom.exists-cross-context": `
+system S {
+  subdomain M {
+    context C { aggregate Doc with crudish { title: string  filter exists Tag as t where t.label == this.title } }
+    context D { aggregate Tag with crudish { label: string } }
+  }
+}`,
+  // An `exists` over the filtered row's own aggregate.
+  "loom.exists-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate Doc with crudish { title: string  filter exists Doc as d where d.title == this.title }
+  } }
+}`,
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
@@ -607,6 +633,39 @@ system S {
     repository Ps for P
     event Pinged { p: P id  ssn: string }
     channel Out { carries: Pinged }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A part `derived` reading a nested part's masked member: the part's own
+  // projection knows only its own masks.
+  "loom.field-mask-on-part": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    aggregate T with crudish {
+      contains lines: Line[]
+      entity Note { text: string  secret: bool mask unless currentUser.role == "hr" }
+      entity Line {
+        contains notes: Note[]
+        derived anySecret: bool = notes.any(n => n.secret)
+      }
+    }
+    repository Ts for T
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 auth: required }
+}`,
+  // A value object has no read boundary of its own, so its field cannot be masked.
+  "loom.field-mask-on-value-object": `
+system S {
+  user { id: string  role: string }
+  subdomain M { context C {
+    valueobject Addr { city: string mask unless currentUser.role == "hr" }
+    aggregate P with crudish { home: Addr }
+    repository Ps for P
   } }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }

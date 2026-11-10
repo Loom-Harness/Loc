@@ -203,7 +203,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:310",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:336",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on every " +
       "backend — fires only when no backend deployable hosts the context",
@@ -223,6 +223,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "context-level `test` whose target context no backend deployable hosts — every backend " +
       "renders context integration tests, so only a frontend-only host warns",
     mission: "#3378",
+  },
+  {
+    code: "loom.exists-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/exists-checks.ts:119",
+    what:
+      "an `exists <Agg> as … where …` quantifier over the filtered row's own aggregate (a " +
+      "self-correlated EXISTS needs a second alias of the same table), or with an event-sourced, " +
+      "document/embedded or inheritance-hierarchy aggregate on either side (no plain relational " +
+      "state table to subquery) — on every backend alike",
+    mission: "#5010",
   },
   {
     code: "loom.projection-cross-context-source-unsupported",
@@ -375,7 +386,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.field-mask-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:215",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:243",
     what:
       "`mask unless` read redaction ships on every backend — fires only when no backend " +
       "deployable hosts the context",

@@ -1,4 +1,5 @@
-import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -63,6 +64,11 @@ export interface JpqlCtx {
    *  principal themselves, off this set.  Ignored (and need not be supplied)
    *  under `"jpql-spring-data"`. */
   principalAccessors?: Set<string>;
+  /** The context's aggregates — needed only to resolve an `exists <Agg> …`
+   *  quantifier to the quantified entity and its read scope. */
+  aggs?: readonly AggregateIR[];
+  /** Each in-scope `exists … as <row>` binding → its JPQL alias. */
+  rows?: ReadonlyMap<string, string>;
 }
 
 /** True when `ctx` targets the plain `EntityManager.createQuery` sub-mode —
@@ -250,6 +256,23 @@ function render(e: ExprIR, ctx: JpqlCtx): string {
       return `${e.op}${render(e.operand, ctx)}`;
     case "binary":
       return renderBinary(e, ctx);
+    case "exists": {
+      // `exists <Agg> as s where p` — a correlated JPQL subquery over the
+      // quantified entity.  Its own read scope is ANDed in with `this` rebound
+      // to the subquery's alias: a Hibernate `@Filter` does not reach a
+      // subquery, so leaving it to the entity mapping would let an `exists`
+      // see rows its caller cannot read.
+      const inner = ctx.aggs?.find((a) => a.name === e.aggregate);
+      if (!inner) throw unsupported(ctx, `'exists ${e.aggregate}' without its aggregate in scope`);
+      const alias = `q_${e.binding}`;
+      const rows = new Map(ctx.rows ?? []);
+      rows.set(e.binding, alias);
+      const terms = [render(e.where, { ...ctx, rows })];
+      for (const pred of existsScopePredicates(inner.name, ctx.aggs ?? [])) {
+        terms.push(render(pred, { ...ctx, rows, alias }));
+      }
+      return `exists (select 1 from ${inner.name} ${alias} where ${terms.map((t) => `(${t})`).join(" and ")})`;
+    }
     case "authz-filter": {
       // Authorization/tenancy filter sentinels (M-T9.9) — a discriminated node
       // so a missing arm is a `tsc` error here, not a silent authorization
@@ -369,6 +392,12 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>, ctx: JpqlCtx): string {
     case "enum-value":
       // JPQL enum literals must be fully qualified.
       return `${ctx.enumsPkg}.${e.enumName}.${jid(e.name)}`;
+    case "row": {
+      // An `exists … as <row>` binding — its subquery alias.
+      const alias = ctx.rows?.get(e.name);
+      if (!alias) throw unsupported(ctx, `'${e.name}' outside its 'exists'`);
+      return alias;
+    }
     default:
       throw unsupported(ctx, `ref kind '${e.refKind}' ('${e.name}')`);
   }

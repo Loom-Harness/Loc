@@ -199,6 +199,7 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
     // refuses every kind below at phase ⑦ — the renderer would `throw` on one.
     // Named rather than left to a `default:` so the three vocabularies (gate,
     // renderer, this predicate) have to move together.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":
@@ -243,6 +244,7 @@ function felizNeedsToastField(ui: UiIR): boolean {
       // (see `exprReadsBinding` above for the three-way vocabulary argument).
       // Named rather than left to a `default:` so a widened subset has to be
       // ruled on here.
+      case "exists":
       case "action-ref":
       case "authz-filter":
       case "call":

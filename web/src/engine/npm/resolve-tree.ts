@@ -20,20 +20,40 @@ export interface PlannedPackage {
   meta: VersionMeta;
 }
 
+/** Packuments fetched by this realm, by name.  A packument is the registry's
+ *  answer for one package at one moment, so an entry is reused only within
+ *  `PACKUMENT_TTL_MS` — long enough for the hono + react installs of one
+ *  Boot (and a re-Boot) to share, short enough that a long-lived worker
+ *  still sees a newly published version. */
+const PACKUMENT_TTL_MS = 5 * 60_000;
+const packumentMemo = new Map<string, { at: number; p: Promise<Packument> }>();
+
+function packumentFor(name: string): Promise<Packument> {
+  const hit = packumentMemo.get(name);
+  if (hit && Date.now() - hit.at < PACKUMENT_TTL_MS) return hit.p;
+  const p = fetchPackument(name);
+  packumentMemo.set(name, { at: Date.now(), p });
+  // A failed fetch must not poison later installs.
+  p.catch(() => {
+    if (packumentMemo.get(name)?.p === p) packumentMemo.delete(name);
+  });
+  return p;
+}
+
 export async function planInstall(
   rootDeps: Record<string, string>,
 ): Promise<Map<string, PlannedPackage>> {
   const chosen = new Map<string, PlannedPackage>();
-  const packuments = new Map<string, Packument>();
   const queue: Array<[string, string]> = Object.entries(rootDeps);
+  // Start every packument fetch the moment its name is queued; the loop
+  // below still decides versions one requirement at a time, in queue order,
+  // so the resolution is exactly the serial one — only the registry round
+  // trips overlap.
+  for (const [name] of queue) void packumentFor(name).catch(() => {});
 
   while (queue.length) {
     const [name, range] = queue.shift()!;
-    let pack = packuments.get(name);
-    if (!pack) {
-      pack = await fetchPackument(name);
-      packuments.set(name, pack);
-    }
+    const pack = await packumentFor(name);
     const version = maxSatisfying(Object.keys(pack.versions), range);
     if (!version) {
       throw new Error(
@@ -52,6 +72,7 @@ export async function planInstall(
     chosen.set(name, { name, version, meta });
     for (const [dn, dr] of Object.entries(meta.dependencies ?? {})) {
       queue.push([dn, dr]);
+      void packumentFor(dn).catch(() => {});
     }
   }
   return chosen;

@@ -128,6 +128,10 @@ const PROBES: Record<ExprIR["kind"], { expr: ExprIR; supported: boolean }> = {
     expr: { kind: "authz-filter", filter: { kind: "deny" }, aggregate: "Order" },
     supported: false,
   },
+  exists: {
+    expr: { kind: "exists", aggregate: "Share", binding: "s", where: str("admin") },
+    supported: false,
+  },
   convert: {
     expr: { kind: "convert", target: "string", from: "int", value: claim("level") },
     supported: false,

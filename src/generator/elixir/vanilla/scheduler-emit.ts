@@ -16,12 +16,12 @@
 //     must not replay history); a later boot whose most-recent boundary is past
 //     the watermark enqueues exactly ONE catch-up job (the whole missed window
 //     collapses to a single replay, never a stampede).
-//   * `every:` (sub-minute) timers stay IN-PROCESS — ONE `GenServer`
-//     that on each tick takes a TRANSACTION-SCOPED Postgres advisory lock
-//     (single-fire across replicas, the SAME `pg_try_advisory_xact_lock`
-//     primitive keyed by the SAME FNV-1a hash the other backends use), builds
-//     the tick event, and dispatches it.  Durability is meaningless for a 15s
-//     poll, and Oban's cron/queue granularity is per-minute.
+//   * `every:` (sub-minute) timers stay IN-PROCESS — ONE `GenServer` per timer
+//     polling at half the period; each poll claims the current period's
+//     `__loom_timer` row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE — the
+//     same statement every backend runs), and only the poll that advanced the
+//     row builds the tick event and dispatches it.  Durability is meaningless
+//     for a 15s poll, and Oban's cron/queue granularity is per-minute.
 //
 // Both cadences build the tick event struct and dispatch it through the SAME
 // in-process `<Ctx>.Dispatcher` the sagas already route through — so an
@@ -44,6 +44,7 @@ import type {
   TimerSourceIR,
 } from "../../../ir/types/loom-ir.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
+import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
@@ -65,20 +66,6 @@ export function ownedElixirTimers(sys: SystemIR, deployable: DeployableIR): Time
  *  Oban config block, and the Oban supervision child. */
 export function anyElixirTimerUsesCron(timers: readonly TimerSourceIR[]): boolean {
   return timers.some((ts) => ts.cadence.kind === "cron");
-}
-
-/** Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource name
- *  into a signed 32-bit int, the SAME derivation the Hono backend computes at
- *  runtime, so two replicas (of any backend) contend on the SAME key.  Computed
- *  at codegen and inlined as an Elixir integer literal.  (every: path only —
- *  cron: single-fire is Oban-native.) */
-function timerLockKey(name: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < name.length; i++) {
-    h ^= name.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h | 0;
 }
 
 /** The value expression a scheduler tick uses to fill one tick-event field.  A
@@ -123,10 +110,10 @@ function tickEventStruct(contextModule: string, ts: TimerSourceIR, event: EventI
   return `%${contextModule}.Events.${upperFirst(ts.event)}{${fields}}`;
 }
 
-// ── every: — the Phase-1 in-process GenServer (advisory lock) ───────────────
+// ── every: — the in-process GenServer (period claim) ───────────────
 
-/** Render one `lib/<app>/scheduler/<timer>.ex` GenServer for an `every:` timer
- *  (unchanged Phase-1 design — advisory-lock single-fire, inline dispatch). */
+/** Render one `lib/<app>/scheduler/<timer>.ex` GenServer for an `every:` timer:
+ *  a poll at half the period, the `__loom_timer` claim, inline dispatch. */
 function renderEveryTimerModule(
   appModule: string,
   ts: TimerSourceIR,
@@ -136,7 +123,6 @@ function renderEveryTimerModule(
 ): string {
   const mod = `${appModule}.Scheduler.${upperFirst(ts.name)}`;
   const contextModule = `${appModule}.${upperFirst(ts.context)}`;
-  const lockKey = timerLockKey(ts.name);
   const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
 
   const fireLog = renderPhoenixLogCall("timerFired", [{ name: "timer", valueExpr: "@timer_name" }]);
@@ -148,16 +134,19 @@ function renderEveryTimerModule(
     { name: "error", valueExpr: "Exception.message(e)" },
   ]);
 
-  const lockedBody =
+  const claimedBody =
     event && (hasDispatcher || channels)
       ? [
+          `      ${appModule}.Repo.transaction(fn ->`,
           `        event = ${tickEventStruct(contextModule, ts, event)}`,
           `        ${elixirDispatchCall("event", contextModule, hasDispatcher, channels)}`,
-          `        ${fireLog}`,
+          `      end)`,
+          ``,
+          `      ${fireLog}`,
         ]
-      : [`        ${fireLog}`];
+      : [`      ${fireLog}`];
 
-  return `# Auto-generated — every: timer (scheduling.md); in-process, single-fire via advisory lock.
+  return `# Auto-generated — every: timer (scheduling.md); in-process, one fire per period via the __loom_timer claim.
 defmodule ${mod} do
   @moduledoc "timerSource ${ts.name} — fires ${upperFirst(ts.event)} on a ${everyMs}ms cadence."
 
@@ -165,13 +154,9 @@ defmodule ${mod} do
   require Logger
 
   @timer_name ${elixirString(ts.name)}
-  # Stable per-timer advisory-lock key — an FNV-1a hash of the timerSource name
-  # into a signed 32-bit int (the SAME derivation the Hono backend uses), so
-  # replicas contend on the same key.  pg_try_advisory_xact_lock is transaction-
-  # scoped: held on the tx's single pinned connection and released automatically
-  # when the tx commits, so there is no manual unlock to leak onto another
-  # pooled connection (a plain session-level lock + pool would).
-  @lock_key ${lockKey}
+  # Claims the current period (database clock): an upsert that affects the row
+  # only for the first poll in the period, on any replica.
+  @claim_sql ${elixirString(timerClaimSql(ts.name, everyMs))}
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -191,26 +176,24 @@ defmodule ${mod} do
     {:noreply, state}
   end
 
-  # every: ${everyMs}ms — a fixed interval cron cannot express.
+  # every: ${everyMs}ms — a fixed interval cron cannot express; polled twice
+  # per period so every period sees a poll.
   defp schedule_next do
-    Process.send_after(self(), :tick, ${everyMs})
+    Process.send_after(self(), :tick, ${timerPollMs(everyMs)})
   end
 
-  # One tick: a TRANSACTION-SCOPED advisory lock (single-fire across replicas) →
-  # build the tick event → dispatch through the in-process Dispatcher the sagas
-  # already route through.  A peer replica's concurrent tick fails the try and
-  # logs timer_lock_contended; the commit releases the lock.
+  # One poll: claim the current period (one autocommitted statement) → for the
+  # poll that advanced the row, build the tick event and dispatch it through the
+  # in-process Dispatcher the sagas already route through.  Every other poll in
+  # the period, on any replica, logs timer_lock_contended.
   defp tick do
-    ${appModule}.Repo.transaction(fn ->
-      %{rows: [[locked]]} =
-        Ecto.Adapters.SQL.query!(${appModule}.Repo, "SELECT pg_try_advisory_xact_lock($1)", [@lock_key])
+    case Ecto.Adapters.SQL.query!(${appModule}.Repo, @claim_sql, []) do
+      %{num_rows: 1} ->
+${claimedBody.join("\n")}
 
-      if locked do
-${lockedBody.join("\n")}
-      else
+      _ ->
         ${contendedLog}
-      end
-    end)
+    end
 
     :ok
   rescue

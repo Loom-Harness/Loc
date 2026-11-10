@@ -461,6 +461,7 @@ function directlyRenderedRefs(e: ExprIR, out: Extract<ExprIR, { kind: "ref" }>[]
     // rest are leaves or carry no ref a slot renders directly.  Enumerated
     // rather than left to a `default:` so a new `ExprIR` kind is a decision
     // someone makes here, not a silent non-descent.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

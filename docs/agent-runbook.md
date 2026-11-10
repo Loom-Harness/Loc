@@ -18,6 +18,8 @@ Issues rot like mission statuses did: fixed by a neighbouring PR, half-done by a
    - an assignee, or the `in-progress` label, with a claim comment or a branch push in the last 24h;
    - an open PR — draft included — that says `Fixes #N` / `Refs #N`, or a train PR that lists it (search open PRs for `#N`).
    An assignee or label with nothing newer than 24h is a stale claim: take it over by saying so in a comment (§2).
+   - **Waiting on a rework?** The `waits-on-rework` label means an architectural rework is rewriting the code or surface the issue touches. A `⏸ Waits on #X` comment names the slice and the reason. Don't start it while `#X` is open; pick something else, or work on `#X` itself. When `#X` merges, re-check the premise (step 4), since the issue may now be done, moot, or smaller. Then remove the label.
+   - **Needs an owner decision?** Under the `needs-owner` label the issue isn't claimable. Pending decisions are collected in #3316.
 4. **Premise on fresh `main`.** Code-verify what the issue says is broken or missing: grep the gates / emitters / tests it names, check `git log --oneline -30` for the area.
    - **Already done** → close it with the evidence (commit or `file:line`), `state_reason: completed`.
    - **Partly done** → comment what is done (with evidence) and what remains, edit *Acceptance* down to the remainder, then claim that.
@@ -53,6 +55,8 @@ Anything you discover that the issue's acceptance does not need is **filed, not 
 3. Fix it in your PR only if your own acceptance gate cannot pass without it — minimally, and file the remainder.
 
 Too big for one session? Split the issue into sub-issues, finish one, leave the rest unclaimed.
+
+**Reworks hold their dependents.** If an issue you're filing or reading would be rewritten or deleted by an open rework issue (a per-backend fix that a shared plan replaces, or a bug in a surface being removed), don't fix it in place. Add `waits-on-rework` and comment `⏸ Waits on #X: <the concrete overlap>`. If it's really a requirement of the rework, make it a sub-issue of `#X` instead. When a rework slice merges, its author re-checks every issue labelled for it: close the moot ones with evidence, and unlabel the rest.
 
 ## 6. Close the loop
 - Open the PR ready-for-review when it is built and green locally, body `Fixes #N` plus what changed and the gates you ran. Use `Fixes` only when the PR meets the whole acceptance; for part of it use `Refs #N` and say on the issue what remains, so the merge does not close unfinished work.

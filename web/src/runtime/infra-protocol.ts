@@ -68,6 +68,12 @@ export type StorageOp =
 
 export type InfraOp =
   | { op: "reset"; params: Record<string, never> }
+  /** Back the resource fakes (S3 objects, disk files, the Mailbox) with the
+   *  durable store of `island` and load it; null → memory only.  `fresh`
+   *  empties the store first. */
+  | { op: "configure"; params: { island: string | null; fresh?: boolean } }
+  /** Empty the resource fakes, durable copy included. */
+  | { op: "wipeResources"; params: Record<string, never> }
   /** Attach a deployable: the request carries one end of a `MessageChannel`
    *  (transferred); the deployable holds the other as its `InfraPort`. */
   | { op: "connect"; params: { client: string } }

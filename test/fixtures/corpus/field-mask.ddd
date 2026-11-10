@@ -19,16 +19,11 @@
 //   - `audited` operation → that projection rendered twice in one handler body.
 //   - aggregate-wide `audited` → the create (after-only) and destroy
 //     (before-only) audit handlers project the masked shape too.
-//   - a CONTAINED collection → a nested projection inlined into the parent's,
-//     inside a `Select(...)` lambda, sitting next to the parent's own wraps.
-//     (A C# lambda body is no escape from the collision either: shadowing an
-//     enclosing local is CS0136.)
-//
-// NOT covered here, deliberately: `mask unless` on a contained PART's own field
-// is silently dropped today — `wireFieldsForPart` does not propagate the
-// predicate, so no backend redacts it and the response param stays required.
-// That is a separate pre-existing gap, not this fixture's subject; declaring it
-// here would assert a redaction nothing emits.
+//   - a CONTAINED collection whose part carries its OWN masked field (and a
+//     part `derived` computed from it) → a nested projection inlined into the
+//     parent's, inside a `Select(...)` lambda, holding mask wraps of its own
+//     beside the parent's.  (A C# lambda body is no escape from the collision
+//     either: shadowing an enclosing local is CS0136.)
 //
 // This is a COMPILE-tier fixture: the emitted redaction is ordinary target
 // code, so only the real compilers (dotnet build /warnaserror, tsc, mypy
@@ -50,11 +45,20 @@ system MaskedAudit {
         // is computed from, so it redacts under the same predicate.
         derived badge: string = name + " #" + nationalId
         // A contained collection: its projection is inlined into the parent's,
-        // inside a lambda, right beside the parent's own mask wraps.
+        // inside a lambda, right beside the parent's own mask wraps.  The part
+        // masks a field of its own — the response serializer redacts it on
+        // every element, under the same principal the root's masks read — and
+        // a part `derived` computed from it redacts with it.
         contains reviews: Review[]
         entity Review {
           period: string
           score: int
+          note: string mask unless currentUser.permissions.contains(permissions.unmask)
+          derived summary: string = period + ": " + note
+        }
+
+        operation addReview(period: string, score: int, note: string) {
+          reviews += Review { period: period, score: score, note: note }
         }
 
         // The audited mutation — its handler snapshots the wire shape before
@@ -119,6 +123,17 @@ system MaskedAudit {
     expect(promoted.salary).toBe(null)
     expect(promoted.nationalId).toBe(null)
 
+    // A contained part's masked field redacts on every element, and the part
+    // `derived` computed from it redacts with it; the part's unmasked fields
+    // keep their values.
+    api.employees.addReview(e, { period: "2025-H1", score: 4, note: "strong" })
+    let reviewed = api.employees.getById(e)
+    expect(reviewed.reviews.length).toBe(1)
+    expect(reviewed.reviews.first().period).toBe("2025-H1")
+    expect(reviewed.reviews.first().score).toBe(4)
+    expect(reviewed.reviews.first().note).toBe(null)
+    expect(reviewed.reviews.first().summary).toBe(null)
+
     // The LIST route projects through the same mapper, once per row — the
     // position where a per-row projection can quietly skip the mask.
     let listed = api.employees.all()
@@ -126,6 +141,7 @@ system MaskedAudit {
     expect(listed.items.length).toBe(1)
     expect(listed.items.first().salary).toBe(null)
     expect(listed.items.first().name).toBe("Ada")
+    expect(listed.items.first().reviews.first().note).toBe(null)
 
     // A DECLARED FIND — a third projection site, and the one that returns the
     // row through a repository query rather than the by-id read.
@@ -156,17 +172,22 @@ system MaskedAudit {
     expect(updated.salary).toBe(null)
 
     // The AUDIT TRAIL of the same row, read by the same unprivileged principal.
-    // Three entries — the create, the audited `promote`, and the crudish
-    // update (aggregate-wide `audited` covers it).  The refused updates wrote
-    // nothing, so they left no entry; the one that went through moved `name`.  Each entry's `actor`
-    // is the principal's declared `user` shape (RS-45) — the recorded body is
-    // where the wire golden pins it.
+    // Four entries — the create, the audited `promote`, `addReview`, and the
+    // crudish update (aggregate-wide `audited` covers them all).  The refused
+    // updates wrote nothing, so they left no entry; the one that went through
+    // moved `name`.  `addReview` changed only `reviews`, whose elements carry
+    // a masked field, so that change is dropped for this caller.  Each entry's
+    // `actor` is the principal's declared `user` shape (RS-45) — the recorded
+    // body is where the wire golden pins it.
     let trail = api.employees.history(e)
-    expect(trail.count).toBe(3)
+    expect(trail.count).toBe(4)
     expect(trail.first().action).toBe("create")
     expect(trail.skip(1).first().action).toBe("promote")
     expect(trail.skip(1).first().changes.first().field).toBe("grade")
-    let edited = trail.skip(2).first()
+    let annotated = trail.skip(2).first()
+    expect(annotated.action).toBe("addReview")
+    expect(annotated.changes.count).toBe(0)
+    let edited = trail.skip(3).first()
     expect(edited.action).toBe("update")
     expect(edited.changes.count).toBe(1)
     expect(edited.changes.first().field).toBe("name")

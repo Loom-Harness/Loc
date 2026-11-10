@@ -104,6 +104,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/api_node"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_node"
@@ -125,6 +126,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api_dotnet;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_dotnet"
@@ -145,6 +147,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/api_java"
       SPRING_DATASOURCE_USERNAME: "postgres"
       SPRING_DATASOURCE_PASSWORD: "postgres"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_java"
@@ -164,6 +167,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/api_python"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_python"
@@ -187,6 +191,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       PHX_SERVER: "true"
       PORT: "4000"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_elixir"
