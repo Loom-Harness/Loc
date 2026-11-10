@@ -66,10 +66,9 @@
 import { expect, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 interface DecodedMap {
@@ -160,8 +159,7 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
   });
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Sales System/);
+  await startFromExample(page, /Sales System/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
@@ -169,9 +167,7 @@ test("running Hono backend module carries an inline source map reaching .ddd", a
 
   await test.step("Generate", async () => {
     // Boot is blocked until the initial migration is recorded.
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
   });
 
   await test.step("Bundle", async () => {
