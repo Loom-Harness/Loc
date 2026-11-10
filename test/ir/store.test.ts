@@ -112,7 +112,7 @@ describe("store — lowering", () => {
     expect(refs.length).toBeGreaterThan(0);
     const linesRef = refs.find((r) => r.name === "lines")!;
     expect(linesRef.refKind).toBe("store-field");
-    expect(linesRef.storeName).toBe("Cart");
+    expect(linesRef.refKind === "store-field" && linesRef.storeName).toBe("Cart");
   });
 
   it("lowers a page action `Cart.clear()` to a `store-action` call carrying the store", async () => {
