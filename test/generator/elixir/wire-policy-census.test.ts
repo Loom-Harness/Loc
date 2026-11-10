@@ -121,12 +121,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
     reason: "prose in an emitted @doc, not a response body",
   },
   {
-    file: "src/generator/elixir/vanilla/files-controller-emit.ts",
-    line: "put_status(400)",
-    reason:
-      "the upload route's missing multipart field answers a plain JSON 400, not problem+json — the twin of node #4206, filed as #4356 and fixed with its own wire change",
-  },
-  {
     file: "src/generator/elixir/vanilla/tests-emit.ts",
     line: "not found on",
     reason: "a generation-time error message (a test names an operation that does not exist)",

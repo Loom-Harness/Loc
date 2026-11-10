@@ -243,6 +243,7 @@ ${heading}${childrenHeex}
   //     modals are instance-qualified inside the QueryView data lambda).
   let opName: string | undefined;
   let ofName: string | undefined;
+  let recordAssign: string | undefined;
   if (formChild) {
     const argNames = formChild.argNames ?? [];
     const ofIdx = argNames.indexOf("of");
@@ -261,6 +262,7 @@ ${heading}${childrenHeex}
         const instanceName = opRefNode.receiver.name;
         opName = opRefNode.member;
         ofName = ctx.instanceTypes?.get(instanceName);
+        recordAssign = ctx.varRemapping?.get(instanceName);
       }
     }
   }
@@ -285,6 +287,7 @@ ${heading}${childrenHeex}
     params,
     ...(gated ? { gated: true } : {}),
     ...(agg && op && liveViewCallsOp(agg, op) ? { callsOp: true } : {}),
+    ...(recordAssign ? { recordAssign } : {}),
   });
 
   // Trigger button surface from the `trigger: Button(...)` arg.
