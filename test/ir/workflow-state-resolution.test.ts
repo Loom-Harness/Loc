@@ -52,7 +52,7 @@ describe("workflow-as-entity resolution (A2-S5a)", () => {
       expect(expr.receiverType).toEqual({
         kind: "entity",
         name: "Fulfillment",
-        declKind: "aggregate",
+        declKind: "workflow",
       });
       expect(expr.memberType).toEqual({ kind: "primitive", name: "int" });
     }

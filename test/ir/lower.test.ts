@@ -120,7 +120,7 @@ const INT_ARR = { kind: "array", element: { kind: "primitive", name: "int" } };
 const STR_ARR = { kind: "array", element: { kind: "primitive", name: "string" } };
 const ORDERLINE_ARR = {
   kind: "array",
-  element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+  element: { kind: "entity", name: "OrderLine", declKind: "part" },
 };
 
 describe("lowering — A4 collection-op result types", () => {

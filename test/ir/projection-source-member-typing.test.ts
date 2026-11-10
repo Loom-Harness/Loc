@@ -87,7 +87,7 @@ describe("query-time projection over a projection source — member typing", () 
       kind: "member",
       member: "total",
       receiver: { kind: "this" },
-      receiverType: { kind: "entity", name: "OrderTotals", declKind: "aggregate" },
+      receiverType: { kind: "entity", name: "OrderTotals", declKind: "projection" },
       memberType: { kind: "primitive", name: "int" },
     });
   });

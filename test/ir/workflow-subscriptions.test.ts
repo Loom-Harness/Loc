@@ -67,7 +67,7 @@ describe("workflow on(...) reactors — surface + lowering", () => {
       expect(value.receiverType).toEqual({
         kind: "entity",
         name: "PaymentReceived",
-        declKind: "aggregate",
+        declKind: "event",
       });
     }
   });

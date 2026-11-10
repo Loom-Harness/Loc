@@ -33,7 +33,7 @@ describe("workflow create(...) — event/payload command params", () => {
       create(paid: PaymentReceived) by paid.order { let a = paid.amount }`);
     const c = wf.creates[0];
     expect(c.params).toEqual([
-      { name: "paid", type: { kind: "entity", name: "PaymentReceived", declKind: "aggregate" } },
+      { name: "paid", type: { kind: "entity", name: "PaymentReceived", declKind: "event" } },
     ]);
   });
 
@@ -63,7 +63,7 @@ describe("workflow create(...) — event/payload command params", () => {
     const c = wf.creates[0];
     expect(c.triggerKind).toBe("command");
     expect(c.params).toEqual([
-      { name: "c", type: { kind: "entity", name: "SettleOrder", declKind: "aggregate" } },
+      { name: "c", type: { kind: "entity", name: "SettleOrder", declKind: "command" } },
     ]);
   });
 });

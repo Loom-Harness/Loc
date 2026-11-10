@@ -78,7 +78,7 @@ describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
       kind: "union",
       variants: [
         { kind: "entity", name: "Order", declKind: "aggregate" },
-        { kind: "entity", name: "Failed", declKind: "aggregate" },
+        { kind: "entity", name: "Failed", declKind: "error" },
       ],
     });
   });

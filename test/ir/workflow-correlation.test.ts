@@ -52,7 +52,7 @@ describe("workflow by-correlation — lowering", () => {
       expect(corr.receiverType).toEqual({
         kind: "entity",
         name: "PaymentReceived",
-        declKind: "aggregate",
+        declKind: "event",
       });
       expect(corr.memberType).toEqual({ kind: "id", targetName: "Order" });
     }

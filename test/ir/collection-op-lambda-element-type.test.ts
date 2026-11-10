@@ -61,7 +61,7 @@ describe("B9 — collection-op lambda params carry the element type", () => {
     expect(priceMember.receiverType).toEqual({
       kind: "entity",
       name: "OrderLine",
-      declKind: "aggregate",
+      declKind: "part",
     });
     expect(priceMember.memberType).toEqual({ kind: "primitive", name: "money" });
   });

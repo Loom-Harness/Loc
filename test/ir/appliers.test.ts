@@ -111,7 +111,7 @@ describe("appliers — grammar + lowering", () => {
     expect(value?.kind).toBe("member");
     if (value?.kind === "member") {
       expect(value.memberType).toEqual({ kind: "primitive", name: "int" });
-      expect(value.receiverType).toEqual({ kind: "entity", name: "Bumped", declKind: "aggregate" });
+      expect(value.receiverType).toEqual({ kind: "entity", name: "Bumped", declKind: "event" });
     }
   });
 

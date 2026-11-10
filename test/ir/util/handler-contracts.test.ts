@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BoundedContextIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, EntityDeclKind, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
@@ -13,12 +13,24 @@ import { primType } from "../../_helpers/ir-builders.js";
 // handler that compiles on one and not another.  M-T9.17 slice 2 — no direct
 // test.
 //
-// The subtlety both functions turn on: payloads are `entity`-marked TypeIRs
-// (lowering marks them so), so `kind === "entity"` does NOT mean "aggregate".
-// Telling a record from a real aggregate requires consulting `ctx.payloads`,
-// and every branch below exists because that lookup can miss.
+// Both turn on an entity type's `declKind`: a payload-family record is an
+// `entity` too, so `kind === "entity"` does NOT mean "aggregate".
 
-const entity = (name: string): TypeIR => ({ kind: "entity", name }) as TypeIR;
+/** The declaration kinds of the fixture's names. */
+const KIND: Record<string, EntityDeclKind> = {
+  Line: "part",
+  CreateOrderCommand: "command",
+  GetOrderQuery: "query",
+  OrderResponse: "response",
+  LineResponse: "response",
+  GhostResponse: "response",
+  OrderPlacedEvent: "event",
+};
+const entity = (name: string): TypeIR => ({
+  kind: "entity",
+  name,
+  declKind: KIND[name] ?? "aggregate",
+});
 const array = (element: TypeIR): TypeIR => ({ kind: "array", element }) as TypeIR;
 
 /** A context with one aggregate (`Order`, owning part `Line`) and the payload

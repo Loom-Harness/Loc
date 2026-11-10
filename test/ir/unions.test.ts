@@ -86,8 +86,8 @@ describe("unions — named `payload Foo = A | B` (P4a)", () => {
     );
     const u = payloads.find((p) => p.name === "OrderEvent")!;
     expect(u.variants).toEqual([
-      { kind: "entity", name: "OrderPlaced", declKind: "aggregate" },
-      { kind: "entity", name: "OrderCancelled", declKind: "aggregate" },
+      { kind: "entity", name: "OrderPlaced", declKind: "event" },
+      { kind: "entity", name: "OrderCancelled", declKind: "event" },
     ]);
     expect(u.fields).toHaveLength(0);
   });
