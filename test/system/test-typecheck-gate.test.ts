@@ -38,9 +38,7 @@ describe("test-typecheck gate", () => {
     expect(r.out).toContain("typecheck did not run");
   });
   it("still reports real diagnostics as type errors", () => {
-    const r = gate(
-      fakeTsc("errs.sh", "echo \"test/a.test.ts(1,2): error TS2322: bad\"; exit 2"),
-    );
+    const r = gate(fakeTsc("errs.sh", 'echo "test/a.test.ts(1,2): error TS2322: bad"; exit 2'));
     expect(r.status).toBe(1);
     expect(r.out).toContain("1 error(s) under test/");
     expect(r.out).not.toContain("did not run");
