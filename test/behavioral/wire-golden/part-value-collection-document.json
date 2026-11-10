@@ -249,6 +249,9 @@
         "code": "problem.not-found",
         "detail": "RuleSet {id} not found",
         "instance": "/api/rule_sets/{id}/update",
+        "params": {
+          "type": "Matching.RuleSet"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

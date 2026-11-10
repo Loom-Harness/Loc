@@ -271,6 +271,9 @@
         "code": "problem.not-found",
         "detail": "Cargo {id} not found",
         "instance": "/api/cargos/{id}/update",
+        "params": {
+          "type": "Claims.Cargo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

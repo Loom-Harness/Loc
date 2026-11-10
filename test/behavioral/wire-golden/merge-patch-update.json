@@ -290,6 +290,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}",
+        "params": {
+          "type": "Desk.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -346,6 +349,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
+        "params": {
+          "type": "Desk.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -360,6 +366,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
+        "params": {
+          "type": "Desk.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -388,6 +397,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
+        "params": {
+          "type": "Desk.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

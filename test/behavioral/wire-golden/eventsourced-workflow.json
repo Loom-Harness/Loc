@@ -197,6 +197,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Fulfillment.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -211,6 +214,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Fulfillment.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

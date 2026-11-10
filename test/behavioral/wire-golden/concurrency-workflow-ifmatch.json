@@ -76,6 +76,9 @@
         "code": "problem.version-conflict",
         "detail": "Doc {id} was modified by another request",
         "instance": "/api/docs/{id}/rename",
+        "params": {
+          "type": "Docs.Doc"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"

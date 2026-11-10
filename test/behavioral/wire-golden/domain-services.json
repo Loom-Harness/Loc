@@ -221,6 +221,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
+        "params": {
+          "type": "Accounts.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

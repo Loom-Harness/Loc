@@ -144,6 +144,9 @@
         "code": "problem.not-found",
         "detail": "Cargo {id} not found",
         "instance": "/api/cargos/{id}",
+        "params": {
+          "type": "Booking.Cargo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -165,6 +168,9 @@
         "code": "problem.not-found",
         "detail": "Location {id} not found",
         "instance": "/api/locations/{id}",
+        "params": {
+          "type": "Booking.Location"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -221,6 +227,9 @@
         "code": "problem.not-found",
         "detail": "Location {id} not found",
         "instance": "/api/locations/{id}/update",
+        "params": {
+          "type": "Booking.Location"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

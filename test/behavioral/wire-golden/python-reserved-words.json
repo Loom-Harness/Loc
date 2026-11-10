@@ -156,6 +156,9 @@
         "code": "problem.not-found",
         "detail": "Thing {id} not found",
         "instance": "/api/things/{id}",
+        "params": {
+          "type": "Things.Thing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
