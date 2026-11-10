@@ -854,6 +854,59 @@
     },
     {
       "seq": 61,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 62,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 63,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "memo",
+            "createdAt": "<timestamp>",
+            "createdBy": "alice",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "alice"
+          },
+          {
+            "body": "final",
+            "createdAt": "<timestamp>",
+            "createdBy": "carol",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "carol"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 64,
       "method": "GET",
       "path": "/api/notes",
       "status": 200,
@@ -866,7 +919,7 @@
       }
     },
     {
-      "seq": 62,
+      "seq": 65,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 404,
@@ -880,7 +933,7 @@
       }
     },
     {
-      "seq": 63,
+      "seq": 66,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -894,7 +947,7 @@
       }
     },
     {
-      "seq": 64,
+      "seq": 67,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -908,7 +961,7 @@
       }
     },
     {
-      "seq": 65,
+      "seq": 68,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -922,7 +975,7 @@
       }
     },
     {
-      "seq": 66,
+      "seq": 69,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -933,7 +986,7 @@
       }
     },
     {
-      "seq": 67,
+      "seq": 70,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 404,
@@ -947,7 +1000,7 @@
       }
     },
     {
-      "seq": 68,
+      "seq": 71,
       "method": "POST",
       "path": "/api/categories",
       "status": 201,
@@ -956,7 +1009,7 @@
       }
     },
     {
-      "seq": 69,
+      "seq": 72,
       "method": "POST",
       "path": "/api/categories",
       "status": 201,
@@ -965,7 +1018,7 @@
       }
     },
     {
-      "seq": 70,
+      "seq": 73,
       "method": "GET",
       "path": "/api/categories/{id}",
       "status": 200,
@@ -976,7 +1029,7 @@
       }
     },
     {
-      "seq": 71,
+      "seq": 74,
       "method": "GET",
       "path": "/api/categories/{id}",
       "status": 404,
@@ -990,7 +1043,7 @@
       }
     },
     {
-      "seq": 72,
+      "seq": 75,
       "method": "GET",
       "path": "/api/categories/{id}",
       "status": 200,
@@ -998,48 +1051,11 @@
         "id": "<volatile:key>",
         "name": "LADDER-C",
         "rowVersion": 1
-      }
-    },
-    {
-      "seq": 73,
-      "method": "POST",
-      "path": "/api/categories",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 74,
-      "method": "POST",
-      "path": "/api/categories/{id}/update",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 75,
-      "method": "POST",
-      "path": "/api/categories/{id}/update",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Category {id} not found",
-        "instance": "/api/categories/{id}/update",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
       }
     },
     {
       "seq": 76,
       "method": "POST",
-      "path": "/api/categories/{id}/update",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 77,
-      "method": "POST",
       "path": "/api/categories",
       "status": 201,
       "body": {
@@ -1047,14 +1063,21 @@
       }
     },
     {
+      "seq": 77,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
       "seq": 78,
-      "method": "DELETE",
-      "path": "/api/categories/{id}",
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
       "status": 404,
       "body": {
         "code": "problem.not-found",
         "detail": "Category {id} not found",
-        "instance": "/api/categories/{id}",
+        "instance": "/api/categories/{id}/update",
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -1062,13 +1085,43 @@
     },
     {
       "seq": 79,
+      "method": "POST",
+      "path": "/api/categories/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 80,
+      "method": "POST",
+      "path": "/api/categories",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 81,
+      "method": "DELETE",
+      "path": "/api/categories/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Category {id} not found",
+        "instance": "/api/categories/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 82,
       "method": "DELETE",
       "path": "/api/categories/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 80,
+      "seq": 83,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -1077,7 +1130,7 @@
       }
     },
     {
-      "seq": 81,
+      "seq": 84,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -1092,7 +1145,7 @@
       }
     },
     {
-      "seq": 82,
+      "seq": 85,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 404,
@@ -1106,7 +1159,7 @@
       }
     },
     {
-      "seq": 83,
+      "seq": 86,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -1121,7 +1174,7 @@
       }
     },
     {
-      "seq": 84,
+      "seq": 87,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -1130,14 +1183,14 @@
       }
     },
     {
-      "seq": 85,
+      "seq": 88,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 86,
+      "seq": 89,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 404,
@@ -1151,14 +1204,14 @@
       }
     },
     {
-      "seq": 87,
+      "seq": 90,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 88,
+      "seq": 91,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -1167,7 +1220,7 @@
       }
     },
     {
-      "seq": 89,
+      "seq": 92,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 404,
@@ -1181,7 +1234,7 @@
       }
     },
     {
-      "seq": 90,
+      "seq": 93,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,

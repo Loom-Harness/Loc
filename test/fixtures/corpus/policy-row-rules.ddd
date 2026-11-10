@@ -188,6 +188,13 @@ system PolicyRowRules {
     as { id: "erin", tenantId: "acme", role: "agent" }
     expect(api.notes.all().total).toBe(3)
 
+    // A clerk deletes only their own notes.
+    as { id: "dave", tenantId: "acme", role: "clerk" }
+    expect(api.notes.destroy(memo)).toThrow(404)
+    api.notes.destroy(chores)
+    as { id: "alice", tenantId: "acme", role: "manager" }
+    expect(api.notes.all().total).toBe(2)
+
     // `own` stays inside the operating org: another org's clerk sees nothing.
     as { id: "carol", tenantId: "globex", role: "clerk" }
     expect(api.notes.all().total).toBe(0)
