@@ -1739,11 +1739,25 @@ export function serverErrorsDart(i18n: boolean): string {
   const text = i18n
     ? `    if (code.isEmpty) return message;
     try {
-      return t(code, message, params);
+      return t(key, message, params);
     } catch (_) {
       return message;
     }`
     : "    return message;";
+  // The two-step lookup: a refusal that concerns one aggregate names it in
+  // `params.type`, and the catalog may carry that aggregate's own sentence.
+  const keyGetter = i18n
+    ? `
+
+  /// The catalog key this refusal is localized by: its aggregate's own sentence
+  /// (\`<type>.problem.<class>\`, the aggregate named by \`params.type\`) when the
+  /// active catalog carries one, else its code.
+  String get key {
+    final type = params?['type'];
+    if (type is String && code.startsWith('problem.') && hasMessage('$type.$code')) return '$type.$code';
+    return code;
+  }`
+    : "";
   return `/// One refusal message: the catalog \`code\` the server sent ('' when there is
 /// none), its English \`message\`, and the \`params\` its placeholders name.
 class ServerIssue {
@@ -1757,7 +1771,7 @@ class ServerIssue {
   /// The message in the active locale, computed when the form RENDERS.
   String get text {
 ${text}
-  }
+  }${keyGetter}
 
   static Map<String, Object>? paramsOf(Object? raw) {
     if (raw is! Map) return null;
