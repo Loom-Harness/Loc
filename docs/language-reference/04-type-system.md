@@ -874,4 +874,4 @@ return ResponseEntity.ok(result == null ? null : (result) == null ? null : Order
 ```
 ::: end
 
-The tagged-wire machinery — `z.discriminatedUnion("type", …)` / `[JsonPolymorphic]` / `@JsonTypeInfo` — backs the anonymous `A or B` union and the named `payload F = A | B` form in their payload-field and operation-return positions. The full union surface (variant kinds, precedence, position rules, the `loom.union-*` validators, the `Agg or <error>` find shape) lives in [Payloads & unions](09-payloads-and-unions.md) and [`../payloads.md`](../payloads.md).
+The tagged-wire machinery — `z.discriminatedUnion("type", …)` / `[JsonPolymorphic]` / `@JsonTypeInfo` — backs the anonymous `A or B` union in the return positions [the position table](#where-a-type-form-may-appear) admits. The full union surface (variant kinds, precedence, the `loom.union-*` validators) lives in [Payloads & unions](09-payloads-and-unions.md) and [`../payloads.md`](../payloads.md).
