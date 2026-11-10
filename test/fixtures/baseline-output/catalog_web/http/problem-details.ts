@@ -299,6 +299,28 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance, code: frameworkCode(status, detail) });
 }
 
+/** The aggregate each `/api/<segment>` route serves: a refusal answered for one
+ *  carries its identity key as `params.type`. */
+const AGGREGATE_TYPES: ReadonlyMap<string, string> = new Map<string, string>([
+  ["customers", "Customers.Customer"],
+  ["products", "Products.Product"],
+]);
+
+/** The codes of the refusals that concern one aggregate. */
+const TYPED_CODES: ReadonlySet<string> = new Set(["problem.not-found", "problem.state-gate", "problem.version-conflict", "problem.unique-conflict", "problem.dangling-reference", "problem.referenced-in-use"]);
+
+/** A refusal body's `params` member: the values given, else — for a refusal
+ *  that concerns one aggregate — the identity key of the aggregate the request
+ *  path addresses; absent when there is neither. */
+export function problemParams(code: string, path: string, params?: Record<string, unknown>): { params?: Record<string, unknown> } {
+  if (params) return { params };
+  if (!TYPED_CODES.has(code)) return {};
+  const segments = path.split("/").filter((s) => s !== "");
+  const at = segments[0] === "api" ? 1 : 0;
+  const type = segments.length > at ? AGGREGATE_TYPES.get(segments[at]!) : undefined;
+  return type === undefined ? {} : { params: { type } };
+}
+
 /** The wire `code` of a fault the framework raised, by its status — the one
  *  400 a header raises is told apart from a malformed body by its sentence. */
 function frameworkCode(status: number, detail: string): string {

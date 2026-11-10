@@ -32,7 +32,9 @@ describe("workflow create(...) — event/payload command params", () => {
     const wf = await lowerFirstWorkflow(`
       create(paid: PaymentReceived) by paid.order { let a = paid.amount }`);
     const c = wf.creates[0];
-    expect(c.params).toEqual([{ name: "paid", type: { kind: "entity", name: "PaymentReceived" } }]);
+    expect(c.params).toEqual([
+      { name: "paid", type: { kind: "entity", name: "PaymentReceived", declKind: "event" } },
+    ]);
   });
 
   it("derives triggerKind/eventRef/eventBinding for an event-triggered create", async () => {
@@ -60,6 +62,8 @@ describe("workflow create(...) — event/payload command params", () => {
     const wf = await lowerFirstWorkflow(`create(c: SettleOrder) { let n = c.note }`);
     const c = wf.creates[0];
     expect(c.triggerKind).toBe("command");
-    expect(c.params).toEqual([{ name: "c", type: { kind: "entity", name: "SettleOrder" } }]);
+    expect(c.params).toEqual([
+      { name: "c", type: { kind: "entity", name: "SettleOrder", declKind: "command" } },
+    ]);
   });
 });

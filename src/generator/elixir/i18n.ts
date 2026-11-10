@@ -46,7 +46,11 @@
 
 import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  aggregateProblemGeneric,
+  buildUiCatalog,
+  optionalProblemKeys,
+} from "../_frontend/i18n-runtime.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { sourceText } from "../_i18n/source-text.js";
 import {
@@ -389,13 +393,26 @@ export function renderGettextCatalog(
   // Key-sorted: `buildUiCatalog` already sorts its own keys, but merging the
   // `msg.*` half in would otherwise append them after the `page.*` ones, making
   // the file's order depend on which half contributed a key.
+  // An optional per-aggregate problem sentence (`<Ctx>.<Type>.problem.<class>`)
+  // is looked up with its GENERIC sentence's msgid, which the runtime knows
+  // without knowing which aggregates were reworded: a source override is its
+  // source-language msgstr, a translation its translated one.
+  const keySet = new Set(Object.keys(catalog));
+  for (const key of optionalProblemKeys(Object.keys(translation ?? {}), keySet)) {
+    catalog[key] = catalog[aggregateProblemGeneric(key)!]!;
+  }
+  const msgstrOf = (key: string): string => {
+    const generic = aggregateProblemGeneric(key);
+    if (translation !== undefined || generic === undefined) return translation?.[key] ?? "";
+    return catalog[key] === catalog[generic] ? "" : catalog[key]!;
+  };
   const entries = Object.keys(catalog)
     .sort()
     .flatMap((key) => [
       "",
       `msgctxt ${poString(key)}`,
-      `msgid ${poString(catalog[key]!)}`,
-      `msgstr ${poString(translation?.[key] ?? "")}`,
+      `msgid ${poString(catalog[aggregateProblemGeneric(key) ?? key]!)}`,
+      `msgstr ${poString(msgstrOf(key))}`,
     ]);
   return lines(...header, ...entries);
 }

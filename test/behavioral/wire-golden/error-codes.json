@@ -67,6 +67,9 @@
         "code": "problem.referenced-in-use",
         "detail": "Category is still referenced and cannot be deleted.",
         "instance": "/api/categories/{id}",
+        "params": {
+          "type": "Shop.Category"
+        },
         "status": 409,
         "title": "Conflict",
         "type": "about:blank"
@@ -543,6 +546,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Shop.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

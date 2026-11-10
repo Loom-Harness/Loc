@@ -3,7 +3,7 @@ import type { ExprIR } from "./expr.js";
 import type { DerivedIR, FieldIR, FunctionIR, InvariantIR, ParamIR } from "./members.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
-import type { GenericCtorName, Sourced, TypeIR } from "./types.js";
+import type { GenericCtorName, PayloadKind, Sourced, TypeIR } from "./types.js";
 import type { CommandHandlerIR, QueryHandlerIR, WorkflowIR } from "./workflow.js";
 
 export interface EnumIR extends Sourced {
@@ -53,13 +53,7 @@ export interface ChannelIR {
   key?: string;
 }
 
-/** The payload-family discriminator (payload-transport-layer.md, P1).
- *  `payload` is the umbrella; `event` / `command` / `query` / `response`
- *  / `error` are sugar subtypes carrying the same structural-record wire
- *  contract.  `event` is the only one that also has its own legacy
- *  declaration surface (`EventDecl`) — it is projected into the unified
- *  `payloads` view at lowering time; the rest parse via `PayloadDecl`. */
-export type PayloadKind = "payload" | "event" | "command" | "query" | "response" | "error";
+export type { PayloadKind } from "./types.js";
 
 /** A structured-data carrier crossing a boundary (payload-transport-layer.md,
  *  P1).  Either a **record** (structurally typed field list — the P1+P2 shape)

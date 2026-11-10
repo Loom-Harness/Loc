@@ -40,7 +40,10 @@ export function synthProjectionFinds(aggName: string, ctx: EnrichedBoundedContex
     .map((p) => ({
       name: lowerFirst(p.name),
       params: p.params ?? [],
-      returnType: { kind: "array", element: { kind: "entity", name: aggName } },
+      returnType: {
+        kind: "array",
+        element: { kind: "entity", name: aggName, declKind: "aggregate" },
+      },
       filter: p.query?.filter,
       bypassAll: p.query?.bypassAll,
       bypassCaps: p.query?.bypassCaps,

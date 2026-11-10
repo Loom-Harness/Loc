@@ -107,7 +107,10 @@ describe("wire-projection — preserves field metadata", () => {
       },
       {
         name: "lines",
-        type: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
+        type: {
+          kind: "array",
+          element: { kind: "entity", name: "OrderLine", declKind: "aggregate" },
+        },
         optional: false,
         source: "containment",
         access: "editable",

@@ -20,7 +20,7 @@ import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
-import { AUTH_GATE_SVELTE, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
+import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import {
   E2E_FIXTURES_TS,
@@ -139,6 +139,9 @@ export function generateSvelteForContexts(
   const out = emissionSink("generator/svelte/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
+  // The frontend session guard (`auth: ui`): also decides which chrome the
+  // translation catalog carries, so it is derived before the catalog scope.
+  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -200,6 +203,7 @@ export function generateSvelteForContexts(
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: svelteTarget.modelTextImplicitSites === true,
+    sessionView: authUi,
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
@@ -265,7 +269,6 @@ export function generateSvelteForContexts(
   // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this svelte deployable opts
   // in AND its target backend enforces auth, so `useSession()` + the verified
   // claims are available — gates `page { requires … }` rendering below.
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   const emitCtx = {
     sys,
     deployable,
@@ -330,7 +333,7 @@ export function generateSvelteForContexts(
   );
   if (authUi) {
     out.set("src/lib/auth/session.ts", AUTH_SESSION_TS);
-    out.set("src/lib/auth/AuthGate.svelte", AUTH_GATE_SVELTE);
+    out.set("src/lib/auth/AuthGate.svelte", authGateSvelte(i18nEnabled));
   }
   out.set("src/lib/api/config.ts", pack.render("api-config", { apiBaseUrl }));
   out.set("src/lib/logger.ts", pack.render("logger", {}));

@@ -1,5 +1,7 @@
 import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
 import {
+  aggregateProblemParams,
+  aggregateTypeKey,
   FIND_ABSENT_DETAIL,
   reasonPhrase,
   wireCode,
@@ -300,7 +302,13 @@ export function buildPyRoutesFile(
     historyFind
       ? ["", "", renderPyHistoryMapper(agg), "", "", historyRoute(agg, historyFind, ctx)]
       : null,
-    destroyOp ? ["", "", destroyRoute(agg, conflictResolver(ctx), destroyOp)] : null,
+    destroyOp
+      ? [
+          "",
+          "",
+          destroyRoute(agg, conflictResolver(ctx), destroyOp, aggregateTypeKey(ctx.name, agg.name)),
+        ]
+      : null,
     ...opEntries.map((e) => ["", "", operationRoute(agg, e.operation!, ctx, e)]),
     // Can-query companions register after the operation routes (static
     // `can_<op>` paths, no collision with `/{id}`).
@@ -495,12 +503,6 @@ function containmentResponseType(t: TypeIR): string {
   return "object";
 }
 
-/** True iff `name` is a declared `response` payload in the context — a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(ctx: EnrichedBoundedContextIR, name: string): boolean {
-  return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
-}
-
 /** Pydantic type for a field of a DECLARED `response` payload record (M-T5.10).
  *  A VO / scalar / enum / id field carries its DOMAIN type, so `responsePyType`
  *  maps it as the wireShape path does.  A CONTAINMENT field is ALREADY the
@@ -509,20 +511,12 @@ function isResponsePayloadName(ctx: EnrichedBoundedContextIR, name: string): boo
  *  since running it through `containmentResponseType` would append a second
  *  `Response` (`list[LineResponseResponse]`). */
 function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  if (
-    t.kind === "array" &&
-    t.element.kind === "entity" &&
-    isResponsePayloadName(ctx, t.element.name)
-  )
+  if (t.kind === "array" && t.element.kind === "entity" && t.element.declKind === "response")
     return `list[${t.element.name}]`;
-  if (t.kind === "entity" && isResponsePayloadName(ctx, t.name)) return `${t.name} | None`;
+  if (t.kind === "entity" && t.declKind === "response") return `${t.name} | None`;
   // An OPTIONAL single containment (`note: MemoResponse?`) is the same
   // nullable record reference, not a re-suffixed one.
-  if (
-    t.kind === "optional" &&
-    t.inner.kind === "entity" &&
-    isResponsePayloadName(ctx, t.inner.name)
-  )
+  if (t.kind === "optional" && t.inner.kind === "entity" && t.inner.declKind === "response")
     return `${t.inner.name} | None`;
   return responsePyType(t, ctx);
 }
@@ -995,6 +989,7 @@ function destroyRoute(
   agg: EnrichedAggregateIR,
   resolve: (name: string) => number,
   apiOp: ApiOperationIR,
+  typeKey: string,
 ): string {
   // The cross-aggregate `X id` FK is ON DELETE RESTRICT — a still-referenced
   // delete raises IntegrityError → the `ReferencedInUse` structural conflict,
@@ -1057,6 +1052,7 @@ function destroyRoute(
     `            ${JSON.stringify(reasonPhrase(referencedInUse))},`,
     `            ${JSON.stringify(wireSentenceFor("referenced-in-use", agg.name))},`,
     `            code=${JSON.stringify(wireCode("referenced-in-use"))},`,
+    `            params=${JSON.stringify(aggregateProblemParams("referenced-in-use", typeKey))},`,
     "        )",
     `    return ${H.Response}(status_code=204)`,
   );

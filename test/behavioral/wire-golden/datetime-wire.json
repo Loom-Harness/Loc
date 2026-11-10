@@ -207,6 +207,9 @@
         "code": "problem.not-found",
         "detail": "Venue {id} not found",
         "instance": "/api/venues/{id}/restore",
+        "params": {
+          "type": "Booking.Venue"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -284,6 +287,9 @@
         "code": "problem.not-found",
         "detail": "Venue {id} not found",
         "instance": "/api/venues/{id}",
+        "params": {
+          "type": "Booking.Venue"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -340,6 +346,9 @@
         "code": "problem.not-found",
         "detail": "Venue {id} not found",
         "instance": "/api/venues/{id}/soft_delete",
+        "params": {
+          "type": "Booking.Venue"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -354,6 +363,9 @@
         "code": "problem.not-found",
         "detail": "Venue {id} not found",
         "instance": "/api/venues/{id}/soft_delete",
+        "params": {
+          "type": "Booking.Venue"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -22,7 +22,7 @@ import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
-import { AUTH_GATE_ANGULAR, AUTH_SESSION_SERVICE_ANGULAR } from "../_frontend/auth-ui.js";
+import { AUTH_SESSION_SERVICE_ANGULAR, authGateAngular } from "../_frontend/auth-ui.js";
 import {
   HIGHLIGHT_MODULE_ANGULAR_TS,
   HIGHLIGHT_THEME_ANGULAR_STYLE,
@@ -294,13 +294,15 @@ export function generateAngularForContexts(
   );
   if (i18nEnabled && ui) {
     // The Angular forms are hand-built (`form-fields.ts`): they render the
-    // dynamic-row `addItem` sentence and the identity-keyed model text of the
-    // forms' labels, options and buttons, but no pack sentence chrome.
+    // dynamic-row `addItem` / `removeItem` sentences and the identity-keyed
+    // model text of the forms' labels, options and buttons, but no pack
+    // sentence chrome.
     const formScope = {
       layouts: sys.layouts,
       contexts,
-      sentences: HAND_BUILT_FORM_SENTENCES,
+      sentences: HAND_BUILT_FORM_SENTENCES.rows,
       implicitModelText: angularTarget.modelTextImplicitSites === true,
+      sessionView: authUi,
     };
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
@@ -734,7 +736,7 @@ export function generateAngularForContexts(
   // unchanged app shell.
   if (authUi) {
     out.set("src/app/auth/session.service.ts", AUTH_SESSION_SERVICE_ANGULAR);
-    out.set("src/app/auth/auth-gate.component.ts", AUTH_GATE_ANGULAR);
+    out.set("src/app/auth/auth-gate.component.ts", authGateAngular(i18nEnabled));
   }
 
   // Routes: one per page; a synthetic Home only when no page owns the

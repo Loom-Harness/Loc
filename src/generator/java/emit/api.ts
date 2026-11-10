@@ -10,6 +10,7 @@ import {
   type WireRejectionClass,
   wireCode,
   wireFixedDetail,
+  wireParams,
   wireSentence,
   wireSentenceFor,
   wireStatus,
@@ -794,6 +795,10 @@ export function renderApiExceptionAdvice(
    *  the project lacks (an event-sourced aggregate is versioned yet binds no
    *  `If-Match`). */
   readsIfMatch = false,
+  /** The `[route segment, params.type]` pairs of the aggregates served here
+   *  (`aggregateRouteTypes`): a refusal answered on one's routes carries its
+   *  identity key. */
+  routeTypes: ReadonlyArray<readonly [string, string]> = [],
 ): string {
   // A 403 never echoes the gate: the `requires` source is the model's
   // internals, so the body is the constant detail plus the `problem.forbidden`
@@ -801,6 +806,10 @@ export function renderApiExceptionAdvice(
   const forbiddenDetail = JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // The catalog code of each rejection class, spelled as a Java literal.
   const code = (cls: WireRejectionClass): string => javaLit(wireCode(cls));
+  // A class whose body carries `params.type` (`wireParams`) reads the addressed
+  // aggregate off the request path (`typed`).
+  const typedIf = (cls: WireRejectionClass, problemExpr: string): string =>
+    wireParams(cls).includes("type") ? `typed(${problemExpr}, request)` : problemExpr;
   // Structural-conflict statuses resolved through the `httpStatus` mapper
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
   // api's `httpStatus <Conflict> -> <Code>` override. Baked into the emitted Java
@@ -1023,7 +1032,7 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onDisallowed(DisallowedException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", e.getMessage(), "status", ${disallowedStatus});`,
     `        httpMetrics.recordDomainFault("disallowed");`,
-    `        return respond(problem(${disallowedStatus}, ${title("state-gate")}, e.getMessage(), ${code("state-gate")}, request), ${disallowedStatus});`,
+    `        return respond(${typedIf("state-gate", `problem(${disallowedStatus}, ${title("state-gate")}, e.getMessage(), ${code("state-gate")}, request)`)}, ${disallowedStatus});`,
     `    }`,
     ``,
     `    @ExceptionHandler(NotImplementedException.class)`,
@@ -1055,7 +1064,7 @@ export function renderApiExceptionAdvice(
         `            CatalogLog.event(${javaLogEvent("conflict")}, "message", ${referencedDetail}, "status", ${referencedInUseStatus});`,
       hasReferencedDelete && `            httpMetrics.recordDomainFault("conflict");`,
       hasReferencedDelete &&
-        `            return respond(problem(${referencedInUseStatus}, ${title("referenced-in-use")}, ${referencedDetail}, ${code("referenced-in-use")}, request), ${referencedInUseStatus});`,
+        `            return respond(${typedIf("referenced-in-use", `problem(${referencedInUseStatus}, ${title("referenced-in-use")}, ${referencedDetail}, ${code("referenced-in-use")}, request)`)}, ${referencedInUseStatus});`,
       hasReferencedDelete && `        }`,
       // A reference that is absent is a well-formed request refused on SEMANTIC
       // grounds — the domain floor (422 by default), which every write route
@@ -1066,12 +1075,12 @@ export function renderApiExceptionAdvice(
         `            CatalogLog.event(${javaLogEvent("domainError")}, "message", ${danglingDetail}, "status", ${domainStatus});`,
       hasDanglingRef && `            httpMetrics.recordDomainFault("domain_error");`,
       hasDanglingRef &&
-        `            return respond(problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, ${code("dangling-reference")}, request), ${domainStatus});`,
+        `            return respond(${typedIf("dangling-reference", `problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, ${code("dangling-reference")}, request)`)}, ${domainStatus});`,
       hasDanglingRef && `        }`,
       `        if (!${JSON.stringify(PG_UNIQUE_VIOLATION)}.equals(sqlState(e))) return onUnhandled(e, request);`,
       `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", ${uniqueDetail}, "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
-      `        return respond(problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, ${code("unique-conflict")}, request), ${uniquenessStatus});`,
+      `        return respond(${typedIf("unique-conflict", `problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, ${code("unique-conflict")}, request)`)}, ${uniquenessStatus});`,
       `    }`,
       ``,
     ],
@@ -1096,7 +1105,7 @@ export function renderApiExceptionAdvice(
       `        String detail = ${javaSentence("version-conflict", '(e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier()')};`,
       `        CatalogLog.event(${javaLogEvent("conflict")}, "message", detail, "status", ${concurrencyStatus});`,
       `        httpMetrics.recordDomainFault("conflict");`,
-      `        return respond(problem(${concurrencyStatus}, ${title("version-conflict")}, detail, ${code("version-conflict")}, request), ${concurrencyStatus});`,
+      `        return respond(${typedIf("version-conflict", `problem(${concurrencyStatus}, ${title("version-conflict")}, detail, ${code("version-conflict")}, request)`)}, ${concurrencyStatus});`,
       `    }`,
       ``,
     ],
@@ -1104,7 +1113,7 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onNotFound(AggregateNotFoundException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("notFound")}, "status", ${notFoundStatus});`,
     `        httpMetrics.recordDomainFault("not_found");`,
-    `        return respond(problem(${notFoundStatus}, ${title("not-found")}, e.getMessage(), ${code("not-found")}, request), ${notFoundStatus});`,
+    `        return respond(${typedIf("not-found", `problem(${notFoundStatus}, ${title("not-found")}, e.getMessage(), ${code("not-found")}, request)`)}, ${notFoundStatus});`,
     `    }`,
     ``,
     // An integral body field past its Java type's range (`{"n": 3000000000}`
@@ -1372,6 +1381,26 @@ export function renderApiExceptionAdvice(
     // A refusal's `params` member, present only when it names values.
     `    private static void params(ProblemDetail problem, java.util.Map<String, Object> params) {`,
     `        if (params != null && !params.isEmpty()) problem.setProperty("params", params);`,
+    `    }`,
+    ``,
+    // The aggregate each `/api/<segment>` route serves: a refusal answered for
+    // one carries its identity key as `params.type`.
+    `    private static final java.util.Map<String, String> AGGREGATE_TYPES = java.util.Map.ofEntries(`,
+    ...routeTypes.map(
+      ([seg, type], i) =>
+        `        java.util.Map.entry(${javaLit(seg)}, ${javaLit(type)})${i < routeTypes.length - 1 ? "," : ""}`,
+    ),
+    `    );`,
+    ``,
+    `    /** \`problem\` with \`params.type\` when the request path addresses an aggregate. */`,
+    `    private static ProblemDetail typed(ProblemDetail problem, WebRequest request) {`,
+    `        if (request instanceof org.springframework.web.context.request.ServletWebRequest sw) {`,
+    `            var segments = sw.getRequest().getRequestURI().split("/");`,
+    `            var at = segments.length > 1 && "api".equals(segments[1]) ? 2 : 1;`,
+    `            var type = segments.length > at ? AGGREGATE_TYPES.get(segments[at]) : null;`,
+    `            if (type != null) params(problem, java.util.Map.<String, Object>of("type", type));`,
+    `        }`,
+    `        return problem;`,
     `    }`,
     ``,
     // One \`errors[]\` entry: pointer, English message, catalog code, params.

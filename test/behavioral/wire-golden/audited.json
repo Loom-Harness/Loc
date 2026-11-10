@@ -81,6 +81,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Ordering.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -95,6 +98,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/by_reference",
+        "params": {
+          "type": "Ordering.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -239,6 +245,9 @@
         "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}",
+        "params": {
+          "type": "Ordering.Shipment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -253,6 +262,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/shipments/by_code",
+        "params": {
+          "type": "Ordering.Shipment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -322,6 +334,9 @@
         "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}/dispatch",
+        "params": {
+          "type": "Ordering.Shipment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -336,6 +351,9 @@
         "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}/dispatch",
+        "params": {
+          "type": "Ordering.Shipment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

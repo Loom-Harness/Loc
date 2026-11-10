@@ -67,9 +67,9 @@ export interface FrameworkFacts {
   /** What a `design:` value selects: a pack, a daisyUI theme, or nothing. */
   readonly designSlot: "pack" | "daisyui-theme" | "inert";
   /** The framework's forms build their dynamic-row and submit sentences by
-   *  hand (`HAND_BUILT_FORM_SENTENCES`) instead of reading a pack's
+   *  hand (`HAND_BUILT_FORM_SENTENCES`, the named set) instead of reading a pack's
    *  `sentenceChrome`. */
-  readonly handBuiltFormSentences?: boolean;
+  readonly handBuiltFormSentences?: "rows" | "rowsAndGuards";
   /** Where the framework keeps page state, where its handlers sit, and the
    *  data access that follows (`src/util/frontend-axes.ts`). */
   readonly axes: FrontendAxes;
@@ -164,7 +164,7 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
     packFormat: "angular",
     staticBundlePack: "angularMaterial",
     designSlot: "pack",
-    handBuiltFormSentences: true,
+    handBuiltFormSentences: "rows",
     axes: requireFrontendAxes("angular"),
   },
   phoenixLiveView: {
@@ -174,10 +174,14 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
   },
   feliz: {
     designSlot: "daisyui-theme",
-    handBuiltFormSentences: true,
+    handBuiltFormSentences: "rows",
     axes: requireFrontendAxes("feliz"),
   },
-  flutter: { designSlot: "inert", axes: requireFrontendAxes("flutter") },
+  flutter: {
+    designSlot: "inert",
+    handBuiltFormSentences: "rowsAndGuards",
+    axes: requireFrontendAxes("flutter"),
+  },
 };
 
 /** The facts of a ui framework, or `undefined` for an unknown name (including

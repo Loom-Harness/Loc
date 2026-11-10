@@ -15,18 +15,23 @@
 //                                         renamed twice FROM (ambiguous origin).
 //   - `loom.rename-duplicate-target`    — two renames collide ON one target
 //                                         column / aggregate (ambiguous dest.).
+//   - `loom.migration-enum-value-form`  — an enum owner with the backfill
+//                                         `=` form (a value is renamed, never
+//                                         computed).
+//   - `loom.migration-enum-value-unknown` — an enum value rename whose NEW
+//                                         value the enum does not declare.
 //
-// A column step's `aggregate` is a real cross-reference (`[Aggregate:ID]`), so
-// an unknown live aggregate is already a Langium linking error — not re-checked
-// here.  A table step's names are bare on both sides (the old side is gone, the
+// A column step's `owner` is a real cross-reference (an aggregate, or an enum
+// for a value rename), so an unknown live owner is already a Langium linking
+// error — not re-checked here.  A table step's names are bare on both sides (the old side is gone, the
 // new side may be an aggregate, workflow or projection in another file), so
 // only its structure is checked here; its target is resolved on the merged IR
 // (`validateTableSteps`, phase ⑦).
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { Aggregate, Migration, Model } from "../generated/ast.js";
-import { isMigration, isProperty, isSqlStep, isTableRename } from "../generated/ast.js";
+import type { Aggregate, ColumnStep, EnumDecl, Migration, Model } from "../generated/ast.js";
+import { isEnumDecl, isMigration, isProperty, isSqlStep, isTableRename } from "../generated/ast.js";
 
 export function checkMigrations(model: Model, accept: ValidationAcceptor): void {
   const seenNames = new Set<string>();
@@ -125,19 +130,24 @@ function checkMigration(
       }
       continue;
     }
+    const owner = step.owner.ref;
+    if (isEnumDecl(owner)) {
+      checkEnumValueRename(owner, step, seenSource, accept);
+      continue;
+    }
     // A column step is scoped to a specific aggregate; key collisions per aggregate.
-    const agg = step.aggregate.ref?.name ?? step.aggregate.$refText;
+    const agg = owner?.name ?? step.owner.$refText;
     if (step.value !== undefined) {
       // Backfill (`Agg.field = <expr>`, M-T2.3).  Unlike a rename's dead-side
       // names, the target field must be LIVE — it names the newly-added /
       // newly-required column.  (The expression's SQL-renderability and type
       // fit are IR-level checks — phase ⑦ — where the lowered ExprIR exists.)
-      const fields = step.aggregate.ref?.members.filter(isProperty).map((p) => p.name) ?? [];
-      if (step.aggregate.ref && !fields.includes(step.field)) {
+      const fields = owner?.members.filter(isProperty).map((p) => p.name) ?? [];
+      if (owner && !fields.includes(step.field)) {
         // An inherited field is backfilled where it is declared: the base's
         // step reaches every table that stores it (the shared TPH table, or
         // each TPC concrete's own), so one spelling covers every layout.
-        const base = declaringAncestor(step.aggregate.ref, step.field);
+        const base = declaringAncestor(owner, step.field);
         accept(
           "error",
           base
@@ -192,6 +202,64 @@ function checkMigration(
       seenTarget.add(targetKey);
     }
   }
+}
+
+/** An enum value rename (`Status.Draft -> Pending`).  `field` is the OLD
+ *  value — the spelling stored rows hold, which the enum may no longer
+ *  declare (a ledger block outlives its rename) — so only the NEW value is
+ *  checked against the enum.  Keys are prefixed `enum:` so an enum and an
+ *  aggregate sharing a member name never collide. */
+function checkEnumValueRename(
+  owner: EnumDecl,
+  step: ColumnStep,
+  seenSource: Set<string>,
+  accept: ValidationAcceptor,
+): void {
+  const enumName = owner.name;
+  if (step.renamedTo === undefined) {
+    accept(
+      "error",
+      diagMessage("loom.migration-enum-value-form", { enumName, value: step.field }),
+      { node: step, property: "field", code: "loom.migration-enum-value-form" },
+    );
+    return;
+  }
+  const to = step.renamedTo;
+  if (step.field === to) {
+    accept("error", diagMessage("loom.rename-to-self#enum-value", { enumName, value: to }), {
+      node: step,
+      property: "renamedTo",
+      code: "loom.rename-to-self",
+    });
+    return;
+  }
+  if (!owner.values.some((v) => v.name === to)) {
+    accept(
+      "error",
+      diagMessage("loom.migration-enum-value-unknown", {
+        enumName,
+        value: to,
+        values: owner.values.map((v) => v.name).join(", "),
+      }),
+      { node: step, property: "renamedTo", code: "loom.migration-enum-value-unknown" },
+    );
+  }
+  const sourceKey = `enum:${enumName}.${step.field}`;
+  if (seenSource.has(sourceKey)) {
+    accept(
+      "error",
+      diagMessage("loom.rename-duplicate-source#enum-value", {
+        enumName,
+        value: step.field,
+      }),
+      { node: step, property: "field", code: "loom.rename-duplicate-source" },
+    );
+  } else {
+    seenSource.add(sourceKey);
+  }
+  // No target-uniqueness check: two OLD values may legitimately merge into one
+  // live value (`Status.Draft -> Open`, `Status.New -> Open`) — the UPDATEs
+  // are independent and order-free.
 }
 
 /** The nearest `extends` ancestor of `agg` that declares the property

@@ -93,7 +93,11 @@ const CEILINGS: Record<string, number> = {
   // reads, widened domain-service reads and document nested VO collections.
   "(cross-target)": 3700, // cross-backend pins for the dev-login gate, mask read gates, handler event sinks and part value-object collections
   _expr: 200,
-  _frontend: 400,
+  // Pinned one above the measured count (430): the i18n pins that a hand-built
+  // form, a session view, a Money cell and the problem-sentence localizer read
+  // catalog keys rather than English literals assert the emitted text per
+  // framework; the generated-SPA builds compile them but never read the key.
+  _frontend: 431,
   _i18n: 200,
   _numeric: 200,
   _obs: 200,

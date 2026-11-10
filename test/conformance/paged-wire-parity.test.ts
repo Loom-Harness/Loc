@@ -23,7 +23,7 @@ import { generateBackendFiles, generateSystemFiles } from "../_helpers/generate.
 
 // The canonical wire key order, straight from the single source of truth.
 const CANONICAL = genericShape("paged")
-  .fields({ kind: "entity", name: "Order" })
+  .fields({ kind: "entity", name: "Order", declKind: "aggregate" })
   .map((f) => f.name);
 
 const CONTEXT = `

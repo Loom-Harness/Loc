@@ -596,6 +596,9 @@
         "code": "problem.not-found",
         "detail": "Payslip {id} not found",
         "instance": "/api/payslips/{id}/history",
+        "params": {
+          "type": "Staff.Payslip"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

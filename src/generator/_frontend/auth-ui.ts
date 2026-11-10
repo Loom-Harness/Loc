@@ -22,6 +22,27 @@
 // api client + config, whose relative paths are identical across React, Vue,
 // and Svelte).
 
+import { authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
+
+/** The `t(key, default)` call a session-view string reads under i18n.  The key
+ *  and English default come from `SESSION_VIEW_CHROME`, so the emitted default
+ *  equals the catalog entry. */
+function sessionT(name: string): string {
+  return `t(${JSON.stringify(chromeKey(name))}, ${JSON.stringify(authGateMessage(name))})`;
+}
+
+/** The session view's loading and sign-in strings in one framework's text
+ *  syntax: `wrap` turns a `t(…)` call into that framework's binding; an app
+ *  that ships no i18n runtime carries the literal English instead. */
+function sessionTexts(
+  i18n: boolean,
+  wrap: (call: string) => string,
+): { loading: string; signIn: string } {
+  return i18n
+    ? { loading: wrap(sessionT("sessionLoading")), signIn: wrap(sessionT("signIn")) }
+    : { loading: authGateMessage("sessionLoading"), signIn: authGateMessage("signIn") };
+}
+
 /** `src/auth/session.ts` — session probe + sign-in/out redirects. */
 export const AUTH_SESSION_TS = `// Auto-generated.
 import { ApiError, api } from "../api/client";
@@ -54,10 +75,12 @@ export async function fetchSession(): Promise<SessionUser | null> {
 `;
 
 /** `src/auth/AuthGate.tsx` — the route guard + session context. */
-export const AUTH_GATE_TSX = `// Auto-generated.
+export function authGateTsx(i18n = false): string {
+  const text = sessionTexts(i18n, (call) => `{${call}}`);
+  return `// Auto-generated.
 import { type CSSProperties, type ReactNode, createContext, useContext, useEffect, useState } from "react";
 import { type SessionUser, fetchSession, signIn, signOut } from "./session";
-
+${i18n ? 'import { t } from "../i18n";\n' : ""}
 interface Session {
   user: SessionUser;
   signOut: () => void;
@@ -98,15 +121,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, []);
 
   if (state.kind === "loading") {
-    return <div style={centered}>Loading…</div>;
+    return <div style={centered}>${text.loading}</div>;
   }
   if (state.kind === "anon") {
     return (
       <div style={centered}>
         <div style={{ textAlign: "center" }}>
-          <h1 style={{ marginBottom: 16 }}>Sign in</h1>
+          <h1 style={{ marginBottom: 16 }}>${text.signIn}</h1>
           <button type="button" style={primaryButton} onClick={signIn}>
-            Sign in
+            ${text.signIn}
           </button>
         </div>
       </div>
@@ -131,6 +154,7 @@ const primaryButton: CSSProperties = {
   cursor: "pointer",
 };
 `;
+}
 
 // ---------------------------------------------------------------------------
 // Vue guard (`auth: ui` on a `platform: vue` deployable).
@@ -171,12 +195,14 @@ export function useSession(): Session {
 `;
 
 /** \`src/auth/AuthGate.vue\` — the route guard + session provider. */
-export const AUTH_GATE_VUE = `<!-- Auto-generated. -->
+export function authGateVue(i18n = false): string {
+  const text = sessionTexts(i18n, (call) => `{{ ${call} }}`);
+  return `<!-- Auto-generated. -->
 <script setup lang="ts">
 import { type CSSProperties, onMounted, ref } from "vue";
 import { type SessionUser, fetchSession, signIn, signOut } from "./session";
 import { provideSession } from "./useSession";
-
+${i18n ? 'import { t } from "../lib/locale";\n' : ""}
 type State = { kind: "loading" } | { kind: "anon" } | { kind: "authed" };
 
 const state = ref<State>({ kind: "loading" });
@@ -213,16 +239,17 @@ const primaryButton: CSSProperties = {
 </script>
 
 <template>
-  <div v-if="state.kind === 'loading'" :style="centered">Loading…</div>
+  <div v-if="state.kind === 'loading'" :style="centered">${text.loading}</div>
   <div v-else-if="state.kind === 'anon'" :style="centered">
     <div style="text-align: center">
-      <h1 style="margin-bottom: 16px">Sign in</h1>
-      <button type="button" :style="primaryButton" @click="signIn">Sign in</button>
+      <h1 style="margin-bottom: 16px">${text.signIn}</h1>
+      <button type="button" :style="primaryButton" @click="signIn">${text.signIn}</button>
     </div>
   </div>
   <slot v-else />
 </template>
 `;
+}
 
 // ---------------------------------------------------------------------------
 // Svelte 5 sibling (`auth: ui` on a svelte frontend).  The session client
@@ -235,7 +262,9 @@ const primaryButton: CSSProperties = {
 // ---------------------------------------------------------------------------
 
 /** `src/lib/auth/AuthGate.svelte` — the route guard + session context. */
-export const AUTH_GATE_SVELTE = `<!-- Auto-generated.  Do not edit by hand. -->
+export function authGateSvelte(i18n = false): string {
+  const text = sessionTexts(i18n, (call) => `{${call}}`);
+  return `<!-- Auto-generated.  Do not edit by hand. -->
 <script lang="ts" module>
   import { getContext, setContext } from "svelte";
   import type { SessionUser } from "./session";
@@ -265,7 +294,7 @@ export const AUTH_GATE_SVELTE = `<!-- Auto-generated.  Do not edit by hand. -->
   import { onMount, type Snippet } from "svelte";
   // SessionUser is imported in the module script above (shared scope).
   import { fetchSession, signIn, signOut } from "./session";
-
+${i18n ? '  import { t } from "$lib/locale.svelte";\n' : ""}
   let { children }: { children: Snippet } = $props();
 
   type State =
@@ -298,13 +327,13 @@ export const AUTH_GATE_SVELTE = `<!-- Auto-generated.  Do not edit by hand. -->
 </script>
 
 {#if state.kind === "loading"}
-  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">Loading…</div>
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">${text.loading}</div>
 {:else if state.kind === "anon"}
   <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
     <div style="text-align:center">
-      <h1 style="margin-bottom:16px">Sign in</h1>
+      <h1 style="margin-bottom:16px">${text.signIn}</h1>
       <button type="button" style="padding:8px 20px;font-size:16px;cursor:pointer" onclick={signIn}>
-        Sign in
+        ${text.signIn}
       </button>
     </div>
   </div>
@@ -312,6 +341,7 @@ export const AUTH_GATE_SVELTE = `<!-- Auto-generated.  Do not edit by hand. -->
   {@render children()}
 {/if}
 `;
+}
 
 // ---------------------------------------------------------------------------
 // Angular sibling (`auth: ui` on a `platform: angular` deployable).  Unlike
@@ -401,10 +431,12 @@ export class SessionService {
  *  session on init, shows a spinner while loading, a full-screen Sign in
  *  screen when unauthenticated, and projects the app (\`<ng-content>\`)
  *  once authenticated.  Pack-agnostic. */
-export const AUTH_GATE_ANGULAR = `// Auto-generated.
+export function authGateAngular(i18n = false): string {
+  const text = sessionTexts(i18n, (call) => `{{ ${call} }}`);
+  return `// Auto-generated.
 import { Component, type OnInit, inject } from "@angular/core";
 import { SessionService } from "./session.service";
-
+${i18n ? 'import { t } from "../../lib/locale";\n' : ""}
 /** Gates the app on a verified session.  Probes /auth/me on init via the
  *  root SessionService: shows a spinner while loading, a Sign in screen
  *  (redirecting to the IdP) when unauthenticated, and projects the app once
@@ -416,19 +448,19 @@ import { SessionService } from "./session.service";
     @switch (session.snapshot().kind) {
       @case ("loading") {
         <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
-          Loading…
+          ${text.loading}
         </div>
       }
       @case ("anon") {
         <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
           <div style="text-align:center">
-            <h1 style="margin-bottom:16px">Sign in</h1>
+            <h1 style="margin-bottom:16px">${text.signIn}</h1>
             <button
               type="button"
               style="padding:8px 20px;font-size:16px;cursor:pointer"
               (click)="session.signIn()"
             >
-              Sign in
+              ${text.signIn}
             </button>
           </div>
         </div>
@@ -441,7 +473,7 @@ import { SessionService } from "./session.service";
 })
 export class AuthGateComponent implements OnInit {
   readonly session = inject(SessionService);
-
+${i18n ? "  protected readonly t = t;\n" : ""}
   ngOnInit(): void {
     void this.session.probe().catch(() => {
       // Network/probe failure falls back to the Sign in screen
@@ -450,3 +482,4 @@ export class AuthGateComponent implements OnInit {
   }
 }
 `;
+}

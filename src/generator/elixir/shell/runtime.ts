@@ -60,6 +60,9 @@ export function renderApplication(
   ]);
   const drainedCall = renderPhoenixLogCall("serverDrained");
   void appName;
+  // A pre-Endpoint child written as `if(…, do: …)` is nil when its condition
+  // is false, so the list is filtered; otherwise the list stays literal.
+  const conditional = preEndpointChildren.some((c) => c.startsWith("if("));
 
   return `# Auto-generated.
 defmodule ${appModule}.Application do
@@ -77,7 +80,7 @@ defmodule ${appModule}.Application do
       {Phoenix.PubSub, name: ${appModule}.PubSub},
       ${appModule}.Telemetry${[...seedModules, ...preEndpointChildren].map((c) => `,\n      ${c}`).join("")},
       ${appModule}Web.Endpoint${schedulerChildren.map((c) => `,\n      ${c}`).join("")}
-    ]
+    ]${conditional ? " |> Enum.reject(&is_nil/1)" : ""}
 
     opts = [strategy: :one_for_one, name: ${appModule}.Supervisor]
     case Supervisor.start_link(children, opts) do

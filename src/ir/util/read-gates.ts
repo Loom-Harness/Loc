@@ -72,7 +72,10 @@ export function byIdRouteFind(repo: RepositoryIR | undefined): FindIR | undefine
   return {
     name: "byId",
     params: [{ name: "id", type: idType }],
-    returnType: { kind: "optional", inner: { kind: "entity", name: repo.aggregateName } },
+    returnType: {
+      kind: "optional",
+      inner: { kind: "entity", name: repo.aggregateName, declKind: "aggregate" },
+    },
     requires: policyGate ? structuredClone(policyGate) : DEFAULT_DENY_GATE(),
     synthesized: true,
     ...(policyGate ? {} : { defaultDenied: true }),

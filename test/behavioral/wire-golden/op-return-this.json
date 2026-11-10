@@ -142,6 +142,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
+        "params": {
+          "type": "Ledger.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -198,6 +201,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/bump",
+        "params": {
+          "type": "Ledger.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -212,6 +218,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/bump",
+        "params": {
+          "type": "Ledger.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

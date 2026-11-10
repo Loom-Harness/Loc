@@ -101,6 +101,9 @@
         "code": "problem.not-found",
         "detail": "Shipment {id} not found",
         "instance": "/api/shipments/{id}",
+        "params": {
+          "type": "Warehouse.Shipment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -174,6 +177,9 @@
         "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}",
+        "params": {
+          "type": "Warehouse.Crate"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -240,6 +246,9 @@
         "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}/release",
+        "params": {
+          "type": "Warehouse.Crate"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -254,6 +263,9 @@
         "code": "problem.not-found",
         "detail": "Crate {id} not found",
         "instance": "/api/crates/{id}/release",
+        "params": {
+          "type": "Warehouse.Crate"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

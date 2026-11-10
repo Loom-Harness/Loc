@@ -67,6 +67,10 @@ export const WALKER_PRIMITIVE_ARG_VALUES: Record<string, readonly string[]> = {
   // `raised` / `outline` branch in the two packs that vary the card surface;
   // `flat` is their `{{else}}`.
   "Card.variant": ["flat", "outline", "raised"],
+  // `locale` opts into the active locale's number conventions; absent is the
+  // verbatim wire digits.  No pack branches on it as a template value — the
+  // walker reads it into `hasLocaleFormat` — so it is a closed opt-in switch.
+  "Money.format": ["locale"],
 };
 
 /** The accepted values for a (primitive, argument) pair, or `undefined` when

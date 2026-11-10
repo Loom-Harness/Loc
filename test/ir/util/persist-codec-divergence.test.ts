@@ -34,7 +34,7 @@ const opt = (inner: TypeIR): TypeIR => ({ kind: "optional", inner });
 const id = (): TypeIR => ({ kind: "id", targetName: "Order" }) as TypeIR;
 const enumT = (): TypeIR => ({ kind: "enum", name: "Status" });
 const vo = (): TypeIR => ({ kind: "valueobject", name: "Money" });
-const entity = (): TypeIR => ({ kind: "entity", name: "Line" });
+const entity = (): TypeIR => ({ kind: "entity", name: "Line", declKind: "part" });
 
 describe("felizPersistCodec — the F# side", () => {
   it("keeps int and long as SEPARATE scalars", () => {

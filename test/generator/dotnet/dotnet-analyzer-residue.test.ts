@@ -198,7 +198,7 @@ describe("dotnet — the `this.id == <string>` lift honours the member scope", (
       kind: "member",
       receiver: { kind: "this" },
       member: "id",
-      receiverType: { kind: "entity", name: "Item" },
+      receiverType: { kind: "entity", name: "Item", declKind: "part" },
       memberType: { kind: "id", targetName: "Item" },
     },
     right: {

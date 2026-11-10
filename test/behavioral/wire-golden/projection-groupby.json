@@ -352,6 +352,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -387,6 +390,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}",
+        "params": {
+          "type": "Orders.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -456,6 +462,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}/update",
+        "params": {
+          "type": "Orders.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

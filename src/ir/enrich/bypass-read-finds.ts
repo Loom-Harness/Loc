@@ -53,7 +53,7 @@ function bypassFind(
   agg: AggregateIR,
   criteria: readonly CriterionIR[],
 ): FindIR | undefined {
-  const entity: TypeIR = { kind: "entity", name: agg.name };
+  const entity: TypeIR = { kind: "entity", name: agg.name, declKind: "aggregate" };
   const name = bypassReadMethodName(read.source, read);
   const returnType: TypeIR = { kind: "optional", inner: entity };
   if (read.source.kind === "id") {

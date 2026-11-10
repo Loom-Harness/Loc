@@ -42,6 +42,7 @@ import {
 import { modelTextKey } from "../../util/model-text-key.js";
 import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../util/numeric-range.js";
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_MESSAGE } from "../../util/uuid-wire.js";
 import type { InvariantIR } from "../types/loom-ir.js";
 import type { WirePrimitive } from "../types/wire-types.js";
@@ -455,17 +456,124 @@ export function wireCode(cls: WireRejectionClass): string {
   return `problem.${cls}`;
 }
 
-/** The `params` a rejection class's body carries, by name.  Each is a
- *  placeholder its catalog text may use. */
+/** The rejection classes whose refusal concerns ONE aggregate — the one whose
+ *  route segment the request path names (`/api/<segment>/…`: its CRUD,
+ *  operation, find and containment routes, and any handler mounted under it).
+ *  Every backend reads the segment off the path, so the answer does not depend
+ *  on which handler raised it.  Their body carries `params.type`, the
+ *  aggregate's identity key (`Sales.Order`), so a client can show a
+ *  per-aggregate whole sentence (`aggregateProblemKey`) where a translator
+ *  wrote one, and the generic `problem.<class>` otherwise.  A workflow,
+ *  projection or file route, and an abstract base's read, names no single
+ *  concrete aggregate, so its refusals carry no `type`. */
+export const AGGREGATE_PROBLEM_CLASSES: readonly WireRejectionClass[] = [
+  "not-found",
+  "version-conflict",
+  "unique-conflict",
+  "referenced-in-use",
+  "dangling-reference",
+  "state-gate",
+];
+
+/** The `params` a rejection class's body carries, by name.  Each is a value a
+ *  client reads: a placeholder its catalog text may use (`requestId`), or the
+ *  aggregate whose per-aggregate sentence it may pick (`type` — never a
+ *  placeholder: a type name is never spliced into a sentence). */
 const WIRE_PARAMS: Readonly<Partial<Record<WireRejectionClass, readonly string[]>>> = {
   // The id the server logged the fault under — what a user quotes to support.
   // The fault itself is never echoed.
   internal: ["requestId"],
+  ...Object.fromEntries(AGGREGATE_PROBLEM_CLASSES.map((cls) => [cls, ["type"]] as const)),
 };
 
 /** The param names a rejection class carries (empty for most). */
 export function wireParams(cls: WireRejectionClass): readonly string[] {
   return WIRE_PARAMS[cls] ?? [];
+}
+
+/** The `params.type` value of an aggregate: its identity key `<Ctx>.<Type>`,
+ *  the prefix every catalog key about it shares (`Sales.Order.name.one`). */
+export function aggregateTypeKey(ctx: string | undefined, aggregate: string): string {
+  const named = modelTextKey({ ctx, type: aggregate, facet: "name.one" });
+  return named.slice(0, -".name.one".length);
+}
+
+/** The `params` an aggregate-route refusal of `cls` carries, as plain data —
+ *  `{ type: "Sales.Order" }` for a class whose `wireParams` name `type`, else
+ *  `undefined`.  Each backend spells the object in its own syntax. */
+export function aggregateProblemParams(
+  cls: WireRejectionClass,
+  typeKey: string,
+): Readonly<Record<string, string>> | undefined {
+  return wireParams(cls).includes("type") ? { type: typeKey } : undefined;
+}
+
+/** The OPTIONAL per-aggregate catalog key a client tries before the generic
+ *  `problem.<class>`: `<Ctx>.<Type>.problem.<class>`.  It lives in the
+ *  context's namespace and is absent until a translator (or a source-language
+ *  override) writes one. */
+export function aggregateProblemKey(typeKey: string, cls: WireRejectionClass): string {
+  return `${typeKey}.${wireCode(cls)}`;
+}
+
+/** The per-aggregate keys a model may carry, each mapped to the generic key
+ *  whose source text it rewords — every aggregate × `AGGREGATE_PROBLEM_CLASSES`.
+ *  The catalog tooling accepts exactly these as optional keys. */
+export function aggregateProblemKeys(
+  aggregates: Iterable<{
+    readonly ctx: string | undefined;
+    readonly name: string;
+    readonly isAbstract?: boolean;
+  }>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const a of aggregates) {
+    if (a.isAbstract) continue;
+    const type = aggregateTypeKey(a.ctx, a.name);
+    for (const cls of AGGREGATE_PROBLEM_CLASSES) {
+      out.set(aggregateProblemKey(type, cls), wireCode(cls));
+    }
+  }
+  return out;
+}
+
+/** Whether `key` has the per-aggregate problem shape
+ *  (`<Ctx>.<Type>.problem.<class>`, the class one of
+ *  `AGGREGATE_PROBLEM_CLASSES`) — what a frontend catalog admits beside its
+ *  own keys, without knowing the model's aggregates. */
+export function isAggregateProblemKey(key: string): boolean {
+  const at = key.indexOf(".problem.");
+  if (at <= 0) return false;
+  return isAggregateProblemCode(key.slice(at + 1)) && key.slice(0, at).split(".").length === 2;
+}
+
+/** Whether a wire `code` is `problem.<class>` for a class whose refusal
+ *  concerns one aggregate (`AGGREGATE_PROBLEM_CLASSES`). */
+export function isAggregateProblemCode(code: string): boolean {
+  return (
+    code.startsWith("problem.") &&
+    (AGGREGATE_PROBLEM_CLASSES as readonly string[]).includes(code.slice("problem.".length))
+  );
+}
+
+/** The `[route segment, params.type]` pairs of the aggregates a backend
+ *  serves — what a backend that answers refusals in ONE app-wide handler reads
+ *  the addressed aggregate off the request path with (the first segment after
+ *  `/api/`).  Sorted by segment. */
+export function aggregateRouteTypes(
+  contexts: Iterable<{
+    readonly name: string;
+    readonly aggregates: readonly { readonly name: string; readonly isAbstract?: boolean }[];
+  }>,
+): (readonly [string, string])[] {
+  const out = new Map<string, string>();
+  for (const c of contexts) {
+    for (const a of c.aggregates) {
+      if (a.isAbstract) continue;
+      out.set(routeSegmentFor(a.name), aggregateTypeKey(c.name, a.name));
+    }
+  }
+  return [...out].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** The wire `code` of a field reason, on its `errors[]` entry: `field.<reason>`. */

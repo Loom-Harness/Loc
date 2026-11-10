@@ -65,23 +65,31 @@ describe("componentPropTsType — scalars", () => {
 describe("componentPropTsType — aggregates and the dtoImports side effect", () => {
   it("types a KNOWN aggregate as its wire DTO and records the import line", () => {
     const imports = noImports();
-    expect(componentPropTsType({ kind: "entity", name: "Order" }, aggs("Order"), imports)).toBe(
-      "OrderResponse",
-    );
+    expect(
+      componentPropTsType(
+        { kind: "entity", name: "Order", declKind: "aggregate" },
+        aggs("Order"),
+        imports,
+      ),
+    ).toBe("OrderResponse");
     expect([...imports.entries()]).toEqual([["OrderResponse", "../api/order"]]);
   });
 
   it("falls back to `unknown` for an entity that is not an aggregate — and records NO import", () => {
     const imports = noImports();
-    expect(componentPropTsType({ kind: "entity", name: "Line" }, aggs("Order"), imports)).toBe(
-      "unknown",
-    );
+    expect(
+      componentPropTsType(
+        { kind: "entity", name: "Line", declKind: "part" },
+        aggs("Order"),
+        imports,
+      ),
+    ).toBe("unknown");
     expect(imports.size).toBe(0);
   });
 
   it("records the import once even when the aggregate is reached through wrappers", () => {
     const imports = noImports();
-    const t = opt(arr({ kind: "entity", name: "Order" }));
+    const t = opt(arr({ kind: "entity", name: "Order", declKind: "aggregate" }));
     expect(componentPropTsType(t, aggs("Order"), imports)).toBe("OrderResponse[] | undefined");
     expect([...imports.keys()]).toEqual(["OrderResponse"]);
   });
@@ -209,7 +217,10 @@ describe("paramPropTsType — the action callback shape", () => {
 
   it("renders `action(T)` as a one-arg void callback, typed by the same data rule", () => {
     const imports = noImports();
-    const t: TypeIR = { kind: "action", arg: { kind: "entity", name: "Order" } };
+    const t: TypeIR = {
+      kind: "action",
+      arg: { kind: "entity", name: "Order", declKind: "aggregate" },
+    };
     expect(paramPropTsType(param("onPick", t), aggs("Order"), imports)).toBe(
       "(arg: OrderResponse) => void",
     );

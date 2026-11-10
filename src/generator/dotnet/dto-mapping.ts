@@ -943,19 +943,13 @@ export function responseParamsFromPayload(
  *  second `Response` (`LineResponseResponse`). */
 function payloadFieldCsType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const info = wireTypeInfo(t, "response");
-  if (info.refKind === "entity" && isResponsePayloadName(ctx, info.base)) {
+  if (info.refKind === "entity" && info.declKind === "response") {
     let s = info.base;
     if (info.isCollection) s = `IReadOnlyList<${s}>`;
     if (info.isNullable) s = `${s}?`;
     return s;
   }
   return wireType(t, ctx, "response");
-}
-
-/** True iff `name` is a declared `response` payload in the context — i.e. a
- *  containment field's already-wire type, which must not be re-suffixed. */
-function isResponsePayloadName(ctx: EnrichedBoundedContextIR, name: string): boolean {
-  return ctx.payloads.some((p) => p.kind === "response" && p.name === name);
 }
 
 function responseRecordParams(

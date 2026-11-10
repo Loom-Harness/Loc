@@ -33,7 +33,7 @@ describe("computeWorkflowReturnType — tail bind", () => {
     const out = computeWorkflowReturnType(
       wf([{ kind: "factory-let", name: "order", aggName: "Order", fields: [] }]),
     );
-    expect(out).toEqual({ kind: "entity", name: "Order" });
+    expect(out).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
   });
 
   it("a repo-let tail yields its (option-stripped) return type", () => {
@@ -47,11 +47,14 @@ describe("computeWorkflowReturnType — tail bind", () => {
           aggName: "Order",
           method: "getById",
           args: [],
-          returnType: { kind: "optional", inner: { kind: "entity", name: "Order" } },
+          returnType: {
+            kind: "optional",
+            inner: { kind: "entity", name: "Order", declKind: "aggregate" },
+          },
         },
       ]),
     );
-    expect(out).toEqual({ kind: "entity", name: "Order" });
+    expect(out).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
   });
 
   it("an expr-let tail yields its declared type", () => {
@@ -76,7 +79,7 @@ describe("computeWorkflowReturnType — tail bind", () => {
       ]),
     );
     // op-call doesn't bind a usable value — the factory-let stays the return.
-    expect(out).toEqual({ kind: "entity", name: "Order" });
+    expect(out).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
   });
 });
 
@@ -105,7 +108,10 @@ describe("computeWorkflowReturnType — conservative fallback", () => {
             aggName: "Order",
             retrievalName: "Recent",
             retrievalArgs: [],
-            returnType: { kind: "array", element: { kind: "entity", name: "Order" } },
+            returnType: {
+              kind: "array",
+              element: { kind: "entity", name: "Order", declKind: "aggregate" },
+            },
           },
         ]),
       ),
@@ -116,8 +122,8 @@ describe("computeWorkflowReturnType — conservative fallback", () => {
     const union: TypeIR = {
       kind: "union",
       variants: [
-        { kind: "entity", name: "Order" },
-        { kind: "entity", name: "Cancel" },
+        { kind: "entity", name: "Order", declKind: "aggregate" },
+        { kind: "entity", name: "Cancel", declKind: "aggregate" },
       ],
     };
     expect(
@@ -154,6 +160,6 @@ describe("enrichLoomModel — populates workflow.returnType", () => {
     `);
     const ctx = allContexts(model).find((c) => c.name === "Sales")!;
     const placeOrder = ctx.workflows.find((w) => w.name === "PlaceOrder")!;
-    expect(placeOrder.returnType).toEqual({ kind: "entity", name: "Order" });
+    expect(placeOrder.returnType).toEqual({ kind: "entity", name: "Order", declKind: "aggregate" });
   });
 });

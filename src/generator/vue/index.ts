@@ -25,7 +25,7 @@ import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { buildApiModule } from "../_frontend/api-module.js";
-import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
+import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
@@ -169,6 +169,9 @@ export function generateVueForContexts(
   const out = emissionSink("generator/vue/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
+  // The frontend session guard (`auth: ui`): also decides which chrome the
+  // translation catalog carries, so it is derived before the catalog scope.
+  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   // Same-origin relative `/api` base; `vite dev` proxies it to the
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -227,6 +230,7 @@ export function generateVueForContexts(
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: vueTarget.modelTextImplicitSites === true,
+    sessionView: authUi,
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
@@ -328,7 +332,6 @@ export function generateVueForContexts(
   // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): gates `page { requires … }`
   // and currentUser-only operation-`requires` action-button rendering.
   // Computed here (before component + page emission, both of which consume it).
-  const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
 
   const emittedComponents = new Map<string, ComponentIR>();
   for (const c of options.topLevelComponents ?? []) emittedComponents.set(c.name, c);
@@ -583,7 +586,7 @@ export function generateVueForContexts(
   if (authUi) {
     out.set("src/auth/session.ts", AUTH_SESSION_TS);
     out.set("src/auth/useSession.ts", AUTH_USE_SESSION_VUE);
-    out.set("src/auth/AuthGate.vue", AUTH_GATE_VUE);
+    out.set("src/auth/AuthGate.vue", authGateVue(i18nEnabled));
   }
   out.set("src/logger.ts", renderShell(pack, "logger", {}));
   out.set(

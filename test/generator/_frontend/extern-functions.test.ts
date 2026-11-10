@@ -77,7 +77,7 @@ describe("buildExternFunctionSignature — the type table", () => {
       fn({
         name: "score",
         params: [
-          { name: "order", type: { kind: "entity", name: "Order" } },
+          { name: "order", type: { kind: "entity", name: "Order", declKind: "aggregate" } },
           { name: "weight", type: prim("decimal") },
           { name: "tags", type: arr(prim("string")) },
         ],
@@ -169,23 +169,29 @@ describe("buildExternFunctionSignature — DTO imports and the api root", () => 
   const twoAggs = fn({
     name: "compare",
     params: [
-      { name: "a", type: { kind: "entity", name: "Order" } },
-      { name: "b", type: { kind: "entity", name: "Customer" } },
-      { name: "again", type: { kind: "entity", name: "Order" } },
+      { name: "a", type: { kind: "entity", name: "Order", declKind: "aggregate" } },
+      { name: "b", type: { kind: "entity", name: "Customer", declKind: "aggregate" } },
+      { name: "again", type: { kind: "entity", name: "Order", declKind: "aggregate" } },
     ],
     returnType: prim("bool"),
   });
 
   it("defaults the api root to react's `../../api` (relative to src/lib/extern/)", () => {
     const sig = buildExternFunctionSignature(
-      fn({ name: "label", params: [{ name: "o", type: { kind: "entity", name: "Order" } }] }),
+      fn({
+        name: "label",
+        params: [{ name: "o", type: { kind: "entity", name: "Order", declKind: "aggregate" } }],
+      }),
     );
     expect(sig).toContain('import type { OrderResponse } from "../../api/order";');
   });
 
   it("threads a SvelteKit api root through every DTO import", () => {
     const sig = buildExternFunctionSignature(
-      fn({ name: "label", params: [{ name: "o", type: { kind: "entity", name: "Order" } }] }),
+      fn({
+        name: "label",
+        params: [{ name: "o", type: { kind: "entity", name: "Order", declKind: "aggregate" } }],
+      }),
       "../api",
     );
     expect(sig).toContain('import type { OrderResponse } from "../api/order";');
@@ -217,7 +223,7 @@ describe("buildExternFunctionShim", () => {
   it("annotates the export with the SAME type the signature declares", () => {
     const decl = fn({
       name: "orderLabel",
-      params: [{ name: "o", type: { kind: "entity", name: "Order" } }],
+      params: [{ name: "o", type: { kind: "entity", name: "Order", declKind: "aggregate" } }],
     });
     const sig = buildExternFunctionSignature(decl);
     const shim = buildExternFunctionShim(decl);

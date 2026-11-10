@@ -425,6 +425,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -517,6 +520,9 @@
         "code": "problem.not-found",
         "detail": "Tally {id} not found",
         "instance": "/api/tallies/{id}",
+        "params": {
+          "type": "Orders.Tally"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -573,6 +579,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/ship",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -587,6 +596,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/ship",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

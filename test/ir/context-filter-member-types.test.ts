@@ -35,7 +35,7 @@ describe("context-level filter member types", () => {
       }
       expect(seen, `${agg.name} has no isDeleted read in its context filters`).toHaveLength(1);
       expect(seen[0]).toEqual({
-        receiver: { kind: "entity", name: agg.name },
+        receiver: { kind: "entity", name: agg.name, declKind: "aggregate" },
         member: { kind: "primitive", name: "bool" },
       });
     }

@@ -457,8 +457,8 @@ function idTypeFor(targetName: string): TypeIR {
 
 function containmentTypeFor(partName: string, collection: boolean): TypeIR {
   return collection
-    ? { kind: "array", element: { kind: "entity", name: partName } }
-    : { kind: "entity", name: partName };
+    ? { kind: "array", element: { kind: "entity", name: partName, declKind: "part" } }
+    : { kind: "entity", name: partName, declKind: "part" };
 }
 
 /**

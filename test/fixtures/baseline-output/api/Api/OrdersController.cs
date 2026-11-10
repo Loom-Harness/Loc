@@ -70,7 +70,7 @@ public sealed class OrdersController : ControllerBase
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
-            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Order is still referenced and cannot be deleted.", Type = "about:blank", Instance = HttpContext.Request.Path, Extensions = { ["code"] = "problem.referenced-in-use" } });
+            return Conflict(new ProblemDetails { Title = "Conflict", Status = 409, Detail = "Order is still referenced and cannot be deleted.", Type = "about:blank", Instance = HttpContext.Request.Path, Extensions = { ["code"] = "problem.referenced-in-use", ["params"] = new System.Collections.Generic.Dictionary<string, object?> { ["type"] = "Orders.Order" } } });
         }
         return NoContent();
     }
