@@ -222,3 +222,30 @@ export function moveKeys<T>(
   }
   return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
 }
+
+/** The moves of the optional keys that follow a type's identity — a
+ *  per-aggregate problem sentence `<Ctx>.<Type>.problem.<class>` is never in
+ *  the source catalog, so no pairing sees it vanish or appear: it moves with
+ *  its type, which `moves` shows moving as any of its own keys (the same facet
+ *  and member under a new `<Ctx>.<Type>`).  One move per `optional` key of a
+ *  moved type, from the same key under the type's old identity. */
+export function followTypeMoves(moves: readonly KeyMove[], optional: Iterable<string>): KeyMove[] {
+  const types = new Map<string, { from: string; via: KeyMove["via"] }>();
+  for (const m of moves) {
+    const from = parse(m.from);
+    const to = parse(m.to);
+    if (!from || !to || from.rest !== to.rest) continue;
+    const fromType = `${from.ctx}.${from.type}`;
+    const toType = `${to.ctx}.${to.type}`;
+    if (fromType !== toType && !types.has(toType)) {
+      types.set(toType, { from: fromType, via: m.via });
+    }
+  }
+  const out: KeyMove[] = [];
+  for (const key of optional) {
+    const dot = key.indexOf(".", key.indexOf(".") + 1);
+    const moved = dot > 0 ? types.get(key.slice(0, dot)) : undefined;
+    if (moved) out.push({ from: `${moved.from}${key.slice(dot)}`, to: key, via: moved.via });
+  }
+  return out.sort((a, b) => a.from.localeCompare(b.from));
+}

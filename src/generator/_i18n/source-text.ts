@@ -36,3 +36,10 @@ export function withSourceOverrides<T>(overrides: SourceOverrides | undefined, f
 export function sourceText(key: string, derived: string): string {
   return active?.get(key) ?? derived;
 }
+
+/** The keys the active overrides reword — including keys no model fact
+ *  derives, which an optional key (a per-aggregate problem sentence) only
+ *  ever is until a translator writes it. */
+export function sourceOverrideKeys(): readonly string[] {
+  return active ? [...active.keys()] : [];
+}

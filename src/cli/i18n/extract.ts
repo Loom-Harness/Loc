@@ -22,6 +22,7 @@ import type { Catalog } from "../../i18n/merge.js";
 import { namespaceNamesOf } from "../../i18n/namespace.js";
 import type { DeclaredRenames } from "../../i18n/renames.js";
 import { enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { aggregateProblemKeys } from "../../ir/enrich/wire-policy.js";
 import { lowerProject } from "../../ir/lower/lower.js";
 import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { createDddServices } from "../../language/ddd-module.js";
@@ -41,6 +42,12 @@ export interface ProjectCatalog {
   uiNames: Set<string>;
   /** The declared source language (`i18n { source }`), `en` by default. */
   source: string;
+  /** The OPTIONAL keys a translator (or a source override) may add though the
+   *  source never derives them — each per-aggregate problem sentence
+   *  `<Ctx>.<Type>.problem.<class>` whose generic `problem.<class>` the
+   *  catalog carries — mapped to that generic key, whose source text it
+   *  rewords. */
+  optional: Map<string, string>;
   /** The renames and moves the project's `migration` blocks declare. */
   renames: DeclaredRenames;
   /** Where each key was written, as `.ddd` paths (relative to the entry file's
@@ -139,6 +146,17 @@ export async function extractProject(
   });
   const catalog: Catalog = {};
   for (const key of Object.keys(merged).sort()) catalog[key] = merged[key]!;
+  const optional = new Map<string, string>();
+  for (const sys of loom.systems) {
+    const aggregates = sys.subdomains.flatMap((sub) =>
+      sub.contexts.flatMap((c) =>
+        c.aggregates.map((a) => ({ ctx: c.name, name: a.name, isAbstract: a.isAbstract })),
+      ),
+    );
+    for (const [key, generic] of aggregateProblemKeys(aggregates)) {
+      if (generic in catalog) optional.set(key, generic);
+    }
+  }
   const renames: DeclaredRenames = {
     columns: loom.renameIntents.map((r) => ({
       context: r.context,
@@ -153,7 +171,7 @@ export async function extractProject(
       toContext: t.toContext,
     })),
   };
-  return { catalog, names, uiNames, source, renames, locations };
+  return { catalog, names, uiNames, source, optional, renames, locations };
 }
 
 /** The flat source catalog alone (see {@link extractProject}). */
