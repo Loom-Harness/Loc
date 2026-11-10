@@ -24,7 +24,7 @@ import { isMacroCall, type MacroCall } from "../language/generated/ast.js";
 import { unfoldMacro as unfoldMacroCall } from "../language/lsp/unfold-macro.js";
 import { resolvePatchEdits } from "../language/model-patch.js";
 import { validate } from "./index.js";
-import { isNavError, nameCst, parse, resolveSymbol } from "./symbol-resolver.js";
+import { isNavError, nameCst, resolveSymbol, withParsed } from "./symbol-resolver.js";
 
 /** Map an LSP / patch text edit (already `{ range, newText }`-shaped) onto the
  *  contract's `NavTextEdit`, copying the range so it's decoupled from langium. */
@@ -46,19 +46,20 @@ export async function rename(
   symbol: string,
   newName: string,
 ): Promise<RenameResult> {
-  const { services, doc, model } = await parse(source);
-  if (!model) return { error: "not-found", candidates: [] };
-  const resolved = resolveSymbol(model, symbol);
-  if (isNavError(resolved)) return resolved;
-  const cst = nameCst(services, resolved.node);
-  if (!cst) return { error: "not-found", candidates: [] };
-  const edit = await services.lsp.RenameProvider!.rename(doc, {
-    textDocument: { uri: doc.textDocument.uri },
-    position: cst.range.start,
-    newName,
+  return withParsed(source, async ({ services, doc, model }) => {
+    if (!model) return { error: "not-found", candidates: [] };
+    const resolved = resolveSymbol(model, symbol);
+    if (isNavError(resolved)) return resolved;
+    const cst = nameCst(services, resolved.node);
+    if (!cst) return { error: "not-found", candidates: [] };
+    const edit = await services.lsp.RenameProvider!.rename(doc, {
+      textDocument: { uri: doc.textDocument.uri },
+      position: cst.range.start,
+      newName,
+    });
+    const changes = edit?.changes?.[doc.textDocument.uri] ?? [];
+    return { edits: (changes as TextEdit[]).map(toNavEdit) };
   });
-  const changes = edit?.changes?.[doc.textDocument.uri] ?? [];
-  return { edits: (changes as TextEdit[]).map(toNavEdit) };
 }
 
 /** Produce the quick-fix edits for a diagnostic `code` — the `fixHint` patch
@@ -119,31 +120,32 @@ export async function unfoldMacro(
   macro: string,
   on: string,
 ): Promise<UnfoldMacroResult> {
-  const { doc, model } = await parse(source);
-  if (!model) return { error: "not-found", candidates: [] };
-  const resolved = resolveSymbol(model, on);
-  if (isNavError(resolved)) return resolved;
+  return withParsed(source, async ({ doc, model }) => {
+    if (!model) return { error: "not-found", candidates: [] };
+    const resolved = resolveSymbol(model, on);
+    if (isNavError(resolved)) return resolved;
 
-  const call = findMacroCall(resolved.node, macro);
-  if (!call) {
-    const available = [...AstUtils.streamAllContents(resolved.node)]
-      .filter((n): n is MacroCall => isMacroCall(n) && n.$container.$container === resolved.node)
-      .map((n) => n.name)
-      .sort();
-    const err: EditError = {
-      error: "not-found",
-      candidates: available,
-      message: `no 'with ${macro}' on ${resolved.address}`,
-    };
-    return err;
-  }
+    const call = findMacroCall(resolved.node, macro);
+    if (!call) {
+      const available = [...AstUtils.streamAllContents(resolved.node)]
+        .filter((n): n is MacroCall => isMacroCall(n) && n.$container.$container === resolved.node)
+        .map((n) => n.name)
+        .sort();
+      const err: EditError = {
+        error: "not-found",
+        candidates: available,
+        message: `no 'with ${macro}' on ${resolved.address}`,
+      };
+      return err;
+    }
 
-  const result = unfoldMacroCall(doc, call);
-  if (!result) {
-    return {
-      error: "cannot-unfold",
-      message: `'${macro}' on ${resolved.address} cannot be unfolded`,
-    };
-  }
-  return { edits: result.edits.map(toNavEdit), title: result.title };
+    const result = unfoldMacroCall(doc, call);
+    if (!result) {
+      return {
+        error: "cannot-unfold",
+        message: `'${macro}' on ${resolved.address} cannot be unfolded`,
+      };
+    }
+    return { edits: result.edits.map(toNavEdit), title: result.title };
+  });
 }

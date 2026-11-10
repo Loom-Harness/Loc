@@ -51,7 +51,7 @@ import {
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { orgContextPlan } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
@@ -87,6 +87,7 @@ import {
   opUnionResponses,
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
+import { registryTableSql } from "../_persistence/registry-walk.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -503,7 +504,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       out,
       oidc,
       args.sys.tenancy?.claimField,
-      systemReadsOrgContext(args.sys),
+      orgContextPlan(args.sys, args.deployable.contextNames),
+      registryTableSql(args.sys),
     );
   // First-boot seeding (database-seeding.md): emitted only when a
   // dataset survives filtering (rows on concrete aggregates); the

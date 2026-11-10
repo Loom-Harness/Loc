@@ -19,11 +19,10 @@ import {
 // behaviourally equal".  Each block isolates one relaxation / addition.
 
 describe("openapi-normalize — behavioural equivalence", () => {
-  // All three backends now name the list response as a component
-  // (`ProjectListResponse`) — .NET via the ListResponseWrapperFilter (#705).
-  // The wrapper is compared by NAME (the tolerance that resolved it to an
-  // inline `array<element>` is gone): named-vs-named is clean; a
-  // hypothetical inline-array backend now drifts.
+  // A named array component (`ProjectListResponse = array<ProjectResponse>`)
+  // and an inline array with the same `items` are one contract: the
+  // per-document extractors still see the spelling, and `diffSpecs` compares
+  // the canonical form, where they are equal.
   describe("list-wrapper naming", () => {
     const named: OpenApiSpec = {
       paths: {
@@ -83,15 +82,12 @@ describe("openapi-normalize — behavioural equivalence", () => {
       expect(schemaNames(named).has("ProjectResponse")).toBe(true);
     });
 
-    it("two named-wrapper specs are clean; named-vs-inline now drifts", () => {
+    it("named-vs-named and named-vs-inline are both clean", () => {
       const clean = diffSpecs({ name: "hono", spec: named }, { name: "dotnet", spec: named });
       expect(isCleanDiff(clean)).toBe(true);
 
-      const drift = diffSpecs({ name: "hono", spec: named }, { name: "dotnet", spec: inlined });
-      // The wrapper schema is one-sided + the response body refs differ.
-      expect(drift.onlySchemasRef).toEqual(["ProjectListResponse"]);
-      expect(drift.responseBodyDiffs.length).toBe(1);
-      expect(isCleanDiff(drift)).toBe(false);
+      const mixed = diffSpecs({ name: "hono", spec: named }, { name: "dotnet", spec: inlined });
+      expect(isCleanDiff(mixed)).toBe(true);
     });
   });
 

@@ -9,18 +9,12 @@
 // Pure + browser-safe (EmptyFileSystem, no Node-only imports).
 // ---------------------------------------------------------------------------
 
-import {
-  type AstNode,
-  AstUtils,
-  type CstNode,
-  EmptyFileSystem,
-  type LangiumDocument,
-  URI,
-} from "langium";
+import { type AstNode, AstUtils, type CstNode, type LangiumDocument } from "langium";
 import type { JsonRange, NavError } from "../diagnostics/contract.js";
-import { createDddServices } from "../language/ddd-module.js";
+import type { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { addressOf, isAddressable } from "../language/print/index.js";
+import { withSharedDocument } from "../language/shared-services.js";
 
 export type DddServices = ReturnType<typeof createDddServices>["Ddd"];
 
@@ -30,16 +24,18 @@ export interface Parsed {
   model: Model | undefined;
 }
 
-/** Parse a `.ddd` source and fully build it (link + validation) so the LSP
- *  providers and the cross-reference index are ready.  Fresh isolated services
- *  per call (no shared mutable state). */
-export async function parse(source: string): Promise<Parsed> {
-  const services = createDddServices(EmptyFileSystem).Ddd;
-  const factory = services.shared.workspace.LangiumDocumentFactory;
-  const doc = factory.fromString<Model>(source, URI.parse("memory:///source.ddd"));
-  services.shared.workspace.LangiumDocuments.addDocument(doc);
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return { services, doc, model: doc.parseResult.value as Model | undefined };
+/** Parse a `.ddd` source, fully build it (link + validation) so the LSP
+ *  providers and the cross-reference index are ready, and run `fn` while the
+ *  document is live on the shared service set.  The document is removed
+ *  afterwards, so `fn` must finish all provider work before returning (and
+ *  must not call another `withParsed`). */
+export function withParsed<T>(source: string, fn: (parsed: Parsed) => Promise<T> | T): Promise<T> {
+  return withSharedDocument(
+    source,
+    ({ services, doc }) =>
+      fn({ services: services.Ddd, doc, model: doc.parseResult.value as Model | undefined }),
+    { validation: true, register: true },
+  );
 }
 
 /** A canonical address split into its keyword and dotted name segments —

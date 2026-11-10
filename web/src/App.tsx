@@ -1735,7 +1735,7 @@ export default function App(): JSX.Element {
       }, (slug) => {
         const compose = lastGeneratedFilesRef.current.find((f) => f.path === "docker-compose.yml");
         return compose ? composeServiceEnv(compose.content, slug) : {};
-      });
+      }, planned.restSpecs);
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
         // A boot that starts the app has brought the database to the

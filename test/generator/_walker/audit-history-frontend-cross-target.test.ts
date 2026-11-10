@@ -266,7 +266,7 @@ describe("every render path collects the read (the degrade-honestly set is empty
     expect(out).not.toContain("History is not yet supported on flutter");
     // The read is COLLECTED: a `.family` provider keyed by the route id over
     // the path-nested history route, watched by the page under the SAME name
-    // the walker's `buildHookUse` derives — the dangling-provider failure mode
+    // the walker's `bindDataAccess` derives — the dangling-provider failure mode
     // this file used to pin is now the linked pair.
     expect(out).toContain("final orderHistoryProvider =");
     expect(out).toContain("FutureProvider.family<List<AuditEntry>, String>((ref, id) async {");

@@ -47,7 +47,7 @@ const CROSS_TENANT = (platform: string) => `system X {
   deployable d { platform: ${platform} contexts: [C] dataSources: [st, st2] serves: A port: 4000 auth: required }
 }`;
 
-const SCOPE = "(x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)";
+const SCOPE = "(x.TenantId == RequestContext.Current!.CurrentUser!.OperatingOrg)";
 const FRAME_EQ = "__ambientOrigin?.Tenant == aggregate.TenantId";
 const FRAME_ENTER =
   "EnterEventOrigin(new global::Api.Auth.EventOrigin(aggregate.TenantId, __ambientOrigin?.CausedBy))";

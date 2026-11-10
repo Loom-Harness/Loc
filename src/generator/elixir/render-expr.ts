@@ -9,6 +9,7 @@ import type {
   LiteralKind,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { isOrgAncestorsRead } from "../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
@@ -968,6 +969,9 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
     e.receiverType.element.kind === "id" &&
     e.args.length === 1
   ) {
+    // `organizationContext.ancestors` is a plain id list on the principal,
+    // not a preloaded relationship.
+    if (isOrgAncestorsRead(e.receiver)) return `Enum.member?(${recv}, ${args[0]})`;
     const field = ctx.filterArgs ? refCollectionFieldName(e.receiver) : null;
     if (field && ctx.refCollOwnerModule) {
       return `${ctx.thisName}.id in subquery(from(owner_row in ${ctx.refCollOwnerModule}, join: member_row in assoc(owner_row, :${snake(field)}), where: member_row.id == ${args[0]}, select: owner_row.id))`;

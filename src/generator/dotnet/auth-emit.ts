@@ -6,10 +6,10 @@ import type {
   TypeIR,
   UserIR,
 } from "../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import type { OrgContextPlan } from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
-import { upperFirst } from "../../util/naming.js";
+import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -24,6 +24,7 @@ import {
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
+import { registryAncestorsSql } from "../_persistence/registry-walk.js";
 import { renderCsType } from "./render-expr.js";
 import { csCodeInit } from "./wire-policy-cs.js";
 
@@ -46,20 +47,46 @@ import { csCodeInit } from "./wire-policy-cs.js";
 // fails fast at startup if no verifier is registered (Program.cs check).
 // ---------------------------------------------------------------------------
 
-export function emitAuthFiles(sys: SystemIR, ns: string, out: Map<string, string>): void {
+export function emitAuthFiles(
+  sys: SystemIR,
+  ns: string,
+  out: Map<string, string>,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
+  /** The quoted registry table the ancestors walk reads (`registryTableSql`). */
+  registryTable?: string,
+  usingDapper = false,
+): void {
   if (!sys.user) return;
   const tenantClaim = sys.tenancy?.claimField;
   // The operating-scope switch gate (`organizationContext`) exists only where
   // the system declares tenancy and something reads the operating org.
-  const orgContext = !!tenantClaim && systemReadsOrgContext(sys);
-  out.set("Auth/User.cs", renderUserRecord(sys.user, ns, tenantClaim, orgContext));
+  const orgContext = !!tenantClaim && plan.gate;
+  const registry =
+    orgContext && plan.registry && registryTable
+      ? {
+          name: plan.registry.name,
+          table: registryTable,
+          ancestors: plan.ancestors,
+          usingDapper,
+        }
+      : undefined;
+  out.set(
+    "Auth/User.cs",
+    renderUserRecord(
+      sys.user,
+      ns,
+      tenantClaim,
+      orgContext,
+      registry?.ancestors ? registry.name : undefined,
+    ),
+  );
   out.set("Auth/EventOrigin.cs", renderEventOrigin(ns));
   out.set("Auth/IUserVerifier.cs", renderVerifierInterface(ns));
   out.set("Auth/ICurrentUserAccessor.cs", renderAccessorInterface(ns));
   out.set("Auth/HttpContextCurrentUserAccessor.cs", renderAccessorImpl(ns));
   out.set(
     "Auth/UserMiddleware.cs",
-    renderMiddleware(ns, !!sys.auth, orgContext ? tenantClaim : undefined),
+    renderMiddleware(ns, !!sys.auth, orgContext ? tenantClaim : undefined, registry),
   );
   // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
   // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
@@ -1030,7 +1057,12 @@ function renderSystemPrincipalMembers(
       ? `${value}?.ToString()`
       : `${value}.ToString()`;
   };
-  const tenantOf = tenantField ? `NullIfEmpty(${asString(tenantField)})` : "null";
+  // The event's tenant is the OPERATING org of the raising request.
+  const tenantOf = orgContext
+    ? "NullIfEmpty(user.OperatingOrg)"
+    : tenantField
+      ? `NullIfEmpty(${asString(tenantField)})`
+      : "null";
   const causedByOf = idField
     ? `user.IsSystem ? user.CausedBy : ${asString(idField)}`
     : "user.CausedBy";
@@ -1157,6 +1189,9 @@ function renderUserRecord(
   ns: string,
   tenantClaim?: string,
   orgContext = false,
+  /** The registry whose id the ancestor set holds, when a hosted context reads
+   *  `organizationContext.ancestors`. */
+  ancestorsOf?: string,
 ): string {
   const params = user.fields
     .map((f) => {
@@ -1185,6 +1220,16 @@ function renderUserRecord(
     {
         get => _operatingOrg ?? $"{${upperFirst(tenantClaim)}}";
         set => _operatingOrg = value;
+    }${
+      ancestorsOf
+        ? `
+
+    /// <summary><c>organizationContext.ancestors</c> — the operating org and
+    /// every org above it on the registry tree, resolved once per request by
+    /// UserMiddleware.  Empty on the system principal.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = Array.Empty<${ancestorsOf}Id>();`
+        : ""
     }`
       : "";
   const systemMembers = renderSystemPrincipalMembers(user, tenantClaim, orgContext);
@@ -1274,7 +1319,14 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
 `;
 }
 
-function renderMiddleware(ns: string, oidc: boolean, tenantClaim?: string): string {
+function renderMiddleware(
+  ns: string,
+  oidc: boolean,
+  tenantClaim: string | undefined,
+  /** The registry this deployable hosts: a requested org is admitted when the
+   *  caller can read that row through the registry's read scope. */
+  registry?: { name: string; table: string; ancestors: boolean; usingDapper: boolean },
+): string {
   // Bypass list — framework endpoints that should NEVER require auth.
   // Liveness / OpenAPI / Swagger UI all read freely.  Path-prefix
   // match keeps the list tiny and avoids regex overhead.  The OIDC
@@ -1327,24 +1379,80 @@ function renderMiddleware(ns: string, oidc: boolean, tenantClaim?: string): stri
   // value at all when the caller has no home org — is a 403, so no handler
   // runs and nothing is written.
   const orgContext = tenantClaim !== undefined;
+  const idClass = registry ? `${registry.name}Id` : "";
+  const admitted = registry
+    ? `homeOrg.Length == 0 || !await CanReadOrgAsync(orgs, requestedOrgContext, ctx.RequestAborted)`
+    : "true";
   const orgContextGate = orgContext
     ? `
-        // Operating-scope switch gate (organizationContext): fail-closed.
+        // Operating-scope switch gate (organizationContext): fail-closed.  The
+        // home principal is already attached, so the registry read below runs
+        // under the caller's own read scope.
         var homeOrg = $"{user.${upperFirst(tenantClaim)}}";
+        var operatingOrg = homeOrg;
         var requestedOrgContext = ctx.Request.Headers["${ORG_CONTEXT_HEADER}"].ToString();
         if (requestedOrgContext.Length > 0 && requestedOrgContext != homeOrg)
         {
-            var orgLog = ctx.RequestServices.GetRequiredService<ILogger<UserMiddleware>>();
-            var reason = homeOrg.Length == 0 ? "no_principal_scope" : "outside_scope";
-            ${renderDotnetLogCall("orgContextDenied", [
-              { name: "org_context", valueExpr: "requestedOrgContext" },
-              { name: "reason", valueExpr: "reason" },
-              { name: "status", valueExpr: "403" },
-            ]).replace(/^_log\./, "orgLog.")}
-            await OrgContextForbiddenAsync(ctx);
-            return;
+            if (${admitted})
+            {
+                var orgLog = ctx.RequestServices.GetRequiredService<ILogger<UserMiddleware>>();
+                var reason = homeOrg.Length == 0 ? "no_principal_scope" : "outside_scope";
+                ${renderDotnetLogCall("orgContextDenied", [
+                  { name: "org_context", valueExpr: "requestedOrgContext" },
+                  { name: "reason", valueExpr: "reason" },
+                  { name: "status", valueExpr: "403" },
+                ]).replace(/^_log\./, "orgLog.")}
+                await OrgContextForbiddenAsync(ctx);
+                return;
+            }${registry ? "\n            operatingOrg = requestedOrgContext;" : ""}
         }
-        user.OperatingOrg = homeOrg;`
+        user.OperatingOrg = operatingOrg;${
+          registry?.ancestors
+            ? `
+        user.OperatingAncestors = await OperatingAncestorsAsync(${registry.usingDapper ? "dataSource" : "db"}, operatingOrg, ctx.RequestAborted);`
+            : ""
+        }`
+    : "";
+  const walkSql = registry
+    ? registryAncestorsSql(registry.table, registry.usingDapper ? "@org" : "{0}")
+    : "";
+  const registryHelpers = registry
+    ? `
+
+    /// <summary>True when the caller (the HOME principal, attached to the
+    /// ambient frame) can read the registry row <paramref name="org"/> through
+    /// the registry's read scope — the switch gate's admission rule.  A value
+    /// that is not a uuid names no registry row.</summary>
+    private static async Task<bool> CanReadOrgAsync(I${registry.name}Repository orgs, string org, CancellationToken ct)
+    {
+        if (!Guid.TryParse(org, out var raw)) return false;
+        return await orgs.GetByIdAsync(new ${idClass}(raw), ct) is not null;
+    }${
+      registry.ancestors
+        ? `
+
+    /// <summary><c>organizationContext.ancestors</c> for <paramref name="org"/>:
+    /// the org and every org above it, walked over <c>parent</c> with
+    /// <c>UNION</c> so a cycle terminates.  Called once per request.</summary>
+    private static async Task<IReadOnlyList<${idClass}>> OperatingAncestorsAsync(${
+      registry.usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
+    }, string org, CancellationToken ct)
+    {
+        if (!Guid.TryParse(org, out var raw)) return Array.Empty<${idClass}>();${
+          registry.usingDapper
+            ? `
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var ids = await conn.QueryAsync<Guid>(new CommandDefinition(${JSON.stringify(walkSql)}, new { org = raw }, cancellationToken: ct));
+        return ids.Select(id => new ${idClass}(id)).ToList();`
+            : `
+        var ids = await db.Database
+            .SqlQueryRaw<Guid>(${JSON.stringify(`SELECT a.id AS "Value" FROM (${walkSql}) a`)}, raw)
+            .ToListAsync(ct);
+        return ids.Select(id => new ${idClass}(id)).ToList();`
+        }
+    }`
+        : ""
+    }`
     : "";
   const orgContextForbidden = orgContext
     ? `
@@ -1369,7 +1477,26 @@ function renderMiddleware(ns: string, oidc: boolean, tenantClaim?: string): stri
   const orgContextUsings = orgContext
     ? `
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;`
+using Microsoft.Extensions.Logging;${
+        registry
+          ? `
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using ${ns}.Domain.Ids;
+using ${ns}.Domain.${plural(registry.name)};${
+              registry.ancestors
+                ? registry.usingDapper
+                  ? `
+using Dapper;
+using Npgsql;`
+                  : `
+using Microsoft.EntityFrameworkCore;
+using ${ns}.Infrastructure.Persistence;`
+                : ""
+            }`
+          : ""
+      }`
     : "";
   return `// Auto-generated.
 using System.Text.Json;
@@ -1404,7 +1531,17 @@ public sealed class UserMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext ctx, IUserVerifier verifier)
+    public async Task InvokeAsync(HttpContext ctx, IUserVerifier verifier${
+      registry
+        ? `, I${registry.name}Repository orgs${
+            registry.ancestors
+              ? registry.usingDapper
+                ? ", NpgsqlDataSource dataSource"
+                : ", AppDbContext db"
+              : ""
+          }`
+        : ""
+    })
     {
         var path = ctx.Request.Path.HasValue ? ctx.Request.Path.Value : "/";
         foreach (var prefix in BypassPrefixes)
@@ -1457,7 +1594,7 @@ ${malformedCatch}        catch
             ${csCodeInit("unauthenticated")},
         }, (JsonSerializerOptions?)null, "application/problem+json");
     }
-${malformedHelper}${orgContextForbidden}
+${malformedHelper}${orgContextForbidden}${registryHelpers}
 }
 `;
 }

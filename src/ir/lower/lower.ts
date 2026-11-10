@@ -658,6 +658,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       theme = lowerTheme(m);
     }
   }
+  if (user && tenancy?.registryName) user.registry = tenancy.registryName;
   const subdomains: SubdomainIR[] = [];
   const deployables: DeployableIR[] = [];
   const e2eBlocks: TestE2E[] = [];

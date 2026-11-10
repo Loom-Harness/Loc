@@ -105,7 +105,7 @@ describe("the Dapper document repository carries the authorization ladder", () =
     const repo = await file("Infrastructure/Repositories/ThingRepository.cs");
     // The tenant floor, executed in-app.
     expect(repo).toContain(
-      "private static bool _CapabilityVisible(Thing x) => (x.TenantId == RequestContext.Current!.CurrentUser!.TenantId);",
+      "private static bool _CapabilityVisible(Thing x) => (x.TenantId == RequestContext.Current!.CurrentUser!.OperatingOrg);",
     );
     // GetByIdAsync — an out-of-scope row reads as missing (→ 404), matching
     // what the relational adapter's spliced WHERE does to the same lookup.

@@ -238,6 +238,11 @@ export interface ThemeIR {
  *  the `currentUser` magic identifier's member-access surface. */
 export interface UserIR {
   fields: FieldIR[];
+  /** The tenancy registry (`tenancy by … of <Registry>`), when the system
+   *  declares one: `organizationContext.ancestors` lowers to a principal member
+   *  typed `<Registry> id[]`, and the principal is the one shape every
+   *  expression context already carries. */
+  registry?: string;
 }
 
 /** A resolved auth config value — an inline literal or a runtime

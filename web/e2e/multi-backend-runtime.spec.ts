@@ -6,10 +6,9 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 async function pickTarget(page: Page, slug: string): Promise<void> {
@@ -31,17 +30,14 @@ test("shared storage: both backends boot, a write via admin is read via storefro
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Shared storage/);
+  await startFromExample(page, /Shared storage/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
   }
 
   await test.step("Generate", async () => {
-    await recordInitialMigration(page);
-    await page.getByTestId("btn-generate").click();
-    await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+    await recordAndGenerate(page);
   });
 
   await test.step("Bundle both backends", async () => {

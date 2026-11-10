@@ -94,9 +94,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     it("auth/middleware.ts: origin snapshot, origin → system principal, and the delivery frame", async () => {
       const mw = get(await gen("node"), "ship_api/auth/middleware.ts");
       expect(mw).toContain("export function currentEventOrigin(): EventOrigin | null {");
-      expect(mw).toContain(
-        '    tenant: user.tenantId == null || String(user.tenantId) === "" ? null : String(user.tenantId),',
-      );
+      expect(mw).toContain('    tenant: user.operatingOrg === "" ? null : user.operatingOrg,');
       expect(mw).toContain(
         "    causedBy: user.isSystem ? (user.causedBy ?? null) : String(user.id),",
       );
@@ -252,7 +250,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     it("auth.ex: origin snapshot, origin → system principal, the delivery frame", async () => {
       const auth = get(await gen("elixir"), "ship_api/lib/ship_api_web/auth.ex");
       expect(auth).toContain("  def current_event_origin do");
-      expect(auth).toContain('"tenant" => blank_to_nil(origin_claim(user, :tenant_id)),');
+      expect(auth).toContain('"tenant" => blank_to_nil(origin_claim(user, :operating_org)),');
       expect(auth).toContain(
         "  def system_principal, do: system_principal_for(current_event_origin())",
       );
@@ -298,7 +296,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
       expect(origin).toContain("var origin = User.CurrentEventOrigin();");
       const user = get(files, "ship_api/Auth/User.cs");
       expect(user).toContain(
-        "        : new EventOrigin(NullIfEmpty(user.TenantId?.ToString()), user.IsSystem ? user.CausedBy : user.Id.ToString());",
+        "        : new EventOrigin(NullIfEmpty(user.OperatingOrg), user.IsSystem ? user.CausedBy : user.Id.ToString());",
       );
       expect(user).toContain("origin?.Tenant is { Length: > 0 } t ? t : string.Empty");
       expect(user).toContain(

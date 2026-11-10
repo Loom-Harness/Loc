@@ -11,8 +11,9 @@
 //
 //   1. State reads/writes — `step` vs `@step` vs `socket.assigns.step`
 //   2. State mutation — `setStep(x)` vs `assign(socket, :step, x)`
-//   3. API call lowering — React-Query hook hoisting
-//      vs LiveView's direct context-function call
+//   3. Data access — "this body reads X / calls op Y", bound by the target:
+//      a client-state target's HTTP API client binding vs a server-session
+//      target's in-process context call (`data-access.ts`)
 //   4. Helper imports — `import { fn } from "..."` vs Elixir `alias`
 //   5. `match { ... }` — chained ternary vs HEEx `<%= cond do ... %>`
 //   6. Cross-page navigation — `useNavigate()` vs `push_navigate(socket, to: ...)`
@@ -64,7 +65,8 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, LiteralKind, StateFieldIR, TypeIR } from "../../ir/types/loom-ir.js";
-import type { DetectedApiCall } from "./api-hook-detector.js";
+import type { FrontendAxes } from "../../util/frontend-axes.js";
+import type { DataAccess } from "./data-access.js";
 import type { WalkContext } from "./walker-core.js";
 
 /** Discriminator: where in the emitted module the walker is currently
@@ -591,16 +593,13 @@ export interface VariantMatchSpec {
   elseBody?: readonly string[];
 }
 
-/** A framework-specific hook-use record produced by
- *  `WalkerTarget.buildHookUse`.  Carries the names + import path the
- *  page-shell needs to hoist the hook (TSX: a `const x = useY(args)`
- *  line; future Vue: a Pinia composable invocation; future Svelte: a
- *  runes-flavoured `$state` derivation).  HEEx doesn't lower api
- *  calls to hooks so its `buildHookUse` is unreachable in practice
- *  (the heex-walker never calls `tryDetectApiHook`); the interface
- *  shape stays uniform so a future LiveView-class consumer can
- *  decide its own answer without adding a contract slot. */
-export interface TargetHookUse {
+/** The binding a target makes for one data access a body performs, produced by
+ *  `WalkerTarget.bindDataAccess`.  `varName` is the name the body's access
+ *  site reads; the remaining fields are what the target's own shell needs to
+ *  declare the binding (a client-state target: the query / mutation factory
+ *  to import and call; a server-session target: the in-process call itself,
+ *  with nothing to import). */
+export interface DataBinding {
   /** Local variable name in the generated file
    *  (e.g. `customerCreate`, `activeOrdersView`). */
   varName: string;
@@ -639,6 +638,11 @@ export interface WalkerTarget {
   /** Framework discriminator — informational; matches the IR's
    *  `DeployableIR.uiFramework` value (`"react"` / `"phoenixLiveView"`). */
   readonly framework: string;
+
+  /** Where this target keeps page state, where its handlers sit, and the data
+   *  access that follows (`src/util/frontend-axes.ts`).  Behaviour that
+   *  depends on either property reads these, never `framework`. */
+  readonly axes: FrontendAxes;
 
   // --- State seam ---------------------------------------------------------
 
@@ -693,56 +697,55 @@ export interface WalkerTarget {
    *  never reaches this seam. */
   renderNestedStateWrite(segments: readonly string[], valueJs: string): string;
 
-  // --- API binding seam ---------------------------------------------------
+  // --- Data-access seam ---------------------------------------------------
 
-  /** Turn a framework-agnostic `DetectedApiCall` (produced by the
-   *  shared `tryDetectApiHook` detector in
-   *  `src/generator/_walker/api-hook-detector.ts`) into the per-
-   *  framework hook-use record.  TSX produces React-Query naming
-   *  (`useCreateCustomer` + `../api/customer` import); a future Vue
-   *  target produces Pinia / composable naming; HEEx's
-   *  implementation is unreachable in practice (the heex-walker
-   *  never calls the detector) and throws.
+  /** Bind one data access the body performs (`DataAccess`, produced by
+   *  `data-access.ts::detectDataAccess`).  A client-state target names its
+   *  query / mutation binding (React Query `useCreateCustomer` from
+   *  `../api/customer`, a Riverpod provider, an Elmish Model field); a
+   *  server-session target names the in-process context call.
    *
-   *  `renderArg` is the caller's walker-context-aware expression
-   *  renderer — preserved as a callback so any param/state refs
-   *  inside parameterised-query args (`Customer.byId(id)`) propagate
-   *  to the walker's `usedParams` / `usesState` side-effects.
-   *  Identity-equal to `emitExpr(_, ctx)` at the caller's WalkContext.
-   *  The target invokes it on each entry of `detected.args` in
-   *  source order. */
-  buildHookUse(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): TargetHookUse;
+   *  `renderArg` is the caller's walker-context-aware expression renderer, so
+   *  any param/state refs inside parameterised-query args
+   *  (`Customer.byId(id)`) propagate to the walker's `usedParams` /
+   *  `usesState` side-effects.  The target invokes it on each entry of
+   *  `access.args` in source order, or renders the args through its own
+   *  engine when the shared expression renderer is not its language.  `ctx`
+   *  is the walk the access belongs to; the shared core always passes it, and
+   *  a target that names a module only the walk knows requires it. */
+  bindDataAccess(
+    access: DataAccess,
+    renderArg: (e: ExprIR) => string,
+    ctx?: WalkContext,
+  ): DataBinding;
 
-  /** Render an API call site as the framework's primary surface.
-   *  The two shipped frameworks diverge structurally by design:
+  /** Render a data access SITE — what the body writes where it reads.
    *
-   *  TSX rewrites the IR call site to the local hook variable
-   *  (`customerCreate`).  React Query's `useXxx()` is hoisted ONCE
-   *  per component (see `renderApiHoisting`); the resulting var is
-   *  what every call site references.  The surrounding IR walk
+   *  A client-state target reads its binding's local (`customerCreate`), declared
+   *  once per component (see `renderDataBindings`); the surrounding IR walk
    *  emits any chained property access (`.data` / `.mutate(args)` /
-   *  `.isPending`) via standard member / method-call rendering —
-   *  the contract returns only the var because that's the IR-node-
-   *  level emission.
+   *  `.isPending`) via standard member / method-call rendering.  `call.varName`
+   *  carries the binding's name when the shared core renders the site.
    *
-   *  HEEx emits the direct context-function call
-   *  (`create_customer!(args)`).  LiveView doesn't hoist; every IR
-   *  site invokes the function in-place.  The walker prepends the
-   *  `<App>.<Handle>.` module prefix at the call site after
-   *  delegating to the target — the bare call shape is the target's
-   *  output.
+   *  A server-session target writes the in-process context call
+   *  (`create_customer!(args)`) at the site; nothing is declared per page.
    *
-   *  Caller passes pre-rendered args as a single string; target
-   *  splices them into framework-appropriate positions.  When TSX
-   *  ignores `renderedArgs` (var-only) the parameter is harmless. */
-  renderApiCall(call: ApiCallSite, renderedArgs: string): string;
+   *  `renderedArgs` is the pre-rendered argument list for a target that
+   *  splices it; a var-only target ignores it.  `ctx` is the walk the site
+   *  belongs to, for a target whose call names a module only the walk knows. */
+  renderApiCall(call: ApiCallSite, renderedArgs: string, ctx?: WalkContext): string;
 
-  /** Per-page hoisted bindings — TSX returns the React Query hook
-   *  call lines (`const customerCreate = useCreateCustomer();`)
-   *  emitted at page-component top; HEEx returns an empty array
-   *  (LiveView reads inside `mount/3` / `handle_event`).  Called
-   *  once per page after the body walk completes. */
-  renderApiHoisting(uses: ApiCallSite[]): string[];
+  /** The per-page declarations of the body's data bindings — TSX returns the
+   *  React Query lines (`const customerCreate = useCreateCustomer();`)
+   *  emitted at page-component top; a target whose bindings need no
+   *  declaration (an Elmish Model field, a LiveView in-process call) returns
+   *  an empty array.  Called once per page after the body walk completes. */
+  renderDataBindings(uses: ApiCallSite[]): string[];
+
+  /** The error type an awaited data access raises, imported where a
+   *  `variant-match` narrows on an error arm.  Absent on a target whose
+   *  access raises none the page names. */
+  readonly dataErrorType?: { readonly from: string; readonly name: string };
 
   // --- Match expression seam ----------------------------------------------
 
@@ -863,7 +866,7 @@ export interface WalkerTarget {
   // four below diverge.  HEEx has its own parallel walker
   // (heex-walker.ts) that never reaches these — its impls exist for
   // contract completeness (renderConditionalChild throws unreachable,
-  // mirroring buildHookUse).
+  // mirroring bindDataAccess).
 
   /** Render an inline placeholder/diagnostic comment in markup-child
    *  position.  TSX: `{/* text *​/}`; Svelte: `<!-- text -->`;
@@ -1481,8 +1484,8 @@ export interface WalkerTarget {
    *  (async-actions-and-effects.md Stage 2): the async envelope that awaits an
    *  `or`-union-returning remote op and a discriminant `switch` over its result.
    *  The shared walker-core does the framework-neutral work — detect the awaited
-   *  subject's mutation hook (registered for hoisting via `buildHookUse` /
-   *  `registerApiHook`), classify the error variant, and pre-render every arm's
+   *  subject's data binding (bound through `data-access.ts::bindAccess`),
+   *  classify the error variant, and pre-render every arm's
    *  body — and hands the target a fully-resolved `VariantMatchSpec`.  The
    *  target supplies ONLY the framework-shaped skeleton: React returns an async
    *  `try/catch` (reifying a caught `ApiError` into the error variant) + a

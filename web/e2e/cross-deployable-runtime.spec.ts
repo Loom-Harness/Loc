@@ -7,10 +7,9 @@
 import { expect, type Page, test } from "./_test";
 import {
   browserCanReachNetwork,
-  recordInitialMigration,
-  selectExample,
+  recordAndGenerate,
+  startFromExample,
   waitForBundle,
-  waitForPlaygroundReady,
 } from "./_helpers";
 
 async function pickTarget(page: Page, slug: string): Promise<void> {
@@ -43,16 +42,13 @@ test("cross-deployable: shippingSvc reads and writes ordersSvc through its api c
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
   await page.goto("/");
-  await waitForPlaygroundReady(page);
-  await selectExample(page, /Cross-deployable call/);
+  await startFromExample(page, /Cross-deployable call/);
 
   if (!(await browserCanReachNetwork(page))) {
     test.skip(true, "browser cannot reach the npm registry from this environment");
   }
 
-  await recordInitialMigration(page);
-  await page.getByTestId("btn-generate").click();
-  await expect(page.getByText(/generated \d+ file\(s\)/)).toBeVisible({ timeout: 60_000 });
+  await recordAndGenerate(page);
   await page.getByTestId("btn-bundle").click();
   await waitForBundle(page);
   await page.getByTestId("devtools-tab-backend").click();

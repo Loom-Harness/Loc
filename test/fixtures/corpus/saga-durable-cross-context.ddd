@@ -1,0 +1,70 @@
+// A saga consumer in one context of a durable channel declared by ANOTHER
+// context.  The consumer's saga table maps the idempotent-consumer marker
+// `last_event_id` (the dispatcher's preamble reads and writes it), so the
+// module migration must create the column even though the durable channel is
+// not in the consumer's own context.  The e2e drives an event across the
+// durable relay into the consumer's saga row.
+system SagaDurableCrossContext {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        sku: string
+        operation record() {
+          emit ProductLogged { product: id, at: now() }
+        }
+      }
+      repository Products for Product { }
+      event ProductLogged { product: Product id, at: datetime }
+      channel History {
+        carries: ProductLogged
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  subdomain Admin {
+    context AdminFeed {
+      // Gives AdminFeed a data-source binding; its saga table is the subject.
+      aggregate Note with crudish { text: string }
+      repository Notes for Note { }
+      workflow Feed {
+        productId: Product id
+        seen: int
+        create(e: ProductLogged) by e.product {
+          seen := 1
+        }
+      }
+    }
+  }
+  api CatalogApi from Catalog
+  storage pg { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: pg }
+  resource adminState { for: AdminFeed, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog, AdminFeed]
+    dataSources: [catalogState, adminState]
+    serves: CatalogApi
+    port: 4000
+  }
+
+  // Emitting the event writes the outbox row in the command's transaction.  The
+  // relay drains it asynchronously, so the proof the saga table matches its
+  // migration is the behavioral harness's schema-agreement probe (every
+  // ORM-mapped column selects against the migrated schema), not a read here.
+  test e2e "a command on the producing context emits across the durable channel" against d {
+    let p = api.products.create({ sku: "s1" })
+    api.products.record(p)
+    let got = api.products.getById(p)
+    expect(got.sku).toBe("s1")
+    api.products.update(p, { sku: "s2" })
+    let listed = api.products.all({ sort: "sku", dir: "asc" })
+    expect(listed.total).toBe(1)
+    api.products.destroy(p)
+    let n = api.notes.create({ text: "t" })
+    expect(api.notes.getById(n).text).toBe("t")
+    api.notes.update(n, { text: "u" })
+    expect(api.notes.all({ sort: "text", dir: "asc" }).total).toBe(1)
+    api.notes.destroy(n)
+  }
+}

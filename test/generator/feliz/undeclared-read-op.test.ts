@@ -1,7 +1,7 @@
 // A page read on the Feliz (F#/Fable) frontend that names an operation the
 // aggregate does not expose must fail LOUDLY in codegen.
 //
-// `felizTarget.buildHookUse` once mapped every operation that was not `byId` /
+// `felizTarget.bindDataAccess` once mapped every operation that was not `byId` /
 // `history` onto `readFieldName` (`All<Plural>`), so an unknown read rendered
 // the unfiltered list's field from a model that never declared it, and the
 // filtered query was never issued.  The AST validator gates this shape first

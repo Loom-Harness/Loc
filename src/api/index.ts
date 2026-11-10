@@ -13,7 +13,7 @@
 //   applyPatches(src, ps) → PatchResult      (re-exported from language/)
 // ---------------------------------------------------------------------------
 
-import { EmptyFileSystem, type LangiumDocument, URI } from "langium";
+import type { LangiumDocument } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
 import type {
   GenerateReport,
@@ -34,9 +34,9 @@ import {
   type ValidateLoomModelOptions,
   validateLoomModel,
 } from "../ir/validate/validate.js";
-import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { buildOutline } from "../language/print/index.js";
+import { withSharedDocument } from "../language/shared-services.js";
 import { WALKER_LAYOUT_PRIMITIVES, WALKER_SUB_PRIMITIVES } from "../util/walker-primitive-names.js";
 import {
   buildGenerateReport,
@@ -112,18 +112,21 @@ interface ParsedSource {
   diagnostics: Diagnostic[];
 }
 
-/** Parse a `.ddd` source string in-memory (lex → parse → link → AST-validate)
- *  on a fresh, isolated service instance.  Browser-safe (EmptyFileSystem). */
-async function parseSource(source: string): Promise<ParsedSource> {
-  const services = createDddServices(EmptyFileSystem);
-  const factory = services.shared.workspace.LangiumDocumentFactory;
-  const doc = factory.fromString<Model>(source, URI.parse("memory:///source.ddd"));
-  await services.shared.workspace.DocumentBuilder.build([doc], { validation: true });
-  return {
-    doc,
-    model: doc.parseResult.value as Model | undefined,
-    diagnostics: [...(doc.diagnostics ?? [])],
-  };
+/** Parse a `.ddd` source in-memory (lex → parse → link → AST-validate) on the
+ *  shared service set and run `fn` while the document is live.  The document is
+ *  removed afterwards, so `fn` must finish all AST/IR work before returning.
+ *  Browser-safe (EmptyFileSystem). */
+function withParsed<T>(source: string, fn: (parsed: ParsedSource) => Promise<T> | T): Promise<T> {
+  return withSharedDocument(
+    source,
+    ({ doc }) =>
+      fn({
+        doc,
+        model: doc.parseResult.value as Model | undefined,
+        diagnostics: [...(doc.diagnostics ?? [])],
+      }),
+    { validation: true },
+  );
 }
 
 /** A parse/lex error means the AST is incomplete and lowering can throw —
@@ -176,17 +179,18 @@ export interface ToolkitOptions {
  */
 export async function validate(source: string, opts: ToolkitOptions = {}): Promise<ValidateReport> {
   const path = opts.path ?? "<source>";
-  const { doc, model, diagnostics } = await parseSource(source);
-  const irDiagnostics =
-    model && !hasParseError(diagnostics)
-      ? irDiagnosticsFor(model, path, { designPacks: opts.designPacks })
-      : [];
-  return buildValidateReport({
-    modelPath: path,
-    langiumDiagnostics: diagnostics,
-    doc,
-    irDiagnostics,
-    model,
+  return withParsed(source, ({ doc, model, diagnostics }) => {
+    const irDiagnostics =
+      model && !hasParseError(diagnostics)
+        ? irDiagnosticsFor(model, path, { designPacks: opts.designPacks })
+        : [];
+    return buildValidateReport({
+      modelPath: path,
+      langiumDiagnostics: diagnostics,
+      doc,
+      irDiagnostics,
+      model,
+    });
   });
 }
 
@@ -196,13 +200,14 @@ export async function validate(source: string, opts: ToolkitOptions = {}): Promi
  * walk, no IR phases.  Always returns a valid object.
  */
 export async function outline(source: string): Promise<Outline> {
-  const { model } = await parseSource(source);
-  if (!model) return { systems: [], contexts: [] };
-  try {
-    return buildOutline(model);
-  } catch {
-    return { systems: [], contexts: [] };
-  }
+  return withParsed(source, ({ model }) => {
+    if (!model) return { systems: [], contexts: [] };
+    try {
+      return buildOutline(model);
+    } catch {
+      return { systems: [], contexts: [] };
+    }
+  });
 }
 
 /**
@@ -213,24 +218,25 @@ export async function outline(source: string): Promise<Outline> {
  */
 export async function generate(source: string, opts: ToolkitOptions = {}): Promise<GenerateReport> {
   const path = opts.path ?? "<source>";
-  const { doc, model, diagnostics } = await parseSource(source);
-  const langiumJson = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
+  return withParsed(source, ({ doc, model, diagnostics }) => {
+    const langiumJson = diagnostics.map((d) => langiumDiagnosticToJson(d, doc));
 
-  if (!model || hasParseError(diagnostics)) {
-    return buildGenerateReport({ modelPath: path, diagnostics: langiumJson, deployables: [] });
-  }
+    if (!model || hasParseError(diagnostics)) {
+      return buildGenerateReport({ modelPath: path, diagnostics: langiumJson, deployables: [] });
+    }
 
-  const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
-  const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map((d) =>
-    irDiagnosticToJson(d, doc),
-  );
-  const deployables = loom.systems.flatMap((sys) =>
-    sys.deployables.map((d) => ({ name: d.name, platform: d.platform, port: d.port })),
-  );
-  return buildGenerateReport({
-    modelPath: path,
-    diagnostics: [...langiumJson, ...irJson],
-    deployables,
+    const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
+    const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map((d) =>
+      irDiagnosticToJson(d, doc),
+    );
+    const deployables = loom.systems.flatMap((sys) =>
+      sys.deployables.map((d) => ({ name: d.name, platform: d.platform, port: d.port })),
+    );
+    return buildGenerateReport({
+      modelPath: path,
+      diagnostics: [...langiumJson, ...irJson],
+      deployables,
+    });
   });
 }
 
@@ -259,8 +265,13 @@ function aggregatesOf(ctx: EnrichedBoundedContextIR): ModelAggregate[] {
  * (like {@link generate}); returns an empty view when the source can't lower.
  */
 export async function readModel(source: string): Promise<ModelView> {
-  const { model, diagnostics } = await parseSource(source);
-  if (!model || hasParseError(diagnostics)) return { systems: [], contexts: [] };
+  return withParsed(source, ({ model, diagnostics }) => {
+    if (!model || hasParseError(diagnostics)) return { systems: [], contexts: [] };
+    return modelViewOf(model);
+  });
+}
+
+function modelViewOf(model: Model): ModelView {
   let loom: ReturnType<typeof enrichLoomModel>;
   try {
     loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
