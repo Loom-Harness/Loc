@@ -4565,13 +4565,20 @@ masking. Not (a) inside a per-target drain packet, for the reason below.
   is not missing — it is a different surface, with a different meaning
   (`mask unless` is per-caller authorization; `sensitive` is a data-category
   classification).
-- **Phases 2–4 are three features, not one drain.** Phase 2 is a type-system
-  change (`authorized(<category>)` declassification, with the 2-lite warnings
-  becoming errors); phase 3 is a per-strategy masking arm in five DTO emitters
-  plus the OpenAPI schema that describes them; phase 4 is sink classification —
-  every log event, every emitted domain event's payload, every outbound resource
-  call. Phase 4 in particular has no chokepoint today: the `_obs/` catalog, the
-  channel envelope and the resource clients each build their own payload.
+- **Sensitivity is a field fact, not a type fact.** The tags live on
+  `FieldIR.sensitivity` only — no `TypeIR` and no typing-pass `Ty` carries
+  them, so no type relation, union key or type printer has to carry or ignore
+  them, and there is no information-flow tracking through expressions (and so
+  no "implicit conversion drops a tag" warning). The remaining work is
+  field-level: wire masking strategies, and sink classification, where a log /
+  emitted event / outbound resource call that receives a sensitive *field* is
+  classified at the call.
+- **The rest is two features, not one drain.** Wire masking is a per-strategy
+  arm in five DTO emitters plus the OpenAPI schema that describes them; sink
+  classification covers every log event, every emitted domain event's payload,
+  every outbound resource call. Sink classification in particular has no
+  chokepoint today: the `_obs/` catalog, the channel envelope and the resource
+  clients each build their own payload.
 - **Its failure mode is the one a sweep must not risk.** A masking arm applied
   at four of five response sites, or to the read DTO but not the audit snapshot
   (the exact asymmetry `mask unless` × `audited` hit on .NET, M-T3.9), is

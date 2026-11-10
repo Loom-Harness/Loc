@@ -55,11 +55,10 @@ function nullableBase(t: TypeIR, optionalFlag = false): { base: TypeIR; nullable
   return { base: t, nullable: optionalFlag };
 }
 
-/** Structural type equality, ignoring source spans and sensitivity tags (a
- *  `sensitive(pii)` field and its plain-typed param share one wire slot). */
+/** Structural type equality, ignoring source spans. */
 function sameType(a: TypeIR, b: TypeIR): boolean {
   const strip = (t: TypeIR): string =>
-    JSON.stringify(t, (k, v) => (k === "origin" || k === "sensitivity" ? undefined : v));
+    JSON.stringify(t, (k, v) => (k === "origin" ? undefined : v));
   return strip(a) === strip(b);
 }
 
