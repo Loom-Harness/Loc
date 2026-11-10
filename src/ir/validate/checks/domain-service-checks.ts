@@ -332,7 +332,7 @@ function checkInfraCallsFromAggregates(ctx: BoundedContextIR, diags: LoomDiagnos
   if (nonPure.size === 0) return;
 
   const flag = (where: string, source: string, call: Extract<ExprIR, { kind: "call" }>): void => {
-    const ref = call.serviceRef;
+    const ref = call.callKind === "domain-service" ? call.serviceRef : undefined;
     if (!ref || !nonPure.has(ref.service)) return;
     diags.push({
       severity: "error",

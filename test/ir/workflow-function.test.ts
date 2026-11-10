@@ -9,6 +9,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { expectCallKind } from "../_helpers/call-kind.js";
 import { parseString } from "../_helpers/index.js";
 
 async function irErrorCodes(body: string): Promise<string[]> {
@@ -63,7 +64,7 @@ describe("workflow function(...) — lowering + call model", () => {
     );
     expect(stmt?.expr.kind).toBe("call");
     const call = stmt?.expr as Extract<NonNullable<typeof stmt>["expr"], { kind: "call" }>;
-    expect(call.callKind).toBe("workflow-fn");
+    expectCallKind(call, "workflow-fn");
     expect(call.name).toBe("slaDays");
     // Carries the enclosing workflow name so backends render `<wf><fn>`.
     expect(call.wfScope).toBe("Ops");

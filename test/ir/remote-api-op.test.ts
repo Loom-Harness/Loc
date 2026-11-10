@@ -17,6 +17,7 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR, WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
 import { walkWorkflowStmtExprsDeep } from "../../src/ir/util/walk.js";
+import type { CallOf } from "../_helpers/call-kind.js";
 import { parseString } from "../_helpers/parse.js";
 
 function system(body: string, opts: { bindApi?: boolean; callerPlatform?: string } = {}): string {
@@ -78,8 +79,7 @@ async function workflowExprs(source: string): Promise<ExprIR[]> {
 
 function remoteCalls(exprs: readonly ExprIR[]) {
   return exprs.filter(
-    (e): e is Extract<ExprIR, { kind: "call" }> =>
-      e.kind === "call" && e.callKind === "remote-api-op",
+    (e): e is CallOf<"remote-api-op"> => e.kind === "call" && e.callKind === "remote-api-op",
   );
 }
 

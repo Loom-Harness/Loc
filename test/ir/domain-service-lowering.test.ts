@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { allContexts, type ExprIR } from "../../src/ir/types/loom-ir.js";
+import { expectCallKind } from "../_helpers/call-kind.js";
 import { buildLoomModel } from "../_helpers/index.js";
 
 const SRC = `
@@ -75,7 +76,7 @@ describe("lowering — domainService", () => {
       { kind: "call" }
     >;
     expect(call.kind).toBe("call");
-    expect(call.callKind).toBe("domain-service");
+    expectCallKind(call, "domain-service");
     expect(call.serviceRef).toEqual({ service: "Pricing", op: "quote" });
     expect(call.args.length).toBe(2);
     // The op's declared return type (`money`) flows to the call's result
@@ -101,7 +102,7 @@ describe("lowering — domainService", () => {
     expect(cmp.kind).toBe("binary");
     const read = cmp.left as Extract<ExprIR, { kind: "call" }>;
     expect(read.kind).toBe("call");
-    expect(read.callKind).toBe("repo-read");
+    expectCallKind(read, "repo-read");
     // Fully resolved: the per-backend emitters render against this contract.
     expect(read.repoRead).toEqual({
       repo: "Accounts",
