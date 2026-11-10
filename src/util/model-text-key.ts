@@ -71,7 +71,7 @@ export function modelTextKey(ref: ModelTextRef): string {
 }
 
 /** The English default of a model fact, derived from its identifiers. */
-export function modelTextDefault(ref: ModelTextRef): string {
+function modelTextDefault(ref: ModelTextRef): string {
   switch (ref.facet) {
     case "name.one":
     case "message":
