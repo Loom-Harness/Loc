@@ -15,12 +15,13 @@
 //  1. DECLARED — the `migration "<name>" { … }` blocks the schema-evolution
 //     layer already owns: `Order -> PurchaseOrder` (aggregate rename),
 //     `Sales.Order -> Billing.Order` (cross-context move) and
-//     `Order.qty -> quantity` (field rename).  Same source of truth as
+//     `Order.qty -> quantity` (field rename) and `Status.Draft -> Pending`
+//     (enum value rename).  Same source of truth as
 //     `ddd migrate`; no i18n-specific syntax.  A migration block is a
 //     permanent ledger, so a step whose old key is not in BASE (already
 //     carried) or whose new key is not in THEIRS is inert.
-//  2. INFERRED — for what a migration block cannot name (operations, enum
-//     values, rules, error messages, anything without a block): a 1:1 pairing.
+//  2. INFERRED — for what no migration block names (operations, enum values, rules,
+//     error messages, anything without a block): a 1:1 pairing.
 //     Exactly one key vanished and exactly one appeared with the same shape
 //     AND the same source text.  Anything ambiguous is left alone, so the
 //     translation is dropped exactly as before rather than guessed.
@@ -28,7 +29,7 @@
 // Pure: no fs, no parse.
 // ---------------------------------------------------------------------------
 
-import { isModelTextKey } from "../util/model-text-key.js";
+import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
 import { type Catalog, fileKeyOf, namespaceOf, runtimeKeyOf } from "./namespace.js";
 
 /** The rename facts the schema-evolution layer declares, as plain names. */
@@ -37,6 +38,9 @@ export interface DeclaredRenames {
   columns: readonly { context: string; aggregate: string; from: string; to: string }[];
   /** `Old -> New` / `A.Old -> B.New` steps. */
   tables: readonly { from: string; to: string; fromContext?: string; toContext?: string }[];
+  /** `Enum.Old -> New` steps; `context` is the enum's declaring context,
+   *  absent for a root-level enum (its keys file under `_system`). */
+  enumValues?: readonly { context?: string; enum: string; from: string; to: string }[];
 }
 
 const NO_DECLARED_RENAMES: DeclaredRenames = { columns: [], tables: [] };
@@ -156,6 +160,12 @@ export function detectRenamesReport(
     for (const c of declared.columns) {
       if (c.context === ctx && c.aggregate === type && rest === `field.${c.from}`) {
         rest = `field.${c.to}`;
+        break;
+      }
+    }
+    for (const v of declared.enumValues ?? []) {
+      if ((v.context ?? SYSTEM_TEXT_NS) === ctx && v.enum === type && rest === `value.${v.from}`) {
+        rest = `value.${v.to}`;
         break;
       }
     }
