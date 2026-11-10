@@ -31,7 +31,6 @@ import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sourceText } from "../_i18n/source-text.js";
-import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
@@ -126,50 +125,6 @@ export function renderBreadcrumbs(
     )
     .join("\n");
   return `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${indent(itemsHeex, 2)}\n  </ol>\n</nav>`;
-}
-
-/** `Anchor("label", to: "/path")` → `<.link navigate={~p"/path"}>label</.link>`
- *  A literal internal route uses the verified-route `~p` sigil; a literal
- *  external URL falls back to `<a href="...">`.  A *dynamic* `to:` (e.g.
- *  `"/x/" <> id`) is an Elixir expression, so it must ride a HEEx EXPRESSION
- *  attribute — `<.link navigate={<expr>}>` — never a quoted literal attribute
- *  (which would emit `href="…" <> id"`, a HEEx tokenizer ParseError).
- *  `testid:` becomes `data-testid`. */
-export function renderAnchor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let label = "";
-  let toLiteral: string | undefined;
-  let toExpr: string | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "to") {
-      if (arg.kind === "literal") {
-        toLiteral = arg.value;
-      } else {
-        toExpr = renderExpr(arg, { ...ctx, position: "template" });
-      }
-    }
-  }
-  label = positional[0] ? renderInTemplate(positional[0], ctx, "anchor") : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  if (toLiteral !== undefined) {
-    if (toLiteral.startsWith("/")) {
-      return `<.link navigate={~p"${toLiteral}"}${testidAttr}>${label}</.link>`;
-    }
-    return `<a href="${toLiteral}"${testidAttr}>${label}</a>`;
-  }
-  // NO `to:` at all — a breadcrumb leaf / plain label, exactly what the JSX
-  // family renders as a bare `<Anchor>`/`<a>` and Feliz as `Html.span`.  Routed
-  // into the dynamic branch below it would emit `<.link navigate={}>` with an
-  // EMPTY expression attribute — a tokenizer ParseError at `mix compile`, so
-  // one linkless Anchor takes the whole LiveView app out.  `renderIdLink`
-  // spells the same no-destination case as a `<span>`.
-  if (toExpr === undefined) return `<span${testidAttr}>${label}</span>`;
-  // Dynamic route expression — emit it as a HEEx expression attribute.
-  return `<.link navigate={${toExpr}}${testidAttr}>${label}</.link>`;
 }
 
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
@@ -1570,47 +1525,6 @@ export function renderSkeleton(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wal
   return `<div class="skeleton" aria-hidden="true"${testidAttr}>\n${lines}\n</div>`;
 }
 
-/** A Loom `color:` → the daisyUI alert modifier.  The raw colour (`alert-red`)
- *  matches no class in either HEEx pack's CSS, so it must be mapped or a
- *  coloured alert renders unstyled.  Mirrors the mapping the JSX packs and
- *  the (vestigial) `primitive-alert.heex.hbs` templates already use. */
-function alertVariant(color: string): string {
-  switch (color) {
-    case "yellow":
-      return "alert-warning";
-    case "green":
-      return "alert-success";
-    case "blue":
-      return "alert-info";
-    default:
-      return "alert-error";
-  }
-}
-
-/** `Alert("message", title?)` → `<div class="alert">`.
- *
- *  `title:` is a USER-VISIBLE slot (`alertTitle` in `USER_VISIBLE_SLOTS`), so it
- *  is extracted into the catalog whether or not it renders — dropping it here
- *  handed a translator a string the app never showed (the class of defect
- *  `user-visible-slot-coverage.test.ts` now gates).  Emitted as the same leading
- *  bold line the JSX packs use, and translated through the shared role. */
-export function renderAlert(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let color = "red";
-  let message = "";
-  let title = "";
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  if (positionals[0]) message = renderInTemplate(positionals[0], ctx, "alert");
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "color" && arg.kind === "literal") color = arg.value;
-    else if (name === "title") title = renderInTemplate(arg, ctx, "alertTitle");
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const titleEl = title ? `<p class="font-medium">${title}</p>` : "";
-  return `<div class="alert ${alertVariant(color)}" role="alert"${testidAttr}>${titleEl}${message}</div>`;
-}
-
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
  *
  *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
@@ -1785,19 +1699,6 @@ export function renderTimeline(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wal
   ].join("\n");
 }
 
-/** `DateDisplay(date_expr)` → `<time>` with formatted date. */
-export function renderDateDisplay(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const dateExpr = positionals[0];
-  if (!dateExpr) return `<time${testidAttr}></time>`;
-  const val = renderExpr(dateExpr, { ...ctx, position: "template" });
-  return `<time datetime={to_string(${val})}${testidAttr}><%= Calendar.strftime(${val}, "%Y-%m-%d") %></time>`;
-}
-
 /** The translated-label lookup of an `EnumBadge` value whose enum is known —
  *  the member's resolved type, else (a table row binding, whose member types
  *  are not resolved) the field's declared type on the row's aggregate. */
@@ -1821,15 +1722,13 @@ function enumBadgeLookup(
   return enumLabelLookup(ctx, enumName, renderExpr(value, { ...ctx, position: "template" }));
 }
 
-/** `EnumBadge(enum_value)` → `<.badge>` with the enum value. */
-export function renderEnumBadge(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const first = positionals[0];
+/** The text an `EnumBadge` shows for `value`: under i18n an enum member read
+ *  resolves to its translated display label, anything else renders as a
+ *  template slot. */
+export function heexEnumBadgeText(value: ExprIR, ctx: WalkContext): string {
   const lookup =
-    first?.kind === "member" && ctx.i18nPrefix ? enumBadgeLookup(first, ctx) : undefined;
-  const val = lookup ? `<%= ${lookup} %>` : first ? renderInTemplate(first, ctx) : "";
-  return `<span class="badge badge-enum"${testidAttr}>${val}</span>`;
+    value.kind === "member" && ctx.i18nPrefix ? enumBadgeLookup(value, ctx) : undefined;
+  return lookup ? `<%= ${lookup} %>` : renderInTemplate(value, ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -1843,13 +1742,10 @@ const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
 
 /** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
  *  Listed inline so the small set is easy to scan.  The registered
- *  per-primitive exports (`renderStack`, `renderHeading`, …) bind to
+ *  per-primitive exports (`renderToolbar`, `renderButton`, …) bind to
  *  these specs; the typed dispatch table at
  *  src/generator/_walker/registry.ts wires them up by name. */
 const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  // Heading is rendered by the bespoke `renderHeading` (raw `<h{n}>` with a
-  // structure-derived rank), not through this generic spec table.
-  Text: { tag: "p", takesChildren: true },
   // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
   // author's `label:` overrides it (and translates), which needs
   // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
@@ -1868,7 +1764,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
   // hardcoded English "No items." instead — a content defect, not just an i18n
   // one.  `.empty` now takes an inner block (keeping that text as its fallback).
   Empty: { tag: ".empty", takesChildren: true },
-  Badge: { tag: ".badge", takesChildren: true },
   // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
   // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
   // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
@@ -1884,11 +1779,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     passThroughAttrs: ["to", "disabled", "type", "variant"],
     staticAttrs: ["variant", "type"],
   },
-  // --- inline-emphasis primitives — plain HTML inline elements, the
-  //     Phoenix analogue of the TSX `<strong>`/`<em>`/`<code>` spans. ---
-  Bold: { tag: "strong", takesChildren: true },
-  Italic: { tag: "em", takesChildren: true },
-  InlineCode: { tag: "code", takesChildren: true },
   // --- scaffold expander primitives ---
   // `Paper` is a titleless `Card` (same surface, no header) — same pack
   // component, so the two stay visually consistent by construction.
@@ -1899,122 +1789,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
 // `renderPrimitive` helper to a specific `closedPrimitive` spec so
 // the typed dispatch table can reference one named function per
 // primitive (rather than re-dispatching by name inside the renderer).
-/** `Heading("text", level?)` → a raw `<h{n}>` whose rank is the explicit
- *  `level:` (1..6) or, when absent, DERIVED from the enclosing `Section`/`Card`
- *  nesting depth: `min(6, 2 + headingDepth)` — matching the JSX frontends
- *  (`emitHeading` in _walker/primitives/text.ts) so ranks never skip.  At page
- *  top (depth 0) this is `<h2>`; the app shell owns the single `<h1>`.
- *
- *  Emitting a raw `<h{n}>` (vs the fixed-level `.header` CoreComponent, which
- *  always renders an `<h1>`) is what makes the derived rank observable to
- *  assistive tech — the `.header`'s subtitle/action slots are unused by Loom's
- *  `Heading` primitive, so nothing is lost.  The class mirrors `.header`'s own
- *  typography so the visual result is unchanged. */
-export function renderHeading(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let level: number | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "level" && arg.kind === "literal") {
-      level = Number(arg.value);
-    }
-  }
-  const rank = level ?? Math.min(6, 2 + (ctx.headingDepth ?? 0));
-  const text = positional[0] ? renderInTemplate(positional[0], ctx, "heading") : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  return `<h${rank} class="text-lg font-semibold leading-8 text-zinc-800"${testidAttr}>${text}</h${rank}>`;
-}
-export function renderText(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Text!, expr, ctx);
-}
-export function renderBold(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Bold!, expr, ctx);
-}
-export function renderItalic(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Italic!, expr, ctx);
-}
-export function renderInlineCode(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.InlineCode!, expr, ctx);
-}
-
-/** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
- *  quoted strings; refs render as `{@assign}` HEEx expressions. */
-export function renderImage(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // Reads the POSITIONAL shorthand as well as the named `src:`/`alt:` — every
-  // other target renders `Image { "/logo.png" }` / `Image { row.thumbnailUrl }`
-  // (the same first-positional-is-the-value rule Text / Money / EnumBadge
-  // follow), and reading only the named args would emit an `<img>` with NO
-  // `src`.  `decorative: true` is read too, for the same reason: the JSX walker
-  // turns it into an explicit empty `alt`, and dropping it here would leave a
-  // decorative image announcing itself to assistive tech.
-  let srcArg: ExprIR | undefined;
-  let altArg: ExprIR | undefined;
-  let decorative = false;
-  let positional: ExprIR | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "src") srcArg = arg;
-    else if (name === "alt") altArg = arg;
-    else if (name === "decorative" && arg.kind === "literal")
-      decorative = String(arg.value) === "true";
-    else if (name === undefined && positional === undefined) positional = arg;
-  }
-  // A named `src:` wins over the shorthand, matching `emitImage`.
-  const src = srcArg ?? positional;
-  const srcAttr = src ? ` src=${attrValue(src, ctx)}` : "";
-  const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : decorative ? ` alt=""` : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  return `<img${srcAttr}${altAttr}${testidAttr} />`;
-}
-
-/** `Stat(label, value)` → a small headline-stat block (dimmed label +
- *  bold value), the HEEx analogue of the TSX `primitive-stat` template. */
-export function renderStat(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const label = positionals[0] ? renderInTemplate(positionals[0], ctx, "statLabel") : "";
-  const value = positionals[1] ? renderInTemplate(positionals[1], ctx, "statValue") : "";
-  return `<div class="stat"${testidAttr}>\n  <div class="stat-label text-sm text-gray-500">${label}</div>\n  <div class="stat-value text-2xl font-semibold">${value}</div>\n</div>`;
-}
-
-/** `Avatar(src?, alt?)` → a circle-cropped `<img>`, or a neutral circle
- *  placeholder when no `src:` (the HEEx analogue of the packs' user-icon
- *  fallback). */
-export function renderAvatar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let srcArg: ExprIR | undefined;
-  let altArg: ExprIR | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "src") srcArg = arg;
-    else if (name === "alt") altArg = arg;
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const cls = "inline-block h-8 w-8 rounded-full";
-  if (srcArg) {
-    const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : ` alt=""`;
-    return `<img class="${cls} object-cover" src=${attrValue(srcArg, ctx)}${altAttr}${testidAttr} />`;
-  }
-  // No image to carry the alt, so the placeholder itself is the named image.
-  const named = altArg ? ` role="img" aria-label=${attrValue(altArg, ctx)}` : "";
-  return `<span class="${cls} bg-gray-200"${named}${testidAttr}></span>`;
-}
-
-/** `Loader(size?)` → an animated spinner.  The optional `size:` is dropped
- *  (a single spinner size, like the packs that don't vary it). */
-export function renderLoader(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const name = heexChrome(ctx, "loading");
-  const aria = name.call !== undefined ? `{${name.call}}` : `"${escapeHeexAttr(name.english)}"`;
-  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label=${aria}${testidAttr}></div>`;
-}
 
 /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under its
  *  own generate-time name (`Deutsch`, `Français`).  Choosing one writes the
@@ -2029,39 +1803,6 @@ export function renderLocaleSwitcher(
   return renderLocaleSelect(ctx.appModule, ctx.locales ?? [], testidAttr);
 }
 
-/** `Money(value, currency?, decimals?)` → a money span.  An optional
- *  `currency:` literal prefixes the amount; `decimals:` is left to the value's
- *  natural precision.
- *
- *  The amount renders through `to_string/1`, not `Decimal.to_string/1`, because
- *  the three things a `Money { … }` slot is handed are not all Decimals:
- *
- *    - an AGGREGATE field read is a `%Decimal{}` — `to_string/1` dispatches
- *      String.Chars to `Decimal.to_string/1`, byte-identical output;
- *    - a query-time PROJECTION field is already a STRING (money rides the
- *      Elixir wire as `to_string(...)` — RS-24), and `Decimal.to_string/1`
- *      raises FunctionClauseError on a binary;
- *    - a LITERAL (`Money(value: 9.99)`) is a float, which raises the same way.
- *
- *  So a narrower `Decimal.to_string/1` cast is wrong for two of the three and
- *  identical for the third.  The TYPED money cast (`string(x: money)` in
- *  `render-expr.ts`) keeps
- *  `Decimal.to_string/1` — there the operand's type is known. */
-export function renderMoney(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let currency: string | undefined;
-  let valueArg: ExprIR | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "value") valueArg = arg;
-    else if (name === "currency" && arg.kind === "literal") currency = arg.value;
-    else if (!name && !valueArg) valueArg = arg;
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const val = valueArg ? renderExpr(valueArg, { ...ctx, position: "template" }) : "0";
-  const prefix = currency ? `${currency} ` : "";
-  return `<span class="money"${testidAttr}>${prefix}<%= to_string(${val}) %></span>`;
-}
 /** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
  *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
  *  declares the matching `slot :inner_block`. */
@@ -2391,9 +2132,6 @@ export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
 }
-export function renderBadge(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Badge!, expr, ctx);
-}
 /** `Button("Save", icon: "plus", iconPosition: "left", loading: <expr>)`.
  *
  *  `icon:` / `iconSvg:` / `iconPosition:` / `loading:` are not attrs
@@ -2549,72 +2287,6 @@ export function renderCodeBlock(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     );
   }
   return `<pre class="loom-code-block"${testidAttr}><code${langClass}>${escaped}</code></pre>`;
-}
-
-/** `Icon(name: "github", size: "md")` or `Icon(svg: "<svg…>")` →
- *  `<span class="loom-icon loom-icon-md">…svg…</span>`.  The SVG
- *  content is emitted verbatim — Loom's IR has already resolved
- *  either the builtin-name lookup or the user-supplied literal
- *  before the walker sees it (matches the TSX path at
- *  `walker/primitives/icon.ts:32`). */
-export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let name: string | undefined;
-  let customSvg: string | undefined;
-  let size: string | undefined;
-  let label: string | undefined;
-  let labelArg: ExprIR | undefined;
-  let decorative = false;
-  for (let i = 0; i < expr.args.length; i++) {
-    const argName = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (argName === "name" && arg.kind === "literal") name = arg.value;
-    else if (argName === "svg" && arg.kind === "literal") customSvg = arg.value;
-    else if (argName === "size" && arg.kind === "literal") size = arg.value;
-    else if (argName === "label") {
-      labelArg = arg;
-      if (arg.kind === "literal") label = arg.value;
-    } else if (argName === "decorative" && arg.kind === "literal")
-      decorative = String(arg.value) === "true";
-  }
-  // User-supplied SVG wins; falls back to the builtin registry — the SAME
-  // precedence and the same lookup as the TSX emitter
-  // (`_walker/primitives/icon.ts`), so `Icon { name: "check" }` renders the
-  // same glyph on every target rather than an empty `<span class="loom-icon">`.
-  //
-  // Both refusals match the JSX walker arm for arm: an author who named
-  // NOTHING (`Icon { }` — no glyph to look up on any target) and a `name:` the
-  // builtin registry does not resolve are separate give-ups with separate
-  // codes, rather than one silently-empty element that reads as a rendered
-  // icon.
-  const svg = customSvg ?? (name !== undefined ? lookupBuiltinIcon(name) : undefined);
-  if (svg === undefined) {
-    return name === undefined
-      ? `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`
-      : `<!-- ${giveUpText("loom.page-primitive-arg-invalid", `unknown icon name '${name}'`)} -->`;
-  }
-  const sizeClass = size ? ` loom-icon-${size}` : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // Decorative-by-default (icon a11y contract): hidden from assistive tech
-  // unless a `label:` gives it meaning, in which case the glyph becomes a NAMED
-  // `role="img"`.  HEEx shares the HTML spelling with the JSX/markup packs
-  // (`iconA11yAttr`), so the shape below matches theirs arm for arm: a literal
-  // name is translated under i18n (HEEx's `{pgettext(…)}` attribute form),
-  // static otherwise; a DYNAMIC name binds the expression rather than folding
-  // the icon back to decorative and silently dropping the author's request.
-  //
-  // The STATIC arm still goes through the shared `iconA11yAttr` rather than
-  // being respelled here: it owns the escaping (`escapeHtmlAttr`, which covers
-  // `<`/`>` that HEEx's attribute funnel does not), so routing around it would
-  // change the i18n-OFF bytes on a hostile label.
-  const named = labelArg !== undefined && label !== "" && !decorative;
-  const bound = named
-    ? (localizedHeexAttr(labelArg!, ctx, "iconLabel") ??
-      (label === undefined
-        ? `{${renderExpr(labelArg!, { ...ctx, position: "template" })}}`
-        : undefined))
-    : undefined;
-  const a11yAttr = bound ? ` role="img" aria-label=${bound}` : iconA11yAttr({ label, decorative });
-  return `<span class="loom-icon${sizeClass}"${testidAttr}${a11yAttr}>${svg}</span>`;
 }
 
 // ---------------------------------------------------------------------------

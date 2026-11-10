@@ -5,7 +5,7 @@
 // judged as its first variant.
 
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { type Ty, tyKey } from "./ty.js";
+import { type RecordShape, type Ty, tyKey } from "./ty.js";
 
 /** `none` is the unit variant only an `option` builds, so a two-variant union
  *  carrying it prints the way it was written. */
@@ -38,6 +38,8 @@ export function typeToString(t: Ty): string {
             return `{ id } of ${t.shape.ref.name}`;
           case "request":
             return "request body";
+          case "fields":
+            return t.shape.name;
           default:
             return t.shape.ref.name;
         }
@@ -92,6 +94,8 @@ export function typesEqual(a: Ty, b: Ty): boolean {
     }
     case "record": {
       const o = (b as typeof a).shape;
+      if (a.shape.of === "fields" || o.of === "fields")
+        return a.shape.of === o.of && recordFieldsName(a.shape) === recordFieldsName(o);
       return a.shape.of === o.of && a.shape.ref === o.ref;
     }
     case "array":
@@ -228,4 +232,9 @@ export function ternaryJoin(a: Ty, b: Ty): Ty | undefined {
   if (isNullish(a)) return opt(b);
   if (isNullish(b)) return opt(a);
   return undefined;
+}
+
+/** The wire name of a fixed-fields record (the runtime defines one per name). */
+function recordFieldsName(shape: RecordShape): string | undefined {
+  return shape.of === "fields" ? shape.name : undefined;
 }

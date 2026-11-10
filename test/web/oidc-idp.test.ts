@@ -5,6 +5,7 @@
 // the JWKS the provider serves.  The generated verifier itself runs against it
 // in `web/e2e/oidc-identity-provider.spec.ts`.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose";
@@ -12,8 +13,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { jwtPayload, oidcSetup, personaSubject } from "../../web/src/backend/oidc-personas.js";
 import { bootPlan } from "../../web/src/build/boot-plan.js";
 import { composeServiceEnv } from "../../web/src/build/deployables.js";
+import { SYNC_SHA256 } from "../../web/src/engine/npm/esbuild-vfs-plugin.js";
+import { CookieJar, followNavigation } from "../../web/src/preview/auth-navigation.js";
 import { oidcService, type TokenSet } from "../../web/src/runtime/infra/oidc.js";
 import type { HttpResponseData } from "../../web/src/runtime/infra/resource-types.js";
+import type { DispatchResult, SerializedRequest } from "../../web/src/runtime/protocol.js";
 import { isIssuerUrl } from "../../web/src/runtime/resource-fakes.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -231,5 +235,176 @@ describe("isIssuerUrl — which requests a deployable hands the identity provide
     expect(isIssuerUrl(ISSUER, ISSUER)).toBe(true);
     expect(isIssuerUrl(`${ISSUER}-other/x`, ISSUER)).toBe(false);
     expect(isIssuerUrl(`${ISSUER}/x`, null)).toBe(false);
+  });
+});
+
+const TOKEN = `${ISSUER}/protocol/openid-connect/token`;
+const AUTH = `${ISSUER}/protocol/openid-connect/auth`;
+const b64url = (b: Buffer): string =>
+  b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+function authUrl(params: Record<string, string>): string {
+  const u = new URL(AUTH);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  return u.toString();
+}
+
+describe("the authorization code flow (code + PKCE)", () => {
+  beforeEach(async () => {
+    await oidcService.reset();
+    await call("configure", (await exampleSetup()).setup);
+  });
+
+  const verifier = "a-verifier-of-enough-length-for-pkce-0123456789";
+  const challenge = b64url(createHash("sha256").update(verifier).digest());
+  const redirect = "http://localhost:3000/api/auth/callback";
+  const request = (extra: Record<string, string> = {}) =>
+    authUrl({
+      response_type: "code",
+      client_id: "desk-app",
+      redirect_uri: redirect,
+      state: "st-1",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      ...extra,
+    });
+  const exchange = (code: string, v = verifier, uri = redirect) =>
+    http(
+      "POST",
+      TOKEN,
+      new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: uri,
+        client_id: "desk-app",
+        code_verifier: v,
+      }).toString(),
+    );
+
+  it("redirects back with a code and the state, and exchanges the code once", async () => {
+    const { location } = await call<{ location: string }>("authorize", {
+      url: request(),
+      persona: "demo-admin",
+    });
+    const back = new URL(location);
+    expect(back.origin + back.pathname).toBe(redirect);
+    expect(back.searchParams.get("state")).toBe("st-1");
+    const code = back.searchParams.get("code") ?? "";
+    const ok = await exchange(code);
+    expect(ok.status).toBe(200);
+    expect((await verify(ok.json.access_token as string)).payload.preferred_username).toBe(
+      "demo-admin",
+    );
+    expect((await exchange(code)).json.error).toBe("invalid_grant");
+    expect(await call("grants")).toEqual([{ grant: "authorization_code", persona: "demo-admin" }]);
+  });
+
+  it("refuses a code without the matching PKCE verifier or redirect_uri", async () => {
+    const codeOf = async () =>
+      new URL(
+        (await call<{ location: string }>("authorize", { url: request(), persona: "demo" }))
+          .location,
+      ).searchParams.get("code") ?? "";
+    expect((await exchange(await codeOf(), "the-wrong-verifier")).json).toMatchObject({
+      error: "invalid_grant",
+    });
+    expect((await exchange(await codeOf(), verifier, "http://localhost:9/cb")).json).toMatchObject({
+      error: "invalid_grant",
+    });
+  });
+
+  it("answers an unknown client with an error redirect", async () => {
+    const { location } = await call<{ location: string }>("authorize", {
+      url: request({ client_id: "other" }),
+      persona: "demo",
+    });
+    expect(new URL(location).searchParams.get("error")).toBe("unauthorized_client");
+  });
+
+  it("mints grant tokens with the configured lifetime", async () => {
+    await call("settings", { accessTokenLifetime: 5 });
+    const set = (await http("POST", TOKEN, "grant_type=password&username=demo&password=demo")).json;
+    const p = jwtPayload(set.access_token as string) as { iat: number; exp: number };
+    expect(p.exp - p.iat).toBe(5);
+  });
+});
+
+describe("the node:crypto polyfill's createHash", () => {
+  it("computes SHA-256 like Node", () => {
+    const sha256 = new Function(`${SYNC_SHA256}; return sha256;`)() as (
+      b: Uint8Array,
+    ) => Uint8Array;
+    for (const text of ["", "abc", "x".repeat(55), "x".repeat(56), "y".repeat(1000)]) {
+      expect(Buffer.from(sha256(new TextEncoder().encode(text))).toString("hex")).toBe(
+        createHash("sha256").update(text).digest("hex"),
+      );
+    }
+  });
+});
+
+describe("CookieJar", () => {
+  it("sets, replaces and deletes cookies the way a browser does", () => {
+    const jar = new CookieJar();
+    expect(jar.header()).toBeNull();
+    jar.store(["session=a; Path=/; HttpOnly", "refresh=r1; Path=/; HttpOnly; SameSite=Lax"]);
+    expect(jar.header()).toBe("session=a; refresh=r1");
+    jar.store(["session=b; Path=/"]);
+    expect(jar.header()).toBe("session=b; refresh=r1");
+    jar.store(["session=; Max-Age=0; Path=/", "refresh=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT"]);
+    expect(jar.header()).toBeNull();
+  });
+});
+
+describe("followNavigation — the sign-in redirect chain", () => {
+  const res = (
+    status: number,
+    headers: Record<string, string> = {},
+    body = "",
+  ): DispatchResult => ({
+    ok: true,
+    durationMs: 0,
+    response: { status, statusText: "", headers, body },
+  });
+
+  it("walks login → the login page → callback → the app, and stops when the login page is cancelled", async () => {
+    const seen: string[] = [];
+    const dispatch = async (req: SerializedRequest): Promise<DispatchResult> => {
+      const path = new URL(req.url).pathname;
+      seen.push(path);
+      if (path === "/api/auth/login")
+        return res(302, { location: `${AUTH}?client_id=desk-app&state=s` });
+      if (path === "/api/auth/callback")
+        return res(302, { location: "http://localhost:3001/notes" });
+      return res(404);
+    };
+    const deps = {
+      dispatch,
+      issuers: [ISSUER],
+      apiBase: "/api",
+      authorize: async (_url: string, persona: string) =>
+        `http://localhost:3000/api/auth/callback?code=c-${persona}&state=s`,
+    };
+    expect(
+      await followNavigation("/api/auth/login", { ...deps, choosePersona: async () => "demo" }),
+    ).toEqual({
+      kind: "app",
+      path: "/notes",
+    });
+    expect(seen).toEqual(["/api/auth/login", "/api/auth/callback"]);
+    expect(
+      await followNavigation("/api/auth/login", { ...deps, choosePersona: async () => null }),
+    ).toEqual({ kind: "cancelled" });
+  });
+
+  it("reports a backend error instead of landing on the app", async () => {
+    const out = await followNavigation("/api/auth/callback?code=x", {
+      dispatch: async () => res(400, {}, '{"error":"invalid_state"}'),
+      issuers: [ISSUER],
+      apiBase: "/api",
+      choosePersona: async () => "demo",
+      authorize: async () => "",
+    });
+    expect(out).toMatchObject({ kind: "error" });
+    expect((out as { message: string }).message).toContain("invalid_state");
   });
 });

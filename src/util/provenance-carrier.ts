@@ -29,3 +29,18 @@ export const PROVENANCE_VALUE_FIELD = "value";
 /** The carrier member holding the write's lineage — nullable, because a field
  *  that has never been written has no lineage yet. */
 export const PROVENANCE_LINEAGE_FIELD = "lineage";
+
+/** The lineage record's members, as every backend's `ProvLineage` writes them:
+ *  the rule's `snapshotId`, the written `target` (`{ type, field }`), the
+ *  `inputs` it read (`{ path, value }` each) and the `computedValue` — every
+ *  value in its wire encoding (docs/provenance.md). */
+export const PROVENANCE_LINEAGE_MEMBERS = {
+  snapshotId: "snapshotId",
+  target: "target",
+  targetType: "type",
+  targetField: "field",
+  inputs: "inputs",
+  inputPath: "path",
+  inputValue: "value",
+  computedValue: "computedValue",
+} as const;

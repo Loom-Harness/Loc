@@ -61,7 +61,11 @@ export type RecordShape =
   | { of: "tagged"; ref: Ty }
   /** A `test e2e` request body: the record of `ref`'s params, each as the
    *  JSON the client sends. */
-  | { of: "request"; ref: Create | Operation | WorkflowCreateDecl };
+  | { of: "request"; ref: Create | Operation | WorkflowCreateDecl }
+  /** A fixed record the generated runtime defines rather than the model (an
+   *  audit history entry, a list query, a provenance lineage): `name` is its
+   *  wire name, `fields` its members. */
+  | { of: "fields"; name: string; fields: Readonly<Record<string, Ty>> };
 
 /** Why a node has no type. Every `unknown` names one, so a census can count
  *  them by cause and #3133's gate can refuse the ones that reach codegen. */
@@ -169,6 +173,8 @@ function recordName(shape: RecordShape): string {
       return "__Tagged__";
     case "request":
       return "__Request__";
+    case "fields":
+      return shape.name;
     default:
       return shape.ref.name;
   }

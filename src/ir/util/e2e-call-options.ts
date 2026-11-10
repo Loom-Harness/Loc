@@ -16,11 +16,11 @@
 // honour it yet fails the case under a tracked expected failure; the test still
 // states the contract.
 
+import { E2E_IF_MATCH_OPTION } from "../../util/e2e-call-options.js";
 import { operationVersionCheck, readsIfMatch } from "../enrich/version-check.js";
 import type { AggregateIR, ExprIR } from "../types/loom-ir.js";
 
-/** The one key the options object accepts. */
-export const E2E_IF_MATCH_OPTION = "ifMatch";
+export { E2E_IF_MATCH_OPTION } from "../../util/e2e-call-options.js";
 
 /** The parsed options argument: `undefined` when the call passes none, the
  *  `ifMatch` expression when it is the accepted `{ ifMatch: <expr> }` literal,

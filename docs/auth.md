@@ -1755,7 +1755,8 @@ browser's infra worker (`web/src/runtime/infra/oidc.ts`):
 - **Tokens.** The Auth tab mints one for the persona you pick, with its claims
   editable (another tenant, another permission set); the API console and the
   preview send it as `Authorization: Bearer …`. The token endpoint answers the
-  `password` grant and rotates refresh tokens (each redeems once).
+  `authorization_code` grant (PKCE `S256` checked against the challenge) and
+the `password` grant, and rotates refresh tokens (each redeems once).
 
 ```ddd
 system Desk {
@@ -1781,10 +1782,16 @@ const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
 An expired token, one signed with another key and one minted for another
 audience are each refused with 401 by that code; `demo` is refused `close()`
 with 403 and `demo-admin`, who holds `support.closeNotes`, is not; a token
-whose `tenantId` names another tenant reads only that tenant's rows. The
-browser-redirect login (`/api/auth/login` → the provider's login page →
-`/api/auth/callback`) is not served by the playground provider: the preview
-signs in through the Auth tab.
+whose `tenantId` names another tenant reads only that tenant's rows.
+
+The generated frontend's own login (`auth: ui`) runs too. Its **Sign in**
+navigates to `/api/auth/login`; the preview cancels that navigation and follows
+the redirect chain itself: the backend's `/login` (state + PKCE cookies) → the
+provider's login page, rendered inside the preview (one button per persona) →
+the backend's `/callback`, which exchanges the code with its PKCE verifier and
+sets the HttpOnly `session` and `refresh` cookies → the app. The preview keeps
+those cookies for the app's requests, so `/api/auth/refresh` rotates the
+refresh token when the access token expires and **Sign out** clears both.
 
 ## Token audience (`aud`)
 

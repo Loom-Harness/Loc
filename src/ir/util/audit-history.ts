@@ -31,7 +31,12 @@
 //
 // Platform-neutral and browser-safe: pure structural reads off the resolved IR.
 // -------------------------------------------------------------------------
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import {
+  AUDIT_ENTRY_MEMBERS,
+  AUDIT_FIELD_CHANGE_MEMBERS,
+  AUDIT_HISTORY_FIND,
+  type AuditWireMember,
+} from "../../util/audit-names.js";
 import { partContentMask } from "../enrich/mask-taint.js";
 import { forHistoryDiff, wireFieldsFor } from "../enrich/wire-projection.js";
 import type { AggregateIR, FindIR, TypeIR, WireField } from "../types/loom-ir.js";
@@ -40,15 +45,18 @@ import { aggHasAuditedTarget } from "./audit-capability.js";
 /** Name of the derived per-entity history read — re-exported from `util/` so
  *  the phase-② scaffold macro can name the same read without value-importing
  *  `ir/` (see `src/util/audit-names.ts`).  This module's surface is unchanged. */
-export { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+export {
+  AUDIT_ENTRY_TYPE,
+  AUDIT_FIELD_CHANGE_TYPE,
+  AUDIT_HISTORY_FIND,
+} from "../../util/audit-names.js";
 
-/** Wire type name of one history entry — the DTO every backend emits. */
-export const AUDIT_ENTRY_TYPE = "AuditEntry";
-
-/** Wire type name of one field-level change inside an entry. */
-export const AUDIT_FIELD_CHANGE_TYPE = "AuditFieldChange";
-
-const prim = (name: "string" | "datetime" | "json"): TypeIR => ({ kind: "primitive", name });
+/** A history member's IR type.  `changes` is a `json[]` here: each emitter
+ *  renders its elements as the `AuditFieldChange` record by name. */
+function memberType(t: AuditWireMember["type"]): TypeIR {
+  if (t === "changes") return { kind: "array", element: { kind: "primitive", name: "json" } };
+  return { kind: "primitive", name: t };
+}
 
 /** Build a wire field in the canonical history vocabulary.  Everything here is
  *  server-derived and read-only, so the access role is `immutable` — never
@@ -70,11 +78,7 @@ function wf(name: string, type: TypeIR, optional = false): WireField {
  *  Both sides are nullable and both are meaningful: a `create` has no `before`
  *  (every field reads null → value) and a `destroy` has no `after`. */
 export function auditFieldChangeWireShape(): WireField[] {
-  return [
-    wf("field", prim("string")),
-    wf("before", prim("json"), true),
-    wf("after", prim("json"), true),
-  ];
+  return AUDIT_FIELD_CHANGE_MEMBERS.map((m) => wf(m.name, memberType(m.type), m.optional));
 }
 
 /** One entry in an entity's history — the canonical ordered wire shape.
@@ -88,18 +92,7 @@ export function auditFieldChangeWireShape(): WireField[] {
  *  reconstruction ("time travel") is a separate feature and would need its own
  *  authorization story. */
 export function auditEntryWireShape(): WireField[] {
-  return [
-    wf("auditId", prim("string")),
-    wf("at", prim("datetime")),
-    wf("action", prim("string")),
-    wf("operationId", prim("string")),
-    // The principal, as recorded at command time.  A `json` blob rather than a
-    // typed principal: the `user {}` block's claim set is per-system, and the
-    // recorded actor is a historical snapshot that need not still match it.
-    wf("actor", prim("json"), true),
-    wf("correlationId", prim("string"), true),
-    wf("changes", { kind: "array", element: prim("json") }),
-  ];
+  return AUDIT_ENTRY_MEMBERS.map((m) => wf(m.name, memberType(m.type), m.optional));
 }
 
 /** The aggregate wire fields an entry's `changes` list may cover — the API-read

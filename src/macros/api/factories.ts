@@ -23,14 +23,19 @@ import type {
   Create,
   Destroy,
   EntityPartMember,
+  EnumDecl,
+  EnumValue,
+  ExistsExpr,
   Expression,
   FieldAccess,
   HandlerRef,
   HttpMethod,
   IdType,
   IfLetStmt,
+  Invariant,
   LetStmt,
   LValue,
+  MacroCall,
   MatchStmt,
   MemberSuffix,
   NamedDecl,
@@ -41,8 +46,11 @@ import type {
   ObjectLit,
   Operation,
   Parameter,
+  ParenExpr,
   PayloadDecl,
   PayloadKind,
+  PolicyDecl,
+  PolicyReadRule,
   PostfixChain,
   PrimitiveType,
   Projection,
@@ -58,6 +66,7 @@ import type {
   TypeAtom,
   TypeRef,
   UnaryExpr,
+  WithClause,
 } from "../../language/generated/ast.js";
 import {
   isAggregate,
@@ -72,6 +81,7 @@ import {
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import {
   mkAssignOrCallStmt,
+  mkAst,
   mkCallArg,
   mkCommandHandler,
   mkCreate,
@@ -1501,6 +1511,191 @@ export function implementsCapabilityRef(cap: string): ImplementsDeclAst & Aggreg
   const origin = currentOrigin();
   const node: ImplementsDeclAst = tag(mkImplementsDecl({ $type: "ImplementsDecl", cap }), origin);
   return node as ImplementsDeclAst & AggregateMember;
+}
+
+// ---------------------------------------------------------------------------
+// Context-member declaration factories — whole declarations a `context`-target
+// macro returns (an aggregate, an enum, a named policy function, a policy
+// block).  Each is the exact node the parser builds for the same source, so
+// `unfold` prints it back as editable `.ddd`.
+// ---------------------------------------------------------------------------
+
+/** One `with` clause entry — `name` with no arguments (a capability or an
+ *  argument-less macro). */
+function macroCall(name: string): MacroCall {
+  const origin = currentOrigin();
+  return tag(mkAst<MacroCall>({ $type: "MacroCall", name, args: [] }), origin);
+}
+
+/** `aggregate <name> [with <caps…>] { <members> }`.  The `with` entries are
+ *  applied by the expander like hand-written ones (a context-target macro's
+ *  aggregate is expanded after it is spliced). */
+export function aggregate(
+  name: string,
+  members: AggregateMember[],
+  opts: { with?: readonly string[] } = {},
+): Aggregate & ContextMember {
+  const origin = currentOrigin();
+  const node: Aggregate = tag(
+    mkAst<Aggregate>({
+      $type: "Aggregate",
+      name,
+      members,
+      isAbstract: false,
+      crossTenant: false,
+      audited: false,
+    }),
+    origin,
+  );
+  if (opts.with && opts.with.length > 0) {
+    const calls = opts.with.map(macroCall);
+    const wc: WithClause = tag(mkAst<WithClause>({ $type: "WithClause", calls }), origin);
+    calls.forEach((c, i) => {
+      setContainer(c, wc, "calls", i);
+    });
+    (node as { withClause?: WithClause }).withClause = wc;
+    setContainer(wc, node, "withClause");
+  }
+  members.forEach((m, i) => {
+    setContainer(m, node, "members", i);
+  });
+  return node as Aggregate & ContextMember;
+}
+
+/** `enum <name> { <values…> }`. */
+export function enumDecl(name: string, values: readonly string[]): EnumDecl & ContextMember {
+  const origin = currentOrigin();
+  const vals = values.map((v) => tag(mkAst<EnumValue>({ $type: "EnumValue", name: v }), origin));
+  const node: EnumDecl = tag(mkAst<EnumDecl>({ $type: "EnumDecl", name, values: vals }), origin);
+  vals.forEach((v, i) => {
+    setContainer(v, node, "values", i);
+  });
+  return node as EnumDecl & ContextMember;
+}
+
+/** `invariant [<name>:] <expr>` on an aggregate. */
+export function invariant(name: string | undefined, expr: Expression): Invariant & AggregateMember {
+  const origin = currentOrigin();
+  const node: Invariant = tag(
+    mkAst<Invariant>({
+      $type: "Invariant",
+      expr,
+      serverOnly: false,
+      ...(name ? { name } : {}),
+    }),
+    origin,
+  );
+  setContainer(expr, node, "expr");
+  return node as Invariant & AggregateMember;
+}
+
+/** `policy <name>(<params>): bool = <body>` — a named policy function (an
+ *  authorization predicate inlined where it is called). */
+export function policyFn(
+  name: string,
+  params: Parameter[],
+  body: Expression,
+): PolicyDecl & ContextMember {
+  const origin = currentOrigin();
+  const returnType = primType("bool");
+  const node: PolicyDecl = tag(
+    mkAst<PolicyDecl>({ $type: "PolicyDecl", name, params, returnType, body, rules: [] }),
+    origin,
+  );
+  params.forEach((p, i) => {
+    setContainer(p, node, "params", i);
+  });
+  setContainer(returnType, node, "returnType");
+  setContainer(body, node, "body");
+  return node as PolicyDecl & ContextMember;
+}
+
+/** One rule of a {@link policyBlock}.
+ *
+ *  - `row`   — `allow [read|write] on <target> as <binding> where <where>`;
+ *  - `level` — `allow [write] <level> on <target> [when <when>]`. */
+export type PolicyRuleSpec =
+  | {
+      kind: "row";
+      verb?: "read" | "write";
+      target: string;
+      binding: string;
+      where: Expression;
+    }
+  | { kind: "level"; write?: boolean; level: "local" | "own"; target: string; when?: Expression };
+
+/** `policy [<name>] { <rules…> }` — a policy block. */
+export function policyBlock(
+  rules: readonly PolicyRuleSpec[],
+  opts: { name?: string } = {},
+): PolicyDecl & ContextMember {
+  const origin = currentOrigin();
+  const ruleNodes = rules.map((r) => {
+    const node: PolicyReadRule = tag(
+      mkAst<PolicyReadRule>(
+        r.kind === "row"
+          ? {
+              $type: "PolicyReadRule",
+              effect: "allow",
+              ...(r.verb ? { verb: r.verb } : {}),
+              target: r.target,
+              binding: r.binding,
+              row: r.where,
+            }
+          : {
+              $type: "PolicyReadRule",
+              effect: "allow",
+              ...(r.write ? { verb: "write" } : {}),
+              level: r.level,
+              target: r.target,
+              ...(r.when ? { when: r.when } : {}),
+            },
+      ),
+      origin,
+    );
+    if (r.kind === "row") setContainer(r.where, node, "row");
+    else if (r.when) setContainer(r.when, node, "when");
+    return node;
+  });
+  const node: PolicyDecl = tag(
+    mkAst<PolicyDecl>({
+      $type: "PolicyDecl",
+      ...(opts.name ? { name: opts.name } : {}),
+      params: [],
+      rules: ruleNodes,
+    }),
+    origin,
+  );
+  ruleNodes.forEach((r, i) => {
+    setContainer(r, node, "rules", i);
+  });
+  return node as PolicyDecl & ContextMember;
+}
+
+/** `exists <aggregate> as <binding> where <where>` — the existential
+ *  quantifier over another aggregate's rows. */
+export function existsExpr(aggregateName: string, binding: string, where: Expression): ExistsExpr {
+  const origin = currentOrigin();
+  const node: ExistsExpr = tag(
+    mkAst<ExistsExpr>({
+      $type: "ExistsExpr",
+      aggregate: makeRef<Aggregate>(aggregateName) as ExistsExpr["aggregate"],
+      binding,
+      where,
+    }),
+    origin,
+  );
+  setContainer(where, node, "where");
+  return node;
+}
+
+/** `( <inner> )` — an explicit grouping, for an operand whose precedence the
+ *  enclosing operator would otherwise rebind. */
+export function paren(inner: Expression): ParenExpr {
+  const origin = currentOrigin();
+  const node: ParenExpr = tag(mkAst<ParenExpr>({ $type: "ParenExpr", inner }), origin);
+  setContainer(inner, node, "inner");
+  return node;
 }
 
 // ---------------------------------------------------------------------------

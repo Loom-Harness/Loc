@@ -32,6 +32,7 @@ import type {
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
@@ -353,6 +354,20 @@ export function lowerToDrizzle(
       if (inner === null) return null;
       ops.add("not");
       return `not(${inner})`;
+    }
+    // `organizationContext.ancestors.contains(<column>)` — the column tested
+    // against the operating org's lineage, bound from the principal:
+    // `<column> in (<ancestors>)`.  Ahead of the reference-collection arm,
+    // whose receiver type (`<Registry> id[]`) it shares.
+    {
+      const lineageArg = orgAncestorsMembershipArg(e);
+      if (lineageArg) {
+        const col = renderColumnRef(lineageArg);
+        const lineage = renderValue((e as Extract<ExprIR, { kind: "method-call" }>).receiver);
+        if (col === null || lineage === null) return null;
+        ops.add("inArray");
+        return `inArray(${col}, ${lineage})`;
+      }
     }
     // `this.<refColl>.contains(x)` — membership over a reference
     // collection.  Lowers to a subquery over the field's join table:

@@ -103,6 +103,8 @@ import {
 } from "./backend/openapi";
 import { aggregateRequestTraces } from "./backend/route-match";
 import { jwtPayload, oidcSetup } from "./backend/oidc-personas";
+import { CookieJar, followNavigation } from "./preview/auth-navigation";
+import { API_BASE_PATH } from "../../src/util/api-base.js";
 import type { TokenSet } from "./runtime/infra/oidc";
 import { buildTree } from "./preview/file-tree";
 import { useWorkspace } from "./workspace/use-workspace";
@@ -565,6 +567,9 @@ export default function App(): JSX.Element {
   const [oidc, setOidc] = useState<OidcState>(NO_OIDC);
   const oidcRef = useRef(oidc);
   oidcRef.current = oidc;
+  // The preview app's cookies for its backend — the session the generated
+  // `/api/auth/callback` sets.  A boot starts with none.
+  const previewCookiesRef = useRef(new CookieJar());
 
   // Live console streams for the Output panel — the backend (Hono
   // runtime worker) console + stack traces, and the preview app's
@@ -661,13 +666,36 @@ export default function App(): JSX.Element {
   // injecting the Auth panel's identity (`authHeaders`).  Memoised with no
   // deps (reads engine + auth state via refs) so the preview iframe is not
   // re-mounted when the identity changes.
-  const authedRuntime = useMemo<RuntimeDispatcher>(
-    () => ({
-      dispatch: (req) => {
+  const authedRuntime = useMemo<RuntimeDispatcher>(() => {
+    const dispatch: RuntimeDispatcher["dispatch"] = async (req) => {
         const engine = engineRef.current;
-        if (!engine) return Promise.reject(new Error("runtime not ready"));
-        const headers = { ...req.headers, ...authHeaders(authStubRef.current, oidcRef.current) };
-        return engine.dispatch({ ...req, headers });
+        if (!engine) throw new Error("runtime not ready");
+        const jar = previewCookiesRef.current;
+        const cookie = jar.header();
+        const headers = {
+          ...req.headers,
+          ...(cookie ? { cookie } : {}),
+          ...authHeaders(authStubRef.current, oidcRef.current),
+        };
+        const out = await engine.dispatch({ ...req, headers });
+        if (out.ok && out.response.setCookies) jar.store(out.response.setCookies);
+        return out;
+    };
+    return {
+      dispatch,
+      navigate: (path, ui) => {
+        const engine = engineRef.current;
+        const setup = oidcRef.current.setup;
+        return followNavigation(path, {
+          dispatch,
+          issuers: oidcRef.current.active ? (setup?.realms.map((r) => r.issuer) ?? []) : [],
+          apiBase: API_BASE_PATH,
+          choosePersona: (issuer) => ui.choosePersona(issuer, setup?.personas.map((p) => p.username) ?? []),
+          authorize: async (url, persona) => {
+            if (!engine?.infraService) throw new Error("No identity provider is running — boot first.");
+            return (await engine.infraService<{ location: string }>("oidc", "authorize", { url, persona })).location;
+          },
+        });
       },
       serveInfraHttp: (req) => {
         const serve = engineRef.current?.serveInfraHttp;
@@ -675,9 +703,8 @@ export default function App(): JSX.Element {
           ? serve(req)
           : Promise.reject(new Error("No object store is running — boot the backend first."));
       },
-    }),
-    [],
-  );
+    };
+  }, []);
   // The language client is a DESKTOP-only facility.  Mobile edits in a
   // textarea and takes its diagnostics from `generate` (the build worker
   // already computes them), so it never constructs one — which is what keeps
@@ -1758,6 +1785,7 @@ export default function App(): JSX.Element {
       }, envOf, planned.restSpecs, realVerifier ? idp : null);
       const res = await engine.boot(plan.plan, { fresh: opts?.fresh });
       if (res.ok) {
+        previewCookiesRef.current.clear();
         // A token minted against the same realm still verifies (the signing
         // key outlives a boot); one for another realm, or a stub boot, drops it.
         setOidc((prev) => ({

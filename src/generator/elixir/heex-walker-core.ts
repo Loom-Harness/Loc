@@ -557,8 +557,9 @@ export interface WalkContext {
   /** Section/Card nesting depth, so a `Heading` with no explicit `level:`
    *  derives its rank from structure — `min(6, 2 + headingDepth)`, matching
    *  the JSX frontends' `WalkEnv.headingDepth` (accessibility.md, so
-   *  ranks never skip).  Incremented by `renderSection` / `renderCard` for
-   *  their children; undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
+   *  ranks never skip).  Incremented by `Section` / `Card` / `Paper` for
+   *  their children (the shared walk and this engine keep it in step);
+   *  undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
    *  owns the single `<h1>`). */
   headingDepth?: number;
   /** The shared walker-core context this engine was entered from.  A ported
@@ -1491,8 +1492,8 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   }
   // A VALUE-OBJECT construction (`Money(9.99, "USD")`) — checked BEFORE the
   // primitive-name registry below, since a domain VO can share a name with a
-  // built-in walker primitive (`Money` is also a display primitive,
-  // `renderMoney`).  Without this the registry lookup won though first and
+  // built-in walker primitive (`Money` is also a display primitive).  Without
+  // this the registry lookup won though first and
   // rendered the primitive's MARKUP — `<span class="money">…</span>` — in
   // what was meant to be a value position, and a following `.currency`
   // member access then got appended as literal text after the closing
@@ -2041,7 +2042,7 @@ export interface PrimitiveSpec {
    *  Layout utilities are design-NEUTRAL (daisyUI adds a COMPONENT vocabulary —
    *  `btn`, `card`, `alert` — not a layout one), which is why they live in the
    *  walker while the card SURFACE goes through the pack's `<.card>` function
-   *  component.  See `renderCard`. */
+   *  component (`heex-pack.ts`). */
   baseClass?: string;
   /** Named args that legitimately become attributes on this tag — everything
    *  else is DROPPED rather than spliced through as a bare HTML attribute.

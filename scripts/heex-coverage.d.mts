@@ -14,7 +14,11 @@ export interface HeexCoverageRecorder {
 }
 
 export declare function installHeexCoverage(
-  registry: Record<string, { heex?: (...args: never[]) => string }>,
+  registry: Record<
+    string,
+    { heex?: (...args: never[]) => string; tsx?: (...args: never[]) => string }
+  >,
+  sharedNames?: ReadonlySet<string>,
 ): HeexCoverageRecorder;
 
 export declare function formatHeexCoverage(report: HeexCoverageReport): {

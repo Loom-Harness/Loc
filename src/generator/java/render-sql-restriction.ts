@@ -1,6 +1,7 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
@@ -11,6 +12,7 @@ import { boxedJavaType } from "./render-expr.js";
 import {
   claimIsNullBindEntry,
   enumNameBindEntry,
+  idListCsvBindEntry,
   principalParamName,
   principalTermBindEntry,
 } from "./render-jpql.js";
@@ -243,6 +245,16 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined, rc: RowCtx): string {
       return `${renderSqlRestriction(e.left)} ${op} ${renderSqlRestriction(e.right)}`;
     }
     case "method-call": {
+      // `organizationContext.ancestors.contains(<column>)` — the lineage binds
+      // as one comma-joined parameter (see `idListCsvBindEntry`) and the
+      // column is compared as text: `text(col) = any(string_to_array(:p, ','))`.
+      const lineageArg = orgAncestorsMembershipArg(e);
+      if (lineageArg) {
+        if (!p) throw unsupported("principal lineage read");
+        const receiver = e.receiver as Extract<ExprIR, { kind: "member" }>;
+        const param = bind(p, idListCsvBindEntry(receiver.member), "String");
+        return `text(${renderSqlRestriction(lineageArg)}) = any(string_to_array(${param}, ','))`;
+      }
       // Queryable scalar intrinsic (src/util/intrinsics.ts) over a candidate
       // path — `filter this.code.startsWith("root")`, `filter
       // this.code.trim() == "x"`.  The static path admits it because every
