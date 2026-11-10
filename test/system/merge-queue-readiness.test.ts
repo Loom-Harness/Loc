@@ -364,7 +364,7 @@ describe("merge-queue readiness", () => {
     // that read "add the trigger everywhere" and did not ask about tier. This
     // test is what makes the next such sweep stop here.
     const DISCOVERY_JOBS = [
-      { workflow: "pairwise.yml", jobs: ["compile", "schema-load"] },
+      { workflow: "pairwise.yml", jobs: ["compile", "compile-node", "schema-load"] },
     ] as const;
 
     it.each(
