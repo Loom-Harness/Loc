@@ -1853,6 +1853,8 @@ const EMPTY_ROW_SET: ReadonlySet<string> = new Set<string>();
  *  refs render as bare identifiers (they're in scope via
  *  `useState` / `useParams` destructure). */
 export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
+  const overridden = ctx.target.renderExprOverride?.(expr, ctx);
+  if (overridden !== undefined) return overridden;
   // Api hook injection.  Detect `<param>.<aggregate>.<op>`
   // (with optional method-call args) rooted at a UiApiParam ref.
   // When matched, register a hook usage on the context and
@@ -3032,6 +3034,8 @@ export function firstPositionalContent(
 }
 
 export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | undefined {
+  const overridden = ctx.target.renderTextContentOverride?.(expr, ctx);
+  if (overridden !== undefined) return overridden;
   if (expr.kind === "literal" && expr.lit === "string") {
     return JSON.stringify(expr.value);
   }

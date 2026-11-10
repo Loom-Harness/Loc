@@ -1378,6 +1378,26 @@ export interface WalkerTarget {
     slot: ChildSlot,
   ): string | undefined;
 
+  /** OPTIONAL — whole-expression override, consulted by `emitExpr` before
+   *  anything else.  The expression-position twin of `renderNodeOverride`: a
+   *  string return is used verbatim as the expression in the target's own
+   *  language; `undefined` sends the expression through the shared leaves.
+   *  A target whose expression language is rendered by its own engine (the
+   *  one `renderNodeOverride` hands unported nodes to) answers every
+   *  expression here, so a ported primitive's dynamic argument — a `testid:`
+   *  binding, a `style:` value, an ICU hole — renders exactly as that
+   *  engine renders it. */
+  renderExprOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
+
+  /** OPTIONAL — text-position override, consulted by `renderTextContent`
+   *  before anything else: the markup a non-literal expression renders as when
+   *  it is a primitive's TEXT (a `Heading`'s caption, a `Divider`'s label).  A
+   *  string return is used verbatim; `undefined` sends the expression through
+   *  the shared path.  Same escape hatch as `renderExprOverride`, for the
+   *  position where the shared path would otherwise resolve refs against its
+   *  own lookups. */
+  renderTextContentOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
+
   /** OPTIONAL — whole-primitive override for `FileLink(<file-ref>)`.  The
    *  shared `emitFileLink` delegates here first; a non-null return is used
    *  verbatim and the inline JSX/markup anchor path is skipped.  The JSX/markup
