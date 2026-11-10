@@ -871,6 +871,38 @@ The composition rules, the generated output and the diagnostics are in
 [tenancy.md](tenancy.md#the-policy--block--levels-row-rules-and-deny) and the
 language reference ([§17](language-reference/17-auth.md#row-rules-when-and-own)).
 
+### Sharing — `shareable`
+
+`with shareable` on a `tenantOwned` aggregate shares individual rows beyond their
+org. It unfolds to plain Loom — a `<X>Share` aggregate (grantee by kind: an
+org, an org and every org below it, or one user; a `write` flag; `revoke()`),
+its `<X>Shared` / `<X>Unshared` events, the `GranteeIsMe` / `SharedWithMe`
+policy functions and the row rules that open X to its grantees — and
+`allow share on X [when …]` decides who may create or revoke a share:
+
+```ddd
+aggregate Category with tenantOwned, shareable, crudish { name: string }
+policy { allow share on Category when currentUser.role == "manager" }
+```
+
+```sql
+-- Category read for a grantee: the floor OR a live share addressed to it that
+-- sits in the category's own org (so a foreign share or a re-share opens nothing)
+WHERE c.tenant_id = $org
+   OR EXISTS (SELECT 1 FROM category_shares s
+              WHERE s.category = c.id AND s.tenant_id = c.tenant_id AND NOT s.revoked
+                AND ((s.kind = 'Org' AND s.org::text = $org)
+                  OR (s.kind = 'Subtree' AND s.org = ANY($ancestors))
+                  OR (s.kind = 'User' AND s.user = $user))
+                AND <CategoryShare's own read scope>)
+```
+
+A grant opens the row, not its fields: `mask unless` still redacts by the
+grantee's own principal. The full surface, the routes and the diagnostics are
+in the language reference
+([§17](language-reference/17-auth.md#sharing--shareable)); the design record is
+[D-SHARING](decisions.md#d-sharing--visibility-composes-from-the-tenancy-default-row-rules-and-shares-add-to-it-relations-are-predicates).
+
 ### Deny carve-outs
 
 A **`deny` rule** is the negative twin of `allow`: a **deny-wins** carve-out that

@@ -1,7 +1,7 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
@@ -151,6 +151,13 @@ function renderPrincipalBinary(
   }
   if (e.op !== "==" && e.op !== "!=") return null;
   const op = e.op === "==" ? "=" : "<>";
+  // An id column against the operating org compares as text (see
+  // `idColumnVsOperatingOrg`): the claim binds as a String.
+  const orgCmp = idColumnVsOperatingOrg(e);
+  if (orgCmp) {
+    const org = orgCmp.org as Extract<ExprIR, { kind: "member" }>;
+    return `text(${qualifiedColumn(orgCmp.column, rc)}) ${op} ${bind(p, org.member, "String")}`;
+  }
   // `this.id == currentUser.<claim>` (the registry self-scope): the claim
   // binds as the id's value type; a string claim against a guid id goes
   // through the principal's `<claim>AsUuid()` accessor, which is null for a

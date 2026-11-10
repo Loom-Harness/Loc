@@ -32,7 +32,7 @@ import type {
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
-import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
@@ -230,6 +230,18 @@ export function lowerToDrizzle(
         const fn = e.op === "&&" ? "and" : "or";
         ops.add(fn);
         return `${fn}(${l}, ${r})`;
+      }
+      // An id column against the operating org compares as text (see
+      // `idColumnVsOperatingOrg`).
+      {
+        const orgCmp = idColumnVsOperatingOrg(e);
+        if (orgCmp) {
+          const col = renderColumnRef(orgCmp.column);
+          const org = renderValue(orgCmp.org);
+          if (col === null || org === null) return null;
+          ops.add("sql");
+          return `sql\`\${${col}}::text ${orgCmp.negated ? "<>" : "="} \${${org}}\``;
+        }
       }
       // A principal term (`currentUser.role == "agent"`) reads no column: its
       // truth is fixed for the request, so it is decided in JS against the

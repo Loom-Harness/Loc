@@ -2465,9 +2465,11 @@ already renders.
    - Sharing and revoking emit `<X>Shared` / `<X>Unshared`.
 
 7. **Generated surface of a shareable aggregate.**
-   `POST /api/<xs>/{id}/shares`, `GET /api/<xs>/{id}/shares`,
-   `DELETE /api/<xs>/{id}/shares/{shareId}` (OpenAPI and api clients included),
-   and a scaffolded **Share…** action on the detail page of every frontend and
+   The share aggregate's own derived surface — `POST /api/<x>_shares`,
+   `GET /api/<x>_shares` (the caller org's shares and the ones addressed to
+   it), `POST /api/<x>_shares/{id}/revoke` (OpenAPI and api clients included):
+   a share is an ordinary aggregate, so it needs no routing of its own, and a
+   revoked share stays on record. Beside it, a scaffolded **Share…** action on the detail page of every frontend and
    HEEx: a grantee-kind radio (Org / Org and below / User), an org picker over the
    registry, a user picker over the caller org's memberships (an id input when
    the system has none), read/write, and the current grants with Revoke.
@@ -2476,35 +2478,50 @@ already renders.
 
 ```ddd
 context Catalog {
-  // … the context's other members
-  enum ShareGranteeKind { Org, Subtree, User }
-
   aggregate Category with tenantOwned, shareable { name: string }
   aggregate Product with tenantOwned { name: string  category: Category id }
   aggregate Note with tenantOwned, auditable { body: string }
 
-  // what `with shareable` on Category unfolds to:
+  // what `with shareable` on Category unfolds to (the user grantee's type is
+  // the system's `user { id: … }` type):
+  enum ShareGranteeKind { Org, Subtree, User }
   aggregate CategoryShare with tenantOwned {
     category: Category id
     kind: ShareGranteeKind
     org: Organization id?
-    user: User id?
+    user: string?
     write: bool
+    revoked: bool = false
     invariant orgGrantee: kind == ShareGranteeKind.User || org != null
     invariant userGrantee: kind != ShareGranteeKind.User || user != null
+    create(category: Category id, kind: ShareGranteeKind, org: Organization id?, user: string?, write: bool) {
+      emit CategoryShared { share: id, category: category }
+    }
+    operation revoke() {
+      revoked := true
+      emit CategoryUnshared { share: id, category: category }
+    }
   }
-  policy GranteeIsMe(s: CategoryShare): bool =
+  event CategoryShared { share: CategoryShare id  category: Category id }
+  event CategoryUnshared { share: CategoryShare id  category: Category id }
+  policy GranteeIsMe(s: CategoryShare): bool = !s.revoked && (
        (s.kind == ShareGranteeKind.Org     && s.org == organizationContext.org)
     || (s.kind == ShareGranteeKind.Subtree && organizationContext.ancestors.contains(s.org))
-    || (s.kind == ShareGranteeKind.User    && s.user == currentUser.id)
-  policy SharedWithMe(c: Category id): bool =
-    exists CategoryShare as s where s.category == c && GranteeIsMe(s)
+    || (s.kind == ShareGranteeKind.User    && s.user == currentUser.id))
+  policy SharedWithMe(x: Category): bool =
+    exists CategoryShare as s where s.category == x.id && s.tenantId == x.tenantId && GranteeIsMe(s)
+  policy CategorySharing {
+    allow read on CategoryShare as s where GranteeIsMe(s)   // a grantee sees the shares addressed to it
+    allow read on Category as x where SharedWithMe(x)
+    allow write on Category as x where
+      exists CategoryShare as s where s.category == x.id && s.tenantId == x.tenantId && s.write && GranteeIsMe(s)
+  }
 
+  // authored:
   policy {
-    allow read on CategoryShare as s where GranteeIsMe(s)       // from the unfold: a grantee sees the shares addressed to it
-    allow read on Category as c where SharedWithMe(c.id)        // from the unfold
     allow share on Category when currentUser.role == "manager"
-    allow read on Product as p where SharedWithMe(p.category)   // authored: products follow their category
+    allow read on Product as p where exists Category as c
+      where c.id == p.category && SharedWithMe(c)             // products follow their category
     allow own on Note when currentUser.role == "clerk"
   }
 }
@@ -2513,14 +2530,16 @@ context Catalog {
 ```sql
 -- Product read for a caller in operating org $org, user $u, ancestors $anc.
 -- GranteeIsMe(s) inlines to:
---   (s.kind = 'Org' AND s.org_id = $org) OR (s.kind = 'Subtree' AND s.org_id = ANY($anc))
---   OR (s.kind = 'User' AND s.user_id = $u)
+--   NOT s.revoked AND ((s.kind = 'Org' AND s.org::text = $org)
+--     OR (s.kind = 'Subtree' AND s.org = ANY($anc)) OR (s.kind = 'User' AND s.user = $u))
 SELECT p.* FROM products p
-WHERE p.tenant_id = $org                                     -- Product's tenancy default
-   OR EXISTS (SELECT 1 FROM category_shares s
-              WHERE s.category_id = p.category_id
-                AND (s.tenant_id = $org OR GranteeIsMe(s))   -- CategoryShare's own read scope (item 3)
-                AND GranteeIsMe(s));                         -- SharedWithMe's predicate
+WHERE p.tenant_id = $org                                       -- Product's tenancy default
+   OR EXISTS (SELECT 1 FROM categories c                       -- Category's own read scope applies
+              WHERE c.id = p.category
+                AND EXISTS (SELECT 1 FROM category_shares s
+                            WHERE s.category = c.id
+                              AND s.tenant_id = c.tenant_id    -- the share sits in the row's org
+                              AND GranteeIsMe(s)));
 ```
 
 A share row belongs to the **sharer's** tenant. The unfold's
@@ -2528,6 +2547,9 @@ A share row belongs to the **sharer's** tenant. The unfold's
 another org see the share rows addressed to it — and therefore what lets the
 `exists` inside `SharedWithMe` find them under the scoping rule of item 3. No
 special case: the share aggregate is read through its own rules like any other.
+A share counts only when it sits in the shared row's own org
+(`s.tenantId == x.tenantId`): a share another org writes for a row it does not
+own — or a grantee's re-share — opens nothing.
 
 **Validation (new `loom.*` codes; catalog text in the owning family).**
 

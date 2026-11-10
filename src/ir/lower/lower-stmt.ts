@@ -1,8 +1,16 @@
-import { GrammarUtils } from "langium";
-import type { Expression, LValue, MatchStmt, Statement } from "../../language/generated/ast.js";
+import { AstUtils, GrammarUtils } from "langium";
+import type {
+  EventDecl,
+  Expression,
+  LValue,
+  MatchStmt,
+  Statement,
+} from "../../language/generated/ast.js";
 import {
   isAssignOrCallStmt,
+  isBoundedContext,
   isEmitStmt,
+  isEventDecl,
   isIfStmt,
   isLetStmt,
   isMatchExpr,
@@ -213,11 +221,20 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     };
   }
   if (isEmitStmt(stmt)) {
+    // A macro-built `emit` carries an unlinked reference (its `$refText` only):
+    // resolve it against the enclosing context's events by name.
+    const event =
+      stmt.event?.ref ??
+      (stmt.event?.$refText
+        ? AstUtils.getContainerOfType(stmt, isBoundedContext)?.members.find(
+            (m): m is EventDecl => isEventDecl(m) && m.name === stmt.event.$refText,
+          )
+        : undefined);
     return {
       stmt: {
         kind: "emit",
-        eventName: stmt.event?.ref?.name ?? "Unknown",
-        fields: lowerEmitFields(stmt.event?.ref, stmt.fields, env),
+        eventName: event?.name ?? "Unknown",
+        fields: lowerEmitFields(event, stmt.fields, env),
       },
       envAfter: env,
     };

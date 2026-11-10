@@ -940,8 +940,10 @@ ${body}
       extraChannels,
     );
     const durableCreateEmit = bodyEmits && opEmitsDurableEvent(emitAction, channels);
+    // The draft is bound whenever a clause reads it — a guard, or a create
+    // param an `emit` reads (bound off the draft above).
     const validateClause =
-      bodyReadsRecord && body.length > 0
+      (bodyReadsRecord && body.length > 0) || bodyClauses.length > 0
         ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
         : createValidateClause;
     const insertCall = `${repoMod}.insert(attrs${stampActorArg ? ", current_user" : ""})`;

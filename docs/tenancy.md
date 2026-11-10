@@ -756,6 +756,8 @@ column is tested against the lineage (`<column> = ANY(<lineage>)`), so a row
 whose column names an org is visible to that org and every org below it —
 re-evaluated per request, so a move re-targets it with nothing rewritten
 ([row rules](language-reference/17-auth.md#row-rules-when-and-own)).
+That is how a `shareable` aggregate's `Subtree` share reaches its grantee org's
+whole subtree ([sharing](auth.md#sharing--shareable)).
 
 Reads, writes and the tenant stamp **anchor on the operating org**: the
 prelude `tenantOwned` filters and stamps on `organizationContext.org`.

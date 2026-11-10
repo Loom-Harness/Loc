@@ -8,6 +8,7 @@ import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 import {
   assertOrgContextGate,
+  assertShareable,
   freePort,
   type Postgres,
   startPostgres,
@@ -55,13 +56,16 @@ interface Booted {
 
 /** Generate the `org-context` fixture for `platform` into a fresh dir; returns
  *  the deployable's project dir and the temp root to clean up. */
-function generate(platform: string): { appDir: string; outDir: string } {
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-org-context-${platform}-`));
+function generate(
+  platform: string,
+  fixtureName = "org-context",
+): { appDir: string; outDir: string } {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-${fixtureName}-${platform}-`));
   const fixture = fs.readFileSync(
-    path.join(repoRoot, "test", "fixtures", "corpus", "org-context.ddd"),
+    path.join(repoRoot, "test", "fixtures", "corpus", `${fixtureName}.ddd`),
     "utf8",
   );
-  const dddPath = path.join(outDir, `org-context-${platform}.ddd`);
+  const dddPath = path.join(outDir, `${fixtureName}-${platform}.ddd`);
   fs.writeFileSync(dddPath, fixture.replace("__PLATFORM__", platform));
   execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, { stdio: "pipe", cwd: repoRoot });
   return { appDir: path.join(outDir, "d"), outDir };
@@ -210,40 +214,58 @@ const BOOTS: Record<string, { env: string; tool?: string; readyMs: number; boot:
   },
 };
 
+/** Generate `fixtureName` for `platform`, boot it against a fresh Postgres and
+ *  run `assert` against the booted base url. */
+async function bootAndAssert(
+  platform: string,
+  spec: (typeof BOOTS)[string],
+  fixtureName: string,
+  assert: (base: string, pg: Postgres, log: () => string) => Promise<void>,
+): Promise<void> {
+  if (spec.tool && !has(spec.tool)) {
+    throw new Error(`${spec.env}=1 set but \`${spec.tool.split(" ")[0]}\` is not on PATH.`);
+  }
+  {
+    const { appDir, outDir } = generate(platform, fixtureName);
+    let booted: Booted | undefined;
+    let pg: Postgres | undefined;
+    try {
+      pg = await startPostgres(`${fixtureName}-${platform}`);
+      const port = await freePort();
+      const child = await spec.boot(appDir, pg, port);
+      booted = { child, base: `http://127.0.0.1:${port}`, log: capture(child) };
+      await waitForReady(booted.base, booted.log, spec.readyMs);
+      await assert(booted.base, pg, booted.log);
+    } finally {
+      const pid = booted?.child.pid;
+      if (pid) {
+        try {
+          process.kill(-pid, "SIGTERM");
+        } catch {
+          booted?.child.kill("SIGTERM");
+        }
+      }
+      pg?.stop();
+      try {
+        fs.rmSync(outDir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
 for (const [platform, spec] of Object.entries(BOOTS)) {
   describe.skipIf(process.env[spec.env] !== "1")(
     `organizationContext switch gate over the generated ${platform} backend (${spec.env}=1)`,
     () => {
       it("an admitted switch stamps the caller's org; any other or a forged one is 403 with no write", async () => {
-        if (spec.tool && !has(spec.tool)) {
-          throw new Error(`${spec.env}=1 set but \`${spec.tool.split(" ")[0]}\` is not on PATH.`);
-        }
-        const { appDir, outDir } = generate(platform);
-        let booted: Booted | undefined;
-        let pg: Postgres | undefined;
-        try {
-          pg = await startPostgres(`orgctx-${platform}`);
-          const port = await freePort();
-          const child = await spec.boot(appDir, pg, port);
-          booted = { child, base: `http://127.0.0.1:${port}`, log: capture(child) };
-          await waitForReady(booted.base, booted.log, spec.readyMs);
-          await assertOrgContextGate(booted.base, pg, booted.log);
-        } finally {
-          const pid = booted?.child.pid;
-          if (pid) {
-            try {
-              process.kill(-pid, "SIGTERM");
-            } catch {
-              booted?.child.kill("SIGTERM");
-            }
-          }
-          pg?.stop();
-          try {
-            fs.rmSync(outDir, { recursive: true, force: true });
-          } catch {
-            /* best-effort */
-          }
-        }
+        await bootAndAssert(platform, spec, "org-context", (base, pg, log) =>
+          assertOrgContextGate(base, pg, log),
+        );
+      }, 900_000);
+      it("shareable: org / subtree / user grants, write shares, revoke, a move, a mask", async () => {
+        await bootAndAssert(platform, spec, "shareable", (base) => assertShareable(base));
       }, 900_000);
     },
   );

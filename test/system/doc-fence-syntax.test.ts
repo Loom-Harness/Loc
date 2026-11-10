@@ -73,9 +73,6 @@ const WAIVERS: readonly Waiver[] = [
   { doc: "docs/architecture.md", marker: "api Mktg:  MarketingApi", why: "#3629" },
   { doc: "docs/architecture.md", marker: "Mktg:  marketingApi", why: "#3629" },
   { doc: "docs/decisions.md", marker: "dataSource ordersState", why: "#4930" },
-  // D-SHARING's example uses the `allow share on X` verb; it parses once the
-  // `shareable` slice lands.
-  { doc: "docs/decisions.md", marker: "policy SharedWithMe(c: Category id)", why: "#4960" },
   { doc: "docs/domain-services.md", marker: "module Sales {", why: "#4931" },
   { doc: "docs/domain-services.md", marker: "function shippingFor(", why: "#4931" },
   { doc: "docs/extern.md", marker: "workflow placeAndConfirm(orderId: Order id)", why: "#3631" },

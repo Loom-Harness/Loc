@@ -1,5 +1,6 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { idColumnVsOperatingOrg } from "../../ir/util/org-context.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
@@ -499,6 +500,20 @@ function renderCsBinary(
   efQuery: boolean,
   scope: CsMemberScope | undefined,
 ): string {
+  // An id column against the operating org (see `idColumnVsOperatingOrg`):
+  // the principal's `OperatingOrgId` is the claim parsed to the registry's id
+  // type, null when it is no id — and a null never matches.
+  {
+    const orgCmp = idColumnVsOperatingOrg(e);
+    if (orgCmp) {
+      const orgOnLeft = orgCmp.org === e.left;
+      const org = `${orgOnLeft ? left : right}Id`;
+      const col = orgOnLeft ? right : left;
+      return orgCmp.negated
+        ? `(${org} == null || ${col} != ${org})`
+        : `(${org} != null && ${col} == ${org})`;
+    }
+  }
   // A5 temporal — the datetime-involving `+`/`-` arms.  `duration ± duration`
   // and `duration * int` stay native TimeSpan operator arithmetic and fall
   // through to the default operator path below.
@@ -1157,7 +1172,19 @@ export const CS_COLLECTION_RENDERERS: Record<
   any: (recv, args) => `${recv}.Any(${args[0] ?? "_ => true"})`,
   // Membership: maps to LINQ's `Contains(value)` overload.  The single arg
   // is the candidate value (rendered already).
-  contains: (recv, args) => `${recv}.Contains(${args[0] ?? "default!"})`,
+  contains: (recv, args, e) => {
+    // A nullable value-type candidate (`organizationContext.ancestors
+    // .contains(s.org)` with `org: Org id?`) against a list of the bare id:
+    // the list is lifted to the candidate's nullable type, so EF binds it as
+    // one array parameter mapped like the column (a null is in no list).
+    const arg = e?.args[0];
+    const argType =
+      arg?.kind === "member" ? arg.memberType : arg?.kind === "ref" ? arg.type : undefined;
+    if (args[0] && argType?.kind === "optional" && argType.inner.kind === "id") {
+      return `${recv}.Cast<${argType.inner.targetName}Id?>().Contains(${args[0]})`;
+    }
+    return `${recv}.Contains(${args[0] ?? "default!"})`;
+  },
   where: (recv, args) => `${recv}.Where(${args[0] ?? "_ => true"}).ToList()`,
   first: (recv) => `${recv}.First()`,
   // `.FirstOrDefault()` over a VALUE-type element yields `default(T)` — `0`,

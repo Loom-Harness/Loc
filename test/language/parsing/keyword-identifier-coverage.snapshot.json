@@ -2128,6 +2128,16 @@
     "paramName",
     "stateField"
   ],
+  "share": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "sharedTable": [
     "fieldName",
     "fieldNameAfterField",

@@ -72,6 +72,8 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   policyRowRules: "consumed by enrichment before the merge; no post-merge reader",
   policyDenies: "consumed by enrichment before the merge; no post-merge reader",
   policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
+  policyShareGates:
+    "consumed by enrichment (onto the share aggregate's create / revoke `requires`) before the merge",
 };
 
 /** Field names a top-level IR interface / object type declares, including

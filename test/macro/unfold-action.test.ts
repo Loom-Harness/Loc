@@ -394,6 +394,61 @@ context Shop with scaffoldGet(of: Item, key: "sku") {
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
   });
 
+  it("unfolds `with shareable` into the share surface, keeping the marker", async () => {
+    const source = `
+system S {
+  user { id: string  tenantId: string  role: string }
+  tenancy by user.tenantId of Org
+  subdomain M {
+    context C {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      aggregate Doc with tenantOwned, shareable, crudish {
+        title: string
+      }
+      policy { allow share on Doc when currentUser.role == "manager" }
+    }
+  }
+}`;
+    // A fresh workspace: an earlier case in this file declares its own
+    // `capability tenantOwned`, which a shared workspace would resolve here.
+    const fresh = createDddServices(NodeFileSystem);
+    const freshValidate = validationHelper(fresh.Ddd);
+    const first = await freshValidate(source);
+    const pos0 = positionOf(source, "shareable");
+    const acts = (await fresh.Ddd.lsp.CodeActionProvider!.getCodeActions(first.document, {
+      textDocument: { uri: first.document.textDocument.uri },
+      range: { start: pos0, end: pos0 },
+      context: { diagnostics: [] },
+    })) as CodeAction[];
+    const act = acts.find((a) => a.title.startsWith("Unfold capability"))!;
+    const out = applyEdits(source, act.edit?.changes?.[first.document.textDocument.uri] ?? []);
+    for (const line of [
+      "enum ShareGranteeKind",
+      "aggregate DocShare with tenantOwned {",
+      "operation revoke()",
+      "event DocShared",
+      "event DocUnshared",
+      "policy GranteeIsMe(s: DocShare): bool =",
+      "policy SharedWithMe(x: Doc): bool = exists DocShare as s where",
+      "allow read on DocShare as s where GranteeIsMe(s)",
+      "allow write on Doc as x where",
+      "aggregate Doc with tenantOwned, shareable, crudish {",
+    ])
+      expect(out).toContain(line);
+    // The ejected source is ordinary Loom: it validates clean, and a second
+    // unfold finds nothing left to eject.
+    const again = await freshValidate(out);
+    const errors = again.diagnostics.filter((d) => d.severity === 1);
+    expect(errors.map((d) => d.message)).toEqual([]);
+    const pos = positionOf(out, "shareable");
+    const actions = (await fresh.Ddd.lsp.CodeActionProvider!.getCodeActions(again.document, {
+      textDocument: { uri: again.document.textDocument.uri },
+      range: { start: pos, end: pos },
+      context: { diagnostics: [] },
+    })) as CodeAction[];
+    expect(actions.find((a) => a.title.startsWith("Unfold capability"))).toBeUndefined();
+  });
+
   it("does not offer unfold when cursor isn't on a macro call", async () => {
     const source = `
 context Sales {

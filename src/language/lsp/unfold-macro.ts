@@ -36,16 +36,21 @@ import { area } from "../../macros/api/ui-factories.js";
 import { resolveMacroArgs } from "../../macros/expander.js";
 import { builtinCapabilities } from "../../macros/prelude.js";
 import { lookupMacro } from "../../macros/registry.js";
+import { shareableMembers } from "../../macros/stdlib/shareable/shareable.js";
 import {
   type Aggregate,
   type Area,
   type BoundedContext,
   type Capability,
   isAggregate,
+  isBoundedContext,
   isCapability,
+  isTenancyDecl,
+  isUserBlock,
   type MacroCall,
   type Model,
   type Page,
+  type TypeRef,
   type Ui,
   type WithClause,
 } from "../generated/ast.js";
@@ -200,6 +205,8 @@ function unfoldCapability(
   hostKind: "aggregate" | "ui" | "context",
 ): UnfoldResult | undefined {
   if (hostKind === "ui") return undefined;
+  if (call.name === SHAREABLE && hostKind === "aggregate")
+    return unfoldShareable(document, host as Aggregate);
   const cap = resolveCapabilityForUnfold(document, call.name);
   if (!cap) return undefined;
   if (capabilityNameIsReferenced(document, call.name)) return undefined;
@@ -219,6 +226,43 @@ function unfoldCapability(
   const clauseEdit = buildHostClauseRewriteEdit(document, host, call, []);
   if (clauseEdit) edits.push(clauseEdit);
   return { title: `Unfold capability '${call.name}'`, edits };
+}
+
+const SHAREABLE = "shareable";
+
+/** Unfold `with shareable` on `agg`: print what it unfolds to
+ *  (`shareableMembers`) into the enclosing context — the share aggregate, its
+ *  events, the grantee-kind enum, the two policy functions and the rules.  A
+ *  member the source already declares (by name, with source text: a spliced
+ *  one has none) is skipped, so a second unfold or a hand-written share is not
+ *  duplicated.  The `shareable` marker stays: it is what `allow share on X`
+ *  names, and the authored members win over the splice by name. */
+function unfoldShareable(document: LangiumDocument, agg: Aggregate): UnfoldResult | undefined {
+  const ctx = agg.$container;
+  if (!isBoundedContext(ctx)) return undefined;
+  const model = document.parseResult?.value as Model | undefined;
+  let registry: string | undefined;
+  let userIdType: TypeRef | undefined;
+  for (const node of model ? AstUtils.streamAllContents(model) : []) {
+    if (isTenancyDecl(node) && node.registry?.$refText) registry = node.registry.$refText;
+    if (isUserBlock(node)) userIdType = node.fields.find((f) => f.name === "id")?.type;
+  }
+  if (!registry) return undefined;
+  const isShareable = (m: unknown): boolean =>
+    isAggregate(m) && (m.withClause?.calls ?? []).some((c) => c.name === SHAREABLE);
+  const sole = (ctx.members ?? []).filter(isShareable).length === 1;
+  const authored = new Set(
+    (ctx.members ?? [])
+      .filter((m) => (m as { $cstNode?: unknown }).$cstNode !== undefined)
+      .map((m) => (m as { name?: string }).name)
+      .filter((n): n is string => typeof n === "string"),
+  );
+  const members = shareableMembers(agg.name, { registry, userIdType, sole }).filter(
+    (m) => !authored.has((m as { name?: string }).name ?? ""),
+  );
+  if (members.length === 0) return undefined;
+  const edit = buildInsertEdit(document, ctx, members);
+  return edit ? { title: `Unfold capability '${SHAREABLE}'`, edits: [edit] } : undefined;
 }
 
 /** True when any `ignoring <name>` clause in the document is keyed on the

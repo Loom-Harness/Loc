@@ -177,6 +177,7 @@ export function builtinCapabilities(): Map<string, Capability> {
     _cache = new Map([
       ["auditable", buildAuditable()],
       ["softDeletable", buildSoftDeletable()],
+      ["shareable", capability("shareable", [])],
       ["tenantOwned", buildTenantOwned()],
       ["tenantRegistry", buildTenantRegistry()],
       ["versioned", buildVersioned()],

@@ -149,6 +149,7 @@ export const SITES = {
     "BoundedContextIR.policyReadGates",
     "BoundedContextIR.policyReadLevels",
     "BoundedContextIR.policyRowRules",
+    "BoundedContextIR.policyShareGates",
     "BoundedContextIR.policyWriteLevels",
     "BoundedContextIR.projections",
     "BoundedContextIR.queryHandlers",
@@ -228,6 +229,7 @@ export const SITES = {
     "PolicyReadGateIR.gate",
     "PolicyReadLevelIR.when",
     "PolicyRowRuleIR.where",
+    "PolicyShareGateIR.when",
     "PolicyWriteLevelIR.when",
     "ProjectionAggregateIR.arg",
     "ProjectionIR.handlers",
@@ -665,6 +667,9 @@ function visitContext(c: BoundedContextIR, v: ExprVisitor) {
   }
   for (const r of c.policyRowRules ?? []) {
     expr(r.where, `${s}/policy/${r.aggregate}`, "PolicyRowRuleIR.where", v);
+  }
+  for (const g of c.policyShareGates ?? []) {
+    expr(g.when, `${s}/policy/${g.aggregate}`, "PolicyShareGateIR.when", v);
   }
   visitTests(c.tests, s, v);
   for (const h of c.commandHandlers ?? []) {

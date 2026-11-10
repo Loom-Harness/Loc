@@ -9,7 +9,7 @@ import type {
   LiteralKind,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { isOrgAncestorsRead } from "../../ir/util/org-context.js";
+import { idColumnVsOperatingOrg, isOrgAncestorsRead } from "../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
@@ -1577,6 +1577,18 @@ function renderBinary(
   // temporal arithmetic takes the `DateTime.*` arms instead of `fragment`s.
   ectoQuery = false,
 ): string {
+  // Inside an Ecto query, an id column against the operating org compares as
+  // text (see `idColumnVsOperatingOrg`): pinning a claim that is no uuid to a
+  // `:binary_id` field fails Ecto's cast.
+  if (ectoQuery) {
+    const orgCmp = idColumnVsOperatingOrg(e);
+    if (orgCmp) {
+      const orgOnLeft = orgCmp.org === e.left;
+      const org = orgOnLeft ? l : r;
+      const col = orgOnLeft ? r : l;
+      return `fragment("?::text", ${col}) ${orgCmp.negated ? "!=" : "=="} ${org}`;
+    }
+  }
   // Inside an Ecto query a bare `now()` (`DateTime.utc_now()`) is not a valid
   // query expression — it must be `^`-pinned so the clock read happens in
   // Elixir and binds as a query parameter (same posture as the TS backend's

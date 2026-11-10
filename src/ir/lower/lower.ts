@@ -1401,8 +1401,14 @@ function lowerContext(
   }
   // `policy {}` rules — a pure structural projection (`lower-policy.ts`);
   // composition is enrichment, validation phase ⑦.
-  const { policyReadLevels, policyWriteLevels, policyRowRules, policyDenies, policyReadGates } =
-    lowerPolicyRules(ctx, env);
+  const {
+    policyReadLevels,
+    policyWriteLevels,
+    policyRowRules,
+    policyDenies,
+    policyReadGates,
+    policyShareGates,
+  } = lowerPolicyRules(ctx, env);
   // Context-scoped integration tests (test-placement.md): a `test`
   // nested directly in the `context` (no `for` — subject inferred as this
   // context) plus any hoisted `test … for <this context>` routed here.  Lowered
@@ -1441,6 +1447,7 @@ function lowerContext(
     ...(policyRowRules.length > 0 ? { policyRowRules } : {}),
     ...(policyDenies.length > 0 ? { policyDenies } : {}),
     ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
+    ...(policyShareGates.length > 0 ? { policyShareGates } : {}),
   };
 }
 

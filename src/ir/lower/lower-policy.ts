@@ -12,6 +12,7 @@
 //                                         reports it)
 //   allow [write] on X as x where P    → PolicyRowRuleIR    (P in X's scope, `x`
 //                                         resolved to the filtered row `this`)
+//   allow share on X [when C]          → PolicyShareGateIR  (C in the bare env)
 
 import type { Aggregate, BoundedContext, PolicyReadRule } from "../../language/generated/ast.js";
 import { isAggregate, isPolicyDecl } from "../../language/generated/ast.js";
@@ -22,6 +23,7 @@ import type {
   PolicyReadGateIR,
   PolicyReadLevelIR,
   PolicyRowRuleIR,
+  PolicyShareGateIR,
   PolicyWriteLevelIR,
 } from "../types/loom-ir.js";
 import { mapExprChildren } from "../util/walk.js";
@@ -35,6 +37,7 @@ export interface LoweredPolicy {
   policyRowRules: PolicyRowRuleIR[];
   policyDenies: PolicyDenyIR[];
   policyReadGates: PolicyReadGateIR[];
+  policyShareGates: PolicyShareGateIR[];
 }
 
 export function lowerPolicyRules(ctx: BoundedContext, env: Env): LoweredPolicy {
@@ -44,6 +47,7 @@ export function lowerPolicyRules(ctx: BoundedContext, env: Env): LoweredPolicy {
     policyRowRules: [],
     policyDenies: [],
     policyReadGates: [],
+    policyShareGates: [],
   };
   for (const m of ctx.members) {
     if (!isPolicyDecl(m)) continue;
@@ -79,6 +83,16 @@ function lowerRule(r: PolicyReadRule, ctx: BoundedContext, env: Env, out: Lowere
   }
   // Any other head word is `loom.policy-unknown-rule` (AST phase).
   if (r.effect !== "allow") return;
+  // `allow share on X [when C]` — the share gate; C in the bare env.
+  if (r.verb === "share" && !r.binding) {
+    const when = r.when ? lowerExpr(r.when, env) : undefined;
+    out.policyShareGates.push({
+      aggregate: r.target,
+      ...(when ? { when } : {}),
+      source: `allow share on ${r.target}${r.when ? ` when ${cstText(r.when)}` : ""}`,
+    });
+    return;
+  }
   const access = r.verb === "write" ? "write" : "read";
   if (r.row && r.binding) {
     const agg = ctx.members.find((m): m is Aggregate => isAggregate(m) && m.name === r.target);

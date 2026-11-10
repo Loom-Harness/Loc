@@ -630,6 +630,42 @@ Ecto.Query.where(query, [record], (record.tenant_id == ^(current_user && current
 
 Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--block--levels-row-rules-and-deny).
 
+### Sharing — `shareable`
+
+`with shareable` on a `tenantOwned` aggregate X lets its rows be shared beyond their org. It unfolds to ordinary context members (`unfold` ejects them as editable source, and an authored member of the same name wins):
+
+- `enum ShareGranteeKind { Org, Subtree, User }` — once per context;
+- `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`kind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`;
+- `policy GranteeIsMe(s: XShare)` — the share is live and addressed to the caller: `Org` matches the operating org, `Subtree` matches when the grantee org is in `organizationContext.ancestors` (so a move re-targets it on the next request), `User` matches `currentUser.id`;
+- `policy SharedWithMe(x: X)` — X has such a share **in X's own org**;
+- `policy XSharing` — a grantee reads the shares addressed to it, reads X where `SharedWithMe`, and writes X where a share with `write` is addressed to it.
+
+A share row belongs to the sharer's org; it counts only when it sits in the shared row's own org, so a share another org writes — or a grantee's re-share — opens nothing. A grant opens the row, not its fields: `mask unless` still redacts by the grantee's own principal.
+
+`allow share on X [when <caller-only expr>]` decides who may create or revoke a share: XShare's `create` and `revoke` carry it as a leading `requires` (403). With no rule nobody may share. The share surface is XShare's own derived routes: `POST /api/<x>_shares`, `GET /api/<x>_shares` (the caller's org's shares and the ones addressed to it), `POST /api/<x>_shares/{id}/revoke`.
+
+```ddd
+aggregate Category with tenantOwned, shareable, crudish { name: string }
+policy { allow share on Category when currentUser.role == "manager" }
+```
+
+::: tabs backend
+== node
+```ts
+// db/read-scopes.ts — Category's read scope: the floor OR a live share addressed to the caller
+or(eq(schema.categories.tenantId, requireCurrentUser().operatingOrg), sql`exists (select 1 from ${schema.categoryShares} where ${and(and(and(eq(schema.categoryShares.category, schema.categories.id), eq(schema.categoryShares.tenantId, schema.categories.tenantId)), and(not(eq(schema.categoryShares.revoked, true)), or(or(and(eq(schema.categoryShares.kind, "Org"), sql`${schema.categoryShares.org}::text = ${requireCurrentUser().operatingOrg}`), and(eq(schema.categoryShares.kind, "Subtree"), inArray(schema.categoryShares.org, requireCurrentUser().operatingAncestors))), and(eq(schema.categoryShares.kind, "User"), eq(schema.categoryShares.user, requireCurrentUser().id))))), /* CategoryShare's own read scope */)})`)
+// http/categoryShare.routes.ts — the share gate
+if (!(currentUser.role === "manager")) throw new ForbiddenError("Forbidden: allow share on Category");
+```
+::: end
+
+| Situation | Diagnostic |
+| --- | --- |
+| `shareable` in a system with no `tenancy by … of <Registry>` | `loom.shareable-no-tenancy` |
+| `shareable` on an aggregate that is not `tenantOwned` | `loom.shareable-not-tenant-owned` |
+| `allow share on X` where X is not `shareable` | `loom.policy-share-not-shareable` |
+| A share `when` that reads anything but the caller | `loom.policy-when-not-caller-only` |
+
 ### `read` — who may read an aggregate
 
 The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, the scaffolded List page, and every `queryHandler` / `commandHandler` whose body reads the aggregate (a hand-written routed handler gets the gate as a leading `requires`, so it answers the same 403 as the derived routes; a handler reading several gated aggregates carries one gate per aggregate, in first-read order). It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.

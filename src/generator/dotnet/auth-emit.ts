@@ -78,6 +78,7 @@ export function emitAuthFiles(
       tenantClaim,
       orgContext,
       registry?.ancestors ? registry.name : undefined,
+      registry?.name,
     ),
   );
   out.set("Auth/EventOrigin.cs", renderEventOrigin(ns));
@@ -1192,6 +1193,7 @@ function renderUserRecord(
   /** The registry whose id the ancestor set holds, when a hosted context reads
    *  `organizationContext.ancestors`. */
   ancestorsOf?: string,
+  registryName?: string,
 ): string {
   const params = user.fields
     .map((f) => {
@@ -1220,6 +1222,16 @@ function renderUserRecord(
     {
         get => _operatingOrg ?? $"{${upperFirst(tenantClaim)}}";
         set => _operatingOrg = value;
+    }${
+      registryName
+        ? `
+
+    /// <summary>The operating org as a <c>${registryName}Id</c> — null when the
+    /// tenancy claim is no id, so a comparison against it matches nothing.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ${registryName}Id? OperatingOrgId =>
+        Guid.TryParse(OperatingOrg, out var __g) ? new ${registryName}Id(__g) : null;`
+        : ""
     }${
       ancestorsOf
         ? `

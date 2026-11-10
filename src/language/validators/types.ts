@@ -8,6 +8,7 @@ import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-ma
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
 import {
   ORG_CONTEXT_ACCESSOR,
+  ORG_CONTEXT_ORG,
   REMOVED_DATA_KEY_FIELD,
   REMOVED_PRINCIPAL_MEMBERS,
 } from "../../util/principal.js";
@@ -55,6 +56,7 @@ import {
   isPreconditionStmt,
   isRequiresStmt,
   isReturnStmt,
+  isTenancyDecl,
   isTernaryExpr,
   isTestE2E,
   isUi,
@@ -728,6 +730,35 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
  *  more than one name.  A suffix-less chain is admitted too: the grammar
  *  leaves a no-suffix head as a plain `NameRef`, but callers that build one
  *  by hand may not. */
+/** `organizationContext.org` — the operating org's id, typed as the tenancy
+ *  claim (`string`) so it compares with the `tenantOwned` floor's `tenantId`.
+ *  It also names a registry row, so `==` / `!=` against a `<Registry> id`
+ *  (a share's grantee org) is admitted: every query renderer compares that
+ *  pair as text, so a claim that is not an id matches nothing. */
+function isOrgContextOrg(e: Expression | undefined): boolean {
+  if (!e || !isPostfixChain(e) || e.suffixes.length !== 1) return false;
+  const head = e.head;
+  const suffix = e.suffixes[0]!;
+  return (
+    isNameRef(head) &&
+    head.name === ORG_CONTEXT_ACCESSOR &&
+    isMemberSuffix(suffix) &&
+    !suffix.call &&
+    suffix.member === ORG_CONTEXT_ORG
+  );
+}
+
+/** Is `t` (optionally) the `id` of the `tenancy by … of <Registry>` aggregate? */
+function isRegistryIdTy(t: Ty, from: AstNode): boolean {
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "id") return false;
+  const root = AstUtils.findRootNode(from);
+  for (const node of AstUtils.streamAllContents(root)) {
+    if (isTenancyDecl(node)) return node.registry?.$refText === inner.name;
+  }
+  return false;
+}
+
 function bareOperandName(e: Expression | undefined): string | undefined {
   if (!e) return undefined;
   if (isNameRef(e)) return e.name;
@@ -816,7 +847,11 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       continue;
     }
     if (op === "==" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
-      if (!comparable(lt, rt)) {
+      const orgBridge =
+        (op === "==" || op === "!=") &&
+        ((isOrgContextOrg(rhsExpr) && isRegistryIdTy(lt, chain)) ||
+          (isOrgContextOrg(leftExprForPromotion) && isRegistryIdTy(rt, chain)));
+      if (!orgBridge && !comparable(lt, rt)) {
         // The shadowed-enum-case case (finding F13).  `status == Open` reads
         // as an enum comparison, but a same-named criterion / policy function
         // / helper in scope resolves `Open` to a BOOLEAN and wins — so the

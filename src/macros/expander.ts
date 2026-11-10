@@ -52,12 +52,14 @@ import {
   isSystem,
   isTenancyDecl,
   isUi,
+  isUserBlock,
   isWorkflow,
   type MacroArg,
   type MacroCall,
   type Model,
   type PrimitiveType,
   type Property,
+  type TypeRef,
   type Ui,
 } from "../language/generated/ast.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../util/capability-tag.js";
@@ -71,6 +73,7 @@ import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
 import { autoPagePagedTables } from "./stdlib/auto-paged-table.js";
 import { contractRecords } from "./stdlib/scaffold/_contracts-shared.js";
+import { shareableMembers } from "./stdlib/shareable/shareable.js";
 
 // The deep-clone reference rebuilder `copyAstNode` expects — the
 // language Linker's `buildReference`.  A capability's members are cloned
@@ -184,6 +187,10 @@ interface Inventory {
   /** The claim `tenancy by user.<claim> of …` names (its written name: macro
    *  expansion runs before linking), when the workspace declares one. */
   tenancyClaim?: string;
+  /** The `tenancy by … of <Registry>` aggregate's written name. */
+  tenancyRegistry?: string;
+  /** The `user { id: <T> }` field's type, when the workspace declares one. */
+  userIdType?: TypeRef;
   /** Names of the subdomains an implicit `api X from <Subdomain>` exposes, and
    *  of the contexts a deployable's `contexts: [...]` serves directly — each
    *  such context gets the scaffold's contract records spliced (see
@@ -231,6 +238,12 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
     for (const node of AstUtils.streamAllContents(root)) {
       const claim = isTenancyDecl(node) ? node.claim?.$refText : undefined;
       if (claim) inv.tenancyClaim = claim;
+      const registry = isTenancyDecl(node) ? node.registry?.$refText : undefined;
+      if (registry) inv.tenancyRegistry = registry;
+      if (isUserBlock(node)) {
+        const id = node.fields.find((f) => f.name === "id");
+        if (id?.type) inv.userIdType = id.type;
+      }
     }
   };
   // Sibling documents first, then the local model — so a local
@@ -273,6 +286,12 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     else if (isBoundedContext(node)) expandHost(node, "context", doc, inv, buildRef);
     else if (isApi(node)) expandHost(node, "api", doc, inv, buildRef);
   }
+  // `shareable`: once every aggregate's own `with` clause has spliced (so the
+  // capability marker is recorded), each context holding a shareable
+  // aggregate gets its share members.
+  for (const node of [...AstUtils.streamAllContents(model)]) {
+    if (isBoundedContext(node)) spliceShareables(node, doc, inv, buildRef);
+  }
   // Second sweep: `late` macros (they read the finished aggregate surface of
   // their scope), now that every aggregate's own `with` clause has spliced.
   for (const node of [...AstUtils.streamAllContents(model)]) {
@@ -300,6 +319,59 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+}
+
+/** Splice what `with shareable` unfolds to (`stdlib/shareable/shareable.ts`)
+ *  into `ctx`, for every aggregate carrying the `shareable` marker, then expand
+ *  the share aggregates it adds (their own `with tenantOwned` and default
+ *  versioning).  An authored member of the same name wins (override-by-name),
+ *  so an unfolded or hand-written share surface is kept as written. */
+function spliceShareables(
+  ctx: BoundedContext,
+  doc: LangiumDocument,
+  inv: Inventory,
+  buildRef: BuildRef,
+): void {
+  const shareable = (ctx.members ?? []).filter(
+    (m): m is Aggregate =>
+      isAggregate(m) &&
+      ((m as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? []).includes("shareable"),
+  );
+  if (shareable.length === 0) return;
+  if (!inv.tenancyRegistry) {
+    for (const agg of shareable) {
+      recordDiagnostic(doc, {
+        severity: "error",
+        code: "loom.shareable-no-tenancy",
+        message: diagMessage("loom.shareable-no-tenancy", { name: agg.name }),
+        node: agg,
+        property: "name",
+      });
+    }
+    return;
+  }
+  for (const agg of shareable) {
+    const call =
+      agg.withClause?.calls?.find((c) => c.name === "shareable") ??
+      (agg.members ?? []).find((m) => isImplementsDecl(m) && m.cap === "shareable");
+    const origin: OriginToken = {
+      _kind: "macro-origin",
+      macroName: "shareable",
+      callNode: call as MacroCall,
+    };
+    const produced = _withOrigin(origin, () =>
+      shareableMembers(agg.name, {
+        registry: inv.tenancyRegistry!,
+        userIdType: inv.userIdType,
+        sole: shareable.length === 1,
+      }),
+    );
+    const before = new Set(ctx.members);
+    spliceIntoTarget(ctx, produced);
+    for (const m of ctx.members) {
+      if (!before.has(m) && isAggregate(m)) expandHost(m, "aggregate", doc, inv, buildRef);
+    }
+  }
 }
 
 /** The implicit `api X from <Subdomain>` form exposes every aggregate of every

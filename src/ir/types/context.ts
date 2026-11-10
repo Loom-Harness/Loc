@@ -454,6 +454,23 @@ export interface BoundedContextIR extends Sourced {
    *  (`read-gates.ts`, `ensureHistoryFind`).  Undefined / empty when the
    *  context declares no read gate. */
   policyReadGates?: PolicyReadGateIR[];
+  /** `policy { allow share on X [when …] }` rules declared in this context —
+   *  who may create or revoke a share of the `shareable` aggregate X
+   *  (D-SHARING).  Consumed by the share-aggregate's lifecycle gate
+   *  (`shareGateOf`).  Undefined / empty when the context declares none. */
+  policyShareGates?: PolicyShareGateIR[];
+}
+
+/** One `allow share on <Aggregate> [when <expr>]` rule lowered from a
+ *  `policy {}` block.  `when` is lowered in the bare context scope, like a
+ *  level rule's: caller-only (`loom.policy-when-not-caller-only`). */
+export interface PolicyShareGateIR {
+  /** The `shareable` aggregate (by name, in this context). */
+  aggregate: string;
+  /** The caller condition.  Absent = every caller. */
+  when?: ExprIR;
+  /** Source span text for diagnostics (`allow share on Category when …`). */
+  source: string;
 }
 
 /** One `read <Aggregate> requires <expr>` rule lowered from a `policy {}`

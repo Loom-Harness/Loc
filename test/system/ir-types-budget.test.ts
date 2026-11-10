@@ -27,7 +27,9 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "aggregate.ts": 14,
   // +3: a policy level's `when` (absent = every caller) and the context's
   // `policyRowRules` list, absent like its `policyReadLevels` siblings.
-  "context.ts": 31,
+  // +2: the context's `policyShareGates` list and a share gate's `when`
+  // (absent = every caller), the same shape again.
+  "context.ts": 33,
   "deployment.ts": 22,
   "expr.ts": 36,
   "members.ts": 16,

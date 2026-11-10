@@ -26,7 +26,7 @@ import {
   rootBaseOf,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -341,6 +341,12 @@ export function renderDbContext(
       // plus the id namespace (a registry self-scope filter constructs an `<Agg>Id`).
       anyPrincipalFilter ? `using ${ns}.Auth;` : null,
       anyPrincipalFilter ? `using ${ns}.Domain.Ids;` : null,
+      // A principal filter comparing an enum column (`s.kind ==
+      // ShareGranteeKind.Org` in a policy row rule) names the enum type.
+      anyPrincipalFilter &&
+        principalFilterLines.some((l) => enumPool(ctx).some((en) => l.includes(`${en.name}.`)))
+        ? `using ${ns}.Domain.Enums;`
+        : null,
       `namespace ${ns}.Infrastructure.Persistence;`,
       "",
       "public sealed class AppDbContext : DbContext",

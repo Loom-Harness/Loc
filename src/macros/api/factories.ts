@@ -22,14 +22,18 @@ import type {
   ContextMember,
   Create,
   Destroy,
+  EmitField,
+  EmitStmt,
   EntityPartMember,
   EnumDecl,
   EnumValue,
+  EventDecl,
   ExistsExpr,
   Expression,
   FieldAccess,
   HandlerRef,
   HttpMethod,
+  IdRef,
   IdType,
   IfLetStmt,
   Invariant,
@@ -1672,6 +1676,44 @@ export function policyBlock(
   return node as PolicyDecl & ContextMember;
 }
 
+/** `event <name> { <fields…> }` — a domain event declaration. */
+export function eventDecl(name: string, fields: Property[]): EventDecl & ContextMember {
+  const origin = currentOrigin();
+  const node: EventDecl = tag(mkAst<EventDecl>({ $type: "EventDecl", name, fields }), origin);
+  fields.forEach((f, i) => {
+    setContainer(f, node, "fields", i);
+  });
+  return node as EventDecl & ContextMember;
+}
+
+/** `emit <Event> { <field>: <value>, … }` — raise a declared event. */
+export function emitStmt(
+  eventName: string,
+  fields: readonly { name: string; value: Expression }[],
+): EmitStmt {
+  const origin = currentOrigin();
+  const inits = fields.map((f) => {
+    const node: EmitField = tag(
+      mkAst<EmitField>({ $type: "EmitField", name: f.name, value: f.value }),
+      origin,
+    );
+    setContainer(f.value, node, "value");
+    return node;
+  });
+  const node: EmitStmt = tag(
+    mkAst<EmitStmt>({
+      $type: "EmitStmt",
+      event: makeRef<EventDecl>(eventName) as EmitStmt["event"],
+      fields: inits,
+    }),
+    origin,
+  );
+  inits.forEach((f, i) => {
+    setContainer(f, node, "fields", i);
+  });
+  return node;
+}
+
 /** `exists <aggregate> as <binding> where <where>` — the existential
  *  quantifier over another aggregate's rows. */
 export function existsExpr(aggregateName: string, binding: string, where: Expression): ExistsExpr {
@@ -1687,6 +1729,12 @@ export function existsExpr(aggregateName: string, binding: string, where: Expres
   );
   setContainer(where, node, "where");
   return node;
+}
+
+/** `id` — the enclosing aggregate's own identity (the parser's `IdRef`, not a
+ *  name lookup). */
+export function selfId(): IdRef {
+  return tag(mkAst<IdRef>({ $type: "IdRef" }), currentOrigin());
 }
 
 /** `( <inner> )` — an explicit grouping, for an operand whose precedence the

@@ -33,6 +33,7 @@ system D { subdomain M { context C {
       expectedItems: [
         "auditable",
         "softDeletable",
+        "shareable",
         "tenantOwned",
         "tenantRegistry",
         "versioned",
@@ -56,6 +57,7 @@ system D { subdomain M { context C {
       expectedItems: [
         "auditable",
         "softDeletable",
+        "shareable",
         "tenantOwned",
         "tenantRegistry",
         "versioned",
