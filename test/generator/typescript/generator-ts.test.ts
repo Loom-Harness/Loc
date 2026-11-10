@@ -586,7 +586,7 @@ describe("typescript generator", () => {
         /return (?:domainFloorProblem\(c, err, 422, "Unprocessable Entity"\) \?\? )?problem\(422, "Unprocessable Entity", err\.message, err\.problemCode\)/,
       );
       expect(routes).toMatch(
-        /return problem\(404, "Not Found", err\.message, "problem\.not-found", \{"type":"\w+\.\w+"\}\)/,
+        /return problem\(404, "Not Found", err\.message, "problem\.not-found"\)/,
       );
       expect(routes).toMatch(
         /return problem\(500, "Internal Server Error", "internal", "problem\.internal", \{ requestId: trace_id \}\)/,

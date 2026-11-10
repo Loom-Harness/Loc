@@ -83,6 +83,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -186,6 +189,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -220,6 +226,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate_all",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -234,6 +243,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate_any_tenant",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -372,6 +384,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/drivers/by_name",
+        "params": {
+          "type": "Fleet.Driver"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -675,6 +690,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -278,7 +278,7 @@ export function buildQueryProjectionsFile(
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";`);
-  lines.push(`import { frameworkProblemBody, newApp } from "./problem-details";`);
+  lines.push(`import { frameworkProblemBody, newApp, problemParams } from "./problem-details";`);
   lines.push(`import { HTTPException } from "hono/http-exception";`);
   lines.push(
     `import { DomainError, AggregateNotFoundError, ForbiddenError, ExternHandlerError } from "../domain/errors";`,
@@ -437,7 +437,7 @@ export function buildQueryProjectionsFile(
     .sort((a, b) => a - b)
     .join(" | ");
   lines.push(
-    `    const problem = (status: ${projProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${projProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;

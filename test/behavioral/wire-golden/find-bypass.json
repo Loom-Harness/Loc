@@ -86,6 +86,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/scoped",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -100,6 +103,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/any_tenant",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -250,6 +256,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/notes/any_tenant",
+        "params": {
+          "type": "Orders.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -622,6 +631,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/orders/scoped",
+        "params": {
+          "type": "Orders.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

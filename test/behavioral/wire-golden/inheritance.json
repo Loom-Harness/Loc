@@ -197,6 +197,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/customers/by_email",
+        "params": {
+          "type": "Parties.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

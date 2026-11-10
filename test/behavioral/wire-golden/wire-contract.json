@@ -136,6 +136,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/listings/by_sku",
+        "params": {
+          "type": "Catalog.Listing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

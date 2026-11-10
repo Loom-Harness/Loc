@@ -78,8 +78,8 @@ const BACKEND_FACTS: Readonly<
   >
 > = {
   node: {
-    // Each aggregate router passes its identity key to the refusal it answers.
-    typeParams: /"problem\.not-found", \{"type":"[A-Z]\w*\.[A-Z]\w*"\}\);/,
+    // Every router's problem body reads the addressed aggregate off the path.
+    typeParams: /const TYPED_CODES: ReadonlySet<string> = new Set\(\[[^\]]*"problem\.not-found"/,
     schema: [
       /code: z\.string\(\)\.nullish\(\)/,
       /params: z\.record\(z\.string\(\), z\.unknown\(\)\)/,

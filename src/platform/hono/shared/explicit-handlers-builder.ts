@@ -984,7 +984,7 @@ export function buildExplicitRoutesFile(
   if (exHasExternHandler) exStatuses.add(wireStatus("not-implemented"));
   const exProblemUnion = [...exStatuses].sort((a, b) => a - b).join(" | ");
   body.push(
-    `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
@@ -1095,6 +1095,7 @@ export function buildExplicitRoutesFile(
     /\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
+    /\bproblemParams\(/.test(bodyStr) ? "problemParams" : null,
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
     /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);

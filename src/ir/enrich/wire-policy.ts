@@ -450,14 +450,16 @@ export function wireCode(cls: WireRejectionClass): string {
   return `problem.${cls}`;
 }
 
-/** The rejection classes whose refusal concerns ONE aggregate — the one the
- *  request addresses through its own resource routes (`/api/<segment>/…`:
- *  its CRUD, operation, find and containment routes).  Their body carries
- *  `params.type`, the aggregate's identity key (`Sales.Order`), so a client
- *  can show a per-aggregate whole sentence (`aggregateProblemKey`) where a
- *  translator wrote one, and the generic `problem.<class>` otherwise.  A
- *  workflow, projection, handler or file route addresses no single aggregate,
- *  so its refusals carry no `type`. */
+/** The rejection classes whose refusal concerns ONE aggregate — the one whose
+ *  route segment the request path names (`/api/<segment>/…`: its CRUD,
+ *  operation, find and containment routes, and any handler mounted under it).
+ *  Every backend reads the segment off the path, so the answer does not depend
+ *  on which handler raised it.  Their body carries `params.type`, the
+ *  aggregate's identity key (`Sales.Order`), so a client can show a
+ *  per-aggregate whole sentence (`aggregateProblemKey`) where a translator
+ *  wrote one, and the generic `problem.<class>` otherwise.  A workflow,
+ *  projection or file route, and an abstract base's read, names no single
+ *  concrete aggregate, so its refusals carry no `type`. */
 export const AGGREGATE_PROBLEM_CLASSES: readonly WireRejectionClass[] = [
   "not-found",
   "version-conflict",

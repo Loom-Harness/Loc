@@ -99,6 +99,7 @@ import {
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
+  aggregateRouteTypes,
   fieldCode,
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -106,8 +107,10 @@ import {
   frameworkReasonPhrase,
   INTEGER_RANGE_PARAMS,
   REASON_PHRASE_STATUSES,
+  WIRE_REJECTION_CLASSES,
   wireCode,
   wireFixedDetail,
+  wireParams,
   wireSentence,
   wireStatus,
   wireTitle,
@@ -435,7 +438,15 @@ function problemDetailsTs(
   versioned: boolean,
   valueObjectInvariants = false,
   domainFloorCodes = false,
+  /** The `[route segment, params.type]` pairs of the aggregates served here
+   *  (`aggregateRouteTypes`): a refusal answered on one's routes carries its
+   *  identity key. */
+  routeTypes: readonly (readonly [string, string])[] = [],
 ): string {
+  // The codes whose body carries `params.type` (`wireParams`).
+  const typedCodes = WIRE_REJECTION_CLASSES.filter((cls) => wireParams(cls).includes("type")).map(
+    (cls) => JSON.stringify(wireCode(cls)),
+  );
   const errorImports = [
     domainFloorCodes ? "DomainError" : null,
     valueObjectInvariants ? "ValueObjectInvariantError" : null,
@@ -711,6 +722,25 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   // \`requireJsonContentType\` raised it (RS-39).
   const said = status === ${wireStatus("unsupported-media-type")} ? ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} : detail;
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance, code: frameworkCode(status, detail) });
+}
+
+/** The aggregate each \`/api/<segment>\` route serves: a refusal answered for one
+ *  carries its identity key as \`params.type\`. */
+const AGGREGATE_TYPES: ReadonlyMap<string, string> = new Map<string, string>([${routeTypes.map(([seg, type]) => `\n  [${JSON.stringify(seg)}, ${JSON.stringify(type)}],`).join("")}${routeTypes.length > 0 ? "\n" : ""}]);
+
+/** The codes of the refusals that concern one aggregate. */
+const TYPED_CODES: ReadonlySet<string> = new Set([${typedCodes.join(", ")}]);
+
+/** A refusal body's \`params\` member: the values given, else — for a refusal
+ *  that concerns one aggregate — the identity key of the aggregate the request
+ *  path addresses; absent when there is neither. */
+export function problemParams(code: string, path: string, params?: Record<string, unknown>): { params?: Record<string, unknown> } {
+  if (params) return { params };
+  if (!TYPED_CODES.has(code)) return {};
+  const segments = path.split("/").filter((s) => s !== "");
+  const at = segments[0] === "api" ? 1 : 0;
+  const type = segments.length > at ? AGGREGATE_TYPES.get(segments[at]!) : undefined;
+  return type === undefined ? {} : { params: { type } };
 }
 
 /** The wire \`code\` of a fault the framework raised, by its status — the one
@@ -1022,6 +1052,7 @@ export function generateTypeScriptForContexts(
       anyRouteReadsIfMatch(merged.aggregates),
       emitVoInvariant,
       emitDomainFloorCodes,
+      aggregateRouteTypes(contexts),
     ),
   );
   if (emitProvenance) out.set("domain/provenance.ts", PROVENANCE_TS);
