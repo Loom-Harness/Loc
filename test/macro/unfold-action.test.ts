@@ -268,10 +268,10 @@ system D {
     expect(unfolded).not.toMatch(/with tenantOwned/);
     expect(unfolded).toMatch(/tenantId: string internal/);
     expect(unfolded).toMatch(/stamp onCreate \{/);
-    expect(unfolded).toMatch(/tenantId := currentUser\.tenantId/);
+    expect(unfolded).toMatch(/tenantId := organizationContext\.org/);
     // Absence: rows carry `tenantId` only.
     expect(unfolded).not.toMatch(/dataKey/);
-    expect(unfolded).toMatch(/filter this\.tenantId == currentUser\.tenantId/);
+    expect(unfolded).toMatch(/filter this\.tenantId == organizationContext\.org/);
     // And the unfolded source re-parses cleanly:
     const reparse = await validate(unfolded);
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);

@@ -6,7 +6,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 // ---------------------------------------------------------------------------
 // The `onCreate` lifecycle stamps on the DOCUMENT write path — all backends.
 //
-// `tenantOwned` declares `tenantId := currentUser.tenantId` as an onCreate
+// `tenantOwned` declares `tenantId := organizationContext.org` as an onCreate
 // stamp.  Every backend lands
 // them somewhere on the RELATIONAL path — node in `db/audit-stamp.ts`
 // (`stampInsert`), java via a JPA `@PrePersist` hook, .NET via the EF
@@ -59,7 +59,7 @@ describe("document onCreate stamps — java", () => {
   it("emits the stamp as a PLAIN method (no JPA hook fires on a POJO)", async () => {
     const thing = fileEndingWith(await load(), "features/things/Thing.java");
     expect(thing).toContain("void _stampOnCreate() {");
-    expect(thing).toContain("this.tenantId = currentUser.tenantId();");
+    expect(thing).toContain("this.tenantId = currentUser.operatingOrg();");
     // A document root is not a JPA entity — an @PrePersist annotation here
     // would never fire and would drag in a jakarta.persistence import.
     expect(thing).not.toContain("@PrePersist");
@@ -81,7 +81,7 @@ describe("document onCreate stamps — dotnet", () => {
     expect(thing).toContain("internal void _StampOnCreate()");
     expect(thing).toContain("var currentUser = RequestContext.Current?.CurrentUser;");
     expect(thing).toContain("if (currentUser == null) return;");
-    expect(thing).toContain("TenantId = currentUser.TenantId;");
+    expect(thing).toContain("TenantId = currentUser.OperatingOrg;");
   });
 
   it("calls it on the INSERT branch, BEFORE the snapshot is serialized", async () => {
@@ -102,7 +102,7 @@ describe("document onCreate stamps — python is the reference emission", () => 
     const files = await generateSystemFiles(sourceFor("python"));
     const thing = fileEndingWith(files, "app/domain/thing.py");
     expect(thing).toContain("def _stamp_on_create(self, current_user: User) -> None:");
-    expect(thing).toContain("self._tenant_id = current_user.tenant_id");
+    expect(thing).toContain("self._tenant_id = current_user.operating_org");
   });
 });
 

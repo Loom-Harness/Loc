@@ -260,7 +260,7 @@ describe(".NET TPH × capability filter", () => {
     `);
     const dbCtx = fileNamed(files, "AppDbContext.cs");
     expect(dbCtx, "the base's filter is registered on the root, unguarded").toContain(
-      'modelBuilder.Entity<Vehicle>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);',
+      'modelBuilder.Entity<Vehicle>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.OperatingOrg);',
     );
     expect(dbCtx, "no per-subtype copy of the inherited filter").not.toMatch(
       /"(Car|Truck)_TenantIdFilter"/,

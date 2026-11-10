@@ -2270,8 +2270,7 @@ consequence of where an org sits in the tree.
      positional is stamped on rows;
    - guarding against cycles and cross-customer moves is the author's
      operation's job; the generated code stays correct regardless: the
-     ancestors walk (item 4) terminates on a cycle, and the non-host copy
-     (item 6) follows any operation that assigns `parent`;
+     ancestors walk (item 4) terminates on a cycle;
    - a generated, fully checked `move(to)` was considered and dropped: its
      cycle and same-top-level-org checks are a registry walk no operation body
      can express, so it needed a dedicated macro plus a generated precondition
@@ -2285,8 +2284,9 @@ consequence of where an org sits in the tree.
    - `organizationContext.ancestors` — the operating org **and** every org above
      it, resolved **once per request** and memoized, by a recursive walk over
      `parent` that **terminates on a cycle** (set semantics, so an author-written
-     move that creates a loop cannot hang a request). Its one consumer here is
-     the `subtree` share grantee.
+     move that creates a loop cannot hang a request). It is typed
+     `<Registry> id[]` and read with `.contains(x)` in policy functions and row
+     predicates; the `subtree` share grantee is built on it.
    - Reads, writes and the write stamp anchor on `organizationContext.org`.
      `currentUser` is never rewritten by a switch: it is always the real
      principal with its home-org claim.
@@ -2303,16 +2303,13 @@ consequence of where an org sits in the tree.
    | the `x-org-context` path value | an org id |
    | `loomorgpath` envelope attribute, `orgPath` in the event origin | the event origin is `{tenant, causedBy}`; `tenant` is the operating org of the raising request |
 
-6. **A deployable that does not host the registry** resolves
-   `organizationContext.ancestors` and admits the switch from a generated,
-   internal folded projection of the registry — one `(org, parent)` row per
-   org, fed over the outbox and a channel derived on the system's broker by two
-   generated registry events: `<Registry>Placed { org, parent }` on create, and
-   `<Registry>ParentChanged { org, parent }` emitted by **every** operation whose
-   body assigns `parent` (read off its write effects, so an author-written move
-   is covered without naming it). A system that needs the
-   copy and declares no broker is refused at compile time. No closure table and
-   no bespoke replication path.
+6. **A deployable that does not host the registry** has no registry table,
+   so it is **refused** what needs one, and nothing is copied to it: a context
+   it hosts that reads `organizationContext.ancestors` is a compile-time
+   `loom.tenancy-registry-remote-unsupported` (host the registry's context
+   there too), and its switch gate admits the home org only.  A registry copy
+   (a per-request call to the hosting deployable, or a folded `(org, parent)`
+   projection) is deferred until a model needs it.
 
 7. **Data locality.** A tenant (the owning org) is the unit of data locality:
    tenant-owned data references another tenant's data only through
@@ -2365,8 +2362,12 @@ SELECT id FROM up;
   NULL-`dataKey` OR-fallback have no remaining purpose.
 - Event-sourced streams stop carrying `dataKey`; a fold over a tenant-owned
   producer stamps `tenant_id` only.
-- `loom.policy-level-requires-hierarchy` and `loom.tenancy-registry-remote-unsupported`
-  lose their reason to exist (the second is lifted by item 6).
+- `loom.policy-level-requires-hierarchy` loses its reason to exist;
+  `loom.tenancy-registry-remote-unsupported` narrows to the uses that need the
+  registry's table (item 6).
+- A reactor runs as the system principal, which carries no ancestor set: a
+  reactor reading `organizationContext.ancestors` is
+  `loom.org-context-ancestors-in-reactor`.
 - D-REACTOR-SYSTEM-PRINCIPAL's event origin drops `orgPath`.
 - D-CROSSTENANT-ACK is unaffected: `allow global` is gone altogether.
 

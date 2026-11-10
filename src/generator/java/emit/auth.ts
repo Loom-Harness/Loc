@@ -1,6 +1,6 @@
 import { wireCode } from "../../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { systemReadsOrgContext } from "../../../ir/util/org-context.js";
+import type { OrgContextPlan } from "../../../ir/util/org-context.js";
 import {
   guidClaimAccessorName,
   guidFromStringTenancyClaim,
@@ -29,6 +29,7 @@ import { claimFromOriginString } from "../../_auth/origin-claim.js";
 import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { registryAncestorsSql } from "../../_persistence/registry-walk.js";
 import { javaIntOutOfRange } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
@@ -214,6 +215,10 @@ export function renderAuthFiles(
   /** Fullstack mode: only guard routes under this prefix ("/api"), so
    *  the SPA bundle + client-side routes stay public. */
   guardPrefix?: string,
+  plan: OrgContextPlan = { gate: false, ancestors: false },
+  /** The registry this deployable hosts: the switch gate's admission and the
+   *  ancestors walk read it. */
+  registry?: { name: string; repoPkg: string; tableSql: string },
 ): Map<string, string> {
   const out = emissionSink("generator/java/emit/auth");
   const fields = sys.user?.fields ?? [];
@@ -246,16 +251,35 @@ export function renderAuthFiles(
   // is its event tenant, since the tenancy claim is copied from the origin.
   const tenancyClaim = sys.tenancy?.claimField;
   const tenancyField = tenancyClaim ? fields.find((f) => f.name === tenancyClaim) : undefined;
-  const orgContext = !!tenancyField && systemReadsOrgContext(sys);
+  const orgContext = !!tenancyField && plan.gate;
+  const ancestors = orgContext && plan.ancestors && !!registry;
+  const ancestorsType = registry ? `java.util.List<${registry.name}Id>` : "";
+  if (ancestors) imports.add(`${basePkg}.domain.ids.*`);
+  // The operating org (and its ancestor set) are record components set ONCE,
+  // by UserFilter's fail-closed `x-org-context` gate, via `inOrg(…)`.  Every
+  // other construction — a verifier's claims-only `new User(…)`, the system
+  // principal — operates in the home org with no ancestors.
+  const operatingComponents = orgContext
+    ? `, String operatingOrg${ancestors ? `, ${ancestorsType} operatingAncestors` : ""}`
+    : "";
+  const operatingDefaults = (homeOrg: string): string[] =>
+    orgContext ? [homeOrg, ...(ancestors ? ["java.util.List.of()"] : [])] : [];
   const operatingOrgAccessor =
     tenancyField && orgContext
       ? [
           ``,
-          `    /** The request's OPERATING org (\`organizationContext.org\`) — the home`,
-          `     *  org (the tenancy claim's value, "" when absent).  UserFilter's`,
-          `     *  fail-closed \`${ORG_CONTEXT_HEADER}\` gate admits no other org. */`,
-          `    public String operatingOrg() {`,
-          `        return ${homeOrgExpr(tenancyField, "")};`,
+          `    /** This principal operating in \`org\` (\`organizationContext.org\`)${
+            ancestors ? " with its ancestor set" : ""
+          } —`,
+          `     *  UserFilter's fail-closed \`${ORG_CONTEXT_HEADER}\` gate is the one caller. */`,
+          `    public User inOrg(String org${ancestors ? `, ${ancestorsType} orgAncestors` : ""}) {`,
+          `        return new User(${[
+            ...fields.map((f) => `${f.name}()`),
+            "isSystem()",
+            "causedBy()",
+            "org",
+            ...(ancestors ? ["orgAncestors"] : []),
+          ].join(", ")});`,
           `    }`,
         ]
       : [];
@@ -299,8 +323,8 @@ export function renderAuthFiles(
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
       ` *  \`currentUser\` references resolve against this. */`,
-      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy) {`,
-      ...systemPrincipalMembers(fields, tenancyClaim, actorIdField?.name),
+      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy${operatingComponents}) {`,
+      ...systemPrincipalMembers(fields, tenancyClaim, actorIdField?.name, operatingDefaults),
       ...operatingOrgAccessor,
       ...guidClaimAccessor,
       `}`,
@@ -456,10 +480,14 @@ export function renderAuthFiles(
       ``,
       `    private final UserVerifier verifier;`,
       `    private final CurrentUserAccessor accessor;`,
+      ...(orgContext && registry ? [`    private final OrgRegistry orgRegistry;`] : []),
       ``,
-      `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor) {`,
+      orgContext && registry
+        ? `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor, OrgRegistry orgRegistry) {`
+        : `    public UserFilter(UserVerifier verifier, CurrentUserAccessor accessor) {`,
       `        this.verifier = verifier;`,
       `        this.accessor = accessor;`,
+      ...(orgContext && registry ? [`        this.orgRegistry = orgRegistry;`] : []),
       `    }`,
       ``,
       `    @Override`,
@@ -528,18 +556,29 @@ export function renderAuthFiles(
       // names any org other than the caller's home org (the tenancy claim), or
       // any org at all when the caller has no home org, is a 403 before the
       // chain runs — no handler, no write.  Absent / empty ⇒ the home org.
+      // A requested org other than the home org is admitted, on the
+      // deployable that hosts the registry, when the caller (the HOME
+      // principal, already on the accessor) can read that registry row
+      // through the registry's read scope.  Elsewhere only the home org is.
       ...(tenancyField && orgContext
         ? [
             `            String requestedOrgContext = request.getHeader("${ORG_CONTEXT_HEADER}");`,
-            `            if (requestedOrgContext != null && !requestedOrgContext.isEmpty()) {`,
-            `                String homeOrg = ${homeOrgExpr(tenancyField, "user.")};`,
-            `                if (homeOrg.isEmpty() || !requestedOrgContext.equals(homeOrg)) {`,
+            `            String homeOrg = ${homeOrgExpr(tenancyField, "user.")};`,
+            `            String operatingOrg = homeOrg;`,
+            `            if (requestedOrgContext != null && !requestedOrgContext.isEmpty() && !requestedOrgContext.equals(homeOrg)) {`,
+            registry
+              ? `                if (homeOrg.isEmpty() || !orgRegistry.canRead(requestedOrgContext)) {`
+              : `                {`,
             `                    CatalogLog.event(${javaLogEvent("orgContextDenied")}, "org_context", requestedOrgContext,`,
             `                        "reason", homeOrg.isEmpty() ? "no_principal_scope" : "outside_scope", "status", 403);`,
             `                    orgContextForbidden(request, response);`,
             `                    return;`,
             `                }`,
+            ...(registry ? [`                operatingOrg = requestedOrgContext;`] : []),
             `            }`,
+            ancestors
+              ? `            accessor.set(user.inOrg(operatingOrg, orgRegistry.ancestors(operatingOrg)));`
+              : `            accessor.set(user.inOrg(operatingOrg));`,
           ]
         : []),
       `            chain.doFilter(request, response);`,
@@ -624,6 +663,64 @@ export function renderAuthFiles(
       ``,
     ),
   );
+
+  if (orgContext && registry) {
+    const idType = `${registry.name}Id`;
+    out.set(
+      "OrgRegistry.java",
+      lines(
+        `package ${pkg};`,
+        ``,
+        `import ${basePkg}.domain.ids.${idType};`,
+        `import ${registry.repoPkg}.${registry.name}Repository;`,
+        `import java.util.List;`,
+        `import java.util.UUID;`,
+        `import org.springframework.jdbc.core.JdbcTemplate;`,
+        `import org.springframework.stereotype.Component;`,
+        ``,
+        `/** The tenancy registry reads UserFilter's switch gate makes.  \`canRead\``,
+        ` *  loads the requested row through the registry's read scope under the`,
+        ` *  ambient (home) principal; \`ancestors\` walks \`parent\` upward with`,
+        ` *  \`UNION\`, so a cycle terminates.  A value that is not a uuid names no row. */`,
+        `@Component`,
+        `public class OrgRegistry {`,
+        `    private final ${registry.name}Repository repository;`,
+        `    private final JdbcTemplate jdbc;`,
+        ``,
+        `    public OrgRegistry(${registry.name}Repository repository, JdbcTemplate jdbc) {`,
+        `        this.repository = repository;`,
+        `        this.jdbc = jdbc;`,
+        `    }`,
+        ``,
+        `    public boolean canRead(String org) {`,
+        `        UUID id = parse(org);`,
+        `        return id != null && repository.findById(new ${idType}(id)).isPresent();`,
+        `    }`,
+        ...(ancestors
+          ? [
+              ``,
+              `    /** \`organizationContext.ancestors\` for \`org\`: the org and every org above it. */`,
+              `    public List<${idType}> ancestors(String org) {`,
+              `        UUID id = parse(org);`,
+              `        if (id == null) return List.of();`,
+              `        return jdbc.queryForList(${JSON.stringify(registryAncestorsSql(registry.tableSql, "?"))}, UUID.class, id)`,
+              `            .stream().map(${idType}::new).toList();`,
+              `    }`,
+            ]
+          : []),
+        ``,
+        `    private static UUID parse(String org) {`,
+        `        try {`,
+        `            return org == null ? null : UUID.fromString(org);`,
+        `        } catch (IllegalArgumentException e) {`,
+        `            return null;`,
+        `        }`,
+        `    }`,
+        `}`,
+        ``,
+      ),
+    );
+  }
 
   // The session probe (`/auth/me`) + — under an `auth { oidc }` block —
   // the redirect handshake (/auth/login|callback|logout).  Always emitted
@@ -1437,6 +1534,9 @@ function systemPrincipalMembers(
   fields: FieldIR[],
   tenantClaim: string | undefined,
   idField: string | undefined,
+  /** The trailing operating-org components' values for a principal whose home
+   *  org is `homeOrg` (none when the switch gate is not emitted). */
+  operatingDefaults: (homeOrg: string) => string[] = () => [],
 ): string[] {
   const names = fields.map((f) => f.name);
   const empty = (f: FieldIR): string => {
@@ -1458,7 +1558,13 @@ function systemPrincipalMembers(
       ? `user.${f.name}() == null ? null : String.valueOf(${v})`
       : `user.${f.name}() == null ? null : String.valueOf(${v})`;
   };
-  const tenantOf = tenantField ? `nullIfEmpty(${asString(tenantField)})` : "null";
+  // The event's tenant is the OPERATING org of the raising request.
+  const tenantOf =
+    operatingDefaults('""').length > 0
+      ? "nullIfEmpty(user.operatingOrg())"
+      : tenantField
+        ? `nullIfEmpty(${asString(tenantField)})`
+        : "null";
   const idF = idField ? fields.find((f) => f.name === idField) : undefined;
   const causedByOf = idF
     ? `user.isSystem() ? user.causedBy() : ${asString(idF)}`
@@ -1467,7 +1573,16 @@ function systemPrincipalMembers(
     ``,
     `    /** A REQUEST principal — every verifier builds one of these. */`,
     `    public User(${fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ")}) {`,
-    `        this(${[...names, "false", "null"].join(", ")});`,
+    `        this(${[
+      ...names,
+      "false",
+      "null",
+      ...operatingDefaults(
+        tenantField
+          ? `${tenantField.name} == null ? "" : String.valueOf(${tenantField.type.kind === "id" ? `${tenantField.name}.value()` : tenantField.name})`
+          : '""',
+      ),
+    ].join(", ")});`,
     `    }`,
     ``,
     `    /** The event origin of a principal (ruling D1): its tenant claim and`,
@@ -1501,7 +1616,7 @@ function systemPrincipalMembers(
     `    public static User systemPrincipalFor(EventOrigin origin) {`,
     `        String t = origin == null || origin.tenant() == null || origin.tenant().isEmpty()`,
     `                ? null : origin.tenant();`,
-    `        return new User(${[...args, "true", "origin == null ? null : origin.causedBy()"].join(", ")});`,
+    `        return new User(${[...args, "true", "origin == null ? null : origin.causedBy()", ...operatingDefaults('t == null ? "" : t')].join(", ")});`,
     `    }`,
     ``,
     `    private static String nullIfEmpty(String s) {`,

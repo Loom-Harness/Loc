@@ -1272,17 +1272,17 @@ system D {
       files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!,
       { runtime: true },
     );
-    // Principal filter → a `@__cu_tenantId` param bound from the request
+    // Principal filter → a `@__cu_operatingOrg` param bound from the request
     // principal, spliced into every SELECT (GetById shown).
-    expect(repo).toContain("WHERE id = @id AND (tenant_id = @__cu_tenantId)");
-    expect(repo).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
+    expect(repo).toContain("WHERE id = @id AND (tenant_id = @__cu_operatingOrg)");
+    expect(repo).toContain("__cu_operatingOrg = RequestContext.Current!.CurrentUser!.OperatingOrg");
     // The criterion read carries it too.
-    expect(repo).toContain("WHERE (number = @n) AND (tenant_id = @__cu_tenantId)");
-    // Member-access principal stamp (tenantId := currentUser.tenantId) → the
+    expect(repo).toContain("WHERE (number = @n) AND (tenant_id = @__cu_operatingOrg)");
+    // Member-access principal stamp (tenantId := organizationContext.org) → the
     // claim; bare `currentUser` stamp (createdBy/updatedBy := currentUser) → the
     // principal id — both as bound upsert params (no private-setter mutation).
     expect(repo).toContain(
-      "var __create_tenant_id = RequestContext.Current!.CurrentUser!.TenantId;",
+      "var __create_tenant_id = RequestContext.Current!.CurrentUser!.OperatingOrg;",
     );
     expect(repo).toContain("var __create_created_by = RequestContext.Current!.CurrentUser!.Id;");
     expect(repo).toContain("var __stamp_updated_by = RequestContext.Current!.CurrentUser!.Id;");
@@ -1300,11 +1300,11 @@ system D {
       { runtime: true },
     );
     // The criterion's retrieval binds its own `@__cu_id` ref and the inherited
-    // capability filter's `@__cu_tenantId` from the request principal.
-    expect(repo).toContain("WHERE (created_by = @__cu_id) AND (tenant_id = @__cu_tenantId)");
+    // capability filter's `@__cu_operatingOrg` from the request principal.
+    expect(repo).toContain("WHERE (created_by = @__cu_id) AND (tenant_id = @__cu_operatingOrg)");
     expect(repo).toContain('p.Add("__cu_id", RequestContext.Current!.CurrentUser!.Id);');
     expect(repo).toContain(
-      'p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId);',
+      'p.Add("__cu_operatingOrg", RequestContext.Current!.CurrentUser!.OperatingOrg);',
     );
   });
 });
@@ -1473,9 +1473,9 @@ system H {
       expect(
         line,
         `a read over accounts with no tenant floor: ${line.trim().slice(0, 120)}`,
-      ).toContain("tenant_id = @__cu_tenantId");
+      ).toContain("tenant_id = @__cu_operatingOrg");
     }
-    expect(repo).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
+    expect(repo).toContain("__cu_operatingOrg = RequestContext.Current!.CurrentUser!.OperatingOrg");
     // Visibility is flat: no path column is read (D-TENANCY-FLAT).
     expect(repo).not.toContain("data_key");
     // No statement may name a parameter its own anonymous object does not bind.
@@ -1490,8 +1490,8 @@ system H {
 
   // The registry SELF-SCOPE comparison (`this.id == currentUser.tenantId`) is
   // the one place a raw-SQL adapter compares two DIFFERENT Postgres types.
-  // Rendering the claim as the plain text `@__cu_tenantId` produced `id =
-  // @__cu_tenantId` → `42883: operator does not exist: uuid = text`, a 500 on
+  // Rendering the claim as the plain text `@__cu_operatingOrg` produced `id =
+  // @__cu_operatingOrg` → `42883: operator does not exist: uuid = text`, a 500 on
   // EVERY read of the registry — reproduced on a booted generated app, and
   // invisible to `dotnet build /warnaserror` because the predicate is a string.
   it("binds the registry self-scope claim as a PARSED uuid, not the text claim", async () => {
@@ -1511,10 +1511,10 @@ system H {
     );
     // The uuid-typed comparison must not ALSO drag in the text claim parameter:
     // a bound parameter the SQL never names is the F2-ADP-9 shape.
-    expect(repo).not.toContain("id = @__cu_tenantId)");
+    expect(repo).not.toContain("id = @__cu_operatingOrg)");
     for (const line of repo.split("\n").filter((l) => /SELECT[^"]*FROM orgs/.test(l))) {
       expect(line, `text claim bound but not referenced: ${line.trim().slice(0, 120)}`).not.toMatch(
-        /__cu_tenantId = /,
+        /__cu_operatingOrg = /,
       );
     }
   });

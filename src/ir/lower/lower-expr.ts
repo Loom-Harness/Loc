@@ -74,7 +74,9 @@ import { intrinsicFor } from "../../util/intrinsics.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
 import {
   ORG_CONTEXT_ACCESSOR,
+  ORG_CONTEXT_ANCESTORS,
   ORG_CONTEXT_ORG,
+  PRINCIPAL_OPERATING_ANCESTORS,
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
@@ -501,10 +503,11 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     }
     return recv;
   }
-  // Probe: `organizationContext.org` — the OPERATING-scope accessor
-  // Two flat accessors on the
-  // surface, one execution-context frame underneath: it lowers to the derived
-  // principal member `currentUser.operatingOrg`, so every backend's existing
+  // Probe: `organizationContext.org` / `.ancestors` — the OPERATING-scope
+  // accessor.  Two flat accessors on the surface, one execution-context frame
+  // underneath: `.org` lowers to the derived principal member
+  // `currentUser.operatingOrg` and `.ancestors` to
+  // `currentUser.operatingAncestors` (`<Registry> id[]`), so every backend's existing
   // principal threading (the `current-user` ref — auth params, ambient
   // accessors, `usesUser` detection) carries it with no new plumbing, and the
   // value itself is set in exactly one place per backend — the auth
@@ -517,18 +520,22 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
     !first.call &&
     isNameRef(chain.head) &&
     chain.head.name === ORG_CONTEXT_ACCESSOR &&
-    first.member === ORG_CONTEXT_ORG
+    (first.member === ORG_CONTEXT_ORG ||
+      (first.member === ORG_CONTEXT_ANCESTORS && !!env.user?.registry))
   ) {
     const userShape: TypeIR = { kind: "entity", name: USER_SHAPE_NAME };
-    const pathType: TypeIR = { kind: "primitive", name: "string" };
+    const ancestors = first.member === ORG_CONTEXT_ANCESTORS;
+    const memberType: TypeIR = ancestors
+      ? { kind: "array", element: { kind: "id", targetName: env.user!.registry! } }
+      : { kind: "primitive", name: "string" };
     let recv: ExprIR = {
       kind: "member",
       receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: userShape },
-      member: PRINCIPAL_OPERATING_ORG,
+      member: ancestors ? PRINCIPAL_OPERATING_ANCESTORS : PRINCIPAL_OPERATING_ORG,
       receiverType: userShape,
-      memberType: pathType,
+      memberType,
     };
-    let recvType: TypeIR = pathType;
+    let recvType: TypeIR = memberType;
     for (let i = 1; i < chain.suffixes.length; i++) {
       const out = applySuffixToRecv(recv, recvType, chain.suffixes[i]!, env);
       recv = out.recv;

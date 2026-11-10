@@ -27,6 +27,8 @@ const TENANCY_CODES = new Set([
   "loom.tenant-registry-without-tenancy",
   "loom.tenancy-registry-duplicate",
   "loom.tenancy-registry-not-target",
+  "loom.tenancy-registry-remote-unsupported",
+  "loom.org-context-ancestors-in-reactor",
 ]);
 
 async function tenancyDiags(source: string): Promise<LoomDiagnostic[]> {
@@ -486,5 +488,73 @@ describe("tenantRegistry structural checks", () => {
     expect(diags.filter((d) => d.code === "loom.tenancy-registry-not-target")).toMatchObject([
       { code: "loom.tenancy-registry-not-target", source: "Accounts/Division" },
     ]);
+  });
+});
+
+// `organizationContext.ancestors` reads the registry's table, so it needs a
+// deployable that hosts the registry — and a request principal (a reactor's
+// system principal carries no ancestor set).
+const ANCESTORS_SYSTEM = (opts: { split: boolean; reactor: boolean }) => `
+  system Orgs {
+    user { id: guid  tenantId: string }
+    tenancy by user.tenantId of Org
+    subdomain Core {
+      context Registry {
+        aggregate Org with crudish { name: string  implements tenantRegistry }
+        repository Orgs for Org { }
+      }
+      context Books {
+        event Probed { account: Account id  org: Org id }
+        aggregate Account with tenantOwned, crudish {
+          label: string
+          under: bool?
+          operation probe(org: Org id) {
+            under := organizationContext.ancestors.contains(org)
+          }
+        }
+        repository Accounts for Account { }
+        ${
+          opts.reactor
+            ? `workflow onProbed {
+          account: Account id
+          create(e: Probed) by e.account {
+            let a = Accounts.get(e.account)
+            a.probe(e.org)
+          }
+        }`
+            : ""
+        }
+      }
+    }
+    api OrgsApi from Core
+    storage primary { type: postgres }
+    resource regState { for: Registry, kind: state, use: primary }
+    resource booksState { for: Books, kind: state, use: primary }
+    ${
+      opts.split
+        ? `deployable reg { platform: node contexts: [Registry] dataSources: [regState] port: 4001 auth: required }
+    deployable books { platform: node contexts: [Books] dataSources: [booksState] port: 4002 auth: required }`
+        : `deployable d { platform: node contexts: [Registry, Books] dataSources: [regState, booksState] serves: OrgsApi port: 4000 auth: required }`
+    }
+  }
+`;
+
+describe("organizationContext.ancestors — where it can be read", () => {
+  it("is accepted on a deployable that hosts the registry", async () => {
+    const diags = await tenancyDiags(ANCESTORS_SYSTEM({ split: false, reactor: false }));
+    expect(diags.map((d) => d.code)).toEqual([]);
+  });
+
+  it("is loom.tenancy-registry-remote-unsupported on a deployable that does not host it", async () => {
+    const diags = await tenancyDiags(ANCESTORS_SYSTEM({ split: true, reactor: false }));
+    expect(diags.map((d) => d.code)).toEqual(["loom.tenancy-registry-remote-unsupported"]);
+    expect(diags[0]!.message).toContain("deployable 'books' hosts context 'Books'");
+    expect(diags[0]!.message).toContain("Host 'Registry' on 'books'");
+  });
+
+  it("is loom.org-context-ancestors-in-reactor when a reactor reaches it through an operation", async () => {
+    const diags = await tenancyDiags(ANCESTORS_SYSTEM({ split: false, reactor: true }));
+    expect(diags.map((d) => d.code)).toEqual(["loom.org-context-ancestors-in-reactor"]);
+    expect(diags[0]!.message).toContain("onProbed.create(e: Probed)");
   });
 });
