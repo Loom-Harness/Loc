@@ -90,6 +90,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Sales.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -205,6 +208,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Sales.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -260,6 +266,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}",
+        "params": {
+          "type": "Sales.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -390,6 +399,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
+        "params": {
+          "type": "Sales.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -404,6 +416,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
+        "params": {
+          "type": "Sales.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

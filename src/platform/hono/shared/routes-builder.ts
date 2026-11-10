@@ -1443,7 +1443,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))} }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path, code: ${JSON.stringify(wireCode("referenced-in-use"))}, ...problemParams(${JSON.stringify(wireCode("referenced-in-use"))}, c.req.path) }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1557,7 +1557,7 @@ export function buildRoutesFile(
   // .NET / Phoenix).  `instance` is the request path; `type` is `about:blank`
   // (no per-error type registry).  Shared shape across all error arms.
   lines.push(
-    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${problemStatusUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(`    if (err instanceof ForbiddenError) {`);
   lines.push(
@@ -1723,7 +1723,7 @@ export function buildRoutesFile(
   // it.  Names stay in the pre-existing ASCII order Biome's import sorter
   // expects (`ProblemDetails` < `frameworkProblemBody` < `newApp` <
   // `requireJsonContentType`).
-  const problemNamed = ["ProblemDetails", "frameworkProblemBody", "newApp"];
+  const problemNamed = ["ProblemDetails", "frameworkProblemBody", "newApp", "problemParams"];
   const assembledSoFar = lines.join("\n");
   // The shared guid wire schema, only when a route actually declares one.
   // ASCII order puts it between the two `P`/`f` names above.

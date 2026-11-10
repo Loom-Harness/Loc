@@ -60,6 +60,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Shop.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -124,6 +127,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Shop.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -185,6 +191,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/update",
+        "params": {
+          "type": "Shop.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -241,6 +250,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Shop.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -398,6 +410,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Shop.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -491,6 +506,9 @@
         "code": "problem.not-found",
         "detail": "Category {id} not found",
         "instance": "/api/categories/{id}/update",
+        "params": {
+          "type": "Shop.Category"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -20,6 +20,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/work_orders/by_reference",
+        "params": {
+          "type": "Work.WorkOrder"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -186,6 +189,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/work_orders/by_reference",
+        "params": {
+          "type": "Work.WorkOrder"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

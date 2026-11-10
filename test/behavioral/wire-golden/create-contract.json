@@ -71,6 +71,9 @@
         "code": "problem.state-gate",
         "detail": "operation 'confirm' is not allowed in the current state of Appointment.",
         "instance": "/api/appointments/{id}/confirm",
+        "params": {
+          "type": "Scheduling.Appointment"
+        },
         "status": 409,
         "title": "Disallowed",
         "type": "about:blank"
@@ -208,6 +211,9 @@
         "code": "problem.not-found",
         "detail": "Appointment {id} not found",
         "instance": "/api/appointments/{id}/confirm",
+        "params": {
+          "type": "Scheduling.Appointment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -222,6 +228,9 @@
         "code": "problem.not-found",
         "detail": "Appointment {id} not found",
         "instance": "/api/appointments/{id}/confirm",
+        "params": {
+          "type": "Scheduling.Appointment"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

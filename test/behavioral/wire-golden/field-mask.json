@@ -359,6 +359,9 @@
         "code": "problem.not-found",
         "detail": "Employee {id} not found",
         "instance": "/api/employees/{id}",
+        "params": {
+          "type": "Staff.Employee"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

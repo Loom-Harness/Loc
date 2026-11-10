@@ -436,6 +436,9 @@
         "code": "problem.not-found",
         "detail": "Lease {id} not found",
         "instance": "/api/leases/{id}",
+        "params": {
+          "type": "Leasing.Lease"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

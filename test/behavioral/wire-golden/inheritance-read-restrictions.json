@@ -66,6 +66,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -80,6 +83,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -166,6 +172,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -180,6 +189,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -214,6 +226,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate_all",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -228,6 +243,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate_any_tenant",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -242,6 +260,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/restore",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -277,6 +298,9 @@
         "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}",
+        "params": {
+          "type": "Fleet.Truck"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -343,6 +367,9 @@
         "code": "problem.not-found",
         "detail": "Driver {id} not found",
         "instance": "/api/drivers/{id}",
+        "params": {
+          "type": "Fleet.Driver"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -357,6 +384,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/drivers/by_name",
+        "params": {
+          "type": "Fleet.Driver"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -391,6 +421,9 @@
         "code": "problem.not-found",
         "detail": "Driver {id} not found",
         "instance": "/api/drivers/{id}/restore",
+        "params": {
+          "type": "Fleet.Driver"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -490,6 +523,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/soft_delete",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -504,6 +540,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/soft_delete",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -532,6 +571,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/update",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -568,6 +610,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -645,6 +690,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/cars/by_plate",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -771,6 +819,9 @@
         "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}/update",
+        "params": {
+          "type": "Fleet.Truck"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -814,6 +865,9 @@
         "code": "problem.not-found",
         "detail": "Driver {id} not found",
         "instance": "/api/drivers/{id}",
+        "params": {
+          "type": "Fleet.Driver"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

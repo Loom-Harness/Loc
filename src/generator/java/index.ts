@@ -1,6 +1,7 @@
 import { aggregateTableName, partTableName } from "../../ir/enrich/storage-names.js";
 import { isTenantScopedStream } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
+import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import {
   eventSourcedWorkflows,
@@ -566,6 +567,7 @@ function emitProjectFromContexts(
         .flatMap((c) => c.aggregates)
         .map((a): readonly [string, string] => [routeSegmentFor(a.name), a.name]),
       contexts.some((c) => anyRouteReadsIfMatch(c.aggregates)),
+      aggregateRouteTypes(contexts),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

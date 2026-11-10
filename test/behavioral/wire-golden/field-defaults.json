@@ -109,6 +109,9 @@
         "code": "problem.not-found",
         "detail": "Item {id} not found",
         "instance": "/api/items/{id}",
+        "params": {
+          "type": "Items.Item"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -177,6 +180,9 @@
         "code": "problem.not-found",
         "detail": "Item {id} not found",
         "instance": "/api/items/{id}",
+        "params": {
+          "type": "Items.Item"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

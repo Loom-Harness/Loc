@@ -67,6 +67,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}",
+        "params": {
+          "type": "Storefront.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -144,6 +147,9 @@
         "code": "problem.not-found",
         "detail": "Customer {id} not found",
         "instance": "/api/customers/{id}",
+        "params": {
+          "type": "Storefront.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -158,6 +164,9 @@
         "code": "problem.not-found",
         "detail": "not_found",
         "instance": "/api/customers/by_email",
+        "params": {
+          "type": "Storefront.Customer"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -574,6 +583,9 @@
         "code": "problem.not-found",
         "detail": "Wallet {id} not found",
         "instance": "/api/wallets/{id}",
+        "params": {
+          "type": "Storefront.Wallet"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -661,6 +673,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}",
+        "params": {
+          "type": "Storefront.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -730,6 +745,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
+        "params": {
+          "type": "Storefront.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -744,6 +762,9 @@
         "code": "problem.not-found",
         "detail": "Order {id} not found",
         "instance": "/api/orders/{id}/confirm",
+        "params": {
+          "type": "Storefront.Order"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -138,7 +138,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "disallowed", dx.Message, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("disallowed");
-            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate");
+            context.Result = Problem(context, 409, "Disallowed", dx.Message, trace_id, "problem.state-gate", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -156,7 +156,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             }
             _log.LogWarning("{Event} message={Message} status={Status}", "conflict", __conflictDetail, 409);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict");
+            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id, "problem.version-conflict", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -222,7 +222,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         {
             _log.LogWarning("{Event} status={Status}", "not_found", 404);
             global::CatalogApi.Observability.HttpMetrics.RecordDomainFault("not_found");
-            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found");
+            context.Result = Problem(context, 404, "Not Found", nf.Message, trace_id, "problem.not-found", TypeParams(context));
             context.ExceptionHandled = true;
             return;
         }
@@ -273,6 +273,23 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             StatusCode = status,
             ContentTypes = { "application/problem+json" },
         };
+    }
+
+    // The aggregate each `/api/<segment>` route serves: a refusal answered for
+    // one carries its identity key as `params.type`.
+    private static readonly System.Collections.Generic.Dictionary<string, string> AggregateTypes = new()
+    {
+        ["customers"] = "Customers.Customer",
+        ["products"] = "Products.Product",
+    };
+
+    private static System.Collections.Generic.Dictionary<string, object?>? TypeParams(ExceptionContext context)
+    {
+        var segments = (context.HttpContext.Request.Path.Value ?? "").Split('/', System.StringSplitOptions.RemoveEmptyEntries);
+        var at = segments.Length > 0 && segments[0] == "api" ? 1 : 0;
+        return segments.Length > at && AggregateTypes.TryGetValue(segments[at], out var type)
+            ? new System.Collections.Generic.Dictionary<string, object?> { ["type"] = type }
+            : null;
     }
 
     // The same 404 envelope, for the routes MVC cannot reach.

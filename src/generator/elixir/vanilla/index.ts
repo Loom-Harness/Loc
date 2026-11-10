@@ -1,3 +1,4 @@
+import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 // ---------------------------------------------------------------------------
@@ -73,7 +74,7 @@ import { emitAggregateTests, emitTestHelper } from "../tests-emit.js";
 import { exStatus } from "../wire-policy-ex.js";
 import { emitVanillaApiControllers } from "./api-emit.js";
 import { emitVanillaAudit } from "./audit-emit.js";
-import { emitVanillaChangesets } from "./changeset-emit.js";
+import { constraintTypeEntries, emitVanillaChangesets } from "./changeset-emit.js";
 import { opAssertedInvariants } from "./changeset-invariant-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
@@ -243,6 +244,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
             title: denialTitle("precondition", ladderStatuses),
           }
         : undefined,
+      aggregateRouteTypes(contexts),
+      constraintTypeEntries(contexts),
     );
   out.set(`lib/${appName}_web/problem_details.ex`, renderProblemDetails(false));
 

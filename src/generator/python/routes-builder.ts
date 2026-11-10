@@ -1,5 +1,7 @@
 import { destroyVersionCheck, readsIfMatch } from "../../ir/enrich/version-check.js";
 import {
+  aggregateProblemParams,
+  aggregateTypeKey,
   FIND_ABSENT_DETAIL,
   reasonPhrase,
   wireCode,
@@ -300,7 +302,13 @@ export function buildPyRoutesFile(
     historyFind
       ? ["", "", renderPyHistoryMapper(agg), "", "", historyRoute(agg, historyFind, ctx)]
       : null,
-    destroyOp ? ["", "", destroyRoute(agg, conflictResolver(ctx), destroyOp)] : null,
+    destroyOp
+      ? [
+          "",
+          "",
+          destroyRoute(agg, conflictResolver(ctx), destroyOp, aggregateTypeKey(ctx.name, agg.name)),
+        ]
+      : null,
     ...opEntries.map((e) => ["", "", operationRoute(agg, e.operation!, ctx, e)]),
     // Can-query companions register after the operation routes (static
     // `can_<op>` paths, no collision with `/{id}`).
@@ -992,6 +1000,7 @@ function destroyRoute(
   agg: EnrichedAggregateIR,
   resolve: (name: string) => number,
   apiOp: ApiOperationIR,
+  typeKey: string,
 ): string {
   // The cross-aggregate `X id` FK is ON DELETE RESTRICT — a still-referenced
   // delete raises IntegrityError → the `ReferencedInUse` structural conflict,
@@ -1054,6 +1063,7 @@ function destroyRoute(
     `            ${JSON.stringify(reasonPhrase(referencedInUse))},`,
     `            ${JSON.stringify(wireSentenceFor("referenced-in-use", agg.name))},`,
     `            code=${JSON.stringify(wireCode("referenced-in-use"))},`,
+    `            params=${JSON.stringify(aggregateProblemParams("referenced-in-use", typeKey))},`,
     "        )",
     `    return ${H.Response}(status_code=204)`,
   );

@@ -500,6 +500,9 @@
         "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/charge",
+        "params": {
+          "type": "Billing.Invoice"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -514,6 +517,9 @@
         "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/charge",
+        "params": {
+          "type": "Billing.Invoice"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -542,6 +548,9 @@
         "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}/set_fee",
+        "params": {
+          "type": "Billing.Invoice"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

@@ -88,7 +88,7 @@ describe("Java `when` gate + can-query", () => {
     const advice = find(files, (k) => k.endsWith("ApiExceptionAdvice.java"), "advice");
     expect(advice).toContain("@ExceptionHandler(DisallowedException.class)");
     expect(advice).toContain(
-      'problem(409, "Disallowed", e.getMessage(), "problem.state-gate", request), 409',
+      'typed(problem(409, "Disallowed", e.getMessage(), "problem.state-gate", request), request), 409',
     );
   });
 });

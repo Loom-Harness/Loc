@@ -174,6 +174,32 @@ pin: z.string().refine((v: any) => [...v].length === 4, { message: "Pin must be 
 
 The identifiers a rule reads — the fields and parameters in its predicate and guard — are the candidate `{x}` placeholders of its message (`ruleParams`, `src/ir/util/rule-params.ts`).
 
+#### Per-aggregate problem sentences
+
+A refusal answered on an aggregate's routes — any route under its segment, `/api/<segment>/…`, finds and handlers mounted there included — for `not-found`, `version-conflict`, `unique-conflict`, `referenced-in-use`, `dangling-reference` or `state-gate` also carries `params.type`, the aggregate's identity key, on all five backends (`AGGREGATE_PROBLEM_CLASSES` / `aggregateProblemParams`, `src/ir/enrich/wire-policy.ts`). A workflow, projection or file route, and an abstract base's read, carries none. Every frontend localizer tries `<type>.problem.<class>` first and falls back to `problem.<class>`, so a translator can write a whole sentence for one aggregate where the generic one reads badly. The type name is never spliced into a frame: `type` is not a placeholder, and `ddd i18n check` refuses a per-aggregate sentence whose placeholders differ from its generic one's.
+
+The keys are optional. They live in the context's namespace and no catalog carries one until a translator or a `locales/en` override writes it. `ddd i18n check` accepts them, `sync` keeps them and carries them across a rename of their aggregate, and `prune` leaves them.
+
+```json
+{ "type": "about:blank", "title": "Not Found", "status": 404, "detail": "Order 7 not found",
+  "instance": "/api/orders/7", "code": "problem.not-found", "params": { "type": "Sales.Order" } }
+```
+
+```json
+// locales/de/Sales.json
+{ "Order.problem.not-found": "Diese Bestellung gibt es nicht." }
+```
+
+```ts
+// React — src/lib/apply-server-errors.ts
+export function problemKey(code: string, params?: Record<string, unknown>): string {
+  const type = params?.type;
+  if (typeof type !== "string" || !code.startsWith("problem.")) return code;
+  const specific = `${type}.${code}`;
+  return t(specific, ABSENT_MESSAGE) === ABSENT_MESSAGE ? code : specific;
+}
+```
+
 #### `loom.rule-name-duplicate`
 
 Two rules of the same owner declare the same name. The name is the rule's i18n key, so it must be unique across the owner's invariants, field checks and preconditions. Rename one.
