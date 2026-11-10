@@ -691,6 +691,34 @@
     },
     {
       "seq": 59,
+      "method": "POST",
+      "path": "/api/seals/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Seal {id} not found",
+        "instance": "/api/seals/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 60,
+      "method": "DELETE",
+      "path": "/api/seals/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Seal {id} not found",
+        "instance": "/api/seals/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 61,
       "method": "PATCH",
       "path": "/api/categories",
       "status": 405,
@@ -704,7 +732,7 @@
       }
     },
     {
-      "seq": 60,
+      "seq": 62,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -718,7 +746,7 @@
       }
     },
     {
-      "seq": 61,
+      "seq": 63,
       "method": "POST",
       "path": "/api/categories",
       "status": 400,
@@ -732,7 +760,7 @@
       }
     },
     {
-      "seq": 62,
+      "seq": 64,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -742,7 +770,7 @@
       }
     },
     {
-      "seq": 63,
+      "seq": 65,
       "method": "POST",
       "path": "/api/categories/{id}/update",
       "status": 404,

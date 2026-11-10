@@ -3,7 +3,7 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { refType, tsImportSlot, tsNamed, tsNamespace } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -577,23 +577,6 @@ export function buildRoutesFile(
       ? `import { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`
       : `import type { ${agg.name}Repository } from "../db/repositories/${lowerFirst(agg.name)}-repository";`,
   );
-  // An in-app `exists` gate constructs the quantified aggregate's repository
-  // in place (`render-expr.ts` `existsRead`), over the router's `db` + `events`.
-  for (const name of existsReads) {
-    if (name !== agg.name)
-      lines.push(
-        `import { ${name}Repository } from "../db/repositories/${lowerFirst(name)}-repository";`,
-      );
-  }
-  if (existsReads.length > 0 && !needsTx) {
-    lines.push(`import type { DomainEventDispatcher } from "../domain/events";`);
-    lines.push(
-      usingMikro
-        ? `import type { EntityManager } from "@mikro-orm/postgresql";`
-        : `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
-    );
-    if (!usingMikro) lines.push(`import type * as schema from "../db/schema";`);
-  }
   lines.push(tsImportSlot("~/domain/ids"));
   // `ConcurrencyError` only when this aggregate is `versioned` OR event-sourced — a
   // non-versioned aggregate's route file stays byte-identical.  `NotImplementedError`
@@ -1057,9 +1040,21 @@ export function buildRoutesFile(
     lines.push("");
   }
 
+  // An in-app `exists` gate (no transaction of its own) reads the router's
+  // `db` + `events` too; its types are imported from the references here.
+  const dbType = needsTx
+    ? usingMikro
+      ? "EntityManager"
+      : "NodePgDatabase<typeof schema>"
+    : usingMikro
+      ? refType(tsNamed("@mikro-orm/postgresql", "EntityManager"))
+      : `${refType(tsNamed("drizzle-orm/node-postgres", "NodePgDatabase"))}<typeof ${refType(tsNamespace("~/db/schema", "schema"))}>`;
+  const eventsType = needsTx
+    ? "DomainEventDispatcher"
+    : refType(tsNamed("~/domain/events", "DomainEventDispatcher"));
   const routerParams =
     needsTx || existsReads.length > 0
-      ? `repo: ${agg.name}Repository, db: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"}, events: DomainEventDispatcher`
+      ? `repo: ${agg.name}Repository, db: ${dbType}, events: ${eventsType}`
       : `repo: ${agg.name}Repository`;
   lines.push(`export function ${lowerFirst(agg.name)}Routes(${routerParams}): OpenAPIHono {`);
   // `newApp()` from `./problem-details` constructs OpenAPIHono with the

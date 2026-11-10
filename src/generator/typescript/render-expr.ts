@@ -28,6 +28,8 @@ import {
   renderExprWith,
   renderExprWithMarks,
 } from "../_expr/target.js";
+import { ref as importRef } from "../_imports/symbol.js";
+import { tsNamed } from "../_imports/ts.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { T, TT } from "./ts-symbols.js";
 
@@ -204,7 +206,7 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
   // transactional signature), so the quantified aggregate's repository is
   // constructed in place, as a workflow does.
   existsRead: (e, args) =>
-    `((await new ${e.aggregate}Repository(db, events).${e.read.find}(${args.join(", ")})) !== null)`,
+    `((await new ${importRef(tsNamed(`~/db/repositories/${lowerFirst(e.aggregate)}-repository`, `${e.aggregate}Repository`))}(db, events).${e.read.find}(${args.join(", ")})) !== null)`,
 };
 
 export function renderTsExpr(e: ExprIR, ctx: TsRenderContext = DEFAULT): string {

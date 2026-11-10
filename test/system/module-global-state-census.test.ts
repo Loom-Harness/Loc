@@ -72,6 +72,11 @@ const PINNED: Record<string, Pin> = {
     reason:
       "Memoised clause names of the grammar's `Storage` rule — built once from the static grammar, never mutated.",
   },
+  "src/ir/enrich/exists-reads.ts:DERIVED": {
+    discipline: "keyed-cache",
+    reason:
+      "WeakSet keyed by the `exists` IR node whose write scope was ANDed in; marks the node itself, so a second enrichment of the same lowered model skips it, and dies with the node.",
+  },
   "src/generator/_payload/provenanced-wire.ts:provNamesCache": {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",

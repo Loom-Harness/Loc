@@ -439,7 +439,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
 };
 
 /** The handler field an in-app `exists` over `aggregate` reads through. */
-export function csExistsReadField(aggregate: string): string {
+function csExistsReadField(aggregate: string): string {
   return `_${lowerFirst(aggregate)}Reads`;
 }
 

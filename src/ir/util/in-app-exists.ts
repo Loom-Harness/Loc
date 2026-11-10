@@ -42,7 +42,7 @@ export function readsRepository(e: ExprIR | undefined): boolean {
 
 /** Every in-app `exists` read the gates of `agg`'s creates, public
  *  operations and destroys make. */
-export function aggregateExistsReads(agg: AggregateIR): ExistsReadNode[] {
+function aggregateExistsReads(agg: AggregateIR): ExistsReadNode[] {
   return [...agg.creates, ...agg.operations, ...agg.destroys].flatMap((op) =>
     inAppExists(op).filter((x): x is ExistsReadNode => x.read !== undefined),
   );

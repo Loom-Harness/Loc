@@ -196,5 +196,8 @@ system Sharing {
     expect(api.seals.getById(seal).category).toBe(books.id)
     api.racks.destroy(b)
     expect(api.racks.getById(b)).toThrow(404)
+    // The seal itself is out of write reach, as a missing row would be.
+    expect(api.seals.update(seal, { category: books.id })).toThrow(404)
+    expect(api.seals.destroy(seal)).toThrow(404)
   }
 }
