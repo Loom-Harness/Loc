@@ -6,7 +6,7 @@
 // projects resolve those through the `$lib` alias instead — file
 // depth never matters, so there's no srcImportPrefix axis here.
 
-import type { ApiHookUse, ImportMap } from "../../_walker/walker-core.js";
+import type { DataBinding, ImportMap } from "../../_walker/walker-core.js";
 
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -41,9 +41,9 @@ export function renderSvelteImportLines(imports: ImportMap): string {
 }
 
 /** Group api-hook imports by source module (one line per module). */
-export function renderSvelteApiHookImports(usedApiHooks: Map<string, ApiHookUse>): string {
+export function renderSvelteApiHookImports(dataBindings: Map<string, DataBinding>): string {
   const byPath = new Map<string, Set<string>>();
-  for (const h of usedApiHooks.values()) {
+  for (const h of dataBindings.values()) {
     let names = byPath.get(h.importFrom);
     if (!names) {
       names = new Set();

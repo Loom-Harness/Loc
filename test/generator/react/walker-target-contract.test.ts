@@ -27,7 +27,13 @@
 
 import { describe, expect, it } from "vitest";
 import type { DetectedApiCall } from "../../../src/generator/_walker/api-hook-detector.js";
-import type { ApiCallSite, StateRef, WalkerTarget } from "../../../src/generator/_walker/target.js";
+import type {
+  ApiCallSite,
+  DataBinding,
+  StateRef,
+  WalkerTarget,
+} from "../../../src/generator/_walker/target.js";
+import type { WalkContext } from "../../../src/generator/_walker/walker-core.js";
 import { angularTarget } from "../../../src/generator/angular/walker/angular-target.js";
 import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
@@ -35,6 +41,18 @@ import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target
 import { vueTarget } from "../../../src/generator/vue/walker/vue-target.js";
 import type { TypeIR } from "../../../src/ir/types/loom-ir.js";
 import { primType } from "../../_helpers/ir-builders.js";
+
+/** The site a shell hands `renderDataBindings` for one binding. */
+const siteOf = (b: DataBinding): ApiCallSite => ({
+  apiHandle: "",
+  aggregateName: "",
+  operation: "",
+  kind: "query",
+  args: [],
+  varName: b.varName,
+  hookName: b.hookName,
+  argsRendered: b.argsRendered,
+});
 
 const SAMPLE_STATE_REF: StateRef = {
   field: { name: "step", type: { kind: "primitive", name: "int" } },
@@ -78,9 +96,9 @@ describe("WalkerTarget — every shipped target conforms", () => {
       // the object literal).
       expect(typeof target.renderStateRead).toBe("function");
       expect(typeof target.renderStateWrite).toBe("function");
-      expect(typeof target.buildHookUse).toBe("function");
+      expect(typeof target.bindDataAccess).toBe("function");
       expect(typeof target.renderApiCall).toBe("function");
-      expect(typeof target.renderApiHoisting).toBe("function");
+      expect(typeof target.renderDataBindings).toBe("function");
       expect(typeof target.renderMatch).toBe("function");
       expect(typeof target.renderForEach).toBe("function");
       expect(typeof target.renderNavigate).toBe("function");
@@ -93,7 +111,7 @@ describe("WalkerTarget — every shipped target conforms", () => {
       expect(typeof target.renderStateRead(SAMPLE_STATE_REF, "template")).toBe("string");
       expect(typeof target.renderStateWrite(SAMPLE_STATE_REF, "1")).toBe("string");
       expect(typeof target.renderApiCall(SAMPLE_API_CALL_MUTATION, "{}")).toBe("string");
-      expect(Array.isArray(target.renderApiHoisting([SAMPLE_API_CALL_MUTATION]))).toBe(true);
+      expect(Array.isArray(target.renderDataBindings([SAMPLE_API_CALL_MUTATION]))).toBe(true);
       expect(typeof target.renderMatch([], undefined)).toBe("string");
       expect(typeof target.renderNavigate("/path", [])).toBe("string");
       expect(typeof target.defaultInitFor({ kind: "primitive", name: "int" })).toBe("string");
@@ -156,7 +174,7 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
 
   it("renderApiCall diverges by design: TSX returns var only, HEEx returns full call", () => {
     // TSX uses React Query — the hook is hoisted via
-    // `renderApiHoisting`; the call site is just the var
+    // `renderDataBindings`; the call site is just the var
     // reference, and any chained property access (`.data`,
     // `.mutate(args)`, `.isPending`) comes from the surrounding IR
     // walk via standard member / method-call rendering.
@@ -195,20 +213,20 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(tsx).toBe("activeOrdersView");
   });
 
-  it("renderApiHoisting: TSX emits one const-decl per usage, HEEx is empty", () => {
-    const tsx = tsxTarget.renderApiHoisting([SAMPLE_API_CALL_MUTATION]);
-    const heex = heexTarget.renderApiHoisting([SAMPLE_API_CALL_MUTATION]);
+  it("renderDataBindings: TSX emits one const-decl per usage, HEEx is empty", () => {
+    const tsx = tsxTarget.renderDataBindings([SAMPLE_API_CALL_MUTATION]);
+    const heex = heexTarget.renderDataBindings([SAMPLE_API_CALL_MUTATION]);
     expect(tsx).toHaveLength(1);
     expect(tsx[0]).toMatch(/const customerCreate = useCreateCustomer\(\)/);
     expect(heex).toEqual([]);
   });
 
-  it("renderApiHoisting: pre-resolved varName/hookName/argsRendered override aggregate+op formula", () => {
+  it("renderDataBindings: pre-resolved varName/hookName/argsRendered override aggregate+op formula", () => {
     // The View-hook case the walker emits today: varName + hookName
     // don't match the aggregate+op formula (View has no aggregate).
     // The optional fields on ApiCallSite let the walker pass
     // pre-resolved values through.
-    const tsx = tsxTarget.renderApiHoisting([
+    const tsx = tsxTarget.renderDataBindings([
       {
         apiHandle: "",
         aggregateName: "",
@@ -223,8 +241,8 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(tsx).toEqual(["const activeOrdersView = useActiveOrdersView();"]);
   });
 
-  it("renderApiHoisting: argsRendered are interpolated into the hook call", () => {
-    const tsx = tsxTarget.renderApiHoisting([
+  it("renderDataBindings: argsRendered are interpolated into the hook call", () => {
+    const tsx = tsxTarget.renderDataBindings([
       {
         apiHandle: "",
         aggregateName: "",
@@ -364,9 +382,9 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(tsx).toBe('navigate("/orders", { state: overrideState })');
   });
 
-  // --- buildHookUse: detection-to-naming translation ---------------------
+  // --- bindDataAccess: detection-to-naming translation ---------------------
 
-  it("buildHookUse: TSX produces React-Query naming for the standard ops", () => {
+  it("bindDataAccess: TSX produces React-Query naming for the standard ops", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "create",
@@ -376,37 +394,37 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     const renderArg = (_e: unknown): string => {
       throw new Error("renderArg should not be called on a paramless `create`");
     };
-    const use = tsxTarget.buildHookUse(detected, renderArg);
+    const use = tsxTarget.bindDataAccess(detected, renderArg);
     expect(use.varName).toBe("customerCreate");
     expect(use.hookName).toBe("useCreateCustomer");
     expect(use.importFrom).toBe("../api/customer");
     expect(use.argsRendered).toEqual([]);
   });
 
-  it("buildHookUse: TSX `all` op pluralises (`useAllCustomers`)", () => {
+  it("bindDataAccess: TSX `all` op pluralises (`useAllCustomers`)", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "all",
       args: [],
       kind: "aggregate",
     };
-    const use = tsxTarget.buildHookUse(detected, () => "");
+    const use = tsxTarget.bindDataAccess(detected, () => "");
     expect(use.varName).toBe("customerAll");
     expect(use.hookName).toBe("useAllCustomers");
   });
 
-  it("buildHookUse: TSX `byId` op is suffixed (`useCustomerById`)", () => {
+  it("bindDataAccess: TSX `byId` op is suffixed (`useCustomerById`)", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "byId",
       args: [],
       kind: "aggregate",
     };
-    const use = tsxTarget.buildHookUse(detected, () => "");
+    const use = tsxTarget.bindDataAccess(detected, () => "");
     expect(use.hookName).toBe("useCustomerById");
   });
 
-  it("buildHookUse: TSX renders args via the caller-supplied renderArg", () => {
+  it("bindDataAccess: TSX renders args via the caller-supplied renderArg", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "byId",
@@ -424,21 +442,26 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
       calls++;
       return `<<${e.kind}>>`;
     };
-    const use = tsxTarget.buildHookUse(detected, renderArg);
+    const use = tsxTarget.bindDataAccess(detected, renderArg);
     expect(calls).toBe(2);
     expect(use.argsRendered).toEqual(["<<ref>>", "<<literal>>"]);
   });
 
-  it("buildHookUse: HEEx throws (Phoenix LiveView doesn't hoist hooks)", () => {
+  it("bindDataAccess: HEEx binds the in-process context call, with nothing to declare", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "create",
       args: [],
       kind: "aggregate",
     };
-    expect(() => heexTarget.buildHookUse(detected, () => "")).toThrow(
-      /Phoenix LiveView does not hoist/,
-    );
+    const heex = {
+      contextModuleByAggName: new Map([["Customer", "MyApp.Sales"]]),
+      appModule: "MyApp",
+    };
+    const walk = { sink: { heex } } as unknown as WalkContext;
+    const binding = heexTarget.bindDataAccess(detected, () => "", walk);
+    expect(binding.varName).toBe("MyApp.Sales.create_customer!()");
+    expect(heexTarget.renderDataBindings([siteOf(binding)])).toEqual([]);
   });
 
   it("defaultInitFor diverges on optional: TSX `undefined`, HEEx `nil`", () => {
@@ -474,23 +497,23 @@ describe("WalkerTarget — vueTarget (vue-frontend-plan.md)", () => {
     expect(vueTarget.renderApiCall(SAMPLE_API_CALL_QUERY, "")).toBe("customerAll");
   });
 
-  it("renderApiHoisting emits script-position const-decls with TSX-identical shape", () => {
-    const lines = vueTarget.renderApiHoisting([SAMPLE_API_CALL_MUTATION, SAMPLE_API_CALL_QUERY]);
+  it("renderDataBindings emits script-position const-decls with TSX-identical shape", () => {
+    const lines = vueTarget.renderDataBindings([SAMPLE_API_CALL_MUTATION, SAMPLE_API_CALL_QUERY]);
     expect(lines).toEqual([
       "const customerCreate = useCreateCustomer();",
       "const customerAll = useAllCustomers();",
     ]);
   });
 
-  it("buildHookUse naming deliberately matches TSX (shared api-module surface)", () => {
+  it("bindDataAccess naming deliberately matches TSX (shared api-module surface)", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "all",
       args: [],
       kind: "aggregate",
     };
-    const vue = vueTarget.buildHookUse(detected, () => "");
-    const tsx = tsxTarget.buildHookUse(detected, () => "");
+    const vue = vueTarget.bindDataAccess(detected, () => "");
+    const tsx = tsxTarget.bindDataAccess(detected, () => "");
     expect(vue).toEqual(tsx);
   });
 
@@ -589,22 +612,22 @@ describe("WalkerTarget — angularTarget (angular-frontend-plan.md)", () => {
     // `readonly` class fields (the field initializer is the injection context
     // the `use*` factory's `inject()` needs) — not the TSX/Vue `const` lines.
     expect(
-      angularTarget.renderApiHoisting([SAMPLE_API_CALL_MUTATION, SAMPLE_API_CALL_QUERY]),
+      angularTarget.renderDataBindings([SAMPLE_API_CALL_MUTATION, SAMPLE_API_CALL_QUERY]),
     ).toEqual([
       "readonly customerCreate = useCreateCustomer();",
       "readonly customerAll = useAllCustomers();",
     ]);
   });
 
-  it("buildHookUse naming deliberately matches TSX (shared api-module surface)", () => {
+  it("bindDataAccess naming deliberately matches TSX (shared api-module surface)", () => {
     const detected: DetectedApiCall = {
       aggregateName: "Customer",
       operation: "all",
       args: [],
       kind: "aggregate",
     };
-    expect(angularTarget.buildHookUse(detected, () => "")).toEqual(
-      tsxTarget.buildHookUse(detected, () => ""),
+    expect(angularTarget.bindDataAccess(detected, () => "")).toEqual(
+      tsxTarget.bindDataAccess(detected, () => ""),
     );
   });
 

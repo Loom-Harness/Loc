@@ -14,7 +14,7 @@
 //   renderStateRead   — body-walker.ts:625-633 (ref-case path)
 //   renderStateWrite  — body-walker.ts:980-1011 (assign / add / remove)
 //   renderApiCall     — body-walker.ts:594-597 + walker/api-hooks.ts:60-103
-//   renderApiHoisting — walker/page-shell.ts:220-226 (apiHookDecls)
+//   renderDataBindings — walker/page-shell.ts:220-226 (apiHookDecls)
 //   renderMatch       — body-walker.ts:635-645 (ternary chain — match
 //                       lowers to ternary in `src/ir/lower/lower-expr.ts`)
 //   renderNavigate    — walker/primitives/controls.ts:199-213 (emitActionThen)
@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { requireFrontendAxes } from "../../../util/frontend-axes.js";
 import { optionalChainedMemberRead } from "../../_frontend/optional-member.js";
 import { escapeHtmlAttr } from "../../_walker/a11y-emit.js";
 import type { DetectedApiCall } from "../../_walker/api-hook-detector.js";
@@ -43,9 +44,9 @@ import {
 import { addImport } from "../../_walker/render-primitive.js";
 import type {
   ApiCallSite,
+  DataBinding,
   RenderPosition,
   StateRef,
-  TargetHookUse,
   VariantMatchSpec,
   WalkerTarget,
 } from "../../_walker/target.js";
@@ -58,6 +59,9 @@ import { renderReactDataGridChild } from "./data-grid-child.js";
  *  shared with `heexTarget`. */
 export const tsxTarget: WalkerTarget = {
   framework: "react",
+  axes: requireFrontendAxes("react"),
+  // A failed call through the HTTP API client throws its `ApiError`.
+  dataErrorType: { from: "../api/client", name: "ApiError" },
   // The React packs read the identity-keyed form label / enum option / submit
   // tokens (`_walker/model-text-sites.ts`).
   modelTextImplicitSites: true,
@@ -243,7 +247,7 @@ export const tsxTarget: WalkerTarget = {
    *  "useCreateCustomer", importFrom: "../api/customer", argsRendered: [] }`.
    *  Mirrors the formula at
    *  `walker/api-hooks.ts:60-103` pre-extraction. */
-  buildHookUse(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): TargetHookUse {
+  bindDataAccess(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): DataBinding {
     if (detected.kind === "workflow-instance") {
       // `Fulfillment.instances.all` → useAllFulfillmentInstances();
       // `Fulfillment.instances.byId(id)` → useFulfillmentInstanceById(id).
@@ -281,7 +285,7 @@ export const tsxTarget: WalkerTarget = {
   },
 
   /** TSX rewrites the IR call site to the local hook variable
-   *  produced by `renderApiHoisting`.  See the contract docs at
+   *  produced by `renderDataBindings`.  See the contract docs at
    *  `src/generator/_walker/target.ts` for the full rationale —
    *  the short version: React Query hoists `useXxx()` ONCE per
    *  component, every call site references the resulting var, and
@@ -299,7 +303,7 @@ export const tsxTarget: WalkerTarget = {
 
   /** Hoist one `const <var> = useXxx(args);` line per unique hook
    *  usage.  When `varName`/`hookName`/`argsRendered` are supplied
-   *  on the ApiCallSite (the delegating walker passes ApiHookUse
+   *  on the ApiCallSite (the delegating walker passes DataBinding
    *  fields through), the target uses them verbatim — this
    *  preserves the View-hook shape (`useXxxView`) that the
    *  aggregate+op formula can't capture.  When absent (standalone
@@ -310,7 +314,7 @@ export const tsxTarget: WalkerTarget = {
    *  hoisted block reflects whatever ordering the walker tracks —
    *  pages today register hooks in the order they're discovered
    *  during the body walk (Map insertion order). */
-  renderApiHoisting(uses: ApiCallSite[]): string[] {
+  renderDataBindings(uses: ApiCallSite[]): string[] {
     const seen = new Set<string>();
     const lines: string[] = [];
     for (const u of uses) {

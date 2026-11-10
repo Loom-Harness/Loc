@@ -160,7 +160,7 @@ export function stateCtx(opts: {
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(opts.apiParamNames ?? []),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: locals,
     shellLocals: new Set(),
     aggregatesByName,

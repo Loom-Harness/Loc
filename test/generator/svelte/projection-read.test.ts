@@ -9,7 +9,7 @@
 // What the port costs, and why it is this small: the detector (Pattern H), the
 // readable-projection set, and the singleton-before-`autoPaged` binding in
 // `_walker/primitives/controls.ts` were already framework-agnostic.  Svelte
-// supplies the `buildHookUse` arm and the `src/lib/api/projections.ts` emit,
+// supplies the `bindDataAccess` arm and the `src/lib/api/projections.ts` emit,
 // and REUSES the shared `_frontend/projections-module.ts` through four leaf
 // options — the shared-vs-fork rule #2366 recorded.  The cross-framework test
 // at the bottom pins that those four leaves are the WHOLE divergence.

@@ -18,7 +18,7 @@
 // matching how `platform/flutter.ts` `composeService` injects it, defaulting to
 // the same-origin `/api` proxy prefix).  Detection reuses the shared
 // `tryDetectApiHook`, so the reads collected here name the same aggregates +
-// vars the walker's `buildHookUse` seam resolves through — the page's hoisted
+// vars the walker's `bindDataAccess` seam resolves through — the page's hoisted
 // `ref.watch(<var>Provider)` and the emitted `<var>Provider` always agree.
 
 import type { EnrichedBoundedContextIR, ExprIR, UiIR } from "../../ir/types/loom-ir.js";
@@ -302,7 +302,7 @@ function renderReadProvider(read: FlutterRead): string {
   }
   // A projection fetches one fixed URL with nothing to key on, so it is a PLAIN
   // `FutureProvider` — which is also what the call site already emits for it
-  // (`renderApiHoisting` watches the bare `<var>Provider` when a read renders
+  // (`renderDataBindings` watches the bare `<var>Provider` when a read renders
   // no args).
   if (read.projection) {
     // A SINGLETON projection returns ONE object and a GROUPED one a bare array

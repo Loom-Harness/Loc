@@ -11,6 +11,7 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { operationFormParams } from "../../ir/util/op-gates.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
+import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -466,6 +467,7 @@ function renderFsMatch(
 
 export const felizTarget: WalkerTarget = {
   framework: "feliz",
+  axes: requireFrontendAxes("feliz"),
 
   // --- State seam — MVU model reads --------------------------------------
   renderStateRead: (ref: StateRef, _pos: RenderPosition) => `model.${upperFirst(ref.name)}`,
@@ -505,10 +507,10 @@ export const felizTarget: WalkerTarget = {
   // An Elmish read is NOT a per-component hook: the `<param>.<agg>.all` site
   // resolves to the Model field holding its `Remote<'T>`, the shell wires the
   // init `Cmd` + `Loaded` `Msg` + `update` arm (see index.ts's read wiring).
-  // So `buildHookUse` names the Model field, `renderApiCall` returns it as the
-  // value QueryView matches on, and `renderApiHoisting` emits nothing (there is
+  // So `bindDataAccess` names the Model field, `renderApiCall` returns it as the
+  // value QueryView matches on, and `renderDataBindings` emits nothing (there is
   // no page-top hoist to make).
-  buildHookUse: (detected) => {
+  bindDataAccess: (detected) => {
     // A query-time PROJECTION read (M-T1.3) resolves to its own Model
     // field, filled by the init Cmd.  Its Remote payload — and so which
     // `View.*` matcher renders it — follows the projection's RESPONSE SHAPE:
@@ -539,7 +541,7 @@ export const felizTarget: WalkerTarget = {
   // The magic route `id` (`byId(id)`) resolves to the local `id` the page view
   // function binds from its `Page` case (`| ProductDetail id -> …View … id`).
   renderRouteId: () => "id",
-  renderApiHoisting: () => [],
+  renderDataBindings: () => [],
   // The `data:` lambda param binds to the match arm the QueryView pack emits
   // (`| Loaded <binding> -> …`), so a read handle's data dereferences to that
   // binding directly (no `.data` — the arm already unwrapped the `Remote`).
@@ -1356,7 +1358,7 @@ export const felizTarget: WalkerTarget = {
    *  are JavaScript, and the per-row projection it does for the JS chart
    *  libraries buys nothing here — F# reads the record's fields directly. */
   renderChartData({ queryExpr }) {
-    // `queryExpr` is the Model FIELD name — `buildHookUse` returns it bare
+    // `queryExpr` is the Model FIELD name — `bindDataAccess` returns it bare
     // because Elmish has no hook to hoist, and each consumer names the record
     // it reads from.  The QueryView pack renderer prefixes `model.` for exactly
     // the same reason.

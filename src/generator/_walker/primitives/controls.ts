@@ -7,7 +7,7 @@ import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { tryDetectApiHook } from "../api-hook-detector.js";
+import { detectDataAccess } from "../data-access.js";
 import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
@@ -604,7 +604,7 @@ export function emitQueryView(
     const text = `History is not yet supported on ${ctx.target.framework}`;
     return giveUpNotice(ctx.target, "loom.page-primitive-target-gap", text);
   }
-  // Render the query expression; this triggers `tryDetectApiHook`
+  // Render the query expression; this triggers `detectDataAccess`
   // so the page-shell registers the matching `useAll<X>()` (or
   // similar) hook decl + import, and we get the local var name
   // back via emitExpr's hook-detection path.
@@ -740,11 +740,11 @@ export function emitQueryView(
     // which is the only way to know a `money` column from a text one (page
     // bodies carry no `receiverType`, so the accessor's `memberType` is
     // `string` for every field).
-    // Resolved through `tryDetectApiHook`, NOT `singleAggregateOfQuery`: the
+    // Resolved through `detectDataAccess`, NOT `singleAggregateOfQuery`: the
     // latter unwraps a METHOD-CALL receiver (`Sales.Invoice.byId(id)`), while a
     // list query is a bare member chain (`Sales.Invoice.all`) whose own
     // `.member` is the operation name, not the aggregate.
-    const listDetected = single ? undefined : tryDetectApiHook(ofArg, ctx);
+    const listDetected = single ? undefined : detectDataAccess(ofArg, ctx);
     const listAgg = listDetected?.kind === "aggregate" ? listDetected.aggregateName : undefined;
     // Whole-table projections answer ONE object: the same set the gate uses.
     const recordProjections = new Set(
