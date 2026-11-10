@@ -3,6 +3,7 @@ import type { BoundedContextIR, EnumIR, PayloadIR, ValueObjectIR } from "./conte
 import type { LoomInterface, NeedIR, SubdomainIR } from "./deployment.js";
 import type { ExprIR } from "./expr.js";
 import type { AssociationIR, CreateInputFieldIR, EntityPartIR } from "./members.js";
+import type { OriginRef } from "./origin.js";
 import type { SystemIR } from "./system.js";
 import type { RequirementIR, SolutionIR, TestCaseIR, TraceabilityIR } from "./traceability.js";
 import type { Sourced } from "./types.js";
@@ -85,6 +86,22 @@ export interface LoomModel {
    *  ledger) after the generation's structural steps.  Empty when none are
    *  declared. */
   sqlMigrationSteps: SqlStepIR[];
+  /** Every expression lowering read whose type the typing pass could not
+   *  resolve.  Lowering gives each a placeholder type and records it here;
+   *  `validateLoomModel` turns the record into `loom.unresolved-type` errors,
+   *  so a model carrying one never reaches codegen.  Absent when there is
+   *  none — the case for every model that validates. */
+  unresolvedTypes?: UnresolvedTypeSite[];
+}
+
+/** One expression lowering read with no resolved type. */
+export interface UnresolvedTypeSite {
+  /** The expression as written. */
+  text: string;
+  /** Why the typing pass has no type for it (its `UnknownCause`, or
+   *  `unreached` when the pass never visited the node). */
+  cause: string;
+  origin?: OriginRef;
 }
 
 /** One `rename Agg.old -> new` step lowered from a `migration` block.  Field

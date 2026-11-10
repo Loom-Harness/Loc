@@ -18,9 +18,9 @@
 // The classifier was already target-neutral (`ir/util/feliz-async-effect.ts`);
 // this is the promotion, not a new analysis.  The statement form cannot instead
 // reuse `loom.match-non-union-subject`: a `StmtIR.variant-match`'s `subjectType`
-// comes from `inferExprType`, whose catch-all is `string`, so an awaited
-// api-handle call is indistinguishable from a genuine string there — the defect
-// `variant-match-subject-type.test.ts` pins.  This gate is SHAPE-based.
+// comes from the typing pass, so an awaited api-handle call reaches it already
+// typed — `variant-match-subject-type.test.ts` pins that.  This gate is
+// SHAPE-based.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";

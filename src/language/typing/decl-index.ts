@@ -256,7 +256,9 @@ export class DeclIndex {
       }
       this.e2eHandles = m;
     }
-    return this.e2eHandles.get(slug) ?? {};
+    const own = this.e2eHandles.get(slug);
+    // The rest of the import closure declares the deployable's other models.
+    return own ?? this.composedIndex?.e2eHandle(slug) ?? {};
   }
   private e2eHandles:
     | Map<string, { aggregate?: Aggregate; projection?: Projection; workflow?: Workflow }>
@@ -285,7 +287,7 @@ export class DeclIndex {
         if (h && spells(h.name, handlerSlug)) return h;
       }
     }
-    return undefined;
+    return this.composedIndex?.routedHandler(contextSlug, handlerSlug);
   }
 
   /** The enums declaring a value named `name`, nearest level first: the

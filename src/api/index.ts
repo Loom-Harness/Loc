@@ -29,6 +29,7 @@ import { wireFieldsForAggregate } from "../ir/enrich/wire-projection.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../ir/types/loom-ir.js";
 import { typeLabel } from "../ir/util/type-label.js";
+import { UNRESOLVED_TYPE_CODE } from "../ir/validate/checks/unresolved-type-checks.js";
 import {
   type LoomDiagnostic,
   type ValidateLoomModelOptions,
@@ -138,6 +139,14 @@ function hasParseError(diagnostics: Diagnostic[]): boolean {
   });
 }
 
+/** `loom.unresolved-type` is the backstop for a model nothing else refuses
+ *  (`unresolved-type-checks.ts`); the IR layer cannot see the AST layer's
+ *  errors, so a host holding both drops it when one of those already does. */
+function withoutUnresolvedBackstop(langium: Diagnostic[], ir: LoomDiagnostic[]): LoomDiagnostic[] {
+  if (!langium.some((d) => d.severity === 1)) return ir;
+  return ir.filter((d) => d.code !== UNRESOLVED_TYPE_CODE);
+}
+
 /** Run the IR phases (lower → enrich → IR-validate) over a parsed model,
  *  surfacing an internal failure as a single diagnostic rather than throwing. */
 function irDiagnosticsFor(
@@ -182,7 +191,10 @@ export async function validate(source: string, opts: ToolkitOptions = {}): Promi
   return withParsed(source, ({ doc, model, diagnostics }) => {
     const irDiagnostics =
       model && !hasParseError(diagnostics)
-        ? irDiagnosticsFor(model, path, { designPacks: opts.designPacks })
+        ? withoutUnresolvedBackstop(
+            diagnostics,
+            irDiagnosticsFor(model, path, { designPacks: opts.designPacks }),
+          )
         : [];
     return buildValidateReport({
       modelPath: path,
@@ -226,9 +238,10 @@ export async function generate(source: string, opts: ToolkitOptions = {}): Promi
     }
 
     const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
-    const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map((d) =>
-      irDiagnosticToJson(d, doc),
-    );
+    const irJson = withoutUnresolvedBackstop(
+      diagnostics,
+      validateLoomModel(loom, { designPacks: opts.designPacks }),
+    ).map((d) => irDiagnosticToJson(d, doc));
     const deployables = loom.systems.flatMap((sys) =>
       sys.deployables.map((d) => ({ name: d.name, platform: d.platform, port: d.port })),
     );

@@ -82,6 +82,44 @@ describe("ui expressions lowering reads are typed", () => {
     expect(await typeOfText(src, "Basket.clear")).toBe("action");
   });
 
+  it("a ui's own extern function answers its declared result", async () => {
+    const src = system(`function initials(name: string): string extern from "./initials"
+      page Home { route: "/" body: Heading { initials("Ada") } }`);
+    expect(await typeOfText(src, `initials("Ada")`)).toBe("p:string");
+  });
+
+  it("a page reads its route's id as a string, whatever its route declares", async () => {
+    const src = system(
+      `page Detail { route: "/orders" derived key: string = id body: Heading { key } }`,
+    );
+    expect(await typeOfText(src, "id")).toBe("p:string");
+  });
+
+  it("navigation state is a record of the target page's params", async () => {
+    const src = system(`page Target(code: string) { route: "/t" body: Heading { code } }
+      page Home { route: "/" body: Action { then: navigate(Target, { code: "a" }) } }`);
+    expect(await typeOfText(src, `{ code: "a" }`)).toBe("rec:TargetState");
+  });
+
+  it("a create mutation's body is the create's request; a query handle's error a message", async () => {
+    const src = system(`page Home { route: "/" state { c: string = "" }
+      body: Stack {
+        Button { "Save", onClick: e => { Api.Order.create.mutate({ code: c, total: 1 }) } },
+        Text { Api.Order.all.error }
+      } }`);
+    expect(await typeOfText(src, "{ code: c, total: 1 }")).toBe("rec:__Request__");
+    expect(await typeOfText(src, "Api.Order.all.error")).toBe("p:string?");
+  });
+
+  it("a component's lambda prop takes its declared action's parameter; a context names a read", async () => {
+    const src =
+      system(`component OrderGrid(rows: Order[], onPick: action(Order)) extern from "w/grid"
+      page Home { route: "/" state { note: string = "" }
+        body: OrderGrid { rows: C.Order.all, onPick: o => { note := o.code } } }`);
+    expect(await typeOfText(src, "o.code")).toBe("p:string");
+    expect(await typeOfText(src, "C.Order.all")).toMatch(/^\[rec:Order\]/);
+  });
+
   it("a click handler is an action", async () => {
     const src = system(
       `page Home { route: "/" body: Button { "x", onClick: e => { precondition 1 > 0 } } }`,
@@ -134,6 +172,20 @@ describe("a principal claim with no `user { }` block", () => {
 });
 
 describe("domain expressions lowering reads are typed", () => {
+  it("`Vo.create({ … })` builds the value object from a record of its fields", async () => {
+    const src = system(
+      "",
+      `valueobject Zip { code: string }
+      valueobject Addr { zip: Zip  city: string }
+      test "made" { let a = Addr.create({ zip: Zip.create({ code: "1" }), city: "Oslo" })  expect(a.city).toBe("Oslo") }`,
+    );
+    expect(await typeOfText(src, `{ zip: Zip.create({ code: "1" }), city: "Oslo" }`)).toBe(
+      "vo:Addr",
+    );
+    expect(await typeOfText(src, `{ code: "1" }`)).toBe("vo:Zip");
+    expect(await typeOfText(src, `Zip.create({ code: "1" })`)).toBe("vo:Zip");
+  });
+
   it("a record literal for a value-object param of `Agg.create(…)` is that value object", async () => {
     const src = system(
       "",
