@@ -300,6 +300,27 @@ export function Preview({
         runtime.serveInfraHttp
           ? runtime.serveInfraHttp(req)
           : Promise.reject(new Error("This runtime has no object store.")),
+      // Sign-in / sign-out: follow the redirect chain through the backend and
+      // the identity provider, then remount the app at the route it lands on
+      // (its session probe then sees the cookies the callback set).
+      (url) => {
+        if (!runtime.navigate) {
+          onAppLogRef.current?.({ level: "error", text: `Navigation to ${url} is not available in this preview.` });
+          return;
+        }
+        void runtime
+          .navigate(url, { choosePersona: (issuer, personas) => bridge.showLogin(issuer, personas) })
+          .then((out) => {
+            if (out.kind === "cancelled") return;
+            if (out.kind === "error") {
+              onAppLogRef.current?.({ level: "error", text: `Sign-in navigation failed: ${out.message}` });
+              return;
+            }
+            bridge.showRoute(out.path);
+            const m = materialRef.current;
+            bridge.pushReload({ js: m.js, css: m.css });
+          });
+      },
     );
     bridgeRef.current = bridge;
     startedCodeKeyRef.current = codeKey;

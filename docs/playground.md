@@ -228,7 +228,22 @@ The **Auth** tab picks a persona, edits its claims and mints a token; the API
 console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
 switch boots the dev stub instead (on the next boot), for the
 `x-loom-dev-claims` workflow. The signing key lives as long as the infra
-worker, so a token survives a re-boot. `examples/oidc-auth-system.ddd` shows a
+worker, so a token survives a re-boot.
+
+The generated frontend's **Sign in** (`auth: ui`) runs the real handshake. Its
+`location.href = …/api/auth/login` is under the runtime base, which no server
+serves, so the preview document's navigation controller (`iframe-html.ts`)
+cancels it through the Navigation API's `navigate` event and hands the path to
+the parent, which walks the redirect chain (`src/preview/auth-navigation.ts`):
+backend responses are dispatched to the app, the provider's authorization
+endpoint shows a login page inside the preview (pick a persona, or cancel), and
+the first URL that is neither lands the app there (the preview reloads it at
+that route). The app's cookies live in the parent's `CookieJar` and ride every
+request the preview sends; in the deployable worker, `Request` and `Response`
+are subclasses (`src/runtime/cookie-headers.ts`) whose headers keep `Cookie`
+and `Set-Cookie`, which a browser's own constructors drop. A browser without
+the Navigation API follows the navigation instead, and the frame shows an
+error page. `examples/oidc-auth-system.ddd` shows a
 `requires` permission gate and a tenant claim per persona.
 
 ### In-browser test runner

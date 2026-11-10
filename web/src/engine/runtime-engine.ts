@@ -18,6 +18,7 @@
 // the generated `VirtualFile[]` plus a `DependencySet`.
 // ---------------------------------------------------------------------------
 
+import type { NavigationOutcome } from "../preview/auth-navigation.js";
 import type { VirtualFile } from "../build/protocol.js";
 import type { BundleResult } from "../bundle/protocol.js";
 import type { BrokerInspectResult } from "../runtime/infra/broker-protocol.js";
@@ -96,6 +97,14 @@ export interface PreparedBuild {
  *  agnostic. */
 export interface RuntimeDispatcher {
   dispatch(req: SerializedRequest, target?: string): Promise<DispatchResult>;
+  /** Follow a navigation the preview made into the backend (`/api/auth/login`
+   *  and the redirects after it; see `preview/auth-navigation.ts`).
+   *  `choosePersona` shows the identity provider's login page in the preview.
+   *  Absent on a dispatcher without a session. */
+  navigate?(
+    path: string,
+    ui: { choosePersona(issuer: string, personas: readonly string[]): Promise<string | null> },
+  ): Promise<NavigationOutcome>;
   /** Answer an HTTP request the preview iframe sent to a fake cloud endpoint
    *  (a presigned S3 URL) from the infra worker.  Absent on an engine with no
    *  resource fakes. */
