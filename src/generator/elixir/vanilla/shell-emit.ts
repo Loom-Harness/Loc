@@ -471,7 +471,7 @@ export function emitVanillaShellFiles(
   out.set("config/dev.exs", renderVanillaDev(appName, appModule, devPort));
   out.set("config/prod.exs", renderVanillaProd(appName, appModule));
   out.set("config/runtime.exs", renderVanillaRuntime(appName, appModule));
-  out.set("config/test.exs", renderVanillaTest(appName, appModule));
+  out.set("config/test.exs", renderVanillaTest(appName, appModule, authEnabled && oidc));
 }
 
 function renderVanillaMixExs(
@@ -1965,7 +1965,11 @@ end
 `;
 }
 
-function renderVanillaTest(appName: string, appModule: string): string {
+function renderVanillaTest(appName: string, appModule: string, oidc: boolean): string {
+  // `mix test` has no issuer: the generated tests build their principal from a
+  // claims map (`Auth.as_principal/1`), so the JWKS strategy — which fetches the
+  // issuer's keys synchronously at start — stays off under `:test`.
+  const jwks = oidc ? `\nconfig :${appName}, :start_jwks_strategy, false\n` : "";
   return `import Config
 
 config :${appName}, ${appModule}.Repo,
@@ -1984,7 +1988,7 @@ config :${appName}, ${appModule}Web.Endpoint,
 config :logger, level: :warning
 
 config :phoenix, :plug_init_mode, :runtime
-`;
+${jwks}`;
 }
 
 /** The one boot line saying whether the dev-stub login is on — an
