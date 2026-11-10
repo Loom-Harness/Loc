@@ -79,6 +79,12 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   == this.category && s.grantee == currentUser.id`), compiled into the query as a
   correlated `EXISTS` that carries the quantified aggregate's own read scope; see
   [the `exists` quantifier](language-reference/10-repositories-and-queries.md#exists--quantifying-over-another-aggregate).
+  A `requires` gate of a create, public operation or destroy may test another
+  row the same way — `requires exists Doc for write as d where d.id == target`
+  admits the caller only while they may write that `Doc` (its read scope AND its
+  write scope); the handler runs it as a single-row read on `Doc`'s repository
+  before the 403/409 decision.  A policy `read X requires` gate stays
+  `currentUser`-only: use a row rule to make visibility depend on another row.
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that

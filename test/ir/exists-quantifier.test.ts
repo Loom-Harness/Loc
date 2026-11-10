@@ -9,8 +9,8 @@
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { printExpr } from "../../src/language/print/print-expr.js";
 import { parseString } from "../_helpers/parse.js";
