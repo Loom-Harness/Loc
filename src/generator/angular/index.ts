@@ -294,8 +294,9 @@ export function generateAngularForContexts(
   );
   if (i18nEnabled && ui) {
     // The Angular forms are hand-built (`form-fields.ts`): they render the
-    // dynamic-row `addItem` sentence and the identity-keyed model text of the
-    // forms' labels, options and buttons, but no pack sentence chrome.
+    // dynamic-row `addItem` / `removeItem` sentences and the identity-keyed
+    // model text of the forms' labels, options and buttons, but no pack
+    // sentence chrome.
     const formScope = {
       layouts: sys.layouts,
       contexts,

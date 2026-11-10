@@ -29,7 +29,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "deployment.ts": 22,
   "expr.ts": 43,
   "members.ts": 16,
-  "model.ts": 8,
+  "model.ts": 9, // EnumValueRenameIntentIR.context: a root-level enum has no declaring context
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,

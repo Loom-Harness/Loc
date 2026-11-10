@@ -61,7 +61,7 @@ const qi = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 /** The UPDATE remapping one column's stored `from` to `to`.  A scalar column
  *  is matched by equality; an enum ARRAY column (`TEXT[]`) has the element
  *  replaced in place, so an array holding the old value keeps its order. */
-export function renderEnumValueUpdate(
+function renderEnumValueUpdate(
   schema: string | undefined,
   table: string,
   column: ColumnShape,

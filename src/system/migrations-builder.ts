@@ -1507,7 +1507,7 @@ export interface EnumNarrowing {
   readonly kept: readonly string[];
 }
 
-export function enumNarrowings(
+function enumNarrowings(
   steps: readonly MigrationStep[],
   baseline: SchemaSnapshot | null,
   next: SchemaSnapshot,

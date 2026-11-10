@@ -85,7 +85,7 @@ function attrExprValue(nav: { expr: string; dynamic: boolean }, ctx: WalkContext
 /** True when `Money { …, format: "locale" }` opts into locale-formatted
  *  display.  The accepted values are the closed `Money.format` vocabulary in
  *  `src/util/walker-primitive-arg-values.ts`. */
-export function moneyLocaleFormat(call: ExprIR & { kind: "call" }): boolean {
+function moneyLocaleFormat(call: ExprIR & { kind: "call" }): boolean {
   return isMoneyLocaleFormatCall(call);
 }
 
