@@ -336,7 +336,6 @@ async function resolve(source: string, patches: ModelPatch[]): Promise<Resolved>
 
 let sharedServices: ReturnType<typeof createDddServices> | undefined;
 let patchQueue: Promise<void> = Promise.resolve();
-let patchDocCounter = 0;
 
 /** Test seam: how many times the shared service set has been constructed. */
 export const patchServicesStats = { created: 0 };
@@ -347,7 +346,7 @@ async function resolveOnShared(source: string, patches: ModelPatch[]): Promise<R
     sharedServices = createDddServices(EmptyFileSystem);
   }
   const services = sharedServices;
-  const uri = URI.parse(`memory:///patch-${++patchDocCounter}.ddd`);
+  const uri = URI.parse("memory:///patch.ddd");
   const doc = services.shared.workspace.LangiumDocumentFactory.fromString<Model>(source, uri);
   try {
     await services.shared.workspace.DocumentBuilder.build([doc]);
