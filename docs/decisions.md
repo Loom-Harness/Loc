@@ -2579,7 +2579,9 @@ eventLog` and × `shape: document` (refused by `loom.exists-unsupported`: the
 share rules quantify over the row, which neither read path renders), × an
 inheritance hierarchy (refused by `loom.policy-scope-inheritance-unsupported`,
 like every row rule there), × cross-deployable read (refused,
-`loom.share-host-bypass`).
+`loom.share-host-bypass`).  A query-time projection over a shareable aggregate
+on its OWN deployable applies only the source's tenancy floor, not its share
+rules: it under-shows a grantee's rows and never leaks one.
 
 **Alternatives rejected.**
 
