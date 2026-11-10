@@ -144,8 +144,9 @@ const dispatcherFor = (hasDispatch: boolean): string =>
  *  path-bound id / scalar / value object) passes through.  An extern handler
  *  keeps its raw params — its scaffold-once impl owns the signature. */
 
-/** An explicit-handler route parameter.  Its wire name is the snake_cased
- *  `.ddd` name (the path token / query key the route already publishes); a
+/** An explicit-handler route PATH parameter.  Its wire name is the
+ *  snake_cased `.ddd` name (the `{token}` the route publishes; body and query
+ *  keys keep the declared camelCase spelling); a
  *  keyword collision (`def`) binds under the escaped identifier with the wire
  *  name restored by `Path(alias=…)` / `Query(alias=…)` (eval item 6, ruling
  *  D2).  Every other parameter is byte-identical. */
@@ -655,7 +656,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // params + session, then the defaulted pagination controls.
   const sig = [
     ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
-    ...queryParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Query")),
+    ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
     ...(usesUser ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
     ...PY_PAGED_CONTROLS,
@@ -666,7 +667,13 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // pagination controls (pageSize → the handler's snake `page_size`).
   const callArgs = [
     "session",
-    ...h.params.map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx)),
+    ...h.params.map((p) =>
+      pyWireToDomain(
+        pathNames.has(p.name) ? pythonIdent(p.name) : pythonWireIdent(p.name),
+        p.type,
+        ctx,
+      ),
+    ),
     ...(usesUser ? ["current_user"] : []),
     "page",
     "pageSize",
@@ -783,7 +790,7 @@ export function emitPyExplicitRouteRouter(
         lines(
           `class ${bodyModelName}(${H.BaseModel}):`,
           ...bodyParams.map((p) =>
-            withFieldConstraint(snake(p.name), requestPyType(p.type, ctx), undefined),
+            withFieldConstraint(p.name, requestPyType(p.type, ctx), undefined),
           ),
         ),
       );
@@ -804,7 +811,7 @@ export function emitPyExplicitRouteRouter(
           ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
           : source(p) === "query"
             ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
-            : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
+            : pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");

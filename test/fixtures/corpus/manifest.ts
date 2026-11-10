@@ -757,9 +757,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "extern-handlers",
     title: "extern commandHandler / queryHandler — bodyless, scaffold-once user impl",
-    // python's routed-handler body takes snake_case keys (#4211); its leg boots
-    // the case as a tracked expected failure until that lands.
-    backends: ALL.filter((b) => b !== "python"),
+    backends: ALL,
   },
   {
     id: "handler-resource-ops",

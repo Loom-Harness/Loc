@@ -257,13 +257,6 @@ export const BEHAVIOURAL_XFAIL = {
   java: {
   },
   python: {
-    // A routed command handler's body model takes snake_case keys.
-    "extern-handlers": {
-      issue: "#4211",
-      expect: "fail",
-      tests: { "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422" },
-      reason: "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
-    },
     // `{"st": row.st}` against a model whose only attributes are the leaves.
     "projection-valueobject-row": projectionVoRow({
       expect: "fail",

@@ -32,7 +32,7 @@
     {
       "seq": 3,
       "method": "GET",
-      "path": "/api/reports/in_region?rgn=EU",
+      "path": "/api/reports/in_region?regionCode=EU",
       "status": 200,
       "body": {
         "items": [
@@ -58,7 +58,7 @@
     {
       "seq": 4,
       "method": "GET",
-      "path": "/api/reports/in_region?rgn=SA",
+      "path": "/api/reports/in_region?regionCode=SA",
       "status": 200,
       "body": {
         "items": [],
@@ -71,7 +71,7 @@
     {
       "seq": 5,
       "method": "GET",
-      "path": "/api/reports/in_region?rgn=SA",
+      "path": "/api/reports/in_region?regionCode=SA",
       "status": 200,
       "body": {
         "items": [],
@@ -103,7 +103,7 @@
     {
       "seq": 8,
       "method": "GET",
-      "path": "/api/reports/in_region?rgn=EU",
+      "path": "/api/reports/in_region?regionCode=EU",
       "status": 200,
       "body": {
         "items": [
@@ -191,7 +191,7 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/reports/in_region?rgn=EU",
+      "path": "/api/reports/in_region?regionCode=EU",
       "status": 200,
       "body": {
         "items": [

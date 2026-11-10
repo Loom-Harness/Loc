@@ -18,9 +18,9 @@ system HandlerPagedRun {
         region: string
       }
       repository Orders for Order { }
-      criterion InRegion(rgn: string) of Order = region == rgn
-      queryHandler ListInRegion(rgn: string): Order paged {
-        let r = Orders.all(InRegion(rgn))
+      criterion InRegion(regionCode: string) of Order = region == regionCode
+      queryHandler ListInRegion(regionCode: string): Order paged {
+        let r = Orders.all(InRegion(regionCode))
         return r
       }
     }
