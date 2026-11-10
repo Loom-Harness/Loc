@@ -13,6 +13,7 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -222,7 +223,8 @@ export function renderHttpIndex(
     const needsTx =
       a.operations.some((o) => o.visibility === "public" && (o.audited || opHasProvSite(o))) ||
       !!auditedCreateAction?.audited ||
-      !!canonicalDestroy(a)?.audited;
+      !!canonicalDestroy(a)?.audited ||
+      existsReadAggregates(a).length > 0;
     const repoArg = `new ${a.name}Repository(db, events)`;
     const args = needsTx ? `${repoArg}, db, events` : repoArg;
     return `  app.route("${API_BASE_PATH}/${routeSegmentFor(a.name)}", ${lowerFirst(a.name)}Routes(${args}));`;

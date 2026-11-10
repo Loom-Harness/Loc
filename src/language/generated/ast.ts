@@ -1453,6 +1453,7 @@ export interface ExistsExpr extends langium.AstNode {
     readonly $type: 'ExistsExpr';
     aggregate: langium.Reference<Aggregate>;
     binding: string;
+    forWrite: boolean;
     where: Expression;
 }
 
@@ -1460,6 +1461,7 @@ export const ExistsExpr = {
     $type: 'ExistsExpr',
     aggregate: 'aggregate',
     binding: 'binding',
+    forWrite: 'forWrite',
     where: 'where'
 } as const;
 
@@ -5729,6 +5731,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 binding: {
                     name: ExistsExpr.binding
+                },
+                forWrite: {
+                    name: ExistsExpr.forWrite,
+                    defaultValue: false,
+                    optional: true
                 },
                 where: {
                     name: ExistsExpr.where

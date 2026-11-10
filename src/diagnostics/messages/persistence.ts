@@ -190,10 +190,17 @@ export const messages = {
   // src/ir/validate/checks/exists-checks.ts
   // ----------------------------------------------------------------------
   "loom.exists-outside-query": (p: { aggregate: unknown; source: unknown }) =>
-    `${p.source}: 'exists ${p.aggregate} as … where …' is a query predicate — it compiles to a SQL ` +
-    "EXISTS subquery, so it is admitted only where a predicate is compiled into a query: a " +
-    "'criterion' read through 'Repo.all' / 'Repo.find', a 'retrieval' 'where', or a row 'filter'. " +
-    "Move the test into a criterion and read through the repository instead.",
+    `${p.source}: 'exists ${p.aggregate} as … where …' is admitted only where it can read the ` +
+    "database: compiled into a query (a 'criterion' read through 'Repo.all' / 'Repo.find', a " +
+    "'retrieval' 'where', a row 'filter') or as an application-layer gate (a 'requires' statement " +
+    "of a create, public operation or destroy, or an operation 'when'). A 'precondition', a " +
+    "private operation, a derived or a page is evaluated where no repository is in scope; move " +
+    "the test into one of those positions.",
+  "loom.exists-outside-query#guarded-call": (p: { op: unknown; source: unknown }) =>
+    `${p.source}: calls '${p.op}', whose 'requires' or 'when' gate reads a repository through ` +
+    "'exists'. That gate is evaluated by the operation's own HTTP handler — the aggregate method " +
+    "has no repository — so a call from another body would run the operation ungated. Call it " +
+    "through its route, or restate the gate on this body without 'exists'.",
   "loom.exists-outside-query#projection": (p: { aggregate: unknown; source: unknown }) =>
     `${p.source}: 'exists ${p.aggregate} as … where …' is not supported in a projection 'where' — ` +
     "a projection query has its own renderers, which have no EXISTS arm. Filter the source rows " +
@@ -205,7 +212,8 @@ export const messages = {
   "loom.exists-unsupported#self": (p: { aggregate: unknown; source: unknown }) =>
     `${p.source}: 'exists ${p.aggregate}' quantifies over the row's own aggregate. A self-` +
     "correlated EXISTS needs a second alias of the same table, which no query renderer emits; " +
-    "compare the row's own fields directly, or quantify over a different aggregate.",
+    "compare the row's own fields directly, quantify over a different aggregate, or test it in " +
+    "an application-layer gate ('requires' / 'when'), where the read is a query of its own.",
   "loom.exists-unsupported#storage": (p: { aggregate: unknown; source: unknown; why: unknown }) =>
     `${p.source}: 'exists ${p.aggregate}' — ${p.why}. An EXISTS subquery reads a relational ` +
     "state table, so both the quantified aggregate and the row it filters must be stored as " +

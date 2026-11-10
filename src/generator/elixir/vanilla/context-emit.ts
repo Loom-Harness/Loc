@@ -884,6 +884,12 @@ ${body}
       agg: agg as EnrichedAggregateIR,
     });
     const createStampsActor = stampUsesPrincipal(agg);
+    // A gate reading a create argument reads it off the validated draft —
+    // `record`, the struct the changeset casts — as the create body does.
+    const gateParams = createGateParams(canonicalCreate(agg));
+    const gateParamClauses = gateParams.map(
+      (p) => `${escapeElixirIdent(snake(p))} = record.${snake(p)}`,
+    );
     // The GUARDED seam keeps the plain name, and the authorization-free entry the
     // in-process callers use is named `_unguarded` — see
     // `../lifecycle-seam.ts` for why that direction and not the other:
@@ -907,6 +913,10 @@ ${body}
     const createValidateClause = isDoc
       ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
       : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(${declaredCreateParamNames(agg) !== undefined ? `${changesetMod}.take_create_attrs(attrs)` : "attrs"}), :insert)`;
+    const gateValidateClause =
+      gateParams.length > 0
+        ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
+        : createValidateClause;
     // The create BODY (`createBodyStatements`): its `precondition`s and
     // `let`s join the same `with` chain, evaluated against the validated draft
     // struct — `record`, exactly what an operation's guards read — with each
@@ -1018,7 +1028,7 @@ ${createDo}
   def create_${aggSnake}(attrs, ${principalParam(
     lifecycleGatesUseCurrentUser(canonicalCreate(agg)) || createStampsActor,
   )}) do
-    with ${[createValidateClause, ...createClauses].join(",\n         ")} do
+    with ${[gateValidateClause, ...gateParamClauses, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
     end
   end
@@ -2019,4 +2029,15 @@ ${dispatchBlock}
   def ${opSnake}_${aggSnake}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${bodyContent}
   end`;
+}
+
+/** The create arguments a create's `requires` gates read. */
+function createGateParams(action: OperationIR | null | undefined): string[] {
+  const names = new Set<string>();
+  for (const g of lifecycleGates(action)) {
+    walkExprDeep(g.expr, (x) => {
+      if (x.kind === "ref" && x.refKind === "param") names.add(x.name);
+    });
+  }
+  return [...names];
 }
