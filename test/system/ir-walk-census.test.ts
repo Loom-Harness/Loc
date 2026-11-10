@@ -940,6 +940,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/typescript/repository-find-predicate.ts#booleanColumnRef": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#isNullableValue": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderColumnRef": SHAPE_PREDICATE,
+  "src/generator/typescript/repository-find-predicate.ts#renderColumnRef$2": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderValue": SOUND_FALLBACK_DISPATCH,
   "src/ir/util/principal-term.ts#operand": SHAPE_PREDICATE,
   "src/ir/util/ref-collection.ts#refCollectionFieldName": SHAPE_PREDICATE,

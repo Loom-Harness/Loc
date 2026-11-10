@@ -6,6 +6,7 @@ import type { DeployableRow, DeployableState } from "./deployable-rows";
 export const EMULATED_LAYERS: readonly string[] = [
   "Postgres runs as PGlite in a browser worker",
   "channels run on an in-process transport",
+  "presigned S3 URLs work from the preview's fetch, not <img src> or download links",
 ];
 
 const STATE_COLOUR: Record<DeployableState, string> = {

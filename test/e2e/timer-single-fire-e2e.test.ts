@@ -119,11 +119,13 @@ function sh(cmd: string, cwd: string, timeout = 120_000): string {
   return execSync(cmd, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout });
 }
 
-// Compose creates one database per storage, named after it: the fixture's
-// `storage pg`.
+/** The fixture's database: compose creates one per storage, named after it
+ *  (`storage pg`). */
+const DB_NAME = "pg";
+
 function psql(cwd: string, project: string, query: string): string {
   return sh(
-    `docker compose -p ${project} exec -T db psql -U postgres -d pg -At -c ${JSON.stringify(query)}`,
+    `docker compose -p ${project} exec -T db psql -U postgres -d ${DB_NAME} -At -c ${JSON.stringify(query)}`,
     cwd,
   ).trim();
 }

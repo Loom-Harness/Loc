@@ -24,6 +24,8 @@ const KEEP = 4;
 /** Cap on the persisted LRU list so it can't grow without bound itself. */
 const LRU_MAX = 30;
 const PREFIX = "loom-";
+/** The resource fakes' islands (`runtime/infra/persist.ts` `RESOURCE_DIR_PREFIX`). */
+const RESOURCE_PREFIX = "loomres-";
 
 function readLru(): string[] {
   try {
@@ -81,12 +83,15 @@ async function gcIslands(keepHashes: Iterable<string>): Promise<number> {
   const root = await getOpfsRoot();
   if (!root) return 0;
   const keep = new Set<string>();
-  for (const h of keepHashes) keep.add(`${PREFIX}${h}`);
+  for (const h of keepHashes) {
+    keep.add(`${PREFIX}${h}`);
+    keep.add(`${RESOURCE_PREFIX}${h}`);
+  }
 
   const stale: string[] = [];
   try {
     for await (const [name, handle] of root.entries()) {
-      if (handle.kind === "directory" && name.startsWith(PREFIX) && !keep.has(name)) {
+      if (handle.kind === "directory" && (name.startsWith(PREFIX) || name.startsWith(RESOURCE_PREFIX)) && !keep.has(name)) {
         stale.push(name);
       }
     }

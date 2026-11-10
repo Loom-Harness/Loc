@@ -18,10 +18,12 @@ import {
   fsFacade,
   RESOURCE_FACADE_PACKAGES,
 } from "../../web/src/engine/npm/resource-facades.js";
+import { type BlobStore, memoryBlobStore } from "../../web/src/runtime/infra/persist.js";
 import type {
   HttpRequestData,
   HttpResponseData,
 } from "../../web/src/runtime/infra/resource-types.js";
+import { InfraRouter } from "../../web/src/runtime/infra/router.js";
 import { createServices } from "../../web/src/runtime/infra/services.js";
 import { awsServiceOf } from "../../web/src/runtime/resource-fakes.js";
 
@@ -366,5 +368,105 @@ describe("serviceFetch passthrough", () => {
     );
     await f(new Request("https://b.s3.amazonaws.com/k", { method: "PUT", body: "payload" }));
     expect(seen).toBe("payload");
+  });
+});
+
+describe("resource persistence", () => {
+  // A reload is: drop the in-memory state, configure again over the same store.
+  const reload = async (store: BlobStore | null): Promise<void> => {
+    for (const s of services.values()) await s.reset();
+    for (const s of services.values()) await s.persist?.(store);
+  };
+
+  it("objects, files and mail written under a store come back after a reload", async () => {
+    const store = memoryBlobStore();
+    await reload(store);
+    await http(
+      "s3",
+      req("PUT", "https://b.s3.amazonaws.com/k/one.txt", "hello", { "content-type": "text/plain" }),
+    );
+    await callService("disk", "mkdir", { path: "/data/empty" });
+    await callService("disk", "write", { path: "/data/a.bin", data: enc.encode("bytes") });
+    await callService("mailbox", "capture", {
+      via: "smtp",
+      from: "a@x",
+      to: ["b@x"],
+      subject: "hi",
+      text: "t",
+    });
+
+    await reload(store);
+
+    const got = await http("s3", req("GET", "https://b.s3.amazonaws.com/k/one.txt"));
+    expect(got.status).toBe(200);
+    expect(text(got)).toBe("hello");
+    expect(got.headers["content-type"]).toBe("text/plain");
+    expect(
+      dec.decode((await callService("disk", "read", { path: "/data/a.bin" })) as Uint8Array),
+    ).toBe("bytes");
+    expect(await callService("disk", "readdir", { path: "/data" })).toEqual(["a.bin", "empty"]);
+    const mail = (await callService("mailbox", "list", {})) as { id: string; subject: string }[];
+    expect(mail.map((m) => m.subject)).toEqual(["hi"]);
+    // The id counter continues past the restored mail.
+    const next = (await callService("mailbox", "capture", {
+      via: "smtp",
+      from: "a",
+      to: [],
+      subject: "2",
+      text: "",
+    })) as { id: string };
+    expect(next.id).toBe("mail-2");
+  });
+
+  it("deletes and a mailbox clear reach the store", async () => {
+    const store = memoryBlobStore();
+    await reload(store);
+    await http("s3", req("PUT", "https://b.s3.amazonaws.com/gone", "x"));
+    await http("s3", req("DELETE", "https://b.s3.amazonaws.com/gone"));
+    await callService("mailbox", "capture", {
+      via: "smtp",
+      from: "a",
+      to: [],
+      subject: "s",
+      text: "",
+    });
+    await callService("mailbox", "clear", {});
+    expect(store.snapshot().size).toBe(0);
+  });
+
+  it("without a store nothing survives a reload", async () => {
+    await reload(null);
+    await http("s3", req("PUT", "https://b.s3.amazonaws.com/k", "x"));
+    await reload(null);
+    expect((await http("s3", req("GET", "https://b.s3.amazonaws.com/k"))).status).toBe(404);
+  });
+
+  it("the router's configure / wipeResources ops drive the store", async () => {
+    const store = memoryBlobStore();
+    const router = new InfraRouter({
+      createServices: () => services,
+      storage: async () => ({}),
+      closeStorages: async () => undefined,
+      openBlobStore: async () => store,
+    });
+    const send = (op: string, params: unknown) =>
+      new Promise<{ result?: unknown; error?: { message: string } }>(
+        (resolve) =>
+          void router.serve({ id: 1, service: "infra", op, params } as never, null, [], {
+            postMessage: resolve,
+          }),
+      );
+    expect((await send("configure", { island: "abc" })).result).toEqual({
+      ok: true,
+      persistent: true,
+    });
+    await http("s3", req("PUT", "https://b.s3.amazonaws.com/k", "x"));
+    expect(store.snapshot().size).toBe(1);
+    await send("wipeResources", {});
+    expect(store.snapshot().size).toBe(0);
+    expect((await http("s3", req("GET", "https://b.s3.amazonaws.com/k"))).status).toBe(404);
+    await http("s3", req("PUT", "https://b.s3.amazonaws.com/k2", "y"));
+    await send("configure", { island: "abc", fresh: true });
+    expect(store.snapshot().size).toBe(0);
   });
 });

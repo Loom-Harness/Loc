@@ -19,6 +19,7 @@
 // straight off the table and would otherwise print a label the record's own
 // read seam refuses to serve.
 
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -63,7 +64,7 @@ export function servesRefLabels(
 ): boolean {
   if (!servesRefLabel(agg, ctx, sys)) return false;
   if (aggregateUsesPrincipalContextFilter(agg)) return false;
-  if (agg.fields.some((f) => f.maskUnless)) return false;
+  if (carriesFieldMask(agg)) return false;
   const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
   return listReadGate(repo) === undefined;
 }

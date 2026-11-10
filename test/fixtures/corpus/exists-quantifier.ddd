@@ -1,0 +1,121 @@
+// `exists <Aggregate> as <row> where <predicate>` — the existential quantifier,
+// compiled to a correlated SQL `EXISTS (SELECT 1 …)` on every backend.
+//
+// Two positions, one per query-compiling site:
+//
+//   * a row `filter` on `Product` — the policy position: a product is readable
+//     only while a live share grants its category to the caller.  Every read
+//     (the paged list, the by-id route, the write-scope load) obeys it.
+//   * a `criterion` read through `Repo.all` — the filter position, crossed with
+//     a declared parameter so the subquery binds a value and correlates a column.
+//
+// The quantified aggregate's own read scope applies INSIDE the subquery:
+// `CategoryShare` filters out revoked shares, so revoking a share closes the
+// product again even though the share row still exists.  A backend that drops
+// the inner scope keeps the revoked product readable; one that drops the
+// correlation (`s.category == this.category`) reads every product once any
+// share exists.  The block at the bottom drives both.
+//
+// The dev-stub principal's id is the zero guid on all five backends, so a share
+// granted to it is the caller's own.
+system Sharing {
+  user { id: guid  role: string }
+  subdomain Catalog {
+    context Shop {
+      aggregate Category with crudish {
+        name: string
+      }
+      aggregate CategoryShare with crudish {
+        category: Category id
+        grantee: guid
+        revoked: bool
+        // The quantified aggregate's own scope: a revoked share grants nothing.
+        filter !this.revoked
+      }
+      aggregate Product with crudish {
+        name: string
+        category: Category id
+        // THE POLICY POSITION — products follow their category's shares.
+        filter exists CategoryShare as s where s.category == this.category && s.grantee == currentUser.id
+      }
+      repository Products for Product
+      // THE FILTER POSITION — every product whose category is shared with `g`,
+      // whoever asks.  (It reads `Product`, so the row filter above ANDs in.)
+      criterion SharedWith(g: guid) of Product = exists CategoryShare as s where s.category == this.category && s.grantee == g
+      queryHandler ListSharedWith(g: guid): Product[] {
+        let r = Products.all(SharedWith(g))
+        return r
+      }
+    }
+  }
+  api ShopApi from Catalog {
+    route GET "/products/shared_with/{g}" -> Shop.ListSharedWith
+  }
+  storage primary { type: postgres }
+  resource shopState { for: Shop, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "a share opens its category's products, and revoking it closes them" against d {
+    let me = "00000000-0000-0000-0000-000000000000"
+    let other = "7b0c1c7e-0000-4000-8000-000000000001"
+    let tools = api.categories.create({ name: "Tools" })
+    let toys = api.categories.create({ name: "Toys" })
+    let hammer = api.products.create({ name: "Hammer", category: tools.id })
+    let ball = api.products.create({ name: "Ball", category: toys.id })
+
+    // No share yet: the row filter hides every product.
+    expect(api.products.all().total).toBe(0)
+    expect(api.products.getById(hammer)).toThrow(404)
+
+    // A share of Tools to the caller, and one of Toys to somebody else.
+    let mine = api.category_shares.create({ category: tools.id, grantee: me, revoked: false })
+    let theirs = api.category_shares.create({ category: toys.id, grantee: other, revoked: false })
+
+    // The correlation: only the Tools product opens.
+    expect(api.products.all().total).toBe(1)
+    expect(api.products.getById(hammer).name).toBe("Hammer")
+    expect(api.products.getById(ball)).toThrow(404)
+    // The criterion binds its parameter inside the subquery.
+    expect(api.shop.listSharedWith(me).count()).toBe(1)
+    expect(api.shop.listSharedWith(me).first().name).toBe("Hammer")
+
+    // Writes load through the same row filter: the shared product updates, the
+    // unshared one answers 404 as a missing row would.
+    api.products.update(hammer, { name: "Mallet", category: tools.id })
+    expect(api.products.getById(hammer).name).toBe("Mallet")
+    expect(api.products.update(ball, { name: "Bat", category: toys.id })).toThrow(404)
+    let saw = api.products.create({ name: "Saw", category: tools.id })
+    expect(api.products.all().total).toBe(2)
+    api.products.destroy(saw)
+    expect(api.products.getById(saw)).toThrow(404)
+
+    // The quantified aggregates themselves are unfiltered by the quantifier.
+    expect(api.categories.getById(tools).name).toBe("Tools")
+    api.categories.update(toys, { name: "Games" })
+    expect(api.categories.all().total).toBe(2)
+    let spare = api.categories.create({ name: "Spare" })
+    api.categories.destroy(spare)
+    expect(api.categories.all().total).toBe(2)
+    expect(api.category_shares.getById(mine).revoked).toBe(false)
+    expect(api.category_shares.all().total).toBe(2)
+
+    // The inner read scope: revoking the share closes the product again,
+    // though the share row is still in the table.
+    api.category_shares.update(mine, { category: tools.id, grantee: me, revoked: true })
+    expect(api.products.all().total).toBe(0)
+    expect(api.products.getById(hammer)).toThrow(404)
+    expect(api.shop.listSharedWith(me).count()).toBe(0)
+
+    // The revoked share is out of CategoryShare's own read scope; the other is
+    // deleted outright, which leaves nothing readable.
+    api.category_shares.destroy(theirs)
+    expect(api.category_shares.all().total).toBe(0)
+  }
+}

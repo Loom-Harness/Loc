@@ -46,6 +46,7 @@ export function isDatetimeTypedIR(e: ExprIR): boolean {
     // `call` / a ctor / a lambda / an i18n hole outright.  Named rather than
     // left to a `default:` so a new `ExprIR` kind is a `tsc` error and someone
     // rules on whether it carries a provable datetime type.
+    case "exists":
     case "action-ref":
     case "authz-filter":
     case "call":

@@ -922,6 +922,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "the two halves render in DIFFERENT places — a create guard has no `this` yet, a destroy guard reads the row the caller already loaded; `Crate` carries the OTHER two shapes (an ungated create as the control, and a principal-ONLY destroy guard that leaves the loaded row unread)",
   },
   {
+    id: "exists-quantifier",
+    title:
+      "`exists <Aggregate> as <row> where …` — a correlated SQL EXISTS in a row `filter` (the policy position) and in a criterion read, with the quantified aggregate's own read scope applied inside the subquery",
+    doc: "criterion",
+    backends: ALL,
+  },
+  {
     id: "criterion-filter",
     title: "reusable criterion (criterion.md) used as `filter <Criterion>`",
     doc: "criterion",

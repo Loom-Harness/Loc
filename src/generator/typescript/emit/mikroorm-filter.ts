@@ -6,6 +6,8 @@
 // mikroorm.ts by packet 2.6 (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
+import { existsScopePredicates } from "../../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
@@ -427,6 +429,7 @@ function filterValue(e: ExprIR, acc: string): string {
     case "i18nFormat":
     case "modelText":
     case "match":
+    case "exists":
       throw new Error(`mikroorm: unsupported value '${e.kind}' in find`);
     default: {
       const _exhaustive: never = e;
@@ -466,7 +469,12 @@ function booleanColumnName(e: ExprIR): string | null {
  *  `active: true`), negated boolean columns (`!this.active` → `active:
  *  false`), and a general `!<compound>` (→ `$not: {...}`). */
 
-function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[] = []): string {
+function predicateEntry(
+  e: ExprIR,
+  acc: string,
+  assocs: readonly AssociationIR[] = [],
+  aggs: readonly EnrichedAggregateIR[] = [],
+): string {
   const inner = e.kind === "paren" ? e.inner : e;
   // Registry self-scope against a `string` tenancy claim (M-T3.7(c)) — the
   // MikroORM twin of the drizzle guard.  Binding the raw claim to a `uuid`
@@ -480,6 +488,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // is how the `deny` carve-out becomes unreachable on this adapter.  That is
   // the whole point of giving the sentinel its own `ExprIR.kind`.
   if (inner.kind === "authz-filter") return authzFilterEntry(inner, acc);
+  if (inner.kind === "exists") return existsEntry(inner, acc, aggs);
   const selfScope = guidFromStringSelfScope(inner);
   if (selfScope) {
     const claim = `${acc}.${selfScope.claim}`;
@@ -490,7 +499,7 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   if (inner.kind === "unary" && inner.op === "!") {
     const negCol = booleanColumnName(inner.operand);
     if (negCol) return `${negCol}: false`;
-    return `$not: ${whereToMikroFilter(inner.operand, acc, assocs)}`;
+    return `$not: ${whereToMikroFilter(inner.operand, acc, assocs, aggs)}`;
   }
   // `this.<refColl>.contains(x)` — membership over an `X id[]` reference
   // collection, which persists as a join TABLE rather than a column, so it is
@@ -665,9 +674,10 @@ export function mikroFilterOrRefuse(
   e: ExprIR,
   acc: string,
   assocs: readonly AssociationIR[],
+  aggs: readonly EnrichedAggregateIR[] = [],
 ): string {
   try {
-    return whereToMikroFilter(e, acc, assocs);
+    return whereToMikroFilter(e, acc, assocs, aggs);
   } catch (err) {
     if (err instanceof QueryEmissionRefusal) throw err;
     const why = err instanceof Error ? err.message : String(err);
@@ -682,18 +692,203 @@ export function whereToMikroFilter(
    *  resolve a `this.<refColl>.contains(x)` membership predicate to its join
    *  table.  Omitted by callers whose subject owns none (byte-identical). */
   assocs: readonly AssociationIR[] = [],
+  /** The context's aggregates — needed only to resolve an `exists <Agg> …`
+   *  quantifier to the quantified table and its read scope. */
+  aggs: readonly EnrichedAggregateIR[] = [],
 ): string {
   const inner = e.kind === "paren" ? e.inner : e;
   if (inner.kind === "binary" && inner.op === "&&") {
-    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs));
+    const entries = flattenAnd(inner).map((c) => predicateEntry(c, acc, assocs, aggs));
     return `{ ${entries.join(", ")} }`;
   }
   if (inner.kind === "binary" && inner.op === "||") {
     return `{ $or: [${orBranches(inner)
-      .map((b) => whereToMikroFilter(b, acc, assocs))
+      .map((b) => whereToMikroFilter(b, acc, assocs, aggs))
       .join(", ")}] }`;
   }
-  return `{ ${predicateEntry(inner, acc, assocs)} }`;
+  return `{ ${predicateEntry(inner, acc, assocs, aggs)} }`;
+}
+
+// ---------------------------------------------------------------------------
+// `exists <Agg> as s where p` — a correlated EXISTS subquery.
+//
+// A FilterQuery cannot spell a subquery, so the whole quantifier is ONE
+// `raw()` key with the empty-array value (the shape every other raw entry
+// here takes).  Unlike the reference-collection membership above it IS
+// correlated, so it needs the root entity's alias: MikroORM names the root
+// table itself (`e0`), and hands that name to a `raw((alias) => …)` callback,
+// which is how `this.<col>` reaches `<alias>.<col>` inside the subquery.  The
+// quantified table takes its own alias (`loom_<row>`), so its columns never
+// resolve to the outer row's.
+//
+// The quantified aggregate's read scope is inlined into the subquery as raw
+// SQL: MikroORM's global filters apply to an entity query, never to a raw
+// fragment, so dropping it would let an `exists` see rows its caller cannot.
+// ---------------------------------------------------------------------------
+
+/** Where a raw EXISTS predicate's columns and values come from. */
+interface ExistsSqlScope {
+  /** `this.<col>` → the outer row's alias expression (a JS template hole). */
+  outer: string;
+  /** Each in-scope `exists … as <row>` binding → its table alias. */
+  rows: Map<string, string>;
+  acc: string;
+  aggs: readonly EnrichedAggregateIR[];
+  params: string[];
+}
+
+function existsEntry(
+  e: Extract<ExprIR, { kind: "exists" }>,
+  acc: string,
+  aggs: readonly EnrichedAggregateIR[],
+): string {
+  const scope: ExistsSqlScope = { outer: "${a}", rows: new Map(), acc, aggs, params: [] };
+  const sql = existsSql(e, scope);
+  if (sql === null) throw new Error(`mikroorm: unsupported 'exists ${e.aggregate}' predicate`);
+  // A JS template literal: the outer alias is spliced in at query time.
+  const body = sql.replace(/`/g, "\\`");
+  return `[raw((a: string) => \`${body}\`, [${scope.params.join(", ")}])]: []`;
+}
+
+function existsSql(e: Extract<ExprIR, { kind: "exists" }>, sc: ExistsSqlScope): string | null {
+  const inner = sc.aggs.find((a) => a.name === e.aggregate);
+  if (!inner) return null;
+  const alias = `loom_${snake(e.binding)}`;
+  const rows = new Map(sc.rows);
+  rows.set(e.binding, alias);
+  const sub: ExistsSqlScope = { ...sc, rows };
+  const terms: string[] = [];
+  const pred = rawPredicateSql(e.where, sub);
+  if (pred === null) return null;
+  terms.push(pred);
+  // The quantified aggregate's own read scope, over its own alias, reading the
+  // AMBIENT principal: the enclosing read may not have threaded one.
+  const own: ExistsSqlScope = { ...sc, outer: alias, rows, acc: AMBIENT_PRINCIPAL };
+  for (const pred of existsScopePredicates(inner.name, sc.aggs)) {
+    const t = rawPredicateSql(pred, own);
+    if (t === null) return null;
+    terms.push(t);
+  }
+  const table = aggregateTableName(inner, sc.aggs);
+  return `exists (select 1 from ${table} ${alias} where ${terms.map((t) => `(${t})`).join(" and ")})`;
+}
+
+/** A column-position operand: `this.<col>` / `this.<vo>.<sub>` on the outer
+ *  row, `<row>.<col>` / `<row>.<vo>.<sub>` on a quantified one. */
+function rawColumnSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  const x = e.kind === "paren" ? e.inner : e;
+  const outerCol = thisFieldColumn(x);
+  if (outerCol !== null) return `${sc.outer}.${mikroIdent(snake(outerCol))}`;
+  if (x.kind === "member" && x.receiver.kind === "ref" && x.receiver.refKind === "row") {
+    const alias = sc.rows.get(x.receiver.name);
+    return alias ? `${alias}.${mikroIdent(snake(x.member))}` : null;
+  }
+  if (
+    x.kind === "member" &&
+    x.receiver.kind === "member" &&
+    x.receiver.receiver.kind === "ref" &&
+    x.receiver.receiver.refKind === "row"
+  ) {
+    const alias = sc.rows.get(x.receiver.receiver.name);
+    return alias ? `${alias}.${mikroIdent(snake(`${x.receiver.member}_${x.member}`))}` : null;
+  }
+  return null;
+}
+
+/** A column or a bound value (`?`, its TS expression pushed onto `params`). */
+function rawOperandSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  const col = rawColumnSql(e, sc);
+  if (col !== null) return col;
+  try {
+    sc.params.push(filterValue(e, sc.acc));
+  } catch {
+    return null;
+  }
+  return "?";
+}
+
+function isBoolTyped(e: ExprIR): boolean {
+  const t = e.kind === "member" ? e.memberType : e.kind === "ref" ? e.type : undefined;
+  return t?.kind === "primitive" && t.name === "bool";
+}
+
+/** One predicate as raw Postgres SQL over the columns `sc` resolves. */
+function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
+  switch (e.kind) {
+    case "paren":
+      return rawPredicateSql(e.inner, sc);
+    case "exists":
+      return existsSql(e, sc);
+    case "authz-filter":
+      return e.filter.kind === "deny" ? "1 = 0" : null;
+    case "unary": {
+      if (e.op !== "!") return null;
+      const inner = rawPredicateSql(e.operand, sc);
+      return inner === null ? null : `not (${inner})`;
+    }
+    case "binary": {
+      if (e.op === "&&" || e.op === "||") {
+        const l = rawPredicateSql(e.left, sc);
+        if (l === null) return null;
+        const r = rawPredicateSql(e.right, sc);
+        if (r === null) return null;
+        return `(${l}) ${e.op === "&&" ? "and" : "or"} (${r})`;
+      }
+      const pt = principalTerm(e);
+      if (pt) {
+        const test = renderPrincipalTest(pt, {
+          claim: (field) => `${sc.acc}.${field}`,
+          value: (v) => filterValue(v, sc.acc),
+          isNull: (x) => `${x} == null`,
+          isNotNull: (x) => `${x} != null`,
+          eq: (l, r) => `${l} === ${r}`,
+          ne: (l, r) => `${l} !== ${r}`,
+        });
+        return test === null ? null : `\${(${test}) ? "1 = 1" : "1 = 0"}`;
+      }
+      const op = RAW_COMPARE_OP[e.op];
+      if (!op) return null;
+      const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+      if (isNull(e.right) || isNull(e.left)) {
+        const side = rawColumnSql(isNull(e.right) ? e.left : e.right, sc);
+        if (side === null || (e.op !== "==" && e.op !== "!=")) return null;
+        return `${side} ${e.op === "==" ? "is null" : "is not null"}`;
+      }
+      const l = rawOperandSql(e.left, sc);
+      if (l === null) return null;
+      const r = rawOperandSql(e.right, sc);
+      if (r === null) return null;
+      return `${l} ${op} ${r}`;
+    }
+    case "member":
+    case "ref": {
+      if (!isBoolTyped(e)) return null;
+      const col = rawColumnSql(e, sc);
+      return col === null ? null : `${col} = true`;
+    }
+    case "literal":
+      return e.lit === "bool" ? (e.value === "true" ? "1 = 1" : "1 = 0") : null;
+    case "method-call":
+    case "this":
+    case "id":
+    case "call":
+    case "new":
+    case "object":
+    case "list":
+    case "lambda":
+    case "action-ref":
+    case "ternary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "modelText":
+    case "match":
+      return null;
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
+  }
 }
 
 /** Split a `&&` chain into its conjuncts (each rendered by `predicateEntry`). */

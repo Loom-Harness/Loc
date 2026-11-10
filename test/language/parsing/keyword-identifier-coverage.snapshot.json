@@ -789,6 +789,16 @@
     "paramName",
     "stateField"
   ],
+  "exists": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "expect": [],
   "extends": [
     "fieldName",
