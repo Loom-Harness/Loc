@@ -46,7 +46,13 @@ export const heexTarget: WalkerTarget = {
   renderNodeOverride(expr, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
     if (!heex) return undefined;
-    if (expr.kind === "call" && HEEX_SHARED_PRIMITIVES.has(expr.name)) {
+    // A value object sharing a primitive's name is a construction, which the
+    // engine renders.
+    if (
+      expr.kind === "call" &&
+      HEEX_SHARED_PRIMITIVES.has(expr.name) &&
+      !heex.valueObjectsByName.has(expr.name)
+    ) {
       if (expr.name === "Tabs" && expr.args.some((_, i) => !expr.argNames?.[i])) {
         // Number the group on entry, before its panels walk, so a nested
         // group gets a later id than its parent (see `tabSeq`).
