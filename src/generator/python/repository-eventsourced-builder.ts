@@ -10,7 +10,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -487,7 +487,7 @@ function jsonZero(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
     case "array":
       return "[]";
     case "enum":
-      return JSON.stringify(ctx.enums.find((e) => e.name === t.name)?.values[0] ?? "");
+      return JSON.stringify(enumPool(ctx).find((e) => e.name === t.name)?.values[0] ?? "");
     case "valueobject": {
       const vo = findValueObjectInScope(ctx, t.name);
       if (!vo) return '""';
