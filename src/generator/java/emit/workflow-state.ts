@@ -25,11 +25,6 @@ import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./
 // record-style public accessors, exactly like aggregate entities.
 // ---------------------------------------------------------------------------
 
-/** Workflows that carry a persisted correlation row (the saga state table). */
-export function correlationWorkflows(workflows: readonly WorkflowIR[]): WorkflowIR[] {
-  return workflows.filter((wf) => !!wf.correlationField);
-}
-
 /** The state entity class name (`OrderFulfillmentState`). */
 export function workflowStateClass(wf: WorkflowIR): string {
   return `${upperFirst(wf.name)}State`;

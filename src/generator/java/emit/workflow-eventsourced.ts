@@ -28,11 +28,6 @@ import { javaStateDefault } from "./workflow-state.js";
 // dispatcher (emit/dispatch.ts), which threads a JdbcTemplate for stream IO.
 // ---------------------------------------------------------------------------
 
-/** Event-sourced workflows in a context. */
-export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): WorkflowIR[] {
-  return workflows.filter((wf) => wf.eventSourced);
-}
-
 /** The fold-target class name (`TallyState`). */
 export function esWorkflowStateClass(wf: WorkflowIR): string {
   return `${upperFirst(wf.name)}State`;

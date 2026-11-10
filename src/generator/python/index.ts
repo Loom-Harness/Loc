@@ -10,6 +10,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
+import { observableWorkflows } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -147,11 +148,7 @@ import { buildPyRoutesFile } from "./routes-builder.js";
 import { anyPyTimerUsesCron, renderPyTimerScheduler } from "./scheduler-builder.js";
 import { renderPySecurityHeaders } from "./security-headers.js";
 import { pySentence } from "./wire-policy-py.js";
-import {
-  buildPyWorkflowsFile,
-  commandWorkflowsOf,
-  observableWorkflowsOf,
-} from "./workflows-builder.js";
+import { buildPyWorkflowsFile, commandWorkflowsOf } from "./workflows-builder.js";
 // ---------------------------------------------------------------------------
 // Python / FastAPI generator orchestrator.
 //
@@ -440,7 +437,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // exists and `main` mounts it (an event-triggered-only saga is still
   // observable, parity with Hono / .NET).
   const hasWorkflows =
-    commandWorkflowsOf(merged).length > 0 || observableWorkflowsOf(merged).length > 0;
+    commandWorkflowsOf(merged).length > 0 || observableWorkflows(merged.workflows).length > 0;
   // FOLDED projections drive projections_routes.py; query-time projections
   // (read-path-architecture.md rev.13) get their own query_projections_routes.py.
   const hasProjections = merged.projections.some(isMaterializedProjection);
