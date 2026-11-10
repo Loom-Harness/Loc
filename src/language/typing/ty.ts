@@ -1,8 +1,8 @@
 // The single typing pass's type representation (M-T5.47, design:
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T5.47-single-typing-pass-design.md §D2–D3).
 //
-// `Ty` is AST-anchored, because the validators, the LSP, go-to-definition and
-// sensitivity all need the declaration rather than its name. It carries
+// `Ty` is AST-anchored, because the validators, the LSP and go-to-definition
+// all need the declaration rather than its name. It carries
 // unions, the `option` none, the generic carriers, and one `record` kind whose `shape`
 // says what the record IS (aggregate, part, event, payload, workflow,
 // projection, principal, resource handle, store). `unknown` is never a
@@ -11,12 +11,7 @@
 // `toTypeIR` is the total projection onto the IR's name-keyed `TypeIR`, the
 // only way lowering obtains a type once a construct family has cut over.
 
-import type {
-  GenericCtorName,
-  PrimitiveName,
-  SensitivityTags,
-  TypeIR,
-} from "../../ir/types/loom-ir.js";
+import type { GenericCtorName, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { SCALAR_WIRE_JSON } from "../../util/scalar-wire-json.js";
 import type {
   Aggregate,
@@ -90,7 +85,7 @@ export type UnknownCause =
    *  The chain as a whole has a type; its head name has none. */
   | "not-a-value";
 
-export type Ty = (
+export type Ty =
   | { kind: "primitive"; name: PrimitiveName }
   | { kind: "id"; target: Aggregate | EntityPart | Workflow | Projection | undefined; name: string }
   /** `candidates` (two or more) marks a bare enum value several enums at the
@@ -114,8 +109,7 @@ export type Ty = (
   | { kind: "action"; arg?: Ty }
   | { kind: "any" }
   | { kind: "never" }
-  | { kind: "unknown"; cause: UnknownCause }
-) & { sensitivity?: SensitivityTags };
+  | { kind: "unknown"; cause: UnknownCause };
 
 export const Ty = {
   prim: (name: PrimitiveName): Ty => ({ kind: "primitive", name }),
@@ -211,18 +205,6 @@ export function wireOf(t: Ty): Ty {
   }
 }
 
-/** Merge tag sets into one canonical (sorted, unique) set; undefined when clean. */
-export function mergeTags(...sets: (SensitivityTags | undefined)[]): SensitivityTags | undefined {
-  const all = new Set<string>();
-  for (const s of sets) for (const t of s ?? []) all.add(t);
-  return all.size === 0 ? undefined : [...all].sort();
-}
-
-export function withTags(t: Ty, tags: SensitivityTags | undefined): Ty {
-  if (!tags || tags.length === 0) return t;
-  return { ...t, sensitivity: mergeTags(t.sensitivity, tags) };
-}
-
 // ---------------------------------------------------------------------------
 // The projection onto TypeIR (design §D3) — total, no lookups.
 // ---------------------------------------------------------------------------
@@ -231,38 +213,37 @@ export function withTags(t: Ty, tags: SensitivityTags | undefined): Ty {
  *  historical fallback, kept so emitted bytes stay identical; the count of
  *  nodes taking this arm is what the slice-4 ratchet pins shrink-only. */
 export function toTypeIR(t: Ty): TypeIR {
-  const s = t.sensitivity ? { sensitivity: t.sensitivity } : {};
   switch (t.kind) {
     case "primitive":
-      return { kind: "primitive", name: t.name, ...s };
+      return { kind: "primitive", name: t.name };
     case "id":
-      return { kind: "id", targetName: t.name, ...s };
+      return { kind: "id", targetName: t.name };
     case "enum":
-      return { kind: "enum", name: t.name, ...s };
+      return { kind: "enum", name: t.name };
     case "valueobject":
-      return { kind: "valueobject", name: t.name, ...s };
+      return { kind: "valueobject", name: t.name };
     case "record":
       // The IR has no wire view: a wire record projects to the record it views.
       if (t.shape.of === "wire") return toTypeIR(t.shape.ref);
-      return { kind: "entity", name: recordName(t.shape), ...s };
+      return { kind: "entity", name: recordName(t.shape) };
     case "array":
-      return { kind: "array", element: toTypeIR(t.element), ...s };
+      return { kind: "array", element: toTypeIR(t.element) };
     case "optional":
-      return { kind: "optional", inner: toTypeIR(t.inner), ...s };
+      return { kind: "optional", inner: toTypeIR(t.inner) };
     case "union":
-      return { kind: "union", variants: t.variants.map(toTypeIR), ...s };
+      return { kind: "union", variants: t.variants.map(toTypeIR) };
     case "none":
-      return { kind: "none", ...s };
+      return { kind: "none" };
     case "generic":
-      return { kind: "genericInstance", ctor: t.ctor, arg: toTypeIR(t.arg), ...s };
+      return { kind: "genericInstance", ctor: t.ctor, arg: toTypeIR(t.arg) };
     case "slot":
-      return { kind: "slot", ...s };
+      return { kind: "slot" };
     case "action":
-      return t.arg ? { kind: "action", arg: toTypeIR(t.arg), ...s } : { kind: "action", ...s };
+      return t.arg ? { kind: "action", arg: toTypeIR(t.arg) } : { kind: "action" };
     case "any":
     case "never":
     case "unknown":
-      return { kind: "primitive", name: "string", ...s };
+      return { kind: "primitive", name: "string" };
     default: {
       const _exhaustive: never = t;
       return _exhaustive;
@@ -272,7 +253,7 @@ export function toTypeIR(t: Ty): TypeIR {
 
 /** A compact, comparable key for a type — the differential's (and #3125's)
  *  shared key space. Records key as `rec:<name>` whatever their shape (the IR
- *  cannot tell them apart); sensitivity is not part of the key. */
+ *  cannot tell them apart). */
 export function tyKey(t: Ty): string {
   switch (t.kind) {
     case "primitive":

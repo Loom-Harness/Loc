@@ -423,15 +423,20 @@ export interface BoundedContextIR extends Sourced {
    *  `ctx.enums` and a cross-context enum silently resolved to nothing.  Own
    *  names shadow.  Undefined when the model has a single context. */
   siblingEnums?: EnumIR[];
-  /** `policy { allow local on X }` read rules declared in this context
-   *  (tenancy.md).  `local` is the tenant floor the `tenantOwned` capability
-   *  already applies, so a rule only names an aggregate for the phase-⑦
-   *  target checks.  Undefined / empty when the context declares none. */
+  /** `policy { allow <level> on X [when …] }` read rules declared in this
+   *  context (tenancy.md, D-SHARING).  Consumed by enrichment
+   *  (`applyPolicyScopes`), which composes them into the aggregate's tenancy
+   *  read term.  Undefined / empty when the context declares none. */
   policyReadLevels?: PolicyReadLevelIR[];
-  /** `policy { allow write local on X }` write rules declared in this context
-   *  — the floor every mutation already loads through, named for the phase-⑦
-   *  target checks.  Undefined / empty when the context declares none. */
+  /** `policy { allow write <level> on X [when …] }` write rules declared in
+   *  this context — composed by enrichment into the aggregate's
+   *  `writeScopeFilter`.  Undefined / empty when the context declares none. */
   policyWriteLevels?: PolicyWriteLevelIR[];
+  /** `policy { allow [write] on X as x where … }` row rules declared in this
+   *  context (D-SHARING).  Consumed by enrichment (`applyPolicyScopes`), which
+   *  ORs each onto the aggregate's level default.  Undefined / empty when the
+   *  context declares none. */
+  policyRowRules?: PolicyRowRuleIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
    *  blocks in this context.  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
@@ -466,29 +471,60 @@ export interface PolicyReadGateIR extends Sourced {
   source: string;
 }
 
-/** One `allow local on <Aggregate>` rule lowered from a `policy {}` block — a
- *  tenant-owned aggregate's read level (tenancy.md).  `local`, the flat
- *  `tenantId ==` floor, is the only level and the default (D-TENANCY-FLAT). */
+/** A policy level (D-SHARING): `local` — the operating org's rows, the
+ *  tenant floor; `own` — the operating org's rows the caller created (the
+ *  floor AND `createdBy == currentUser.id`). */
+export type PolicyLevel = "local" | "own";
+
+/** One `allow <level> on <Aggregate> [when <expr>]` rule lowered from a
+ *  `policy {}` block — a tenant-owned aggregate's read level (tenancy.md,
+ *  D-SHARING).  Without any level rule the default is `local`; a level rule
+ *  REPLACES that default for the callers its `when` admits (every caller when
+ *  it has none), and the callers no `when` admits keep `local`. */
 export interface PolicyReadLevelIR {
   /** The tenant-owned aggregate this level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The read level. */
-  level: "local";
-  /** Source span text for diagnostics (`allow local on Invoice`). */
+  level: PolicyLevel;
+  /** The caller condition, lowered in the bare context scope (no row): only
+   *  `currentUser` claims and constants, checked in phase ⑦
+   *  (`loom.policy-when-not-caller-only`).  Absent = every caller. */
+  when?: ExprIR;
+  /** Source span text for diagnostics (`allow own on Note when …`). */
   source: string;
 }
 
-/** One `allow write local on <Aggregate>` rule lowered from a `policy {}`
- *  block (authorization.md).  `local`, the flat `tenantId ==` floor, is the
- *  only write level and the default. */
+/** One `allow write <level> on <Aggregate> [when <expr>]` rule lowered from a
+ *  `policy {}` block — the write twin of {@link PolicyReadLevelIR}. */
 export interface PolicyWriteLevelIR {
   /** The tenant-owned aggregate this write level applies to (by name, in this
    *  context).  Resolution + tenant-owned-ness is validated in phase ⑦. */
   aggregate: string;
   /** The write level. */
-  level: "local";
+  level: PolicyLevel;
+  /** The caller condition (see {@link PolicyReadLevelIR.when}). */
+  when?: ExprIR;
   /** Source span text for diagnostics (`allow write local on Invoice`). */
+  source: string;
+}
+
+/** One `allow [write] on <Aggregate> as <row> where <predicate>` row rule
+ *  lowered from a `policy {}` block (D-SHARING).  It ADDS the rows its
+ *  predicate admits to the level default — the rules of one aggregate and
+ *  access OR together, and `deny` still wins.  The predicate is compiled into
+ *  the query, so it must be queryable (`loom.policy-row-not-queryable`). */
+export interface PolicyRowRuleIR {
+  /** The tenant-owned aggregate the rule widens (by name, in this context). */
+  aggregate: string;
+  /** Which scope the rule widens. */
+  access: "read" | "write";
+  /** The `as <row>` binding, kept for diagnostics.  The predicate names the
+   *  row as `this`: lowering resolves the binding to the filtered row. */
+  binding: string;
+  /** The row predicate over `this`, policy-function calls inlined. */
+  where: ExprIR;
+  /** Source span text for diagnostics (`allow on Product as p where …`). */
   source: string;
 }
 

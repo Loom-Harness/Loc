@@ -73,7 +73,7 @@ describe("vue generator — project shape", () => {
     const api = files.get("src/api/customer.ts")!;
     expect(api).toContain(`from "@tanstack/vue-query"`);
     expect(api).not.toContain("react-query");
-    // Same composable surface the vueTarget's buildHookUse expects.
+    // Same composable surface the vueTarget's bindDataAccess expects.
     expect(api).toContain(
       "export function useAllCustomers(query: MaybeRefOrGetter<AllQueryInput> = () => ({}))",
     );

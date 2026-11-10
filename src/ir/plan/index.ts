@@ -23,6 +23,7 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export { lookupOp } from "./operation-lookup.js";
+export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
 export {
   eventSourcedWorkflows,
   hasStateRow,

@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { requireFrontendAxes } from "../../../util/frontend-axes.js";
 import { optionalChainedMemberRead } from "../../_frontend/optional-member.js";
 import { escapeHtmlAttr } from "../../_walker/a11y-emit.js";
 import type { DetectedApiCall } from "../../_walker/api-hook-detector.js";
@@ -34,9 +35,9 @@ import {
 } from "../../_walker/js-target-helpers.js";
 import type {
   ApiCallSite,
+  DataBinding,
   RenderPosition,
   StateRef,
-  TargetHookUse,
   VariantMatchSpec,
   WalkerTarget,
 } from "../../_walker/target.js";
@@ -84,6 +85,9 @@ function quoteAttrExpr(expr: string, prefer: '"' | "'" = '"'): string {
  *  generator-core slice on) the shared markup walker. */
 export const vueTarget: WalkerTarget = {
   framework: "vue",
+  axes: requireFrontendAxes("vue"),
+  // A failed call through the HTTP API client throws its `ApiError`.
+  dataErrorType: { from: "../api/client", name: "ApiError" },
   // The vue packs read the identity-keyed form label / enum option / submit
   // tokens (`_walker/model-text-sites.ts`).
   modelTextImplicitSites: true,
@@ -241,7 +245,7 @@ export const vueTarget: WalkerTarget = {
    *  Vue's composable convention too, and keeping the generated api
    *  module surface name-identical across the two SPA frontends
    *  keeps the api-builder shareable. */
-  buildHookUse(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): TargetHookUse {
+  bindDataAccess(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): DataBinding {
     if (detected.kind === "workflow-instance") {
       const wf = upperFirstName(detected.aggregateName);
       const isAll = detected.operation === "all";
@@ -284,16 +288,16 @@ export const vueTarget: WalkerTarget = {
    *  validates the `@tanstack/vue-query` handle shape against this
    *  surface (the hoisting wraps the handle so nested refs read
    *  uniformly in template + script positions — see
-   *  `renderApiHoisting`). */
+   *  `renderDataBindings`). */
   renderApiCall(call: ApiCallSite, _renderedArgs: string): string {
     return call.varName ?? hookVarName(call.aggregateName, call.operation);
   },
 
   /** Hoist one `const <var> = <hook>(args);` line per unique hook
    *  usage in `<script setup>`.  Same de-dupe + fallback semantics
-   *  as `tsxTarget.renderApiHoisting` (varName/hookName/argsRendered
+   *  as `tsxTarget.renderDataBindings` (varName/hookName/argsRendered
    *  pass through verbatim when supplied). */
-  renderApiHoisting(uses: ApiCallSite[]): string[] {
+  renderDataBindings(uses: ApiCallSite[]): string[] {
     const seen = new Set<string>();
     const lines: string[] = [];
     for (const u of uses) {

@@ -321,8 +321,15 @@ if (handlerResult.type === "PaymentDeclined") throw __rollback;
 See [13-workflows.md, "Expected failures"](language-reference/13-workflows.md#expected-failures)
 for the five backends.  A payload field is
 refused as well: the tagged wire is emitted at the top of a return, and no
-backend renders a union nested inside a record. A **named** union is
-referenced by its name and so is unaffected.
+backend renders a union nested inside a record.
+
+A **named** union (`payload U = A | B`) is a variant set: a value of it is
+always one of its variants.  It may be named as a workflow `create` or handler
+parameter and as a union variant; anywhere else — a field, an operation
+parameter, any return — it is refused with `loom.union-position`, naming the
+position.  Write the inline `A or B` in a return instead.  The full form ×
+position table is in
+[04-type-system.md, "Where a type form may appear"](language-reference/04-type-system.md#where-a-type-form-may-appear).
 
 ---
 
@@ -332,7 +339,8 @@ referenced by its name and so is unaffected.
 |---|---|
 | `loom.union-duplicate-variant` | A repeated variant (`string or string`, `payload F = A \| A`) — the discriminator must be unambiguous. |
 | `loom.union-variant-not-carrier` | A `slot` variant — every variant must be a carrier type. |
-| `loom.union-position` | An inline `or` union outside an operation return, or outside a routed entry point's result (workflow `create` / `commandHandler` / `queryHandler`) with an `error` variant (a payload field included). |
+| `loom.union-position` | An inline `or` union outside an operation return, or outside a routed entry point's result (workflow `create` / `commandHandler` / `queryHandler`) with an `error` variant (a payload field included); a named union outside a `create` / handler parameter or a union variant. |
+| `loom.transport-type-position` | An event or payload record named as a type outside a transport boundary (a workflow `create`, a handler's contract, a union variant) — a stored field or a domain signature. |
 | `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged`. |

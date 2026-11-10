@@ -91,6 +91,7 @@ export { checkTestPlacement } from "./test-placement.js";
 export { checkTimers } from "./timer.js";
 export { checkTopLevelFunctions } from "./toplevel-function.js";
 export { checkTraceability } from "./traceability.js";
+export { checkTransportTypePositions } from "./type-positions.js";
 export {
   checkAvgProjection,
   checkBinaryOperands,

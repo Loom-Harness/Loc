@@ -1,5 +1,6 @@
 import { wireCode } from "../../ir/enrich/wire-policy.js";
 import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/types/loom-ir.js";
+import type { OrgContextPlan } from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -11,7 +12,9 @@ import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
+import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { registryAncestorsSql } from "../_persistence/registry-walk.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
@@ -43,17 +46,21 @@ export function emitPyAuthFiles(
   out: Map<string, string>,
   auth?: AuthIR,
   tenantClaim?: string,
-  /** Something in the system reads `organizationContext.org` — emit the
-   *  operating-scope switch gate (`systemReadsOrgContext`). */
-  readsOrgContext = false,
+  /** The operating-scope facts this deployable emits from (`orgContextPlan`). */
+  plan: OrgContextPlan = { gate: false, ancestors: false },
+  /** The quoted registry table the ancestors walk reads (`registryTableSql`). */
+  registryTable?: string,
 ): void {
   // The operating-scope switch gate (`organizationContext`) exists only under
   // tenancy and only where something reads the operating org.
-  const orgContext = !!tenantClaim && readsOrgContext;
+  const orgContext = !!tenantClaim && plan.gate;
   out.set("app/auth/__init__.py", "");
-  out.set("app/auth/user.py", renderUserModule(user, tenantClaim, orgContext));
+  out.set("app/auth/user.py", renderUserModule(user, tenantClaim, orgContext, plan.ancestors));
   out.set("app/auth/verifier.py", VERIFIER_PY);
-  out.set("app/auth/middleware.py", renderAuthMiddleware(user, !!auth, tenantClaim, orgContext));
+  out.set(
+    "app/auth/middleware.py",
+    renderAuthMiddleware(user, !!auth, tenantClaim, orgContext, plan, registryTable),
+  );
   // /auth/me is emitted whenever a backend has auth — the frontend `auth: ui`
   // guard probes it, and it works for both the OIDC verifier and the dev stub.
   out.set("app/auth/routes.py", renderRoutesPy(user));
@@ -120,7 +127,12 @@ function stubValueForType(t: TypeIR): string {
   }
 }
 
-function renderUserModule(user: UserIR, tenantClaim?: string, orgContext = false): string {
+function renderUserModule(
+  user: UserIR,
+  tenantClaim?: string,
+  orgContext = false,
+  ancestors = false,
+): string {
   const fields = user.fields.map((f) => {
     const t = renderPyType(f.optional ? { kind: "optional", inner: f.type } : f.type);
     return `    ${snake(f.name)}: ${t}`;
@@ -134,11 +146,19 @@ function renderUserModule(user: UserIR, tenantClaim?: string, orgContext = false
     ? [
         "",
         "    # The request's OPERATING org id (`organizationContext.org`): the home",
-        `    # org (the tenancy claim); an \`${ORG_CONTEXT_HEADER}\` header may name only`,
-        "    # that org.  Set once per request by the auth middleware's fail-closed",
-        "    # switch gate (never read off the token); a bare class attribute, so",
-        "    # asdict()/the /auth/me wire never carries it.",
+        `    # org (the tenancy claim), or the org an \`${ORG_CONTEXT_HEADER}\` header names`,
+        "    # when the caller can read that registry row.  Set once per request by",
+        "    # the auth middleware's fail-closed switch gate (never read off the",
+        "    # token); a bare class attribute, so asdict()/the /auth/me wire never",
+        "    # carries it.",
         '    operating_org = ""',
+        ...(ancestors
+          ? [
+              "    # `organizationContext.ancestors`: the operating org and every org above",
+              "    # it on the registry tree, resolved once per request (same carrier).",
+              "    operating_ancestors = ()",
+            ]
+          : []),
       ]
     : [];
   // `User.guid_claim(name)` — the parse-to-None coercion the registry
@@ -278,9 +298,12 @@ function renderPySystemPrincipal(
     "    if user is None:",
     "        return None",
     "    return {",
-    claim
-      ? `        "tenant": None if user.${claim} is None or str(user.${claim}) == "" else str(user.${claim}),`
-      : '        "tenant": None,',
+    // The event's tenant is the OPERATING org of the raising request.
+    setsOperatingOrg
+      ? '        "tenant": user.operating_org or None,'
+      : claim
+        ? `        "tenant": None if user.${claim} is None or str(user.${claim}) == "" else str(user.${claim}),`
+        : '        "tenant": None,',
     idField
       ? `        "causedBy": user.caused_by if user.is_system else str(user.${snake(idField.name)}),`
       : '        "causedBy": user.caused_by,',
@@ -406,10 +429,58 @@ export function actorIdAttr(user: UserIR): string | null {
 function renderAuthMiddleware(
   user: UserIR,
   oidc: boolean,
-  tenantClaim?: string,
-  orgContext = false,
+  tenantClaim: string | undefined,
+  orgContext: boolean,
+  plan: OrgContextPlan,
+  registryTable: string | undefined,
 ): string {
   const idAttr = actorIdAttr(user);
+  // On the deployable that hosts the registry, a requested org other than the
+  // home org is admitted when the caller can read that registry row through
+  // the registry's read scope; elsewhere only the home org is admitted.
+  const registryRow = orgContext && plan.registry ? `${plan.registry.name}Row` : undefined;
+  const ancestors = orgContext && plan.ancestors && !!registryTable;
+  const sessionFactory = pyRef("app.db.engine", "session_factory");
+  const rowRef = registryRow ? pyRef("app.db.schema", registryRow) : "";
+  const registrySeam = registryRow
+    ? [
+        "",
+        `_ORG_ID = ${PY.re}.compile(r"${UUID_PATTERN}", ${PY.re}.IGNORECASE)`,
+        "",
+        "",
+        `async def _can_read_org(home: ${pyRef("app.auth.user", "User")}, org: str) -> bool:`,
+        '    """True when the caller (its HOME principal) can read the registry row',
+        "    `org` through the registry's read scope — the switch gate's admission",
+        '    rule.  A value that is not a uuid names no registry row."""',
+        "    if not _ORG_ID.match(org):",
+        "        return False",
+        "    token = current_user_var.set(home)",
+        "    try:",
+        `        async with ${sessionFactory}() as session:`,
+        `            found = await session.scalar(${pyRef("sqlalchemy", "select")}(${rowRef}.id).where(${rowRef}.id == org))`,
+        "            return found is not None",
+        "    finally:",
+        "        current_user_var.reset(token)",
+        ...(ancestors
+          ? [
+              "",
+              "",
+              "async def operating_ancestors_of(org: str) -> tuple[str, ...]:",
+              '    """`organizationContext.ancestors` for `org`: the org and every org above',
+              "    it, walked over `parent` with `UNION` so a cycle terminates.  Resolved",
+              '    once per request; the principal carries the result."""',
+              "    if not _ORG_ID.match(org):",
+              "        return ()",
+              `    async with ${sessionFactory}() as session:`,
+              "        rows = await session.execute(",
+              `            ${pyRef("sqlalchemy", "text")}(${JSON.stringify(registryAncestorsSql(registryTable!, ":org"))}),`,
+              '            {"org": org},',
+              "        )",
+              "        return tuple(str(r[0]) for r in rows)",
+            ]
+          : []),
+      ]
+    : [];
   const claimAttr = tenantClaim ? snake(tenantClaim) : null;
   // Under OIDC the /auth/login|callback|logout redirect handlers must be
   // reachable without a verified principal — bypass them.  /auth/me is NOT
@@ -443,6 +514,7 @@ function renderAuthMiddleware(
     "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
+    ...registrySeam,
     "",
     "",
     "class AuthMiddleware(BaseHTTPMiddleware):",
@@ -497,8 +569,12 @@ function renderAuthMiddleware(
       ? [
           `        home_org = "" if user.${claimAttr} is None else str(user.${claimAttr})`,
           `        requested_org_context = request.headers.get("${ORG_CONTEXT_HEADER}", "")`,
-          "        if requested_org_context:",
-          "            if not home_org or requested_org_context != home_org:",
+          '        object.__setattr__(user, "operating_org", home_org)',
+          "        operating_org = home_org",
+          "        if requested_org_context and requested_org_context != home_org:",
+          registryRow
+            ? "            if not home_org or not await _can_read_org(user, requested_org_context):"
+            : "            if requested_org_context != operating_org:  # registry not hosted here: home org only",
           `                ${PY.log}(`,
           `                    "${LogEvents.orgContextDenied.level}",`,
           `                    "${LogEvents.orgContextDenied.event}",`,
@@ -518,7 +594,13 @@ function renderAuthMiddleware(
           "                    status_code=403,",
           '                    media_type="application/problem+json",',
           "                )",
-          '        object.__setattr__(user, "operating_org", requested_org_context or home_org)',
+          "            operating_org = requested_org_context",
+          '        object.__setattr__(user, "operating_org", operating_org)',
+          ...(ancestors
+            ? [
+                '        object.__setattr__(user, "operating_ancestors", await operating_ancestors_of(operating_org))',
+              ]
+            : []),
         ]
       : []),
     "        request.state.current_user = user",

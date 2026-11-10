@@ -56,6 +56,15 @@ export function checkReadGates(model: Model, accept: ValidationAcceptor): void {
       });
       continue;
     }
+    // A row rule's verb is an identifier too (`allow read on X as x where …`).
+    if (isPolicyReadRule(node) && node.verb && node.verb !== "read" && node.verb !== "write") {
+      accept("error", diagMessage("loom.policy-unknown-rule#verb", { word: node.verb }), {
+        node,
+        property: "verb",
+        code: "loom.policy-unknown-rule",
+      });
+      continue;
+    }
     if (isProjection(node) || isPolicyReadRule(node)) checkGateIsBool(node.gate, node, accept);
   }
 }

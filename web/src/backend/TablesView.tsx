@@ -189,7 +189,7 @@ function ErrorRow({
 // and the Auth tab's override — beside the tables, so "why does this row
 // say created_by admin" answers itself.
 function UsersStrip({ ctx }: { ctx: LayoutCtx }): JSX.Element {
-  const state = usersState(ctx.generateSuccess?.files ?? [], ctx.authStub);
+  const state = usersState(ctx.generateSuccess?.files ?? [], ctx.authStub, ctx.oidc.active);
   return (
     <Stack gap={4} mt="xs" data-testid="runtime-users">
       <Text size="xs" fw={700} tt="uppercase">

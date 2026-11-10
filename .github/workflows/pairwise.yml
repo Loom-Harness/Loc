@@ -223,11 +223,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # MEASURED wall-clocks, not estimates: node ~2.8min, python ~3min,
+          # node runs per-PR in `compile-node` below, not in this matrix.
+          # MEASURED wall-clocks, not estimates: python ~3min,
           # dotnet ~4.5min, java ~4.4min (all warm, contended sandbox);
           # elixir 78min uncontended with a warm hex archive.
-          - backend: node
-            script: test:pairwise-corpus-tsc
           - backend: python
             script: test:pairwise-corpus-python
           - backend: dotnet
@@ -258,6 +257,47 @@ jobs:
           # npm scripts set both, so nothing extra is needed here.  The elixir
           # leg's hex mirror is a SANDBOX workaround for a TLS-fingerprinting
           # egress proxy — CI runners reach hex.pm directly, so it stays off.
+          LOOM_PAIRWISE: '1'
+
+  # ---------------------------------------------------------------------------
+  # PER-PR (non-draft) + nightly + label + dispatch — the node compile cell.
+  #
+  # Node is the one compile cell cheap enough to owe every pipeline PR (~2.8min,
+  # the cases share one `node_modules`).  Per-PR it is a REGRESSION check, not a
+  # discovery instrument: the cover is a pure function of `test/pairwise/axes.ts`
+  # and the emitters, so a red cell on a PR means the PR either changed an
+  # emitter (a regression it introduced) or widened the axes (and the widening
+  # PR is the right place to waive what the wider cover reaches).  Either way
+  # the failure lands on the PR that caused it.  A per-PR run here is what would
+  # have stopped `read-scopes.ts` TS2304 from reaching `main` on 2026-11-09.
+  #
+  # Still NOT on `merge_group`: the queue argument in the header is unchanged.
+  # Draft-gated like `generation`, and for the same reason it does not skip the
+  # `labeled` event (cancel-in-progress would lose the run).
+  # ---------------------------------------------------------------------------
+  compile-node:
+    name: compile oracle (node)
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install toolchain deps
+        run: npm ci
+      - name: Build toolchain
+        run: npm run build
+      - name: Compile the emitted node project for every cover case
+        run: npm run test:pairwise-corpus-tsc
+        env:
           LOOM_PAIRWISE: '1'
 
   # ---------------------------------------------------------------------------

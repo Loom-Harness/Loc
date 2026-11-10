@@ -206,6 +206,34 @@
     },
     {
       "seq": 16,
+      "method": "POST",
+      "path": "/api/accounts/{id}/settle",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/settle",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/accounts/{id}/doubled",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/doubled",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -216,7 +244,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/ledgers",
       "status": 201,
@@ -225,7 +253,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 200,
@@ -236,7 +264,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/ledgers",
       "status": 200,
@@ -255,14 +283,14 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 200,
@@ -273,14 +301,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "method": "DELETE",
       "path": "/api/ledgers/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 25,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 404,
@@ -294,7 +322,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "method": "GET",
       "path": "/api/ledgers",
       "status": 200,
@@ -307,7 +335,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 27,
       "method": "PATCH",
       "path": "/api/secrets",
       "status": 405,
@@ -321,7 +349,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -335,7 +363,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "method": "POST",
       "path": "/api/secrets",
       "status": 400,
@@ -349,7 +377,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -359,7 +387,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
       "status": 404,
@@ -373,7 +401,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "POST",
       "path": "/api/accounts",
       "status": 201,
@@ -382,43 +410,29 @@
       }
     },
     {
-      "seq": 31,
-      "method": "GET",
-      "path": "/api/accounts/{id}",
-      "status": 200,
-      "body": {
-        "balance": 100,
-        "id": "<volatile:key>",
-        "rowVersion": 1
-      }
-    },
-    {
-      "seq": 32,
-      "method": "GET",
-      "path": "/api/accounts/{id}",
-      "status": 200,
-      "body": {
-        "balance": 100,
-        "id": "<volatile:key>",
-        "rowVersion": 1
-      }
-    },
-    {
       "seq": 33,
-      "method": "POST",
-      "path": "/api/accounts/{id}/update",
-      "status": 404,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
       "body": {
-        "code": "problem.not-found",
-        "detail": "Account {id} not found",
-        "instance": "/api/accounts/{id}/update",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "balance": 100,
+        "id": "<volatile:key>",
+        "rowVersion": 1
       }
     },
     {
       "seq": 34,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 100,
+        "id": "<volatile:key>",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 35,
       "method": "POST",
       "path": "/api/accounts/{id}/update",
       "status": 404,
@@ -426,20 +440,6 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/update",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 35,
-      "method": "DELETE",
-      "path": "/api/accounts/{id}",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Account {id} not found",
-        "instance": "/api/accounts/{id}",
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -447,6 +447,20 @@
     },
     {
       "seq": 36,
+      "method": "POST",
+      "path": "/api/accounts/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 37,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -460,7 +474,77 @@
       }
     },
     {
-      "seq": 37,
+      "seq": 38,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 39,
+      "method": "POST",
+      "path": "/api/accounts/{id}/settle",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/settle",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 40,
+      "method": "POST",
+      "path": "/api/accounts/{id}/settle",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/settle",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/accounts/{id}/doubled",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/doubled",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/accounts/{id}/doubled",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Account {id} not found",
+        "instance": "/api/accounts/{id}/doubled",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 43,
       "method": "POST",
       "path": "/api/ledgers",
       "status": 201,
@@ -469,7 +553,7 @@
       }
     },
     {
-      "seq": 38,
+      "seq": 44,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 200,
@@ -480,7 +564,7 @@
       }
     },
     {
-      "seq": 39,
+      "seq": 45,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 404,
@@ -494,7 +578,7 @@
       }
     },
     {
-      "seq": 40,
+      "seq": 46,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 200,
@@ -505,7 +589,7 @@
       }
     },
     {
-      "seq": 41,
+      "seq": 47,
       "method": "POST",
       "path": "/api/ledgers",
       "status": 201,
@@ -514,14 +598,14 @@
       }
     },
     {
-      "seq": 42,
+      "seq": 48,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 43,
+      "seq": 49,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
       "status": 404,
@@ -535,14 +619,14 @@
       }
     },
     {
-      "seq": 44,
+      "seq": 50,
       "method": "POST",
       "path": "/api/ledgers/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 45,
+      "seq": 51,
       "method": "POST",
       "path": "/api/ledgers",
       "status": 201,
@@ -551,7 +635,7 @@
       }
     },
     {
-      "seq": 46,
+      "seq": 52,
       "method": "DELETE",
       "path": "/api/ledgers/{id}",
       "status": 404,
@@ -565,7 +649,7 @@
       }
     },
     {
-      "seq": 47,
+      "seq": 53,
       "method": "DELETE",
       "path": "/api/ledgers/{id}",
       "status": 204,

@@ -955,6 +955,10 @@ aggregate Patient {
 }
 ```
 
+The tags belong to the field, not to its type: an expression that
+reads a sensitive field has the field's plain type, and the tags do not
+follow the value through assignments or calls.
+
 A field's `derived inspect` output redacts sensitive fields by
 default — the auto-generated structural form prints
 `<redacted>` for any property carrying any sensitivity tag.  A

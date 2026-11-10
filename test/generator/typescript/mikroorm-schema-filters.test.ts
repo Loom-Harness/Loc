@@ -70,7 +70,7 @@ describe("mikroorm entities — the read scope as named default filters", () => 
     );
     // Capability filters take the capability's name, so `ignoring` can name them.
     expect(root).toContain(
-      '"tenantOwned": { name: "tenantOwned", cond: () => ({ tenantId: requireCurrentUser().tenantId }), default: true },',
+      '"tenantOwned": { name: "tenantOwned", cond: () => ({ tenantId: requireCurrentUser().operatingOrg }), default: true },',
     );
     expect(root).toContain('"softDeletable": {');
     // Car's own restrictions, guarded by its discriminator.

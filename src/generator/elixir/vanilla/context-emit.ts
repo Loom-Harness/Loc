@@ -35,6 +35,7 @@ import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
+import { isOrgAncestorsRead } from "../../../ir/util/org-context.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
@@ -1246,7 +1247,8 @@ function stmtHasRefCollContains(s: StmtIR): boolean {
       e.kind === "method-call" &&
       e.member === "contains" &&
       e.receiverType.kind === "array" &&
-      e.receiverType.element.kind === "id"
+      e.receiverType.element.kind === "id" &&
+      !isOrgAncestorsRead(e.receiver)
     ) {
       found = true;
     }

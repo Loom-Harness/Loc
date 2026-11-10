@@ -92,6 +92,7 @@ import {
   fieldRedactedInInspect,
 } from "./mask-taint.js";
 import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
+import { applyPolicyScopes } from "./policy-scopes.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,9 @@ function enrichSystem(
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
     .map((m) => applyFoldTenancy(m, sys))
+    // Level rules (`own`, `when`) and row rules compose each aggregate's read
+    // and write scope (`policy-scopes.ts`); deny then ANDs on top, so it wins.
+    .map((m) => applyPolicyScopes(m, sys))
     .map((m) => applyPolicyDenies(m))
     // The bundled dev Keycloak's demo tenant gets a first-boot registry row
     // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
@@ -588,7 +592,10 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
               contextFilterOrigins: [...next.contextFilterOrigins, undefined],
             };
           }
-          if (writeHit) {
+          // A denied read denies writes too.  The read term above already does
+          // that wherever the command load reuses the read scope; an explicit
+          // write scope (a policy rule's) must say it itself.
+          if (writeHit || (readHit && next.writeScopeFilter !== undefined)) {
             // The carve-out is the aggregate's whole write scope.
             next = { ...next, writeScopeFilter: buildDenyFilter(agg) };
           }

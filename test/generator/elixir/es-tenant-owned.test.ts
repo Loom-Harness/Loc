@@ -57,8 +57,10 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
     // Absence check: tenancy is flat, the log carries no hierarchy-path column.
     expect(ledgerLog).not.toContain("data_key");
     expect(ledgerLog).toContain("def __loom_filters__, do: [{:tenant_owned, true}]");
-    expect(ledgerLog).toContain("record.tenant_id == ^(current_user && current_user.tenant_id)");
-    expect(bookLog).toContain("record.tenant_id == ^(current_user && current_user.tenant_id)");
+    expect(ledgerLog).toContain(
+      "record.tenant_id == ^(current_user && current_user.operating_org)",
+    );
+    expect(bookLog).toContain("record.tenant_id == ^(current_user && current_user.operating_org)");
   });
 
   it("the by-id load and the list adopt the stream's tenant (the read scope is the schema's)", () => {
@@ -75,7 +77,7 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
 
   it("a new stream is stamped from the principal; an append carries the stream's tenant", () => {
     expect(repo).toContain("defp stream_tenant(0, _stream) do");
-    expect(repo).toContain("tenant_id = current_user && current_user.tenant_id");
+    expect(repo).toContain("tenant_id = current_user && current_user.operating_org");
     expect(repo).toContain("{:error, :forbidden}");
     expect(repo).toContain("defp stream_tenant(_prior, %{tenant_id: tenant_id})");
     expect(repo).toContain("tenant_id: tenant.tenant_id");

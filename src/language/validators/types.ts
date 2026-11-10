@@ -85,7 +85,6 @@ import {
   envForAggregate,
   envForPart,
   isInfallibleConversion,
-  warnSensitivityDrop,
 } from "./_shared.js";
 import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 
@@ -1101,7 +1100,6 @@ export function checkPropertyDefault(p: Property, env: Env, accept: ValidationAc
       { node: p, property: "default", code: "loom.property-default-type-mismatch" },
     );
   }
-  warnSensitivityDrop(actual, declared, accept, { node: p, property: "default" });
 }
 
 /** Type-check a parameter default (`operation cancel(reason: string = "x")`) —
@@ -1379,7 +1377,6 @@ export function checkDerived(d: DerivedProp, env: Env, accept: ValidationAccepto
       { node: d, property: "expr", code: "loom.derived-type-mismatch" },
     );
   }
-  warnSensitivityDrop(actual, declared, accept, { node: d, property: "expr" });
 }
 
 export function checkFunction(
@@ -1413,7 +1410,6 @@ export function checkFunction(
         { node: fn, property: "body", code: "loom.function-return-type-mismatch" },
       );
     }
-    warnSensitivityDrop(actual, declared, accept, { node: fn, property: "body" });
     return;
   }
 
@@ -1534,7 +1530,6 @@ function checkFunctionBlock(
           { node: stmt, property: "value", code: "loom.function-return-type-mismatch" },
         );
       }
-      warnSensitivityDrop(actual, declared, accept, { node: stmt, property: "value" });
     }
   }
   return sawReturn;

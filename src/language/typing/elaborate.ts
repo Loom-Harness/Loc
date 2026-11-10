@@ -28,8 +28,10 @@ import {
 } from "../../util/openapi-ids.js";
 import {
   ORG_CONTEXT_ACCESSOR,
+  ORG_CONTEXT_ANCESTORS,
   ORG_CONTEXT_ORG,
   PRINCIPAL_IS_SYSTEM,
+  PRINCIPAL_OPERATING_ANCESTORS,
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../../util/provenance-carrier.js";
@@ -118,6 +120,7 @@ import {
   isParenExpr,
   isPayloadDecl,
   isPolicyDecl,
+  isPolicyReadRule,
   isPostfixChain,
   isPreconditionStmt,
   isPrimitiveConversion,
@@ -153,7 +156,7 @@ import { AUDIT_ENTRY, CALL_OPTIONS, LIST_QUERY, provenanceLineage } from "./e2e-
 import { primitiveFieldType } from "./primitive-fields.js";
 import { astProjectionReadShape, astProjectionWireShape } from "./projection-shape.js";
 import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
-import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, wireOf, withTags } from "./ty.js";
+import { isPrim, PAGED_META, type RecordShape, Ty, wireOf } from "./ty.js";
 
 // ---------------------------------------------------------------------------
 // Scope model (design §D4): one persistent chain, built by the walk.
@@ -475,6 +478,19 @@ export class Elaborator {
       const agg = node.aggregate?.ref;
       return agg ? scope.child({ owner: agg }) : scope;
     }
+    // A policy row rule (`allow on X as x where …`): `x` is the filtered row of
+    // X, which is also the owner bare names resolve against.
+    if (isPolicyReadRule(node) && node.binding) {
+      const agg = this.index.find("aggregate", node.target, node);
+      const s = scope.child({ owner: agg });
+      s.bind(
+        node.binding,
+        agg ? Ty.record({ of: "aggregate", ref: agg }) : Ty.unknown("unresolved-type"),
+        node,
+        "row",
+      );
+      return s;
+    }
     if (isCriterion(node) || isRetrieval(node)) {
       const target = this.resolveType(node.target, scope);
       const agg =
@@ -629,11 +645,7 @@ export class Elaborator {
   }
 
   private propertyType(p: Property, scope: Scope | undefined): Ty {
-    const tags = p.sensitivity?.tags;
-    return withTags(
-      this.resolveType(p.type, scope),
-      tags && tags.length > 0 ? [...tags].sort() : undefined,
-    );
+    return this.resolveType(p.type, scope);
   }
 
   // ---- synth: an expression's own type -----------------------------------
@@ -685,7 +697,7 @@ export class Elaborator {
       this.synth(e.cond, scope);
       const a = this.synth(e.thenExpr, scope);
       const b = this.synth(e.elseExpr, scope);
-      return withTags(join(a, b) ?? a, mergeTags(a.sensitivity, b.sensitivity));
+      return join(a, b) ?? a;
     }
     if (isMatchExpr(e)) {
       let acc: Ty | undefined;
@@ -1729,7 +1741,6 @@ export class Elaborator {
     }
     const ms = s as MemberSuffix;
     const name = ms.member;
-    const tags = recv.sensitivity;
     // A member resolves through ONE optional level, so the read has the type
     // it would have on the narrowed receiver; whether the unguarded read is
     // legal is `checkNullableReceivers`' judgement, made once for every member.
@@ -1749,7 +1760,7 @@ export class Elaborator {
       return bare;
     }
     if (bare.kind === "array") {
-      if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return withTags(Ty.prim("int"), tags);
+      if (bare.pagedMeta && !ms.call && PAGED_META.has(name)) return Ty.prim("int");
       return this.collectionOp(bare.element, ms, scope);
     }
     if (ms.call && bare.kind !== "record" && bare.kind !== "valueobject")
@@ -1787,7 +1798,7 @@ export class Elaborator {
       case "primitive": {
         const p = bare.name;
         const field = primitiveFieldType(p, name);
-        if (field) return withTags(Ty.prim(field), tags);
+        if (field) return Ty.prim(field);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
         const sig = intrinsicFor(p, name);
         if (sig) {
@@ -1817,6 +1828,12 @@ export class Elaborator {
       }
       case "principal": {
         if (name === PRINCIPAL_OPERATING_ORG || name === ORG_CONTEXT_ORG) return Ty.prim("string");
+        if (name === PRINCIPAL_OPERATING_ANCESTORS || name === ORG_CONTEXT_ANCESTORS) {
+          const registry = this.index.tenancyRegistry();
+          return registry
+            ? Ty.array({ kind: "id", target: registry, name: registry.name })
+            : Ty.unknown("unresolved-member");
+        }
         // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
         if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);
@@ -1998,7 +2015,7 @@ export class Elaborator {
   private narrowed(e: Expression, t: Ty & { kind: "optional" }): Ty {
     const key = simplePathKey(e);
     if (key === undefined) return t;
-    return isNarrowedNonNull(e, key) ? withTags(t.inner, t.sensitivity) : t;
+    return isNarrowedNonNull(e, key) ? t.inner : t;
   }
 
   /** The same rule for a chain's PREFIX ending at suffix `i` — `this.note` in
@@ -2011,7 +2028,7 @@ export class Elaborator {
       if (!isMemberSuffix(s) || s.call) return t;
       parts.push(s.member);
     }
-    return isNarrowedNonNull(e, parts.join(".")) ? withTags(t.inner, t.sensitivity) : t;
+    return isNarrowedNonNull(e, parts.join(".")) ? t.inner : t;
   }
 }
 
@@ -2214,12 +2231,6 @@ function sameType(a: Ty, b: Ty): boolean {
  *  (money and temporal algebras, numeric widening, `/` widens to decimal,
  *  implicit stringification). Anything else is `ill-typed-operands`. */
 function arithmetic(a: Ty, b: Ty, op: string): Ty {
-  const tags = mergeTags(a.sensitivity, b.sensitivity);
-  const r = arithmeticBare(a, b, op);
-  return withTags(r, tags);
-}
-
-function arithmeticBare(a: Ty, b: Ty, op: string): Ty {
   if (a.kind === "unknown") return a;
   if (b.kind === "unknown") return b;
   if (op === "+") {

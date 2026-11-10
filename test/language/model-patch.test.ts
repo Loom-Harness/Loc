@@ -217,11 +217,10 @@ describe("applyPatches", () => {
 
 describe("shared patch services", () => {
   it("builds the Langium service set once across many calls, without leaking documents", async () => {
-    const { resolvePatchEdits, patchServicesStats } = await import(
-      "../../src/language/model-patch.js"
-    );
+    const { resolvePatchEdits } = await import("../../src/language/model-patch.js");
+    const { sharedServicesStats } = await import("../../src/language/shared-services.js");
     const patch = [{ op: "remove" as const, target: "aggregate Sales.Order.total" }];
-    const before = patchServicesStats.created;
+    const before = sharedServicesStats.created;
     for (let i = 0; i < 5; i++) {
       const r = await resolvePatchEdits(MODEL, patch);
       expect(r.ok).toBe(true);
@@ -229,7 +228,6 @@ describe("shared patch services", () => {
     // Concurrent calls over the same declarations must not see each other.
     const all = await Promise.all([1, 2, 3].map(() => resolvePatchEdits(MODEL, patch)));
     expect(all.every((r) => r.ok)).toBe(true);
-    expect(patchServicesStats.created - before).toBeLessThanOrEqual(1);
-    expect(patchServicesStats.created).toBe(1);
+    expect(sharedServicesStats.created - before).toBeLessThanOrEqual(1);
   });
 });

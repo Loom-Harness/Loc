@@ -7,13 +7,14 @@ import { createBrokerService } from "./broker.service.js";
 import { diskService } from "./disk.js";
 import { httpMockService } from "./http-mock.js";
 import { mailboxService } from "./mailbox.js";
+import { oidcService } from "./oidc.js";
 import type { InfraServices } from "./router.js";
 import type { InfraServiceHost } from "./service.js";
 
 export function createServices(host: InfraServiceHost): InfraServices {
   return new Map([
     ["broker", createBrokerService(host)],
-    ...[s3Service, sesService, mailboxService, diskService, httpMockService].map(
+    ...[s3Service, sesService, mailboxService, diskService, httpMockService, oidcService].map(
       (s): [string, typeof s] => [s.name, s],
     ),
   ]);

@@ -18,6 +18,7 @@ import {
   isConstructible,
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
+import { hasStateRow, isWorkflowSelfType } from "../../plan/index.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
@@ -218,11 +219,11 @@ export function validateWorkflows(
     // the row the instance-read route serves, keyed by the correlation field.
     // An uncorrelated workflow persists no such row, so there is nothing to
     // answer.
-    if (!wf.correlationField || wf.eventSourced) {
+    if (!hasStateRow(wf)) {
       for (const c of wf.creates) {
         const t = c.returnType;
         const names = t?.kind === "union" ? t.variants : t ? [t] : [];
-        if (!names.some((v) => v.kind === "entity" && v.name === wf.name)) continue;
+        if (!names.some((v) => isWorkflowSelfType(wf, v))) continue;
         diags.push({
           severity: "error",
           code: "loom.workflow-return-this-uncorrelated",

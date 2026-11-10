@@ -142,14 +142,7 @@ describe("M-T5.47 — one typing pass: no second type-inference path", () => {
 
 /** The relations the validators judge with — defined in `typing/relations.ts`
  *  and nowhere else. */
-const RELATIONS = [
-  "typesEqual",
-  "isAssignable",
-  "comparable",
-  "ternaryJoin",
-  "typeToString",
-  "sensitivityNarrows",
-];
+const RELATIONS = ["typesEqual", "isAssignable", "comparable", "ternaryJoin", "typeToString"];
 
 describe("one type vocabulary, one set of type relations", () => {
   const files = SCANNED.flatMap((d) => tsFiles(join(ROOT, d)));

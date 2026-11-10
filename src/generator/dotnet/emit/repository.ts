@@ -567,7 +567,7 @@ export function renderRepositoryImpl(
             "    {",
             `        var inScope = await _db.${readSet}.AnyAsync(x => x.Id == id && (${renderCsExpr(
               agg.writeScopeFilter,
-              { thisName: "x", currentUserExpr: AMBIENT_CURRENT_USER, agg },
+              { thisName: "x", currentUserExpr: AMBIENT_CURRENT_USER, agg, efQuery: true },
             )}), cancellationToken);`,
             "        if (!inScope) return null;",
             "        return await GetByIdAsync(id, cancellationToken);",

@@ -138,10 +138,18 @@ the browser's answers, each announced at warn level in the runtime log:
 
 | Option | Preview behaviour | Why |
 |---|---|---|
-| `verifier: "dev-stub"` | the dev stub, even under `auth { oidc }` | no identity provider is reachable from the worker |
+| `verifier: "configured"` — `auth { oidc }` | the generated OIDC verifier, against the infra worker's identity provider (below) | the preview checks real tokens: signature, issuer, audience, expiry |
+| `verifier: "dev-stub"` — every other system, or the Auth tab's *Dev stub* switch | the dev stub and its `x-loom-dev-claims` header | an `auth: required` system without `auth { oidc }` has no other verifier |
 | `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
 | `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `__loom_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
+
+The worker serves its RPCs one at a time (`runtime.worker.ts`): the bundle's
+`AsyncLocalStorage` polyfill has one store slot, which `run` holds until its
+callback's promise settles, so the request context — `currentUser` for tenancy
+filters and stamps, the request logger — survives the awaits inside a request
+only while no other request interleaves. Work a deployable starts outside a
+request (a channel consumer, a timer) can still interleave with one.
 
 The broker and job-queue client packages (`ioredis`, `kafkajs`, `amqplib`,
 `pg-boss`) are swapped at bundle time for stubs whose constructors throw
@@ -203,6 +211,25 @@ answered by the same object store: the iframe's fetch shim
 intercepted — an `<img src>` or a download link to a presigned URL still goes to
 the real host (a page cannot be intercepted without a service worker), which the
 Runtime panel's "emulated" tooltip states.
+
+### The identity provider
+
+A system with `auth { oidc }` boots its generated OIDC verifier against an
+identity provider in the infra worker (`src/runtime/infra/oidc.ts`). It serves
+discovery, the JWKS and a token endpoint under the issuer each backend's compose
+env names (`OIDC_ISSUER`); a deployable's `fetch` hands any URL under that issuer
+to it (`src/runtime/resource-fakes.ts`). Its realm and personas come from the
+generated tree at every boot (`src/backend/oidc-personas.ts`): the personas are
+the users of the dev Keycloak realm, `keycloak/realm.json`, with the claims its
+mappers mint. See [`auth.md`](auth.md#playground-the-in-browser-identity-provider)
+for what a token carries.
+
+The **Auth** tab picks a persona, edits its claims and mints a token; the API
+console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
+switch boots the dev stub instead (on the next boot), for the
+`x-loom-dev-claims` workflow. The signing key lives as long as the infra
+worker, so a token survives a re-boot. `examples/oidc-auth-system.ddd` shows a
+`requires` permission gate and a tenant claim per persona.
 
 ### In-browser test runner
 
@@ -358,7 +385,7 @@ a spurious read-only banner.
 
 ## Runtime & evolution surfaces
 
-The dock's **Runtime** tab has four sub-views once the backend is booted: **API** (the spec-driven endpoint console), **Database** (the SQL console + Reset), **Tables** (read-only — `information_schema.tables` across every generated schema, click a table for its first 50 rows; a *Users* strip beside it names the identities requests carry: the generated dev stub's built-in identity and the Auth tab's override) and **Requests** (every OpenAPI operation with the number of requests it served, matched from the runtime log's `request_end` lines by `web/src/backend/route-match.ts`; unmatched paths collect in a *404s* list). Every raw runtime error — a boot failure, a 4xx/5xx body, a dispatch that produced no response — carries one line of interpretation and a *See Output → Runtime logs* link above the raw text. **Runtime logs** also shows what a deployable logs outside any request — its channel consumers, the outbox relay, its timers — batched every 100 ms and tagged with the deployable (`setBackgroundFlush` in `web/src/runtime/console-tee.ts`).
+The dock's **Runtime** tab has four sub-views once the backend is booted: **API** (the spec-driven endpoint console), **Database** (the SQL console + Reset), **Tables** (read-only — `information_schema.tables` across every generated schema, click a table for its first 50 rows; a *Users* strip beside it names the identities requests carry: the generated dev stub's built-in identity and the Auth tab's override, or — under the OIDC verifier — that the Auth tab's minted token is the identity) and **Requests** (every OpenAPI operation with the number of requests it served, matched from the runtime log's `request_end` lines by `web/src/backend/route-match.ts`; unmatched paths collect in a *404s* list). Every raw runtime error — a boot failure, a 4xx/5xx body, a dispatch that produced no response — carries one line of interpretation and a *See Output → Runtime logs* link above the raw text. **Runtime logs** also shows what a deployable logs outside any request — its channel consumers, the outbox relay, its timers — batched every 100 ms and tagged with the deployable (`setBackgroundFlush` in `web/src/runtime/console-tee.ts`).
 
 The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd migrate add` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
 

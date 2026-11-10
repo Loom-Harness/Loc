@@ -309,6 +309,9 @@ function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = "", mintsBearer =
     const rendered = renderE2EStmt(s, ctx);
     if (rendered) out.push(...rendered.split("\n").map((l) => `  ${l}`));
   }
+  // Hand the env principal back: whatever runs after the suite in the same
+  // module (a runner's authz ladder) authenticates through `__authHeaders`.
+  if (ctx.principals) out.push(`  __principal = null;`);
   out.push(`});`);
   return out;
 }

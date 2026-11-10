@@ -198,10 +198,10 @@ describe("policy deny — .NET (Dapper)", () => {
     const readSites = [...secret.matchAll(/1 = 0/g)].length;
     expect(readSites).toBeGreaterThanOrEqual(4);
     expect(secret).toContain(
-      "FROM secrets WHERE id = @id AND (tenant_id = @__cu_tenantId) AND 1 = 0",
+      "FROM secrets WHERE id = @id AND (tenant_id = @__cu_operatingOrg) AND 1 = 0",
     );
     expect(secret).toContain(
-      "SELECT COUNT(*) FROM secrets WHERE (tenant_id = @__cu_tenantId) AND 1 = 0",
+      "SELECT COUNT(*) FROM secrets WHERE (tenant_id = @__cu_operatingOrg) AND 1 = 0",
     );
     // Deny WRITE — reads stay OPEN on Account (tenant floor only, no `1 = 0`),
     // and the command load is the write-scope existence guard.  The read filter
@@ -209,10 +209,10 @@ describe("policy deny — .NET (Dapper)", () => {
     // Dapper has to say it, or the write scope would be wider than the read one.
     expect(account).toContain("public async Task<Account?> GetByIdForWriteAsync(");
     expect(account).toContain(
-      "SELECT EXISTS (SELECT 1 FROM accounts WHERE id = @id AND (1 = 0) AND (tenant_id = @__cu_tenantId))",
+      "SELECT EXISTS (SELECT 1 FROM accounts WHERE id = @id AND (1 = 0) AND (tenant_id = @__cu_operatingOrg))",
     );
     expect(account).not.toContain(
-      "FROM accounts WHERE id = @id AND (tenant_id = @__cu_tenantId) AND 1 = 0",
+      "FROM accounts WHERE id = @id AND (tenant_id = @__cu_operatingOrg) AND 1 = 0",
     );
   });
 

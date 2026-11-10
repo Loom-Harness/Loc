@@ -57,7 +57,7 @@ function bodyOf(impl: string, method: string): string {
   return impl.slice(start, end);
 }
 
-const TENANT_INAPP = "Objects.equals(x.tenantId(), currentUser.tenantId())";
+const TENANT_INAPP = "Objects.equals(x.tenantId(), currentUser.operatingOrg())";
 const DELETED_INAPP = "!x.isDeleted()";
 
 describe("java — `find(C) … ignoring` drops the principal conjunct", () => {
@@ -68,7 +68,7 @@ describe("java — `find(C) … ignoring` drops the principal conjunct", () => {
     it("the tenant restriction is the entity's filter, in no @Query", async () => {
       const files = await generateSystemFiles(SRC);
       expect(files.get(`${ROOT}/orders/Order.java`)!).toContain(
-        '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+        '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuOperatingOrg")',
       );
       const jpa = files.get(`${ROOT}/orders/OrderJpaRepository.java`)!;
       expect(jpqlOf(jpa, "findFirstByCodeIgnoringTenantOwned")).toBe(
@@ -146,7 +146,7 @@ describe("java — `find(C) … ignoring` drops the principal conjunct", () => {
     it("findById() applies BOTH conjuncts", async () => {
       const impl = (await generateSystemFiles(SRC)).get(`${ROOT}/notes/NoteRepositoryImpl.java`)!;
       const body = bodyOf(impl, "findById");
-      expect(body).toContain("Objects.equals(rec.tenantId(), currentUser.tenantId())");
+      expect(body).toContain("Objects.equals(rec.tenantId(), currentUser.operatingOrg())");
       expect(body).toContain("!rec.isDeleted()");
     });
   });

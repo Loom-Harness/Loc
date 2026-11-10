@@ -89,7 +89,7 @@ function ctx(): WalkContext {
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Set(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),

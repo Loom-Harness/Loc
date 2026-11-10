@@ -1,4 +1,5 @@
 import {
+  MISSING_FILE_PART_DETAIL,
   wireCode,
   wireFixedDetail,
   wireStatus,
@@ -364,7 +365,9 @@ export function renderHttpIndex(
         `    const body = await c.req.parseBody();`,
         `    const file = body["file"];`,
         `    if (!(file instanceof File)) {`,
-        `      return c.json({ error: "expected a 'file' form field" }, 400);`,
+        // A missing part is the same malformed-request 400 every unreadable body
+        // earns: the root \`onError\` renders an \`HTTPException\` as problem+json.
+        `      throw new HTTPException(${wireStatus("malformed-body")}, { message: ${JSON.stringify(MISSING_FILE_PART_DETAIL)} });`,
         `    }`,
         `    const key = ${T.randomUUID}();`,
         `    const bytes = new Uint8Array(await file.arrayBuffer());`,

@@ -501,6 +501,30 @@ system Bk {
   deployable d { platform: ${platform} contexts: [Bookings] dataSources: [log] channels: [lifecycleBus] serves: BApi port: 4000 }
 }
 `,
+  "tenancy:remote-registry@deployable": (platform) => `
+system OrgAnc {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain Core {
+    context Registry {
+      aggregate Org with crudish { name: string  implements tenantRegistry }
+      repository Orgs for Org
+    }
+    context Books {
+      aggregate Note with tenantOwned, crudish {
+        under: bool?
+        operation probe(org: Org id) { under := organizationContext.ancestors.contains(org) }
+      }
+      repository Notes for Note
+    }
+  }
+  storage primary { type: postgres }
+  resource r { for: Registry, kind: state, use: primary }
+  resource b { for: Books, kind: state, use: primary }
+  deployable reg { platform: ${platform} contexts: [Registry] dataSources: [r] port: 3001 auth: required }
+  deployable books { platform: ${platform} contexts: [Books] dataSources: [b] port: 3002 auth: required }
+}
+`,
   "call:auth-required-api@resource": (platform) => `
 system S {
   user { id: string  role: string }

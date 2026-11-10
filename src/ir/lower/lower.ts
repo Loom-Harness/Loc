@@ -73,7 +73,6 @@ import {
   isOperation,
   isPayloadDecl,
   isPermissionsBlock,
-  isPolicyDecl,
   isProjection,
   isProperty,
   isQueryHandler,
@@ -135,10 +134,6 @@ import type {
   LoadSegmentIR,
   PayloadIR,
   PermissionDeclIR,
-  PolicyDenyIR,
-  PolicyReadGateIR,
-  PolicyReadLevelIR,
-  PolicyWriteLevelIR,
   ProjectionIR,
   QueryHandlerIR,
   RawLoomModel,
@@ -203,6 +198,7 @@ import {
   lowerUnique,
   valueProperties,
 } from "./lower-members.js";
+import { lowerPolicyRules } from "./lower-policy.js";
 import { lowerProjection } from "./lower-projection.js";
 import { lowerRequirement, lowerSolution, lowerTestCase } from "./lower-requirements.js";
 import { lowerStatement } from "./lower-stmt.js";
@@ -658,6 +654,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       theme = lowerTheme(m);
     }
   }
+  if (user && tenancy?.registryName) user.registry = tenancy.registryName;
   const subdomains: SubdomainIR[] = [];
   const deployables: DeployableIR[] = [];
   const e2eBlocks: TestE2E[] = [];
@@ -1402,63 +1399,10 @@ function lowerContext(
     else if (isQueryHandler(m))
       queryHandlers.push(lowerQueryHandler(m, env, ctx, { aggregates, domainServices }));
   }
-  // `policy {}` read-reachability rules (tenancy.md).  A pure
-  // structural projection — the per-aggregate `deep`/`global` rewrite of the
-  // `tenantOwned` filter happens in enrichment; validation (tenant-owned-ness,
-  // hierarchy requirement, unknown/duplicate target) is phase ⑦.
-  const policyReadLevels: PolicyReadLevelIR[] = [];
-  const policyWriteLevels: PolicyWriteLevelIR[] = [];
-  const policyDenies: PolicyDenyIR[] = [];
-  const policyReadGates: PolicyReadGateIR[] = [];
-  for (const m of ctx.members) {
-    if (!isPolicyDecl(m)) continue;
-    for (const r of m.rules) {
-      // `read X requires G` — who may read X.  Lowered in the bare context env
-      // (no `this`, no params): the gate runs before any row is loaded, so a
-      // row field fails to resolve and phase ⑦ reports it.
-      if (r.effect === "read") {
-        if (r.gate) {
-          policyReadGates.push({
-            aggregate: r.target,
-            gate: lowerExpr(r.gate, env),
-            source: `read ${r.target} requires ${cstText(r.gate)}`,
-            origin: originFor(r),
-          });
-        }
-        continue;
-      }
-      // `deny [write] on X` — the deny-wins carve-out.  All-or-nothing
-      // at the aggregate (no level); the optional `write` verb selects the
-      // access.  Enrichment resolves deny-wins after the allow passes.
-      if (r.effect === "deny") {
-        const access = r.verb === "write" ? "write" : "read";
-        policyDenies.push({
-          aggregate: r.target,
-          access,
-          source: `deny ${r.verb ? `${r.verb} ` : ""}on ${r.target}`,
-        });
-        continue;
-      }
-      // Any other head word is `loom.policy-unknown-rule` (AST phase); a
-      // removed level is `loom.policy-level-removed` (AST phase).
-      if (r.effect !== "allow" || r.level !== "local") continue;
-      // The optional `verb` selects the ladder: `write` gates mutations;
-      // bare / `read` is the read ladder.
-      if (r.verb === "write") {
-        policyWriteLevels.push({
-          aggregate: r.target,
-          level: "local",
-          source: `allow write local on ${r.target}`,
-        });
-      } else {
-        policyReadLevels.push({
-          aggregate: r.target,
-          level: "local",
-          source: `allow local on ${r.target}`,
-        });
-      }
-    }
-  }
+  // `policy {}` rules — a pure structural projection (`lower-policy.ts`);
+  // composition is enrichment, validation phase ⑦.
+  const { policyReadLevels, policyWriteLevels, policyRowRules, policyDenies, policyReadGates } =
+    lowerPolicyRules(ctx, env);
   // Context-scoped integration tests (test-placement.md): a `test`
   // nested directly in the `context` (no `for` — subject inferred as this
   // context) plus any hoisted `test … for <this context>` routed here.  Lowered
@@ -1494,6 +1438,7 @@ function lowerContext(
     origin: originFor(ctx),
     ...(policyReadLevels.length > 0 ? { policyReadLevels } : {}),
     ...(policyWriteLevels.length > 0 ? { policyWriteLevels } : {}),
+    ...(policyRowRules.length > 0 ? { policyRowRules } : {}),
     ...(policyDenies.length > 0 ? { policyDenies } : {}),
     ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
   };

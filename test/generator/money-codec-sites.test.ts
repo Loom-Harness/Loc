@@ -73,14 +73,16 @@ describe("union-variant money payload (#3544)", () => {
   it("python: the success arm's money rides as money_str()", async () => {
     const r = pick(await gen(sys("python", UNION)), /ticket_routes\.py$/);
     expect(r).toContain('if result["type"] == "Repaired":');
-    expect(r).toContain('"unitCost": money_str(result["unitCost"])');
-    expect(r).toContain('"extra": None if result["extra"] is None else money_str(result["extra"])');
+    expect(r).toContain('"unitCost": money_str(cast(Decimal, result["unitCost"]))');
+    expect(r).toContain(
+      '"extra": None if result["extra"] is None else money_str(cast(Decimal, result["extra"]))',
+    );
   });
 
   it("elixir: the success arm's money is rounded to the 4-dp wire scale", async () => {
     const r = pick(await gen(sys("elixir", UNION)), /ticket_controller\.ex$/);
     expect(r).toContain('{:ok, %{type: "Repaired"} = success}');
-    expect(r).toContain("Map.update!(:unit_cost, &(Decimal.round(&1, 4)))");
+    expect(r).toContain("Map.update!(:unitCost, &(Decimal.round(&1, 4)))");
     expect(r).toContain("Map.update(:extra, nil, &(&1 && Decimal.round(&1, 4)))");
   });
 });

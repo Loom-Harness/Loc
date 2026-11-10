@@ -95,12 +95,6 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
   },
   {
     file: "src/generator/typescript/emit/routes.ts",
-    line: `"expected a 'file' form field"`,
-    reason:
-      "the upload route's missing multipart field answers a plain JSON 400, not problem+json — a found-in-flight bug (#4206), fixed with its own wire change",
-  },
-  {
-    file: "src/generator/typescript/emit/routes.ts",
     line: `status: "not_ready"`,
     reason: "the /ready probe's 503 is an operability signal, not a request refusal",
   },

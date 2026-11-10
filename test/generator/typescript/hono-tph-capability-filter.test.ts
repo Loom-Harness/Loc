@@ -146,7 +146,7 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
       const fn = `${table.slice(0, -1)}Scope`;
       expect(repo, `${file} reads through its scope helper`).toContain(`${fn}()`);
       expect(scopeFn(files, fn), `${fn} scopes by tenant on the shared table`).toContain(
-        "eq(schema.vehicles.tenantId, requireCurrentUser().tenantId)",
+        "eq(schema.vehicles.tenantId, requireCurrentUser().operatingOrg)",
       );
       expect(repo, `${file} must not name schema.${table}`).not.toContain(`schema.${table}`);
     }
