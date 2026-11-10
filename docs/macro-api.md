@@ -144,6 +144,13 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `contextFilter(expr, opts?)` | A context-scope `filter` declaration; `opts.capability` adds the `for "<name>"` qualifier. |
 | `contextStamp(event, assignments, opts?)` | A context-scope `stamp` declaration; same `opts.capability` rule. |
 | `implementsCapability(name)` | An `implements "<name>"` declaration. |
+| `aggregate(name, members, opts?)` | A whole `aggregate` declaration for a `context`-target macro; `opts.with` lists its `with` entries (applied by the expander like hand-written ones). |
+| `enumDecl(name, values)` | An `enum` declaration. |
+| `invariant(name, expr)` | An `invariant [<name>:] <expr>` aggregate member. |
+| `policyFn(name, params, body)` | A named policy function `policy <Name>(<params>): bool = <body>`. |
+| `policyBlock(rules, opts?)` | A `policy [<name>] { … }` block; each rule is a `{ kind: "row", verb?, target, binding, where }` row rule or a `{ kind: "level", write?, level, target, when? }` level rule. |
+| `existsExpr(aggregate, binding, where)` | `exists <Aggregate> as <binding> where <where>`. |
+| `paren(expr)` | `( <expr> )` — explicit grouping for an operand the enclosing operator would rebind. |
 
 ### `ui-factories.ts` — UI-side AST nodes
 

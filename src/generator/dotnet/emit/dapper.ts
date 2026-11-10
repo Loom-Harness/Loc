@@ -47,6 +47,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -849,6 +850,17 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       return `(${l} ${op} ${r})`;
     }
     case "method-call": {
+      // `organizationContext.ancestors.contains(<column>)` → `<column> =
+      // ANY(@lineage)`: the lineage binds as one uuid array (Npgsql maps a
+      // `Guid[]` natively, so Dapper passes it unexpanded) — see
+      // `collectFilterPrincipalRefs`.
+      {
+        const lineageArg = orgAncestorsMembershipArg(e);
+        if (lineageArg) {
+          const receiver = e.receiver as Extract<ExprIR, { kind: "member" }>;
+          return `(${whereToSql(lineageArg, sqlCtx)} = ANY(@${currentUserParam(receiver.member)}))`;
+        }
+      }
       // `this.<refColl>.contains(x)` → EXISTS join subquery, the raw-SQL
       // mirror of EF's `_db.<JoinDbSet>.Any(__j => __j.owner == x.Id && …)`.
       // Detection is structural (receiverType `array<id>`, `this.<field>`
@@ -1114,6 +1126,17 @@ export function collectFilterPrincipalRefs(
   };
   const addClaim = (member: string, type?: TypeIR): void => {
     const claimProp = upperFirst(member);
+    // A principal list of typed ids (the operating org's lineage) binds as the
+    // raw uuid array `= ANY(@…)` reads.
+    if (type?.kind === "array" && type.element.kind === "id") {
+      add({
+        param: currentUserParam(member),
+        claimProp,
+        valueExpr: (base) =>
+          `System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(${base}.${claimProp}, __id => __id.Value))`,
+      });
+      return;
+    }
     // An id-typed claim is the strongly-typed id struct on `User`, which Dapper
     // has no handler for ("cannot be used as a parameter value") — bind its
     // wrapped `.Value`, exactly as an id-typed find parameter does.

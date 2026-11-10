@@ -8,6 +8,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf } from "../../ir/util/inheritance.js";
+import { orgAncestorsMembershipArg } from "../../ir/util/org-context.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
@@ -529,6 +530,18 @@ function lower(
       return renderPyExpr(e);
     }
     case "method-call": {
+      // `organizationContext.ancestors.contains(<column>)` → `<column> IN
+      // (<ancestors>)`, the lineage bound from the principal.  Ahead of the
+      // reference-collection arm, whose receiver type it shares.
+      {
+        const lineageArg = orgAncestorsMembershipArg(e);
+        if (lineageArg) {
+          const col = lower(lineageArg, row, associations, ops, principalAccessor, nullBools);
+          const lineage = lower(e.receiver, row, associations, ops, principalAccessor, nullBools);
+          if (col == null || lineage == null) return null;
+          return `${col}.in_(${lineage})`;
+        }
+      }
       // `this.<refColl>.contains(x)` → correlated EXISTS against the
       // field's join table.
       if (

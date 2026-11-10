@@ -96,6 +96,10 @@ export function principalParamName(entry: string): string {
     const accessor = entry.slice(ENUM_NAME_BIND.length);
     return `__cuName${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
   }
+  if (entry.startsWith(ID_LIST_CSV_BIND)) {
+    const accessor = entry.slice(ID_LIST_CSV_BIND.length);
+    return `__cuCsv${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
+  }
   return `__cu${entry.charAt(0).toUpperCase()}${entry.slice(1)}`;
 }
 
@@ -115,6 +119,14 @@ export function principalBindExpr(entry: string, principalVar: string): string {
   if (entry.startsWith(ENUM_NAME_BIND)) {
     const accessor = entry.slice(ENUM_NAME_BIND.length);
     return `${principalVar} == null || ${principalVar}.${accessor}() == null ? null : ${principalVar}.${accessor}().name()`;
+  }
+  if (entry.startsWith(ID_LIST_CSV_BIND)) {
+    const accessor = entry.slice(ID_LIST_CSV_BIND.length);
+    return (
+      `${principalVar} == null ? null : ${principalVar}.${accessor}().stream()` +
+      `.map(__id -> __id.value().toString())` +
+      `.collect(java.util.stream.Collectors.joining(","))`
+    );
   }
   return `${principalVar} == null ? null : ${principalVar}.${entry}()`;
 }
@@ -347,6 +359,18 @@ export function enumNameBindEntry(member: string): string {
 
 /** Marker prefix for a recorded binding that is an enum claim's name. */
 const ENUM_NAME_BIND = "enumName:";
+
+/** The recorded binding entry for a principal list of typed ids (the operating
+ *  org's lineage) read as ONE comma-joined String: a Hibernate filter
+ *  parameter binds a single value, and a uuid never contains a comma, so the
+ *  condition splits it back with `string_to_array`.  Null without a
+ *  principal, so the membership matches no row. */
+export function idListCsvBindEntry(member: string): string {
+  return `${ID_LIST_CSV_BIND}${member}`;
+}
+
+/** Marker prefix for a recorded binding that is a comma-joined id list. */
+const ID_LIST_CSV_BIND = "idListCsv:";
 
 /** Marker prefix for a recorded `principalAccessors` binding that is a whole
  *  principal term, decided in Java: the rest of the entry is the boolean

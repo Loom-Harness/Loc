@@ -750,6 +750,13 @@ through the tenancy claim — their home org. `organizationContext` is the
 - `organizationContext.ancestors` — the operating org **and** every org above
   it on the registry tree, typed `<Registry> id[]`.
 
+In a row rule (or a policy function inlined into one),
+`organizationContext.ancestors.contains(<column>)` is a query predicate: the
+column is tested against the lineage (`<column> = ANY(<lineage>)`), so a row
+whose column names an org is visible to that org and every org below it —
+re-evaluated per request, so a move re-targets it with nothing rewritten
+([row rules](language-reference/17-auth.md#row-rules-when-and-own)).
+
 Reads, writes and the tenant stamp **anchor on the operating org**: the
 prelude `tenantOwned` filters and stamps on `organizationContext.org`.
 `currentUser` is never rewritten by a switch — `currentUser.tenantId` still

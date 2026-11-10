@@ -625,10 +625,39 @@ export async function assertOrgContextGate(
   expect(await probe(orgAB, ownAB.id!, orgA)).toEqual({ lineage: 2, underOrg: true });
   expect(await probe(orgA, own.id!, orgAB)).toEqual({ lineage: 1, underOrg: false });
 
+  // === (5b) A row rule testing a COLUMN against the lineage — directly
+  // (`reader`) and inside an `exists` over grant rows (`MemoGrant.org`). ===
+  async function post(who: string, url: string, body: object): Promise<string> {
+    const r = await fetch(`${base}${url}`, {
+      method: "POST",
+      headers: actingAs(who),
+      body: JSON.stringify(body),
+    });
+    expect(r.status, await r.clone().text()).toBe(201);
+    return ((await r.json()) as { id: string }).id;
+  }
+  async function memos(who: string): Promise<string[]> {
+    const r = await fetch(`${base}/api/memos`, { headers: actingAs(who) });
+    expect(r.status, await r.clone().text()).toBe(200);
+    return rows<{ body: string }>(await r.json())
+      .map((x) => x.body)
+      .sort();
+  }
+  // Z's memo opened to A's subtree; Z's private memo granted to A.B only.
+  await post(orgZ, "/api/memos", { body: "to-a", reader: orgA });
+  const granted = await post(orgZ, "/api/memos", { body: "granted", reader: orgZ });
+  await post(orgZ, "/api/memo_grants", { memo: granted, org: orgAB });
+  expect(await memos(orgZ)).toEqual(["granted", "to-a"]);
+  expect(await memos(orgA)).toEqual(["to-a"]);
+  expect(await memos(orgAB)).toEqual(["granted", "to-a"]);
+
   // === (6) An AUTHORED move re-parents A under Z: the next request sees it. ===
   await move(orgA, orgA, orgZ);
   expect(await probe(orgAB, ownAB.id!, orgZ)).toEqual({ lineage: 3, underOrg: true });
   expect(await probe(orgA, own.id!, orgZ)).toEqual({ lineage: 2, underOrg: true });
+  // The row rules follow the move with nothing rewritten: Z's memo for Z's
+  // subtree now reaches A.
+  expect(await memos(orgA)).toEqual(["granted", "to-a"]);
 
   // === (7) A deliberate cycle (Z under A.B: Z → A.B → A → Z) terminates. ===
   await move(orgZ, orgZ, orgAB);
