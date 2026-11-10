@@ -642,6 +642,21 @@ export const AUTHZ_LADDERS = {
         method: "DELETE",
         path: "/api/accounts/{id}",
       },
+      // Returning operations load through the same command seam as `update`:
+      // a union-returning and a value-returning op on the write-denied row
+      // match no row either.
+      {
+        label: "write-denied aggregate — a union-returning op is refused",
+        method: "POST",
+        path: "/api/accounts/{id}/settle",
+        body: { amt: 5 },
+      },
+      {
+        label: "write-denied aggregate — a value-returning op is refused",
+        method: "POST",
+        path: "/api/accounts/{id}/doubled",
+        body: {},
+      },
       // Wave C3 packet 3c: `Ledger`, the aggregate carrying ONLY the tenant
       // floor (no `policy` stance), refused across tenants on its read AND
       // write seams — the tenancy predicate's own refusal, next to the policy
@@ -722,6 +737,22 @@ export const AUTHZ_LADDERS = {
         path: "/api/invoices/{id}/update",
         body: { number: "LADDER-2B", amountDue: 20 },
         arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "tenant-scoped union-returning op — the command load matches no foreign row",
+        seed: { path: "/api/invoices", body: { number: "LADDER-4", amountDue: 40 } },
+        method: "POST",
+        path: "/api/invoices/{id}/defer",
+        body: { reason: "parts" },
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "tenant-scoped value-returning op — the command load matches no foreign row",
+        seed: { path: "/api/invoices", body: { number: "LADDER-5", amountDue: 50 } },
+        method: "POST",
+        path: "/api/invoices/{id}/owed",
+        body: {},
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
       },
       {
         label: "tenant-scoped destroy — a foreign tenant cannot delete",

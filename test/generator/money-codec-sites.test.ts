@@ -80,7 +80,7 @@ describe("union-variant money payload (#3544)", () => {
   it("elixir: the success arm's money is rounded to the 4-dp wire scale", async () => {
     const r = pick(await gen(sys("elixir", UNION)), /ticket_controller\.ex$/);
     expect(r).toContain('{:ok, %{type: "Repaired"} = success}');
-    expect(r).toContain("Map.update!(:unit_cost, &(Decimal.round(&1, 4)))");
+    expect(r).toContain("Map.update!(:unitCost, &(Decimal.round(&1, 4)))");
     expect(r).toContain("Map.update(:extra, nil, &(&1 && Decimal.round(&1, 4)))");
   });
 });
