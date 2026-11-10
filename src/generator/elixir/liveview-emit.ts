@@ -1000,6 +1000,7 @@ function renderLiveView(a: RenderArgs): {
       contextModuleByAggName,
       refreshLabels,
       aggregatesByName,
+      walked.queryBindings,
     ) +
     renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
     renderTableControlClauses(
@@ -1963,7 +1964,7 @@ ${body}
 
 /** Per-operation `validate_<op>` / `submit_<op>` handle_event clauses.  The
  *  Ecto-changeset form lifecycle: validate on change, submit on submit; on
- *  success re-load the record into @data, rebuild the op form, flash, and
+ *  success re-load the record into its assign, rebuild the op form, flash, and
  *  push_patch back to the detail route (canonical re-load path).  One pair per
  *  `kind:"operation"` FormBinding. */
 function renderOperationEventClauses(
@@ -1978,6 +1979,7 @@ function renderOperationEventClauses(
    *  update can re-point a reference). */
   refreshLabels = false,
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  queryBindings: readonly QueryBinding[] = [],
 ): string {
   const ops = formBindings.filter((fb) => fb.kind === "operation");
   if (ops.length === 0) return "";
@@ -1990,7 +1992,7 @@ function renderOperationEventClauses(
         const reload = detailBaseRoute
           ? `\n         |> push_patch(to: ~p"${detailBaseRoute}/#{record.id}")`
           : "";
-        // Op-form lifecycle: validate builds a changeset off the CURRENT @data
+        // Op-form lifecycle: validate builds a changeset off the CURRENT
         // record with the incoming params + `action: :validate` (so the form
         // shows errors); submit persists and re-seeds the op form from the
         // saved record.
@@ -2022,9 +2024,13 @@ function renderOperationEventClauses(
           updateSeamGates(
             aggregatesByName.get(fb.name)?.operations.find((o) => o.name === "update"),
           ).length > 0;
+        // The record lives under the assign the page's QueryView bound its data
+        // lambda param to (`customer`, `data`, …) — validate reads it, submit
+        // reads and rewrites it.
+        const rec = recordAssignFor(fb, queryBindings);
         const submitCall = fb.callsOp
-          ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.data, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
-          : `${ctxModule}.update_${aggSnake}(socket.assigns.data, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
+          ? `${ctxModule}.${op}_${aggSnake}(socket.assigns.${rec}, params${cu ? ", Map.get(socket.assigns, :current_user)" : ""})`
+          : `${ctxModule}.update_${aggSnake}(socket.assigns.${rec}, params${updateGated ? ", Map.get(socket.assigns, :current_user)" : ""})`;
         const errorArm =
           fb.callsOp || updateGated
             ? `
@@ -2037,7 +2043,7 @@ function renderOperationEventClauses(
     params = Map.get(params, "${op}", %{})
 
     changeset =
-      socket.assigns.data
+      socket.assigns.${rec}
       |> ${ctxModule}.change_${aggSnake}(params)
       |> Map.put(:action, :validate)
 
@@ -2053,7 +2059,7 @@ function renderOperationEventClauses(
         {:noreply,
          socket
          |> put_flash(:info, "${human} succeeded")
-         |> assign(:data, record)
+         |> assign(:${rec}, record)
          |> assign(:${op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})${gateRefresh}${labelRefresh}${reload}}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -2063,6 +2069,21 @@ function renderOperationEventClauses(
       })
       .join("\n")
   );
+}
+
+/** The assign an operation form's record lives under: the walker-recorded one,
+ *  else the page's single-record load of the same aggregate (the by-name
+ *  `OperationForm(of:, op:)` shape), else `data`. */
+function recordAssignFor(
+  fb: import("./heex-walker.js").FormBinding,
+  queryBindings: readonly QueryBinding[],
+): string {
+  if (fb.recordAssign) return fb.recordAssign;
+  const qb = queryBindings.find(
+    (q) =>
+      q.kind === "single" && q.aggregate === fb.name && (q.source ?? "aggregate") === "aggregate",
+  );
+  return qb?.assign ?? "data";
 }
 
 /** The `@<op>_form` value seeded from a loaded record.  `as: "<op>"` names the
