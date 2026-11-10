@@ -68,21 +68,22 @@ function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
   const out = new Set<string>();
   for (const dep of sys.deployables) {
     const design = dep.design;
-    if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
-    // Some frameworks (Feliz, Angular) build their dynamic-row and form
-    // sentences by hand, not from a pack's `sentenceChrome`.
+    // Some frameworks (Feliz, Flutter, Angular) build their dynamic-row and
+    // form sentences by hand, not from a pack's `sentenceChrome`.  A
+    // self-rendered frontend needs no `design:` to do so.
     const facts = factsFor(dep.platform);
     const selfRendered = facts?.selfRenderedUiFormat;
+    if (!design && selfRendered === undefined) continue;
     const framework =
       selfRendered !== undefined
         ? frameworkFacts(facts?.defaultUiFramework)
-        : frameworkFactsForPackFormat(packFormatForBuiltin(design));
-    if (framework?.handBuiltFormSentences) {
-      for (const base of HAND_BUILT_FORM_SENTENCES) out.add(base);
+        : frameworkFactsForPackFormat(packFormatForBuiltin(design!));
+    if (framework?.handBuiltFormSentences !== undefined) {
+      for (const base of HAND_BUILT_FORM_SENTENCES[framework.handBuiltFormSentences]) out.add(base);
       continue;
     }
-    if (selfRendered !== undefined) continue;
+    if (selfRendered !== undefined || !design) continue;
     if (packFormatForBuiltin(design) === undefined) continue;
     const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
     for (const base of manifest.sentenceChrome ?? []) out.add(base);
@@ -128,17 +129,35 @@ function implicitModelTextFormats(sys: EnrichedSystemIR, ui: UiIR): Set<string> 
   return out;
 }
 
-/** Whether a Feliz or Flutter deployable rendering `ui` draws the generated
- *  session gate: it opts in with `auth: ui`, its target backend enforces auth,
- *  and the system declares a `user { }` claim shape — the conjunction those two
- *  generators call `authUi`. */
-function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
-  return sys.deployables.some((dep) => {
-    if (factsFor(dep.platform)?.selfRenderedUiFormat === undefined) return false;
+/** The deployables rendering `ui` that draw a generated session gate: each
+ *  opts in with `auth: ui`, its target backend enforces auth, and the system
+ *  declares a `user { }` claim shape — the conjunction every frontend
+ *  generator calls `authUi`. */
+function authUiDeployables(sys: EnrichedSystemIR, ui: UiIR): EnrichedSystemIR["deployables"] {
+  return sys.deployables.filter((dep) => {
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) return false;
     const target = sys.deployables.find((d) => d.name === dep.targetName);
     return !!(dep.auth?.ui && target?.auth?.required && sys.user);
   });
+}
+
+/** Whether a self-rendered (Feliz or Flutter) deployable rendering `ui` draws
+ *  the session gate, forbidden view included. */
+function uiDrawsAuthGate(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return authUiDeployables(sys, ui).some(
+    (dep) => factsFor(dep.platform)?.selfRenderedUiFormat !== undefined,
+  );
+}
+
+/** The frontend formats whose generated `AuthGate` is the shared session view
+ *  (`_frontend/auth-ui.ts`). */
+const SESSION_VIEW_FORMATS: ReadonlySet<string> = new Set(["tsx", "vue", "svelte", "angular"]);
+
+/** Whether a pack-rendered frontend rendering `ui` ships the session view. */
+function uiDrawsSessionView(sys: EnrichedSystemIR, ui: UiIR): boolean {
+  return authUiDeployables(sys, ui).some((dep) =>
+    SESSION_VIEW_FORMATS.has(deployableUiFormat(dep) ?? ""),
+  );
 }
 
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
@@ -170,6 +189,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
         // flow to defer them to), so their labels are catalogued.
         optionalCreateInputs: formats.has("heex"),
         authGate: uiDrawsAuthGate(sys, ui),
+        sessionView: uiDrawsSessionView(sys, ui),
         fallbackLabels: formats.has("heex"),
       };
       for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))

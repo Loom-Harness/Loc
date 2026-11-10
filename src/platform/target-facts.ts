@@ -66,9 +66,9 @@ export interface FrameworkFacts {
   /** What a `design:` value selects: a pack, a daisyUI theme, or nothing. */
   readonly designSlot: "pack" | "daisyui-theme" | "inert";
   /** The framework's forms build their dynamic-row and submit sentences by
-   *  hand (`HAND_BUILT_FORM_SENTENCES`) instead of reading a pack's
+   *  hand (`HAND_BUILT_FORM_SENTENCES`, the named set) instead of reading a pack's
    *  `sentenceChrome`. */
-  readonly handBuiltFormSentences?: boolean;
+  readonly handBuiltFormSentences?: "rows" | "rowsAndGuards";
 }
 
 const NO_UI_BACKEND: TargetFacts = {
@@ -145,11 +145,11 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
     packFormat: "angular",
     staticBundlePack: "angularMaterial",
     designSlot: "pack",
-    handBuiltFormSentences: true,
+    handBuiltFormSentences: "rows",
   },
   phoenixLiveView: { packFormat: "heex", designSlot: "pack" },
-  feliz: { designSlot: "daisyui-theme", handBuiltFormSentences: true },
-  flutter: { designSlot: "inert" },
+  feliz: { designSlot: "daisyui-theme", handBuiltFormSentences: "rows" },
+  flutter: { designSlot: "inert", handBuiltFormSentences: "rowsAndGuards" },
 };
 
 /** The facts of a ui framework, or `undefined` for an unknown name (including

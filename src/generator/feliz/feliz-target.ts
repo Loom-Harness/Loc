@@ -25,8 +25,10 @@ import {
 import {
   type FormInputModelText,
   formInputModelText,
+  opDefaultText,
   opModelText,
   paramLabelOwner,
+  workflowRunExpr,
 } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
@@ -399,7 +401,7 @@ function renderFieldArray(
   const rowInputs = fa.rowFields.map((rf) =>
     renderRowInput(rf, felizInputText(ctx, src, [fa.jsonKey], rf.jsonKey)),
   );
-  const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text "Remove" ]`;
+  const remove = `Html.button [ prop.className "btn btn-sm btn-error"; prop.onClick (fun _ -> dispatch (${fa.removeMsg} i)); prop.text ${localizedPageChromeValue(ctx, sentenceChromeName("removeItem", fa.elementName))} ]`;
   const row = `Html.div [ prop.className "flex gap-2 items-end"; prop.children [ ${[...rowInputs, remove].join("; ")} ] ]`;
   const rows = `model.${formField}.${fa.fieldName} |> List.mapi (fun i row -> ${row})`;
   const labelText = felizInputText(ctx, src, [], fa.jsonKey);
@@ -851,7 +853,7 @@ export const felizTarget: WalkerTarget = {
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? `"Create ${upperFirst(form.aggregate)}"`} ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? fsString(opDefaultText(agg.name, "create"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
@@ -974,11 +976,12 @@ export const felizTarget: WalkerTarget = {
       (f) => fieldInputText(ctx, src, f),
     );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa, ctx, src));
+    const runLabel = src.bc ? workflowRunExpr(ctx, src.bc, wfName) : undefined;
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
-    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Run ${upperFirst(form.workflow)}" ]`;
+    const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${runLabel ?? fsString(opDefaultText(wf.name, "run"))} ]`;
     return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 

@@ -45,6 +45,7 @@ import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
 import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
@@ -78,6 +79,7 @@ import {
 } from "./forms-emit.js";
 import {
   callsI18nRuntime,
+  dartStringLit,
   flutterI18nEnabled,
   flutterLocaleSwitchable,
   renderFlutterI18nModule,
@@ -843,7 +845,11 @@ function renderPage(
     collectPageForms(page.body, aggregatesByName, bcByAggregate).length > 0 ||
     collectPageWorkflowForms(page.body, workflowsByName, bcByWorkflow, aggregatesByName).length > 0;
 
-  let bodyWidget = "const Center(child: Text('Empty page'))";
+  // The placeholder of a page that declares no body: the catalog sentence in a
+  // translatable app, else the literal English.
+  let bodyWidget = i18nEnabled
+    ? `Center(child: Text(t(${dartStringLit(chromeKey("emptyPage"))}, ${dartStringLit(chromeMessage("emptyPage"))})))`
+    : `const Center(child: Text(${dartStringLit(chromeMessage("emptyPage"))}))`;
   let usesState = false;
   let usesRouteId = false;
   const usedActions = new Set<string>();
