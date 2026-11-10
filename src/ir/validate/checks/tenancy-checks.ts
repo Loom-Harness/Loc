@@ -1,9 +1,17 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { platformFamily } from "../../../language/validators/data/platform-rules.js";
+import {
+  platformFamily,
+  platformOwnsBackend,
+} from "../../../language/validators/data/platform-rules.js";
 import { foldProducersOf, foldTenancyVerdict } from "../../enrich/fold-tenancy.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
-import { contextReadsOrgContext } from "../../util/org-context.js";
+import {
+  contextReadsOrgAncestors,
+  contextReadsOrgContext,
+  reactorsReadingOrgAncestors,
+  registryContextName,
+} from "../../util/org-context.js";
 import {
   classifyTenantStance,
   hasTenantOwned,
@@ -388,6 +396,57 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
 }
 
+/** `loom.org-context-ancestors-in-reactor` — an event reactor reads
+ *  `organizationContext.ancestors`, directly or through an operation it calls.
+ *  A reactor runs as the system principal, scoped to the event's tenant, and
+ *  no backend resolves an ancestor set for it. */
+function validateReactorAncestors(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const ctx of sys.subdomains.flatMap((s) => s.contexts)) {
+    for (const reactor of reactorsReadingOrgAncestors(ctx)) {
+      diags.push({
+        severity: "error",
+        code: "loom.org-context-ancestors-in-reactor",
+        message: diagMessage("loom.org-context-ancestors-in-reactor", { reactor, ctx: ctx.name }),
+        source: `${ctx.name}/${reactor}`,
+        origin: ctx.origin,
+      });
+    }
+  }
+}
+
+/** `loom.tenancy-registry-remote-unsupported` — a backend deployable hosts a
+ *  context that reads `organizationContext.ancestors` but does not host the
+ *  registry.  The ancestors walk reads the registry's table, which that
+ *  deployable's database does not have, and no registry copy is generated for
+ *  it (D-TENANCY-FLAT item 6).  The `x-org-context` switch is not refused: a
+ *  non-host deployable admits the home org only. */
+function validateRegistryHosting(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const registryContext = registryContextName(sys);
+  if (!registryContext) return;
+  const ctxByName = new Map(sys.subdomains.flatMap((s) => s.contexts).map((c) => [c.name, c]));
+  for (const dep of sys.deployables) {
+    if (!platformOwnsBackend(dep.platform)) continue;
+    if (dep.contextNames.includes(registryContext)) continue;
+    const reader = dep.contextNames.find((n) => {
+      const ctx = ctxByName.get(n);
+      return ctx !== undefined && contextReadsOrgAncestors(ctx);
+    });
+    if (!reader) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.tenancy-registry-remote-unsupported",
+      message: diagMessage("loom.tenancy-registry-remote-unsupported", {
+        name: dep.name,
+        context: reader,
+        registry: sys.tenancy?.registryName,
+        registryContext,
+      }),
+      source: `${sys.name}/${dep.name}`,
+      origin: dep.origin,
+    });
+  }
+}
+
 /** A folded (`on(e: …)`) projection under `tenancy by` whose folded events
  *  come from BOTH `crossTenant` aggregates and tenant-scoped producers is
  *  refused: a scoped fold row is keyed and read by the event's tenant, and a
@@ -445,6 +504,8 @@ function validateFoldedProjectionTenancy(sys: SystemIR, diags: LoomDiagnostic[])
 
 export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
   validateOrgContextGate(sys, diags);
+  validateRegistryHosting(sys, diags);
+  validateReactorAncestors(sys, diags);
   validateTenantRegistry(sys, diags);
   validateRegistryConstructible(sys, diags);
   validatePolicyReadLevels(sys, diags);

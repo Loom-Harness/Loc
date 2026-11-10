@@ -16,7 +16,7 @@
 //
 // **Feliz** — `feliz/wire.ts` `felizHistoryRead` collects it as a page-entry
 // keyed off the route id like a byId, fired by `pageCmd`, but list-shaped
-// (`Remote<AuditEntry list>`, matched by `View.remoteList`); `buildHookUse`
+// (`Remote<AuditEntry list>`, matched by `View.remoteList`); `bindDataAccess`
 // maps it to the `<Agg>History` Model field, and `felizTarget.renderTimeline`
 // renders the ordered list.
 //

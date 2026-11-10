@@ -20,6 +20,7 @@
 
 import type { Platform } from "../ir/types/loom-ir.js";
 import type { BuiltinPackFamily, PackFormat } from "../util/builtin-formats.js";
+import { type FrontendAxes, requireFrontendAxes } from "../util/frontend-axes.js";
 
 /** The credential a frontend's realtime subscription carries once its gate
  *  says it carries one. */
@@ -69,6 +70,9 @@ export interface FrameworkFacts {
    *  hand (`HAND_BUILT_FORM_SENTENCES`) instead of reading a pack's
    *  `sentenceChrome`. */
   readonly handBuiltFormSentences?: boolean;
+  /** Where the framework keeps page state, where its handlers sit, and the
+   *  data access that follows (`src/util/frontend-axes.ts`). */
+  readonly axes: FrontendAxes;
 }
 
 const NO_UI_BACKEND: TargetFacts = {
@@ -138,18 +142,42 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
 
 /** Every ui framework's facts. */
 const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
-  react: { packFormat: "tsx", staticBundlePack: "mantine", designSlot: "pack" },
-  svelte: { packFormat: "svelte", staticBundlePack: "shadcnSvelte", designSlot: "pack" },
-  vue: { packFormat: "vue", staticBundlePack: "vuetify", designSlot: "pack" },
+  react: {
+    packFormat: "tsx",
+    staticBundlePack: "mantine",
+    designSlot: "pack",
+    axes: requireFrontendAxes("react"),
+  },
+  svelte: {
+    packFormat: "svelte",
+    staticBundlePack: "shadcnSvelte",
+    designSlot: "pack",
+    axes: requireFrontendAxes("svelte"),
+  },
+  vue: {
+    packFormat: "vue",
+    staticBundlePack: "vuetify",
+    designSlot: "pack",
+    axes: requireFrontendAxes("vue"),
+  },
   angular: {
     packFormat: "angular",
     staticBundlePack: "angularMaterial",
     designSlot: "pack",
     handBuiltFormSentences: true,
+    axes: requireFrontendAxes("angular"),
   },
-  phoenixLiveView: { packFormat: "heex", designSlot: "pack" },
-  feliz: { designSlot: "daisyui-theme", handBuiltFormSentences: true },
-  flutter: { designSlot: "inert" },
+  phoenixLiveView: {
+    packFormat: "heex",
+    designSlot: "pack",
+    axes: requireFrontendAxes("phoenixLiveView"),
+  },
+  feliz: {
+    designSlot: "daisyui-theme",
+    handBuiltFormSentences: true,
+    axes: requireFrontendAxes("feliz"),
+  },
+  flutter: { designSlot: "inert", axes: requireFrontendAxes("flutter") },
 };
 
 /** The facts of a ui framework, or `undefined` for an unknown name (including

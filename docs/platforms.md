@@ -269,7 +269,7 @@ Every surface implements:
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
 | `capabilities` | What the target renders, per construct × position — `src/util/target-capabilities.ts`. |
-| `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects) live in the same file, read through `frameworkFacts(framework)`. |
+| `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects, and the frontend `axes` — `stateHome` × `handlerTopology` and the `dataAccess` that follows, from `src/util/frontend-axes.ts`; see D-LIVEVIEW-REFERENCE) live in the same file, read through `frameworkFacts(framework)`. |
 | `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
 | `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
 

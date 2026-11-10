@@ -1501,7 +1501,7 @@ function queryViewOfArgs(body: ExprIR): { of: ExprIR; explicitPaged: boolean }[]
 
 /** Collect the `.all` reads a page issues — deduped by Model field.  Detection
  *  reuses the shared `tryDetectApiHook`, so the reads collected here name the
- *  same aggregates the view walk resolves through the `buildHookUse` seam. */
+ *  same aggregates the view walk resolves through the `bindDataAccess` seam. */
 export function collectPageReads(
   page: PageIR,
   apiParamNames: ReadonlySet<string>,

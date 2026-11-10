@@ -114,7 +114,7 @@ describe("python query-projection aggregations ride the read-scope hook", () => 
     const scope = f.get([...f.keys()].find((k) => k.endsWith("app/db/read_scope.py"))!)!;
     expect(scope).toContain('if not _bypassed("tenantOwned", ignoring):');
     expect(scope).toContain(
-      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.tenant_id), include_aliases=True)",
+      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.operating_org), include_aliases=True)",
     );
     expect(scope).toContain('if not _bypassed("softDeletable", ignoring):');
     expect(scope).toContain(

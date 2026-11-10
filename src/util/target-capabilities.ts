@@ -162,6 +162,9 @@ export type BackendConstruct =
   /** An event-sourced aggregate emitting an event that a broker-bound channel
    *  carries: the event append and the outbox row must commit together. */
   | "publish:event-sourced@broker-channel"
+  /** A context reading `organizationContext.ancestors` hosted on a deployable
+   *  that does not host the tenancy registry: the walk reads its table. */
+  | "tenancy:remote-registry@deployable"
   /** A typed `kind: api` resource whose api is served by an `auth: required`
    *  deployable: the call must forward the caller's credentials. */
   | "call:auth-required-api@resource"
@@ -254,6 +257,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "storage:bigquery@declaration",
   "storage:nats@declaration",
   "publish:event-sourced@broker-channel",
+  "tenancy:remote-registry@deployable",
   "call:auth-required-api@resource",
   "timer:broker-channel@deployable",
   "derived:reads-masked-field@aggregate",
@@ -608,6 +612,7 @@ const COMMON_COMPOSITIONS: Readonly<Record<FeatureTuple, CompositionVerdict>> = 
 const COMMON_PAIRS: Pick<
   Record<BackendConstruct, CapabilityVerdict>,
   | "publish:event-sourced@broker-channel"
+  | "tenancy:remote-registry@deployable"
   | "call:auth-required-api@resource"
   | "timer:broker-channel@deployable"
   | "derived:reads-masked-field@aggregate"
@@ -619,6 +624,9 @@ const COMMON_PAIRS: Pick<
 > = {
   // No fixture runs an event-sourced save through a durable channel.
   "publish:event-sourced@broker-channel": refused("feature-composition-unwitnessed"),
+  // Phase ⑦ refuses an `organizationContext.ancestors` reader on a deployable
+  // that does not host the registry: its database holds no registry table.
+  "tenancy:remote-registry@deployable": owned("loom.tenancy-registry-remote-unsupported"),
   // A request-originated call forwards the caller's own credential
   // (`api-call-e2e` runs it on every caller); a call with no request principal
   // is refused by `loom.api-call-principal-unsupported`.

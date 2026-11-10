@@ -127,7 +127,7 @@ describe("direct-table projection — node (Hono/Drizzle)", () => {
   it("scopes a tenantOwned source to the caller, and honours `ignoring *`", async () => {
     const f = await fileContaining(tenancySystem("node"), "query-projections");
     expect(f).toContain(
-      "db.select({ total: count() }).from(schema.orders).where(eq(schema.orders.tenantId, requireCurrentUser().tenantId))",
+      "db.select({ total: count() }).from(schema.orders).where(eq(schema.orders.tenantId, requireCurrentUser().operatingOrg))",
     );
     // The scope helper needs its import — an undefined name would not compile,
     // which is how a filter that is applied differs from one that is merely
@@ -180,7 +180,7 @@ describe("direct-table projection — python (FastAPI/SQLAlchemy)", () => {
     const files = await generateSystemFiles(tenancySystem("python"));
     const pick = (n: string): string => [...files].find(([k]) => k.includes(n))?.[1] ?? "";
     expect(pick("app/db/read_scope.py")).toContain(
-      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.tenant_id), include_aliases=True)",
+      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.operating_org), include_aliases=True)",
     );
     const f = pick("query_projections_routes");
     expect(f).toContain("select(func.count()).select_from(OrderRow))).one()");

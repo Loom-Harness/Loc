@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { requireFrontendAxes } from "../../../util/frontend-axes.js";
 import { optionalChainedMemberRead } from "../../_frontend/optional-member.js";
 import { escapeHtmlAttr } from "../../_walker/a11y-emit.js";
 import type { DetectedApiCall } from "../../_walker/api-hook-detector.js";
@@ -39,9 +40,9 @@ import {
 } from "../../_walker/js-target-helpers.js";
 import type {
   ApiCallSite,
+  DataBinding,
   RenderPosition,
   StateRef,
-  TargetHookUse,
   VariantMatchSpec,
   WalkerTarget,
 } from "../../_walker/target.js";
@@ -49,6 +50,9 @@ import { renderSvelteDataGridChild } from "./data-grid-child.js";
 
 export const svelteTarget: WalkerTarget = {
   framework: "svelte",
+  axes: requireFrontendAxes("svelte"),
+  // A failed call through the HTTP API client throws its `ApiError`.
+  dataErrorType: { from: "../api/client", name: "ApiError" },
   // The svelte packs read the identity-keyed form label / enum option / submit
   // tokens (`_walker/model-text-sites.ts`).
   modelTextImplicitSites: true,
@@ -199,7 +203,7 @@ export const svelteTarget: WalkerTarget = {
    *  page-level wiring is name-compatible.  Only the import root
    *  differs: SvelteKit's `$lib/api/*` alias instead of relative
    *  `../api/*`. */
-  buildHookUse(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): TargetHookUse {
+  bindDataAccess(detected: DetectedApiCall, renderArg: (e: ExprIR) => string): DataBinding {
     if (detected.kind === "workflow-instance") {
       const wf = upperFirstName(detected.aggregateName);
       const isAll = detected.operation === "all";
@@ -247,7 +251,7 @@ export const svelteTarget: WalkerTarget = {
    *  in an accessor (`() => arg`) because svelte-query v6 takes
    *  thunks for reactive arguments (route params change without a
    *  component re-mount). */
-  renderApiHoisting(uses: ApiCallSite[]): string[] {
+  renderDataBindings(uses: ApiCallSite[]): string[] {
     const seen = new Set<string>();
     const lines: string[] = [];
     for (const u of uses) {

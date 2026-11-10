@@ -408,6 +408,10 @@ function tsClassify(label: string): ReadKind | undefined {
       "findpage",
       "history",
       "auditrows",
+      // The `x-org-context` switch gate's admission read of the registry
+      // (boot.ts `registerOrgRegistry`): it must carry the registry's full
+      // read scope, exactly like a by-id read.
+      "canread",
     ].includes(l)
   )
     return "root";
@@ -902,7 +906,20 @@ function javaClassify(label: string): ReadKind | undefined {
 function pyClassify(label: string): ReadKind | undefined {
   const l = norm(label);
   if (["save", "delete", "insert", "update", "hydrate", "towire"].includes(l)) return "write";
-  if (["findbyid", "findmanybyids", "all", "findpage", "list", "history", "getbyid"].includes(l))
+  // `_can_read_org` is the `x-org-context` switch gate's admission read of the
+  // registry: it must carry the registry's full read scope, like a by-id read.
+  if (
+    [
+      "findbyid",
+      "findmanybyids",
+      "all",
+      "findpage",
+      "list",
+      "history",
+      "getbyid",
+      "canreadorg",
+    ].includes(l)
+  )
     return "root";
   if (["getbyidforwrite", "findbyidforwrite"].includes(l)) return "commandLoad";
   return undefined;

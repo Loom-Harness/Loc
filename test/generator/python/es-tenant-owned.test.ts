@@ -58,10 +58,10 @@ describe("python: a tenantOwned event-sourced stream carries and scopes its tena
   it("the stream scope renders the tenancy restriction over the metadata column", () => {
     expect(ledgerRepo).toContain("def _stream_scope(");
     expect(ledgerRepo).toContain(
-      "out.append(false() if user is None else (MainEventRow.tenant_id == user.tenant_id))",
+      "out.append(false() if user is None else (MainEventRow.tenant_id == user.operating_org))",
     );
     expect(bookRepo).toContain(
-      "out.append(false() if user is None else (MainEventRow.tenant_id == user.tenant_id))",
+      "out.append(false() if user is None else (MainEventRow.tenant_id == user.operating_org))",
     );
   });
 

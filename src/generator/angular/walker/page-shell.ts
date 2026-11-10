@@ -461,7 +461,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // hoist need the api handles + aggregate/BC lookups in scope, and the
     // emitted imports (`ApiError`, the union response type) + hoisted hook must
     // flow back to the shell — so SHARE the walk's object sinks (`imports`,
-    // `usedApiHooks`, `usedParams`) and POPULATE the lookups, rather than the
+    // `dataBindings`, `usedParams`) and POPULATE the lookups, rather than the
     // isolated `derivedCtx` the Stage-1 named-action path used.
     const actionApiParamNames = new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName]));
     for (const action of actions) {
@@ -470,7 +470,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       const baseCtx: WalkContext = {
         ...derivedCtx(input.pack, paramNames, stateNames, derivedNames),
         imports: result.imports,
-        usedApiHooks: result.usedApiHooks,
+        dataBindings: result.dataBindings,
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
         aggregatesByName: input.aggregatesByName ?? new Map(),
@@ -604,7 +604,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       : []
     : [...(page.route ?? "").matchAll(/:(\w+)/g)].map((m) => m[1]);
   const argRefs = new Set<string>();
-  for (const h of result.usedApiHooks.values()) for (const a of h.argsRendered) argRefs.add(a);
+  for (const h of result.dataBindings.values()) for (const a of h.argsRendered) argRefs.add(a);
   // The magic route `id` (`usesRouteId` — `byId(id)` / a bare `id` read) binds
   // even when it isn't a declared param or a hook arg, so a `/…/:id` page that
   // references it resolves `id` against the snapshot.
@@ -811,9 +811,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // use…();`).  The field initializer is the injection context the factory's
   // `inject()` needs; pages sit two hops under `src/`, so the pack's default
   // `../api/<agg>` import path rewrites to `../../api/<agg>`.
-  if (result.usedApiHooks.size > 0) {
+  if (result.dataBindings.size > 0) {
     const byPath = new Map<string, Set<string>>();
-    for (const h of result.usedApiHooks.values()) {
+    for (const h of result.dataBindings.values()) {
       const from = h.importFrom.replace(/^\.\.\/api\//, "../../api/");
       const names = byPath.get(from) ?? new Set<string>();
       names.add(h.hookName);
@@ -840,8 +840,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       }
       return out;
     };
-    const hoisted = angularTarget.renderApiHoisting(
-      [...result.usedApiHooks.values()].map((h) => {
+    const hoisted = angularTarget.renderDataBindings(
+      [...result.dataBindings.values()].map((h) => {
         const bound = h.argsRendered.map(bind);
         // A parameterised `find` takes a REACTIVE getter, not a snapshot: wrap
         // the resolved query object in `() => (...)` so the `injectQuery`
@@ -1046,7 +1046,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       ...page.state.map((s) => s.name),
       ...page.params.map((p) => p.name),
       ...boundParams,
-      ...[...result.usedApiHooks.values()].map((h) => h.varName),
+      ...[...result.dataBindings.values()].map((h) => h.varName),
     ]);
     for (const m of angularModals) {
       members.push(`  readonly ${m.openSig} = signal(false);`);
@@ -1245,7 +1245,7 @@ function derivedCtx(
     usedUserComponents: new Set(),
     usesChildren: false,
     apiParamNames: new Map(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),

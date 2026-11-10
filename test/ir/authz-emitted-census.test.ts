@@ -698,7 +698,7 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
     },
   ],
   dapper: [
-    { file: /OrderVolumeQpHandler\.cs$/, from: " WHERE (tenant_id = @__cu_tenantId)", to: "" },
+    { file: /OrderVolumeQpHandler\.cs$/, from: " WHERE (tenant_id = @__cu_operatingOrg)", to: "" },
   ],
   java: [
     {

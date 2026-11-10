@@ -95,6 +95,7 @@ import {
 import { ROW_VERSION_COLUMN } from "../util/row-version.js";
 import { TIMER_CLAIM_TABLE } from "../util/timer.js";
 import type { SnapshotStore } from "./snapshot.js";
+
 // ---------------------------------------------------------------------------
 // MigrationsIR builder + diff.
 //
@@ -109,6 +110,18 @@ import type { SnapshotStore } from "./snapshot.js";
 // `buildMigrations` wires the two together at system scope, one entry
 // per owning module.
 // ---------------------------------------------------------------------------
+
+/** Event types carried by a durable channel on any context of the module. */
+function moduleDurableEventTypes(module: EnrichedSubdomainIR): ReadonlySet<string> {
+  return new Set(module.contexts.flatMap((c) => [...durableEventTypes(c)]));
+}
+
+/** Event types carried by a durable channel anywhere in the system — the
+ *  superset every backend's saga-table emitter (which sees only its hosted
+ *  contexts) draws its `last_event_id` decision from. */
+function systemDurableEventTypes(sys: EnrichedSystemIR): ReadonlySet<string> {
+  return new Set(sys.subdomains.flatMap((md) => [...moduleDurableEventTypes(md)]));
+}
 
 export function schemaFromModule(
   module: EnrichedSubdomainIR,
@@ -154,6 +167,13 @@ export function schemaFromModule(
    *  tests keep the legacy unqualified output.  Module/cross-context infra
    *  (outbox) is deliberately NOT stamped — it spans every context. */
   contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined = () => undefined,
+  /** Event types any durable channel of the system carries.  A saga table
+   *  maps the `last_event_id` marker whenever its consumer can see a durable
+   *  channel — and the channel may be declared in a DIFFERENT context than the
+   *  workflow (the backend emitters see every context their deployable
+   *  hosts).  Defaults to the module's own channels for schema-only unit
+   *  tests. */
+  durableEvents: ReadonlySet<string> = moduleDurableEventTypes(module),
   /** Whether a timerSource with an `every:` cadence fires an event of one of
    *  this module's contexts — the module then owns the `__loom_timer` claim
    *  table.  Timers are system-scope, so `buildMigrations` resolves this from
@@ -300,7 +320,7 @@ export function schemaFromModule(
   // schema, matching the plain `pgTable(...)` the Drizzle schema emitter uses
   // for these, so the runtime DDL and the ORM mapping line up.
   for (const ctx of module.contexts) {
-    const durable = durableEventTypes(ctx).size > 0;
+    const durable = durableEvents.size > 0 || durableEventTypes(ctx).size > 0;
     // The workflow's saga tables are context-owned (a workflow belongs to a
     // context), so they live in that context's schema — beside its aggregate
     // tables — not in `public`, where two contexts each with a `Tracker`
@@ -2512,6 +2532,7 @@ export function buildMigrations(
   // move tables between modules, so each module's derivation reads the others'
   // (a move finds its source tables in another module's baseline, and an event
   // log's fate depends on whether any module still declares it).
+  const systemDurable = systemDurableEventTypes(sys);
   const owning = sys.subdomains.filter((md) => md.migrationsOwner);
   const baselineOf = new Map<string, SchemaSnapshot | null>();
   const nextOf = new Map<string, SchemaSnapshot>();
@@ -2522,7 +2543,15 @@ export function buildMigrations(
     );
     nextOf.set(
       md.name,
-      schemaFromModule(md, shapeOf, schemaOf, manualIndexesOf, contextSchemaOf, ownsIntervalTimer),
+      schemaFromModule(
+        md,
+        shapeOf,
+        schemaOf,
+        manualIndexesOf,
+        contextSchemaOf,
+        systemDurable,
+        ownsIntervalTimer,
+      ),
     );
   }
   const holds = (
