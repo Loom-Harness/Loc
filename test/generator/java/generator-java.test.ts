@@ -95,7 +95,7 @@ describe("java generator — project shell (S1)", () => {
 
   it("compose stanza wires the Spring datasource env + /ready healthcheck", async () => {
     const compose = (await files()).get("docker-compose.yml")!;
-    expect(compose).toContain('SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/shop_api"');
+    expect(compose).toContain('SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/primary"');
     expect(compose).toMatch(/shop_api:/);
     expect(compose).toContain("/ready");
   });

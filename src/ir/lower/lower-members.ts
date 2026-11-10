@@ -162,8 +162,8 @@ export function lowerContainment(c: Containment): ContainmentIR {
     name: c.name,
     partName: c.partType?.ref?.name ?? "Unknown",
     collection: !!c.collection,
+    optional: !!c.optional,
   };
-  if (c.optional) ir.optional = true;
   return ir;
 }
 
@@ -176,8 +176,8 @@ export function containmentFromProperty(p: Property): ContainmentIR {
     name: p.name,
     partName: base?.target?.ref?.name ?? "Unknown",
     collection: !!p.type?.array,
+    optional: !!p.type?.optional,
   };
-  if (p.type?.optional) ir.optional = true;
   return ir;
 }
 

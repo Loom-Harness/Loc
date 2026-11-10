@@ -1,3 +1,4 @@
+import { databaseOf } from "../../../ir/util/databases.js";
 // ---------------------------------------------------------------------------
 // The shared Hono backend surface.  `makeHonoPlatform(pins)` builds the
 // `PlatformSurface` over the TypeScript/Hono emitter in this directory;
@@ -15,6 +16,7 @@ import {
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
 } from "../../surface.js";
+import { TARGET_FACTS } from "../../target-facts.js";
 import { byFeatureLayoutAdapter } from "./adapters/by-feature-layout.js";
 import { byLayerLayoutAdapter } from "./adapters/by-layer-layout.js";
 import { drizzlePersistenceAdapterFor } from "./adapters/drizzle-persistence.js";
@@ -38,6 +40,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // framework.  D-PHOENIX-SURFACE.
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     capabilities: TARGET_CAPABILITIES.node,
+    facts: TARGET_FACTS.node,
     emitProject({
       contexts,
       deployable,
@@ -59,10 +62,11 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         { emitTrace, sourcemap },
       );
     },
-    composeService({ slug }): ComposeServiceShape {
+    composeService({ slug, deployable, sys }): ComposeServiceShape {
+      const database = databaseOf(sys, deployable)?.name ?? slug;
       return {
         env: [
-          ["DATABASE_URL", `postgres://postgres:postgres@db:5432/${slug}`],
+          ["DATABASE_URL", `postgres://postgres:postgres@db:5432/${database}`],
           // Runtime log-level knob (default info; overridable here / in k8s).
           ["LOG_LEVEL", "info"],
         ],

@@ -25,6 +25,7 @@
 // Every row goes on the wire tagged with its concrete's name (`"type"`).
 // ---------------------------------------------------------------------------
 
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { PAGED_DEFAULT_PAGE, PAGED_DEFAULT_PAGE_SIZE } from "../../../ir/stdlib/generics.js";
 import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
@@ -66,7 +67,7 @@ export function routesPolymorphicRead(base: AggregateIR, ctx: BoundedContextIR):
     const all = (ctx.repositories ?? [])
       .find((r) => r.aggregateName === v.aggregate)
       ?.finds?.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !concrete.fields.some((f) => f.maskUnless);
+    return !!concrete && !!all && !all.requires && !carriesFieldMask(concrete);
   });
 }
 
@@ -227,8 +228,7 @@ defmodule ${baseModule}Repository do
   each concrete's scoped read, merged in the one global \`id\` order and then
   paged.  Each concrete's read scope is its own (\`base_query/0\` +
   \`Repo.prepare_query/3\`).
-  """${usesQuery ? "\n  import Ecto.Query" : ""}
-  alias ${appModule}.Repo
+  """${usesQuery ? `\n  import Ecto.Query\n  alias ${appModule}.Repo` : ""}
 
 ${listHead.replace("current_user \\\\ nil", `${actorName} \\\\ nil`)}
     window = page * page_size

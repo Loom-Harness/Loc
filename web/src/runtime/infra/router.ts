@@ -7,6 +7,7 @@
 // op, params }` envelope; each is answered `{ id, result | error }`.
 
 import type { InfraRequest, InfraResponse, StorageOp } from "../infra-protocol.js";
+import type { BlobStore } from "./persist.js";
 import type { InfraPush, InfraService, InfraServiceHost } from "./service.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: each service narrows its own ops.
@@ -22,6 +23,8 @@ export interface InfraRouterOptions {
   detachStorages?(client: string): Promise<void>;
   /** `infra.reset`: close every storage. */
   closeStorages(): Promise<void>;
+  /** Open the durable store of a resource island (null: nothing durable). */
+  openBlobStore?(island: string): Promise<BlobStore | null>;
 }
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -30,6 +33,7 @@ export class InfraRouter {
   /** Connected deployables, by slug: the infra end of each one's `InfraPort`. */
   private readonly clients = new Map<string, MessagePort>();
   readonly services: InfraServices;
+  private store: BlobStore | null = null;
 
   constructor(private readonly opts: InfraRouterOptions) {
     this.services = opts.createServices({
@@ -65,6 +69,17 @@ export class InfraRouter {
         case "reset":
           for (const slug of [...this.clients.keys()]) this.disconnect(slug);
           await this.opts.closeStorages();
+          for (const svc of this.services.values()) await svc.reset();
+          return { ok: true };
+        case "configure": {
+          const { island, fresh } = req.params;
+          this.store = island ? ((await this.opts.openBlobStore?.(island)) ?? null) : null;
+          if (fresh) await this.store?.clear();
+          for (const svc of this.services.values()) await svc.persist?.(this.store);
+          return { ok: true, persistent: this.store !== null };
+        }
+        case "wipeResources":
+          await this.store?.clear();
           for (const svc of this.services.values()) await svc.reset();
           return { ok: true };
         case "connect": {

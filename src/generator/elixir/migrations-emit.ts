@@ -7,6 +7,7 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { TIMER_CLAIM_TABLE } from "../../util/timer.js";
 import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
   renderAlterColumnDefaultSql,
@@ -179,6 +180,9 @@ function timestampsMacro(table: TableShape): string | null {
   // because the flush rides the save transaction, it would roll the aggregate
   // write back with it.
   if (table.name === "provenance_records") return null;
+  // And for the `every:` timer claim row: its one time column is the explicit
+  // `fired_at`, and the claim is a raw upsert that never fills Ecto timestamps.
+  if (table.name === TIMER_CLAIM_TABLE) return null;
   // A declared `inserted_at` / `insertedAt` field owns the other bundled
   // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
   // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`

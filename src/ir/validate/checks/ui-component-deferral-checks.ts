@@ -6,12 +6,15 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { frameworksSupporting } from "../../../util/target-capabilities.js";
+import { frameworksSupporting, frameworksWithScope } from "../../../util/target-capabilities.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { AggregateIR, ComponentIR, ExprIR, FindIR, UiIR } from "../../types/loom-ir.js";
 import { felizComponentStateInit } from "../../util/feliz-component-state-init.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+
+/** Frameworks whose component props are exact F# records. */
+const FSHARP_PROPS = frameworksWithScope("props:fsharp-records");
 
 /** One deferral: what the emitter filtered on, in the emitter's own terms. */
 
@@ -126,20 +129,18 @@ function paramDeferrals(c: ComponentIR, framework: string): ComponentDeferral[] 
     if (inner.kind === "slot") {
       out.push({
         reason: `parameter '${p.name}' is a \`slot\``,
-        emitter:
-          framework === "feliz"
-            ? "src/generator/feliz/component-emit.ts `propType` — a slot has no props-record spelling"
-            : "src/generator/angular/components-emit.ts `hasSlotOrActionParam` — `ngComponentOutletInputs` sets INPUTS and has no content-projection channel",
+        emitter: FSHARP_PROPS.has(framework)
+          ? "src/generator/feliz/component-emit.ts `propType` — a slot has no props-record spelling"
+          : "src/generator/angular/components-emit.ts `hasSlotOrActionParam` — `ngComponentOutletInputs` sets INPUTS and has no content-projection channel",
       });
     } else if (inner.kind === "action") {
       out.push({
         reason: `parameter '${p.name}' is an \`action\` callback`,
-        emitter:
-          framework === "feliz"
-            ? "src/generator/feliz/component-emit.ts `propType` — an action has no props-record spelling"
-            : "src/generator/angular/components-emit.ts `hasSlotOrActionParam` — a callback through the inputs object loses `this`",
+        emitter: FSHARP_PROPS.has(framework)
+          ? "src/generator/feliz/component-emit.ts `propType` — an action has no props-record spelling"
+          : "src/generator/angular/components-emit.ts `hasSlotOrActionParam` — a callback through the inputs object loses `this`",
       });
-    } else if (framework === "feliz" && p.type.kind === "optional") {
+    } else if (FSHARP_PROPS.has(framework) && p.type.kind === "optional") {
       out.push({
         reason: `parameter '${p.name}' is optional`,
         emitter:

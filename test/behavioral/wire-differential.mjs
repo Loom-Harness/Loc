@@ -273,6 +273,7 @@ export function makeWireGate(backend, workDir) {
  *  the ordinal is the alignment key (ids are not — they differ per run). */
 export function recorderPreamble() {
   return `import { toWireEntry as __toWireEntry, isInfraRequest as __isInfraRequest } from ${JSON.stringify(join(REPO, "test/_helpers/wire-record.ts"))};
+import { BASELINE_SECURITY_HEADERS as __BASELINE_SECURITY_HEADERS, HSTS_HEADER as __HSTS_HEADER, SECURE_TRANSPORT_ENV as __SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES as __SECURE_TRANSPORT_OFF_VALUES } from ${JSON.stringify(join(REPO, "src/util/security-headers.ts"))};
 const __wire = [];
 // The raw URLs, kept beside the recording rather than derived from it: the
 // recorded \`path\` is TEMPLATED (\`/api/x/{id}\`), which is right for aligning
@@ -303,6 +304,51 @@ const __releaseDispatch = () => { __rawDispatch = null; };
 // Outcomes of the probes that assert (rather than only record), appended to the
 // runner's results so the expected-failure register settles them per test.
 const __probeResults = [];
+// ── the baseline security-header probe ──────────────────────────────────────
+// Every response a backend sends carries the shared baseline security headers
+// (src/util/security-headers.ts), and Strict-Transport-Security exactly when
+// the deploy flag says the service is behind TLS.  Checked on EVERY recorded
+// response — successes, refusals, the framework-fault probes' 404/405/400s —
+// because the defect this catches is a header set that one layer (an error
+// handler, a static mount) answers around.  The booted server inherits this
+// process's environment, so the flag is read from here.  Asserting only: no
+// request is added, so no golden ordinal moves.
+const __secureTransport = !__SECURE_TRANSPORT_OFF_VALUES.includes(
+  String(process.env[__SECURE_TRANSPORT_ENV] ?? "").trim().toLowerCase(),
+);
+const __headerGaps = [];
+const __checkSecurityHeaders = (req, r) => {
+  const got = {};
+  for (const [k, v] of Object.entries(r.headers ?? {})) got[k.toLowerCase()] = String(v);
+  const gaps = [];
+  for (const [name, value] of __BASELINE_SECURITY_HEADERS) {
+    const have = got[name.toLowerCase()];
+    if (have !== value) gaps.push(name + " is " + JSON.stringify(have ?? null) + ", not " + JSON.stringify(value));
+  }
+  const hsts = got[__HSTS_HEADER[0].toLowerCase()];
+  if (__secureTransport && hsts !== __HSTS_HEADER[1]) {
+    gaps.push(__HSTS_HEADER[0] + " is " + JSON.stringify(hsts ?? null) + ", not " + JSON.stringify(__HSTS_HEADER[1]));
+  }
+  if (!__secureTransport && hsts !== undefined) {
+    gaps.push(__HSTS_HEADER[0] + " is sent although " + __SECURE_TRANSPORT_ENV + " is off");
+  }
+  if (gaps.length) {
+    let path = req.url;
+    try { path = new URL(req.url).pathname; } catch { /* keep the raw url */ }
+    __headerGaps.push(req.method + " " + path + " → " + r.status + ": " + gaps.join("; "));
+  }
+};
+const __securityHeaderResult = () => {
+  if (__wire.length === 0) return;
+  __probeResults.push({
+    tier: "probe",
+    name: "baseline security headers on every response",
+    status: __headerGaps.length === 0 ? "pass" : "fail",
+    ...(__headerGaps.length === 0
+      ? {}
+      : { error: __headerGaps.length + " response(s) without them, first: " + __headerGaps.slice(0, 3).join(" | ") }),
+  });
+};
 const __record = (dispatch) => {
   __rawDispatch = dispatch;
   return async (req) => {
@@ -320,6 +366,7 @@ const __record = (dispatch) => {
           if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
         }
         __wire.push(__toWireEntry(__wire.length, req.method, req.url, r.status, r.body ?? ""));
+        __checkSecurityHeaders(req, r);
       }
     } catch { /* recording must never affect the tier's pass/fail */ }
     return out;
@@ -349,7 +396,17 @@ const __record = (dispatch) => {
 // \`x-loom-dev-claims\` on EVERY case, inert where nothing reads it, so a header
 // test would probe \`/api/auth/me\` on the ~35 auth-less cases too and freeze a
 // 404 that \`/__loom_no_such_path\` already pins in every one of their goldens.
+//
+// The security-header verdict is settled here, after the last probe, whichever
+// way the probes end: every response recorded so far has been checked.
 const __frameworkProbes = async (dispatch, opts = {}) => {
+  try {
+    await __frameworkProbesRun(dispatch, opts);
+  } finally {
+    __securityHeaderResult();
+  }
+};
+const __frameworkProbesRun = async (dispatch, opts = {}) => {
   const paths = __urls.map((u) => { try { return new URL(u); } catch { return null; } }).filter(Boolean);
   const collection = paths.find((u) => /^\\/api\\/[^/]+$/.test(u.pathname));
   if (!collection) return;

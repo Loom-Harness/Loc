@@ -4,8 +4,8 @@
 // emitted `app/scheduling.py` durable-driver shape: `cron:` timers become
 // procrastinate periodic tasks (store-coordinated single-fire + missed-run
 // catch-up, retry with backoff — no advisory lock); `every:` (sub-minute)
-// timers stay in-process (asyncio interval loop + transaction-scoped
-// pg_try_advisory_xact_lock); the FastAPI lifespan wiring; the conditional
+// timers stay in-process (asyncio poll loop + the `__loom_timer` period
+// claim); the FastAPI lifespan wiring; the conditional
 // procrastinate+psycopg deps (cron only) — and that a timer-free deployable is
 // byte-identical (no scheduling.py, no procrastinate, no lifespan wiring).
 
@@ -95,23 +95,18 @@ describe("timerSource → Python/FastAPI scheduler", () => {
     );
   });
 
-  it("keeps every: (sub-minute) timers in-process with a transaction-scoped advisory lock", async () => {
+  it("keeps every: (sub-minute) timers in-process with the period claim", async () => {
     const get = getter(await filesFor(WITH_TIMERS));
     const scheduler = get("d/app/scheduling.py");
 
-    // Single-fire via a TRANSACTION-SCOPED advisory lock (auto-released on tx
-    // commit). Keyed per timer via the SAME FNV-1a hash the other backends use,
-    // so a cross-backend replica contends on one key.
-    expect(scheduler).toContain("pg_try_advisory_xact_lock");
-    expect(scheduler).toContain("async with session_factory() as session, session.begin():");
-    expect(scheduler).toContain("def _timer_lock_key(name: str) -> int:");
-    expect(scheduler).toContain("h = 0x811C9DC5");
-    // No session-level unlock (the tx commit releases the xact lock).
-    expect(scheduler).not.toContain("pg_advisory_unlock");
-    // The every: cadence becomes an asyncio interval loop (procrastinate cron
-    // is minute-granular; sub-minute can't be a durable job).
+    // Wiring: each poll runs the shared period claim.  One fire per period is
+    // the booted two-replica leg's claim.
+    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
+    // The every: cadence becomes an asyncio loop polling at half the period
+    // (procrastinate cron is minute-granular; sub-minute can't be a durable job).
     expect(scheduler).toContain("async def _interval_loop(");
-    expect(scheduler).toContain('_interval_loop("healthz", 15, lambda: HealthTick(');
+    expect(scheduler).toMatch(/_interval_loop\(\n\s+"healthz",\n.*\n\s+7\.5,/);
     // Catalog obs events.
     expect(scheduler).toContain('"timer_fired"');
     expect(scheduler).toContain('"timer_lock_contended"');
@@ -164,7 +159,7 @@ system IntervalOnly {
     );
     const scheduler = get("d/app/scheduling.py");
     // In-process interval loop, no durable store.
-    expect(scheduler).toContain('_interval_loop("healthz", 30, lambda: SweepTick(');
+    expect(scheduler).toMatch(/_interval_loop\(\n\s+"healthz",\n.*\n\s+15,/);
     expect(scheduler).not.toContain("procrastinate");
     expect(scheduler).not.toContain("periodic");
     // No procrastinate dep when there is no cron timer.

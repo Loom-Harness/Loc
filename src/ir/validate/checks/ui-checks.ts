@@ -73,6 +73,11 @@ import {
   type ReadHost,
 } from "./ui-page-structure-checks.js";
 
+/** Frameworks whose page reads are in-process calls (no route needed). */
+const IN_PROCESS_READS = frameworksWithScope("reads:in-process");
+/** Frameworks whose page reads build their URL from the derived find path. */
+const FIND_PATH_READS = frameworksWithScope("reads:derived-find-path");
+
 export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
   const aggByName = new Map<string, AggregateIR>();
   for (const a of allAggregates(loom)) aggByName.set(a.name, a);
@@ -169,12 +174,11 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         hosts.push({
           framework,
           deployable: depName,
-          routes:
-            framework === "phoenixLiveView"
-              ? undefined
-              : framework === "feliz" || framework === "flutter"
-                ? new Map()
-                : pagedFindRoutes(sys, backend),
+          routes: IN_PROCESS_READS.has(framework)
+            ? undefined
+            : FIND_PATH_READS.has(framework)
+              ? new Map()
+              : pagedFindRoutes(sys, backend),
         });
       }
       readHostsByUi.set(uiName, hosts);

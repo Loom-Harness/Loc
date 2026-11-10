@@ -550,6 +550,10 @@ export function walkBody(
    *  extractable strings; every other caller omits it → text renders raw
    *  (byte-identical). */
   i18nPrefix: string | undefined = undefined,
+  /** The walk's opaque per-target sink (see `WalkEnv.sink`).  A target that
+   *  needs per-walk state before the first seam runs seeds it here; every
+   *  other caller takes the empty default. */
+  sink: unknown = {},
 ): WalkResult {
   const apiParamNames = new Map<string, string>();
   for (const p of apiParams) apiParamNames.set(p.name, p.apiName);
@@ -587,13 +591,13 @@ export function walkBody(
     listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
     bcByWorkflow,
     formOfs: [],
-    // Shared opaque per-target sink.  Created ONCE on the root context (an
-    // empty container the walker never inspects) so child contexts — built by
+    // Shared opaque per-target sink.  One object on the root context (a
+    // container the walker never inspects) so child contexts — built by
     // `{ ...ctx }` spread — carry the same object reference; a target seam that
     // fills it from a nested walk therefore lands in the sink the root's
     // `WalkResult` returns.  Only the target knows the shape (Angular fills an
     // `AngularWalkerSink`).
-    sink: {},
+    sink,
     // Same shared-reference discipline as `sink`: created once here so every
     // `{ ...ctx }` child spread carries the SAME array, and a primitive hoisting
     // from a nested walk (a DataGrid inside a QueryView's `data:` lambda) lands
@@ -1200,6 +1204,10 @@ export function walk(
    *  sequence). */
   slot: ChildSlot = "value",
 ): string {
+  // A target still moving onto this core keeps an unported node on its
+  // previous renderer (see `WalkerTarget.renderNodeOverride`).
+  const overridden = ctx.target.renderNodeOverride?.(expr, ctx, depth, slot);
+  if (overridden !== undefined) return overridden;
   // Api hook injection (JSX-child position).  Detect
   // `<param>.<aggregate>.<op>` rooted at a UiApiParam; register
   // the hook for hoisting (renderApiHoisting consumes

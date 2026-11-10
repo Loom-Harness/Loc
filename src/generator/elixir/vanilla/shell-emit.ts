@@ -79,6 +79,7 @@ import {
 } from "./denial.js";
 import { renderRepoReadScope } from "./read-scope-emit.js";
 import { renderObanConfig } from "./scheduler-emit.js";
+import { renderVanillaSecurityHeaders } from "./security-headers-emit.js";
 import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
 export function emitVanillaShellFiles(
@@ -422,6 +423,7 @@ export function emitVanillaShellFiles(
       renderVanillaErrorHtml(appModule, sourceLocale),
     );
   }
+  out.set(`lib/${appName}_web/security_headers.ex`, renderVanillaSecurityHeaders(appModule));
   out.set(`lib/${appName}_web/body_parser.ex`, renderVanillaBodyParser(appModule));
   out.set(`lib/${appName}_web/fault_handler.ex`, renderVanillaFaultHandler(appModule));
   out.set(
@@ -750,10 +752,13 @@ function renderVanillaEndpoint(
   // `Plug.Static` serves `priv/static` so the root layout's
   // `~p"/assets/app.css"` / `app.js` references resolve.  A JSON-API-only
   // deployable serves no static assets and mounts no live socket.
-  const liveViewPlugs = hasLiveView
+  const liveSocket = hasLiveView
     ? `  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
 
-  plug Plug.Static,
+`
+    : "";
+  const liveViewPlugs = hasLiveView
+    ? `  plug Plug.Static,
     at: "/",
     from: :${appName},
     gzip: false,
@@ -785,6 +790,10 @@ defmodule ${appModule}Web.Endpoint do
     signing_salt: "loom_dev",
     same_site: "Lax"
   ]
+
+${liveSocket}  # First, so every response the endpoint sends — static assets included —
+  # carries the baseline security headers.
+  plug ${appModule}Web.SecurityHeaders
 
 ${liveViewPlugs}${spaStaticPlug}  plug Plug.RequestId
   plug ${appModule}.RequestContext

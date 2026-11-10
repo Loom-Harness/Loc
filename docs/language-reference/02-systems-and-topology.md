@@ -104,6 +104,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/api_node"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_node"
@@ -125,6 +126,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api_dotnet;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_dotnet"
@@ -145,6 +147,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/api_java"
       SPRING_DATASOURCE_USERNAME: "postgres"
       SPRING_DATASOURCE_PASSWORD: "postgres"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_java"
@@ -164,6 +167,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
     environment:
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/api_python"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_python"
@@ -187,6 +191,7 @@ Each deployable becomes one directory under `<outdir>/` (the name slugified — 
       PHX_SERVER: "true"
       PORT: "4000"
       LOG_LEVEL: "info"
+      LOOM_SECURE_TRANSPORT: "false"   # local http stack — no HSTS, no Secure cookies
       CORS_ORIGIN: "http://localhost:3000,http://localhost:3006,http://localhost:3007"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
       OTEL_SERVICE_NAME: "api_elixir"
@@ -340,15 +345,11 @@ web_flutter/
 
 ### The composed stack
 
-`generate system` emits one `docker-compose.yml` at the output root that ties the deployables together with a **single shared `db`** postgres service. Every backend that `needsDb` gets its *own database* inside that one postgres instance — created by a generated `db-init/` script the `db` service runs on first boot:
+`generate system` emits one `docker-compose.yml` at the output root that ties the deployables together with a **single shared `db`** postgres service. Each postgres `storage` is one database inside that instance (a backend that binds no storage gets its own) — created by a generated `db-init/` script the `db` service runs on first boot:
 
 ```sql
--- db-init/00-create-databases.sql (auto-generated)
-CREATE DATABASE api_node;
-CREATE DATABASE api_dotnet;
-CREATE DATABASE api_java;
-CREATE DATABASE api_python;
-CREATE DATABASE api_elixir;
+-- db-init/00-create-databases.sql (auto-generated, excerpt)
+SELECT 'CREATE DATABASE "primary"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'primary')\gexec
 ```
 
 ```yaml
@@ -367,7 +368,7 @@ CREATE DATABASE api_elixir;
       test: ["CMD", "pg_isready", "-U", "postgres"]
 ```
 
-Each backend's connection string targets its own database (`…/api_node`, `…/api_dotnet`, …) on the shared `db` host. The whole stack comes up with `docker compose up` from the output root. Schema migrations are owned per-module by exactly one backend deployable (the enrichment pass's `migrationsOwner`), so two backends hosting the same context don't both try to create the tables.
+Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend on a shared database must lay its tables out the same way, so `persistence: mikroorm` (which syncs its own entities instead of running the migrations) is refused on a shared storage (`loom.mikroorm-shared-database`), and so is `persistence: dapper` beside any other adapter (`loom.dapper-shared-database`) — give such a deployable a storage of its own.
 
 ## Backend platforms
 

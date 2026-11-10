@@ -1,0 +1,83 @@
+name: Timer single-fire (runtime e2e)
+
+# Boots the generated docker-compose stack for a deployable owning an
+# `every: 2s` timerSource, starts a SECOND replica of the backend service
+# (`docker compose run --no-deps`), and asserts the timer fired once per period
+# across both replicas (decision D-TIMER-SINGLE-FIRE): every fire creates one
+# saga row, and no period may hold two.  Fanned across all five backends —
+# the claim is one shared statement, but each backend runs it through its own
+# driver, poll loop and dispatch, which only a boot can check.
+#
+# Builds each backend's image from the emitted Dockerfile, so it needs no host
+# toolchain beyond docker + compose (both on ubuntu-latest).
+on:
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '23 4 * * *'
+  # Per-PR proof on the timer emitters and the pipeline phases every emitter
+  # rides.  The generic phase paths are pinned by
+  # test/system/workflow-path-coverage.test.ts.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/language/**'
+      - 'src/macros/**'
+      - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
+      - 'src/platform/hono/shared/scheduler-builder.ts'
+      - 'src/generator/dotnet/emit/timer.ts'
+      - 'src/generator/python/scheduler-builder.ts'
+      - 'src/generator/java/emit/scheduler.ts'
+      - 'src/generator/elixir/vanilla/scheduler-emit.ts'
+      - 'test/e2e/timer-single-fire-e2e.test.ts'
+      - '.github/workflows/timer-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  timer-e2e:
+    # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
+    # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
+    # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    # The image build dominates (gradle bootJar / mix release are the slowest).
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [node, python, dotnet, java, elixir]
+    name: timer-e2e (${{ matrix.backend }})
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Run timer single-fire e2e (${{ matrix.backend }})
+        env:
+          LOOM_TIMER_E2E_BACKENDS: ${{ matrix.backend }}
+        run: npm run test:timer -- --reporter=verbose
+
+      - name: Surface failure context
+        if: failure()
+        run: |
+          echo "## Timer single-fire e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo 'Two replicas of the generated backend ran an every: 2s timer against one database; the run step above has the assertion (fires vs distinct periods) and both replicas logs.' >> $GITHUB_STEP_SUMMARY

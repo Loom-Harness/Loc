@@ -1046,6 +1046,60 @@ defp serialize(record) do
 end
 ```
 
+#### Masks on a contained part's field
+
+A field of a contained `entity` part takes the same clause, and redacts on every
+element under the same principal read the root uses:
+
+```ddd
+aggregate Ticket {
+  subject: string
+  contains comments: Comment[]
+  entity Comment {
+    body: string
+    internal: bool mask unless currentUser.role == "agent"
+  }
+}
+```
+
+The root's response serializer is then the redacting one, even when no root field
+is masked, and it descends into the containment:
+
+```ts
+// generated (Hono) — `toWireMasked`
+for (const __m0 of (wire["comments"] ?? []) as Record<string, unknown>[]) {
+  if (!(currentUser !== null && (currentUser.role === "agent"))) __m0.internal = null;
+}
+```
+
+```elixir
+# generated (Phoenix) — `serialize/1`
+wire =
+  Map.replace_lazy(wire, "comments", fn items ->
+    Enum.map(items || [], fn masked_0 ->
+      masked_0 = if current_user != nil and (current_user.role == "agent"), do: masked_0, else: Map.put(masked_0, "internal", nil)
+      masked_0
+    end)
+  end)
+```
+
+Python walks the same plan in `to_wire_masked`; .NET wraps the part's argument
+inside the inlined `new CommentResponse(...)` projection; Java gives
+`CommentResponse` its own `fromMasked`, which the root's `fromMasked` maps the
+collection through.  The part's member is nullable in every response schema.
+
+The taint reaches part members too: a root `derived` that reads one
+(`comments.count(c => c.internal)`) and a part `derived` computed from its own
+masked field carry the mask; a read predicate over one gates the read; a write
+through a part-typed `let` (`let c = comments.first()  c.internal := v`) is
+gated; an event payload reading one is a laundering source; and the
+containment's audit-history change entry is dropped for a caller who fails any
+mask inside the part.  Two shapes are refused: a part `derived` reading ANOTHER
+part's masked member (`loom.field-mask-on-part` — the part's projection redacts
+only its own members; compute it on the root), and a mask on a value-object
+field (`loom.field-mask-on-value-object` — a value has no read boundary of its
+own; mask the field that holds it).
+
 #### Where a masked value flows — the visibility taint
 
 A mask protects the field only if every place its value reaches applies it.
@@ -1857,6 +1911,15 @@ The handshake is hardened by default (no knobs):
   `POST /api/auth/refresh` rotates it (the cookie is overwritten with the new
   token the IdP hands back — single-use). All access/refresh tokens ride
   HttpOnly cookies; the SPA never sees the raw tokens.
+- **`Secure` cookies, gated on the deploy flag** — the session, refresh and
+  PKCE cookies carry `Secure` (and `SameSite=Lax`, so the IdP's redirect back
+  to `/callback` still carries them) unless `LOOM_SECURE_TRANSPORT` is
+  `false` / `0` / `off` / `no`. Unset means on: a deployment is assumed to be
+  reached over TLS, directly or through a TLS-terminating proxy. The generated
+  `docker-compose.yml` serves plain http on localhost and sets it `false`; the
+  k8s chart keeps the default. The same flag gates the
+  `Strict-Transport-Security` header (see
+  [Security headers](tools.md#security-response-headers)).
 
 Emitted identically across all five backends (Hono, .NET, Java/Spring,
 Python/FastAPI, Phoenix).

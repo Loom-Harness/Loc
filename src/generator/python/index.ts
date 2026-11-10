@@ -36,6 +36,7 @@ import {
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { migratesAtBoot } from "../../ir/util/databases.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -148,6 +149,7 @@ import {
 import { emitPyResourceFiles } from "./resource-clients.js";
 import { buildPyRoutesFile } from "./routes-builder.js";
 import { anyPyTimerUsesCron, renderPyTimerScheduler } from "./scheduler-builder.js";
+import { renderPySecurityHeaders } from "./security-headers.js";
 import { pySentence } from "./wire-policy-py.js";
 import {
   buildPyWorkflowsFile,
@@ -583,6 +585,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       hasFileRoutes,
       contextStaticSubpathRoutes(args.contexts),
       forwardsCallerCredential(args.deployable, args.sys),
+      migratesAtBoot(args.sys, args.deployable),
     ),
   );
   if (hasEmbeddedSpa) {
@@ -747,6 +750,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // The server never translates a response: every refusal carries the catalog
   // `code` a client localizes it by, so there is no backend message catalog.
   out.set("app/http/__init__.py", "");
+  out.set("app/http/security_headers.py", renderPySecurityHeaders());
   out.set(
     "app/http/problem.py",
     renderProblemPy(
@@ -1305,6 +1309,7 @@ const M = {
   init_channel_transports: pyRef("app.channels", "init_channel_transports"),
   start_channel_consumers: pyRef("app.channels", "start_channel_consumers"),
   run_seeds: pyRef("app.db.seed", "run_seeds"),
+  run_migrations: pyRef("app.db.migrate", "run_migrations"),
   start_outbox_relay: pyRef("app.dispatch", "start_outbox_relay"),
   start_timer_scheduler: pyRef("app.scheduling", "start_timer_scheduler"),
   problem: pyRef("app.http.problem", "problem"),
@@ -1343,6 +1348,9 @@ function renderMain(
   // A typed call to an `auth: required` callee forwards the caller's
   // credential, captured per request by this middleware.
   forwardCallerCredential = false,
+  // False on a deployable whose storage's database another deployable
+  // migrates: it carries the migrations but leaves the boot run to that one.
+  runsMigrations = true,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1397,12 +1405,12 @@ function renderMain(
     "from sqlalchemy import text",
     "",
     "from app.db.engine import engine",
-    "from app.db.migrate import run_migrations",
     "from app.db.transaction import TransactionMiddleware",
     ...routerAggs.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
     `from app.http.problem import JsonBodyMiddleware, install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
+    "from app.http.security_headers import SecurityHeadersMiddleware",
     ...explicitRouteApis.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
@@ -1498,7 +1506,7 @@ function renderMain(
     // A missing verifier registration surfaces as a clear boot error
     // instead of a 401 storm on the first request.
     authRequired ? `    ${M.assert_user_verifier_registered}()` : null,
-    "    await run_migrations()",
+    runsMigrations ? `    await ${M.run_migrations}()` : null,
     hasSeeds ? `    await ${M.run_seeds}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
     // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
@@ -1576,6 +1584,9 @@ function renderMain(
     "# Added last so it runs first (Starlette: later-added is outermost) —",
     "# every request is bracketed, including 401s from the auth middleware.",
     "app.add_middleware(ObservabilityMiddleware)",
+    "# Outermost of all: the baseline security headers ride every response the",
+    "# middlewares above and the routes produce.",
+    "app.add_middleware(SecurityHeadersMiddleware)",
     // Explicit routes first: FastAPI answers with the first registered match,
     // so an aggregate's `GET /api/orders/{id}` would otherwise take a routed
     // handler's `GET /api/orders/order_by_code` (`id = "order_by_code"`).
@@ -1705,7 +1716,19 @@ function renderMain(
 // project venv, uvicorn serves.  `uv sync` (not `pip install`): the
 // pyproject is the manifest, and uv resolves fast enough that a
 // lockfile-less build stays deterministic via the within-major pins.
-const DOCKERFILE_PY = `# syntax=docker/dockerfile:1
+/** The runtime image's switch to an unprivileged user, by number so a k8s
+ *  `runAsNonRoot` check can verify it.  The app tree and the venv stay
+ *  root-owned and read-only to it; data/ is the one directory the process
+ *  writes (local object-store resources default there). */
+const PY_NON_ROOT_BLOCK = `# Run unprivileged, by number.  data/ is the one directory the process
+# writes (local object-store resources default there).
+RUN groupadd --system --gid 10001 app \\
+    && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /app app \\
+    && mkdir -p /app/data && chown 10001:10001 /app/data
+USER 10001:10001
+`;
+
+export const DOCKERFILE_PY = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM python:3.13-slim
@@ -1728,7 +1751,7 @@ RUN uv sync --no-dev
 COPY app/ ./app/
 COPY migrations/ ./migrations/
 ENV PATH="/app/.venv/bin:$PATH"
-EXPOSE 8000
+${PY_NON_ROOT_BLOCK}EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 `;
 
@@ -1742,7 +1765,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 // but Feliz compiles F#→JS via `dotnet fable` first, so its stage needs a
 // .NET-SDK+Node base + `dotnet tool restore` (mirrors the feliz standalone
 // Dockerfile) — hence the `spaBuildKind` parameter.
-function renderPyFullstackDockerfile(
+export function renderPyFullstackDockerfile(
   spaOutDir: string,
   spaBuildKind: "vite" | "feliz" = "vite",
 ): string {
@@ -1785,7 +1808,7 @@ COPY app/ ./app/
 COPY migrations/ ./migrations/
 COPY --from=spa-build /spa/${spaOutDir} ./wwwroot
 ENV PATH="/app/.venv/bin:$PATH"
-EXPOSE 8000
+${PY_NON_ROOT_BLOCK}EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 `;
 }
@@ -2219,6 +2242,7 @@ ${versionedImport}    DisallowedError,
     DomainError,
 ${externImport}    ForbiddenError,
 ${voImport})
+from app.http.security_headers import with_security_headers
 from app.obs.log import correlation_id, log, new_id
 from app.obs.metrics import record_domain_fault
 
@@ -2634,13 +2658,18 @@ ${voHandler}${externHandler}${integrityHandler}${versionedHandler}    @app.excep
         log("error", "internal_error", error=str(err), status=${wireStatus("internal")})
         # The id the fault was logged under: what a user quotes to support.
         request_id = correlation_id() or request.headers.get("x-request-id") or new_id()
-        return problem(
-            request,
-            ${wireStatus("internal")},
-            ${title("internal")},
-            ${JSON.stringify(wireFixedDetail("internal"))},
-            code=${code("internal")},
-            params={"requestId": request_id},
+        # Starlette answers an unhandled exception from ServerErrorMiddleware,
+        # which wraps every user middleware, so SecurityHeadersMiddleware never
+        # sees this response; the handler stamps the headers itself.
+        return with_security_headers(
+            problem(
+                request,
+                ${wireStatus("internal")},
+                ${title("internal")},
+                ${JSON.stringify(wireFixedDetail("internal"))},
+                code=${code("internal")},
+                params={"requestId": request_id},
+            )
         )
 `;
 }

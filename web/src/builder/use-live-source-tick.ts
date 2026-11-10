@@ -45,8 +45,8 @@ export function useLiveSourceTick(editorSourceTick: number): number {
 /** Counter bumped when the editor is reseeded onto DIFFERENT content by
  *  something other than typing — a file-tab switch (`activeSourcePath`), an
  *  external change to the active file (`sourceEpoch`: history restore, import,
- *  another tab), or a new seed value (`initialSource`: example import,
- *  workspace switch).
+ *  another tab), or a new seed revision (`seedRevision`: example import,
+ *  workspace switch — NOT typing, which also changes `initialSource`).
  *
  *  Why a tick rather than putting those three straight in the derive memo:
  *  the panes read the live text through `ctx.getSource()`, which reads
@@ -60,7 +60,7 @@ export function useLiveSourceTick(editorSourceTick: number): number {
  *
  *  The first run is a baseline (mount already derived from the current text). */
 export function useExternalSourceTick(
-  initialSource: string,
+  seedRevision: number,
   activeSourcePath: string,
   sourceEpoch: number,
 ): number {
@@ -72,6 +72,6 @@ export function useExternalSourceTick(
       return;
     }
     setTick((n) => n + 1);
-  }, [initialSource, activeSourcePath, sourceEpoch]);
+  }, [seedRevision, activeSourcePath, sourceEpoch]);
   return tick;
 }

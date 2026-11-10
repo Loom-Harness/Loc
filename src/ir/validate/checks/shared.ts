@@ -5,6 +5,10 @@
 
 import { nearestName } from "../../../util/edit-distance.js";
 import { intrinsicFor, intrinsicReturnType } from "../../../util/intrinsics.js";
+import {
+  type BackendConstruct,
+  platformBackendOwnedBy,
+} from "../../../util/target-capabilities.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { principalTerm } from "../../util/principal-term.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
@@ -792,4 +796,19 @@ export function foreignRepositoryOwners(
     }
   }
   return owners;
+}
+
+/** Context name → the first deployable whose platform hands `construct` to the
+ *  check raising `code`. */
+export function ownerHosts(
+  deployables: readonly { name: string; platform: string; contextNames: readonly string[] }[],
+  construct: BackendConstruct,
+  code: string,
+): Map<string, string> {
+  const hosts = new Map<string, string>();
+  for (const dep of deployables) {
+    if (!platformBackendOwnedBy(dep.platform, construct, code)) continue;
+    for (const cn of dep.contextNames) if (!hosts.has(cn)) hosts.set(cn, dep.name);
+  }
+  return hosts;
 }

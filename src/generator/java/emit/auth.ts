@@ -10,6 +10,10 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  SECURE_TRANSPORT_ENV,
+  SECURE_TRANSPORT_OFF_VALUES,
+} from "../../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../../_auth/audience.js";
 import { claimEnumNames, claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
@@ -523,21 +527,35 @@ export function renderAuthFiles(
       `    @Override`,
       `    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)`,
       `            throws ServletException, IOException {`,
-      `        var path = request.getRequestURI();`,
+      // The decision runs on the path the container dispatches — the servlet
+      // path (+ path info): percent-decoded, `;` path parameters stripped,
+      // `.`/`..` segments and `//` resolved — never on the raw request URI, so
+      // `/%61pi/docs` or `/api;x/docs` cannot skip the gate while still
+      // reaching the controller.  Spring MVC matches the raw URI decoded
+      // per segment WITHOUT resolving dot segments, so when that reading
+      // disagrees with the container's the request is gated (fail closed).
+      `        var raw = request.getRequestURI().substring(request.getContextPath().length());`,
+      `        var path = request.getServletPath() + (request.getPathInfo() == null ? "" : request.getPathInfo());`,
+      `        boolean agreed = segmentDecoded(raw).equals(path);`,
       ...(guardPrefix
         ? [
             `        // Fullstack: only the API surface is guarded — the SPA`,
             `        // bundle and client-side routes stay public.`,
-            `        if (!path.startsWith("${guardPrefix}/")) {`,
+            `        if (agreed && !path.startsWith("${guardPrefix}/")) {`,
             `            chain.doFilter(request, response);`,
             `            return;`,
             `        }`,
           ]
         : []),
-      `        for (var prefix : BYPASS_PREFIXES) {`,
-      `            if (path.regionMatches(true, 0, prefix, 0, prefix.length())) {`,
-      `                chain.doFilter(request, response);`,
-      `                return;`,
+      // A bypass prefix matches only its canonical spelling: an encoded,
+      // parameterised or dot-segmented spelling of one is gated like any
+      // other route.
+      `        if (raw.equals(path)) {`,
+      `            for (var prefix : BYPASS_PREFIXES) {`,
+      `                if (path.startsWith(prefix)) {`,
+      `                    chain.doFilter(request, response);`,
+      `                    return;`,
+      `                }`,
       `            }`,
       `        }`,
       `        User user;`,
@@ -602,6 +620,27 @@ export function renderAuthFiles(
       ``,
       // RFC 7807 body + the RFC 9110 §15.5.2 challenge, written straight onto
       // the servlet response because this filter runs before any @ControllerAdvice.
+      `    /** The raw path as Spring MVC's matcher reads it: each segment's \`;\``,
+      `     *  parameters stripped and its percent-encoding decoded, with no dot-segment`,
+      `     *  or \`//\` resolution.  Malformed encoding yields "", which no dispatch path equals. */`,
+      `    private static String segmentDecoded(String raw) {`,
+      `        var out = new StringBuilder();`,
+      `        var segments = raw.split("/", -1);`,
+      `        for (int i = 0; i < segments.length; i++) {`,
+      `            var segment = segments[i];`,
+      `            int semi = segment.indexOf(';');`,
+      `            if (semi >= 0) segment = segment.substring(0, semi);`,
+      `            try {`,
+      `                segment = org.springframework.web.util.UriUtils.decode(segment, java.nio.charset.StandardCharsets.UTF_8);`,
+      `            } catch (IllegalArgumentException e) {`,
+      `                return "";`,
+      `            }`,
+      `            if (i > 0) out.append('/');`,
+      `            out.append(segment);`,
+      `        }`,
+      `        return out.toString();`,
+      `    }`,
+      ``,
       `    private static void unauthorized(HttpServletRequest request, HttpServletResponse response)`,
       `            throws java.io.IOException {`,
       `        var detail = "no valid credentials for " + request.getMethod() + " " + request.getRequestURI();`,
@@ -1586,9 +1625,15 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        return MAPPER.readTree(resp.body());`,
     `    }`,
     ``,
+    `    // Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack serves`,
+    `    // plain http), so the tokens never ride cleartext in a TLS deployment.`,
+    `    private static final boolean SECURE_TRANSPORT = !java.util.Set.of(${SECURE_TRANSPORT_OFF_VALUES.map((v) => JSON.stringify(v)).join(", ")}).contains(`,
+    `        System.getenv().getOrDefault(${JSON.stringify(SECURE_TRANSPORT_ENV)}, "").trim().toLowerCase(java.util.Locale.ROOT));`,
+    ``,
     `    private static Cookie stateCookie(String name, String value) {`,
     `        Cookie c = new Cookie(name, value);`,
     `        c.setHttpOnly(true);`,
+    `        c.setSecure(SECURE_TRANSPORT);`,
     `        c.setPath("/");`,
     `        c.setAttribute("SameSite", "Lax");`,
     `        return c;`,

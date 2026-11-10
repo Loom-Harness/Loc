@@ -198,7 +198,7 @@ describe("python observability", () => {
     // golden.  Pinned cross-backend by
     // test/conformance/internal-fault-parity.test.ts.
     expect(problem).toContain(
-      '"internal",\n            code="problem.internal",\n            params={"requestId": request_id},',
+      '"internal",\n                code="problem.internal",\n                params={"requestId": request_id},',
     );
   });
 

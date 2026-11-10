@@ -84,6 +84,15 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
  * `.loom/wire-spec.json`. */
 export type SensitivityTags = readonly string[];
 
+/** Base of every `TypeIR` arm: the information-flow sensitivity tags a
+ *  value's type carries (sorted, unique).  Absent when the type carries no
+ *  tags — the common case; consumers read absent as "no tags", never as an
+ *  error.  A type alias, like `Sourced`, so `TypeIR` stays assignable to
+ *  `Record<string, unknown>`. */
+export type Sensitive = {
+  sensitivity?: SensitivityTags;
+};
+
 /** Canonical type-discriminated union for every type that appears in
  *  the IR — primitives, ids, enums, value objects, entities, arrays,
  *  optionals, and the UI-only `slot` marker.
@@ -103,14 +112,14 @@ export type SensitivityTags = readonly string[];
  *  Every identity is a guid — there is no per-aggregate id value type, so
  *  backends spell an id's underlying scalar (column, wire format, CLR/Java
  *  type) as their guid form unconditionally. */
-export type TypeIR =
-  | { kind: "primitive"; name: PrimitiveName; sensitivity?: SensitivityTags }
-  | { kind: "id"; targetName: string; sensitivity?: SensitivityTags }
-  | { kind: "enum"; name: string; sensitivity?: SensitivityTags }
-  | { kind: "valueobject"; name: string; sensitivity?: SensitivityTags }
-  | { kind: "entity"; name: string; sensitivity?: SensitivityTags }
-  | { kind: "array"; element: TypeIR; sensitivity?: SensitivityTags }
-  | { kind: "optional"; inner: TypeIR; sensitivity?: SensitivityTags }
+export type TypeIR = (
+  | { kind: "primitive"; name: PrimitiveName }
+  | { kind: "id"; targetName: string }
+  | { kind: "enum"; name: string }
+  | { kind: "valueobject"; name: string }
+  | { kind: "entity"; name: string }
+  | { kind: "array"; element: TypeIR }
+  | { kind: "optional"; inner: TypeIR }
   /** Carrier-bounded generic payload instantiation — `customer paged`,
    *  `event envelope` (payload-transport-layer.md, P3).  `ctor` names a
    *  blessed stdlib shape (see `src/ir/stdlib/generics.ts`); `arg` is the
@@ -119,7 +128,7 @@ export type TypeIR =
    *  `genericInstance(paged, genericInstance(envelope, primitive string))`.
    *  P3a represents this in the IR but blocks emission at IR-validate; P3b
    *  monomorphizes each distinct instance into a concrete payload. */
-  | { kind: "genericInstance"; ctor: GenericCtorName; arg: TypeIR; sensitivity?: SensitivityTags }
+  | { kind: "genericInstance"; ctor: GenericCtorName; arg: TypeIR }
   /** Discriminated union (payload-transport-layer.md, P4) — both the named
    *  form (`payload Foo = A | B`) and the anonymous `or` form (`A or B` in any
    *  type position) lower to this.  `variants` is the source-order variant
@@ -128,26 +137,28 @@ export type TypeIR =
    *  `A or B` and `B or A` are the same type.  The wire form is tagged by a
    *  per-variant discriminator (the `type` field — see P4 emission); P4a
    *  represents this in the IR but blocks emission at IR-validate. */
-  | { kind: "union"; variants: TypeIR[]; sensitivity?: SensitivityTags }
+  | { kind: "union"; variants: TypeIR[] }
   /** The unit variant of an `option` (payload-transport-layer.md, P4):
    *  `T option` lowers to `union[T, none]`.  Carries no payload; on the wire
    *  it is the tagged-empty variant.  A blessed nullary marker (like `slot`),
    *  not an author-writable type — it only ever appears inside an option's
    *  union. */
-  | { kind: "none"; sensitivity?: SensitivityTags }
+  | { kind: "none" }
   /** Element-shaped param marker — only valid on a `component`'s
    *  parameter list.  Values flow as JSX (any walker expression) from
    *  the caller's scope into the component body; a bare ref to a
    *  slot-typed param renders the caller's expression at that
    *  position.  See `docs/page-metamodel.md`. */
-  | { kind: "slot"; sensitivity?: SensitivityTags }
+  | { kind: "slot" }
   /** Function-valued param marker — `slot`'s behavioural sibling
    *  (extern-component-escape-hatch.md, Tier 2).  Only valid on a
    *  `component`'s parameter list; the caller passes a (block-body)
    *  lambda walked + hoisted in the caller's scope, and the React
    *  props type gains `(arg: TWire) => void`.  `arg` is the declared
    *  callback argument type; undefined for a bare zero-arg `action`. */
-  | { kind: "action"; arg?: TypeIR; sensitivity?: SensitivityTags };
+  | { kind: "action"; arg?: TypeIR }
+) &
+  Sensitive;
 
 /** The blessed closed set of generic-payload **record** carriers.  Kept in
  *  lockstep with the record arms of the `GenericCtor` grammar rule and the

@@ -33,6 +33,16 @@ system HeexShowcase {
 
       aggregate Customer with crudish {
         name: string
+
+        operation rename(n: string) {
+          name := n
+        }
+
+        // The union-returning operation `match await` awaits.
+        operation reserve(): Customer or OrderMissing {
+          return OrderMissing { code: name }
+        }
+
         derived display: string = name
       }
 
@@ -53,10 +63,6 @@ system HeexShowcase {
         operation ship() {
           precondition stage == Placed
           stage := Shipped
-        }
-
-        operation reserve(): Order or OrderMissing {
-          return OrderMissing { code: code }
         }
 
         derived display: string = code
@@ -153,7 +159,7 @@ system HeexShowcase {
       }
     }
 
-    page Board(id: Order id) {
+    page Board(id: Customer id) {
       route: "/board/:id"
       title: "Board"
       state {
@@ -168,8 +174,8 @@ system HeexShowcase {
         result: string = ""
       }
       action reserveNow() {
-        match await S.Order.reserve() {
-          Order o => { result := o.code }
+        match await S.Customer.reserve() {
+          Customer c => { result := c.name }
           else    => { result := "unavailable" }
         }
       }
@@ -246,7 +252,7 @@ system HeexShowcase {
             For { each: rows, o => OrderPanel(order: o) }
           }
         },
-        OperationForm { of: Order, op: confirm },
+        OperationForm { of: Customer, op: rename },
         WorkflowForm { runs: PlaceOrder },
         DestroyForm { of: Customer },
         Modal { Text { "Editing" }, open: editing, title: "Editing" }

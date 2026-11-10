@@ -103,7 +103,9 @@ export interface TimerSourceIR {
   cadence: TimerCadenceIR;
   /** `in: "<tz>"` — inert; carried for future timezone support. */
   timezone?: string;
-  /** `overlap: allow` — inert; the emitted scheduler always skips on overlap. */
+  /** `overlap: allow` — inert; the emitted scheduler always skips on overlap.
+   *  Set only when declared: `loom.reserved-not-emitted` reports a written
+   *  clause, so absence must stay distinct from `false`. */
   overlap?: boolean;
 }
 

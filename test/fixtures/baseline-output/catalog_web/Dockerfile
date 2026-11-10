@@ -32,6 +32,12 @@ COPY --from=build /app/package.json ./package.json
 # from disk; without these the process crashes on boot with
 # "Can't find meta/_journal.json file".
 COPY --from=build /app/db/migrations ./db/migrations
+# Run unprivileged: the base image's `node` user (uid 1000), by number so a
+# k8s `runAsNonRoot` check can verify it.  The app tree stays root-owned and
+# read-only to it; data/ is the one directory the process writes (local
+# object-store resources default there).
+RUN mkdir -p /app/data && chown 1000:1000 /app/data
+USER 1000:1000
 EXPOSE 3000
 # --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
 # without it every stack-trace frame names dist/index.js and `ddd trace`

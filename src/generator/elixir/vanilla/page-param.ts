@@ -27,6 +27,7 @@ import {
   pagedReturn,
 } from "../../../ir/stdlib/generics.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
+import { exFieldCode } from "../wire-policy-ex.js";
 
 /** The bound names the `with` clauses below introduce.  Deliberately
  *  `_arg`-SUFFIXED rather than `__`-prefixed: a LEADING underscore tells Elixir
@@ -102,7 +103,7 @@ export const PAGE_PARAM_HELPER = `
         %{
           pointer: "/" <> key,
           message: "must be between 1 and #{limit}",
-          code: nil
+          code: ${exFieldCode("rule")}
         }
       ]}}
   end`;

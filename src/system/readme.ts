@@ -99,7 +99,7 @@ function whatIsHere(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   }
   lines.push("");
   const db = sys.deployables.some((d) => platformFor(d.platform).needsDb)
-    ? " with a Postgres (`db-init/` creates one database per backend)"
+    ? " with a Postgres (`db-init/` creates one database per `storage`; a backend bound to none gets its own)"
     : "";
   lines.push(
     sys.deployables.length === 1

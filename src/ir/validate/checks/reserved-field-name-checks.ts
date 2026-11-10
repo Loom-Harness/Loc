@@ -29,8 +29,8 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import { snake } from "../../../util/naming.js";
+import { platformHasBackendScope } from "../../../util/target-capabilities.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -58,10 +58,10 @@ function fieldHolders(ctx: BoundedContextIR): [string, string, FieldIR[]][] {
 }
 
 export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const elixirContexts = new Set<string>();
+  const timestampPartContexts = new Set<string>();
   for (const dep of sys.deployables) {
-    if (platformFamily(dep.platform) === "elixir") {
-      for (const c of dep.contextNames) elixirContexts.add(c);
+    if (platformHasBackendScope(dep.platform, "fields:part-implicit-timestamps")) {
+      for (const c of dep.contextNames) timestampPartContexts.add(c);
     }
   }
   for (const m of sys.subdomains) {
@@ -100,7 +100,7 @@ export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[
           });
         }
       }
-      if (!elixirContexts.has(ctx.name)) continue;
+      if (!timestampPartContexts.has(ctx.name)) continue;
       for (const a of ctx.aggregates) {
         // Only a RELATIONAL owner gives its parts table-backed schemas with
         // `timestamps()`; an embedded / document owner folds them into an

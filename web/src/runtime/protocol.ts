@@ -310,6 +310,12 @@ export interface RuntimeProgress {
   note?: string;
 }
 
+/** Lines the deployable logged while no RPC was running — channel
+ *  consumers, the outbox relay, timers.  Posted unasked, in batches. */
+export interface RuntimeBackgroundLogs {
+  backgroundLogs: LogLine[];
+}
+
 export interface RuntimeRpcResponse {
   id: number;
   result?: LoadResult | StartResult | DispatchResult | { ok: true };

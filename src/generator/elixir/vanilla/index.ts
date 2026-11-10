@@ -1,3 +1,4 @@
+import { migratesAtBoot } from "../../../ir/util/databases.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -10,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
+import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
 import {
   type ChannelIR,
   sourceLocaleOf,
@@ -713,8 +715,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // dictionary (the REST `serialize/1` reads it to redact fail-closed), and
     // so does an audited one: `Audit.record/2` reads it for the row's `actor`.
     hasFieldMask: contexts.some(
-      (c) =>
-        contextHasAuditedTarget(c) || c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
+      (c) => contextHasAuditedTarget(c) || c.aggregates.some(carriesFieldMask),
     ),
   });
   for (const [path, content] of authFiles) {
@@ -938,7 +939,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   out.set(".dockerignore", renderDockerignore());
   out.set("certs/.gitkeep", "");
   out.set("rel/env.sh.eex", renderRelEnv(appName));
-  out.set("rel/overlays/bin/server", renderRelServer(appName));
+  out.set("rel/overlays/bin/server", renderRelServer(appName, migratesAtBoot(sys, deployable)));
   out.set(`lib/${appName}/release.ex`, renderRelease(appName, appModule));
 
   // The strict-ingress responders are emitted iff a controller calls them —

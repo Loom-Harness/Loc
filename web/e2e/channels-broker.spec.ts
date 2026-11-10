@@ -104,6 +104,10 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
   });
   page.on("pageerror", (err) => consoleErrors.push(`pageerror: ${err.message}`));
 
+  // Render-count probe (see shell-render-scope.spec.ts), read by the last step.
+  await page.addInitScript(() => {
+    (window as unknown as { __loomRenderCounts: Record<string, number> }).__loomRenderCounts = {};
+  });
   await page.goto("/");
   await waitForPlaygroundReady(page);
   await selectExample(page, /Broker channels/);
@@ -187,5 +191,52 @@ test("channels: redis broadcast, rabbitmq queue + DLQ, kafka log replay across t
     await expect
       .poll(() => sightings(page, "storefront"), { timeout: 30_000 })
       .toEqual(["kafka:LATE", "rabbitmq:LATE", "kafka:POISON", "redis:POISON", ...ALL("WIDGET")].sort());
+  });
+
+  await test.step("consumers log outside any request, and those lines reach Runtime logs", async () => {
+    // Every line below is written by a channel consumer, after the request
+    // that raised the event has returned: no RPC is running in that
+    // deployable, so only the background flush can carry it.
+    await page.getByTestId("devtools-tab-output").click();
+    await page.getByTestId("output-stream-select").click();
+    await page.getByRole("option", { name: "Runtime logs" }).click();
+    const lines = page.getByTestId("output-backend-log-structured");
+    for (const address of ["loom.Catalog.Announcements", "loom.Catalog.Listings", "loom.Catalog.History"]) {
+      await expect(
+        lines.filter({ hasText: "channel_consumed" }).filter({ hasText: address }).and(page.locator('[data-source="storefront"]')).first(),
+        `storefront channel_consumed on ${address}`,
+      ).toBeAttached({ timeout: 30_000 });
+    }
+    for (const source of ["admin", "storefront"]) {
+      await expect(
+        lines.filter({ hasText: "channel_dead_lettered" }).and(page.locator(`[data-source="${source}"]`)).first(),
+        `${source} channel_dead_lettered`,
+      ).toBeAttached({ timeout: 30_000 });
+    }
+  });
+
+  await test.step("background log batches reach the log view without re-rendering the shell", async () => {
+    // The consumers' lines arrive as background batches after the launch
+    // returns.  They land in the `backendLog` ctx field, so the panels that
+    // read it re-render (the dock's tab marks, the log view) and the rest of
+    // the shell does not — a deployable logging on a timer must not cost a
+    // full shell render per batch.
+    const renderCounts = () =>
+      page.evaluate(() => ({
+        ...(window as unknown as { __loomRenderCounts: Record<string, number> }).__loomRenderCounts,
+      }));
+    const consumed = page.getByTestId("output-backend-log-structured").filter({ hasText: "channel_consumed" });
+    await page.waitForTimeout(1_000);
+    const consumedBefore = await consumed.count();
+    const before = await renderCounts();
+    expect(before.DesktopShell ?? 0, "the probe sees the shell").toBeGreaterThan(0);
+    await launch(page, "QUIET");
+    // Three channels × two consuming deployables.
+    await expect.poll(() => consumed.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(consumedBefore + 6);
+    await page.waitForTimeout(500);
+    const after = await renderCounts();
+    for (const name of ["DesktopShell", "PreviewPane", "DesktopHeader", "CommandPalette"]) {
+      expect((after[name] ?? 0) - (before[name] ?? 0), `${name} re-rendered on a background log batch`).toBe(0);
+    }
   });
 });

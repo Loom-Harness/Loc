@@ -4,6 +4,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
@@ -856,6 +857,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
+from app.http.security_headers import SECURE_TRANSPORT
 
 _SCOPES = ${JSON.stringify(scopes)}
 ${
@@ -976,6 +978,13 @@ def _base64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
+def _set_cookie(response: Response, name: str, value: str) -> None:
+    """HttpOnly, SameSite=Lax (the IdP's redirect back to /callback still carries
+    it), and Secure unless ${SECURE_TRANSPORT_ENV} is off (the local compose stack
+    serves plain http), so the tokens never ride cleartext in a TLS deployment."""
+    response.set_cookie(name, value, httponly=True, samesite="lax", secure=SECURE_TRANSPORT)
+
+
 @router.get("/login", include_in_schema=False)
 async def login() -> RedirectResponse:
     authorize = cast(str, _discovery()["authorization_endpoint"])
@@ -996,8 +1005,8 @@ async def login() -> RedirectResponse:
         }
     )
     response = RedirectResponse(authorize + "?" + query)
-    response.set_cookie("oidc_state", state, httponly=True, samesite="lax")
-    response.set_cookie("oidc_verifier", verifier, httponly=True, samesite="lax")
+    _set_cookie(response, "oidc_state", state)
+    _set_cookie(response, "oidc_verifier", verifier)
     return response
 
 
@@ -1051,12 +1060,10 @@ def _store_tokens(response: Response, tokens: dict[str, Any]) -> None:
     """Persist the access token as the session cookie and the refresh token
     (when granted) for /refresh.  Both HttpOnly — the SPA never sees them."""
     access = tokens.get("access_token")
-    response.set_cookie(
-        "session", access if isinstance(access, str) else "", httponly=True, samesite="lax"
-    )
+    _set_cookie(response, "session", access if isinstance(access, str) else "")
     refresh_token = tokens.get("refresh_token")
     if isinstance(refresh_token, str) and refresh_token:
-        response.set_cookie("refresh", refresh_token, httponly=True, samesite="lax")
+        _set_cookie(response, "refresh", refresh_token)
 
 
 def _token_request(form: dict[str, str]) -> dict[str, Any] | None:

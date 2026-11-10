@@ -10,14 +10,14 @@
 //     is not an oracle (the caller who cannot read it is refused first).
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { conjoins, maskLaunderingEvents } from "../../enrich/mask-taint.js";
+import { carriesFieldMask, conjoins, maskLaunderingEvents } from "../../enrich/mask-taint.js";
 import type { BoundedContextIR } from "../../types/loom-ir.js";
 import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { lifecycleGates } from "../../util/op-gates.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 export function validateMaskSinks(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
-  if (!ctx.aggregates.some((a) => a.fields.some((f) => f.maskUnless))) return;
+  if (!ctx.aggregates.some(carriesFieldMask)) return;
   const laundering = maskLaunderingEvents(ctx);
   for (const ch of ctx.channels ?? []) {
     for (const event of ch.carries) {

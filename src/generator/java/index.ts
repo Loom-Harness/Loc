@@ -232,6 +232,7 @@ import {
   renderJavaTimerScheduler,
   renderJobRunrConfig,
 } from "./emit/scheduler.js";
+import { renderSecurityHeadersFilter } from "./emit/security-headers-filter.js";
 import { renderJavaSeedRunner } from "./emit/seed.js";
 import { renderJavaService } from "./emit/service.js";
 import {
@@ -593,6 +594,7 @@ function emitProjectFromContexts(
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
   // RS-39 — an empty request body reads as `{}`.
   place("EmptyJsonBodyFilter.java", "config", renderEmptyJsonBodyFilter(basePkg));
+  place("SecurityHeadersFilter.java", "config", renderSecurityHeadersFilter(basePkg));
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));
