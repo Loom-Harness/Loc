@@ -322,11 +322,49 @@ async function renameEdits(
  *  overlaps — the shared core of `applyPatches` (offset splice) and
  *  `resolvePatchEdits` (LSP ranges). */
 async function resolve(source: string, patches: ModelPatch[]): Promise<Resolved> {
-  const services = createDddServices(EmptyFileSystem);
-  const factory = services.shared.workspace.LangiumDocumentFactory;
-  const doc = factory.fromString<Model>(source, URI.parse("memory:///patch.ddd"));
-  await services.shared.workspace.DocumentBuilder.build([doc]);
+  // One service set serves every call: constructing it runs the Chevrotain
+  // parser self-analysis (hundreds of ms). Calls are serialised and each
+  // document is removed from the shared index afterwards, so no call can
+  // see another's declarations in its global scope.
+  const run = patchQueue.then(() => resolveOnShared(source, patches));
+  patchQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
+let sharedServices: ReturnType<typeof createDddServices> | undefined;
+let patchQueue: Promise<void> = Promise.resolve();
+
+/** Test seam: how many times the shared service set has been constructed. */
+export const patchServicesStats = { created: 0 };
+
+async function resolveOnShared(source: string, patches: ModelPatch[]): Promise<Resolved> {
+  if (!sharedServices) {
+    patchServicesStats.created++;
+    sharedServices = createDddServices(EmptyFileSystem);
+  }
+  const services = sharedServices;
+  const uri = URI.parse("memory:///patch.ddd");
+  const doc = services.shared.workspace.LangiumDocumentFactory.fromString<Model>(source, uri);
+  try {
+    await services.shared.workspace.DocumentBuilder.build([doc]);
+    return await resolveIn(services, doc, source, patches);
+  } finally {
+    services.shared.workspace.IndexManager.remove(uri);
+    if (services.shared.workspace.LangiumDocuments.hasDocument(uri)) {
+      services.shared.workspace.LangiumDocuments.deleteDocument(uri);
+    }
+  }
+}
+
+async function resolveIn(
+  services: ReturnType<typeof createDddServices>,
+  doc: LangiumDocument<Model>,
+  source: string,
+  patches: ModelPatch[],
+): Promise<Resolved> {
   const { map, ambiguous } = indexTargets(doc.parseResult.value);
   const errors: PatchError[] = [];
   const edits: { edit: Edit; patch: ModelPatch }[] = [];

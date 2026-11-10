@@ -146,6 +146,15 @@ const PINNED: Record<string, Pin> = {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",
   },
+  "src/language/model-patch.ts:sharedServices": {
+    discipline: "build-once-cache",
+    reason:
+      "Lazily-built Langium service set; calls are serialised and each removes its document from the index in `finally`, so no declarations survive a call.",
+  },
+  "src/language/model-patch.ts:patchQueue": {
+    discipline: "ordering-chain",
+    reason: "Serialises calls on the shared services; the chained value is always `undefined`.",
+  },
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",
     reason: "Parsed stdlib decls, built once; consumers only read.",
