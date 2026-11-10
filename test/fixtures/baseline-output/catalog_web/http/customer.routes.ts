@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, problemParams, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Customer } from "../domain/customer";
@@ -118,7 +118,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
         if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
-          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use", params: {"type":"Customers.Customer"} }), 409, { "content-type": "application/problem+json" });
+          return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path, code: "problem.referenced-in-use", ...problemParams("problem.referenced-in-use", c.req.path) }), 409, { "content-type": "application/problem+json" });
         }
         throw err;
       }
@@ -181,7 +181,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
 
   app.onError((err, c) => {
     const trace_id = c.get("requestId") ?? "";
-    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
+    const problem = (status: 403 | 404 | 409 | 422 | 500, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });
     if (err instanceof ForbiddenError) {
       c.get("log").warn({ event: "forbidden", aggregate: "Customer", message: err.message, status: 403 });
       recordDomainFault("forbidden");
@@ -190,7 +190,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     if (err instanceof DisallowedError) {
       c.get("log").warn({ event: "disallowed", aggregate: "Customer", message: err.message, status: 409 });
       recordDomainFault("disallowed");
-      return problem(409, "Disallowed", err.message, "problem.state-gate", {"type":"Customers.Customer"});
+      return problem(409, "Disallowed", err.message, "problem.state-gate");
     }
     if (err instanceof DomainError) {
       c.get("log").warn({ event: "domain_error", aggregate: "Customer", message: err.message, status: 422 });
@@ -200,12 +200,12 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
     if (err instanceof AggregateNotFoundError) {
       c.get("log").warn({ event: "not_found", aggregate: "Customer", status: 404 });
       recordDomainFault("not_found");
-      return problem(404, "Not Found", err.message, "problem.not-found", {"type":"Customers.Customer"});
+      return problem(404, "Not Found", err.message, "problem.not-found");
     }
     if (err instanceof ConcurrencyError) {
       c.get("log").warn({ event: "conflict", aggregate: "Customer", message: err.message, status: 409 });
       recordDomainFault("conflict");
-      return problem(409, "Conflict", err.message, "problem.version-conflict", {"type":"Customers.Customer"});
+      return problem(409, "Conflict", err.message, "problem.version-conflict");
     }
     if (err instanceof ExternHandlerError) {
       c.get("log").error({ event: "extern_handler_threw", aggregate: err.aggName, op: err.opName, error: err.message });
