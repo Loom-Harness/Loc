@@ -150,7 +150,9 @@ describe("enum value rename — AST validation", () => {
     const { diagnostics } = await parseString(
       `${SYS(V2)}\nmigration "m" { Nope.Draft -> Pending }`,
     );
-    expect(diagnostics.some((d) => /Could not resolve reference/.test(d.message))).toBe(true);
+    expect(diagnostics.some((d) => /Could not resolve reference/.test(String(d.message)))).toBe(
+      true,
+    );
   });
 });
 
