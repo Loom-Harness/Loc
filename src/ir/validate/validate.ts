@@ -38,6 +38,7 @@ import {
   validateSelfProvisioningSchemaSupport,
   validateTableSteps,
 } from "./checks/migration-checks.js";
+import { validateModelTextOwners } from "./checks/model-text-owner-checks.js";
 import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
@@ -260,6 +261,7 @@ export function validateLoomModel(
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateHostedTypeNames(sys, diags);
+    validateModelTextOwners(sys, diags);
     validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);

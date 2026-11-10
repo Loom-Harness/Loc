@@ -291,10 +291,7 @@ function hasChoice(nodes: readonly IcuNode[]): boolean {
   return nodes.some((n) => n.kind === "choice");
 }
 
-function tagIssues(
-  source: readonly IcuNode[] | undefined,
-  parsed: readonly IcuNode[],
-): IcuIssue[] {
+function tagIssues(source: readonly IcuNode[] | undefined, parsed: readonly IcuNode[]): IcuIssue[] {
   const issues: IcuIssue[] = [];
   balanceIssues(parsed, issues);
   const have = collectTags(parsed);

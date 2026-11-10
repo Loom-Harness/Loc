@@ -788,6 +788,17 @@ migration "m" { A.Note -> B.Note }`,
   // model element, a plural of a member, a call outside every page/component
   // body, and a call spliced into a template.
   "loom.model-text-unresolved": uiPage(`Text { label(Item.nope) }`),
+  // `Home` references `Status`, declared by neither it nor the system level but by
+  // both `Alpha` and `Beta`: the implicit form labels have no single owner.
+  "loom.model-text-implicit-ambiguous": `
+system S {
+  subdomain D {
+    context Alpha { aggregate Widget with crudish { n: int } enum Status { On, Off } }
+    context Beta { aggregate Gadget with crudish { n: int } enum Status { Up, Down } }
+    context Home { aggregate Hub with crudish { s: Status } }
+  }
+  ui WebApp with scaffold(subdomains: [D]) { }
+}`,
   "loom.model-text-plural-member": uiPage(`Text { plural(Item.sku) }`),
   "loom.model-text-outside-ui": repoOnly(`    aggregate Item with crudish {
       sku: string
