@@ -1,4 +1,6 @@
+import { MISSING_FILE_PART_DETAIL } from "../../../ir/enrich/wire-policy.js";
 import type { ApiRoute } from "../api-emit.js";
+import { exLit, exProblemResponse } from "../wire-policy-ex.js";
 
 // ---------------------------------------------------------------------------
 // File upload/download endpoints (M-T1.2) — the app-level HTTP
@@ -52,9 +54,7 @@ defmodule ${webModule}.FilesController do
   end
 
   def upload(conn, _params) do
-    conn
-    |> put_status(400)
-    |> json(%{"error" => "expected a 'file' upload"})
+    ${exProblemResponse("malformed-body", exLit(MISSING_FILE_PART_DETAIL))}
   end
 
   def download(conn, %{"key" => key}) do

@@ -526,6 +526,17 @@ const __frameworkProbesRun = async (dispatch, opts = {}) => {
   // trailing ordinal — never shift one an existing golden aligns on.
   if (opts.files) {
     await dispatch({ method: "GET", url: origin + "/files/__loom_absent", headers: { ...__authHeaders } });
+    // The upload with no \`file\` part: a multipart POST carrying only another
+    // field.  Like the absent read, no \`test e2e\` step can send it (the DSL
+    // speaks \`api.<agg>.<op>\`, JSON only), so it rides the probe tier and is
+    // diffed against the golden on every leg.  Every backend answers the same
+    // RFC 9457 400 \`problem.malformed-body\`.
+    await dispatch({
+      method: "POST",
+      url: origin + "/files",
+      headers: { ...__authHeaders, "content-type": "multipart/form-data; boundary=loomb" },
+      body: '--loomb\\r\\nContent-Disposition: form-data; name="other"\\r\\n\\r\\nx\\r\\n--loomb--\\r\\n',
+    });
   }
   await __emptyCommandBodyProbes(dispatch);
   await __twoWriterProbe(dispatch);
