@@ -569,14 +569,38 @@ function primitiveCodeBlock(c: Ctx): string {
 }
 
 // --- Data-display primitives ----------------------------------------------
-/** Money(value, currency?, decimals?) — a tabular-nums amount, currency-prefixed
- *  when given.  `valueExpr` is already an F# expression (a field read / literal);
- *  `string (…)` coerces whatever its type (decimal / int) to text. */
+/** Money(value, currency?, decimals?, format?) — a tabular-nums amount,
+ *  currency-prefixed when given.  `valueExpr` is already an F# expression (a
+ *  field read / literal); `string (…)` coerces whatever its type (decimal / int)
+ *  to text.
+ *
+ *  `format: "locale"` hands that digit string to `Intl.NumberFormat` in the
+ *  active locale (`I18n.getLocale ()` under i18n, else the browser's) through
+ *  one `emitJsExpr`.  The string goes in whole — Fable's decimal is a
+ *  decimal-string type, so no float is involved.  The decimal type does not
+ *  keep trailing zeros, so the fraction digits are the currency's own minimum
+ *  (or `decimals:`), widened to the value's digits when it has more. */
 function primitiveMoney(c: Ctx): string {
   const amount = `string (${String(c.valueExpr ?? "0")})`;
+  if (c.hasLocaleFormat) {
+    const locale = c.hasI18n ? "I18n.getLocale ()" : '""';
+    const currency = c.hasCurrency ? String(c.currency) : '""';
+    const decimals = c.hasDecimals ? String(Number(c.decimals)) : "-1";
+    const text = `(Fable.Core.JsInterop.emitJsExpr<string> (${amount}, ${locale}, ${currency}, ${decimals}) "${FELIZ_LOCALE_MONEY_JS}")`;
+    return `Html.span [ prop.className "tabular-nums"; prop.text ${text} ]`;
+  }
   const text = c.hasCurrency ? `(${String(c.currency)} + " " + ${amount})` : `(${amount})`;
   return `Html.span [ prop.className "tabular-nums"; prop.text ${text} ]`;
 }
+/** The JS behind a locale-formatted Feliz `Money`: `$0` the digit string, `$1`
+ *  the locale tag (empty = the browser's), `$2` the currency code (empty = a
+ *  plain number), `$3` an exact fraction-digit count (-1 = unspecified).
+ *  Single quotes only (it nests inside an F# string literal) and no `$` / `\`
+ *  besides the argument placeholders.  Anything that is not a plain decimal
+ *  literal, or a currency code the runtime rejects, falls back to the verbatim
+ *  spelling. */
+const FELIZ_LOCALE_MONEY_JS =
+  "(function(v,l,c,d){var raw=c?c+' '+v:v;var m=/^([+-]?)([0-9]+)(?:[.]([0-9]*))?/.exec(v);if(!m||m[0]!==v)return raw;var f=m[3]||'';try{var o={};if(c){o.style='currency';o.currency=c}var mn=0;if(d>=0){mn=d}else if(c){mn=new Intl.NumberFormat(l||undefined,o).resolvedOptions().minimumFractionDigits}o.minimumFractionDigits=mn;o.maximumFractionDigits=d>=0?d:Math.max(f.length,mn);return new Intl.NumberFormat(l||undefined,o).format((m[1]==='-'?'-':'')+m[2]+(f?'.'+f:''))}catch(e){return raw}})($0,$1,$2,$3)";
 function primitiveDateDisplay(c: Ctx): string {
   const value = String(c.valueExpr ?? '""');
   return `Html.time [ prop.className "whitespace-nowrap text-sm text-base-content/70"; prop.text (string (${value})) ]`;

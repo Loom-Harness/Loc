@@ -61,9 +61,10 @@ export function formatMoney(
   value: number | string | { toString(): string } | null | undefined,
   currency?: string,
   decimals?: number,
+  localized?: boolean,
 ): string {
   if (isEmpty(value)) return "—";
-  return moneyText(value as number | string | { toString(): string }, currency, decimals);
+  return moneyText(value as number | string | { toString(): string }, currency, decimals, localized, {{#if i18nEnabled}}localized ? getLocale() : undefined{{else}}undefined{{/if}});
 }
 
 {{{moneySource}}}

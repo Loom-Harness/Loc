@@ -52,6 +52,7 @@ import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregatesWithTuple } from "../../util/feature-atoms.js";
+import { bodyUsesMoneyLocaleFormat } from "../../util/money-locale-format.js";
 import { contextReadsOrgAncestors, registryContextName } from "../../util/org-context.js";
 import { findValueObjectInScope } from "../../util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
@@ -99,6 +100,10 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
   "primitive:Chart@body": (ui) =>
     uiBodies(ui)
       .filter((b) => bodyUsesChart(b.body))
+      .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
+  "primitive:Money-locale-format@body": (ui) =>
+    uiBodies(ui)
+      .filter((b) => bodyUsesMoneyLocaleFormat(b.body))
       .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
   "read:entity-history@body": (ui, sys) => {
     const aggregates = new Set<string>();
@@ -577,6 +582,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#chart", { what: use.what, dName, target: t }),
+        use,
+      );
+      return;
+    case "money-locale-format":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#money-locale-format", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
         use,
       );
       return;

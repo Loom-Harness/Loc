@@ -450,33 +450,21 @@ function nullSafe(type: string, formatted: string, value: string, empty = "'\u20
   return `((${type}? v) => v == null ? ${empty} : ${formatted})(${value})`;
 }
 
-/** Money(value, currency?, decimals?) — a currency-prefixed amount, formatted
- *  through `intl`'s `NumberFormat` (grouping separators + fixed fraction digits)
- *  rather than a bare `double.toString()` — the Dart twin of the JS frontends'
- *  `Intl.NumberFormat`.  The `intl` import is added on demand by the file
- *  emitters (they scan the body for `NumberFormat`/`DateFormat`). */
+/** Money(value, currency?, decimals?, format?) — the shared money display
+ *  contract: the wire digits VERBATIM by default (`EUR 12.3456`), `decimals`
+ *  re-scaling the digit string, and `format: "locale"` rendering the same digits
+ *  in the active locale's conventions.  All of it runs in `LoomMoney.display`
+ *  (`money-runtime.ts`) on the value's STRING — a money value is never routed
+ *  through a `double` for display, so a `NUMERIC(19,4)` amount keeps every
+ *  digit.  The `Intl.defaultLocale` the locale runtime keeps current picks the
+ *  locale. */
 function primitiveMoney(c: Ctx): string {
-  // The bound value is a money WIRE STRING (`dart-types.ts` — M-T1.21), and
-  // `NumberFormat.format` takes a `num`, so the parse happens HERE, at the
-  // display boundary, and only for formatting.  `LoomMoney.toNum` is total over
-  // both shapes it can meet (the string; a bare number from an ungenerated
-  // endpoint), so a `Money { }` never throws on the value it was handed.
-  const raw = String(c.valueExpr ?? "0");
-  const value = `LoomMoney.toNum(${raw})`;
-  // `decimals` is only meaningful when explicitly given (`hasDecimals`); left off,
-  // NumberFormat.currency uses the currency's own fraction digits (2 for most),
-  // so an unspecified `decimals` must NOT collapse to `decimalDigits: 0`.
-  const dd = c.hasDecimals ? Number(c.decimals) : undefined;
-  let fmt: string;
-  if (c.hasCurrency) {
-    const ddArg = dd != null ? `decimalDigits: ${dd}, ` : "";
-    fmt = `NumberFormat.currency(${ddArg}symbol: '\${${String(c.currency)}} ')`;
-  } else if (dd != null) {
-    fmt = `(NumberFormat.decimalPattern()..minimumFractionDigits = ${dd}..maximumFractionDigits = ${dd})`;
-  } else {
-    fmt = `NumberFormat.decimalPattern()`;
-  }
-  return `Text(${nullSafe("num", `${fmt}.format(v)`, value)}, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))`;
+  const args: string[] = [];
+  if (c.hasCurrency) args.push(`currency: ${String(c.currency)}`);
+  if (c.hasDecimals) args.push(`decimals: ${Number(c.decimals)}`);
+  if (c.hasLocaleFormat) args.push("localized: true");
+  const call = `LoomMoney.display(v${args.map((a) => `, ${a}`).join("")})`;
+  return `Text(${nullSafe("Object", call, String(c.valueExpr ?? "0"))}, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))`;
 }
 
 /** DateDisplay(value) — a locale-formatted date via `intl`'s `DateFormat`
