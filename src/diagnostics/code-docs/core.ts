@@ -30,6 +30,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.unresolved-call": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.unresolved-member": "05-expressions.md#member-access--calls",
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
+  "loom.unresolved-type": "04-type-system.md",
   "loom.duplicate-repository": "10-repositories-and-queries.md#repository--the-read-contract",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------

@@ -60,7 +60,7 @@ const SYS = `
       let left = api.orders.all()
       expect(left.items.length).toBe(1)
       let open = api.orders.getOrderByStatus("Open")
-      expect(open.length).toBe(1)
+      expect(open.code).toBe("B")
     }
   }
 `;
