@@ -23,7 +23,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
-import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
+import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import {
   renderI18nModule,
@@ -255,6 +255,7 @@ export function generateReactForContexts(
     contexts,
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
+    sessionView: authUi,
   };
   const emitCtx = {
     sys,
@@ -339,7 +340,7 @@ export function generateReactForContexts(
   out.set("src/api/config.ts", renderShellFile("api-config", { apiBaseUrl }, pack));
   if (authUi) {
     out.set("src/auth/session.ts", AUTH_SESSION_TS);
-    out.set("src/auth/AuthGate.tsx", AUTH_GATE_TSX);
+    out.set("src/auth/AuthGate.tsx", authGateTsx(i18nEnabled));
   }
   // Realtime SSE client (channels.md Part I): when the targeted backend
   // exposes the realtime wire (any `delivery: broadcast` channel; Hono is
