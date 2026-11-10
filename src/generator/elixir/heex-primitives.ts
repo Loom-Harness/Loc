@@ -128,50 +128,6 @@ export function renderBreadcrumbs(
   return `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${indent(itemsHeex, 2)}\n  </ol>\n</nav>`;
 }
 
-/** `Anchor("label", to: "/path")` → `<.link navigate={~p"/path"}>label</.link>`
- *  A literal internal route uses the verified-route `~p` sigil; a literal
- *  external URL falls back to `<a href="...">`.  A *dynamic* `to:` (e.g.
- *  `"/x/" <> id`) is an Elixir expression, so it must ride a HEEx EXPRESSION
- *  attribute — `<.link navigate={<expr>}>` — never a quoted literal attribute
- *  (which would emit `href="…" <> id"`, a HEEx tokenizer ParseError).
- *  `testid:` becomes `data-testid`. */
-export function renderAnchor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let label = "";
-  let toLiteral: string | undefined;
-  let toExpr: string | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "to") {
-      if (arg.kind === "literal") {
-        toLiteral = arg.value;
-      } else {
-        toExpr = renderExpr(arg, { ...ctx, position: "template" });
-      }
-    }
-  }
-  label = positional[0] ? renderInTemplate(positional[0], ctx, "anchor") : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  if (toLiteral !== undefined) {
-    if (toLiteral.startsWith("/")) {
-      return `<.link navigate={~p"${toLiteral}"}${testidAttr}>${label}</.link>`;
-    }
-    return `<a href="${toLiteral}"${testidAttr}>${label}</a>`;
-  }
-  // NO `to:` at all — a breadcrumb leaf / plain label, exactly what the JSX
-  // family renders as a bare `<Anchor>`/`<a>` and Feliz as `Html.span`.  Routed
-  // into the dynamic branch below it would emit `<.link navigate={}>` with an
-  // EMPTY expression attribute — a tokenizer ParseError at `mix compile`, so
-  // one linkless Anchor takes the whole LiveView app out.  `renderIdLink`
-  // spells the same no-destination case as a `<span>`.
-  if (toExpr === undefined) return `<span${testidAttr}>${label}</span>`;
-  // Dynamic route expression — emit it as a HEEx expression attribute.
-  return `<.link navigate={${toExpr}}${testidAttr}>${label}</.link>`;
-}
-
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
  *  → a `<.button phx-click={show_modal(id)}>` trigger followed by
  *  a `<.modal id=…>` hosting a `<.simple_form for={@<op>_form}>`
@@ -1843,13 +1799,10 @@ const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
 
 /** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
  *  Listed inline so the small set is easy to scan.  The registered
- *  per-primitive exports (`renderStack`, `renderHeading`, …) bind to
+ *  per-primitive exports (`renderToolbar`, `renderBadge`, …) bind to
  *  these specs; the typed dispatch table at
  *  src/generator/_walker/registry.ts wires them up by name. */
 const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  // Heading is rendered by the bespoke `renderHeading` (raw `<h{n}>` with a
-  // structure-derived rank), not through this generic spec table.
-  Text: { tag: "p", takesChildren: true },
   // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
   // author's `label:` overrides it (and translates), which needs
   // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
@@ -1884,11 +1837,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     passThroughAttrs: ["to", "disabled", "type", "variant"],
     staticAttrs: ["variant", "type"],
   },
-  // --- inline-emphasis primitives — plain HTML inline elements, the
-  //     Phoenix analogue of the TSX `<strong>`/`<em>`/`<code>` spans. ---
-  Bold: { tag: "strong", takesChildren: true },
-  Italic: { tag: "em", takesChildren: true },
-  InlineCode: { tag: "code", takesChildren: true },
   // --- scaffold expander primitives ---
   // `Paper` is a titleless `Card` (same surface, no header) — same pack
   // component, so the two stay visually consistent by construction.
@@ -1899,49 +1847,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
 // `renderPrimitive` helper to a specific `closedPrimitive` spec so
 // the typed dispatch table can reference one named function per
 // primitive (rather than re-dispatching by name inside the renderer).
-/** `Heading("text", level?)` → a raw `<h{n}>` whose rank is the explicit
- *  `level:` (1..6) or, when absent, DERIVED from the enclosing `Section`/`Card`
- *  nesting depth: `min(6, 2 + headingDepth)` — matching the JSX frontends
- *  (`emitHeading` in _walker/primitives/text.ts) so ranks never skip.  At page
- *  top (depth 0) this is `<h2>`; the app shell owns the single `<h1>`.
- *
- *  Emitting a raw `<h{n}>` (vs the fixed-level `.header` CoreComponent, which
- *  always renders an `<h1>`) is what makes the derived rank observable to
- *  assistive tech — the `.header`'s subtitle/action slots are unused by Loom's
- *  `Heading` primitive, so nothing is lost.  The class mirrors `.header`'s own
- *  typography so the visual result is unchanged. */
-export function renderHeading(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let level: number | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "level" && arg.kind === "literal") {
-      level = Number(arg.value);
-    }
-  }
-  const rank = level ?? Math.min(6, 2 + (ctx.headingDepth ?? 0));
-  const text = positional[0] ? renderInTemplate(positional[0], ctx, "heading") : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  return `<h${rank} class="text-lg font-semibold leading-8 text-zinc-800"${testidAttr}>${text}</h${rank}>`;
-}
-export function renderText(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Text!, expr, ctx);
-}
-export function renderBold(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Bold!, expr, ctx);
-}
-export function renderItalic(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Italic!, expr, ctx);
-}
-export function renderInlineCode(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.InlineCode!, expr, ctx);
-}
 
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
  *  quoted strings; refs render as `{@assign}` HEEx expressions. */

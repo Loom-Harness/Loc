@@ -227,6 +227,8 @@ export function emitAnchor(
     // the two procedural packs (Feliz's `prop.href`, Flutter's `pushNamed`)
     // consume, since neither renders HTML attributes.
     to: nav?.expr,
+    // The destination's source text when it is a literal.
+    toLiteral: nav?.literal,
     hasTo: nav !== undefined,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
@@ -337,9 +339,20 @@ export function emitHeading(
 }
 
 export function emitText(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
-  void depth;
+  const rich = localizedRichText(call, ctx);
   return renderPrimitive(ctx, "primitive-text", {
-    text: localizedRichText(call, ctx) ?? localizedText(call, ctx, "text", '""'),
+    text: rich ?? localizedText(call, ctx, "text", '""'),
+    // The positionals after the first, walked as children — a thunk, so only a
+    // pack that renders them (one element per child) walks them.
+    restChildren:
+      rich === undefined
+        ? () =>
+            positionalArgs(call)
+              .slice(1)
+              .map((a) => walk(a, ctx, depth + 1))
+        : () => [],
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
@@ -348,10 +361,12 @@ export function emitText(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
 /** `Bold { "..." }` — inline strong-emphasis span.  Same shape as
  *  `emitText`; lowers to the pack-specific `<strong>` equivalent. */
 export function emitBold(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-bold", {
     text: localizedText(call, ctx, "bold", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 
@@ -362,10 +377,12 @@ export function emitItalic(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-italic", {
     text: localizedText(call, ctx, "italic", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 
@@ -376,10 +393,12 @@ export function emitInlineCode(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
   return renderPrimitive(ctx, "primitive-inline-code", {
     text: localizedText(call, ctx, "code", '""'),
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
   });
 }
 
