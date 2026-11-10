@@ -604,6 +604,9 @@
         "code": "problem.state-gate",
         "detail": "operation 'relabel' is not allowed in the current state of Rack.",
         "instance": "/api/racks/{id}/relabel",
+        "params": {
+          "type": "Shop.Rack"
+        },
         "status": 409,
         "title": "Disallowed",
         "type": "about:blank"
@@ -699,6 +702,9 @@
         "code": "problem.not-found",
         "detail": "Rack {id} not found",
         "instance": "/api/racks/{id}",
+        "params": {
+          "type": "Shop.Rack"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -713,6 +719,9 @@
         "code": "problem.not-found",
         "detail": "Seal {id} not found",
         "instance": "/api/seals/{id}/update",
+        "params": {
+          "type": "Shop.Seal"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -727,6 +736,9 @@
         "code": "problem.not-found",
         "detail": "Seal {id} not found",
         "instance": "/api/seals/{id}",
+        "params": {
+          "type": "Shop.Seal"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
