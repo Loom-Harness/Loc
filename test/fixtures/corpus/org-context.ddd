@@ -16,6 +16,11 @@
 //     stamp seam) — and the harness can read the value back on the wire.
 //   - `probe(org)` reads `organizationContext.ancestors` — the operating org
 //     and every org above it — both directly and through a policy function.
+//   - `Memo` is readable beyond its org through row rules that test a COLUMN
+//     against `organizationContext.ancestors` (a `= ANY(...)` / `IN` in the
+//     query): directly (`reader`, the memo opens to that org's subtree) and
+//     inside an `exists` over `MemoGrant` rows — the shape `shareable`'s
+//     `Subtree` grantee takes.
 //   - `Org` is the registry tree.  Its `parent` is an ordinary mutable field;
 //     `move(to)` is AUTHORED (the capability generates none), which is how the
 //     harness re-parents an org and closes a deliberate cycle.
@@ -50,6 +55,19 @@ system OrgContext {
           lineage := organizationContext.ancestors.count()
           underOrg := InLineage(org)
         }
+      }
+      aggregate Memo with tenantOwned, crudish {
+        body: string
+        reader: Org id
+      }
+      aggregate MemoGrant with tenantOwned, crudish {
+        memo: Memo id
+        org: Org id
+      }
+      policy {
+        allow read on MemoGrant as g where InLineage(g.org)
+        allow read on Memo as m where
+          InLineage(m.reader) || exists MemoGrant as g where g.memo == m.id && InLineage(g.org)
       }
       aggregate Org with crudish {
         name: string

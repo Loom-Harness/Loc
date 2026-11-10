@@ -1066,7 +1066,7 @@ function javaPrincipalFilterNames(
       const cond = m[2] ?? "";
       if (
         f.claims.every((c) =>
-          new RegExp(`:__cu(?:Subtree|IsNull|Name)?${esc(pascal(c))}(?:AsUuid)?\\b`).test(cond),
+          new RegExp(`:__cu(?:Subtree|IsNull|Name|Csv)?${esc(pascal(c))}(?:AsUuid)?\\b`).test(cond),
         )
       ) {
         out.push(m[1]!);
