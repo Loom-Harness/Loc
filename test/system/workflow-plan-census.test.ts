@@ -26,12 +26,17 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               `.instanceWireShape` (bare, `!!`-wrapped or `!= null`).
 //               → use `eventSourcedWorkflows` / `observableWorkflows`.
 //
-// SCOPE.  `src/generator/`, `src/platform/`, `src/system/`.  The plan itself
+//   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
+//               `.name` with a workflow's `.name` — the hand-spelled "this
+//               create returns the workflow itself" test.
+//               → use `isWorkflowSelfType` / `commandCreateReturnsSelf`.
+//
+// SCOPE.  `src/generator/`, `src/platform/`, `src/system/`, `src/ir/validate/`.  The plan itself
 // (`src/ir/plan/`) is the one place allowed to spell the predicates.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const SCANNED_ROOTS = ["src/generator", "src/platform", "src/system"];
+const SCANNED_ROOTS = ["src/generator", "src/platform", "src/system", "src/ir/validate"];
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -90,7 +95,7 @@ function isTruthinessRead(body: ts.Node, prop: string): boolean {
 }
 
 interface Violation {
-  rule: "state-row" | "set-filter";
+  rule: "state-row" | "set-filter" | "self-result";
   where: string;
   text: string;
 }
@@ -117,6 +122,28 @@ function scan(file: string): Violation[] {
         if ((isAnd && corr.positive && !es.positive) || (!isAnd && !corr.positive && es.positive)) {
           out.push({ rule: "state-row", where: at(n), text: n.getText(sf) });
         }
+      }
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
+      const sides = [n.left, n.right].map((e) => peel(e).inner);
+      const isEntityKind = (e: ts.Expression) =>
+        ts.isBinaryExpression(e) &&
+        e.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        propName(e.left) === "kind" &&
+        ts.isStringLiteral(e.right) &&
+        e.right.text === "entity";
+      const isWorkflowName = (e: ts.Expression) =>
+        ts.isBinaryExpression(e) &&
+        e.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        propName(e.left) === "name" &&
+        ts.isPropertyAccessExpression(e.right) &&
+        e.right.name.text === "name" &&
+        /^(wf|workflow)$/.test(e.right.expression.getText(sf));
+      if (sides.some(isEntityKind) && sides.some(isWorkflowName)) {
+        out.push({ rule: "self-result", where: at(n), text: n.getText(sf) });
       }
     }
     if (
@@ -153,6 +180,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend recomputes the state-row workflow predicate (use hasStateRow / stateRowWorkflows)", () => {
     const hits = violations.filter((v) => v.rule === "state-row");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the workflow self-result test (use isWorkflowSelfType / commandCreateReturnsSelf)", () => {
+    const hits = violations.filter((v) => v.rule === "self-result");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
