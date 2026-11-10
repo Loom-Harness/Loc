@@ -188,8 +188,31 @@ function typeOf(e: ExprIR): TypeIR | undefined {
       return e.resultType;
     case "unary":
       return e.op === "!" ? BOOL : typeOf(e.operand);
-    default:
+    // No type on the node itself: the lift falls back to the comparison's
+    // other side, and refuses the gate when there is none.
+    case "literal":
+    case "this":
+    case "id":
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "exists":
+    case "i18nFormat":
+    case "lambda":
+    case "list":
+    case "match":
+    case "method-call":
+    case "modelText":
+    case "new":
+    case "object":
+    case "ternary":
       return undefined;
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }
 
