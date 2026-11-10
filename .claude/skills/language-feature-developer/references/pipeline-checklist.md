@@ -146,6 +146,14 @@ tells you when it applies.
 ### web playground parity — if the feature changes the builder model surface
 - `web/src/builder/system/{fields,model}.ts`.
 
+### Intersections — always for a feature that combines with others
+- `test/pairwise/axes.ts` + `test/pairwise/compose.ts` — an aggregate-level
+  modifier becomes an axis value; `test/pairwise/axis-coverage.test.ts` is the
+  census that enforces it (waivers expire).
+- `src/util/target-capabilities.ts` — the feature's row against the features it
+  meets: witnessed by a fixture, or refused with a `loom.*` diagnostic.
+- `npm run test:pairwise-corpus` / `-tsc` / the touched backends' compile cells.
+
 ### docs — always for a user-visible feature
 - A per-feature `docs/<feature>.md`, or extend `docs/capabilities.md` /
   `docs/generators.md` (the per-backend matrix) / `docs/language.md`.
