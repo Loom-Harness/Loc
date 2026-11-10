@@ -275,7 +275,7 @@ export function schemaFromModule(
   };
 
   for (const agg of pool) {
-    const produced = withTenantIndex(agg, tablesForOneAggregate(agg));
+    const produced = withTenantIndex(agg, tablesForOneAggregate(agg), pool);
     const schema = schemaOf(agg, ctxFor(agg));
     if (schema !== undefined) {
       for (const t of produced) t.schema = schema;
@@ -3446,8 +3446,18 @@ function applyManualIndexes(tables: readonly TableShape[], specs: readonly Manua
  *  `unique (tenantId, ...)`-style index only by exact single-column shape —
  *  a unique composite still benefits from the plain prefix index.  The
  *  registry, id-keyed and NOT `tenantOwned`, is read by id and gets none. */
-function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
-  if (!(agg.capabilities?.includes("tenantOwned") ?? false)) return tables;
+function withTenantIndex(
+  agg: AggregateIR,
+  tables: TableShape[],
+  pool: readonly AggregateIR[],
+): TableShape[] {
+  const owned = (a: AggregateIR): boolean => a.capabilities?.includes("tenantOwned") ?? false;
+  // A TPH base's shared table carries `tenant_id` when ANY concrete of the
+  // hierarchy is tenant-owned, so the stance may live only on a subtype.
+  const tphOwned =
+    isTphBase(agg, pool) &&
+    pool.some((c) => isTphConcrete(c, pool) && tableOwnerName(c, pool) === agg.name && owned(c));
+  if (!owned(agg) && !tphOwned) return tables;
   const derive = (column: string): void => {
     for (const t of tables) {
       if (!t.columns.some((c) => c.name === column)) continue;
