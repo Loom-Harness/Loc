@@ -17,7 +17,7 @@ export const TENANT_OWNED_CAPABILITY = "tenantOwned";
  *  top-level org), used to manage sub-tenants; data visibility never follows
  *  the tree (D-TENANCY-FLAT).  Only the registry (the `of <Registry>` target)
  *  may carry it.  See `src/macros/prelude.ts`. */
-export const TENANT_REGISTRY_CAPABILITY = "tenantRegistry";
+const TENANT_REGISTRY_CAPABILITY = "tenantRegistry";
 
 /** `contextFilterOrigins` marker for the DERIVED registry self-scope filter
  *  (tenancy.md): under `tenancy by
