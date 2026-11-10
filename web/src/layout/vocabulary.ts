@@ -436,7 +436,7 @@ export const RUNTIME_USERS = {
   builtIn: "Built-in dev identity",
   override: "Override (Auth tab)",
   none: "No dev identities — this system declares no user block, so requests carry no identity.",
-  oidc: "OIDC verifier active — identities come from the configured provider, not a stub.",
+  oidc: "OIDC verifier active — requests carry the token minted under Auth for a persona of the dev realm, not a stub.",
 } as const;
 
 export const REQUESTS = {

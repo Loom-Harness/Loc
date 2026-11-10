@@ -31,6 +31,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { isWorkflowSelfType } from "../../plan/index.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectIR } from "../../types/effect-ir.js";
 import type { BoundedContextIR, EnrichedLoomModel, WorkflowStmtIR } from "../../types/loom-ir.js";
@@ -244,7 +245,7 @@ export function expectedFailureEntryPoints(
     if (!r) continue;
     const where = `workflow '${wf.name}'`;
     if (commandCreateEntryResult(wf, ctx)) out.push({ where, slug: "" });
-    else if (r.type.kind === "entity" && r.type.name === wf.name) {
+    else if (isWorkflowSelfType(wf, r.type)) {
       out.push({ where, slug: "#workflow-state" });
     }
   }

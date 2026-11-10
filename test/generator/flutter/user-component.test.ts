@@ -75,7 +75,7 @@ describe("flutter user components", () => {
 //
 // The fix is the shape a read-bearing PAGE already takes: a Riverpod
 // `ConsumerWidget` whose `build` receives the `WidgetRef` and hoists
-// `ref.watch(<var>Provider…)` through the same `renderApiHoisting` seam.
+// `ref.watch(<var>Provider…)` through the same `renderDataBindings` seam.
 // `collectFlutterReads` scans component bodies too, so the provider it watches
 // is in `reads.dart`.
 // ---------------------------------------------------------------------------

@@ -62,20 +62,22 @@ async function file(suffix: string): Promise<string> {
 describe("a missing tenancy claim refuses the write (F-018)", () => {
   it("node — the shared stamp helper throws ForbiddenError before building the row", async () => {
     const src = await file("api_node/db/audit-stamp.ts");
-    expect(src).toContain('if (currentUser.tenantId == null || currentUser.tenantId === "") {');
+    expect(src).toContain(
+      'if (currentUser.operatingOrg == null || currentUser.operatingOrg === "") {',
+    );
     expect(src).toContain("throw new ForbiddenError(");
     expect(src).toContain('import { ForbiddenError } from "../domain/errors";');
     // The refusal must come BEFORE the row is assembled, or the null is already
     // in the values and the guard is decoration.
     expect(src.indexOf("throw new ForbiddenError(")).toBeLessThan(
-      src.indexOf("tenantId: currentUser.tenantId"),
+      src.indexOf("tenantId: currentUser.operatingOrg"),
     );
   });
 
   it("dotnet — the SaveChanges interceptor throws ForbiddenException in the Added arm", async () => {
     const src = await file("Infrastructure/Persistence/AuditableInterceptor.cs");
     expect(src).toContain(
-      "if (string.IsNullOrEmpty(RequestContext.Current!.CurrentUser!.TenantId))",
+      "if (string.IsNullOrEmpty(RequestContext.Current!.CurrentUser!.OperatingOrg))",
     );
     expect(src).toContain("throw new ForbiddenException(");
     expect(src.indexOf("throw new ForbiddenException(")).toBeLessThan(
@@ -86,29 +88,29 @@ describe("a missing tenancy claim refuses the write (F-018)", () => {
   it("python — the stamp method raises ForbiddenError and imports it", async () => {
     const src = await file("app/domain/widget.py");
     expect(src).toContain("def _stamp_on_create(self, current_user: User) -> None:");
-    expect(src).toContain("if not current_user.tenant_id:");
+    expect(src).toContain("if not current_user.operating_org:");
     expect(src).toContain("raise ForbiddenError(");
     expect(src).toContain("from app.domain.errors import ForbiddenError");
     expect(src.indexOf("raise ForbiddenError(")).toBeLessThan(
-      src.indexOf("self._tenant_id = current_user.tenant_id"),
+      src.indexOf("self._tenant_id = current_user.operating_org"),
     );
   });
 
   it("java — the @PrePersist hook throws ForbiddenException before assigning", async () => {
     const src = await file("features/widgets/Widget.java");
     expect(src).toContain(
-      "if (currentUser.tenantId() == null || currentUser.tenantId().isEmpty()) {",
+      "if (currentUser.operatingOrg() == null || currentUser.operatingOrg().isEmpty()) {",
     );
     expect(src).toContain("throw new ForbiddenException(");
     expect(src.indexOf("throw new ForbiddenException(")).toBeLessThan(
-      src.indexOf("this.tenantId = currentUser.tenantId();"),
+      src.indexOf("this.tenantId = currentUser.operatingOrg();"),
     );
   });
 
   it("elixir — insert short-circuits to the {:error, {:forbidden, _}} tuple", async () => {
     const repo = await file("lib/api_ex/c/widget_repository.ex");
     expect(repo).toContain("{:error, {:forbidden,");
-    expect(repo).toContain("is_nil(current_user.tenant_id)");
+    expect(repo).toContain("is_nil(current_user.operating_org)");
     // …and the controller must ANSWER that tuple.  Without this arm the tuple
     // falls through the `case` and raises, turning the refusal back into the 500
     // it exists to replace — the exact half-fix this assertion exists to catch.
@@ -119,7 +121,7 @@ describe("a missing tenancy claim refuses the write (F-018)", () => {
     );
   });
 
-  it("every backend names the missing claim in its message", async () => {
+  it("every backend names the missing operating org in its message", async () => {
     // `"internal"` was the whole complaint.  The operator must be able to read
     // the answer off the response without opening a log.
     for (const suffix of [
@@ -130,7 +132,10 @@ describe("a missing tenancy claim refuses the write (F-018)", () => {
       "lib/api_ex/c/widget_repository.ex",
     ]) {
       const src = await file(suffix);
-      expect(src, suffix).toContain('carries no \\"tenantId\\" claim');
+      // The stamp reads the operating org — a derived member, not a token
+      // claim — so the message names the operating organization.
+      expect(src, suffix).toContain("this request has no operating organization");
+      expect(src, suffix).not.toContain('\\"operatingOrg\\" claim');
     }
   });
 

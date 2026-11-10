@@ -166,6 +166,9 @@ export interface RuntimeEngine extends RuntimeDispatcher {
    *  consumer groups, dead-letter queues; what is emulated).  Null before a
    *  boot; absent on an engine without one. */
   inspectBroker?(): Promise<BrokerInspectResult | null>;
+  /** Call an infra-worker service from the main thread (the fake identity
+   *  provider's `mint`).  Absent on an engine without the infra worker. */
+  infraService?<T = unknown>(service: "oidc", op: string, params?: unknown): Promise<T>;
 
   /** Stop one booted deployable while the infrastructure and the other
    *  deployables run on (`docker compose stop <svc>`), and start it again on

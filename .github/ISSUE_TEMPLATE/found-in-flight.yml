@@ -47,6 +47,33 @@ body:
       description: One line.
     validations:
       required: true
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression or latent?
+      description: A guess is fine. It tells whether the gates let a fresh break through, or the cover just reached an old one.
+      options:
+        - Latent — it was already wrong
+        - Regression — a recent change broke it
+        - Don't know
+    validations:
+      required: true
+  - type: input
+    id: introduced-by
+    attributes:
+      label: Introduced by
+      description: Only for a regression, and only if you know the PR or commit.
+      placeholder: "#4727"
+    validations:
+      required: false
+  - type: input
+    id: siblings
+    attributes:
+      label: Same defect elsewhere
+      description: Other targets or issues showing the same defect. A defect on several targets is fixed once in the shared seam (CLAUDE.md → Conventions), so link them here.
+      placeholder: "same on vue, svelte; see #4981"
+    validations:
+      required: false
   - type: input
     id: suspect
     attributes:

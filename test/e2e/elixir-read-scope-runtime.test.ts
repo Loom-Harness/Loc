@@ -46,7 +46,9 @@ alias D.Fleet.{Car, CarRepository, TruckRepository}
 alias D.Repo
 
 user = fn tenant ->
-  %{id: "u-" <> tenant, tenant_id: tenant, is_system: false}
+  # The request principal the auth plug builds: a tenancy system's
+  # tenantOwned floor and stamp read the operating org.
+  %{id: "u-" <> tenant, tenant_id: tenant, operating_org: tenant, is_system: false}
 end
 
 acme = user.("acme")

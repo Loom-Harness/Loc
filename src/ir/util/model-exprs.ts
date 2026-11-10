@@ -147,6 +147,9 @@ export const SITES = {
     "BoundedContextIR.events",
     "BoundedContextIR.payloads",
     "BoundedContextIR.policyReadGates",
+    "BoundedContextIR.policyReadLevels",
+    "BoundedContextIR.policyRowRules",
+    "BoundedContextIR.policyWriteLevels",
     "BoundedContextIR.projections",
     "BoundedContextIR.queryHandlers",
     "BoundedContextIR.repositories",
@@ -223,6 +226,9 @@ export const SITES = {
     "ParamIR.default",
     "PayloadIR.fields",
     "PolicyReadGateIR.gate",
+    "PolicyReadLevelIR.when",
+    "PolicyRowRuleIR.where",
+    "PolicyWriteLevelIR.when",
     "ProjectionAggregateIR.arg",
     "ProjectionIR.handlers",
     "ProjectionIR.params",
@@ -650,6 +656,15 @@ function visitContext(c: BoundedContextIR, v: ExprVisitor) {
   for (const sd of c.seeds) visitSeed(sd, s, v);
   for (const g of c.policyReadGates ?? []) {
     expr(g.gate, `${s}/policy/${g.aggregate}`, "PolicyReadGateIR.gate", v);
+  }
+  for (const l of c.policyReadLevels ?? []) {
+    expr(l.when, `${s}/policy/${l.aggregate}`, "PolicyReadLevelIR.when", v);
+  }
+  for (const l of c.policyWriteLevels ?? []) {
+    expr(l.when, `${s}/policy/${l.aggregate}`, "PolicyWriteLevelIR.when", v);
+  }
+  for (const r of c.policyRowRules ?? []) {
+    expr(r.where, `${s}/policy/${r.aggregate}`, "PolicyRowRuleIR.where", v);
   }
   visitTests(c.tests, s, v);
   for (const h of c.commandHandlers ?? []) {

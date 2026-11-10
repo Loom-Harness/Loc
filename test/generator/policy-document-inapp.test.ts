@@ -86,7 +86,7 @@ async function fileContaining(platform: string, needle: string): Promise<string>
 describe("policy × shape: document — node (Hono/Drizzle)", () => {
   it("renders the local ladder as the in-app tenant floor", async () => {
     const thing = await fileContaining("node", "thing-repository");
-    expect(thing).toContain("if (!((rec.tenantId === currentUser.tenantId))) return null;");
+    expect(thing).toContain("if (!((rec.tenantId === currentUser.operatingOrg))) return null;");
     // The principal is bound fail-closed from the ambient accessor.
     expect(thing).toContain("const currentUser = requireCurrentUser();");
     // Visibility is flat: no org path is read (D-TENANCY-FLAT).
@@ -106,8 +106,10 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
   it("renders deny as the always-false in-app conjunct", async () => {
     const note = await fileContaining("node", "note-repository");
     // Deny is AND-ed beside the tenant floor, so the aggregate is invisible.
-    expect(note).toContain("if (!((rec.tenantId === currentUser.tenantId) && (false)))");
-    expect(note).toContain("all.filter((x) => (x.tenantId === currentUser.tenantId) && (false))");
+    expect(note).toContain("if (!((rec.tenantId === currentUser.operatingOrg) && (false)))");
+    expect(note).toContain(
+      "all.filter((x) => (x.tenantId === currentUser.operatingOrg) && (false))",
+    );
   });
 
   // ---- (5) the floor actually FILTERS ------------------------------------
@@ -125,7 +127,7 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
     const pred = body.slice(0, body.lastIndexOf(");"));
     const visible = new Function("all", "currentUser", `return all.filter((x) => ${pred});`) as (
       all: { id: string; tenantId: string }[],
-      currentUser: { tenantId: string },
+      currentUser: { operatingOrg: string },
     ) => { id: string; tenantId: string }[];
 
     const rows = [
@@ -133,7 +135,7 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
       { id: "foreign", tenantId: "t2" }, // another tenant — hidden
       { id: "unstamped", tenantId: "" }, // a row written without a stamp — hidden
     ];
-    const got = visible(rows, { tenantId: "t1" }).map((r) => r.id);
+    const got = visible(rows, { operatingOrg: "t1" }).map((r) => r.id);
     expect(got).toEqual(["own"]);
   });
 });
@@ -141,13 +143,13 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
 describe("policy × shape: document — python (FastAPI/SQLAlchemy)", () => {
   it("renders the local ladder as the in-app tenant floor", async () => {
     const thing = await fileContaining("python", "thing_repository");
-    expect(thing).toContain("if not ((rec.tenant_id == current_user.tenant_id)):");
+    expect(thing).toContain("if not ((rec.tenant_id == current_user.operating_org)):");
     expect(thing).toContain("current_user = require_current_user()");
   });
 
   it("renders deny as the always-false in-app conjunct", async () => {
     expect(await fileContaining("python", "note_repository")).toContain(
-      "if not ((rec.tenant_id == current_user.tenant_id) and (False)):",
+      "if not ((rec.tenant_id == current_user.operating_org) and (False)):",
     );
   });
 });
@@ -156,7 +158,7 @@ describe("policy × shape: document — java (Spring Boot)", () => {
   it("renders the local ladder as the in-app tenant floor", async () => {
     const thing = await fileContaining("java", "ThingRepositoryImpl");
     expect(thing).toContain(
-      "return (currentUser != null && (Objects.equals(rec.tenantId(), currentUser.tenantId()))) ? Optional.of(rec) : Optional.empty();",
+      "return (currentUser != null && (Objects.equals(rec.tenantId(), currentUser.operatingOrg()))) ? Optional.of(rec) : Optional.empty();",
     );
     // `java.util.Objects` must actually be imported, or this does not compile.
     expect(thing).toContain("import java.util.Objects;");
@@ -167,7 +169,7 @@ describe("policy × shape: document — java (Spring Boot)", () => {
     // The regression this pins: `leftType`-less binary nodes render `==`, which
     // on String is reference equality — green under `gradle testClasses` and
     // silently wrong at runtime.
-    expect(thing).not.toContain("rec.tenantId() == currentUser.tenantId()");
+    expect(thing).not.toContain("rec.tenantId() == currentUser.operatingOrg()");
   });
 
   it("renders deny as the always-false in-app conjunct", async () => {

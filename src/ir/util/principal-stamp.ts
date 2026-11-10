@@ -21,6 +21,7 @@
 // Pure IR, no host language in sight; each backend renders the guard in its own
 // idiom at its own stamp site, and they all agree on WHICH stamps to guard.
 
+import { PRINCIPAL_OPERATING_ORG } from "../../util/principal.js";
 import type { AggregateIR, ContextStampIR, ExprIR, FieldIR } from "../types/loom-ir.js";
 
 /** One stamp that must refuse rather than write a null. */
@@ -97,6 +98,17 @@ export function requiredClaimStamps(
  *  whichever one is serving.  Deliberately names the claim, the column, and the
  *  fix — this string is what someone reads at 3am instead of `"internal"`. */
 export function missingClaimMessage(stamp: RequiredClaimStamp): string {
+  // `organizationContext.org` lowers to the DERIVED principal member
+  // `operatingOrg` — not a token claim.  It is empty exactly when the token
+  // carries no tenancy claim (a switch is never admitted without one), so the
+  // answer names the operating org and the tenancy claim, never "operatingOrg".
+  if (stamp.claim === PRINCIPAL_OPERATING_ORG) {
+    return (
+      `Forbidden: this request has no operating organization, ` +
+      `which this system stamps into ${stamp.field} on every write. ` +
+      `Obtain a token that carries the tenancy claim.`
+    );
+  }
   return (
     `Forbidden: the access token carries no "${stamp.claim}" claim, ` +
     `which this system stamps into ${stamp.field} on every write. ` +

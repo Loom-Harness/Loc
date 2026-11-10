@@ -4,7 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { findVerb, verbsForKind } from "../../src/ir/resource-verbs.js";
-import type { ExprIR, WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
+import type { WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
+import { type CallOf, expectCallKind } from "../_helpers/call-kind.js";
 import { parseString } from "../_helpers/parse.js";
 
 describe("resource-verbs registry (4b)", () => {
@@ -41,14 +42,14 @@ system Sys {
 }`;
 }
 
-async function firstCall(body: string): Promise<Extract<ExprIR, { kind: "call" }>> {
+async function firstCall(body: string): Promise<CallOf<"resource-op">> {
   const { model } = await parseString(mk(body), { validate: false });
   const ctx = lowerModel(model).systems[0]!.subdomains[0]!.contexts[0]!;
   const st = ctx.workflows[0]!.statements.find(
     (s: WorkflowStmtIR) => s.kind === "resource-call" || s.kind === "expr-let",
   );
   const e = st?.kind === "resource-call" ? st.call : st?.kind === "expr-let" ? st.expr : undefined;
-  if (e?.kind !== "call") throw new Error("no resource-op call");
+  expectCallKind(e, "resource-op");
   return e;
 }
 

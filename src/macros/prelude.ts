@@ -89,47 +89,42 @@ function buildSoftDeletable(): Capability {
 }
 
 /** `capability tenantOwned { tenantId (internal) + onCreate stamp from the
- * principal's claim + filter this.tenantId == currentUser.tenantId }` — the
+ * operating org + filter this.tenantId == organizationContext.org }` — the
  * tenant-data marker.  Combines `auditable`'s principal-stamp shape with
- * `softDeletable`'s filter shape: every read is scoped to the caller's tenant,
- * every create is stamped with it, and `internal` keeps `tenantId` out of
- * client create/update inputs.  Rows carry `tenantId` only (D-TENANCY-FLAT).
+ * `softDeletable`'s filter shape: every read is scoped to the org the request
+ * operates in, every create is stamped with it, and `internal` keeps `tenantId`
+ * out of client create/update inputs.  Rows carry `tenantId` only
+ * (D-TENANCY-FLAT).
  *
- * NOTE: the stamp/filter claim is spelled `currentUser.tenantId` here because a
- * capability is a PRELUDE definition — built once at language-module init,
- * with no system in scope — so it cannot read the system's `tenancy by
- * user.<claim>` declaration.  The expander binds it when it splices the
- * capability (`resolveTenancyClaim` in `src/macros/expander.ts`): the spliced
- * stamp and filter read the DECLARED claim, and `tenantId` survives only when
- * the workspace declares no tenancy.  Edit the two in step.
+ * Both sides anchor on `organizationContext.org` — the operating org: the
+ * caller's home org (the `tenancy by user.<claim>` claim) unless the request's
+ * `x-org-context` switch was admitted.  `currentUser` is never rewritten by a
+ * switch, so a read of the claim itself still names the home org.
  *
- * The `tenantId` on the LEFT of the filter (and the stamp's target field) is a
- * different thing and stays put: that is the ROW column this capability
- * provides.  Only the `currentUser.` side is claim-dependent.
+ * A capability is a PRELUDE definition — built once at language-module init,
+ * with no system in scope.  When the workspace declares no `tenancy by`, there
+ * is no operating org to anchor on, and the expander rebinds both sides to
+ * `currentUser.tenantId` (`resolveTenancyAnchor` in `src/macros/expander.ts`).
  *
- * (The tenancy validators do NOT check that the declared claim is literally
- * named `tenantId` — they check the claim EXISTS on the principal and that its
- * TYPE binds.  So the claim name has to be bound HERE: hardcoding `tenantId`
- * emits a backend referencing a claim the principal does not have — a compile
- * error on node/.NET/Java, a per-request 500 on Python/Elixir.  See
- * `test/fixtures/corpus/tenancy-claim-name.ddd`.) */
+ * The `tenantId` on the LEFT of the filter (and the stamp's target field) is
+ * the ROW column this capability provides; it never changes. */
 function buildTenantOwned(): Capability {
   return capability("tenantOwned", [
     field("tenantId", primType("string"), { access: "internal" }),
     ...contextStamp({
-      onCreate: [{ field: "tenantId", value: memberAccess(nameRef("currentUser"), "tenantId") }],
+      onCreate: [{ field: "tenantId", value: memberAccess(nameRef("organizationContext"), "org") }],
     }),
     contextFilter(
       binaryExpr(
         memberAccess(thisRef(), "tenantId"),
         "==",
-        memberAccess(nameRef("currentUser"), "tenantId"),
+        memberAccess(nameRef("organizationContext"), "org"),
       ),
     ),
   ] as CapabilityMember[]);
 }
 
-/** `capability tenantRegistry { parent: Self id? (immutable) }` — the
+/** `capability tenantRegistry { parent: Self id? }` — the
  * tenant-registry TREE capability.  The registry aggregate — the `of
  * <Registry>` target of `tenancy by user.<claim> of <Registry>` — carries
  * `implements tenantRegistry` to manage sub-tenants: `parent: Self id?` is a
@@ -144,7 +139,7 @@ function buildTenantOwned(): Capability {
  * `of` target, only under a `tenancy by` system). */
 function buildTenantRegistry(): Capability {
   return capability("tenantRegistry", [
-    field("parent", selfRef({ optional: true }), { access: "immutable" }),
+    field("parent", selfRef({ optional: true })),
   ] as CapabilityMember[]);
 }
 

@@ -165,4 +165,42 @@ describe("java idempotent-consumer markers (M-T4.3)", () => {
     expect(find(files, "sales_api", "OutboxDelivery.java")).toBe("");
     expect(find(files, "sales_api", "OrdersDispatcher.java")).not.toContain("OutboxDelivery");
   });
+
+  // String tier on purpose: the behaviour (a redelivery runs the reactor once)
+  // is the redelivery e2e `test/e2e/saga-redelivery-e2e.test.ts`; this pins the
+  // wiring that leg needs where the channel and the saga sit in different
+  // hosted contexts.
+  it("maps and checks the marker when the durable channel is in another hosted context", async () => {
+    const files = await generateSystemFiles(`
+system Acme {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish { sku: string  operation record() { emit Logged { product: id } } }
+      repository Products for Product {}
+      event Logged { product: Product id }
+      channel History { carries: Logged  delivery: queue  retention: work }
+    }
+  }
+  subdomain Admin {
+    context AdminFeed {
+      aggregate Note with crudish { text: string }
+      repository Notes for Note {}
+      workflow Feed {
+        productId: Product id
+        seen: int
+        create(e: Logged) by e.product { seen := 1 }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: pg }
+  resource adminState { for: AdminFeed, kind: state, use: pg }
+  deployable d { platform: java contexts: [Catalog, AdminFeed] dataSources: [catalogState, adminState] port: 3000 }
+}`);
+    expect(find(files, "d", "FeedState.java")).toContain("last_event_id");
+    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain(
+      "OutboxDelivery.currentEventId()",
+    );
+    expect(find(files, "d", "AdminFeedDispatcher.java")).toContain("setLastEventId");
+  });
 });

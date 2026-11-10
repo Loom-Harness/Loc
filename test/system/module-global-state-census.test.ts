@@ -54,7 +54,9 @@ type Discipline =
   /** Restored by an exported hook, named in `hook`. */
   | "test-reset-hook"
   /** Holds only an ordering promise whose value is discarded; carries no data between calls. */
-  | "ordering-chain";
+  | "ordering-chain"
+  /** Only ever incremented to mint a unique id; never read for control flow. */
+  | "monotonic-counter";
 
 interface Pin {
   discipline: Discipline;
@@ -151,14 +153,18 @@ const PINNED: Record<string, Pin> = {
     discipline: "scoped-restore",
     reason: "`withColumn` and `atColumn` both restore the prior column in a `finally`.",
   },
-  "src/language/model-patch.ts:sharedServices": {
+  "src/language/shared-services.ts:sharedServices": {
     discipline: "build-once-cache",
     reason:
       "Lazily-built Langium service set; calls are serialised and each removes its document from the index in `finally`, so no declarations survive a call.",
   },
-  "src/language/model-patch.ts:patchQueue": {
+  "src/language/shared-services.ts:queue": {
     discipline: "ordering-chain",
     reason: "Serialises calls on the shared services; the chained value is always `undefined`.",
+  },
+  "src/language/shared-services.ts:uriSeq": {
+    discipline: "monotonic-counter",
+    reason: "Gives every call a fresh document URI; only ever incremented.",
   },
   "src/language/stdlib.ts:cached": {
     discipline: "build-once-cache",

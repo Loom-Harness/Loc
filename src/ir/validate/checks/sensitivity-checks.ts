@@ -2,11 +2,9 @@
 // `loom.sensitive-wire-unsupported` — what `sensitive(...)` actually buys you
 // today (M-T3.8, diagnostic slice).
 //
-// `field: T sensitive(pii)` reads like a protection marker, and the surface was
-// built to become one: `FieldIR.sensitivity` is documented as "captured at the
-// declaration site only — neither the wire-shape, the DTO emitters, nor sink
-// type-checking read it yet" (`src/ir/types/loom-ir.ts`).  What ships is one
-// consequence, and only one:
+// `field: T sensitive(pii)` reads like a protection marker.  The tags are a
+// field fact (`FieldIR.sensitivity`; no type carries them), and what ships is
+// one consequence, and only one:
 //
 //   * HONOURED — the synthesized `derived inspect` replaces every sensitive
 //     leaf with the literal `<redacted>` (`src/ir/enrich/enrichments.ts`), so

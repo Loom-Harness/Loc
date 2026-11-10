@@ -1,6 +1,6 @@
 import type { AstNode } from "langium";
 import { AstUtils } from "langium";
-import type { PrimitiveName, SensitivityTags } from "../ir/types/loom-ir.js";
+import type { PrimitiveName } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
 import { intrinsicsForReceiver } from "../util/intrinsics.js";
 import { PRINCIPAL_IS_SYSTEM } from "../util/principal.js";
@@ -24,7 +24,6 @@ import type {
   PolicyDecl,
   PostfixChain,
   PostfixSuffix,
-  Property,
   TypeRef,
   ValueObject,
 } from "./generated/ast.js";
@@ -51,7 +50,7 @@ import { PRIMITIVE_FIELDS } from "./typing/primitive-fields.js";
 import { type OutOfScopePolicy, policyInOtherContext } from "./typing/qualified-policy.js";
 import { typeToString } from "./typing/relations.js";
 import { typingFor } from "./typing/shared.js";
-import { PAGED_META, type Ty, withTags } from "./typing/ty.js";
+import { PAGED_META, type Ty } from "./typing/ty.js";
 
 // ---------------------------------------------------------------------------
 // Type representation
@@ -66,14 +65,11 @@ import { PAGED_META, type Ty, withTags } from "./typing/ty.js";
 export {
   comparable,
   isAssignable,
-  sensitivityNarrows,
-  tagsSubset,
   ternaryJoin,
   typesEqual,
   typeToString,
 } from "./typing/relations.js";
-export { mergeTags, withTags } from "./typing/ty.js";
-export type { PrimitiveName, SensitivityTags, Ty };
+export type { PrimitiveName, Ty };
 
 /** Constructors for the types validators build by hand. A hand-built
  *  `unknown` is a validator standing down, not a typing-pass gap. */
@@ -93,13 +89,6 @@ export const T = {
   /** `X id` for an aggregate or entity part. */
   id: (target: Aggregate | EntityPart): Ty => ({ kind: "id", target, name: target.name }),
 };
-
-/** Pull the tags declared at a Property's declaration site (if any). */
-export function propertySensitivity(p: Property | undefined): SensitivityTags | undefined {
-  const tags = p?.sensitivity?.tags;
-  if (!tags || tags.length === 0) return undefined;
-  return Object.freeze([...new Set(tags)].sort()) as SensitivityTags;
-}
 
 // ---------------------------------------------------------------------------
 // TypeRef → Ty
@@ -653,8 +642,7 @@ export function makeEnv(
 export function lookupRootMember(agg: Aggregate, name: string): Ty {
   if (name === "id") return T.id(agg);
   for (const m of agg.members) {
-    if (isProperty(m) && m.name === name)
-      return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+    if (isProperty(m) && m.name === name) return resolveTypeRef(m.type);
     if (isContainment(m) && m.name === name) {
       const part = m.partType?.ref;
       if (!part) return T.unknown;
@@ -679,8 +667,7 @@ export function stepInto(t: Ty, name: string): Ty {
         case "part": {
           if (name === "id") return T.id(r.ref);
           for (const m of r.ref.members) {
-            if (isProperty(m) && m.name === name)
-              return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+            if (isProperty(m) && m.name === name) return resolveTypeRef(m.type);
             if (isContainment(m) && m.name === name) {
               const part = m.partType?.ref;
               if (!part) return T.unknown;
@@ -697,7 +684,7 @@ export function stepInto(t: Ty, name: string): Ty {
           // of cascading to `unknown`) is what lets the binary-operand /
           // assignment validators check expressions over event/payload fields.
           for (const f of r.ref.fields) {
-            if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
+            if (f.name === name) return resolveTypeRef(f.type);
           }
           return T.unknown;
         default:
@@ -706,8 +693,7 @@ export function stepInto(t: Ty, name: string): Ty {
     }
     case "valueobject": {
       for (const m of t.ref?.members ?? []) {
-        if (isProperty(m) && m.name === name)
-          return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+        if (isProperty(m) && m.name === name) return resolveTypeRef(m.type);
         if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
       }
       return T.unknown;
@@ -832,7 +818,7 @@ export function iterateEntityMembers(
       out.push({
         name: m.name,
         kind: "property",
-        type: withTags(resolveTypeRef(m.type), propertySensitivity(m)),
+        type: resolveTypeRef(m.type),
         node: m,
       });
     } else if (isDerivedProp(m)) {

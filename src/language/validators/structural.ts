@@ -48,6 +48,7 @@ import {
   type WorkflowCreateDecl,
 } from "../generated/ast.js";
 import { armLocalLetReads, inMatchArm, terminalMatchReturns } from "../handler-return.js";
+import { positionAdmits, typeRefPosition } from "../type-positions.js";
 import {
   envForNode,
   isAssignable,
@@ -93,8 +94,7 @@ export function checkSlotTypePosition(model: Model, accept: ValidationAcceptor):
     const typeRef = node.$container;
     const holder = typeRef?.$container;
     const enclosing = holder?.$container;
-    const ok = holder?.$type === "Parameter" && enclosing?.$type === "Component";
-    if (ok) continue;
+    if (typeRef && positionAdmits("slot", typeRefPosition(typeRef))) continue;
     const where = enclosing?.$type ?? holder?.$type ?? "<unknown>";
     accept("error", diagMessage("loom.slot-out-of-position", { where }), {
       node,
@@ -116,8 +116,7 @@ export function checkActionTypePosition(model: Model, accept: ValidationAcceptor
     const typeRef = a.$container;
     const holder = typeRef?.$container;
     const enclosing = holder?.$container;
-    const ok = holder?.$type === "Parameter" && enclosing?.$type === "Component";
-    if (!ok) {
+    if (!typeRef || !positionAdmits("action", typeRefPosition(typeRef))) {
       const where = enclosing?.$type ?? holder?.$type ?? "<unknown>";
       accept("error", diagMessage("loom.action-out-of-position", { where }), {
         node: a,

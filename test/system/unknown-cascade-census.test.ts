@@ -67,9 +67,6 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   // Binary-operand folding, ternary branch agreement, and the `match`
   // subject/arm check.
   "src/language/validators/types.ts": 7,
-  // `warnSensitivityDrop` — a sensitivity tag cannot be compared through a
-  // placeholder, so this one is arguably sound.
-  "src/language/validators/_shared.ts": 2,
   // Builder-call argument typing: a typo'd bare enum value is reported at its
   // own site, so the arg check stands down.
   "src/language/validators/builder-call.ts": 1,

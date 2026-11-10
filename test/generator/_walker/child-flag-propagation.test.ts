@@ -49,7 +49,7 @@ function blankCtx(): WalkContext {
     imports: new Map(),
     usedParams: new Set(),
     usedUserComponents: new Set(),
-    usedApiHooks: new Map(),
+    dataBindings: new Map(),
     collectedTestids: new Set(),
     formOfs: [],
     actionMutations: [],

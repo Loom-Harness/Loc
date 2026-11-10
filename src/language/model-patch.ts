@@ -17,9 +17,9 @@
 // Pure language-layer: parses in-memory and walks the AST; no `ir/` edge.
 // ---------------------------------------------------------------------------
 
-import { type AstNode, AstUtils, EmptyFileSystem, type LangiumDocument, URI } from "langium";
+import { type AstNode, AstUtils, type LangiumDocument } from "langium";
 import type { ModelPatch } from "../diagnostics/contract.js";
-import { createDddServices } from "./ddd-module.js";
+import type { createDddServices } from "./ddd-module.js";
 import {
   isAggregate,
   isBoundedContext,
@@ -28,6 +28,7 @@ import {
   type Model,
 } from "./generated/ast.js";
 import { addressOf, isAddressable } from "./print/outline.js";
+import { withSharedDocument } from "./shared-services.js";
 
 export type { ModelPatch };
 
@@ -322,41 +323,9 @@ async function renameEdits(
  *  overlaps — the shared core of `applyPatches` (offset splice) and
  *  `resolvePatchEdits` (LSP ranges). */
 async function resolve(source: string, patches: ModelPatch[]): Promise<Resolved> {
-  // One service set serves every call: constructing it runs the Chevrotain
-  // parser self-analysis (hundreds of ms). Calls are serialised and each
-  // document is removed from the shared index afterwards, so no call can
-  // see another's declarations in its global scope.
-  const run = patchQueue.then(() => resolveOnShared(source, patches));
-  patchQueue = run.then(
-    () => undefined,
-    () => undefined,
+  return withSharedDocument(source, ({ services, doc }) =>
+    resolveIn(services, doc, source, patches),
   );
-  return run;
-}
-
-let sharedServices: ReturnType<typeof createDddServices> | undefined;
-let patchQueue: Promise<void> = Promise.resolve();
-
-/** Test seam: how many times the shared service set has been constructed. */
-export const patchServicesStats = { created: 0 };
-
-async function resolveOnShared(source: string, patches: ModelPatch[]): Promise<Resolved> {
-  if (!sharedServices) {
-    patchServicesStats.created++;
-    sharedServices = createDddServices(EmptyFileSystem);
-  }
-  const services = sharedServices;
-  const uri = URI.parse("memory:///patch.ddd");
-  const doc = services.shared.workspace.LangiumDocumentFactory.fromString<Model>(source, uri);
-  try {
-    await services.shared.workspace.DocumentBuilder.build([doc]);
-    return await resolveIn(services, doc, source, patches);
-  } finally {
-    services.shared.workspace.IndexManager.remove(uri);
-    if (services.shared.workspace.LangiumDocuments.hasDocument(uri)) {
-      services.shared.workspace.LangiumDocuments.deleteDocument(uri);
-    }
-  }
 }
 
 async function resolveIn(

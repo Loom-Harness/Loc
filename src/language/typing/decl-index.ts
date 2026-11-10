@@ -32,6 +32,7 @@ import type {
   Repository,
   Resource,
   Retrieval,
+  TenancyDecl,
   UserBlock,
   ValueObject,
   Workflow,
@@ -57,6 +58,7 @@ import {
   isRetrieval,
   isSubdomain,
   isSystem,
+  isTenancyDecl,
   isUserBlock,
   isValueObject,
   isWorkflow,
@@ -103,6 +105,8 @@ export class DeclIndex {
   /** Every enum declaring a value of this name (bare enum-value references). */
   private readonly enumValueOwners = new Map<string, EnumDecl[]>();
   readonly users: UserBlock[] = [];
+  /** `tenancy by … of <Registry>` — composed like `users` (one system). */
+  readonly tenancies: TenancyDecl[] = [];
   readonly resources: Resource[] = [];
   readonly apis: Api[] = [];
   readonly contexts: BoundedContext[] = [];
@@ -130,6 +134,7 @@ export class DeclIndex {
     for (const n of members) {
       if (isSystem(n)) this.collectUsers(n.members);
       else if (isUserBlock(n)) this.users.push(n);
+      else if (isTenancyDecl(n)) this.tenancies.push(n);
     }
   }
 
@@ -148,6 +153,7 @@ export class DeclIndex {
         this.contexts.push(n);
         this.collect(n.members);
       } else if (isUserBlock(n)) this.users.push(n);
+      else if (isTenancyDecl(n)) this.tenancies.push(n);
       else if (isResource(n)) this.resources.push(n);
       else if (isApi(n)) this.apis.push(n);
       else if (isAggregate(n)) {
@@ -302,6 +308,11 @@ export class DeclIndex {
    *  more than one is a validator error). */
   userBlock(): UserBlock | undefined {
     return this.users[0];
+  }
+
+  /** The tenancy registry aggregate (`tenancy by … of <Registry>`). */
+  tenancyRegistry(): Aggregate | undefined {
+    return this.tenancies[0]?.registry?.ref;
   }
 
   /** The ambient resource handles serving `ctx` (`resource X { for: ctx }`). */

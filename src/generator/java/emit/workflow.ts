@@ -1,6 +1,7 @@
 import { isTenantScopedStream } from "../../../ir/enrich/stream-tenancy.js";
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { isWorkflowSelfType } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
   typeKey,
@@ -1371,7 +1372,7 @@ export function renderJavaWorkflows(
     // boundary and handed back after it commits.  No result keeps `void`.
     const result = commandCreateResult(wf);
     const er = commandCreateEntryResult(wf, ctx);
-    const selfResult = result?.type.kind === "entity" && result.type.name === wf.name;
+    const selfResult = isWorkflowSelfType(wf, result?.type);
     const resultLines =
       er && result?.type.kind === "union"
         ? [
@@ -1738,7 +1739,7 @@ export function renderJavaWorkflows(
         ``,
       ];
     }
-    if (result.type.kind === "entity" && result.type.name === wf.name) {
+    if (isWorkflowSelfType(wf, result.type)) {
       return [
         `    @PostMapping("/${snake(wf.name)}")`,
         `    public ${upperFirst(wf.name)}InstanceResponse ${lowerFirst(wf.name)}(${sig}) {`,

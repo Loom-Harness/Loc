@@ -113,7 +113,9 @@ describe("lowering", () => {
         bypassRead: { source: { kind: "criterion", name: "InRegion" }, bypassAll: true },
       },
     });
-    expect(crit.kind === "call" && crit.repoRead?.retrievalName).toBeFalsy();
+    expect(
+      crit.kind === "call" && crit.callKind === "repo-read" && crit.repoRead.retrievalName,
+    ).toBeFalsy();
   });
 });
 

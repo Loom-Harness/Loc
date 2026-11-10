@@ -171,14 +171,14 @@ describe("dotnet: shape: document × tenantOwned — the in-app tenant read filt
   it("resolves the principal through the ambient accessor, re-read per call", async () => {
     const repo = await fileNamed(tenantSystem, "NoteRepository.cs");
     expect(repo).toContain(
-      "private static bool _CapabilityVisible(Note x) => (x.TenantId == RequestContext.Current!.CurrentUser!.TenantId);",
+      "private static bool _CapabilityVisible(Note x) => (x.TenantId == RequestContext.Current!.CurrentUser!.OperatingOrg);",
     );
   });
 
   it("leaves the RELATIONAL twin on EF HasQueryFilter (the fix did not migrate it)", async () => {
     const ctx = await fileNamed(tenantSystem, "AppDbContext.cs");
     expect(ctx).toContain(
-      'modelBuilder.Entity<Ledger>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);',
+      'modelBuilder.Entity<Ledger>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.OperatingOrg);',
     );
     // The document aggregate is NOT given a query filter — it cannot have one
     // (its columns are inside the blob); the in-app predicate above is its

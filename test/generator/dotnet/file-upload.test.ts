@@ -70,7 +70,7 @@ describe("dotnet File upload (slice 2b)", () => {
   it("emits root POST /files + GET /files/{key} over the localDisk bytes adapter", async () => {
     const program = pick(await build(), "Program.cs");
     expect(program).toContain('app.MapPost("/files"');
-    expect(program).toContain("async (IFormFile file)");
+    expect(program).toContain("async (IFormFile? file, HttpContext http");
     expect(program).toContain(
       "Api.Resources.LocalDiskResources.DocFiles_PutBytes(key, bytes, contentType)",
     );

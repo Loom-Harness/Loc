@@ -333,7 +333,13 @@ describe("py renderPyExpr — calls / new / object / list", () => {
     ).toBe("self.line_total(1)");
     // A public operation self-call has no underscore (`def reserve` ⇒ `self.reserve()`).
     expect(
-      renderPyExpr({ kind: "call", callKind: "private-operation", name: "recalc", args: [] }),
+      renderPyExpr({
+        kind: "call",
+        callKind: "private-operation",
+        targetPrivate: false,
+        name: "recalc",
+        args: [],
+      }),
     ).toBe("self.recalc()");
     // A `private operation` self-call keeps the underscore.
     expect(

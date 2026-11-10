@@ -1259,7 +1259,15 @@ PolicyDecl:
         )
     );
 
-// `allow [write] <level> on <Aggregate>` — the optional `write` verb selects
+// `allow [write] <level> on <Aggregate> [when <caller-only expr>]` — a level
+// rule; `when` gates it on the CALLER (`currentUser` claims), never the row.
+// `allow [read|write] on <Aggregate> as <row> where <row predicate>` — a ROW
+// RULE (`read`, the default, is an identifier the validator pins, as on the
+// gate rule below):
+// it ADDS the rows its predicate admits to the level default (D-SHARING); the
+// predicate is compiled into the query, so it must be queryable.
+//
+// The optional `write` verb selects
 // the ladder: bare = reads; `write` = INSTANCE mutations (update-style ops,
 // destroy, applier dispatch).  There is deliberately NO `read` verb synonym on
 // the ladder: bare
@@ -1292,7 +1300,8 @@ PolicyDecl:
 // `effect` stays the discriminator — this rule is a gate, not a ladder rung,
 // so it takes no level.
 PolicyReadRule:
-      effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID
+      effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID ('when' when=Expression)?
+    | effect='allow' (verb=PolicyVerb | verb=PolicyGateVerb)? 'on' target=ID 'as' binding=ID 'where' row=Expression
     | effect='deny' (verb=PolicyVerb)? 'on' target=ID
     | effect=PolicyGateVerb target=ID 'requires' gate=Expression;
 
@@ -1306,12 +1315,13 @@ PolicyVerb returns string:
     'write';
 
 // The level of an `allow` rule.  `local` — the caller's own org, the
-// `tenantId ==` floor — is the only level.  `deep` and `global` still PARSE so a
+// `tenantId ==` floor; `own` — the rows of the operating org the caller created
+// (the floor AND `createdBy == currentUser.id`).  `deep` and `global` still PARSE so a
 // model written against the removed hierarchical ladder gets the named
 // `loom.policy-level-removed` error (with its replacement) instead of a parse
 // error; lowering drops the rule.
 ReadLevel returns string:
-    'local' | 'deep' | 'global';
+    'local' | 'own' | 'deep' | 'global';
 
 // `implements <Cap>` is the typed capability-application form — a synonym of
 // `with <Cap>`: the expander splices the referenced capability's fields +
@@ -2153,7 +2163,7 @@ SoftKeywordsExceptSort returns string:
       | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
       | 'mailer' | 'main' | 'managed' | 'mantine' | 'mask' | 'meilisearch' | 'menu' | 'message' | 'migration'
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
-      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
+      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
       | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
@@ -2269,11 +2279,11 @@ NamedType:
 
 // EventDecl / PayloadDecl join the union so a bare name in a type position can
 // resolve to a transport type (an `event` or a `command`/`query`/… payload).
-// The scope provider (ddd-scope.ts) only *offers* these in a workflow
-// `create` parameter position — `create(e: PaymentReceived) by …`,
-// `create(c: SettleOrder)` — so they cannot leak into aggregate field /
-// operation-param / UI positions, where a bare event name stays unresolved.
-// IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
+// The scope provider (ddd-scope.ts) offers them in front of the ordinary types
+// only at a transport boundary the type-position table admits
+// (type-positions.ts); elsewhere they resolve behind the ordinary types and the
+// position check refuses them (`loom.transport-type-position`).  IdType (`X id`)
+// ranks them behind aggregates and parts — `PaymentReceived id` is meaningless.
 // A Workflow joins for one position only: a workflow `create`'s result type
 // may name its own workflow (`create(…): Fulfillment { …; return this }`),
 // and the scope provider offers it nowhere else.

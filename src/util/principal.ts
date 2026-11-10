@@ -41,10 +41,10 @@ export const PRINCIPAL_CAUSED_BY = "causedBy";
 
 /** The ambient OPERATING-scope accessor — a peer of `currentUser`.
  *  `currentUser` is the PRINCIPAL (identity, permissions, home org);
- *  `organizationContext` is the org the request operates IN.  Its one member,
- *  {@link ORG_CONTEXT_ORG}, is the operating org's id: the caller's home org
- *  (the tenancy claim), switched by a {@link ORG_CONTEXT_HEADER} that the
- *  auth middleware's fail-closed gate admits.
+ *  `organizationContext` is the org the request operates IN.  Its members:
+ *  {@link ORG_CONTEXT_ORG}, the operating org's id — the caller's home org
+ *  (the tenancy claim), switched by a {@link ORG_CONTEXT_HEADER} naming a
+ *  registry row the caller can read — and {@link ORG_CONTEXT_ANCESTORS}.
  *
  *  Two flat accessors on the surface, ONE execution-context frame underneath:
  *  lowering rewrites `organizationContext.org` to the derived principal
@@ -53,13 +53,31 @@ export const PRINCIPAL_CAUSED_BY = "causedBy";
  *  plumbing, and the value is set exactly once — by the switch gate. */
 export const ORG_CONTEXT_ACCESSOR = "organizationContext";
 
-/** The one member `organizationContext` exposes: the operating org's id. */
+/** `organizationContext.org` — the operating org's id. */
 export const ORG_CONTEXT_ORG = "org";
+
+/** `organizationContext.ancestors` — the operating org AND every org above it
+ *  on the registry tree, typed `<Registry> id[]`.  Resolved once per request
+ *  by the auth middleware (a recursive walk over the registry's `parent` with
+ *  set semantics, so a cycle an author-written move creates terminates) and
+ *  memoized on the principal as {@link PRINCIPAL_OPERATING_ANCESTORS}.  Needs
+ *  the registry's table, so only a deployable that hosts the registry may read
+ *  it (`loom.tenancy-registry-remote-unsupported`). */
+export const ORG_CONTEXT_ANCESTORS = "ancestors";
+
+/** The members `organizationContext` exposes. */
+export const ORG_CONTEXT_MEMBERS: readonly string[] = [ORG_CONTEXT_ORG, ORG_CONTEXT_ANCESTORS];
+
+/** The derived principal member `organizationContext.ancestors` lowers to —
+ *  the operating org's ancestor set (itself included), resolved once per
+ *  request.  Never read off the token, never on the wire. */
+export const PRINCIPAL_OPERATING_ANCESTORS = "operatingAncestors";
 
 /** The derived principal member `organizationContext.org` lowers to — the
  *  operating org id, resolved ONCE per request by the auth middleware's
  *  fail-closed switch gate: the caller's tenancy claim when the
- *  {@link ORG_CONTEXT_HEADER} is absent or names that same org, and a pre-body
+ *  {@link ORG_CONTEXT_HEADER} is absent, the requested org when the caller can
+ *  read that registry row through the registry's read scope, and a pre-body
  *  403 otherwise.  Never read off the token. */
 export const PRINCIPAL_OPERATING_ORG = "operatingOrg";
 
