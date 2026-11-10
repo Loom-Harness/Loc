@@ -116,8 +116,11 @@ export interface OpFragment {
  *  success body matches what `GET /<plural>/:id` returns for the same aggregate.
  *  `forApiRead` drops `internal` / `secret` fields, exactly as the REST
  *  serializer does (RS-25) — an op success body is the same read boundary. */
-function wireFieldsOf(agg: AggregateIR): string[] {
-  return forApiRead(wireFieldsForAggregate(agg)).map((f) => snake(f.name));
+function wireFieldsOf(agg: AggregateIR): { field: string; wire: string }[] {
+  return forApiRead(wireFieldsForAggregate(agg)).map((f) => ({
+    field: snake(f.name),
+    wire: f.name,
+  }));
 }
 
 /** The PRIVATE operations `op`'s body calls as bare statements, transitively
@@ -939,15 +942,17 @@ export function renderReturningOpFunction(
         ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name }))}, `
         : "";
     // The map key is the field's WIRE name: the struct field is snake-cased
-    // (`row_version`), but the concurrency counter goes out as `rowVersion` on
-    // every backend, so its key is the camel atom Jason encodes as such.
-    const wireKey = (f: string): string => (f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : f);
+    // (`unit_price`, `row_version`), but every backend answers the camelCase
+    // name (`unitPrice`, `rowVersion`), so the key is the camel atom Jason
+    // encodes as such.
+    const wireKey = (f: string, wire: string): string =>
+      f === ROW_VERSION_COLUMN ? ROW_VERSION_FIELD : wire;
     const wireMap = (recordVar: string, projectRefColls: boolean): string =>
       `%{${aggTag}${wireFieldsOf(agg)
-        .map((f) =>
+        .map(({ field: f, wire }) =>
           projectRefColls && isRefCollFieldName(agg, f)
-            ? `${wireKey(f)}: __ref_id_list(${recordVar}.${f})`
-            : `${wireKey(f)}: ${recordVar}.${f}`,
+            ? `${wireKey(f, wire)}: __ref_id_list(${recordVar}.${f})`
+            : `${wireKey(f, wire)}: ${recordVar}.${f}`,
         )
         .join(", ")}}`;
 
@@ -1443,7 +1448,14 @@ export function renderReturningStmt(
             : `%{value: ${value}}`;
         return `    {:error, ${JSON.stringify(s.variantTag)}, ${data}}`;
       }
-      return `    {:ok, ${taggedSuccess(value, s)}}`;
+      // A payload-literal success value is a WIRE surface (Jason encodes atom
+      // keys verbatim), so it is keyed by the declared camelCase field names,
+      // not the snake keys the shared `object` leaf gives domain-side maps.
+      const wireValue =
+        s.value.kind === "object"
+          ? `%{${s.value.fields.map((f) => `${f.name}: ${renderExpr(f.value, rc)}`).join(", ")}}`
+          : value;
+      return `    {:ok, ${taggedSuccess(wireValue, s)}}`;
     }
     case "let":
       return `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`;
@@ -1750,13 +1762,13 @@ export function renderReturningOpControllerAction(
   // A `money` field of a payload SUCCESS variant rides as the fixed-scale
   // string (RS-12) — the tagged map holds a `%Decimal{}` at domain precision,
   // which Jason would encode at its own scale.  The arm list is the shared
-  // `unionMoneyArms` node / python read; keys are the snake atoms of the map.
+  // `unionMoneyArms` node / python read; keys are the camelCase wire-name atoms of the map.
   const moneyArmClauses =
     op.returnType?.kind === "union"
       ? unionMoneyArms(op.returnType.variants, ctx).map((arm) => {
           const pipe = arm.keys
             .map(({ key, optional }) => {
-              const atom = `:${escapeElixirIdent(snake(key))}`;
+              const atom = `:${key}`;
               const round = numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "&1");
               return optional
                 ? `Map.update(${atom}, nil, &(&1 && ${round}))`
