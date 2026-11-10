@@ -15,6 +15,7 @@
 // `gradle wrapper` once to add one).
 // ---------------------------------------------------------------------------
 
+import { MISSING_FILE_PART_DETAIL, wireStatus } from "../../../ir/enrich/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import {
@@ -577,6 +578,7 @@ export function renderFilesController(
     ``,
     `import java.io.IOException;`,
     `import java.util.UUID;`,
+    `import org.springframework.http.HttpStatus;`,
     `import org.springframework.http.MediaType;`,
     `import org.springframework.http.ResponseEntity;`,
     `import org.springframework.web.bind.annotation.GetMapping;`,
@@ -585,6 +587,7 @@ export function renderFilesController(
     `import org.springframework.web.bind.annotation.RequestParam;`,
     `import org.springframework.web.bind.annotation.RestController;`,
     `import org.springframework.web.multipart.MultipartFile;`,
+    `import org.springframework.web.server.ResponseStatusException;`,
     `import ${basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${basePkg}.domain.common.FileRef;`,
     `import ${basePkg}.resources.${resourceClass};`,
@@ -592,7 +595,13 @@ export function renderFilesController(
     `@RestController`,
     `public class FilesController {`,
     `    @PostMapping("/files")`,
-    `    public ResponseEntity<FileRef> upload(@RequestParam("file") MultipartFile file) throws IOException {`,
+    `    public ResponseEntity<FileRef> upload(@RequestParam(value = "file", required = false) MultipartFile file) throws IOException {`,
+    // A request with no \`file\` part is the malformed-request 400 every other
+    // unreadable body earns: \`ResponseStatusException\` is an \`ErrorResponse\`, so
+    // \`ApiExceptionAdvice\` renders it as problem+json carrying this detail.
+    `        if (file == null) {`,
+    `            throw new ResponseStatusException(HttpStatus.valueOf(${wireStatus("malformed-body")}), ${JSON.stringify(MISSING_FILE_PART_DETAIL)});`,
+    `        }`,
     `        var key = UUID.randomUUID().toString();`,
     `        var bytes = file.getBytes();`,
     `        var contentType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";`,
