@@ -73,7 +73,6 @@ import {
   checkModelText,
   checkNullableReceivers,
   checkOrgContextSurface,
-  checkOrgPathReferences,
   checkPayloads,
   checkPermissionImplies,
   checkPolicyFns,
@@ -81,6 +80,7 @@ import {
   checkPrimitiveConversions,
   checkProjectSingletons,
   checkReadGates,
+  checkRemovedPolicyLevels,
   checkRepoKeyLookups,
   checkRepoVerbs,
   checkSeeds,
@@ -415,10 +415,10 @@ export class DddValidator {
     // Restores the "`unknown` implies already-reported" invariant its
     // siblings assume.  Needs `services` for cross-file / workspace names.
     guard("unknown-name-refs", model, () => checkUnknownNameRefs(model, accept, this.services));
-    // `currentUser.orgPath` (the derived tenant materialized path) is
-    // only meaningful under a `tenancy by` declaration — fail-closed otherwise.
-    guard("orgpath-tenancy", model, () => checkOrgPathReferences(model, accept, this.services));
-    // `organizationContext` — the operating-scope accessor admits `.orgPath`
+    // `allow [write] deep|global on X` — removed levels, named with their
+    // replacement (data visibility is flat).
+    guard("policy-level-removed", model, () => checkRemovedPolicyLevels(model, accept));
+    // `organizationContext` — the operating-scope accessor admits `.org`
     // only, and never on a `ui` (no switch gate there).
     guard("org-context-surface", model, () => checkOrgContextSurface(model, accept));
     // Primitive conversion expressions (`string(x)`, `money(d)`):

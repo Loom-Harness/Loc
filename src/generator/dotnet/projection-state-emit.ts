@@ -86,13 +86,9 @@ export function renderProjectionRowEntity(proj: ProjectionIR, ns: string): strin
     props.push(`    public ${nullableCsType(f.type)} ${upperFirst(f.name)} { get; set; }`);
   }
   // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
-  // key, and its org path.
+  // key.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
-    props.push(
-      m.required
-        ? `    public string ${upperFirst(m.field)} { get; set; } = default!;`
-        : `    public string? ${upperFirst(m.field)} { get; set; }`,
-    );
+    props.push(`    public string ${upperFirst(m.field)} { get; set; } = default!;`);
   }
   return (
     lines(
@@ -154,7 +150,7 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
     (m) => `        builder.Property(x => x.${upperFirst(m.field)}).HasColumnName("${m.column}");`,
   );
   const keyCols = [
-    ...(tenancy?.metadata ?? []).filter((m) => m.required).map((m) => `x.${upperFirst(m.field)}`),
+    ...(tenancy?.metadata ?? []).map((m) => `x.${upperFirst(m.field)}`),
     `x.${upperFirst(corr)}`,
   ];
   const hasKey =

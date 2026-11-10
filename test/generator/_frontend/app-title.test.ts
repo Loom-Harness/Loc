@@ -86,6 +86,10 @@ describe("a page's own static title still wins", () => {
   }
 `);
     const html = [...files].find(([p]) => p.endsWith("web_app/index.html"))![1];
-    expect(html).toContain("<title>Docs home</title>");
+    // The static title carries its catalog key, so the runtime re-spells it
+    // in the active locale at boot and on a switch.
+    expect(html).toMatch(
+      /<title data-loom-title="Web\.page\.Landing\.title\.\w+">Docs home<\/title>/,
+    );
   });
 });

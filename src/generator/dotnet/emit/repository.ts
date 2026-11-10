@@ -906,7 +906,7 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // `filter`, a `policy` read ladder) apply IN-APP here, over the
 // rehydrated aggregate — NOT as an EF `HasQueryFilter`.  A document
 // aggregate's persistence record is `(Id, Data jsonb, Version)`, so the
-// filter's columns (`tenantId`, `dataKey`, `isDeleted`) live INSIDE the
+// filter's columns (`tenantId`, `isDeleted`) live INSIDE the
 // blob and there is no mapped column for EF to attach a predicate to.
 // Without it a `tenantOwned` document aggregate reads UNFILTERED across
 // tenants while `validateContextFilterSupport` claims .NET filters every

@@ -1139,8 +1139,8 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   //     POST /api/things            -> 201  (aggregate_created)
   //     GET  /api/things/{that id}  -> 404
   //
-  // `tenantOwned`'s `onCreate` stamps (`tenantId := currentUser.tenantId`,
-  // `dataKey := currentUser.orgPath`) never reached the `shape: document` write
+  // `tenantOwned`'s `onCreate` stamp (`tenantId := currentUser.tenantId`)
+  // never reached the `shape: document` write
   // path: the relational repository lands them via `db/audit-stamp.ts`
   // `stampInsert(row)`, and the document repository never imported it.  So every
   // tenant-owned document row was written with an EMPTY tenant and was invisible
@@ -1152,12 +1152,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   //
   // The fix stamps the doc payload on the INSERT branch only — the update writes
   // the whole blob, so `stampUpdate`'s create-field STRIP would delete the
-  // tenant.  The caller now drives `allow deep` (admit, incl. the author's own
+  // tenant.  The caller now drives `allow local` (admit, incl. the author's own
   // `where`) and `deny` (nothing, and 404 on both mutations) over HTTP, and its
   // first read is the stamp's regression test.
   //
   // What the caller still does NOT prove is stated in the fixture beside it: the
-  // deep rung HIDING an out-of-subtree row needs a second tenancy identity the
+  // floor HIDING an out-of-tenant row needs a second tenancy identity the
   // behavioural tier does not have (`DEV_CLAIMS_UNAUTHORIZED` shares the tenant
   // by design).  That half belongs to `tenancy-e2e`.  Its five registry routes
   // are pinned below.
@@ -1190,10 +1190,9 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // middleware validates before routing, which the `test e2e` vocabulary cannot
   // set — and, like `tenancy-hierarchy` above, a switch is a statement about
   // principals in different parts of the tree.  The booted `tenancy-org-context*`
-  // leg drives all four arms on five backends (in-scope switch → sub-scope stamp,
-  // deep-visible from the parent, hidden from a sibling; out-of-subtree switch →
-  // 403 with no write; forged header on an orgPath-less token → 403; reads stay
-  // principal-anchored).
+  // leg drives all four arms on five backends (own-org switch → stamped; any
+  // other org → 403 with no write; forged header on a claim-less token → 403;
+  // reads stay principal-anchored).
   // RE-CHECKED in wave C3 packet 3a: still true — `test/e2e/tenancy-org-context
   // .test.ts` is that leg, and the `test e2e` renderer has no header form.  The
   // no-switch default the behavioural tier COULD drive is `tenancy-hierarchy`'s

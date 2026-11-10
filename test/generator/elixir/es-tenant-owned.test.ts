@@ -1,6 +1,6 @@
 // A `tenantOwned` event-sourced aggregate on elixir (`stream-tenancy.ts`): the
 // stream carries its tenant as stored-event metadata.  The aggregate's event-log
-// schema maps `tenant_id` / `data_key` and hosts the tenancy scope that
+// schema maps `tenant_id` and hosts the tenancy scope that
 // `Repo.prepare_query/3` applies to every read of the stream, a new stream is
 // stamped from the principal, an append carries the loaded stream's tenant
 // forward, and the dispatch runs in the stream tenant's event-origin frame.
@@ -52,19 +52,19 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
   const ledgerLog = file(files, "lib/api/main/ledger_event_log.ex");
   const bookLog = file(files, "lib/api/main/book_event_log.ex");
 
-  it("the event-log schema maps the metadata columns and hosts the tenancy scope", () => {
+  it("the event-log schema maps the metadata column and hosts the tenancy scope", () => {
     expect(ledgerLog).toContain("field :tenant_id, :string");
-    expect(ledgerLog).toContain("field :data_key, :string");
+    // Absence check: tenancy is flat, the log carries no hierarchy-path column.
+    expect(ledgerLog).not.toContain("data_key");
     expect(ledgerLog).toContain("def __loom_filters__, do: [{:tenant_owned, true}]");
     expect(ledgerLog).toContain("record.tenant_id == ^(current_user && current_user.tenant_id)");
-    // `allow deep` widens Book's to the subtree over `data_key`.
-    expect(bookLog).toContain("record.data_key");
+    expect(bookLog).toContain("record.tenant_id == ^(current_user && current_user.tenant_id)");
   });
 
   it("the by-id load and the list adopt the stream's tenant (the read scope is the schema's)", () => {
     expect(repo).toContain("|> adopt_stream_tenant(hd(rows))");
     expect(repo.match(/adopt_stream_tenant\(hd\(rows\)\)/g)?.length).toBe(2);
-    expect(repo).toContain("%{agg | tenant_id: tenant_id, data_key: data_key}");
+    expect(repo).toContain("%{agg | tenant_id: tenant_id}");
   });
 
   it("an `ignoring tenantOwned` read loads unscoped, and only that read", () => {
@@ -77,11 +77,8 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
     expect(repo).toContain("defp stream_tenant(0, _stream) do");
     expect(repo).toContain("tenant_id = current_user && current_user.tenant_id");
     expect(repo).toContain("{:error, :forbidden}");
-    expect(repo).toContain(
-      "defp stream_tenant(_prior, %{tenant_id: tenant_id, data_key: data_key})",
-    );
-    expect(repo).toContain("tenant_id: tenant.tenant_id,");
-    expect(repo).toContain("data_key: tenant.data_key");
+    expect(repo).toContain("defp stream_tenant(_prior, %{tenant_id: tenant_id})");
+    expect(repo).toContain("tenant_id: tenant.tenant_id");
     const ctxFile = file(files, "lib/api/main.ex");
     expect(ctxFile).toContain(".append(id, 0, events, nil)");
     expect(ctxFile).toContain(".append(state.id, state.__stream_version__, events, state)");
@@ -92,7 +89,9 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
       "in_stream_origin(tenant, fn -> Api.Main.Dispatcher.AfterCommit.dispatch(ev) end)",
     );
     expect(repo).toContain('origin["tenant"] == tenant.tenant_id');
-    expect(repo).toContain('"orgPath" => tenant.data_key');
+    expect(repo).toContain('"tenant" => tenant.tenant_id,');
+    // Absence check: the event origin is `{tenant, causedBy}` only.
+    expect(repo).not.toContain('"orgPath"');
     expect(repo).toContain("ApiWeb.Auth.with_event_origin(");
   });
 });

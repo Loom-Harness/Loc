@@ -37,6 +37,7 @@ export type RefKind =
   | "resource" // ambient resource handle — `files`, `jobs`, …
   | "store-field" // a `<Store>.<field>` read from a page/component/store body (Stage 5)
   | "match-binding" // the narrowed variant binding of a variant-`match` arm (variant-match.md)
+  | "row" // the quantified row of an `exists <Agg> as <row> where …` (typed `entity{<Agg>}`)
   | "unknown";
 
 export type CallKind =
@@ -69,12 +70,9 @@ export type BinOp =
 
 /**
  * The discriminated policy decision carried by an `authz-filter` `ExprIR`
- * node (M-T9.9).  Each backend's filter translator switches over `kind` with
+ * node.  Each backend's filter translator switches over `kind` with
  * TypeScript exhaustiveness, so adding a variant is a `tsc` error at every
- * render site — the compile-time replacement for the pre-M-T9.9 chain of
- * `isDenyFilter` / `isDeepScopeFilter` runtime probes on a `method-call`
- * marker (where a forgotten arm was a SILENT authorization bypass, not a
- * build break).
+ * render site rather than a silent authorization bypass.
  *
  *  - `deny` — the always-false carve-out (`deny [write] on <Agg>`,
  *    deny-wins).  Principal-FREE: it routes to each
@@ -83,30 +81,8 @@ export type BinOp =
  *    trap.  Every backend renders it to its native always-false fragment
  *    (Drizzle `and(isNull, isNotNull)` / EF `false` / JPQL `1 = 0` /
  *    `cb.disjunction()` / SQLAlchemy contradiction / Ecto `fragment("false")`).
- *  - `scope` — the descendant-or-self materialized-path subtree scope
- *    (`deep`/`global` read levels).  PRINCIPAL-referencing
- *    (carries `currentUser.<anchor>` + `currentUser.tenantId` as resolved
- *    member sub-expressions), so it routes to the ambient-principal filter
- *    path and `exprUsesCurrentUser` classifies it by walking those children.
- *    Renders to the compound scope predicate with the NULL-dataKey fallback
- *    to the tenant floor (`DEEP_SCOPE_SEMANTICS`).  `anchorClaim` is
- *    `currentUser.orgPath` for `deep` (caller's node + descendants) or
- *    `currentUser.rootOrg` for `global` (caller's ROOT subtree).
  */
-export type AuthzFilterKind =
-  | { kind: "deny" }
-  | {
-      kind: "scope";
-      /** `currentUser.<anchor>` as a resolved `member` sub-expression — the
-       *  descendant-prefix anchor (`orgPath` for `deep`, `rootOrg` for
-       *  `global`).  Kept as ExprIR so a backend that renders the claim through
-       *  its own expression path (Java's null-safe SpEL accessor) reuses it
-       *  verbatim, and `exprUsesCurrentUser` sees the principal reference. */
-      anchorClaim: ExprIR;
-      /** `currentUser.tenantId` as a resolved `member` sub-expression — the
-       *  floor the NULL-dataKey fallback compares against. */
-      tenantClaim: ExprIR;
-    };
+export type AuthzFilterKind = { kind: "deny" };
 
 export type ExprIR = (
   | { kind: "literal"; lit: LiteralKind; value: string }
@@ -410,8 +386,7 @@ export type ExprIR = (
    * Never reaches a domain-logic expression position — it lives ONLY in an
    * aggregate's `contextFilters` / `writeScopeFilter`, special-cased by the
    * filter translators BEFORE the generic dispatch.  Build/inspect it through
-   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `buildDeepScopeFilter`
-   * / `buildGlobalScopeFilter`, `isDenyFilter` / `isDeepScopeFilter`).
+   * `src/ir/util/tenant-stance.ts` (`buildDenyFilter` / `isDenyFilter`).
    */
   | {
       kind: "authz-filter";
@@ -421,6 +396,30 @@ export type ExprIR = (
        *  table/alias off their render context, not this — it is carried for
        *  provenance / debugging. */
       aggregate: string;
+    }
+  /**
+   * Existential quantifier over another aggregate's rows —
+   * `exists CategoryShare as s where s.category == this.id`.  Typed `bool`.
+   *
+   * `aggregate` names an aggregate of the SAME bounded context (it shares the
+   * enclosing row's database; `loom.exists-cross-context` refuses another
+   * context's).  Inside `where`, `binding` resolves to a `ref` with
+   * `refKind: "row"` typed `entity{<aggregate>}`, so `s.category` is an
+   * ordinary `member`; `this` / bare fields still name the ENCLOSING row, and
+   * params / `currentUser` stay in scope.
+   *
+   * A query predicate only: every backend renders it as a correlated
+   * `EXISTS (SELECT 1 FROM <aggregate's table> WHERE <where> AND <the
+   * aggregate's own read scope>)`.  The quantified aggregate's read scope —
+   * tenant floor, capability filters, deny — always applies inside the
+   * subquery, so an `exists` never sees a row its caller could not read.
+   * `loom.exists-outside-query` keeps it out of in-memory positions.
+   */
+  | {
+      kind: "exists";
+      aggregate: string;
+      binding: string;
+      where: ExprIR;
     }
   | { kind: "paren"; inner: ExprIR }
   | { kind: "unary"; op: "-" | "!"; operand: ExprIR }

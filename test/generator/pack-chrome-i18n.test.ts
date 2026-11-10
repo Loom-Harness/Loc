@@ -979,3 +979,27 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     expect(neither["chrome.previous"]).toBe("Previous");
   });
 });
+
+describe("pack-chrome i18n — non-literal column header fallback", () => {
+  const TABLE = `Stack { Heading { "Orders" }, Table { rows: Sales.Order.all, Column { "Code", o => o.status }, Column { status, o => o.status } } }`;
+
+  it("React: the `Column N` header binds through t() and is catalogued", async () => {
+    const files = await generateSystemFiles(SYSTEM("react", "shadcn", TABLE));
+    expect(pageOf(files, "home.tsx")).toContain(`t("chrome.column.2", "Column 2")`);
+    expect(catalogOf(files)["chrome.column.2"]).toBe("Column 2");
+    // The literal header is content-keyed, so it takes no positional key.
+    expect(catalogOf(files)["chrome.column.1"]).toBeUndefined();
+  });
+
+  it("stays the raw `Column N` text when the app carries no translatable string", async () => {
+    const files = await generateSystemFiles(
+      SYSTEM(
+        "react",
+        "shadcn",
+        `Table { rows: Sales.Order.all, Column { status, o => o.status } }`,
+      ),
+    );
+    expect(pageOf(files, "home.tsx")).toContain("Column 1");
+    expect(pageOf(files, "home.tsx")).not.toContain("chrome.column");
+  });
+});

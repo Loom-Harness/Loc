@@ -752,7 +752,7 @@ ${body}
 }
 
 /** The scaffold-once user impl — `[ExternHandler] : I<Name>Handler` — that
- *  throws loudly until filled in (marker on line 1 → CLI writer preserves it). */
+ *  throws `ExternNotImplementedException` (answered 501) until filled in (marker on line 1 → CLI writer preserves it). */
 function renderExternImpl(
   h: Handler,
   ns: string,
@@ -777,7 +777,7 @@ namespace ${EXTERN_HANDLERS_NS(ns)};
 public sealed class ${upperFirst(h.name)}ExternHandler : I${upperFirst(h.name)}Handler
 {
     public ${ret} Handle(${externPortParams(h)})
-        => throw new NotImplementedException(${JSON.stringify(msg)});
+        => throw new ExternNotImplementedException(${JSON.stringify(msg)});
 }
 `;
 }

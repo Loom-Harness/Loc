@@ -1,7 +1,7 @@
 // Tenant-scoped folded projections on every backend (`fold-tenancy.ts`).  A
 // fold over `tenantOwned` producers' events (`Totals`) reads the event's tenant
 // from its metadata — the dispatching frame's event origin — stamps the row
-// with `tenant_id` / `data_key`, keys it by `(tenant_id, <key>)`, and every read
+// with `tenant_id`, keys it by `(tenant_id, <key>)`, and every read
 // route applies the tenant floor against the request principal.  A fold over
 // `crossTenant` producers only (`Bookings`) keeps the unscoped shape.
 //
@@ -43,22 +43,22 @@ describe("node (drizzle): tenant-scoped fold", async () => {
   const schema = file(files, "db/schema.ts");
   const projections = file(files, "http/projections.ts");
 
-  it("the migration keys the fold row by (tenant_id, key) and adds data_key", () => {
+  it("the migration keys the fold row by (tenant_id, key)", () => {
     const sql = [...files.entries()]
       .filter(([k]) => k.includes("/db/migrations/") && k.endsWith(".sql"))
       .map(([, v]) => v)
       .join("\n");
     const totals = between(sql, `"totalses"`, ");");
     expect(totals).toContain(`"tenant_id" TEXT NOT NULL`);
-    expect(totals).toContain(`"data_key" TEXT`);
+    // Absence check: tenancy is flat, the row carries no hierarchy-path column.
+    expect(totals).not.toContain("data_key");
     expect(totals).toMatch(/PRIMARY KEY \("tenant_id", "acct"\)/);
     expect(between(sql, `"bookingses"`, ");")).not.toContain("tenant_id");
   });
 
-  it("the drizzle table carries the tenant columns under a composite key", () => {
+  it("the drizzle table carries the tenant column under a composite key", () => {
     const totals = between(schema, "export const totalses", "}));");
     expect(totals).toContain(`tenantId: text("tenant_id").notNull(),`);
-    expect(totals).toContain(`dataKey: text("data_key"),`);
     expect(totals).toContain("primaryKey({ columns: [table.tenantId, table.acct] })");
     expect(between(schema, "export const bookingses", "});")).not.toContain("tenantId");
   });
@@ -68,7 +68,7 @@ describe("node (drizzle): tenant-scoped fold", async () => {
     expect(fold).toContain("const __origin = currentEventOrigin();");
     expect(fold).toContain("if (__tenant == null) return;");
     expect(fold).toContain("await loadTotals(db, __key, __tenant)");
-    expect(fold).toContain("tenantId: __tenant, dataKey: __origin?.orgPath ?? __tenant");
+    expect(fold).toContain("?? { acct: __key, tenantId: __tenant }");
     expect(projections).toContain(
       "onConflictDoUpdate({ target: [schema.totalses.tenantId, schema.totalses.acct], set: state })",
     );
@@ -144,7 +144,7 @@ describe("dotnet (EF Core): tenant-scoped fold", async () => {
   it("the fold reads the event origin, keys and stamps the row", () => {
     expect(handler).toContain("var __origin = global::Api.Auth.User.CurrentEventOrigin();");
     expect(handler).toContain("FindAsync(x => x.TenantId == __tenant && x.Acct == __key");
-    expect(handler).toContain("TenantId = __tenant, DataKey = __origin?.OrgPath ?? __tenant");
+    expect(handler).toContain("state = new TotalsRow { Acct = __key, TenantId = __tenant };");
   });
 
   it("every read applies the floor against the principal", () => {
@@ -189,14 +189,15 @@ describe("python: tenant-scoped fold", async () => {
   it("the row carries tenant_id in its composite key", () => {
     const row = between(schema, "class TotalsRow", "\n\n\n");
     expect(row).toContain("tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)");
-    expect(row).toContain("data_key: Mapped[str | None] = mapped_column(Text)");
+    // Absence check: tenancy is flat, the row carries no hierarchy-path column.
+    expect(row).not.toContain("data_key");
   });
 
   it("the fold reads the event origin, keys and stamps the row", () => {
     const fold = between(dispatch, "async def _proj_totals_paid", "await session.flush()");
     expect(fold).toContain(`__tenant = __origin.get("tenant")`);
     expect(fold).toContain("await _load_totals(session, __key, __tenant)");
-    expect(fold).toContain(`tenant_id=__tenant, data_key=__origin.get("orgPath") or __tenant`);
+    expect(fold).toContain("state = TotalsRow(acct=__key, tenant_id=__tenant)");
   });
 
   it("every read applies the floor; the exempt fold does not", () => {
@@ -238,7 +239,7 @@ describe("java: tenant-scoped fold", async () => {
     const fold = between(dispatcher, "public void onTotalsOnPaid", "\n    }\n");
     expect(fold).toContain("var __origin = com.loom.api.auth.User.currentEventOrigin();");
     expect(fold).toContain(
-      "totalsRowRepository.findByTenantAndKey(__tenant, __key).orElseGet(() -> TotalsRow._allocate(__tenant, __dataKey, __key));",
+      "totalsRowRepository.findByTenantAndKey(__tenant, __key).orElseGet(() -> TotalsRow._allocate(__tenant, __key));",
     );
   });
 
@@ -253,7 +254,7 @@ describe("java: tenant-scoped fold", async () => {
 
   it("a workflow's publish of a tenant-scoped stream runs in the stream tenant's origin", () => {
     expect(workflows).toContain(
-      "com.loom.api.auth.CurrentUserAccessor.runAsEventOrigin(new com.loom.api.auth.EventOrigin(__s.tenantId(), __s.dataKey(),",
+      "com.loom.api.auth.CurrentUserAccessor.runAsEventOrigin(new com.loom.api.auth.EventOrigin(__s.tenantId(), __o == null ? null : __o.causedBy()), __pub);",
     );
   });
 });
@@ -278,7 +279,7 @@ describe("elixir: tenant-scoped fold", async () => {
     expect(fold).toContain(
       "Repo.get_by(Api.Main.Projections.TotalsRow, acct: key, tenant_id: tenant)",
     );
-    expect(fold).toContain(`tenant_id: tenant, data_key: Map.get(origin, "orgPath") || tenant`);
+    expect(fold).toContain("nil -> %Api.Main.Projections.TotalsRow{acct: key, tenant_id: tenant}");
   });
 
   it("every read applies the floor; the exempt fold does not", () => {

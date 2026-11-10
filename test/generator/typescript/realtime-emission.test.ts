@@ -125,7 +125,7 @@ describe("realtime rooms — Hono (tenant-scoped delivery)", () => {
       'const TENANT_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set(["OrderPlaced"]);',
     );
     expect(rt).toContain('OrderPlaced: ["order"],');
-    // The tenant DataKey comes from the ambient principal at publish and the
+    // The tenant room key comes from the ambient principal at publish and the
     // verified principal at connect.
     expect(rt).toContain('import { requestContext } from "../obs/als";');
     expect(rt).toContain("const rooms = new Map<string, Set<Subscriber>>();");

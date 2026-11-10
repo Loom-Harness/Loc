@@ -2,15 +2,14 @@
 // in-process Dispatcher (the Tracking saga) so the append's stream-origin
 // dispatch frame compiles.  The
 // stream carries its tenant as stored-event metadata: the event log gains
-// `tenant_id` / `data_key`, a new stream is stamped from the principal, every
+// `tenant_id`, a new stream is stamped from the principal, every
 // stream load and list is scoped by the generated `<agg>StreamScope` helper,
 // and an append carries the loaded stream's tenant forward.
 //
 //   - `Ledger` keeps the flat tenant floor, is read through a criterion, and
 //     declares an operation (the append path).
-//   - `Book` is widened to `allow deep` — the subtree scope over `data_key` —
-//     and is read once `ignoring tenantOwned` (the unscoped stream load).
-//   - `Org` is the hierarchy registry (`implements tenantRegistry`).
+//   - `Book` is read once `ignoring tenantOwned` (the unscoped stream load).
+//   - `Org` is the tenant registry (`implements tenantRegistry`).
 system EsTenancy {
   user { id: guid  tenantId: string }
   tenancy by user.tenantId of Org
@@ -59,10 +58,6 @@ system EsTenancy {
           let l = Ledgers.get(p.ledger)
           l.deposit(1)
         }
-      }
-
-      policy {
-        allow deep on Book
       }
     }
     context Registry {

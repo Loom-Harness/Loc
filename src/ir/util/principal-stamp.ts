@@ -14,9 +14,7 @@
 //
 // The rule generalises past tenancy: ANY claim-valued stamp into a
 // non-optional column has the same failure, and the same one-line answer.  An
-// OPTIONAL target (`tenantOwned`'s own `dataKey: string?`) is deliberately not
-// guarded — null is a legal value there, and refusing it would break the
-// claim-less signup bootstrap `docs/tenancy.md` documents.  A bare
+// OPTIONAL target is deliberately not guarded — null is a legal value there.  A bare
 // `currentUser` stamp (`createdBy := currentUser`) is not guarded either: it
 // reads the principal's id, which is the token's `sub` and is always present.
 //

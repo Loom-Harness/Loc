@@ -394,6 +394,7 @@ function docExprUnsupported(
     // refusal, never a silent emission).  Enumerated rather than left to a
     // `default:` so a new `ExprIR` kind is a `tsc` error and someone decides
     // which side it lands on.
+    case "exists":
     case "new":
     case "match":
     case "list":

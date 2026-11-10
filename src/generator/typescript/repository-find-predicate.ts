@@ -35,19 +35,11 @@ import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
-import {
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  deepScopeTenantClaim,
-  guidFromStringSelfScope,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
+import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
-import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { ref } from "../_imports/symbol.js";
 import { tsNamed } from "../_imports/ts.js";
@@ -179,6 +171,8 @@ export function lowerToDrizzle(
 ): DrizzleLowering | null {
   const principal = opts?.principalAccessor ?? "currentUser";
   const ops = new Set<string>();
+  /** The table each in-scope `exists … as <row>` binding reads. */
+  const rows = new Map<string, string>();
   const text = lowerExpr(expr);
   if (text === null) return null;
   return { expr: text, ops };
@@ -199,45 +193,9 @@ export function lowerToDrizzle(
           const idCol = `schema.${tableName}.id`;
           return `and(isNull(${idCol}), isNotNull(${idCol}))`;
         }
-        // `deep`/`global` read level (multi-tenancy) — the
-        // materialized-path descendant-or-self scope with the NULL-dataKey
-        // fallback to the tenant floor (see `DEEP_SCOPE_SEMANTICS`).  Renders as
-        // a Drizzle operator tree.
-        case "scope": {
-          const col = `schema.${tableName}.${TENANT_OWNED_DATA_KEY_FIELD}`;
-          const tenantCol = `schema.${tableName}.${TENANT_OWNED_TENANT_ID_FIELD}`;
-          // Anchor claim: `orgPath` for `deep`, `rootOrg` for `global`.
-          const org = `${principal}.${deepScopeAnchorClaim(e)}`;
-          // Tenant claim: the system's declared `tenancy by user.<claim>` —
-          // NOT the row column above, which only coincides when the author
-          // happened to name the claim `tenantId`.
-          const tenant = `${principal}.${deepScopeTenantClaim(e)}`;
-          // Descendant test = SARGABLE PREFILTER **and** ANCHORED RECHECK
-          // (M-T3.17).  The anchor is a principal CLAIM, so it is data, and
-          // `_`/`%` inside it are LIKE wildcards: an org legitimately named
-          // `acme_corp` gets the pattern `acme_corp.%`, which matches
-          // `acmeXcorp.…` — a cross-tenant read with no attacker involved, just
-          // an underscore in a name.  Binding the value (which Drizzle does)
-          // stops injection, not wildcard semantics.  So the row is DECIDED by
-          // `strpos(col, needle) = 1`, which has no pattern language at all —
-          // the same reason `string.startsWith` lowers this way in
-          // DRIZZLE_INTRINSIC_SQL above.  The escaped `LIKE … ESCAPE '!'` in
-          // front of it exists only so the planner can ride the
-          // `data_key text_pattern_ops` index instead of seq-scanning; an
-          // escaping slip could only widen it, and the recheck still gates.
-          for (const op of ["or", "and", "eq", "isNull", "isNotNull", "sql"]) ops.add(op);
-          const prefilter = `sql\`\${${col}} like \${${tsSubtreeLikePattern(org)}} ${SQL_LIKE_ESCAPE_CLAUSE}\``;
-          const anchored = `sql\`strpos(\${${col}}, \${${org} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}}) = 1\``;
-          const descendant = `and(${prefilter}, ${anchored})`;
-          return (
-            `or(and(isNotNull(${col}), or(eq(${col}, ${org}), ` +
-            `${descendant})), ` +
-            `and(isNull(${col}), eq(${tenantCol}, ${tenant})))`
-          );
-        }
         default: {
-          const _exhaustive: never = e.filter;
-          throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
+          const _exhaustive: never = e.filter.kind;
+          throw new Error(`unhandled authz-filter kind: ${String(_exhaustive)}`);
         }
       }
     }
@@ -262,6 +220,7 @@ export function lowerToDrizzle(
         );
       }
     }
+    if (e.kind === "exists") return lowerExists(e);
     if (e.kind === "binary") {
       if (e.op === "&&" || e.op === "||") {
         const l = lowerExpr(e.left);
@@ -420,7 +379,7 @@ export function lowerToDrizzle(
       return `inArray(schema.${tableName}.id, this.db.select({ id: schema.${joinConst}.${ownerCol} }).from(schema.${joinConst}).where(eq(schema.${joinConst}.${targetCol}, ${arg})))`;
     }
     // A bool-returning queryable intrinsic standing alone in a boolean
-    // position (`filter this.dataKey.startsWith(p)`).  Its SQL snippet already
+    // position (`filter this.code.startsWith(p)`).  Its SQL snippet already
     // IS a complete predicate (`strpos(col, $p) = 1`), and Drizzle accepts a
     // `sql` tag wherever an operator goes, so the column-position renderer is
     // the whole answer — no comparison to synthesise, unlike the bare-boolean
@@ -441,6 +400,32 @@ export function lowerToDrizzle(
       return `eq(${boolCol}, true)`;
     }
     return null;
+  }
+
+  /** `exists <Agg> as s where p` — a correlated `EXISTS (SELECT 1 FROM <agg's
+   *  table> WHERE p AND <agg's read scope>)`.  The subquery is a `sql` tag, not
+   *  a query builder, so it needs no `db` handle and renders the same in a
+   *  repository method and in the pooled `db/read-scopes` helpers.  Drizzle
+   *  qualifies every column with its table, so `s.<col>` (the quantified
+   *  table) and `this.<col>` (the filtered row's) stay distinct inside it.  The
+   *  quantified aggregate's own read scope is inlined, never dropped: an
+   *  `exists` sees only rows its caller could read. */
+  function lowerExists(e: Extract<ExprIR, { kind: "exists" }>): string | null {
+    const inner = ctx.aggregates.find((a) => a.name === e.aggregate);
+    if (!inner) return null;
+    const innerTable = repoTableName(inner, ctx);
+    const shadowed = rows.get(e.binding);
+    rows.set(e.binding, innerTable);
+    const pred = lowerExpr(e.where);
+    if (shadowed === undefined) rows.delete(e.binding);
+    else rows.set(e.binding, shadowed);
+    if (pred === null) return null;
+    const scope = drizzleScopeConjuncts(inner, ctx);
+    const terms = [pred, ...(scope.kind ? [scope.kind] : []), ...scope.filters.map((f) => f.expr)];
+    ops.add("sql");
+    const where = terms.length === 1 ? pred : `and(${terms.join(", ")})`;
+    if (terms.length > 1) ops.add("and");
+    return `sql\`exists (select 1 from \${schema.${innerTable}} where \${${where}})\``;
   }
 
   /** A `this.<field>` (or bare `this-prop` ref) whose type is the
@@ -523,6 +508,21 @@ export function lowerToDrizzle(
     // `member` over the `this` literal.
     if (e.kind === "member" && e.receiver.kind === "this") {
       return `schema.${tableName}.${e.member}`;
+    }
+    // `s.field` / `s.vo.sub` on an `exists … as s` row — a column of the
+    // quantified aggregate's table.
+    if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "row") {
+      const t = rows.get(e.receiver.name);
+      return t ? `schema.${t}.${e.member}` : null;
+    }
+    if (
+      e.kind === "member" &&
+      e.receiver.kind === "member" &&
+      e.receiver.receiver.kind === "ref" &&
+      e.receiver.receiver.refKind === "row"
+    ) {
+      const t = rows.get(e.receiver.receiver.name);
+      return t ? `schema.${t}.${e.receiver.member}_${e.member}` : null;
     }
     // `this.field.subField` (value-object member access).  Schema
     // flattens VO fields into `<field>_<subField>` columns.

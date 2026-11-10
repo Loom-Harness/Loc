@@ -1,5 +1,6 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
+import { observableWorkflows } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -1824,9 +1825,9 @@ function renderCsOmission(
  * Walk a workflow body (recursing into `for-each` bodies) and collect the
  * names that are dereferenced — every `op-call` target, every aggregate arg
  * to a domain-service call, and every name whose MEMBERS are read inside any
- * body expression (`loaded.dataKey + "." + seg` in an op-call arg or
+ * body expression (`loaded.code + "-" + seg` in an op-call arg or
  * factory-let seed).  A `getById` load bound to such a name is load-or-throw:
- * the deref (`b.Promote(...)`, `loaded.DataKey`) would be a CS8602 under
+ * the deref (`b.Promote(...)`, `loaded.Code`) would be a CS8602 under
  * nullable-reference types unless the `Task<T?>` result is guarded.  Loads
  * that are never dereferenced (e.g. a load passed whole into a `create`
  * field) stay unguarded and byte-identical.
@@ -1835,7 +1836,7 @@ function collectDereferencedLoads(stmts: readonly WorkflowStmtIR[]): Set<string>
   const names = new Set<string>();
   const visitExpr = (e: ExprIR): void => {
     // Member/method reads on a plain ref dereference that name —
-    // `loaded.DataKey` on an unguarded `Task<T?>` result is the same CS8602
+    // `loaded.Code` on an unguarded `Task<T?>` result is the same CS8602
     // an op-call deref is.
     if ((e.kind === "member" || e.kind === "method-call") && e.receiver.kind === "ref") {
       names.add(e.receiver.name);
@@ -2606,7 +2607,7 @@ export function emitWorkflowInstanceReads(
   ownerOf: OwnerOf,
   options?: { routePrefix?: string; usingDapper?: boolean },
 ): void {
-  const observable = ctx.workflows.filter((wf) => !!wf.instanceWireShape);
+  const observable = observableWorkflows(ctx.workflows);
   if (observable.length === 0) return;
   for (const wf of observable) {
     out.set(

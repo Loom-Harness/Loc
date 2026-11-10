@@ -47,7 +47,14 @@ export async function runI18nExport(
   const locale = options.locale;
   if (!locale) throw new Error("export needs --locale <locale>");
   const format = options.format === undefined ? "xliff" : formatOf("", options.format);
-  const { catalog: source, names, tree, source: sourceLocale, dir } = await openTree(file, options);
+  const {
+    catalog: source,
+    names,
+    tree,
+    source: sourceLocale,
+    dir,
+    locations,
+  } = await openTree(file, options);
   const entry = tree.locales.find((l) => l.locale === locale);
   if (!entry) {
     throw new Error(`No locale "${locale}" under ${relPath(dir)}. Run \`ddd i18n init\` first.`);
@@ -73,6 +80,7 @@ export async function runI18nExport(
       ...(translated !== undefined ? { target: translated } : {}),
       state,
       notes: contextNotes(key, ns, source[key]!),
+      ...(locations.get(key) ? { locations: locations.get(key)! } : {}),
       ...(flag ? { previousSource: flag.previousSource } : {}),
       ...(flag?.previousTranslation !== undefined
         ? { previousTranslation: flag.previousTranslation }

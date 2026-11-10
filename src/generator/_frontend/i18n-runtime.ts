@@ -19,9 +19,9 @@
 // provider, no design-pack template change. The formatting half is
 // `intl-messageformat` (the standalone ICU engine react-intl itself
 // builds on) so a `, number` / `, date` format suffix (M-T1.11) locale-formats
-// at runtime. The `t(key, default, values?)` call sites the walker emits are
-// unchanged. (Plural/select — brace-bodied ICU — are a later slice; the same
-// engine already supports them, only the grammar/extractor gate them out.)
+// at runtime, and a brace-bodied `{n, plural, …}` / `select` / `selectordinal`
+// hole selects its branch by the active locale's CLDR rules. The
+// `t(key, default, values?)` call sites the walker emits are unchanged.
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
@@ -54,7 +54,7 @@ export function buildUiCatalog(
 ): Record<string, string> {
   const byKey = new Map<string, string>();
   // Same key ⇒ same content hash ⇒ same message; collapses repeats.
-  for (const { key, message } of collectUiMessages(ui)) byKey.set(key, message);
+  for (const { key, message } of collectUiMessages(ui, scope?.layouts)) byKey.set(key, message);
   if (byKey.size > 0) {
     for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
       byKey.set(key, message);
@@ -265,6 +265,15 @@ function applyDocument(tag: string): void {
   document.documentElement.dir = info?.dir ?? "ltr";
 }
 
+/** Re-spell the static \`<title data-loom-title="<key>">\` of \`index.html\` in the
+ *  active locale, so the tab is translated before the first page mounts. */
+function applyTitle(): void {
+  if (typeof document === "undefined") return;
+  const el = document.querySelector("title[data-loom-title]");
+  const key = el?.getAttribute("data-loom-title");
+  if (el && key) el.textContent = t(key, el.textContent ?? "");
+}
+
 let current = negotiateLocale();
 applyDocument(current);
 const listeners = new Set<() => void>();
@@ -310,6 +319,7 @@ export function setLocale(tag: string): void {
   if (next === current) return;
   current = next;
   applyDocument(next);
+  applyTitle();
   for (const listener of [...listeners]) listener();
 }
 
@@ -353,5 +363,38 @@ export function t(key: string, defaultMessage: string, values?: Values): string 
   if (values === undefined) return message;
   return formatterFor(current, message).format(formatValues(message, values)) as string;
 }
+
+/** The emphasis tags a rich-text message may carry, and the element each becomes. */
+const RICH_TAGS: Record<string, string> = { b: "strong", i: "em", code: "code" };
+
+/** Translate a RICH-TEXT message — one sentence whose emphasis is carried as
+ *  \`<b>\` / \`<i>\` / \`<code>\` tags, so a locale can reorder the parts — and
+ *  return it as HTML.  The tags become private marker characters before the ICU
+ *  step (so they never reach the formatter, and a hole VALUE can never forge
+ *  one), every other character is HTML-escaped, then the markers become
+ *  \`<strong>\` / \`<em>\` / \`<code>\`.  Only those three elements can appear. */
+export function tRich(key: string, defaultMessage: string, values?: Values): string {
+  const message = (catalogs[current]?.[key] ?? defaultMessage).replace(
+    /<(\\/?)(b|i|code)>/g,
+    "\\uE000$1$2\\uE001",
+  );
+  let text = message;
+  if (values !== undefined) {
+    const safe: Values = {};
+    for (const [k, v] of Object.entries(values)) {
+      safe[k] = typeof v === "string" ? v.replace(/[\\uE000\\uE001]/g, "") : v;
+    }
+    text = formatterFor(current, message).format(formatValues(message, safe)) as string;
+  }
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\\uE000(\\/?)(b|i|code)\\uE001/g, (_m, close: string, tag: string) => \`<\${close}\${RICH_TAGS[tag]}>\`);
+}
+
+applyTitle();
 `;
 }

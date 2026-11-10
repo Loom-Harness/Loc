@@ -25,6 +25,7 @@ import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
+import { validateExistsQuantifiers } from "./checks/exists-checks.js";
 import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
@@ -468,6 +469,7 @@ export function validateLoomModel(
   // result) must be discriminated by a variant `match` before it is read
   // (M-T5.1 A4) — a straight read is an unguarded dereference on all five.
   validateUnionReads(loom, diags);
+  validateExistsQuantifiers(loom, diags);
   validateUiBodies(loom, diags);
   // Page `requires` gates (audit D2) — the client-evaluable subset, refused
   // here so the six frontend gate renderers' throws stay internal invariants.

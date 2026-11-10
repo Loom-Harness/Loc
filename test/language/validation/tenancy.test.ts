@@ -124,88 +124,61 @@ describe("tenancy by — AST validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// `currentUser.orgPath` — the derived tenant materialized-path principal
-// member (multi-tenancy Phase 2, plan P2.1).  It is only meaningful under a
-// `tenancy by` declaration (it resolves from the tenancy claim + registry);
-// referencing it without one is fail-closed (`loom.orgpath-without-tenancy`).
+// The removed materialized-path surface (D-TENANCY-FLAT).  Each read gets a
+// named error with its replacement instead of a generic unknown name/member.
 // ---------------------------------------------------------------------------
 
-describe("currentUser.orgPath — AST validation", () => {
-  it("accepts `currentUser.orgPath` under a tenancy declaration", async () => {
-    const { errors } = await parseString(`
-      system Shop {
-        user { id: guid  tenantId: string }
-        tenancy by user.tenantId of Org
-        subdomain S {
-          context C {
-            aggregate Doc with tenantOwned {
-              owner: string
-              filter this.owner == currentUser.orgPath
-            }
-            aggregate Org { name: string }
-            repository Docs for Doc { }
-            repository Orgs for Org { }
-          }
+const removedSurface = (body: string, user = "id: guid  tenantId: string"): string => `
+  system Shop {
+    user { ${user} }
+    tenancy by user.tenantId of Org
+    subdomain S {
+      context C {
+        aggregate Doc with tenantOwned {
+          owner: string?
+          ${body}
         }
+        aggregate Org { name: string  implements tenantRegistry }
+        repository Docs for Doc { }
+        repository Orgs for Org { }
       }
-    `);
-    expect(errors).toEqual([]);
+    }
+  }
+`;
+
+async function codesOf(src: string): Promise<string[]> {
+  const { diagnostics } = await parseString(src);
+  return diagnostics
+    .filter((d) => d.severity === 1)
+    .map((d) => String(d.code))
+    .sort();
+}
+
+describe("the removed materialized-path surface — AST validation", () => {
+  it.each([
+    "operation m() { owner := currentUser.orgPath }",
+    "operation m() { owner := currentUser.rootOrg }",
+    "operation m() { owner := organizationContext.orgPath }",
+  ])("`%s` → loom.tenancy-principal-member-removed, and nothing else", async (body) => {
+    expect(await codesOf(removedSurface(body))).toEqual(["loom.tenancy-principal-member-removed"]);
   });
 
-  it("rejects `currentUser.orgPath` without a tenancy declaration (loom.orgpath-without-tenancy)", async () => {
-    const { diagnostics } = await parseString(`
-      system Shop {
-        user { id: guid  tenantId: string }
-        subdomain S {
-          context C {
-            aggregate Doc {
-              owner: string
-              filter this.owner == currentUser.orgPath
-            }
-            repository Docs for Doc { }
-          }
-        }
-      }
-    `);
-    expect(diagnostics.some((d) => d.code === "loom.orgpath-without-tenancy")).toBe(true);
+  it.each([
+    'operation m() { dataKey := "x" }',
+    "operation m() { owner := dataKey }",
+    "filter this.dataKey == currentUser.tenantId",
+  ])("`%s` → loom.tenancy-data-key-removed, and nothing else", async (body) => {
+    expect(await codesOf(removedSurface(body))).toEqual(["loom.tenancy-data-key-removed"]);
   });
 
-  it("accepts `currentUser.rootOrg` under a tenancy declaration (P2.5)", async () => {
-    const { errors } = await parseString(`
-      system Shop {
-        user { id: guid  tenantId: string }
-        tenancy by user.tenantId of Org
-        subdomain S {
-          context C {
-            aggregate Doc with tenantOwned {
-              owner: string
-              filter this.owner == currentUser.rootOrg
-            }
-            aggregate Org { name: string }
-            repository Docs for Doc { }
-            repository Orgs for Org { }
-          }
-        }
-      }
-    `);
-    expect(errors).toEqual([]);
-  });
-
-  it("rejects `currentUser.rootOrg` without a tenancy declaration (loom.orgpath-without-tenancy)", async () => {
-    const { diagnostics } = await parseString(`
-      system Shop {
-        user { id: guid  tenantId: string }
-        subdomain S {
-          context C {
-            aggregate Doc {
-              owner: string
-              filter this.owner == currentUser.rootOrg
-            }
-            repository Docs for Doc { }
-          }
-        }
-      }
-    `);
-    expect(diagnostics.some((d) => d.code === "loom.orgpath-without-tenancy")).toBe(true);
+  it("a `user { }` claim named `orgPath` is an ordinary declared claim", async () => {
+    expect(
+      await codesOf(
+        removedSurface(
+          "operation m() { owner := currentUser.orgPath }",
+          "id: guid  tenantId: string  orgPath: string",
+        ),
+      ),
+    ).toEqual([]);
   });
 });

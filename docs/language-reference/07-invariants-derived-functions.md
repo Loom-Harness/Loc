@@ -914,6 +914,6 @@ if (!(currentUser !== null && (currentUser.role === "admin"))) wire.salary = nul
 // http/employee.routes.ts:  salary: z.string().nullable(),
 ```
 
-The full contract (per-backend serializers, projections, the `policy` ladder it composes with) is in [`../auth.md`](../auth.md) § *Field masking — `mask unless`* and [Auth](17-auth.md) — not duplicated here.
+The full contract (per-backend serializers, projections, the `policy` rules it composes with) is in [`../auth.md`](../auth.md) § *Field masking — `mask unless`* and [Auth](17-auth.md) — not duplicated here.
 
 A `function` is the reusable-expression knob; for a reusable *predicate* shared across aggregates as a named specification, see [`criterion.md`](../criterion.md); for a stateless cross-aggregate calculator, see [Domain services](23-domain-services-and-seeds.md).

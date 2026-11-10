@@ -77,7 +77,9 @@ describe("feliz UI auth gate", () => {
   it("wraps the gated page view in a claims guard with a forbiddenView fallback", async () => {
     const app = await appFs(GATED);
     expect(app).toContain("let forbiddenView =");
-    expect(app).toContain('Html.h2 [ prop.className "font-bold"; prop.text "Forbidden" ]');
+    expect(app).toContain(
+      'Html.h2 [ prop.className "font-bold"; prop.text (I18n.t "chrome.forbiddenTitle" "Forbidden") ]',
+    );
     // The gate is F#-rendered: `==` → `=`, claim access → pascal record field.
     expect(app).toContain("let adminView (model: Model) (dispatch: Msg -> unit) =");
     expect(app).toContain("    match model.CurrentUser with");

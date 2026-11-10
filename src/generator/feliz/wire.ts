@@ -660,8 +660,9 @@ export interface FelizFieldArray {
   rowType: string;
   /** The empty-row value binding (`emptyLineItemRow`). */
   emptyRowBinding: string;
-  /** Humanized element label for the Add button (`Line Item`). */
-  elementLabel: string;
+  /** The value object each row holds (`LineItem`) — names the Add button's
+   *  whole-sentence catalog entry (`chrome.addItem.LineItem`). */
+  elementName: string;
   /** Humanized field label shown above the rows (`Items`). */
   label: string;
   /** `Msg` appending an empty row (`AddOrderFormItems`). */
@@ -1259,7 +1260,7 @@ function buildFieldArray(
     jsonKey: field.name,
     rowType,
     emptyRowBinding: `empty${rowType}`,
-    elementLabel: humanize(elem.name),
+    elementName: elem.name,
     label: humanize(field.name),
     addMsg: `Add${formType}${upperFirst(field.name)}`,
     removeMsg: `Remove${formType}${upperFirst(field.name)}`,

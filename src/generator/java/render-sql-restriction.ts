@@ -1,13 +1,8 @@
-import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { aggregateTableName } from "../../ir/enrich/storage-names.js";
+import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
-import {
-  DATA_KEY_LIKE_ESCAPE,
-  DATA_KEY_PATH_DELIMITER,
-  deepScopeAnchorClaim,
-  guidClaimAccessorName,
-  TENANT_OWNED_DATA_KEY_FIELD,
-  TENANT_OWNED_TENANT_ID_FIELD,
-} from "../../ir/util/tenant-stance.js";
+import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { snake } from "../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../_expr/pg-interval.js";
@@ -18,7 +13,6 @@ import {
   enumNameBindEntry,
   principalParamName,
   principalTermBindEntry,
-  subtreeLikeBindEntry,
 } from "./render-jpql.js";
 import { sqlRestrictionIdent } from "./sql-ident.js";
 
@@ -57,10 +51,31 @@ export interface FilterCondition {
  *  ones the JPQL EntityManager mode binds (`render-jpql.ts`), so the two
  *  spellings of one predicate cannot disagree.  Every value is null (false,
  *  for a Boolean) without a principal, so the condition matches no row. */
-export function renderSqlFilterCondition(e: ExprIR, enumsPkg: string): FilterCondition {
+export function renderSqlFilterCondition(
+  e: ExprIR,
+  enumsPkg: string,
+  /** The context's aggregates — needed only to resolve an `exists <Agg> …`
+   *  quantifier to the quantified table and its read scope. */
+  aggs: readonly AggregateIR[] = [],
+  schema?: string,
+): FilterCondition {
   const params = new Map<string, FilterParam>();
-  const condition = renderSql(e, { params, enumsPkg });
+  const condition = renderSql(e, { params, enumsPkg }, { rows: new Map(), aggs, schema });
   return { condition, params: [...params.values()] };
+}
+
+/** Where the columns of an `exists` subquery come from.  The filtered row's
+ *  own columns stay UNQUALIFIED — Hibernate's fragment template prefixes every
+ *  bare column with the entity's alias, which is what correlates the subquery
+ *  — and a quantified row's are qualified with its alias, which the template
+ *  leaves alone.  `thisAlias` is set while rendering the quantified aggregate's
+ *  own read scope, whose `this` IS the quantified row. */
+interface RowCtx {
+  thisAlias?: string;
+  rows: Map<string, string>;
+  aggs: readonly AggregateIR[];
+  /** The schema the context's tables live in (see `restrictionHostFor`). */
+  schema?: string;
 }
 
 interface PrincipalCtx {
@@ -68,8 +83,12 @@ interface PrincipalCtx {
   enumsPkg: string;
 }
 
-export function renderSqlRestriction(e: ExprIR): string {
-  return renderSql(e, undefined);
+export function renderSqlRestriction(
+  e: ExprIR,
+  aggs: readonly AggregateIR[] = [],
+  schema?: string,
+): string {
+  return renderSql(e, undefined, { rows: new Map(), aggs, schema });
 }
 
 function bind(p: PrincipalCtx, entry: string, javaType: string): string {
@@ -119,6 +138,7 @@ function javaIdBoxedValueType(): string {
 function renderPrincipalBinary(
   e: Extract<ExprIR, { kind: "binary" }>,
   p: PrincipalCtx,
+  rc: RowCtx,
 ): string | null {
   const pt = principalTerm(e);
   if (pt) {
@@ -142,7 +162,7 @@ function renderPrincipalBinary(
     const param = claimIsString
       ? bind(p, guidClaimAccessorName(claim.member), "java.util.UUID")
       : bind(p, claim.member, javaIdBoxedValueType());
-    return `id ${op} ${param}`;
+    return `${rc.thisAlias ? `${rc.thisAlias}.` : ""}id ${op} ${param}`;
   }
   // A nullable claim: `==` against a null claim reads as IS NULL, as on every
   // backend, and an absent principal still matches nothing.
@@ -153,57 +173,45 @@ function renderPrincipalBinary(
   if (nullable.type.kind !== "optional") return null;
   const colSide = leftClaim ? e.right : e.left;
   const test = `${bind(p, claimIsNullBindEntry(nullable.member), "Boolean")} = true`;
-  const cmp = `${renderSql(e.left, p)} ${op} ${renderSql(e.right, p)}`;
-  return `(${cmp} or (${test} and ${renderSql(colSide, p)} is ${e.op === "==" ? "" : "not "}null))`;
+  const cmp = `${renderSql(e.left, p, rc)} ${op} ${renderSql(e.right, p, rc)}`;
+  return `(${cmp} or (${test} and ${renderSql(colSide, p, rc)} is ${e.op === "==" ? "" : "not "}null))`;
 }
 
-function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
-  const renderSqlRestriction = (x: ExprIR): string => renderSql(x, p);
+function renderSql(e: ExprIR, p: PrincipalCtx | undefined, rc: RowCtx): string {
+  const renderSqlRestriction = (x: ExprIR): string => renderSql(x, p, rc);
+  const column = (x: ExprIR): string => qualifiedColumn(x, rc);
   switch (e.kind) {
-    case "authz-filter":
-      // Only the DENY carve-out (authorization — deny-wins) reaches the
-      // static (no-principal) restriction path: the always-false `1 = 0`
-      // appended to every SELECT for a read-denied entity.  A `scope` sentinel
-      // is principal-referencing and is routed to the `tenantScope` Specification
-      // instead, so it never lands here — the exhaustive switch throws if it did.
-      switch (e.filter.kind) {
-        case "deny":
-          return "1 = 0";
-        case "scope": {
-          if (!p) {
-            throw unsupported(
-              "principal-referencing `scope` filter (needs the Specification path)",
-            );
-          }
-          // Descendant-or-self materialized-path scope with the NULL-dataKey
-          // fallback to the tenant floor: the JPQL `scope` arm in SQL.  The
-          // anchored `position(...) = 1` decides the row; the prefix `like`
-          // in front of it is the sargable prefilter the `data_key`
-          // text_pattern_ops index serves.
-          const col = snake(TENANT_OWNED_DATA_KEY_FIELD);
-          const tenantCol = snake(TENANT_OWNED_TENANT_ID_FIELD);
-          const org = renderSqlRestriction(e.filter.anchorClaim);
-          const tenant = renderSqlRestriction(e.filter.tenantClaim);
-          const pattern = bind(p, subtreeLikeBindEntry(deepScopeAnchorClaim(e)), "String");
-          const anchored = `position(concat(${org}, '${DATA_KEY_PATH_DELIMITER}') in ${col}) = 1`;
-          const descendant = `(${col} like ${pattern} escape '${DATA_KEY_LIKE_ESCAPE}' and ${anchored})`;
-          return (
-            `((${col} is not null and (${col} = ${org} or ${descendant})) ` +
-            `or (${col} is null and ${tenantCol} = ${tenant}))`
-          );
-        }
-        default: {
-          const _exhaustive: never = e.filter;
-          throw unsupported(`authz-filter kind '${(_exhaustive as { kind: string }).kind}'`);
-        }
+    case "exists": {
+      // `exists <Agg> as s where p` — a correlated EXISTS over the quantified
+      // table, carrying that aggregate's own read scope.
+      const inner = rc.aggs.find((a) => a.name === e.aggregate);
+      if (!inner) throw unsupported(`'exists ${e.aggregate}' without its aggregate in scope`);
+      const alias = `q_${snake(e.binding)}`;
+      const rows = new Map(rc.rows);
+      rows.set(e.binding, alias);
+      const terms = [renderSql(e.where, p, { ...rc, rows })];
+      for (const pred of existsScopePredicates(inner.name, rc.aggs)) {
+        terms.push(renderSql(pred, p, { ...rc, rows, thisAlias: alias }));
       }
+      const bare = sqlRestrictionIdent(aggregateTableName(inner, rc.aggs));
+      const table = rc.schema ? `${sqlRestrictionIdent(rc.schema)}.${bare}` : bare;
+      return `exists (select 1 from ${table} ${alias} where ${terms.map((t) => `(${t})`).join(" and ")})`;
+    }
+    case "authz-filter": {
+      // The DENY carve-out (authorization — deny-wins): the always-false
+      // `1 = 0` appended to every SELECT for a read-denied entity.  `deny` is
+      // the only filter kind; the typed binding makes a new kind a `tsc` error
+      // here, not a silent authorization bypass.
+      const _deny: "deny" = e.filter.kind;
+      return "1 = 0";
+    }
     case "paren":
       return `(${renderSqlRestriction(e.inner)})`;
     case "unary":
       if (e.op === "!") return `not (${renderSqlRestriction(e.operand)})`;
       throw unsupported(`unary '${e.op}'`);
     case "binary": {
-      const principal = p ? renderPrincipalBinary(e, p) : null;
+      const principal = p ? renderPrincipalBinary(e, p, rc) : null;
       if (principal !== null) return principal;
       if (e.op === "&&")
         return `${renderSqlRestriction(e.left)} and ${renderSqlRestriction(e.right)}`;
@@ -236,7 +244,7 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
     }
     case "method-call": {
       // Queryable scalar intrinsic (src/util/intrinsics.ts) over a candidate
-      // path — `filter this.dataKey.startsWith("root")`, `filter
+      // path — `filter this.code.startsWith("root")`, `filter
       // this.code.trim() == "x"`.  The static path admits it because every
       // operand here is a literal or a column: no parameter binding is needed,
       // which is the only thing `@SQLRestriction` cannot express.  Shares the
@@ -255,8 +263,7 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
       throw unsupported(`method call '${e.member}'`);
     }
     case "ref":
-      if (e.refKind === "this-prop" || e.refKind === "this-vo-prop")
-        return sqlRestrictionIdent(columnPath(e));
+      if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") return column(e);
       if (e.refKind === "enum-value") return sqlString(e.name);
       throw unsupported(`ref '${e.refKind}' (only candidate fields and enum values are static)`);
     case "member": {
@@ -268,7 +275,7 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
       // sub-path (`this.audit.deletedAt` → audit_deleted_at), or an enum
       // value spelled `Enum.value`.
       if (e.receiverType.kind === "enum") return sqlString(e.member);
-      return sqlRestrictionIdent(columnPath(e));
+      return column(e);
     }
     case "literal":
       switch (e.lit) {
@@ -293,6 +300,26 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined): string {
   }
 }
 
+/** A column reference: the quoted column, prefixed with the alias of the row
+ *  it belongs to when that is not the filtered row itself (see `RowCtx`). */
+function qualifiedColumn(e: ExprIR, rc: RowCtx): string {
+  const rowName = rowOf(e);
+  const alias = rowName !== undefined ? rc.rows.get(rowName) : rc.thisAlias;
+  if (rowName !== undefined && alias === undefined)
+    throw unsupported(`'${rowName}' outside its 'exists'`);
+  const col = sqlRestrictionIdent(columnPath(e));
+  return alias ? `${alias}.${col}` : col;
+}
+
+/** The `exists` binding a column path is rooted at, or undefined for `this`. */
+function rowOf(e: ExprIR): string | undefined {
+  if (e.kind === "member") {
+    if (e.receiver.kind === "ref" && e.receiver.refKind === "row") return e.receiver.name;
+    return rowOf(e.receiver);
+  }
+  return undefined;
+}
+
 /** The UNQUOTED column a candidate path names — `this.isDeleted` → `is_deleted`,
  *  the flattened VO sub-path `this.audit.deletedAt` → `audit_deleted_at`.
  *
@@ -306,6 +333,7 @@ function columnPath(e: ExprIR): string {
   }
   if (e.kind === "member") {
     if (e.receiver.kind === "this") return snake(e.member);
+    if (e.receiver.kind === "ref" && e.receiver.refKind === "row") return snake(e.member);
     return `${columnPath(e.receiver)}_${snake(e.member)}`;
   }
   throw unsupported(`expression kind '${e.kind}' in a column position`);

@@ -37,9 +37,6 @@ const FUNC = pyRef("sqlalchemy", "func");
 const INSERT = pyRef("sqlalchemy.dialects.postgresql", "insert");
 
 /** Event-sourced workflows in a context. */
-export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): WorkflowIR[] {
-  return workflows.filter((wf) => wf.eventSourced);
-}
 
 /** The shared per-context event-log row class (`<Ctx>EventRow`) an ES workflow
  *  appends its stream to — every ES aggregate + workflow in the context shares

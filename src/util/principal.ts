@@ -9,33 +9,16 @@
 // stays distinguishable from a (hypothetical) domain aggregate of the same name.
 export const PRINCIPAL_TYPE_NAME = "User";
 
-/** The derived principal member `currentUser.orgPath` — the materialized
- *  DataKey path of the caller's tenant, resolved per-request and memoized on
- *  the request-scoped principal (multi-tenancy, plan).  Unlike
- *  the `user { … }` claims it is NOT an IdP token field: the `claims:` map is
- *  a static token→field projection with no derived-value carrier, so `orgPath`
- *  is *computed* server-side from the tenancy claim we already hold.  It is
- *  therefore only meaningful under a `tenancy by user.<claim> of <Registry>`
- *  declaration; referencing it without one is a hard error
- *  (`loom.orgpath-without-tenancy`, fail-closed).
- *
- * resolves it to the tenant claim's value (the root-segment path — the
- *  defined fallback while the registry carries no `dataKey` column yet);
- *  every backend's principal exposes it via a computed accessor whose body is
- * that fallback, so swaps only the accessor body (`SELECT dataKey FROM
- *  <registry> WHERE id = <claim>`), never the call sites. */
-export const PRINCIPAL_ORG_PATH = "orgPath";
+/** Principal members that no longer exist (D-TENANCY-FLAT): data visibility
+ *  is flat, so the caller carries no materialized org path.  A read of one
+ *  (unless the `user { }` block declares a claim of that name) is
+ *  `loom.principal-member-removed`, whose text names the replacement. */
+export const REMOVED_PRINCIPAL_MEMBERS: readonly string[] = ["orgPath", "rootOrg"];
 
-/** The derived principal member `currentUser.rootOrg` — the caller's ROOT-org
- *  segment (multi-tenancy, plan): the first segment of
- *  {@link PRINCIPAL_ORG_PATH} (the substring before the first `.`, or the whole
- *  path when it has no `.`).  A pure string computation off the already-resolved
- *  `orgPath` — NO extra DB read; every backend derives it from its `orgPath`
- *  accessor.  Like `orgPath` it is meaningful only under a `tenancy by` line
- *  (`loom.orgpath-without-tenancy`, fail-closed).  It anchors the `global` read
- *  level's root-subtree widening; under flat tenancy `orgPath` is the
- *  root-segment claim, so `rootOrg == orgPath`. */
-export const PRINCIPAL_ROOT_ORG = "rootOrg";
+/** The field the tenancy capabilities no longer provide (D-TENANCY-FLAT): rows
+ *  carry `tenantId` only.  A reference that resolves to nothing under this name
+ *  is `loom.tenancy-data-key-removed` rather than a generic unknown name. */
+export const REMOVED_DATA_KEY_FIELD = "dataKey";
 
 /** The built-in principal member `currentUser.isSystem` (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `false` for every request
@@ -56,38 +39,33 @@ export const PRINCIPAL_IS_SYSTEM = "isSystem";
  *  {@link PRINCIPAL_IS_SYSTEM} so it cannot collide in a generated User type. */
 export const PRINCIPAL_CAUSED_BY = "causedBy";
 
-/** The ambient OPERATING-scope accessor (organization-context.md; M-T3.6
- *  items 3+5) — a peer of `currentUser`.  `currentUser` is the PRINCIPAL
- *  (identity, permissions, home org); `organizationContext` is the org the
- *  request operates IN.  Its one member, {@link ORG_CONTEXT_ORG_PATH}, is the
- *  operating org's materialized path — the principal's own `orgPath` unless the
- *  request carries a validated {@link ORG_CONTEXT_HEADER} naming a descendant.
+/** The ambient OPERATING-scope accessor — a peer of `currentUser`.
+ *  `currentUser` is the PRINCIPAL (identity, permissions, home org);
+ *  `organizationContext` is the org the request operates IN.  Its one member,
+ *  {@link ORG_CONTEXT_ORG}, is the operating org's id: the caller's home org
+ *  (the tenancy claim), switched by a {@link ORG_CONTEXT_HEADER} that the
+ *  auth middleware's fail-closed gate admits.
  *
  *  Two flat accessors on the surface, ONE execution-context frame underneath:
- *  lowering rewrites `organizationContext.orgPath` to the derived principal
- *  member {@link PRINCIPAL_ORG_CONTEXT_PATH}, so every backend's existing
- *  principal threading (the `current-user` ref) carries it with no new plumbing,
- *  and the value is set exactly once — by the auth middleware's switch gate. */
+ *  lowering rewrites `organizationContext.org` to the derived principal
+ *  member {@link PRINCIPAL_OPERATING_ORG}, so every backend's existing
+ *  principal threading (the `current-user` ref) carries it with no new
+ *  plumbing, and the value is set exactly once — by the switch gate. */
 export const ORG_CONTEXT_ACCESSOR = "organizationContext";
 
-/** The one member `organizationContext` exposes: the operating org's
- *  materialized path.  (`orgId` is deliberately NOT exposed: deriving it from a
- *  submitted path needs a registry read by `dataKey`, and the `tenantId` stamp
- *  stays principal-anchored — see docs/tenancy.md → "organizationContext".) */
-export const ORG_CONTEXT_ORG_PATH = "orgPath";
+/** The one member `organizationContext` exposes: the operating org's id. */
+export const ORG_CONTEXT_ORG = "org";
 
-/** The derived principal member `organizationContext.orgPath` lowers to — the
- *  operating path, resolved ONCE per request by the auth middleware's
- *  fail-closed switch gate: the {@link ORG_CONTEXT_HEADER} value when it lies
- *  inside the principal's `orgPath` subtree (equal to it, or prefixed by
- *  `orgPath + "."`), the principal's own `orgPath` when the header is absent,
- *  and a pre-body 403 otherwise.  Never read off the token. */
-export const PRINCIPAL_ORG_CONTEXT_PATH = "orgContextPath";
+/** The derived principal member `organizationContext.org` lowers to — the
+ *  operating org id, resolved ONCE per request by the auth middleware's
+ *  fail-closed switch gate: the caller's tenancy claim when the
+ *  {@link ORG_CONTEXT_HEADER} is absent or names that same org, and a pre-body
+ *  403 otherwise.  Never read off the token. */
+export const PRINCIPAL_OPERATING_ORG = "operatingOrg";
 
-/** The request header that carries a requested operating scope — the operating
- *  org's materialized path (lower-cased: every backend matches headers
- *  case-insensitively).  A request-level fact: absent ⇒ the principal's own
- *  scope, never a widening. */
+/** The request header that carries a requested operating org — an org id
+ *  (lower-cased: every backend matches headers case-insensitively).  A
+ *  request-level fact: absent ⇒ the principal's own org, never a widening. */
 export const ORG_CONTEXT_HEADER = "x-org-context";
 
 /** The principal's id field — the field named `id`, else the first declared

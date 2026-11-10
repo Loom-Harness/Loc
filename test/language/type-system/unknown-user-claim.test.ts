@@ -16,8 +16,8 @@
 // still a CST node to point at.
 //
 // FAIL-OPEN OBLIGATIONS, all pinned below:
-//   • `orgPath` / `rootOrg` are DERIVED tenancy members, not claims — always OK
-//     (referencing them without `tenancy by` is `loom.orgpath-without-tenancy`).
+//   • the removed `orgPath` / `rootOrg` get their own code
+//     (`loom.tenancy-principal-member-removed`), never this one.
 //   • the `tenantOwned` prelude capability splices `currentUser.tenantId` as a
 //     placeholder that phase ⑥ rewrites to the declared claim — it is spliced
 //     without a CST node, and only source-written accesses are judged.
@@ -97,7 +97,7 @@ criterion TicketsSecure of Ticket = status == "open"
     expect(claimErrs(e), e.join("\n")).toHaveLength(0);
   });
 
-  it("accepts the derived `orgPath` / `rootOrg` tenancy members", async () => {
+  it("reports the removed `orgPath` / `rootOrg` under their own code, not as undeclared claims", async () => {
     const src = `system S {
   user { id: string  orgId: string }
   tenancy by user.orgId of Org
@@ -110,6 +110,7 @@ criterion TicketsSecure of Ticket = status == "open"
 }`;
     const e = (await parseString(src, { validate: true })).errors;
     expect(claimErrs(e), e.join("\n")).toHaveLength(0);
+    expect(e.filter((m) => m.includes("no longer exists"))).toHaveLength(2);
   });
 
   it("does not flag the `tenantOwned` capability's `currentUser.tenantId` placeholder", async () => {

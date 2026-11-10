@@ -58,7 +58,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { lookupOp } from "../../../ir/plan/index.js";
+import { eventSourcedWorkflows, hasStateRow, lookupOp } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
   type AggregateIR,
@@ -159,7 +159,6 @@ import {
   emitWorkflowFoldHelpers,
   emitWorkflowStreamSerializers,
   esHelperNames,
-  eventSourcedWorkflows,
 } from "./workflow-eventsourced-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -716,7 +715,7 @@ export function buildWorkflowsFile(
   if (mikroNames.length > 0)
     imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
   const workflowRowsReferenced = ctx.workflows
-    .filter((w) => !w.eventSourced && !!w.correlationField)
+    .filter(hasStateRow)
     .map(mikroWorkflowRowClass)
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr));
   // An event-sourced workflow's fold helpers read/append the shared
@@ -1769,7 +1768,7 @@ function emitSubscriptionHandlers(
   // emitted once when any ES workflow is subscribed (workflow-and-applier.md
   // A2-S5b).  Reuses the aggregate event store's `eventToData` / `rowToEvent`.
   // Skipped when the instance-route prelude already emitted them.
-  if (eventSourcedWorkflows(ctx).length > 0 && !serializersDone) {
+  if (eventSourcedWorkflows(ctx.workflows).length > 0 && !serializersDone) {
     out.push(...emitWorkflowStreamSerializers(ctx));
     out.push("");
   }

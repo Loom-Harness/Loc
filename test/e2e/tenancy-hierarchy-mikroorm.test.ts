@@ -13,30 +13,15 @@ import {
 } from "./support/tenancy-isolation-harness.js";
 
 // ---------------------------------------------------------------------------
-// Hierarchy / `policy {}` read-ladder isolation on the SECOND node persistence
-// adapter — `platform: node { persistence: mikroorm }`.  Byte-for-byte the same
-// harness as tenancy-hierarchy.test.ts (the drizzle leg); only the realization
-// clause substituted into the fixture differs.
-//
-// Why a second node leg rather than a parameter on the first: the subtree
-// predicate is the ONE filter shape whose two adapters lower through completely
-// different machinery.  Drizzle builds an operator tree (`or(and(isNotNull(…),
-// …))` with a `strpos(…) = 1` sql fragment); MikroORM has no prefix operator at
-// all, so the predicate rides a `raw()` SQL fragment used as a FilterQuery KEY.
-// A raw fragment is exactly the construct a compile tier cannot check: its SQL
-// is a string, its `?` bindings are positional, and its cache key is consumed on
-// use — a wrong arity, a stale fragment reused across two statements, or an
-// unqualified column that turns out ambiguous are all runtime-only failures.
-// `tsc --noEmit` is green on every one of them.
-//
-// And the assertion set is the one that matters for this rendering choice: the
-// harness seeds the WILDCARD trap (`orgXa.leak`, unreachable from `org_a` only
-// if the prefix test has no pattern language) and the DELIMITER trap
-// (`org_ab` vs `org_a`) alongside the ordinary subtree reads, so a `LIKE`-shaped
-// regression fails here even though it compiles and passes a naive subtree test.
-//
-// Slow (npm install + docker pg + boot), so opt-in: LOOM_TENANCY_E2E_MIKROORM=1.
-// LOOM_TENANCY_PG_URL=postgres://… skips the docker sidecar (docker-less dev).
+// The registry tree beside flat data visibility, booted on the node with
+// `persistence: mikroorm` (its own filter registration, not Drizzle's) backend.
+// Boots the `tenancy-hierarchy.ddd` corpus fixture (a registry `implements
+// tenantRegistry` + `tenantOwned` aggregates under the default floor, `allow
+// local` and `deny write`) against a throwaway postgres and runs the shared
+// `assertHierarchyIsolation` sequence: every org reads exactly its own rows — a
+// parent never its child's — no `data_key` column exists, and the write scope
+// is the same floor. Opt-in: LOOM_TENANCY_E2E_MIKROORM=1. Needs docker
+// (postgres sidecar) or LOOM_TENANCY_PG_URL, and `psql`.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -46,9 +31,9 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const ENABLED = process.env.LOOM_TENANCY_E2E_MIKROORM === "1";
 
 describe.skipIf(!ENABLED)(
-  "hierarchy policy-ladder isolation over the generated node/mikroorm backend (LOOM_TENANCY_E2E_MIKROORM=1)",
+  "registry-tree isolation over the generated node/mikroorm backend (LOOM_TENANCY_E2E_MIKROORM=1)",
   () => {
-    it("deep/global/local reads scope to the org subtree — over the wire", async () => {
+    it("each org reads only its own rows, whatever the registry tree — over the wire", async () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tenancy-hier-mikro-"));
       let child: ReturnType<typeof spawn> | undefined;
       let pg: Awaited<ReturnType<typeof startPostgres>> | undefined;

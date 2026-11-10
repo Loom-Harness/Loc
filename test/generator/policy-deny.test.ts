@@ -165,49 +165,6 @@ describe("policy deny write — drizzle non-relational shapes (embedded / docume
     expect(org).not.toContain("inScope");
     expect(org).not.toContain("no row is in write scope");
   });
-
-  it("narrows the command load in-app on a document shape when the write scope only tightens", async () => {
-    // `allow global on Doc` widens the READ scope, so the fail-closed default
-    // restores the tenant floor as the WRITE scope — a currentUser-referencing
-    // predicate rather than the always-false sentinel.
-    const out = await generateSystemFiles(`
-      system Shop {
-        user { id: guid  tenantId: string }
-        tenancy by user.tenantId of Org
-        subdomain S {
-          context C {
-            aggregate Doc shape: document, with crudish, tenantOwned { code: string }
-            repository Docs for Doc { }
-            policy { allow global on Doc }
-          }
-          context Registry {
-            aggregate Org with crudish { name: string  implements tenantRegistry }
-            repository Orgs for Org { }
-          }
-        }
-        api ShopApi from S
-        storage primarySql { type: postgres }
-        resource shopState { for: C, kind: state, use: primarySql }
-        resource registryState { for: Registry, kind: state, use: primarySql }
-        deployable api {
-          platform: node
-          contexts: [C, Registry]
-          dataSources: [shopState, registryState]
-          serves: ShopApi
-          port: 3001
-          auth: required
-        }
-      }
-    `);
-    const doc = [...out].find(([p]) => p.includes("doc-repository"))?.[1] ?? "";
-    expect(doc).toContain(
-      "if (!(found.tenantId === currentUser.tenantId)) throw new AggregateNotFoundError(`Doc ${id} not found`);",
-    );
-    // …and the ambient accessor it names is imported (the read scope is global,
-    // so nothing else in the file pulls it in).
-    expect(doc).toContain('import { requireCurrentUser } from "../../auth/middleware";');
-    expect(doc).toContain("const currentUser = requireCurrentUser();");
-  });
 });
 
 describe("policy deny — .NET (EF Core)", () => {

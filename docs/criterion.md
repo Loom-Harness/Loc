@@ -47,6 +47,11 @@ call sites at `find(C)`.  The
 > anonymous `where:` and the `from <Criterion>(args)` parameter binding are
 > **not yet shipped**.
 
+A criterion body may quantify over another aggregate of the same context with
+`exists <Aggregate> as <row> where <predicate>`, which every backend compiles to a
+correlated SQL `EXISTS` subquery carrying that aggregate's own read scope. See
+[the queryable subset](language-reference/10-repositories-and-queries.md#exists--quantifying-over-another-aggregate).
+
 ## Declaration
 
 ```ddd

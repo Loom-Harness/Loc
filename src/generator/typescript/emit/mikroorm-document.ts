@@ -190,8 +190,8 @@ export function renderMikroDocumentRepository(
   //
   // INSERT only.  `stampUpdate` STRIPS the create-only fields so a relational
   // partial update cannot overwrite them; here the whole blob is rewritten, so
-  // stripping `tenantId`/`dataKey` would DELETE them from the document.  The
-  // rehydrated aggregate already carries both.
+  // stripping `tenantId` would DELETE it from the document.  The
+  // rehydrated aggregate already carries it.
   //
   // This adapter was the SIXTH emission site of one bug: a `tenantOwned`
   // document row written with an empty tenant is invisible to every principal
