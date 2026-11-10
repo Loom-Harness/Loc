@@ -32,7 +32,7 @@
     {
       "seq": 3,
       "method": "GET",
-      "path": "/api/mine_work_orders",
+      "path": "/api/work_orders/mine",
       "status": 200,
       "body": [
         {
@@ -152,7 +152,7 @@
     {
       "seq": 11,
       "method": "GET",
-      "path": "/api/mine_work_orders",
+      "path": "/api/work_orders/mine",
       "status": 200,
       "body": [
         {
@@ -188,7 +188,7 @@
     {
       "seq": 13,
       "method": "GET",
-      "path": "/api/mine_work_orders",
+      "path": "/api/work_orders/mine",
       "status": 200,
       "body": [
         {

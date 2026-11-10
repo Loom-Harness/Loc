@@ -99,7 +99,7 @@ system FieldOps {
     }
   }
   api WorkApi with scaffoldGetApi(of: MineTitled) from Field {
-    route GET "/mine_work_orders" -> Work.ListWorkOrdersMine
+    route GET "/work_orders/mine" -> Work.ListWorkOrdersMine
     route GET "/work_orders/mine_by_state/{d}" -> Work.ListWorkOrdersMineByState
     route GET "/work_orders/by_title/{t}" -> Work.ListWorkOrdersByTitle
   }
