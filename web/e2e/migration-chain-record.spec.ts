@@ -186,88 +186,94 @@ async function recordFromDialog(page: Page, name: string): Promise<void> {
   await expect(dialog.getByTestId("record-migration-preview")).toHaveCount(0, { timeout: 30_000 });
 }
 
-test("the strip's migration badge: an example opens at initial schema, Record writes the chain entry, a schema edit shows without a tab, Apply migrates in place", async ({
-  page,
-}) => {
-  test.setTimeout(1_800_000);
-  await wipeStorage(page);
-  if (!(await browserCanReachNetwork(page))) {
-    test.skip(true, "browser cannot reach the npm registry from this environment");
-  }
+// Apply migrates the cluster the first Boot made, in place: the database has to
+// outlive a Boot, which only an OPFS data dir does.
+test.describe("on an OPFS cluster", () => {
+  test.use({ pgliteStorage: "opfs" });
 
-  // A fresh example records nothing: the badge says so before any generate,
-  // bundle or boot, and Boot waits for the initial migration.
-  await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded", { timeout: 60_000 });
-  await expect(badge(page)).toHaveAttribute("data-initial", "true");
-  await expect(page.getByTestId("migration-pending-badge")).toHaveText("migration required · initial schema");
-  await expect(page.getByTestId("btn-generate")).toHaveAttribute("data-state", "ok", { timeout: 120_000 });
-  await page.getByTestId("btn-bundle").click();
-  await waitForBundle(page);
-  const boot = page.getByTestId("btn-boot");
-  await expect(boot).toHaveAttribute("data-state", "blocked");
-  await expect(boot).toBeDisabled();
-  await expect(page.getByTestId("pipeline-count-boot")).toHaveText("migration required");
-
-  // The Problems pane links to the same state: its notice opens the dialog.
-  await page.getByTestId("btn-validate").click();
-  await expect(page.getByTestId("problems-migration-notice")).toContainText("initial schema");
-  await page.getByTestId("problems-record-migration").click();
-  const dialog = page.getByTestId("record-migration-dialog");
-  await expect(dialog).toContainText("Record the initial migration");
-  await expect(dialog.getByTestId("record-migration-summary")).toContainText(
-    /Starts migrations\/ with each module's Initial migration: creates \d+ tables? in module/,
-  );
-  await expect(dialog.getByTestId("record-migration-sql")).toContainText("CREATE TABLE");
-  await recordFromDialog(page, "initial");
-
-  // The entry is the one the Migrations tab writes: the tab reads the chain
-  // the dialog recorded, with nothing left to record.
-  await expect(badge(page)).toHaveCount(0, { timeout: 60_000 });
-  await openMigrations(page);
-  await expect(status(page)).toContainText(/1 recorded · head Sales Initial \(\d+\) · nothing unrecorded/, {
-    timeout: 30_000,
-  });
-
-  // Recorded: Boot is no longer gated, and its boot creates the tables.
-  await bundleAndBoot(page, "booted");
-  await runSql(page, "SELECT 1"); // opens the Database sub-view
-  await expect(page.getByTestId("migrated-status")).toHaveText("1 migration applied");
-  await runSql(
+  test("the strip's migration badge: an example opens at initial schema, Record writes the chain entry, a schema edit shows without a tab, Apply migrates in place", async ({
     page,
-    "INSERT INTO sales.customers (id, name, email) VALUES ('00000000-0000-4000-8000-000000000001', 'Ada', 'ada@example.com')",
-  );
-  await expect(page.getByTestId("sql-affected")).toContainText("1");
+  }) => {
+    test.setTimeout(1_800_000);
+    await wipeStorage(page);
+    if (!(await browserCanReachNetwork(page))) {
+      test.skip(true, "browser cannot reach the npm registry from this environment");
+    }
 
-  // A schema edit: the badge shows the unrecorded change with no tab opened
-  // for it and no generate or boot.
-  await editSource(page, (s) => s.replace("email: string", "email: string\n        phone: string?"));
-  await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded", { timeout: 60_000 });
-  await expect(page.getByTestId("migration-pending-badge")).toHaveText(
-    "migration required · 1 unrecorded change",
-  );
-  await expect(page.getByTestId("migration-pending-destructive")).toHaveCount(0);
+    // A fresh example records nothing: the badge says so before any generate,
+    // bundle or boot, and Boot waits for the initial migration.
+    await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded", { timeout: 60_000 });
+    await expect(badge(page)).toHaveAttribute("data-initial", "true");
+    await expect(page.getByTestId("migration-pending-badge")).toHaveText("migration required · initial schema");
+    await expect(page.getByTestId("btn-generate")).toHaveAttribute("data-state", "ok", { timeout: 120_000 });
+    await page.getByTestId("btn-bundle").click();
+    await waitForBundle(page);
+    const boot = page.getByTestId("btn-boot");
+    await expect(boot).toHaveAttribute("data-state", "blocked");
+    await expect(boot).toBeDisabled();
+    await expect(page.getByTestId("pipeline-count-boot")).toHaveText("migration required");
 
-  // Record from the badge: the database is now behind the chain.
-  await page.getByTestId("btn-record-migration").click();
-  await expect(dialog.getByTestId("record-migration-sql")).toContainText(/ADD COLUMN "phone"/, {
-    timeout: 60_000,
+    // The Problems pane links to the same state: its notice opens the dialog.
+    await page.getByTestId("btn-validate").click();
+    await expect(page.getByTestId("problems-migration-notice")).toContainText("initial schema");
+    await page.getByTestId("problems-record-migration").click();
+    const dialog = page.getByTestId("record-migration-dialog");
+    await expect(dialog).toContainText("Record the initial migration");
+    await expect(dialog.getByTestId("record-migration-summary")).toContainText(
+      /Starts migrations\/ with each module's Initial migration: creates \d+ tables? in module/,
+    );
+    await expect(dialog.getByTestId("record-migration-sql")).toContainText("CREATE TABLE");
+    await recordFromDialog(page, "initial");
+
+    // The entry is the one the Migrations tab writes: the tab reads the chain
+    // the dialog recorded, with nothing left to record.
+    await expect(badge(page)).toHaveCount(0, { timeout: 60_000 });
+    await openMigrations(page);
+    await expect(status(page)).toContainText(/1 recorded · head Sales Initial \(\d+\) · nothing unrecorded/, {
+      timeout: 30_000,
+    });
+
+    // Recorded: Boot is no longer gated, and its boot creates the tables.
+    await bundleAndBoot(page, "booted");
+    await runSql(page, "SELECT 1"); // opens the Database sub-view
+    await expect(page.getByTestId("migrated-status")).toHaveText("1 migration applied");
+    await runSql(
+      page,
+      "INSERT INTO sales.customers (id, name, email) VALUES ('00000000-0000-4000-8000-000000000001', 'Ada', 'ada@example.com')",
+    );
+    await expect(page.getByTestId("sql-affected")).toContainText("1");
+
+    // A schema edit: the badge shows the unrecorded change with no tab opened
+    // for it and no generate or boot.
+    await editSource(page, (s) => s.replace("email: string", "email: string\n        phone: string?"));
+    await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded", { timeout: 60_000 });
+    await expect(page.getByTestId("migration-pending-badge")).toHaveText(
+      "migration required · 1 unrecorded change",
+    );
+    await expect(page.getByTestId("migration-pending-destructive")).toHaveCount(0);
+
+    // Record from the badge: the database is now behind the chain.
+    await page.getByTestId("btn-record-migration").click();
+    await expect(dialog.getByTestId("record-migration-sql")).toContainText(/ADD COLUMN "phone"/, {
+      timeout: 60_000,
+    });
+    await recordFromDialog(page, "add-phone");
+    await expect(badge(page)).toHaveAttribute("data-kind", "recorded-not-applied", { timeout: 60_000 });
+    await expect(page.getByTestId("migration-pending-badge")).toHaveText(
+      "migration recorded · 1 migration not applied",
+    );
+
+    // Apply: regenerate, bundle, boot — the boot applies exactly that entry,
+    // the badge clears, and the row is still there.
+    await page.getByTestId("btn-apply-migrations").click();
+    await expect(badge(page)).toHaveCount(0, { timeout: 600_000 });
+    await expect(page.getByTestId("backend-status")).toHaveText("booted", { timeout: 600_000 });
+    await runSql(page, "SELECT name, phone FROM sales.customers");
+    await expect(page.getByTestId("migrated-status")).toHaveText("1 migration applied");
+    await expect(page.getByTestId("migrated-list")).toContainText("_sales_add_phone");
+    await expect(page.getByTestId("sql-result")).toContainText("Ada");
+    await expect(page.getByTestId("sql-result")).toContainText("phone");
   });
-  await recordFromDialog(page, "add-phone");
-  await expect(badge(page)).toHaveAttribute("data-kind", "recorded-not-applied", { timeout: 60_000 });
-  await expect(page.getByTestId("migration-pending-badge")).toHaveText(
-    "migration recorded · 1 migration not applied",
-  );
-
-  // Apply: regenerate, bundle, boot — the boot applies exactly that entry,
-  // the badge clears, and the row is still there.
-  await page.getByTestId("btn-apply-migrations").click();
-  await expect(badge(page)).toHaveCount(0, { timeout: 600_000 });
-  await expect(page.getByTestId("backend-status")).toHaveText("booted", { timeout: 600_000 });
-  await runSql(page, "SELECT name, phone FROM sales.customers");
-  await expect(page.getByTestId("migrated-status")).toHaveText("1 migration applied");
-  await expect(page.getByTestId("migrated-list")).toContainText("_sales_add_phone");
-  await expect(page.getByTestId("sql-result")).toContainText("Ada");
-  await expect(page.getByTestId("sql-result")).toContainText("phone");
 });
 
 test("Boot leaves the database alone while a change is unrecorded, and its notice opens the Record dialog", async ({
