@@ -37,6 +37,16 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Italic",
   "InlineCode",
   "Anchor",
+  "Badge",
+  "EnumBadge",
+  "Stat",
+  "Avatar",
+  "Loader",
+  "Image",
+  "Icon",
+  "Money",
+  "DateDisplay",
+  "Alert",
 ]);
 
 type VM = Record<string, unknown>;
@@ -231,6 +241,110 @@ function renderAnchor(vm: VM): string {
   return `<.link navigate={${str(vm.to)}}${testid}>${label}</.link>`;
 }
 
+const thunk = (v: unknown): string => (typeof v === "function" ? String(v()) : "");
+
+/** `Badge(label)` → the design pack's `<.badge>` with the label as its block. */
+function renderBadge(vm: VM): string {
+  return textElement(".badge", { ...vm, text: vm.hasLabel ? vm.label : "" });
+}
+
+/** `EnumBadge(value)` → a badge span showing the value's display label. */
+function renderEnumBadge(vm: VM): string {
+  return `<span class="badge badge-enum"${str(vm.testidAttr)}>${str(vm.valueText)}</span>`;
+}
+
+/** `Stat(label, value)` → a headline stat: dimmed label over a bold value.  A
+ *  primitive value was walked one level deeper than it lands (inline in its
+ *  `<div>`), so its later lines move back to this element's own indent. */
+function renderStat(vm: VM): string {
+  const indent = str(vm.indent);
+  const close = str(vm.closeIndent);
+  const value = str(vm.value)
+    .split("\n")
+    .map((line, i) => (i > 0 && line.startsWith(indent) ? close + line.slice(indent.length) : line))
+    .join("\n");
+  return (
+    `<div class="stat"${str(vm.testidAttr)}>\n` +
+    `${indent}<div class="stat-label text-sm text-gray-500">${str(vm.label)}</div>\n` +
+    `${indent}<div class="stat-value text-2xl font-semibold">${value}</div>\n` +
+    `${close}</div>`
+  );
+}
+
+const AVATAR_CLASS = "inline-block h-8 w-8 rounded-full";
+
+/** `Avatar(src?, alt?)` → a circle-cropped `<img>`, or a neutral circle when
+ *  there is no `src:` — then the placeholder itself is the named image. */
+function renderAvatar(vm: VM): string {
+  const testid = str(vm.testidAttr);
+  const alt = thunk(vm.altAttr);
+  if (vm.hasSrc) {
+    return `<img class="${AVATAR_CLASS} object-cover"${thunk(vm.srcAttr)}${alt || ' alt=""'}${testid} />`;
+  }
+  const named = alt ? alt.replace(/^ alt=/, ' role="img" aria-label=') : "";
+  return `<span class="${AVATAR_CLASS} bg-gray-200"${named}${testid}></span>`;
+}
+
+/** `Loader(size?)` → an animated spinner with a `status` role and the
+ *  translated "Loading" name.  One spinner size. */
+function renderLoader(vm: VM): string {
+  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status"${str(vm.loadingAria)}${str(vm.testidAttr)}></div>`;
+}
+
+/** `Image(src, alt)` → `<img />`; `decorative: true` gives an explicit empty
+ *  `alt`. */
+function renderImage(vm: VM): string {
+  return `<img${thunk(vm.srcAttr)}${thunk(vm.altAttr)}${str(vm.testidAttr)} />`;
+}
+
+/** `Icon(name:|svg:, size?, label?)` → the glyph in a `loom-icon` span:
+ *  decorative (`aria-hidden`) unless a `label:` names it a `role="img"`. */
+function renderIcon(vm: VM): string {
+  const size = vm.hasSize ? ` loom-icon-${str(vm.size)}` : "";
+  return `<span class="loom-icon${size}"${str(vm.testidAttr)}${str(vm.a11yAttr)}>${str(vm.svg)}</span>`;
+}
+
+/** `Money(value, currency?)` → a money span.  The amount renders through
+ *  `to_string/1`: an aggregate field is a `%Decimal{}`, a projection field is
+ *  already a string and a literal is a float, and `String.Chars` handles all
+ *  three where `Decimal.to_string/1` raises on two. */
+function renderMoney(vm: VM): string {
+  const prefix = vm.hasCurrency ? `${JSON.parse(str(vm.currency)) as string} ` : "";
+  return `<span class="money"${str(vm.testidAttr)}>${prefix}<%= to_string(${str(vm.valueExpr)}) %></span>`;
+}
+
+/** `DateDisplay(value)` → a `<time>` carrying the ISO value, showing the date. */
+function renderDateDisplay(vm: VM): string {
+  const testid = str(vm.testidAttr);
+  if (!vm.hasValue) return `<time${testid}></time>`;
+  const v = str(vm.valueExpr);
+  return `<time datetime={to_string(${v})}${testid}><%= Calendar.strftime(${v}, "%Y-%m-%d") %></time>`;
+}
+
+/** `Alert(color:)` → the daisyUI alert modifier.  A raw colour (`alert-red`)
+ *  matches no class in either HEEx pack's CSS, so it is mapped, as the JSX
+ *  packs map it; anything unknown is an error alert. */
+function alertVariant(color: string): string {
+  switch (color) {
+    case "yellow":
+      return "alert-warning";
+    case "green":
+      return "alert-success";
+    case "blue":
+      return "alert-info";
+    default:
+      return "alert-error";
+  }
+}
+
+/** `Alert(message, title?, color?)` → an `alert`-role box; the title (a
+ *  user-visible slot) leads as a bold line. */
+function renderAlert(vm: VM): string {
+  const title = vm.hasTitle ? str(vm.title) : "";
+  const titleEl = title ? `<p class="font-medium">${title}</p>` : "";
+  return `<div class="alert ${alertVariant(str(vm.color))}" role="alert"${str(vm.testidAttr)}>${titleEl}${str(vm.message)}</div>`;
+}
+
 function escapeAttr(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -254,6 +368,16 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-italic": (vm) => textElement("em", vm),
   "primitive-inline-code": (vm) => textElement("code", vm),
   "primitive-anchor": renderAnchor,
+  "primitive-badge": renderBadge,
+  "primitive-enum-badge": renderEnumBadge,
+  "primitive-stat": renderStat,
+  "primitive-avatar": renderAvatar,
+  "primitive-loader": renderLoader,
+  "primitive-image": renderImage,
+  "primitive-icon": renderIcon,
+  "primitive-money": renderMoney,
+  "primitive-date-display": renderDateDisplay,
+  "primitive-alert": renderAlert,
 };
 
 /** The pack for one HEEx walk.  `sink` is that walk's HEEx state, for the

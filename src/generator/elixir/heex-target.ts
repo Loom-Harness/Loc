@@ -17,6 +17,7 @@ import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext } from "../_walker/walker-core.js";
 import { HEEX_SHARED_PRIMITIVES } from "./heex-pack.js";
+import { heexEnumBadgeText } from "./heex-primitives.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
@@ -51,8 +52,8 @@ export const heexTarget: WalkerTarget = {
   renderNodeOverride(expr, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
     if (!heex) return undefined;
-    // A value object sharing a primitive's name is a construction, which the
-    // engine renders.
+    // A value object sharing a primitive's name (`Money`) is a construction,
+    // which the engine renders.
     if (
       expr.kind === "call" &&
       HEEX_SHARED_PRIMITIVES.has(expr.name) &&
@@ -87,6 +88,13 @@ export const heexTarget: WalkerTarget = {
     const heex = heexContextOf(ctx.sink);
     if (!heex || (expr.kind === "literal" && expr.lit === "string")) return undefined;
     return renderInTemplate(expr, engineContext(heex, ctx));
+  },
+
+  /** An `EnumBadge`'s text, through the engine's enum-label lookup (which
+   *  also resolves a table row's field type). */
+  renderEnumBadgeText(value, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    return heex ? heexEnumBadgeText(value, engineContext(heex, ctx)) : undefined;
   },
 
   /** A call into the Gettext runtime: `pgettext(<key>, <English>)`, wrapped in
