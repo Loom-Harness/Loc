@@ -54,7 +54,7 @@ describe("lowering — domainService", () => {
     const quote = pricing.operations[0]!;
     expect(quote.params.map((p) => p.name)).toEqual(["cart", "customer"]);
     // Cross-aggregate params type as entities.
-    expect(quote.params[0]!.type).toEqual({ kind: "entity", name: "Cart" });
+    expect(quote.params[0]!.type).toEqual({ kind: "entity", name: "Cart", declKind: "aggregate" });
     expect(quote.returnType).toEqual({ kind: "primitive", name: "money" });
     // Statement body lowers through the ordinary path.
     expect(quote.body[0]!.kind).toBe("return");

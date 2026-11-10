@@ -105,6 +105,13 @@ export interface ColumnShape {
    *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
    *  `canonicalSnapshot` strips it. */
   capability?: string;
+  /** The enum this column stores — a scalar enum column or an enum array
+   *  (`TEXT[]`).  Its one consumer is an enum value rename
+   *  (`migration "…" { Status.Draft -> Pending }`), which emits an UPDATE on
+   *  every column carrying it.  Derivation-only, exactly like
+   *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
+   *  `canonicalSnapshot` strips it. */
+  enumOf?: string;
   /** Set on a co-located provenance lineage column (`total_provenance`): names
    *  the `provenanced` field it backs.  Its one consumer is the add-column
    *  diff, which renders the add as `ADD COLUMN IF NOT EXISTS` (see that

@@ -335,6 +335,9 @@
         "code": "problem.not-found",
         "detail": "AutoClaim {id} not found",
         "instance": "/api/auto_claims/{id}/update",
+        "params": {
+          "type": "Claims.AutoClaim"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

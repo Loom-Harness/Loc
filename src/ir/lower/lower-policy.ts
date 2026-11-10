@@ -98,7 +98,11 @@ function lowerRule(r: PolicyReadRule, ctx: BoundedContext, env: Env, out: Lowere
     const agg = ctx.members.find((m): m is Aggregate => isAggregate(m) && m.name === r.target);
     // An unknown target lowers in the bare env; phase ⑦ reports the target.
     const aggEnv = agg ? inAggregate(env, agg) : env;
-    const rowEnv = withLocal(aggEnv, r.binding, "row", { kind: "entity", name: r.target });
+    const rowEnv = withLocal(aggEnv, r.binding, "row", {
+      kind: "entity",
+      name: r.target,
+      declKind: "aggregate",
+    });
     out.policyRowRules.push({
       aggregate: r.target,
       access,

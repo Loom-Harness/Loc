@@ -66,18 +66,21 @@ import { lowerRuleMessage } from "./rule-message.js";
 // Applier lowering — `apply(e: Event) { … }` folds one event type into
 // aggregate state.  The event param binds as a `refKind: "param"` local
 // over the aggregate env (so `this.x := e.y` resolves `this` against the
-// aggregate and `e` against the bound param).  The param's type carries
-// the event name as an entity-shaped marker; member access on it
+// aggregate and `e` against the bound param).  The param's type is the
+// event's `entity` record (`declKind: "event"`); member access on it
 // (`e.field`) type-resolves through `findEventByName` / `memberOnEvent`
-// in lower-expr (events aren't a distinct TypeIR kind, so the entity
-// marker + a field-only fallback is the contained representation).  The
+// in lower-expr.  The
 // body's purity (assignments / derivations only; no `emit`, no
 // side-effecting calls) is enforced by the phase-⑦ discipline validator,
 // not here — lowering preserves source fidelity.
 export function lowerApply(a: Apply, env: Env): ApplyIR {
   // `event` is absent on a parse-recovered `apply Foo {` (missing `(e: …)`).
   const eventName = a.event?.ref?.name ?? a.event?.$refText ?? "";
-  const inner = withLocal(env, a.param, "param", { kind: "entity", name: eventName });
+  const inner = withLocal(env, a.param, "param", {
+    kind: "entity",
+    name: eventName,
+    declKind: "event",
+  });
   const statements: StmtIR[] = [];
   let bodyEnv = inner;
   for (const s of a.body) {

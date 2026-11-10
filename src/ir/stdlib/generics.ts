@@ -7,10 +7,9 @@
  * instantiated shape — `arg` is the carrier type argument substituted into the
  * template.
  *
- * Pure and dependency-free: consumed by the carrier-bound validator and the
- * P3a not-implemented gate today, and by P3b monomorphization (which turns
- * each distinct `genericInstance` into a synthesized `PayloadIR` named after
- * the ctor × arg) tomorrow.  Keeping the shape here — rather than inline in a
+ * Pure and dependency-free: consumed by the carrier-bound validator and by
+ * monomorphization, which turns each distinct `genericInstance` into a
+ * synthesized `PayloadIR` named after the ctor × arg.  Keeping the shape here — rather than inline in a
  * backend emitter — is what guarantees every backend renders the identical
  * wire shape.
  *

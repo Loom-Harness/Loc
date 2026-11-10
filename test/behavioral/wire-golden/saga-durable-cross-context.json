@@ -166,6 +166,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/record",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -180,6 +183,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/record",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -208,6 +214,9 @@
         "code": "problem.not-found",
         "detail": "Product {id} not found",
         "instance": "/api/products/{id}/update",
+        "params": {
+          "type": "Catalog.Product"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

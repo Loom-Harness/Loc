@@ -105,6 +105,9 @@
         "code": "problem.not-found",
         "detail": "Thing {id} not found",
         "instance": "/api/things/{id}",
+        "params": {
+          "type": "Main.Thing"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -128,6 +131,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Main.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -149,6 +155,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Main.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -163,6 +172,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Main.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

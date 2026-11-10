@@ -189,7 +189,11 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
     const path = refPath.length > 0 ? refPath : [j.alias];
     auxiliaries.push({ path, aggName, mapVar: mapVarForPath(path, aggName) });
     // Bind the loaded aggregate under its alias for downstream clauses.
-    scope = withLocal(scope, j.alias, "let", { kind: "entity", name: aggName });
+    scope = withLocal(scope, j.alias, "let", {
+      kind: "entity",
+      name: aggName,
+      declKind: "aggregate",
+    });
   }
 
   // `group by` columns lower in the same source-candidate scope as `select`,
@@ -310,7 +314,11 @@ function columnType(e: ExprIR | undefined): TypeIR | undefined {
  *  then lowers the body PURE against the projection-bound `this`. */
 function lowerProjectionOn(o: ProjectionOn, projEnv: Env): ProjectionOnIR {
   const eventName = o.event.ref?.name ?? o.event.$refText;
-  const inner = withLocal(projEnv, o.param, "param", { kind: "entity", name: eventName });
+  const inner = withLocal(projEnv, o.param, "param", {
+    kind: "entity",
+    name: eventName,
+    declKind: "event",
+  });
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
   const statements: StmtIR[] = [];
   let bodyEnv = inner;

@@ -29,7 +29,7 @@ const sentStmt = (): StmtIR => ({ kind: "expression", expr: sent() });
 const sentWf = (): WorkflowStmtIR => ({ kind: "precondition", expr: sent(), source: "" });
 
 const T: TypeIR = { kind: "primitive", name: "string" };
-const ENTITY: TypeIR = { kind: "entity", name: "X" };
+const ENTITY: TypeIR = { kind: "entity", name: "X", declKind: "aggregate" };
 
 /** Assert `actual` is exactly `expected` — same references, any order. */
 function sameRefs<A>(actual: A[], expected: A[]): void {

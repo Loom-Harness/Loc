@@ -496,7 +496,7 @@ export class Elaborator {
     // A migration backfill (`Order.quantity = quantity + 1`) reads the
     // backfilled aggregate's columns as bare names, in its context.
     if (node.$type === "ColumnStep") {
-      const agg = (node as { aggregate?: { ref?: AstNode } }).aggregate?.ref;
+      const agg = (node as { owner?: { ref?: AstNode } }).owner?.ref;
       if (agg && isAggregate(agg)) return scope.child({ owner: agg, ctx: agg.$container });
       return scope;
     }

@@ -392,25 +392,43 @@ function serverErrorText(formVar: string, name: string, clientText: string | und
  *  catalog entry of the validator that failed (`{{ t("field.min", "Sku is
  *  invalid", { min: 1 }) }}`), evaluated when the form renders so a locale
  *  change re-renders it; without i18n it is the English as written. */
+/** A validator message's English with its data holes filled — what a
+ *  string-less app shows.  The catalog text may carry one ICU `plural` hole
+ *  (`{min, plural, one {Must be at least # character} other {…}}`) and plain
+ *  `{name}` holes, both over the validator's own numeric params. */
+function englishMessage(m: AngularFieldMessage): string {
+  const filled = m.text.replace(
+    /\{(\w+), plural, one \{([^}]*)\} other \{([^}]*)\}\}/g,
+    (_, name: string, one: string, other: string) => {
+      const n = m.params[name];
+      return (n === 1 ? one : other).replace("#", String(n));
+    },
+  );
+  return filled.replace(/\{(\w+)\}/g, (hole, name: string) =>
+    name in m.params ? String(m.params[name]) : hole,
+  );
+}
+
 function clientRuleText(
   ctx: WalkContext,
   control: string,
   messages: readonly AngularFieldMessage[],
-  english: string,
 ): string {
-  if (!ctx.i18nPrefix || messages.length === 0) return english;
+  if (messages.length === 0) return "";
   const text = (m: AngularFieldMessage) =>
-    ctx.target.renderInterpolation(
-      localizedModelText(
-        ctx,
-        m.code,
-        english,
-        Object.keys(m.params).length > 0
-          ? Object.entries(m.params).map(([name, v]) => ({ name, expr: String(v) }))
-          : undefined,
-      ),
-      STRING,
-    );
+    ctx.i18nPrefix
+      ? ctx.target.renderInterpolation(
+          localizedModelText(
+            ctx,
+            m.code,
+            m.text,
+            Object.keys(m.params).length > 0
+              ? Object.entries(m.params).map(([name, v]) => ({ name, expr: String(v) }))
+              : undefined,
+          ),
+          STRING,
+        )
+      : englishMessage(m);
   // One branch per distinct error key, first validator wins; the last stands
   // for any error key none names.
   const seen = new Set<string>();
@@ -704,6 +722,8 @@ export interface AngularFieldArraySpec {
   rowControls: AngularFormControlSpec[];
   /** The per-row nested `FormGroup`s (one per nested value-object sub-field). */
   rowGroups: AngularFieldGroupSpec[];
+  /** The per-row nested `FormArray`s (one per array-of-value-object sub-field). */
+  rowArrays: AngularFieldArraySpec[];
   /** The value object each row holds (`LineItem`) — names the Add button's
    *  whole-sentence catalog entry (`chrome.addItem.LineItem`). */
   elementName: string;
@@ -711,17 +731,29 @@ export interface AngularFieldArraySpec {
   addMethod: string;
   /** Component method that removes a row by index (`removeItems`). */
   removeMethod: string;
-  /** Typed getter returning the `FormArray` (`itemsArray`). */
+  /** Typed getter returning the `FormArray` (`itemsArray`).  On a nested array
+   *  (one inside a value object or a row) it is the rows accessor taking the
+   *  enclosing control (`rowsAddressStops(parent)`). */
   getter: string;
 }
 
 /** Can a value-object sub-field render as form markup?  A primitive, enum or
  *  `X id` is one control; a nested value object with a renderable sub-field is
- *  a nested group.  An array inside a value object is not rendered.  `seen`
+ *  a nested group; an array inside a value object is one control (scalar
+ *  elements) or a nested `FormArray` (value-object elements).  `seen`
  *  guards a self-referencing value object. */
 function isFormSubField(f: FieldIR, bc: BoundedContextIR, seen: ReadonlySet<string>): boolean {
   const ft = unwrapOpt(f.type);
   if (ft.kind === "primitive" || ft.kind === "enum" || ft.kind === "id") return true;
+  // A scalar collection is one control (rendered as the array stub, seeded
+  // `[]`); a collection of value objects is a nested `FormArray` of row groups.
+  if (ft.kind === "array") {
+    const el = unwrapOpt(ft.element);
+    if (el.kind === "primitive" || el.kind === "enum" || el.kind === "id") return true;
+    if (el.kind !== "valueobject" || seen.has(el.name)) return false;
+    const elVo = bc.valueObjects.find((v) => v.name === el.name);
+    return !!elVo && formSubFields(elVo.fields, bc, new Set(seen).add(el.name)).length > 0;
+  }
   if (ft.kind !== "valueobject" || seen.has(ft.name)) return false;
   const vo = bc.valueObjects.find((v) => v.name === ft.name);
   return !!vo && formSubFields(vo.fields, bc, new Set(seen).add(ft.name)).length > 0;
@@ -739,14 +771,18 @@ function formSubFields(
  *  when the field isn't an array whose element is a resolvable value object.
  *  The sub-fields kept are the ones {@link isFormSubField} admits; a nested
  *  value object renders as a nested group inside the row. */
-export function arrayVoFields(t: TypeIR, bc: BoundedContextIR): FieldIR[] | null {
+function arrayVoFields(
+  t: TypeIR,
+  bc: BoundedContextIR,
+  seen: ReadonlySet<string> = new Set(),
+): FieldIR[] | null {
   const inner = unwrapOpt(t);
   if (inner.kind !== "array") return null;
   const el = unwrapOpt(inner.element);
   if (el.kind !== "valueobject") return null;
   const vo = bc.valueObjects.find((v) => v.name === el.name);
   if (!vo) return null;
-  const kept = formSubFields(vo.fields, bc, new Set([vo.name]));
+  const kept = formSubFields(vo.fields, bc, new Set(seen).add(vo.name));
   return kept.length > 0 ? kept : null;
 }
 
@@ -756,19 +792,21 @@ export function fieldArraySpec(
   voFields: FieldIR[],
   elementName: string,
   bc: BoundedContextIR,
+  /** The enclosing path (`Address`) when the array sits inside a value object
+   *  or a row; absent for a form-level array. */
+  parentPath?: string,
 ): AngularFieldArraySpec {
-  const pascal = upperFirst(name);
-  const nested = nestedVoFields(voFields, bc);
+  const pascal = `${parentPath ?? ""}${upperFirst(name)}`;
+  const parts = splitSubFields(voFields, bc, pascal);
   return {
     fieldName: name,
-    rowControls: voFields
-      .filter((f) => !nested.includes(f))
-      .map((f) => ({ name: f.name, init: controlInit(f.type) })),
-    rowGroups: nested.map((f) => fieldGroupSpec(f.name, voScalarFields(f.type, bc)!, bc)),
+    rowControls: parts.controls,
+    rowGroups: parts.groups,
+    rowArrays: parts.arrays,
     elementName,
     addMethod: `add${pascal}`,
     removeMethod: `remove${pascal}`,
-    getter: `${name}Array`,
+    getter: parentPath === undefined ? `${name}Array` : `rows${pascal}`,
   };
 }
 
@@ -782,11 +820,36 @@ export function fieldArrayControlDecl(spec: AngularFieldArraySpec): string {
 /** The class members a field array contributes: a typed getter plus the
  *  add-row / remove-row methods the template buttons call. */
 export function fieldArrayMembers(formVar: string, spec: AngularFieldArraySpec): string[] {
-  const rowGroup = groupInnerDecl(spec.rowControls, spec.rowGroups);
+  const rowGroup = groupInnerDecl(spec.rowControls, spec.rowGroups, spec.rowArrays);
   return [
     `  get ${spec.getter}(): FormArray { return this.${formVar}.get(${JSON.stringify(spec.fieldName)}) as FormArray; }`,
     `  ${spec.addMethod}(): void { this.${spec.getter}.push(new FormGroup({ ${rowGroup} })); }`,
     `  ${spec.removeMethod}(i: number): void { this.${spec.getter}.removeAt(i); }`,
+    ...spec.rowGroups.flatMap(groupArrayMembers),
+    ...spec.rowArrays.flatMap(nestedArrayMembers),
+  ];
+}
+
+/** The members of an array nested inside a value object or a row: the
+ *  accessors take the enclosing control (a template expression names it), so one
+ *  set serves every row. */
+function nestedArrayMembers(spec: AngularFieldArraySpec): string[] {
+  const rowGroup = groupInnerDecl(spec.rowControls, spec.rowGroups, spec.rowArrays);
+  const arr = `(parent?.get(${JSON.stringify(spec.fieldName)}) as FormArray | null)`;
+  return [
+    `  ${spec.getter}(parent: AbstractControl | null): AbstractControl[] { return ${arr}?.controls ?? []; }`,
+    `  ${spec.addMethod}(parent: AbstractControl | null): void { ${arr}?.push(new FormGroup({ ${rowGroup} })); }`,
+    `  ${spec.removeMethod}(parent: AbstractControl | null, i: number): void { ${arr}?.removeAt(i); }`,
+    ...spec.rowGroups.flatMap(groupArrayMembers),
+    ...spec.rowArrays.flatMap(nestedArrayMembers),
+  ];
+}
+
+/** The members of the arrays nested anywhere inside a value-object group. */
+export function groupArrayMembers(spec: AngularFieldGroupSpec): string[] {
+  return [
+    ...spec.subGroups.flatMap(groupArrayMembers),
+    ...spec.subArrays.flatMap(nestedArrayMembers),
   ];
 }
 
@@ -802,24 +865,56 @@ export function fieldArrayInput(
   ctx: WalkContext,
   /** The value object each row holds — owns its sub-field labels. */
   voName?: string,
+  /** The enclosing control when this array sits inside a value object or a
+   *  row; absent for a form-level array. */
+  scope?: FieldScope,
+  /** The row-name prefix of a nested array's testids. */
+  rowNsOverride?: string,
 ): string {
-  const rowNs = `${ns}-${spec.fieldName}-row`;
+  const rowNs = rowNsOverride ?? `${ns}-${spec.fieldName}-row`;
+  const depth = scope?.depth ?? 0;
+  const rowVar = depth === 0 ? "__row" : `__row${depth}`;
+  const rowScope: FieldScope = { base: rowVar, rel: [], depth: depth + 1 };
+  const rowContainer = { groups: spec.rowGroups, arrays: spec.rowArrays };
   const rowInputs = voFields
-    .map((f) => subFieldMarkup(f, bc, rowNs, ctx, undefined, voName))
+    .map((f) => subFieldMarkup(f, bc, rowNs, ctx, undefined, voName, rowScope, rowContainer))
     .join("");
+  const parent = scope ? scopeExpr(scope) : undefined;
   const remove = formButton(ctx, {
     type: "button",
     emphasis: "warn",
-    label: "Remove",
-    attrs: ` (click)="${spec.removeMethod}($index)"`,
+    label: localizedPageChromeText(ctx, sentenceChromeName("removeItem", spec.elementName)),
+    attrs: ` (click)="${spec.removeMethod}(${parent ? `${parent}, ` : ""}$index)"`,
   });
   const add = formButton(ctx, {
     type: "button",
     emphasis: "secondary",
     label: localizedPageChromeText(ctx, sentenceChromeName("addItem", spec.elementName)),
-    attrs: ` (click)="${spec.addMethod}()"`,
+    attrs: ` (click)="${spec.addMethod}(${parent ?? ""})"`,
   });
-  return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (__row of ${spec.getter}.controls; track $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
+  const rows = parent ? `${spec.getter}(${parent})` : `${spec.getter}.controls`;
+  return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (${rowVar} of ${rows}; track $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
+}
+
+/** Where a value-object sub-field's control lives: `base` is a template
+ *  expression for the enclosing form (a `FormGroup`) or row (the `@for` loop
+ *  variable), `rel` the group path from it, `depth` the row nesting level (names
+ *  the loop variable). */
+interface FieldScope {
+  base: string;
+  rel: readonly string[];
+  depth: number;
+}
+
+/** The template expression for the control a scope names. */
+function scopeExpr(scope: FieldScope): string {
+  return scope.rel.length > 0 ? `${scope.base}.get('${scope.rel.join(".")}')` : scope.base;
+}
+
+/** The nested specs a container (group or row) holds, looked up by sub-field name. */
+interface SubContainer {
+  groups: readonly AngularFieldGroupSpec[];
+  arrays: readonly AngularFieldArraySpec[];
 }
 
 // ---------------------------------------------------------------------------
@@ -845,6 +940,8 @@ export interface AngularFieldGroupSpec {
   subControls: AngularFormControlSpec[];
   /** The nested value objects, each a `FormGroup` inside this one. */
   subGroups: AngularFieldGroupSpec[];
+  /** The array-of-value-object sub-fields, each a `FormArray` inside this one. */
+  subArrays: AngularFieldArraySpec[];
 }
 
 /** The renderable sub-fields of a single `X: <VO>` input, or null when the
@@ -867,10 +964,44 @@ function flattenSubFields(voFields: readonly FieldIR[], bc: BoundedContextIR): F
   });
 }
 
-/** The nested value-object sub-fields among `voFields`; each becomes a nested
- *  `FormGroup` under its parent group or row. */
-function nestedVoFields(voFields: readonly FieldIR[], bc: BoundedContextIR): FieldIR[] {
-  return voFields.filter((f) => voScalarFields(f.type, bc) !== null);
+/** A value object's or row's sub-fields split by control kind: one
+ *  `FormControl` per scalar (or scalar-collection) sub-field, a nested
+ *  `FormGroup` per value object, a nested `FormArray` per value-object
+ *  collection.  `path` is the pascal-cased path to this container, naming the
+ *  nested arrays' members. */
+function splitSubFields(
+  voFields: readonly FieldIR[],
+  bc: BoundedContextIR,
+  path: string,
+): {
+  controls: AngularFormControlSpec[];
+  groups: AngularFieldGroupSpec[];
+  arrays: AngularFieldArraySpec[];
+} {
+  const controls: AngularFormControlSpec[] = [];
+  const groups: AngularFieldGroupSpec[] = [];
+  const arrays: AngularFieldArraySpec[] = [];
+  for (const f of voFields) {
+    const group = voScalarFields(f.type, bc);
+    const rows = arrayVoFields(f.type, bc);
+    if (group) {
+      groups.push(fieldGroupSpec(f.name, group, bc, path));
+    } else if (rows) {
+      const arr = unwrapOpt(f.type);
+      const el = arr.kind === "array" ? unwrapOpt(arr.element) : arr;
+      arrays.push(
+        fieldArraySpec(f.name, rows, el.kind === "valueobject" ? el.name : f.name, bc, path),
+      );
+    } else {
+      const tsType = controlTsType(unwrapOpt(f.type));
+      controls.push({
+        name: f.name,
+        init: controlInit(f.type),
+        ...(tsType ? { nonNullableTsType: tsType } : {}),
+      });
+    }
+  }
+  return { controls, groups, arrays };
 }
 
 /** The control declarations inside a group / row: one `FormControl` per scalar
@@ -878,10 +1009,16 @@ function nestedVoFields(voFields: readonly FieldIR[], bc: BoundedContextIR): Fie
 function groupInnerDecl(
   controls: readonly AngularFormControlSpec[],
   groups: readonly AngularFieldGroupSpec[],
+  arrays: readonly AngularFieldArraySpec[],
 ): string {
   return [
-    ...controls.map((c) => `${c.name}: new FormControl(${c.init}, { nonNullable: true })`),
+    ...controls.map((c) =>
+      c.nonNullableTsType
+        ? `${c.name}: new FormControl<${c.nonNullableTsType}>(${c.init}, { nonNullable: true })`
+        : `${c.name}: new FormControl(${c.init}, { nonNullable: true })`,
+    ),
     ...groups.map((g) => fieldGroupControlDecl(g)),
+    ...arrays.map((a) => fieldArrayControlDecl(a)),
   ].join(", ");
 }
 
@@ -890,14 +1027,14 @@ function fieldGroupSpec(
   name: string,
   voFields: FieldIR[],
   bc: BoundedContextIR,
+  parentPath = "",
 ): AngularFieldGroupSpec {
-  const nested = nestedVoFields(voFields, bc);
+  const parts = splitSubFields(voFields, bc, `${parentPath}${upperFirst(name)}`);
   return {
     fieldName: name,
-    subControls: voFields
-      .filter((f) => !nested.includes(f))
-      .map((f) => ({ name: f.name, init: controlInit(f.type) })),
-    subGroups: nested.map((f) => fieldGroupSpec(f.name, voScalarFields(f.type, bc)!, bc)),
+    subControls: parts.controls,
+    subGroups: parts.groups,
+    subArrays: parts.arrays,
   };
 }
 
@@ -905,7 +1042,7 @@ function fieldGroupSpec(
  *  FormGroup({ amount: new FormControl(0, …), currency: new FormControl("", …) })`).
  *  The `FormGroup` import is registered by the form builder (walk time). */
 export function fieldGroupControlDecl(spec: AngularFieldGroupSpec): string {
-  return `${spec.fieldName}: new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups)} })`;
+  return `${spec.fieldName}: new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups, spec.subArrays)} })`;
 }
 
 /** One value-object sub-field's markup: a control through `fieldInput`, or —
@@ -918,22 +1055,40 @@ function subFieldMarkup(
   ctx: WalkContext,
   tid: string | undefined,
   voName: string | undefined,
+  scope: FieldScope,
+  container: SubContainer,
 ): string {
   const nestedFields = voScalarFields(f.type, bc);
-  if (!nestedFields) {
-    return fieldInput(f.name, f.type, bc, ns, ctx, tid, undefined, undefined, voName);
+  if (nestedFields) {
+    const nestedType = unwrapOpt(f.type);
+    return fieldGroupInput(
+      container.groups.find((g) => g.fieldName === f.name)!,
+      nestedFields,
+      fieldLabelText(ctx, bc, voName, f.name),
+      bc,
+      ns,
+      ctx,
+      nestedType.kind === "valueobject" ? nestedType.name : undefined,
+      tid,
+      { ...scope, rel: [...scope.rel, f.name] },
+    );
   }
-  const nestedType = unwrapOpt(f.type);
-  return fieldGroupInput(
-    fieldGroupSpec(f.name, nestedFields, bc),
-    nestedFields,
-    fieldLabelText(ctx, bc, voName, f.name),
-    bc,
-    ns,
-    ctx,
-    nestedType.kind === "valueobject" ? nestedType.name : undefined,
-    tid,
-  );
+  const rowFields = arrayVoFields(f.type, bc);
+  if (rowFields) {
+    const spec = container.arrays.find((a) => a.fieldName === f.name)!;
+    return fieldArrayInput(
+      spec,
+      rowFields,
+      fieldLabelText(ctx, bc, voName, f.name),
+      bc,
+      ns,
+      ctx,
+      spec.elementName,
+      scope,
+      tid ? `${tid}-row` : `${ns}-${f.name}-row`,
+    );
+  }
+  return fieldInput(f.name, f.type, bc, ns, ctx, tid, undefined, undefined, voName);
 }
 
 /** The value-object fieldset markup: a `formGroupName` container (carrying the
@@ -948,12 +1103,18 @@ export function fieldGroupInput(
   ns: string,
   ctx: WalkContext,
   /** The value object the group holds — owns its sub-field labels. */
-  voName?: string,
+  voName: string | undefined,
   /** The container's test id; a nested group nests under its parent's. */
-  containerTid: string = `${ns}-input-${spec.fieldName}`,
+  containerTidOverride: string | undefined,
+  /** Where this group's control lives (its own path included). */
+  scope: FieldScope,
 ): string {
+  const containerTid = containerTidOverride ?? `${ns}-input-${spec.fieldName}`;
+  const container = { groups: spec.subGroups, arrays: spec.subArrays };
   const subInputs = voFields
-    .map((f) => subFieldMarkup(f, bc, ns, ctx, `${containerTid}-${f.name}`, voName))
+    .map((f) =>
+      subFieldMarkup(f, bc, ns, ctx, `${containerTid}-${f.name}`, voName, scope, container),
+    )
     .join("");
   return `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
 }
@@ -970,7 +1131,7 @@ export function partitionAngularFields(
   bc: BoundedContextIR,
   ns: string,
   ctx: WalkContext,
-  formVar?: string,
+  formVar: string,
   /** Flat field names carrying a client-side constraint, each with the
    *  catalog messages of its validators (from `angularRuleCodes`): their
    *  message slot falls back to the client sentence when no server message is
@@ -1036,6 +1197,8 @@ export function partitionAngularFields(
         ns,
         ctx,
         groupType.kind === "valueobject" ? groupType.name : undefined,
+        undefined,
+        { base: formVar, rel: [f.name], depth: 0 },
       ),
     );
     groupIdFields.push(...flattenSubFields(voFields, bc));
@@ -1043,7 +1206,16 @@ export function partitionAngularFields(
   if (fieldArrays.length > 0 || fieldGroups.length > 0) {
     addNg(ctx, "@angular/forms", "FormGroup");
   }
-  if (fieldArrays.length > 0) addNg(ctx, "@angular/forms", "FormArray");
+  const hasNestedArray = (g: AngularFieldGroupSpec): boolean =>
+    g.subArrays.length > 0 || g.subGroups.some(hasNestedArray);
+  const rowHasNested = (a: AngularFieldArraySpec): boolean =>
+    a.rowArrays.length > 0 || a.rowGroups.some(hasNestedArray);
+  if (fieldArrays.length > 0 || fieldGroups.some(hasNestedArray)) {
+    addNg(ctx, "@angular/forms", "FormArray");
+  }
+  if (fieldGroups.some(hasNestedArray) || fieldArrays.some(rowHasNested)) {
+    addNg(ctx, "@angular/forms", "AbstractControl");
+  }
   return {
     // A constant/enum `= default` seeds the control's initial value (client can
     // still edit it); non-evaluable defaults (money/now/this-relative/ref) and
@@ -1096,7 +1268,6 @@ export function partitionAngularFields(
                       ctx,
                       `${formVar}.controls.${f.name}`,
                       errorFields?.get(f.name) ?? [],
-                      `${humanize(f.name)} is invalid`,
                     )
                   : undefined,
               ),

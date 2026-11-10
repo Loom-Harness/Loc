@@ -52,7 +52,7 @@ per-feature doc that carries the fuller design:
 
 | Surface | Reference |
 |---|---|
-| `migration "…" { sql / rename / backfill }` blocks, destructive / rebaseline gating | [`../migrations.md`](../migrations.md). `unique (…)` is in [chapter 3](03-domain-modeling.md), resource `index:` specs in [chapter 14](14-apis-storage-resources-channels.md) |
+| `migration "…" { sql / rename / backfill / enum value rename }` blocks, destructive / rebaseline gating | [`../migrations.md`](../migrations.md). `unique (…)` is in [chapter 3](03-domain-modeling.md), resource `index:` specs in [chapter 14](14-apis-storage-resources-channels.md) |
 | `commandHandler` / `queryHandler`, `api { route GET "/…" -> Handler }`, `httpStatus` mappings | [chapter 14](14-apis-storage-resources-channels.md) for `route` and the handler gates; [chapter 3](03-domain-modeling.md) for the declarations; [`../architecture.md`](../architecture.md) |
 | `timerSource` (`cron:` / `every: 15s`) | [chapter 13](13-workflows.md) — there is no per-feature scheduling doc, so that chapter is the reference |
 | `match` as a statement, `match await`, effect markers, page `action` handlers, stores (`persist` / `local`) | [chapter 15](15-ui-pages-structure.md) and [chapter 6](06-behavior-and-statements.md); [`../actions.md`](../actions.md) and [`../page-metamodel.md`](../page-metamodel.md) |

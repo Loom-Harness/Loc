@@ -170,7 +170,10 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
     const byCode: FindIR = {
       name: "byCode",
       params: [{ name: "code", type: { kind: "primitive", name: "string" } }],
-      returnType: { kind: "optional", inner: { kind: "entity", name: "Order" } },
+      returnType: {
+        kind: "optional",
+        inner: { kind: "entity", name: "Order", declKind: "aggregate" },
+      },
     };
     expect(findValidatesRequest(byCode), "declares a param").toBe(true);
     expect(findValidatesRequest({ ...byCode, params: [] }), "neither").toBe(false);
@@ -294,8 +297,8 @@ describe("api-surface — coverage honesty", () => {
 
 describe("absenceUnionAbsent — the absent-variant discriminator", () => {
   it("distinguishes the none unit from an error payload, keyed on the aggregate", () => {
-    const order = { kind: "entity", name: "Order" } as const;
-    const missing = { kind: "entity", name: "Missing" } as const;
+    const order = { kind: "entity", name: "Order", declKind: "aggregate" } as const;
+    const missing = { kind: "entity", name: "Missing", declKind: "aggregate" } as const;
     const none = { kind: "none" } as const;
     expect(absenceUnionAbsent({ kind: "union", variants: [order, none] }, "Order")).toEqual({
       kind: "none",

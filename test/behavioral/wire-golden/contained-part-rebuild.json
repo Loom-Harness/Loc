@@ -183,6 +183,9 @@
         "code": "problem.not-found",
         "detail": "Cart {id} not found",
         "instance": "/api/carts/{id}/update",
+        "params": {
+          "type": "Carts.Cart"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

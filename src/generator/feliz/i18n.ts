@@ -129,7 +129,7 @@ export function renderFelizI18nModule(
 ): string {
   const scope = {
     contexts,
-    sentences: HAND_BUILT_FORM_SENTENCES,
+    sentences: HAND_BUILT_FORM_SENTENCES.rows,
     implicitModelText: true,
     authGate,
   };
@@ -299,6 +299,11 @@ export function renderFelizI18nModule(
     "        match catalogs.TryFind current |> Option.bind (fun m -> m.TryFind key) with",
     "        | Some m -> m",
     "        | None -> defaultMessage",
+    "",
+    "    /// Whether the ACTIVE locale's catalog carries a message for `key` — what",
+    "    /// an optional key (a per-aggregate problem sentence) is probed with.",
+    "    let has (key: string) : bool =",
+    "        catalogs.TryFind current |> Option.bind (fun m -> m.TryFind key) |> Option.isSome",
     "",
     "    /// One parsed formatter per (locale, message) — parsing is the cost,",
     "    /// formatting is cheap, and the same few messages render on every pass.",

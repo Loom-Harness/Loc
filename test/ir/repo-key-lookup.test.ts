@@ -75,7 +75,7 @@ describe("lowering", () => {
       op: "load-by-key",
       method: "getBySku",
       key: { columns: ["sku"] },
-      returnType: { kind: "entity", name: "Product" },
+      returnType: { kind: "entity", name: "Product", declKind: "aggregate" },
     });
     // `name:` was written first; the tuple declares `region` first.
     expect(q).toMatchObject({
@@ -108,7 +108,7 @@ describe("enrichment — one synthesized method per used (verb, tuple, stance)",
     expect(get).toMatchObject({
       synthesized: true,
       params: [{ name: "sku", type: { kind: "primitive", name: "string" } }],
-      returnType: { kind: "entity", name: "Product" },
+      returnType: { kind: "entity", name: "Product", declKind: "aggregate" },
       filter: {
         kind: "binary",
         op: "==",
@@ -118,7 +118,10 @@ describe("enrichment — one synthesized method per used (verb, tuple, stance)",
     });
     expect(get.bypassAll).toBeUndefined();
     expect(find(c, "findBySku")).toMatchObject({
-      returnType: { kind: "optional", inner: { kind: "entity", name: "Product" } },
+      returnType: {
+        kind: "optional",
+        inner: { kind: "entity", name: "Product", declKind: "aggregate" },
+      },
     });
     expect(find(c, "getByRegionAndNameIgnoringAll")).toMatchObject({
       bypassAll: true,

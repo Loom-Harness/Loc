@@ -15,7 +15,7 @@ name: Generated Angular build
 #                       whose template — strictTemplates-checked, and resolving
 #                       every name against the CLASS — no other case reaches.
 #   - nightly,        → minimal, scaffold, showcase, store, file, grid,
-#     workflow_dispatch optional × every pack.
+#     workflow_dispatch optional, nested-vo, i18n-text × every pack.
 #   - ALWAYS          → `history:angularMaterial@v1`: an `audited` aggregate's
 #                       scaffolded History section is a template over an
 #                       `AuditEntry[]` typed `unknown` at the leaves, and
@@ -26,7 +26,10 @@ name: Generated Angular build
 #                       markup), so one cell is the whole gate.  On a PR
 #                       `optional:angularMaterial@v1` rides along the same way:
 #                       an optional field's null dereference and a `File?`'s
-#                       unimported `FileRef` are pack-neutral.
+#                       unimported `FileRef` are pack-neutral.  The same holds for
+#                       `nested-vo:angularMaterial@v1` (nested value-object
+#                       templates) and `i18n-text:angularMaterial@v1` (a rich
+#                       `Text` plural hole + a translated `WorkflowForm`).
 #
 # Case names are the `name`s in test/e2e/generated-angular-build.test.ts.
 
@@ -100,7 +103,7 @@ jobs:
       - name: ng build every selected case
         env:
           # See the header for the case policy.
-          LOOM_ANGULAR_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'showcase:angularMaterial@v1,showcase:primeng@v1,store:angularMaterial@v1,store:primeng@v1,grid:angularMaterial@v1,grid:primeng@v1,history:angularMaterial@v1,optional:angularMaterial@v1' || 'minimal,scaffold,showcase,store,file,grid,optional,history:angularMaterial@v1' }}
+          LOOM_ANGULAR_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'showcase:angularMaterial@v1,showcase:primeng@v1,store:angularMaterial@v1,store:primeng@v1,grid:angularMaterial@v1,grid:primeng@v1,history:angularMaterial@v1,optional:angularMaterial@v1,nested-vo:angularMaterial@v1,i18n-text:angularMaterial@v1' || 'minimal,scaffold,showcase,store,file,grid,optional,nested-vo,i18n-text,history:angularMaterial@v1' }}
         run: npm run test:angular-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────

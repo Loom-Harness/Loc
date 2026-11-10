@@ -136,7 +136,7 @@ describe("Angular form fields announce their validation errors", () => {
     // input.  The old output closed `</mat-form-field>` first and then rendered
     // a `<p>`, which the form field never saw.
     expect(page).toContain(
-      `@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.['server']; as serverError) { {{ serverError }} } @else { Sku is invalid }</mat-error>}</mat-form-field>`,
+      `@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.['server']; as serverError) { {{ serverError }} } @else { Must be at least 3 characters }</mat-error>}</mat-form-field>`,
     );
     // And NOT a second writer on an attribute `MatInput` host-binds.
     expect(page).not.toContain("[attr.aria-invalid]");

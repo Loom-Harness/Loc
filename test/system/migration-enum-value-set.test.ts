@@ -29,7 +29,13 @@
 
 import { describe, expect, it } from "vitest";
 import type { SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
-import { buildMigrations, type MigrationWarning } from "../../src/system/migrations-builder.js";
+import { migrationIntents } from "../../src/system/migration-diff.js";
+import {
+  buildMigrations,
+  type MigrationDestructiveError,
+  MigrationEnumNarrowedError,
+  type MigrationShapeChangeError,
+} from "../../src/system/migrations-builder.js";
 import { memorySnapshotStore } from "../../src/system/snapshot.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/index.js";
@@ -55,13 +61,17 @@ async function initialSql(src: string): Promise<string> {
 
 /** Generate `v1`, keep its snapshot, then generate `v2` against it — the same
  *  two-generation shape `ddd generate system` performs over one output tree —
- *  and return the derived forward steps. */
+ *  and return the derived forward steps.  Derived under `allowDestructive`:
+ *  these tests read the step SHAPE, and a narrowing is otherwise refused
+ *  (the refusal is the `loom.migration-enum-narrowed` block below). */
 async function evolve(v1: string, v2: string) {
   const first = buildMigrations((await buildLoomModel(v1)).systems[0]!, memorySnapshotStore());
   const store = memorySnapshotStore(
     Object.fromEntries(first.map((m) => [m.module, m.next])) as Record<string, SchemaSnapshot>,
   );
-  const second = buildMigrations((await buildLoomModel(v2)).systems[0]!, store);
+  const second = buildMigrations((await buildLoomModel(v2)).systems[0]!, store, {
+    allowDestructive: true,
+  });
   return second.flatMap((m) => m.steps);
 }
 
@@ -179,66 +189,117 @@ describe("an enum's value set reaches the schema", () => {
 });
 
 // Removing a member while rows still hold it.  The re-added CHECK is
-// `NOT VALID`, so the deploy succeeds — and then every backend that maps the
-// stored string onto the enum fails to load such a row, while any UPDATE of it
-// is refused by the new check.  The diff cannot see the rows, so it announces
-// the narrowing and names the remap that fixes it; a `sql before` step for the
-// generation is read as that remap and silences it.
+// `NOT VALID`, so the deploy would succeed — and then every backend that maps
+// the stored string onto the enum fails to load such a row, while any UPDATE
+// of it is refused by the new check.  The diff cannot see the rows, so the
+// narrowing is breaking-for-data: refused until something says what the stored
+// values become — a declared value rename, any `sql` step of the generation,
+// or `--allow-destructive`.
 describe("loom.migration-enum-narrowed", () => {
-  async function evolveWarnings(v1: string, v2: string): Promise<MigrationWarning[]> {
+  async function evolveRefusals(
+    v1: string,
+    v2: string,
+    opts: { allowDestructive?: boolean } = {},
+  ): Promise<MigrationDestructiveError[]> {
     const first = buildMigrations((await buildLoomModel(v1)).systems[0]!, memorySnapshotStore());
     const store = memorySnapshotStore(
       Object.fromEntries(first.map((m) => [m.module, m.next])) as Record<string, SchemaSnapshot>,
     );
-    const warnings: MigrationWarning[] = [];
+    const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
     const next = await buildLoomModel(v2);
-    buildMigrations(next.systems[0]!, store, { sqlSteps: next.sqlMigrationSteps, warnings });
-    return warnings;
+    buildMigrations(next.systems[0]!, store, {
+      ...migrationIntents(next),
+      destructiveRefusals: refusals,
+      ...opts,
+    });
+    return refusals as MigrationDestructiveError[];
   }
 
-  it("warns when an enum on a populated table loses a member, naming the remap", async () => {
-    const warnings = await evolveWarnings(
+  it("refuses an enum on a populated table losing a member, naming the rename", async () => {
+    const refusals = await evolveRefusals(
       NODE(ENUM3, "Skill"),
       NODE("enum Skill { physio, gp }", "Skill"),
     );
-    expect(warnings.map((w) => w.code)).toEqual(["loom.migration-enum-narrowed"]);
-    const msg = warnings[0]!.message;
+    expect(refusals.map((r) => r.code)).toEqual(["loom.migration-enum-narrowed"]);
+    expect(refusals[0]).toBeInstanceOf(MigrationEnumNarrowedError);
+    const msg = refusals[0]!.message;
     expect(msg).toContain("enum check appts_skill_enum on existing table c.appts");
     expect(msg).toContain("no longer admits 'dentist' in column skill");
-    expect(msg).toContain(
-      `sql before "UPDATE c.appts SET skill = <one of 'physio', 'gp'> WHERE skill IN ('dentist')"`,
+    expect(msg).toContain(`migration "rename-…" { Skill.dentist -> <one of physio, gp> }`);
+  });
+
+  it("throws the refusal when no sink collects it (what `ddd migrate add` hits)", async () => {
+    const first = buildMigrations(
+      (await buildLoomModel(NODE(ENUM3, "Skill"))).systems[0]!,
+      memorySnapshotStore(),
+    );
+    const store = memorySnapshotStore(
+      Object.fromEntries(first.map((m) => [m.module, m.next])) as Record<string, SchemaSnapshot>,
+    );
+    const next = await buildLoomModel(NODE("enum Skill { physio, gp }", "Skill"));
+    expect(() => buildMigrations(next.systems[0]!, store, migrationIntents(next))).toThrow(
+      MigrationEnumNarrowedError,
     );
   });
 
   it("a RENAMED member is a removal too (the stored rows hold the old spelling)", async () => {
-    const warnings = await evolveWarnings(
+    const refusals = await evolveRefusals(
       NODE(ENUM3, "Skill"),
       NODE("enum Skill { physio, gp, dental }", "Skill"),
     );
-    expect(warnings.map((w) => w.code)).toEqual(["loom.migration-enum-narrowed"]);
-    expect(warnings[0]!.message).toContain("no longer admits 'dentist'");
+    expect(refusals.map((r) => r.code)).toEqual(["loom.migration-enum-narrowed"]);
+    expect(refusals[0]!.message).toContain("no longer admits 'dentist'");
   });
 
-  it("is silenced by a `sql before` remap in the same generation", async () => {
+  it("is released by a declared rename of the removed value", async () => {
+    const v2 = `${NODE("enum Skill { physio, gp, dental }", "Skill")}
+migration "rename-dentist" { Skill.dentist -> dental }`;
+    expect(await evolveRefusals(NODE(ENUM3, "Skill"), v2)).toEqual([]);
+  });
+
+  it("a rename of ANOTHER value does not release it", async () => {
+    const v2 = `${NODE("enum Skill { gp, dental }", "Skill")}
+migration "rename-dentist" { Skill.dentist -> dental }`;
+    const refusals = await evolveRefusals(NODE(ENUM3, "Skill"), v2);
+    expect(refusals.map((r) => r.code)).toEqual(["loom.migration-enum-narrowed"]);
+    expect(refusals[0]!.message).toContain("no longer admits 'physio'");
+    expect(refusals[0]!.message).not.toContain("'dentist'");
+  });
+
+  it("is released by a `sql before` remap in the same generation", async () => {
     const v2 = `${NODE("enum Skill { physio, gp }", "Skill")}
 migration "remap-dentist" { sql before "UPDATE c.appts SET skill = 'gp' WHERE skill = 'dentist'" }`;
-    expect(await evolveWarnings(NODE(ENUM3, "Skill"), v2)).toEqual([]);
+    expect(await evolveRefusals(NODE(ENUM3, "Skill"), v2)).toEqual([]);
   });
 
-  it("a WIDENING (a member added) does not warn", async () => {
+  it("is released by a trailing `sql` remap too (the remapped row satisfies the new check)", async () => {
+    const v2 = `${NODE("enum Skill { physio, gp }", "Skill")}
+migration "remap-dentist" { sql "UPDATE c.appts SET skill = 'gp' WHERE skill = 'dentist'" }`;
+    expect(await evolveRefusals(NODE(ENUM3, "Skill"), v2)).toEqual([]);
+  });
+
+  it("is acknowledged by --allow-destructive", async () => {
     expect(
-      await evolveWarnings(NODE("enum Skill { physio, gp }", "Skill"), NODE(ENUM3, "Skill")),
+      await evolveRefusals(NODE(ENUM3, "Skill"), NODE("enum Skill { physio, gp }", "Skill"), {
+        allowDestructive: true,
+      }),
     ).toEqual([]);
   });
 
-  it("an unchanged enum and a first generation do not warn", async () => {
-    expect(await evolveWarnings(NODE(ENUM3, "Skill"), NODE(ENUM3, "Skill"))).toEqual([]);
-    const warnings: MigrationWarning[] = [];
+  it("a WIDENING (a member added) is not refused", async () => {
+    expect(
+      await evolveRefusals(NODE("enum Skill { physio, gp }", "Skill"), NODE(ENUM3, "Skill")),
+    ).toEqual([]);
+  });
+
+  it("an unchanged enum and a first generation are not refused", async () => {
+    expect(await evolveRefusals(NODE(ENUM3, "Skill"), NODE(ENUM3, "Skill"))).toEqual([]);
+    const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
     buildMigrations(
       (await buildLoomModel(NODE(ENUM3, "Skill"))).systems[0]!,
       memorySnapshotStore(),
-      { warnings },
+      { destructiveRefusals: refusals },
     );
-    expect(warnings).toEqual([]);
+    expect(refusals).toEqual([]);
   });
 });

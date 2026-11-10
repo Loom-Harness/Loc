@@ -20,6 +20,9 @@
         "code": "problem.not-found",
         "detail": "Secret {id} not found",
         "instance": "/api/secrets/{id}",
+        "params": {
+          "type": "Vault.Secret"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -54,6 +57,9 @@
         "code": "problem.not-found",
         "detail": "Secret {id} not found",
         "instance": "/api/secrets/{id}/update",
+        "params": {
+          "type": "Vault.Secret"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -68,6 +74,9 @@
         "code": "problem.not-found",
         "detail": "Secret {id} not found",
         "instance": "/api/secrets/{id}",
+        "params": {
+          "type": "Vault.Secret"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -91,6 +100,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Vault.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -118,6 +130,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}/update",
+        "params": {
+          "type": "Vault.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -132,6 +147,9 @@
         "code": "problem.not-found",
         "detail": "Note {id} not found",
         "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Vault.Note"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -185,6 +203,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/update",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -199,6 +220,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -213,6 +237,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/settle",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -227,6 +254,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/doubled",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -316,6 +346,9 @@
         "code": "problem.not-found",
         "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}",
+        "params": {
+          "type": "Vault.Ledger"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -395,6 +428,9 @@
         "code": "problem.not-found",
         "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}/update",
+        "params": {
+          "type": "Vault.Ledger"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -440,6 +476,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/update",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -454,6 +493,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/update",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -468,6 +510,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -482,6 +527,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -496,6 +544,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/settle",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -510,6 +561,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/settle",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -524,6 +578,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/doubled",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -538,6 +595,9 @@
         "code": "problem.not-found",
         "detail": "Account {id} not found",
         "instance": "/api/accounts/{id}/doubled",
+        "params": {
+          "type": "Vault.Account"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -572,6 +632,9 @@
         "code": "problem.not-found",
         "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}",
+        "params": {
+          "type": "Vault.Ledger"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -613,6 +676,9 @@
         "code": "problem.not-found",
         "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}/update",
+        "params": {
+          "type": "Vault.Ledger"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -643,6 +709,9 @@
         "code": "problem.not-found",
         "detail": "Ledger {id} not found",
         "instance": "/api/ledgers/{id}",
+        "params": {
+          "type": "Vault.Ledger"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

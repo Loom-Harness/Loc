@@ -28,10 +28,15 @@
 //   * `currency: "EUR"` (a declared argument) prefixes the code THE CALLER
 //     PASSED, verbatim.  Never a symbol the toolchain guessed.  This is what
 //     the Feliz target already emits, so the two engines agree by construction.
+//   * `format: "locale"` (opt-in) renders the digits in the ACTIVE locale's
+//     conventions — grouping, decimal mark, currency symbol and its placement
+//     (`1 234,50 €` in fr) — through `Intl.NumberFormat`, fed the decimal
+//     STRING itself (ECMA-402 NumberFormat v3 formats a numeric string at
+//     full precision), so no float is ever involved.
 //
-// Both knobs are pre-existing, user-declared DSL arguments carried through the
-// walker (`src/generator/_walker/primitives/text.ts` → `hasCurrency` /
-// `hasDecimals`); no new pack-manifest knob is introduced.
+// All three knobs are user-declared DSL arguments carried through the walker
+// (`src/generator/_walker/primitives/text.ts` → `hasCurrency` / `hasDecimals`
+// / `hasLocaleFormat`); no pack-manifest knob is introduced.
 
 /** The `moneyText` module source spliced into each pack's `format-helpers`
  *  emit.  Framework-neutral and JSX-free, so React, Vue, Svelte and Angular
@@ -48,15 +53,59 @@ export const MONEY_TEXT_SOURCE = `/** Render a money value's own digits, faithfu
  *                   ("EUR 12.3456").  Only ever what the page source declared.
  *  @param decimals  Optional exact fraction-digit count; re-scales the digit
  *                   string (half away from zero), never through a float.
+ *  @param localized Opt-in (\`format: "locale"\`): render in \`locale\`'s
+ *                   conventions instead of the verbatim digits.
+ *  @param locale    The BCP 47 tag for \`localized\`; undefined = the runtime's
+ *                   own default locale.
  */
 export function moneyText(
   value: number | string | { toString(): string },
   currency?: string,
   decimals?: number,
+  localized?: boolean,
+  locale?: string,
 ): string {
   const raw = typeof value === "string" ? value : String(value);
   const body = decimals === undefined ? raw : scaleDecimalString(raw, decimals);
+  if (localized) {
+    const local = localizeDecimalString(body, currency, locale);
+    if (local !== undefined) {
+      return local;
+    }
+  }
   return currency ? currency + " " + body : body;
+}
+
+/** Format a decimal STRING in a locale's conventions, or undefined when the
+ *  string is not a plain decimal literal or the runtime rejects the currency
+ *  code (the caller then falls back to the verbatim spelling).
+ *
+ *  The digit string goes to \`Intl.NumberFormat#format\` AS A STRING: ECMA-402
+ *  NumberFormat v3 parses it as an exact decimal, so a NUMERIC(19,4) value
+ *  keeps every digit (a \`Number()\` hop would not).  The fraction digits are
+ *  pinned to the string's own scale — the locale never re-rounds the value's
+ *  digits (\`decimals:\` is the knob that re-scales). */
+export function localizeDecimalString(
+  raw: string,
+  currency?: string,
+  locale?: string,
+): string | undefined {
+  const m = /^([+-]?)(\\d+)(?:\\.(\\d*))?$/.exec(raw.trim());
+  if (!m) {
+    return undefined;
+  }
+  const frac = m[3] ?? "";
+  const canonical = (m[1] === "-" ? "-" : "") + m[2] + (frac ? "." + frac : "");
+  try {
+    const nf = new Intl.NumberFormat(locale, {
+      ...(currency ? { style: "currency" as const, currency } : {}),
+      minimumFractionDigits: frac.length,
+      maximumFractionDigits: frac.length,
+    });
+    return nf.format(canonical as unknown as number);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Re-scale a decimal STRING to exactly \`digits\` fraction digits.

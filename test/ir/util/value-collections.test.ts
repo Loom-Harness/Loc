@@ -43,7 +43,9 @@ describe("isValueCollectionType — the three collection shapes are different", 
   });
 
   it("is FALSE for a contained entity collection — keyed by the child's own id", () => {
-    expect(isValueCollectionType(arr({ kind: "entity", name: "Line" }))).toBe(false);
+    expect(isValueCollectionType(arr({ kind: "entity", name: "Line", declKind: "part" }))).toBe(
+      false,
+    );
   });
 
   it("is FALSE for a scalar array and for a bare (non-array) value object", () => {

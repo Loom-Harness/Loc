@@ -32,7 +32,7 @@ type LetStmt = Extract<StmtIR, { kind: "let" }>;
 const services = createDddServices(NodeFileSystem);
 const parse = parseHelper<Model>(services.Ddd);
 
-const OWNER: TypeIR = { kind: "entity", name: "Owner" };
+const OWNER: TypeIR = { kind: "entity", name: "Owner", declKind: "aggregate" };
 
 const SRC = `
 system RosterSys {

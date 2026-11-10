@@ -124,7 +124,10 @@ describe("enrichment", () => {
     const c = await ctx();
     expect(find(c, "findFirstInRegionIgnoringSoftDeletable")).toMatchObject({
       params: [{ name: "region" }],
-      returnType: { kind: "optional", inner: { kind: "entity", name: "Product" } },
+      returnType: {
+        kind: "optional",
+        inner: { kind: "entity", name: "Product", declKind: "aggregate" },
+      },
       criterionRef: { name: "InRegion" },
       bypassCaps: ["softDeletable"],
       takeFirst: true,

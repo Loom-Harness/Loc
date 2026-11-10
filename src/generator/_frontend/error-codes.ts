@@ -45,14 +45,37 @@ const t = (_code: string, fallback: string, _params?: Record<string, unknown>): 
 `;
 }
 
+/** `problemKey` — the two-step lookup every TS runtime's `localizeProblem`
+ *  reads a refusal's catalog key through: a refusal that concerns one
+ *  aggregate carries its identity key as `params.type`, and the catalog MAY
+ *  carry a whole sentence for that aggregate (`<type>.problem.<class>`,
+ *  `aggregateProblemKey`); absent one, the generic `problem.<class>` stands.
+ *  The probe is `t` with no values and a default no message can equal, so it
+ *  reads the active locale's catalog and nothing else.  Raw module text. */
+export const PROBLEM_KEY_TS = `/** No catalog message is this string: \`t\` answers it for an absent key. */
+const ABSENT_MESSAGE = "\\u0000";
+
+/** The catalog key a refusal is localized by: its aggregate's own sentence
+ *  (\`<type>.problem.<class>\`) when the active catalog carries one, else its
+ *  \`code\`. */
+export function problemKey(code: string, params?: Record<string, unknown>): string {
+  const type = params?.type;
+  if (typeof type !== "string" || !code.startsWith("problem.")) return code;
+  const specific = \`\${type}.\${code}\`;
+  return t(specific, ABSENT_MESSAGE) === ABSENT_MESSAGE ? code : specific;
+}
+`;
+
 /** `localizeProblem` + `issueCatalogCode`, the two helpers every TS runtime
  *  shares.  Raw module text (no escaping needed by the caller). */
-export const ERROR_CODE_HELPERS_TS = `/** The localized text of a refusal: its catalog \`code\`, falling back to the
- *  English the server sent, its placeholders filled from \`params\`.  A message
- *  whose placeholders the params cannot fill keeps the English. */
+export const ERROR_CODE_HELPERS_TS = `${PROBLEM_KEY_TS}
+/** The localized text of a refusal: its catalog \`code\` (or its aggregate's
+ *  own sentence, \`problemKey\`), falling back to the English the server sent,
+ *  its placeholders filled from \`params\`.  A message whose placeholders the
+ *  params cannot fill keeps the English. */
 export function localizeProblem(code: string, fallback: string, params?: Record<string, unknown>): string {
   try {
-    return t(code, fallback, params as Parameters<typeof t>[2]);
+    return t(problemKey(code, params), fallback, params as Parameters<typeof t>[2]);
   } catch {
     return fallback;
   }

@@ -161,6 +161,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -197,6 +200,9 @@
         "code": "problem.not-found",
         "detail": "Truck {id} not found",
         "instance": "/api/trucks/{id}",
+        "params": {
+          "type": "Fleet.Truck"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -275,6 +281,9 @@
         "code": "problem.not-found",
         "detail": "Car {id} not found",
         "instance": "/api/cars/{id}/update",
+        "params": {
+          "type": "Fleet.Car"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

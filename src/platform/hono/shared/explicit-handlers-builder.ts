@@ -460,7 +460,7 @@ function emitRouteHandler(
   }
   // An expected-failure result (`T or E`): 200 declares the success arms and
   // each error arm's status its problem body, as on an operation route.
-  const er = h.extern ? undefined : entryResult(h, ctx);
+  const er = h.extern ? undefined : entryResult(h);
   const split =
     er && h.returnType?.kind === "union" ? opUnionResponses(h.returnType.variants, ctx) : null;
   const responsesAt = out.length;
@@ -852,7 +852,7 @@ export function buildExplicitRoutesFile(
     if (h.extern) externImplImports.set(externImplFn(h.name), externImplModule(h.name));
     // An expected-failure result's OpenAPI split: the 200 success arms and each
     // error arm's problem body, declared once per file.
-    if (!h.extern && h.returnType?.kind === "union" && entryResult(h, ctx)) {
+    if (!h.extern && h.returnType?.kind === "union" && entryResult(h)) {
       const split = opUnionResponses(h.returnType.variants, ctx);
       const fieldZod = (f: UnionMemberField): string =>
         f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
@@ -984,7 +984,7 @@ export function buildExplicitRoutesFile(
   if (exHasExternHandler) exStatuses.add(wireStatus("not-implemented"));
   const exProblemUnion = [...exStatuses].sort((a, b) => a - b).join(" | ");
   body.push(
-    `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...(params ? { params } : {}) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${exProblemUnion}, title: string, detail: string, code: string, params?: Record<string, unknown>) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path, code, ...problemParams(code, c.req.path, params) }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
@@ -1095,6 +1095,7 @@ export function buildExplicitRoutesFile(
     /\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
     /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
+    /\bproblemParams\(/.test(bodyStr) ? "problemParams" : null,
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
     /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);

@@ -25,6 +25,8 @@ type MoneyText = (
   value: number | string | { toString(): string },
   currency?: string,
   decimals?: number,
+  localized?: boolean,
+  locale?: string,
 ) => string;
 type ScaleFn = (raw: string, digits: number) => string;
 
@@ -160,5 +162,48 @@ describe("scaleDecimalString — the string-level rescale in isolation", () => {
 
   it("accepts an explicit + sign but does not re-emit it", () => {
     expect(scaleDecimalString("+12.3456", 2)).toBe("12.35");
+  });
+});
+
+describe("moneyText — opt-in locale format", () => {
+  // Wire money is a NUMERIC(19,4) string; this one has 19 significant digits
+  // and is NOT representable as a double (Number() turns it into
+  // 12345678901234568).
+  const BIG = "12345678901234567.89";
+  const flat = (s: string) => s.replace(/[  ]/g, " ");
+
+  it("keeps every digit of a value a float would corrupt", () => {
+    expect(String(Number(BIG))).not.toBe(BIG);
+    expect(moneyText(BIG, "EUR", undefined, true, "en")).toBe("€12,345,678,901,234,567.89");
+    expect(flat(moneyText(BIG, "EUR", undefined, true, "fr"))).toBe("12 345 678 901 234 567,89 €");
+    expect(moneyText(BIG, undefined, undefined, true, "en")).toBe("12,345,678,901,234,567.89");
+  });
+
+  it("renders the issue's example in fr", () => {
+    expect(flat(moneyText("1234.50", "EUR", undefined, true, "fr"))).toBe("1 234,50 €");
+    expect(flat(moneyText("-1234.50", "EUR", undefined, true, "fr"))).toBe("-1 234,50 €");
+  });
+
+  it("pins the fraction digits to the value's own scale (never re-rounds)", () => {
+    expect(moneyText("12.3456", undefined, undefined, true, "en")).toBe("12.3456");
+    expect(moneyText("12", undefined, undefined, true, "en")).toBe("12");
+    expect(moneyText("12.3456", "USD", 2, true, "en")).toBe("$12.35");
+  });
+
+  it("accepts a decimal.js-like object (toString carries the digits)", () => {
+    expect(flat(moneyText(new FakeDecimal("1234.5000"), "EUR", undefined, true, "de"))).toBe(
+      "1.234,5000 €",
+    );
+  });
+
+  it("falls back to the verbatim spelling for junk or an invalid currency code", () => {
+    expect(moneyText("1e3", "EUR", undefined, true, "en")).toBe("EUR 1e3");
+    expect(moneyText("12.50", "not-a-code", undefined, true, "en")).toBe("not-a-code 12.50");
+  });
+
+  it("leaves the default verbatim when not opted in, whatever the locale", () => {
+    expect(moneyText("1234.50", "EUR", undefined, false, "fr")).toBe("EUR 1234.50");
+    expect(moneyText("1234.50", "EUR", undefined, undefined, "fr")).toBe("EUR 1234.50");
+    expect(moneyText(BIG)).toBe(BIG);
   });
 });

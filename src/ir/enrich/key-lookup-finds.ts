@@ -58,7 +58,7 @@ function eq(entity: TypeIR, col: string, type: TypeIR): ExprIR {
 }
 
 function keyFind(read: KeyLookupRead, agg: AggregateIR): FindIR | undefined {
-  const entity: TypeIR = { kind: "entity", name: agg.name };
+  const entity: TypeIR = { kind: "entity", name: agg.name, declKind: "aggregate" };
   const params: FindIR["params"] = [];
   let filter: ExprIR | undefined;
   for (const col of read.key.columns) {

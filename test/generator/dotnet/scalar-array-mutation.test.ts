@@ -20,7 +20,7 @@ import { renderCsStatements } from "../../../src/generator/dotnet/render-stmt.js
 import type { EnrichedAggregateIR, StmtIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 
 const INT: TypeIR = { kind: "primitive", name: "int" };
-const LINE: TypeIR = { kind: "entity", name: "LineItem" };
+const LINE: TypeIR = { kind: "entity", name: "LineItem", declKind: "part" };
 
 /** Minimal aggregate context: one scalar-array FIELD (`codes: int[]`), one
  *  CONTAINMENT (`lines`), one `Target id[]` association (`tagIds`). */

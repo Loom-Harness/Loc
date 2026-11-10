@@ -266,6 +266,9 @@
         "code": "problem.not-found",
         "detail": "Person {id} not found",
         "instance": "/api/persons/{id}",
+        "params": {
+          "type": "Directory.Person"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -280,6 +283,9 @@
         "code": "problem.not-found",
         "detail": "Receipt {id} not found",
         "instance": "/api/receipts/{id}",
+        "params": {
+          "type": "Billing.Receipt"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -294,6 +300,9 @@
         "code": "problem.not-found",
         "detail": "Shipper {id} not found",
         "instance": "/api/shippers/{id}",
+        "params": {
+          "type": "Billing.Shipper"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -350,6 +359,9 @@
         "code": "problem.not-found",
         "detail": "Shipper {id} not found",
         "instance": "/api/shippers/{id}/update",
+        "params": {
+          "type": "Billing.Shipper"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

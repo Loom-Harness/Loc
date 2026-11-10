@@ -423,6 +423,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}",
+        "params": {
+          "type": "Ordering.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -437,6 +440,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/history",
+        "params": {
+          "type": "Ordering.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -451,6 +457,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/restore",
+        "params": {
+          "type": "Ordering.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -548,6 +557,9 @@
         "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}",
+        "params": {
+          "type": "Ordering.Invoice"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -604,6 +616,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/soft_delete",
+        "params": {
+          "type": "Ordering.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -618,6 +633,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/soft_delete",
+        "params": {
+          "type": "Ordering.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

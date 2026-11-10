@@ -82,7 +82,7 @@ describe("lowering — criterion `of T as <alias>`", () => {
       kind: "member",
       member: "region",
       receiver: { kind: "this" },
-      receiverType: { kind: "entity", name: "Customer" },
+      receiverType: { kind: "entity", name: "Customer", declKind: "aggregate" },
     });
   });
 });
@@ -95,7 +95,7 @@ describe("lowering — criterion", () => {
       expect.arrayContaining(["ActiveCustomer", "InRegion"]),
     );
     const active = ctx.criteria.find((c) => c.name === "ActiveCustomer")!;
-    expect(active.targetType).toEqual({ kind: "entity", name: "Customer" });
+    expect(active.targetType).toEqual({ kind: "entity", name: "Customer", declKind: "aggregate" });
     expect(active.body).toMatchObject({ kind: "ref", refKind: "this-prop", name: "active" });
   });
 

@@ -98,6 +98,9 @@
         "code": "problem.not-found",
         "detail": "CreditCard {id} not found",
         "instance": "/api/credit_cards/{id}",
+        "params": {
+          "type": "Wallet.CreditCard"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -190,6 +193,9 @@
         "code": "problem.not-found",
         "detail": "BankAccount {id} not found",
         "instance": "/api/bank_accounts/{id}",
+        "params": {
+          "type": "Wallet.BankAccount"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -253,6 +259,9 @@
         "code": "problem.not-found",
         "detail": "BankAccount {id} not found",
         "instance": "/api/bank_accounts/{id}/update",
+        "params": {
+          "type": "Wallet.BankAccount"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

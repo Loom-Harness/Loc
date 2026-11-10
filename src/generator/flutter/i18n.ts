@@ -55,6 +55,7 @@ import {
 import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { ordinalTable } from "../_i18n/ordinal-rules.js";
+import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
 
 /** A Dart single-quoted string literal.  Escapes the backslash, the quote and
  *  `$` (Dart interpolates `$name` / `${…}` inside a plain string), plus real
@@ -153,7 +154,12 @@ export function renderFlutterI18nModule(
    *  chrome joins the runtime catalog. */
   authGate = false,
 ): string {
-  const scope = { contexts, sentences: [], implicitModelText: true, authGate };
+  const scope = {
+    contexts,
+    sentences: HAND_BUILT_FORM_SENTENCES.rowsAndGuards,
+    implicitModelText: true,
+    authGate,
+  };
   const catalog = buildUiCatalog(ui, {}, scope);
   // Each translated catalog is SCOPED to this ui's keys, exactly as the source
   // catalog is, and returned as one JSON document per locale tag.
@@ -285,6 +291,10 @@ export function renderFlutterI18nModule(
     "/// source-language default, then ICU-format its placeholders from [values].",
     "String t(String key, String defaultMessage, [Map<String, Object>? values]) =>",
     "    _format(_catalogs[locale]?[key] ?? defaultMessage, values);",
+    "",
+    "/// Whether the ACTIVE locale's catalog carries a message for [key] — what an",
+    "/// optional key (a per-aggregate problem sentence) is probed with.",
+    "bool hasMessage(String key) => _catalogs[locale]?[key] != null;",
     "",
     "/// Translate a RICH-TEXT message — one sentence whose emphasis is carried as",
     "/// `<b>` / `<i>` / `<code>` tags, so a locale can reorder the parts — into a",

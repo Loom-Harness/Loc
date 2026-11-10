@@ -15,12 +15,13 @@
 //  1. DECLARED — the `migration "<name>" { … }` blocks the schema-evolution
 //     layer already owns: `Order -> PurchaseOrder` (aggregate rename),
 //     `Sales.Order -> Billing.Order` (cross-context move) and
-//     `Order.qty -> quantity` (field rename).  Same source of truth as
+//     `Order.qty -> quantity` (field rename) and `Status.Draft -> Pending`
+//     (enum value rename).  Same source of truth as
 //     `ddd migrate`; no i18n-specific syntax.  A migration block is a
 //     permanent ledger, so a step whose old key is not in BASE (already
 //     carried) or whose new key is not in THEIRS is inert.
-//  2. INFERRED — for what a migration block cannot name (operations, enum
-//     values, rules, error messages, anything without a block): a 1:1 pairing.
+//  2. INFERRED — for what no migration block names (operations, enum values, rules,
+//     error messages, anything without a block): a 1:1 pairing.
 //     Exactly one key vanished and exactly one appeared with the same shape
 //     AND the same source text.  Anything ambiguous is left alone, so the
 //     translation is dropped exactly as before rather than guessed.
@@ -28,7 +29,7 @@
 // Pure: no fs, no parse.
 // ---------------------------------------------------------------------------
 
-import { isModelTextKey } from "../util/model-text-key.js";
+import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
 import { type Catalog, fileKeyOf, namespaceOf, runtimeKeyOf } from "./namespace.js";
 
 /** The rename facts the schema-evolution layer declares, as plain names. */
@@ -37,6 +38,9 @@ export interface DeclaredRenames {
   columns: readonly { context: string; aggregate: string; from: string; to: string }[];
   /** `Old -> New` / `A.Old -> B.New` steps. */
   tables: readonly { from: string; to: string; fromContext?: string; toContext?: string }[];
+  /** `Enum.Old -> New` steps; `context` is the enum's declaring context,
+   *  absent for a root-level enum (its keys file under `_system`). */
+  enumValues?: readonly { context?: string; enum: string; from: string; to: string }[];
 }
 
 const NO_DECLARED_RENAMES: DeclaredRenames = { columns: [], tables: [] };
@@ -159,6 +163,12 @@ export function detectRenamesReport(
         break;
       }
     }
+    for (const v of declared.enumValues ?? []) {
+      if ((v.context ?? SYSTEM_TEXT_NS) === ctx && v.enum === type && rest === `value.${v.from}`) {
+        rest = `value.${v.to}`;
+        break;
+      }
+    }
     const to = `${ctx}.${type}.${rest}`;
     if (to !== from && appearedSet.has(to) && !takenTo.has(to)) take(from, to, "declared");
   }
@@ -221,4 +231,31 @@ export function moveKeys<T>(
     else put(key, v);
   }
   return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** The moves of the optional keys that follow a type's identity — a
+ *  per-aggregate problem sentence `<Ctx>.<Type>.problem.<class>` is never in
+ *  the source catalog, so no pairing sees it vanish or appear: it moves with
+ *  its type, which `moves` shows moving as any of its own keys (the same facet
+ *  and member under a new `<Ctx>.<Type>`).  One move per `optional` key of a
+ *  moved type, from the same key under the type's old identity. */
+export function followTypeMoves(moves: readonly KeyMove[], optional: Iterable<string>): KeyMove[] {
+  const types = new Map<string, { from: string; via: KeyMove["via"] }>();
+  for (const m of moves) {
+    const from = parse(m.from);
+    const to = parse(m.to);
+    if (!from || !to || from.rest !== to.rest) continue;
+    const fromType = `${from.ctx}.${from.type}`;
+    const toType = `${to.ctx}.${to.type}`;
+    if (fromType !== toType && !types.has(toType)) {
+      types.set(toType, { from: fromType, via: m.via });
+    }
+  }
+  const out: KeyMove[] = [];
+  for (const key of optional) {
+    const dot = key.indexOf(".", key.indexOf(".") + 1);
+    const moved = dot > 0 ? types.get(key.slice(0, dot)) : undefined;
+    if (moved) out.push({ from: `${moved.from}${key.slice(dot)}`, to: key, via: moved.via });
+  }
+  return out.sort((a, b) => a.from.localeCompare(b.from));
 }

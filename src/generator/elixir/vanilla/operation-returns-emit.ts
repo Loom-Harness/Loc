@@ -939,7 +939,7 @@ export function renderReturningOpFunction(
     // return type has no discriminator to carry.
     const aggTag =
       op.returnType?.kind === "union"
-        ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name }))}, `
+        ? `type: ${JSON.stringify(variantTag(op.returnType.variants.find((v) => v.kind === "entity" && v.name === agg.name) ?? { kind: "entity", name: agg.name, declKind: "aggregate" }))}, `
         : "";
     // The map key is the field's WIRE name: the struct field is snake-cased
     // (`unit_price`, `row_version`), but every backend answers the camelCase

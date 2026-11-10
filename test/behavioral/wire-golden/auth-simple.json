@@ -85,6 +85,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -276,6 +279,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -290,6 +296,9 @@
         "code": "problem.not-found",
         "detail": "Ticket {id} not found",
         "instance": "/api/tickets/{id}/close",
+        "params": {
+          "type": "Tickets.Ticket"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"
@@ -318,6 +327,9 @@
         "code": "problem.not-found",
         "detail": "Memo {id} not found",
         "instance": "/api/memos/{id}/update",
+        "params": {
+          "type": "Tickets.Memo"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

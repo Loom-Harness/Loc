@@ -64,7 +64,7 @@ describe("registry self-scope filter (enrichment derivation)", () => {
         kind: "member",
         receiver: { kind: "this" },
         member: "id",
-        receiverType: { kind: "entity", name: "Organization" },
+        receiverType: { kind: "entity", name: "Organization", declKind: "aggregate" },
         memberType: { kind: "id", targetName: "Organization" },
       },
       right: {

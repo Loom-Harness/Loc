@@ -70,7 +70,7 @@ export function buildRegistrySelfScopeFilter(
   const idType: TypeIR = { kind: "id", targetName: registry.name };
   // Mirrors `USER_SHAPE_NAME` in `src/ir/lower/lower-types.ts` (the
   // synthetic principal entity every lowered `currentUser` ref carries).
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
+  const userShape: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
   return {
     kind: "binary",
     op: "==",
@@ -78,7 +78,7 @@ export function buildRegistrySelfScopeFilter(
       kind: "member",
       receiver: { kind: "this" },
       member: "id",
-      receiverType: { kind: "entity", name: registry.name },
+      receiverType: { kind: "entity", name: registry.name, declKind: "aggregate" },
       memberType: idType,
     },
     right: {
@@ -206,7 +206,7 @@ export const TENANT_OWNED_TENANT_ID_FIELD = "tenantId";
  *  consumers that need the floor as a standalone predicate; every backend
  *  already renders this shape. */
 export function buildTenantFloorFilter(agg: Pick<AggregateIR, "name">): ExprIR {
-  const userShape: TypeIR = { kind: "entity", name: "__User__" };
+  const userShape: TypeIR = { kind: "entity", name: "__User__", declKind: "principal" };
   const stringType: TypeIR = { kind: "primitive", name: "string" };
   return {
     kind: "binary",
@@ -215,7 +215,7 @@ export function buildTenantFloorFilter(agg: Pick<AggregateIR, "name">): ExprIR {
       kind: "member",
       receiver: { kind: "this" },
       member: TENANT_OWNED_TENANT_ID_FIELD,
-      receiverType: { kind: "entity", name: agg.name },
+      receiverType: { kind: "entity", name: agg.name, declKind: "aggregate" },
       memberType: stringType,
     },
     right: {

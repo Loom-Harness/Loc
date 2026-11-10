@@ -163,6 +163,9 @@
         "code": "problem.not-found",
         "detail": "Invoice {id} not found",
         "instance": "/api/invoices/{id}",
+        "params": {
+          "type": "Ledger.Invoice"
+        },
         "status": 404,
         "title": "Not Found",
         "type": "about:blank"

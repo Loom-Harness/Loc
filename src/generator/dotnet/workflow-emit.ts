@@ -222,7 +222,7 @@ export function emitWorkflows(
     sourcemap?.file(requestPath, finalizeCsUnit(requestContent), wf.origin, construct);
     // An expected-failure result's wire union (`Application.EntryResults`).
     const routed = commandCreateResult(wf);
-    if (routed?.type.kind === "union" && commandCreateEntryResult(wf, ctx)) {
+    if (routed?.type.kind === "union" && commandCreateEntryResult(wf)) {
       const f = renderEntryUnionFile(routed.type, ctx, ns);
       if (!out.has(f.path)) out.set(f.path, f.content);
     }
@@ -1414,7 +1414,7 @@ function renderHandler(
   const resultCs = result ? workflowResultCs(wf, result.type, ns) : "Unit";
   // An expected-failure result (`T or E`) runs in one transaction whether or
   // not the workflow is `transactional`; an error answer rolls it back.
-  const er = commandCreateEntryResult(wf, ctx);
+  const er = commandCreateEntryResult(wf);
   // A body that re-checks a held row's write scope runs in one transaction
   // too, so a row outside the scope fails the whole command and rolls back
   // the rows it already changed.
@@ -2513,7 +2513,7 @@ function renderController(
     // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
     // own `id` field carries on the wire, not the strongly-typed id record.
     const result = commandCreateResult(wf);
-    const er = commandCreateEntryResult(wf, ctx);
+    const er = commandCreateEntryResult(wf);
     const success = result
       ? `    [ProducesResponseType(typeof(${er || isWorkflowSelfType(wf, result.type) ? workflowResultCs(wf, result.type, ns) : workflowResultWireCs(result.type)}), 200)]\n`
       : // Explicit success (NoContent → 204) so the added error

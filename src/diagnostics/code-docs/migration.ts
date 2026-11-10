@@ -39,4 +39,7 @@ export const anchors: Readonly<Record<string, string>> = {
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
   "loom.migration-enum-narrowed":
     "../migrations.md#an-enum-that-loses-a-member--loommigration-enum-narrowed",
+  "loom.migration-enum-value-form": "../migrations.md#enum-value-renames--enumold---new",
+  "loom.migration-enum-value-unknown": "../migrations.md#enum-value-renames--enumold---new",
+  "loom.migration-enum-value-unmigrated": "../migrations.md#enum-value-renames--enumold---new",
 };
