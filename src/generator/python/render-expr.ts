@@ -1,6 +1,7 @@
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
+import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
@@ -26,7 +27,6 @@ import {
   type RefExpr,
   renderExprWith,
 } from "../_expr/target.js";
-import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";

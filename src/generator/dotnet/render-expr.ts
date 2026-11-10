@@ -1,6 +1,6 @@
-import { existsReadsIn } from "../../ir/util/in-app-exists.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { existsReadsIn } from "../../ir/util/in-app-exists.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { walkExprDeep } from "../../ir/util/walk.js";

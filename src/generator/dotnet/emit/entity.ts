@@ -1,4 +1,3 @@
-import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
@@ -22,6 +21,7 @@ import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
+import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import {
   createBodyParams,
   createBodyStatements,

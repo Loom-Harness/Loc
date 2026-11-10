@@ -526,7 +526,9 @@ export function emitOperationCommandAndHandler(
     );
     const callArgs = (usesUser ? [...baseCallArgs, "_currentUser.User"] : baseCallArgs).join(", ");
     const userExtraDeps = [
-      ...(usesUser || gateUsesUser ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }] : []),
+      ...(usesUser || gateUsesUser
+        ? [{ type: "ICurrentUserAccessor", field: "_currentUser" }]
+        : []),
       // The repositories an in-app `exists` in the gates reads through.
       ...csExistsReadDeps([op.when, ...operationGates(op).map((g) => g.expr)]),
     ];

@@ -1,4 +1,3 @@
-import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
 import {
@@ -26,6 +25,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { readsRepository } from "../../../ir/util/in-app-exists.js";
 import {
   createBodyParams,
   createBodyStatements,
