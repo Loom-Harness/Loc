@@ -1,0 +1,93 @@
+// LiveView control flow over the shared walker core.
+//
+// A hand-written page whose body reaches every control-flow shape the HEEx
+// target renders through the shared seams, so `mix compile --warnings-as-errors`
+// covers them:
+//   - a `match` whose markup arms gate distinct parameterised loads — each
+//     load runs in `handle_params` only under its own arm's condition;
+//   - a multi-word `state` field bound to a `Field` and passed into a read;
+//   - a `match` with no `else` (the `cond` needs a fallback clause), and one
+//     that mixes a markup arm with a term arm;
+//   - a ternary with markup branches (the `if` block form — the expression form
+//     `if c, do: <markup>` is not valid HEEx);
+//   - a `For` with an `empty:` arm, and a nested `For`.
+
+system ControlFlow {
+  subdomain Shop {
+    context Shop with scaffoldPaged(of: OrdersByCode) {
+      enum Stage { Draft, Placed }
+
+      aggregate Order with crudish {
+        code: string
+        stage: Stage
+        derived display: string = code
+      }
+
+      repository Orders for Order { }
+
+      criterion OrdersByCode(c: string) of Order = this.code == c
+    }
+  }
+
+  api ShopApi with scaffoldPagedApi(of: OrdersByCode) from Shop
+
+  storage primary { type: postgres }
+  resource shopState { for: Shop, kind: state, use: primary, index: [Order.code] }
+
+  ui Web {
+    api S: ShopApi
+
+    page Filters {
+      route: "/filters"
+      title: "Filters"
+      state {
+        orderCode: string = ""
+        tags: string[] = [ ]
+      }
+      body: Stack {
+        Field { "Code", bind: orderCode },
+        match {
+          orderCode != "" => QueryView {
+            of: S.Order.findAllByOrdersByCode(orderCode),
+            data: found => For {
+              each: found,
+              empty: Empty { "No order with that code." },
+              o => Card {
+                Text { o.code },
+                EnumBadge { o.stage }
+              }
+            }
+          }
+          else => QueryView {
+            of: S.Order.all,
+            data: rows => Table { rows: rows, Column { "Code", o => Text { o.code } } }
+          }
+        },
+        match {
+          orderCode == "x" => Alert { "Exactly x" }
+        },
+        match {
+          orderCode == "" => Text { "Type a code" }
+          else => "Filtering"
+        },
+        orderCode == "" ? Badge { "no code" } : Text { orderCode },
+        For {
+          each: tags,
+          t => Stack {
+            Badge { t },
+            For { each: tags, u => Text { u } }
+          }
+        }
+      }
+    }
+  }
+
+  deployable shopApp {
+    platform: elixir
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    ui: Web { S: shopApp }
+    port: 4000
+  }
+}

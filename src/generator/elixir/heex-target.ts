@@ -14,19 +14,24 @@
 
 import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
+import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
 import { HEEX_SHARED_PRIMITIVES } from "./heex-pack.js";
-import { heexEnumBadgeText } from "./heex-primitives.js";
+import { heexEnumBadgeText, withRowType } from "./heex-primitives.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
   type WalkContext as HeexWalkContext,
+  type HeexWalkSink,
   heexContextOf,
+  matchArmContext,
+  matchRendersMarkup,
   renderChild,
   renderExpr,
   renderInTemplate,
+  ternaryRendersMarkup,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
@@ -69,8 +74,30 @@ export const heexTarget: WalkerTarget = {
       }
       return undefined;
     }
+    // A `match` whose arms are markup is control flow the shared core renders
+    // (`renderMatchChild`); one whose arms are terms is an Elixir value.
+    if (expr.kind === "match" && matchRendersMarkup(expr, engineContext(heex, ctx))) {
+      return undefined;
+    }
+    // Likewise a ternary with a markup branch (`renderConditionalChild`).
+    if (expr.kind === "ternary" && ternaryRendersMarkup(expr, engineContext(heex, ctx))) {
+      return undefined;
+    }
     const engine = engineContext(heex, ctx);
     return depth === 0 ? renderExpr(expr, engine) : indentTail(renderChild(expr, engine), depth);
+  },
+
+  /** A `For` item and a block `match` arm render under their own HEEx walk
+   *  context: the item's row aggregate, the arm's load gate. */
+  scopeSink(sink, scope): HeexWalkSink | undefined {
+    const heex = heexContextOf(sink);
+    if (!heex) return undefined;
+    return {
+      heex:
+        scope.kind === "row"
+          ? withRowType(heex, scope.collection, scope.param)
+          : matchArmContext(scope.match, scope.index, heex),
+    };
   },
 
   /** Every expression a shared emitter renders goes through the HEEx engine,
@@ -195,14 +222,25 @@ export const heexTarget: WalkerTarget = {
     return `cond do\n${armLines}${fallback}\n    end`;
   },
 
-  /** Unreachable in practice (the parallel heex-walker owns match
-   *  rendering); passthrough for contract completeness. */
+  /** A `match` whose arms are markup: the `cond` BLOCK form, each arm's
+   *  markup under its `<% p -> %>` clause.  `cond` raises `CondClauseError`
+   *  when no arm matches, so a match without an authored `else` renders
+   *  nothing (`<%= nil %>`) rather than crashing at request time. */
   renderMatchChild(
     arms: ReadonlyArray<{ predicate: string; value: string }>,
     elseArm: string | undefined,
-    _depth: number,
+    depth: number,
   ): string {
-    return heexTarget.renderMatch(arms, elseArm);
+    const lines = ["<%= cond do %>"];
+    for (const a of arms) {
+      lines.push(`  <% ${a.predicate} -> %>`, `    ${dedentTail(a.value, depth + 1)}`);
+    }
+    lines.push(
+      "  <% true -> %>",
+      elseArm !== undefined ? `    ${dedentTail(elseArm, depth + 1)}` : "    <%= nil %>",
+      "<% end %>",
+    );
+    return indentTail(lines.join("\n"), depth);
   },
 
   // --- Navigation seam ----------------------------------------------------
@@ -239,9 +277,8 @@ export const heexTarget: WalkerTarget = {
   // --- Markup seams ---------------------------------------------------------
   //
   // The shared emitters of the ported primitives (`HEEX_SHARED_PRIMITIVES`)
-  // render through these.  `renderConditionalChild` and the `For` / picker
-  // seams stay unreachable while the HEEx engine renders those nodes, and
-  // throw, mirroring `bindDataAccess`.
+  // render through these.  The picker seam stays unreachable while the HEEx
+  // engine renders `LocaleSwitcher`, and throws.
 
   /** HEEx template comment. */
   renderComment(text: string): string {
@@ -258,12 +295,18 @@ export const heexTarget: WalkerTarget = {
     return ` ${name}={${jsExpr}}`;
   },
 
-  /** Unreachable for HEEx — the parallel heex-walker renders
-   *  conditional children through its own position-aware path. */
-  renderConditionalChild(): never {
-    throw new Error(
-      "heexTarget.renderConditionalChild: the HEEx walker renders conditionals inline; this should never be called.",
-    );
+  /** A ternary whose branches are markup: the `if` BLOCK form, `<%= if c do
+   *  %> … <% else %> … <% end %>`.  The expression form `if c, do: a, else: b`
+   *  takes Elixir terms, and markup there is not valid HEEx. */
+  renderConditionalChild(cond: string, thenS: string, elseS: string, depth: number): string {
+    const fragment = [
+      `<%= if ${cond} do %>`,
+      indentLines(dedentTail(thenS, depth + 1), 1),
+      "<% else %>",
+      indentLines(dedentTail(elseS, depth + 1), 1),
+      "<% end %>",
+    ].join("\n");
+    return indentTail(fragment, depth);
   },
 
   /** Unreachable for HEEx — the parallel heex-walker renders the picker
@@ -274,13 +317,35 @@ export const heexTarget: WalkerTarget = {
     );
   },
 
-  /** Unreachable for HEEx — the parallel heex-walker renders the
-   *  `For` comprehension through `heex-primitives.ts:renderFor` (a
-   *  `for … do … end` block), not this seam. */
-  renderForEach(): never {
-    throw new Error(
-      "heexTarget.renderForEach: the HEEx walker renders For via renderFor; this should never be called.",
-    );
+  /** `For` → LiveView's for-comprehension block, `<%= for x <- coll do %> …
+   *  <% end %>`.  No keyed wrapper: LiveView tracks a comprehension's items
+   *  itself.  `for` has no else clause, so an `empty:` arm wraps the loop in
+   *  an `Enum.empty?/1` guard, reading the collection twice. */
+  renderForEach(
+    coll: string,
+    itemVar: string,
+    _indexVar: string,
+    _keyExpr: string,
+    body: string,
+    depth: number,
+    emptyBody?: string,
+  ): string {
+    const loop = [
+      `<%= for ${snake(itemVar)} <- ${coll} do %>`,
+      indentLines(dedentTail(body, depth + 1), 1),
+      "<% end %>",
+    ].join("\n");
+    const fragment =
+      emptyBody === undefined
+        ? loop
+        : [
+            `<%= if Enum.empty?(${coll}) do %>`,
+            indentLines(dedentTail(emptyBody, depth + 1), 1),
+            "<% else %>",
+            indentLines(loop, 1),
+            "<% end %>",
+          ].join("\n");
+    return indentTail(fragment, depth);
   },
 
   /** Flat quoted CSS string — the HEEx spelling of the `style: {…}`
@@ -390,6 +455,26 @@ function indentTail(fragment: string, depth: number): string {
   return fragment
     .split("\n")
     .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
+    .join("\n");
+}
+
+/** The inverse of `indentTail`: strip `depth` levels from every line after
+ *  the first — a child the shared core walked at `depth`, back to the
+ *  first-column-relative form a HEEx block nests. */
+function dedentTail(fragment: string, depth: number): string {
+  const pad = "  ".repeat(depth);
+  return fragment
+    .split("\n")
+    .map((line, i) => (i > 0 && line.startsWith(pad) ? line.slice(pad.length) : line))
+    .join("\n");
+}
+
+/** Indent every non-empty line by `depth` levels. */
+function indentLines(fragment: string, depth: number): string {
+  const pad = "  ".repeat(depth);
+  return fragment
+    .split("\n")
+    .map((line) => (line.length > 0 ? pad + line : line))
     .join("\n");
 }
 

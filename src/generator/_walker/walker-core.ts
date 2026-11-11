@@ -99,7 +99,7 @@ import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
-import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget } from "./target.js";
+import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget, WalkScope } from "./target.js";
 
 export {
   type ActionMutationState,
@@ -1136,11 +1136,17 @@ export function walk(
       // value-expression shape comes from the target seam
       // (renderMatch).  Interpolation-wrap in child position,
       // exactly as the ternary arm below.
-      const arms = expr.arms.map((arm) => ({
+      const armValue = (value: ExprIR, index: number): string => {
+        const armCtx = enterScope(ctx, { kind: "match-arm", match: expr, index });
+        const rendered = walk(value, armCtx, depth + 1, "value");
+        if (armCtx !== ctx) propagateChildFlags(ctx, armCtx);
+        return rendered;
+      };
+      const arms = expr.arms.map((arm, i) => ({
         predicate: emitExpr(arm.cond, ctx),
-        value: walk(arm.value, ctx, depth + 1, "value"),
+        value: armValue(arm.value, i),
       }));
-      const elseArm = expr.otherwise ? walk(expr.otherwise, ctx, depth + 1, "value") : undefined;
+      const elseArm = expr.otherwise ? armValue(expr.otherwise, expr.arms.length) : undefined;
       return ctx.target.renderMatchChild(arms, elseArm, depth);
     }
     case "ternary": {
@@ -1280,6 +1286,15 @@ function emitComponent(
  *  would set `usesRouterLink: true` on the throwaway child ctx
  *  while the page shell still sees `false` on the parent and
  *  forgets to import `Link`. */
+/** `ctx` for a child scope: the same context under the sink the target derives
+ *  for that scope (`WalkerTarget.scopeSink`), or `ctx` itself when the target
+ *  keeps no per-scope state.  A derived context is a copy, so its caller
+ *  propagates the child flags back (`propagateChildFlags`). */
+export function enterScope(ctx: WalkContext, scope: WalkScope): WalkContext {
+  const sink = ctx.target.scopeSink?.(ctx.sink, scope);
+  return sink === undefined ? ctx : { ...ctx, sink };
+}
+
 export function propagateChildFlags(parent: WalkContext, child: WalkContext): void {
   if (child.usesNavigate) parent.usesNavigate = true;
   if (child.usesRouterLink) parent.usesRouterLink = true;

@@ -671,56 +671,6 @@ function htmlInputTypeForIRType(t: TypeIR): string {
   }
 }
 
-/** `For { each: <coll>, empty?: <markup>, <item> => <markup> }` →
- *  `<%= for <item> <- <coll> do %> … <% end %>` — LiveView's
- *  for-comprehension block.  No keyed wrapper: the `key:` arg is a
- *  client-framework reconciliation hint (React/Vue/Svelte) with no
- *  HEEx analogue, so it's accepted-and-ignored here.  The loop
- *  variable is a plain local (bare `snake(name)`), so item refs in the
- *  body resolve through `renderRef`'s unknown-refKind fall-through —
- *  same mechanism the Table `<:col :let={row}>` slot relies on.
- *
- *  An `empty:` arm wraps the comprehension in an `Enum.empty?/1` guard
- *  (`for` has no native else clause).  The collection is read twice —
- *  fine for the page DSL's simple `each:` refs / assigns. */
-export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let coll: ExprIR | undefined;
-  let itemLam: Extract<ExprIR, { kind: "lambda" }> | undefined;
-  let emptyExpr: ExprIR | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (arg.kind === "lambda") {
-      // First positional (or `render:`) lambda is the item renderer;
-      // a `key:` lambda has no HEEx analogue and is skipped.
-      if (name === undefined || name === "render") itemLam ??= arg;
-      continue;
-    }
-    if (name === "each") coll = arg;
-    else if (name === "empty") emptyExpr = arg;
-    else if (name === undefined) coll ??= arg;
-  }
-  if (!coll) {
-    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing 'each:' collection expression")} --%>`;
-  }
-  if (!itemLam?.body) {
-    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing item lambda")} --%>`;
-  }
-  const itemVar = snake(itemLam.param);
-  const collHeex = renderExpr(coll, { ...ctx, position: "template" });
-  const body = renderChild(itemLam.body, withRowType(ctx, coll, itemLam.param));
-  const loop = [`<%= for ${itemVar} <- ${collHeex} do %>`, indent(body, 2), `<% end %>`].join("\n");
-  if (!emptyExpr) return loop;
-  const emptyBody = renderChild(emptyExpr, ctx);
-  return [
-    `<%= if Enum.empty?(${collHeex}) do %>`,
-    indent(emptyBody, 2),
-    `<% else %>`,
-    indent(loop, 2),
-    `<% end %>`,
-  ].join("\n");
-}
-
 /** The aggregate a `Table` `rows:` / `For` `each:` collection's rows are: a
  *  list QueryView's data param (`rows`), or its server-paged envelope's
  *  `rows.items`. */
@@ -733,7 +683,11 @@ function collectionRowType(coll: ExprIR | undefined, ctx: WalkContext): string |
 }
 
 /** `ctx` with a row lambda's param typed as the collection's row aggregate. */
-function withRowType(ctx: WalkContext, coll: ExprIR | undefined, param: string): WalkContext {
+export function withRowType(
+  ctx: WalkContext,
+  coll: ExprIR | undefined,
+  param: string,
+): WalkContext {
   const agg = collectionRowType(coll, ctx);
   return agg ? { ...ctx, rowTypes: new Map([...(ctx.rowTypes ?? []), [param, agg]]) } : ctx;
 }

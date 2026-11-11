@@ -62,7 +62,6 @@ import {
   renderField as renderFieldHeex,
   renderFileLink as renderFileLinkHeex,
   renderFileUpload as renderFileUploadHeex,
-  renderFor as renderForHeex,
   renderForm as renderFormHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
@@ -718,7 +717,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFor,
-    heex: renderForHeex,
     a11y: "presentational",
   },
   // --- Sub-element primitives (always nested inside a parent) ----------

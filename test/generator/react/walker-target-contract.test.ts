@@ -266,7 +266,7 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(heex).toContain("true -> ");
   });
 
-  it("renderForEach diverges: TSX keyed `.map` Fragment, HEEx throws (own engine)", () => {
+  it("renderForEach diverges: TSX keyed `.map` Fragment, HEEx `for` comprehension", () => {
     // depth 0 → no brace wrap; default key references the synthesised
     // index var, so the loop binds `(o, oIdx)`.
     const tsx = tsxTarget.renderForEach("orders", "o", "oIdx", "oIdx", "<Card />", 0);
@@ -274,8 +274,9 @@ describe("WalkerTarget — TSX and HEEx diverge per seam (anti-collapse)", () =>
     expect(tsx).toContain("<Fragment key={oIdx}>");
     expect(tsx).toContain("<Card />");
     expect(tsx).not.toMatch(/^\{/); // depth 0 — no JSX-child brace wrap
-    // HEEx renders For through its own `renderFor` block, not this seam.
-    expect(() => heexTarget.renderForEach("", "", "", "", "", 0)).toThrow(/renderFor/);
+    // HEEx: LiveView's for-comprehension block, no keyed wrapper.
+    const heex = heexTarget.renderForEach("@orders", "o", "oIdx", "oIdx", "<.card />", 0);
+    expect(heex).toBe("<%= for o <- @orders do %>\n  <.card />\n<% end %>");
   });
 
   it("renderForEach: nested depth returns a self-contained `<>{…}</>` (child AND expression position)", () => {

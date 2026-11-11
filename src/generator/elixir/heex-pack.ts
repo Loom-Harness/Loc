@@ -47,6 +47,7 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Money",
   "DateDisplay",
   "Alert",
+  "For",
 ]);
 
 type VM = Record<string, unknown>;
