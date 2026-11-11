@@ -210,4 +210,50 @@ describe("HEEx `match await` — subject shapes", () => {
       `),
     ).rejects.toThrow(/variant `match` statement on page 'Detail'/);
   });
+
+  // Emitted text because the booted LiveView tiers drive scaffolded pages
+  // only, so no `test e2e` block reaches a hand-written page action;
+  // `vanilla-match-await.ddd` carries the same shape through `mix compile`.
+  it("a PAYLOAD success arm matches the tagged `{:ok, …}` result, not an error tuple", async () => {
+    const files = await generateSystemFiles(`
+      system Demo {
+        subdomain S { context C {
+          error Failed { reason: string }
+          payload Ok { code: string }
+          aggregate Order { code: string
+            operation go(): Ok or Failed { return Ok { code: code } }
+          }
+        } }
+        api CApi from S
+        ui Web {
+          api C: CApi
+          page Detail {
+            route: "/orders/:id"
+            state { message: string = "" }
+            action submit() {
+              match await C.Order.go() {
+                Ok o     => { message := o.code }
+                Failed f => { message := f.reason }
+              }
+            }
+            body: Stack { Button { "Go", onClick: submit } }
+          }
+        }
+        storage primary { type: postgres }
+        resource cState { for: C, kind: state, use: primary }
+        deployable phoenixApp {
+          platform: elixir
+          contexts: [C]
+          dataSources: [cState]
+          serves: CApi
+          ui: Web { C: phoenixApp }
+          port: 4000
+        }
+      }
+    `);
+    const src = files.get("phoenix_app/lib/phoenix_app_web/live/detail_live.ex") ?? "";
+    const op = src.slice(src.indexOf("case apply("));
+    const clauses = [...op.matchAll(/^ {12}(\{:\w+[^\n]*|_) ->$/gm)].map((m) => m[1]);
+    expect(clauses).toEqual(['{:ok, %{type: "Ok"} = o}', '{:error, "Failed", f}', "_"]);
+  });
 });

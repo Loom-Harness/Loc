@@ -62,7 +62,6 @@ import {
   renderField as renderFieldHeex,
   renderFileLink as renderFileLinkHeex,
   renderFileUpload as renderFileUploadHeex,
-  renderFor as renderForHeex,
   renderForm as renderFormHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
@@ -73,7 +72,6 @@ import {
   renderPaper as renderPaperHeex,
   renderPasswordField as renderPasswordFieldHeex,
   renderProvenanceInfo as renderProvenanceInfoHeex,
-  renderQueryView as renderQueryViewHeex,
   renderSection as renderSectionHeex,
   renderSelectField as renderSelectFieldHeex,
   renderSkeleton as renderSkeletonHeex,
@@ -634,7 +632,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     admissibleInSource: true,
     readsOf: true,
     tsx: emitQueryView,
-    heex: renderQueryViewHeex,
     a11y: "presentational",
   },
   // A dialog — role, aria-modal, named, focus trap + restore on close.
@@ -718,7 +715,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFor,
-    heex: renderForHeex,
     a11y: "presentational",
   },
   // --- Sub-element primitives (always nested inside a parent) ----------

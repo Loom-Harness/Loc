@@ -2450,8 +2450,9 @@ already renders.
    reference a row the caller cannot read: its id is returned, and a dereferenced
    read of the target yields nothing, like any read of an invisible row.
 
-5. **`shareable` is a capability that unfolds to plain Loom.** `with shareable`
-   on aggregate `X` expands to an ordinary share aggregate (`XShare`), two policy
+5. **`shareable` is a capability marker whose declarations the macro layer
+   unfolds to plain Loom.** The prelude declares it member-less; `with shareable`
+   on aggregate `X` expands (`src/macros/stdlib/shareable/`) to an ordinary share aggregate (`XShare`), two policy
    functions (`GranteeIsMe`, `SharedWithMe`) and two rules (grantees read the
    shares addressed to them; `X` is readable where `SharedWithMe`) — `unfold` ejects editable source; nothing is hidden machinery.
    - Grantee is a **kind**, not an include-below flag, so every kind carries
@@ -2623,7 +2624,8 @@ rules: it under-shows a grantee's rows and never leaks one.
 **Affects.** `docs/auth.md` (policy block, named policy functions, read gates),
 `docs/tenancy.md` (the ladder) — each rewritten by the slice that lands the
 behaviour; `src/language/ddd.langium` (policy rules, `exists`);
-`src/macros/prelude.ts` (`shareable`); the read-scope enrichment and the five
+`src/macros/prelude.ts` (the `shareable` marker) and
+`src/macros/stdlib/shareable/` (what it unfolds to); the read-scope enrichment and the five
 backends' scope renderers; the walker (Share primitive) and every design pack.
 
 ---
