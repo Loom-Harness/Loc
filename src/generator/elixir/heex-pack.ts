@@ -56,6 +56,7 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "MultilineField",
   "SelectField",
   "Toggle",
+  "LocaleSwitcher",
 ]);
 
 type VM = Record<string, unknown>;

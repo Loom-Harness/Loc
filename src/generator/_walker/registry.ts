@@ -63,7 +63,6 @@ import {
   renderForm as renderFormHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
-  renderLocaleSwitcher as renderLocaleSwitcherHeex,
   renderModal as renderModalHeex,
   renderPaper as renderPaperHeex,
   renderProvenanceInfo as renderProvenanceInfoHeex,
@@ -394,7 +393,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitLocaleSwitcher,
-    heex: renderLocaleSwitcherHeex,
     // A native `<select>` (its built-in role needs no `role=`) that must carry a
     // discernible name: every target labels it with the active locale (`aria-label`).
     a11y: { needsName: true },

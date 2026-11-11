@@ -70,7 +70,6 @@ import {
   type WalkContext,
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
-import { renderLocaleSelect } from "./locale.js";
 import { updateSeamGates } from "./vanilla/gate.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
@@ -1717,19 +1716,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
 // `renderPrimitive` helper to a specific `closedPrimitive` spec so
 // the typed dispatch table can reference one named function per
 // primitive (rather than re-dispatching by name inside the renderer).
-
-/** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under its
- *  own generate-time name (`Deutsch`, `Français`).  Choosing one writes the
- *  `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs the
- *  server-side negotiation reads first (the URL, then the cookie).  The locale
- *  list is threaded into the walk context at generate time. */
-export function renderLocaleSwitcher(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx) || ' data-testid="locale-switcher"';
-  return renderLocaleSelect(ctx.appModule, ctx.locales ?? [], testidAttr);
-}
 
 /** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
  *  user `component` body.  Flags `ctx.slotUsed` so the component emitter

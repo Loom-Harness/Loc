@@ -680,7 +680,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/elixir/heex-target.ts#renderLocaleSwitcher": {
     invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker renders LocaleSwitcher through heex-primitives.ts:renderLocaleSwitcher and never calls this seam, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked))",
+      "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink, and LocaleSwitcher is a call node; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
   },
   "src/generator/elixir/heex-target.ts#renderNestedStateWrite": {
     invariant:

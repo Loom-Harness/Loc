@@ -24,6 +24,7 @@ import {
   bindStateInput,
   heexEnumBadgeText,
   queryViewDataContext,
+  testIdAttr,
   withRowType,
 } from "./heex-primitives.js";
 import {
@@ -41,6 +42,7 @@ import {
   storeActionEvent,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
+import { renderLocaleSelect } from "./locale.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
 
 export const heexTarget: WalkerTarget = {
@@ -316,8 +318,7 @@ export const heexTarget: WalkerTarget = {
   // --- Markup seams ---------------------------------------------------------
   //
   // The shared emitters of the ported primitives (`HEEX_SHARED_PRIMITIVES`)
-  // render through these.  The picker seam stays unreachable while the HEEx
-  // engine renders `LocaleSwitcher`, and throws.
+  // render through these.
 
   /** HEEx template comment. */
   renderComment(text: string): string {
@@ -348,12 +349,18 @@ export const heexTarget: WalkerTarget = {
     return indentTail(fragment, depth);
   },
 
-  /** Unreachable for HEEx — the parallel heex-walker renders the picker
-   *  through `heex-primitives.ts:renderLocaleSwitcher`. */
-  renderLocaleSwitcher(): never {
-    throw new Error(
-      "heexTarget.renderLocaleSwitcher: the HEEx walker renders LocaleSwitcher via heex-primitives; this should never be called.",
-    );
+  /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under
+   *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
+   *  the `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs
+   *  the server-side negotiation reads first (the URL, then the cookie). */
+  renderLocaleSwitcher(call, ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") {
+      throw new Error("heexTarget.renderLocaleSwitcher: no HEEx walk context in the sink");
+    }
+    const engine = engineContext(heex, ctx);
+    const testid = testIdAttr(call, engine) || ' data-testid="locale-switcher"';
+    return indentTail(renderLocaleSelect(engine.appModule, engine.locales ?? [], testid), depth);
   },
 
   /** `For` → LiveView's for-comprehension block, `<%= for x <- coll do %> …
