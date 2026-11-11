@@ -53,10 +53,7 @@ import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
 // takes `(call, ctx)` and returns the HEEx fragment.
 import {
   renderChart as renderChartHeex,
-  renderCodeBlock as renderCodeBlockHeex,
   renderIdLink as renderIdLinkHeex,
-  renderSlot as renderSlotHeex,
-  renderTableColumn as renderTableColumnHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
 // Re-exported emitters from the React/TSX walker.  Each function
@@ -396,7 +393,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSlot,
-    heex: renderSlotHeex,
     a11y: "presentational",
   },
   // Heading level is derived from Section/Card nesting depth — never authored.
@@ -605,7 +601,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitCodeBlock,
-    heex: renderCodeBlockHeex,
     a11y: "presentational",
   },
   // Decorative by default (aria-hidden inside a named control); a standalone
@@ -673,7 +668,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   Column: {
     group: "sub",
     admissibleInSource: true,
-    heex: renderTableColumnHeex,
     a11y: { role: "columnheader", needsName: true },
   },
 };

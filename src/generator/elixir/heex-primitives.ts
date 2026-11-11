@@ -1593,17 +1593,6 @@ export function heexEnumBadgeText(value: ExprIR, ctx: WalkContext): string {
 // ---------------------------------------------------------------------------
 // Closed primitive library — HEEx component dispatch.
 // ---------------------------------------------------------------------------
-/** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
- *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
- *  declares the matching `slot :inner_block`. */
-export function renderSlot(_expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // An INLINED component call has no `@inner_block`: its children render here,
-  // in the caller's scope (`WalkContext.inlineSlot`).
-  if (ctx.inlineSlot) return ctx.inlineSlot();
-  ctx.slotUsed.value = true;
-  return `{render_slot(@inner_block)}`;
-}
-
 /** `DestroyForm(of: <Agg>)` → a confirm-delete `<.button>` that calls the
  *  aggregate's destroy context function (`destroy_<agg>!(id)`) and navigates
  *  to its list route.  Requires a canonical `destroy` (declare `destroy { }`
@@ -1817,46 +1806,6 @@ function _stringNamedLit(
 ): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
-}
-
-/** `CodeBlock("source", title?: "…", language?: "ts")` →
- *  `<pre class="loom-code-block"><code class="language-ts">source</code></pre>`.
- *  With an optional `title:`, wraps the `<pre>` in a `<div>` with a
- *  title bar — matches the Mantine pack's `<pre>` + title pattern.
- *  Source content is HTML-escaped to keep markup safe (the source
- *  IS user code; entities are part of valid display). */
-export function renderCodeBlock(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let source = "";
-  let title: string | undefined;
-  let language = "";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "title") {
-      // The caption is a user-visible slot (`codeBlockTitle`) — translated
-      // under i18n, the raw escaped literal otherwise.  The code SOURCE below
-      // is deliberately not one.
-      title = renderInTemplate(arg, ctx, "codeBlockTitle");
-    } else if (name === "language" && arg.kind === "literal") {
-      language = arg.value;
-    }
-  }
-  if (positional[0]?.kind === "literal") source = positional[0].value;
-  const testidAttr = testIdAttr(expr, ctx);
-  const langClass = language ? ` class="language-${language}"` : "";
-  const escaped = escapeHeexText(source);
-  if (title) {
-    return (
-      `<div class="loom-code-block"${testidAttr}>\n` +
-      `  <div class="loom-code-block-title">${title}</div>\n` +
-      `  <pre><code${langClass}>${escaped}</code></pre>\n` +
-      `</div>`
-    );
-  }
-  return `<pre class="loom-code-block"${testidAttr}><code${langClass}>${escaped}</code></pre>`;
 }
 
 // ---------------------------------------------------------------------------

@@ -146,6 +146,19 @@ export const heexTarget: WalkerTarget = {
    *  click binds nothing. */
   renderEventHandler: () => "",
 
+  /** `Slot()` in a component body: the caller's children when the component
+   *  is inlined at its call site, otherwise the function component's
+   *  `@inner_block`, which the component emitter then declares. */
+  renderChildrenSlot(ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex) {
+      throw new Error("heexTarget.renderChildrenSlot: no HEEx walk context in the sink");
+    }
+    if (heex.inlineSlot) return indentTail(heex.inlineSlot(), depth);
+    heex.slotUsed.value = true;
+    return "{render_slot(@inner_block)}";
+  },
+
   /** An absent `QueryView` branch: the pack fills in its default markup. */
   emptyChild: "",
 

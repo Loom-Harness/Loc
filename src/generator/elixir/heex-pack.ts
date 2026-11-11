@@ -76,6 +76,8 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Sticky",
   "Toolbar",
   "KeyValueRow",
+  "Slot",
+  "CodeBlock",
 ]);
 
 type VM = Record<string, unknown>;
@@ -494,6 +496,24 @@ function renderKeyValueRow(vm: VM): string {
   ].join("\n");
 }
 
+/** `CodeBlock(source, title?, language?)` → `<pre><code>` with the source
+ *  escaped as text, under a title bar when one is given.  The language class
+ *  is written only when the author named a language. */
+function renderCodeBlock(vm: VM): string {
+  const testid = str(vm.testidAttr);
+  const langClass = vm.hasLanguage ? ` class="language-${str(vm.language)}"` : "";
+  const code = `<pre><code${langClass}>${str(vm.source)}</code></pre>`;
+  if (!vm.hasTitle)
+    return `<pre class="loom-code-block"${testid}><code${langClass}>${str(vm.source)}</code></pre>`;
+  const close = str(vm.closeIndent);
+  return [
+    `<div class="loom-code-block"${testid}>`,
+    `${close}  <div class="loom-code-block-title">${str(vm.titleText)}</div>`,
+    `${close}  ${code}`,
+    `${close}</div>`,
+  ].join("\n");
+}
+
 /** `QueryView` → LiveView's loading / error / empty / data ladder over the
  *  assign its load fills in `handle_params` (`queryExpr`, bound by
  *  `heexTarget.bindQueryView`):
@@ -593,6 +613,7 @@ const RENDERERS: Record<string, Renderer> = {
       vm,
     ),
   "primitive-key-value-row": renderKeyValueRow,
+  "primitive-code-block": renderCodeBlock,
   "primitive-field": (vm) => renderInput("text", vm),
   "primitive-number-field": (vm) => renderInput("number", vm),
   "primitive-password-field": (vm) => renderInput("password", vm),

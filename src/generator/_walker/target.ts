@@ -1206,8 +1206,11 @@ export interface WalkerTarget {
   /** OPTIONAL — children-slot spelling for the `Slot()` primitive.
    *  Omitted targets fall back to the JSX `{children}` idiom (TSX,
    *  Vue's render path); Svelte 5 overrides with
-   *  `{@render children?.()}` (snippets aren't interpolatable). */
-  renderChildrenSlot?(): string;
+   *  `{@render children?.()}` (snippets aren't interpolatable).  The walk
+   *  context and depth are for a target whose slot depends on where the body
+   *  renders: HEEx inlines a component's body at its call site, where the slot
+   *  is the caller's children rather than `@inner_block`. */
+  renderChildrenSlot?(ctx: WalkContext, depth: number): string;
 
   /** OPTIONAL — separator token placed between a container's rendered
    *  children (before the `\n<indent>` the walker always inserts).
