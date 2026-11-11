@@ -129,6 +129,23 @@ export type WalkScope =
       readonly param: string;
     };
 
+/** An event handler a use site binds: an inline lambda, a named page
+ *  `action`, a store action, or a controlled input's write-back (see
+ *  {@link WalkerTarget.bindEventHandler}). */
+export type EventHandlerSource =
+  | { readonly kind: "lambda"; readonly lambda: ExprIR & { kind: "lambda" } }
+  | { readonly kind: "action"; readonly actionName: string }
+  | { readonly kind: "store-action"; readonly storeName: string; readonly actionName: string }
+  | {
+      /** A controlled input's write-back into the page-state field it binds. */
+      readonly kind: "input";
+      readonly stateName: string;
+      readonly control: InputControl;
+    };
+
+/** The control a `bind:` input renders. */
+export type InputControl = "text" | "number" | "password" | "textarea" | "select" | "checkbox";
+
 /** A `QueryView` the target binds itself (see {@link WalkerTarget.bindQueryView}). */
 export interface QueryViewSpec {
   /** The `QueryView { … }` call. */
@@ -1513,6 +1530,17 @@ export interface WalkerTarget {
    *  statement.  Distinct from `renderNavigate` (raw-route, for `then:`/Anchor)
    *  — this takes the pre-rendered arg the button already resolved. */
   renderNavigateExpr?(toArg: string): string;
+
+  /** OPTIONAL — bind an event handler whose body the target renders OUTSIDE
+   *  the view.
+   *
+   *  A hoisted handler topology keeps every handler body in one place apart
+   *  from the markup (a LiveView `handle_event/3` clause), and the use site
+   *  names it.  Such a target registers the handler here — an inline lambda's
+   *  body included, which it renders itself — and returns the value the use
+   *  site binds (an event name).  Omitted, or `undefined` returned, the core
+   *  renders the handler at the use site through `renderEventHandler`. */
+  bindEventHandler?(source: EventHandlerSource, ctx: WalkContext): string | undefined;
 
   /** OPTIONAL — declare a named `action` as a hoisted handler function at the
    *  page/component top (named-actions-and-stores.md, Proposal A Stage 1).

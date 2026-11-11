@@ -18,11 +18,14 @@ import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
+import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
   bindHeexQueryView,
+  bindStateInput,
   heexEnumBadgeText,
   queryViewDataContext,
+  testIdAttr,
   withRowType,
 } from "./heex-primitives.js";
 import {
@@ -38,6 +41,7 @@ import {
   rendersMarkupBlock,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
+import { renderLocaleSelect } from "./locale.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
 
 export const heexTarget: WalkerTarget = {
@@ -107,6 +111,31 @@ export const heexTarget: WalkerTarget = {
     const heex = heexContextOf(ctx.sink);
     return heex ? bindHeexQueryView(spec.call, engineContext(heex, ctx)) : undefined;
   },
+
+  /** A LiveView handler body lives in a `handle_event/3` clause, apart from
+   *  the markup: an inline lambda is hoisted into one, a named page action or
+   *  a store action already has its own, a bound input writes its field back
+   *  through one, and the use site names the event. */
+  bindEventHandler(source, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex) return undefined;
+    switch (source.kind) {
+      case "lambda":
+        return hoistLambdaToHandler(source.lambda, engineContext(heex, ctx));
+      case "action":
+        return snake(source.actionName);
+      case "store-action":
+        return storeActionEvent(source.storeName, source.actionName);
+      case "input":
+        return bindStateInput(source.stateName, source.control, engineContext(heex, ctx));
+    }
+  },
+
+  /** A handler the core would render at the use site.  Every LiveView
+   *  handler is bound through `bindEventHandler`, so what reaches here is a
+   *  button's `to:` navigation — which the pack renders as a link — and the
+   *  click binds nothing. */
+  renderEventHandler: () => "",
 
   /** An absent `QueryView` branch: the pack fills in its default markup. */
   emptyChild: "",
@@ -288,8 +317,7 @@ export const heexTarget: WalkerTarget = {
   // --- Markup seams ---------------------------------------------------------
   //
   // The shared emitters of the ported primitives (`HEEX_SHARED_PRIMITIVES`)
-  // render through these.  The picker seam stays unreachable while the HEEx
-  // engine renders `LocaleSwitcher`, and throws.
+  // render through these.
 
   /** HEEx template comment. */
   renderComment(text: string): string {
@@ -320,12 +348,18 @@ export const heexTarget: WalkerTarget = {
     return indentTail(fragment, depth);
   },
 
-  /** Unreachable for HEEx — the parallel heex-walker renders the picker
-   *  through `heex-primitives.ts:renderLocaleSwitcher`. */
-  renderLocaleSwitcher(): never {
-    throw new Error(
-      "heexTarget.renderLocaleSwitcher: the HEEx walker renders LocaleSwitcher via heex-primitives; this should never be called.",
-    );
+  /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under
+   *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
+   *  the `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs
+   *  the server-side negotiation reads first (the URL, then the cookie). */
+  renderLocaleSwitcher(call, ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") {
+      throw new Error("heexTarget.renderLocaleSwitcher: no HEEx walk context in the sink");
+    }
+    const engine = engineContext(heex, ctx);
+    const testid = testIdAttr(call, engine) || ' data-testid="locale-switcher"';
+    return indentTail(renderLocaleSelect(engine.appModule, engine.locales ?? [], testid), depth);
   },
 
   /** `For` → LiveView's for-comprehension block, `<%= for x <- coll do %> …

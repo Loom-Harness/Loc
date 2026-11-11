@@ -49,6 +49,14 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Alert",
   "For",
   "QueryView",
+  "Button",
+  "Field",
+  "NumberField",
+  "PasswordField",
+  "MultilineField",
+  "SelectField",
+  "Toggle",
+  "LocaleSwitcher",
 ]);
 
 type VM = Record<string, unknown>;
@@ -356,6 +364,54 @@ function escapeAttr(text: string): string {
 }
 
 /** `primitive-*` template name → its HEEx renderer. */
+/** `Button` → the design pack's `<.button>`.  A click binds the hoisted
+ *  `handle_event` the target registered (`phx-click="<event>"`); a `to:`
+ *  destination makes the pack's button a navigation link (`to=`).  `icon:`
+ *  becomes an inline, `aria-hidden` glyph in the inner block — `<.button>`
+ *  declares no icon attribute, and an undeclared attribute on a function
+ *  component fails `mix compile --warnings-as-errors` — and `loading:` becomes
+ *  `aria-busy`, a global ARIA attribute the component's `:global` rest
+ *  accepts. */
+function renderButton(vm: VM): string {
+  const attrs = [
+    str(vm.styleAttr),
+    str(vm.onClick) !== "" ? ` phx-click="${str(vm.onClick)}"` : "",
+    str(vm.toAttr),
+    vm.hasDisabled ? ` disabled={${str(vm.disabled)}}` : "",
+    vm.hasVariant ? ` variant="${str(vm.variant)}"` : "",
+    str(vm.a11yAttr),
+    str(vm.testidAttr),
+    vm.hasLoading ? ` aria-busy={${str(vm.loading)}}` : "",
+  ].join("");
+  const icon = vm.hasIcon
+    ? `<span class="loom-icon" aria-hidden="true">${str(vm.iconSvg)}</span>`
+    : undefined;
+  const label = vm.hasText ? str(vm.label) : undefined;
+  const inner = (vm.iconPosition === "left" ? [icon, label] : [label, icon]).filter(
+    (c): c is string => c !== undefined,
+  );
+  if (inner.length === 0) return `<.button${attrs} />`;
+  const indent = str(vm.indent);
+  return `<.button${attrs}>\n${inner.map((c) => indent + c).join("\n")}\n${str(vm.closeIndent)}</.button>`;
+}
+
+/** A `bind:` input → the design pack's `<.input>`, named after the state
+ *  assign it writes back and bound to the `handle_event` clause the target
+ *  hoisted for it (`update_<field>` / `toggle_<field>`).  An input with no
+ *  state field to bind renders a disabled stub. */
+function renderInput(type: string, vm: VM): string {
+  const label = str(vm.labelAttr);
+  const testid = str(vm.testidAttr);
+  if (!vm.hasOnChange) {
+    const opts = type === "select" ? " options={[]}" : "";
+    return `<.input type="${type}" name="_unbound"${label}${opts} value="" disabled${testid} />`;
+  }
+  const event = str(vm.onChange);
+  const field = event.replace(/^(update|toggle)_/, "");
+  const opts = type === "select" ? ` options={${str(vm.optionsExpr)}}` : "";
+  return `<.input type="${type}" name="${field}" value={@${field}}${opts}${label} phx-change="${event}"${testid} />`;
+}
+
 /** `QueryView` → LiveView's loading / error / empty / data ladder over the
  *  assign its load fills in `handle_params` (`queryExpr`, bound by
  *  `heexTarget.bindQueryView`):
@@ -435,6 +491,13 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-date-display": renderDateDisplay,
   "primitive-alert": renderAlert,
   "primitive-query-view": renderQueryView,
+  "primitive-button": renderButton,
+  "primitive-field": (vm) => renderInput("text", vm),
+  "primitive-number-field": (vm) => renderInput("number", vm),
+  "primitive-password-field": (vm) => renderInput("password", vm),
+  "primitive-multiline-field": (vm) => renderInput("textarea", vm),
+  "primitive-select-field": (vm) => renderInput("select", vm),
+  "primitive-toggle": (vm) => renderInput("checkbox", vm),
 };
 
 /** The pack for one HEEx walk.  `sink` is that walk's HEEx state, for the

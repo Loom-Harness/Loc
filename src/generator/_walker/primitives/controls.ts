@@ -24,6 +24,7 @@ import {
   positionalArgs,
   stringNamed,
 } from "../shared/args.js";
+import type { EventHandlerSource } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import {
   emitExpr,
@@ -31,6 +32,7 @@ import {
   enterScope,
   extendLambdaParams,
   navArgValue,
+  navAttrFragment,
   propagateChildFlags,
   recordStoreUse,
   STANDARD_AGG_OPS,
@@ -121,8 +123,26 @@ export function emitButton(
   // through the event-handler seam.
   const onClickAction = actionRefArg(call, "onClick");
   const onClick = lambdaArg(call, "onClick");
-  let onClickHandler: string | undefined;
-  if (onClickAction?.storeName) {
+  // A target whose handler bodies live outside the view binds the handler
+  // itself and hands back what the button names.
+  const source: EventHandlerSource | undefined = onClickAction?.storeName
+    ? {
+        kind: "store-action",
+        storeName: onClickAction.storeName,
+        actionName: onClickAction.actionName,
+      }
+    : onClickAction
+      ? { kind: "action", actionName: onClickAction.actionName }
+      : onClick && (onClick.block || onClick.body)
+        ? { kind: "lambda", lambda: onClick }
+        : undefined;
+  let onClickHandler = source ? ctx.target.bindEventHandler?.(source, ctx) : undefined;
+  // The destination of a navigating button, for a pack that renders one as a
+  // link rather than through a click handler.
+  const navigateTo = navArgValue(call, "to", ctx);
+  if (onClickHandler !== undefined) {
+    // Bound by the target.
+  } else if (onClickAction?.storeName) {
     // A bare STORE action as the handler (`onClick: Cart.clear`) — record the
     // store use (so the shell binds the store-action local) and reference that
     // local, exactly as a store-action call from a body does.  Without this the
@@ -147,7 +167,7 @@ export function emitButton(
     // param, or a computed one (`to: "/greet/" + who`).  Accepting only the
     // literal and param forms would leave a button that renders but navigates
     // nowhere.
-    const to = navArgValue(call, "to", ctx)?.expr;
+    const to = navigateTo?.expr;
     if (to) {
       ctx.usesNavigate = true;
       // Route through the navigate + event-handler seams so statement-binding
@@ -187,6 +207,10 @@ export function emitButton(
   }
   return renderPrimitive(ctx, "primitive-button", {
     label: localizedText(call, ctx, "button", '"Button"'),
+    toAttr: navigateTo ? navAttrFragment(navigateTo, ctx, "to") : "",
+    hasText: positionalArgs(call).length > 0,
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     onClick: onClickHandler,
     hasOnClick: onClickHandler !== undefined,
     disabled,
