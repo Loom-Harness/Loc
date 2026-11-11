@@ -59,12 +59,10 @@ import {
   indent,
   isAttrRenderable,
   localizedHeexAttr,
-  type PrimitiveSpec,
   registerBinding,
   renderChild,
   renderExpr,
   renderInTemplate,
-  renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
@@ -933,7 +931,7 @@ function stateRefArg(
  *  `<:col :let={row} label="...">...</:col>` slot.  Called only from
  *  `renderTable` — never registered as a top-level primitive because
  *  Column nodes are always children of Table in the expander output. */
-export function renderTableColumn(
+function renderTableColumn(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
   /** True when the enclosing Table carries an active `sortKey:`/`sortDir:`
@@ -1384,34 +1382,6 @@ export function bindHeexQueryView(
   return { readExpr: assignName, single: isSingle, paged: plan.isPaged };
 }
 
-/** `KeyValueRow("Label", value_expr)` → `<div class="key-value-row">` */
-export function renderKeyValueRow(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  // The row label is a user-visible slot (`keyValue`), so a plain literal rides
-  // the translation runtime under i18n and stays raw otherwise.
-  const label = positionals[0]
-    ? renderInTemplate(positionals[0], ctx, "keyValue")
-    : heexChromeText(ctx, "fieldFallback");
-  // The VALUE is authored prose too, and it rode NO role — so the row's two
-  // halves diverged: the label translated and the value shipped in English at
-  // every locale (G2667 §D9).  `keyValueValue` is the same role the JSX walker
-  // uses, so the key the extraction pass writes and the key HEEx reads are one
-  // by construction.  Non-literals are unaffected (`localizedHeex` returns
-  // undefined for them), so this is byte-identical wherever the value is an
-  // expression or a nested primitive.
-  const value = positionals[1] ? renderInTemplate(positionals[1], ctx, "keyValueValue") : "";
-  // The testid identifies the VALUE cell, not the row — the same placement the
-  // React/Vue/Svelte packs use (`<div … data-testid={testid}>{children}</div>`
-  // inside `KeyValueRow`), and what the emitted page objects assume: a detail
-  // read is `expect(detail.field("name")).toHaveText("Sprocket")`, which is an
-  // EXACT text match and would see "Name Sprocket" if the id sat on the row.
-  return `<div class="key-value-row">\n  <dt class="key-value-label">${label}</dt>\n  <dd class="key-value-value"${testidAttr}>${value}</dd>\n</div>`;
-}
-
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
  *
  *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
@@ -1621,63 +1591,6 @@ export function heexEnumBadgeText(value: ExprIR, ctx: WalkContext): string {
 // ---------------------------------------------------------------------------
 // Closed primitive library — HEEx component dispatch.
 // ---------------------------------------------------------------------------
-/** Tailwind utility classes for the `Toolbar` layout.  Flex geometry is
- *  design-neutral, so it lives here rather than in a design pack; it mirrors
- *  the shadcn `primitive-toolbar` template and the layout classes in
- *  `heex-pack.ts`. */
-const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
-
-/** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
- *  Listed inline so the small set is easy to scan.  The registered
- *  per-primitive exports (`renderToolbar`, `renderButton`, …) bind to
- *  these specs; the typed dispatch table at
- *  src/generator/_walker/registry.ts wires them up by name. */
-const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
-  // author's `label:` overrides it (and translates), which needs
-  // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
-  // while the hardcoded default stays the accessible name.
-  Toolbar: {
-    tag: "div",
-    staticAttrs: ["class"],
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
-    baseClass: TOOLBAR_CLASS,
-  },
-  // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
-  // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
-  // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
-  // and `loading:` are NOT attributes on this spec — `renderButton` turns them
-  // into an inner-block glyph and an `aria-busy` ARIA global respectively,
-  // because an undeclared attribute on a Phoenix function component is a
-  // compile WARNING, i.e. a build failure under
-  // `mix compile --warnings-as-errors`.
-  Button: {
-    tag: ".button",
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    passThroughAttrs: ["to", "disabled", "type", "variant"],
-    staticAttrs: ["variant", "type"],
-  },
-};
-
-// Per-primitive registry-facing wrappers — bind the generic
-// `renderPrimitive` helper to a specific `closedPrimitive` spec so
-// the typed dispatch table can reference one named function per
-// primitive (rather than re-dispatching by name inside the renderer).
-
-/** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
- *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
- *  declares the matching `slot :inner_block`. */
-export function renderSlot(_expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // An INLINED component call has no `@inner_block`: its children render here,
-  // in the caller's scope (`WalkContext.inlineSlot`).
-  if (ctx.inlineSlot) return ctx.inlineSlot();
-  ctx.slotUsed.value = true;
-  return `{render_slot(@inner_block)}`;
-}
-
 /** `DestroyForm(of: <Agg>)` → a confirm-delete `<.button>` that calls the
  *  aggregate's destroy context function (`destroy_<agg>!(id)`) and navigates
  *  to its list route.  Requires a canonical `destroy` (declare `destroy { }`
@@ -1891,50 +1804,6 @@ function _stringNamedLit(
 ): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
-}
-
-export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
-}
-
-/** `CodeBlock("source", title?: "…", language?: "ts")` →
- *  `<pre class="loom-code-block"><code class="language-ts">source</code></pre>`.
- *  With an optional `title:`, wraps the `<pre>` in a `<div>` with a
- *  title bar — matches the Mantine pack's `<pre>` + title pattern.
- *  Source content is HTML-escaped to keep markup safe (the source
- *  IS user code; entities are part of valid display). */
-export function renderCodeBlock(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let source = "";
-  let title: string | undefined;
-  let language = "";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "title") {
-      // The caption is a user-visible slot (`codeBlockTitle`) — translated
-      // under i18n, the raw escaped literal otherwise.  The code SOURCE below
-      // is deliberately not one.
-      title = renderInTemplate(arg, ctx, "codeBlockTitle");
-    } else if (name === "language" && arg.kind === "literal") {
-      language = arg.value;
-    }
-  }
-  if (positional[0]?.kind === "literal") source = positional[0].value;
-  const testidAttr = testIdAttr(expr, ctx);
-  const langClass = language ? ` class="language-${language}"` : "";
-  const escaped = escapeHeexText(source);
-  if (title) {
-    return (
-      `<div class="loom-code-block"${testidAttr}>\n` +
-      `  <div class="loom-code-block-title">${title}</div>\n` +
-      `  <pre><code${langClass}>${escaped}</code></pre>\n` +
-      `</div>`
-    );
-  }
-  return `<pre class="loom-code-block"${testidAttr}><code${langClass}>${escaped}</code></pre>`;
 }
 
 // ---------------------------------------------------------------------------

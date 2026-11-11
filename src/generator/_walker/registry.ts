@@ -49,17 +49,6 @@
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
-// Re-exported renderers from the Phoenix/HEEx walker.  Each function
-// takes `(call, ctx)` and returns the HEEx fragment.
-import {
-  renderChart as renderChartHeex,
-  renderCodeBlock as renderCodeBlockHeex,
-  renderIdLink as renderIdLinkHeex,
-  renderKeyValueRow as renderKeyValueRowHeex,
-  renderSlot as renderSlotHeex,
-  renderTableColumn as renderTableColumnHeex,
-  renderToolbar as renderToolbarHeex,
-} from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
@@ -243,7 +232,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitToolbar,
-    heex: renderToolbarHeex,
     a11y: { role: "toolbar", needsName: true },
   },
   Empty: {
@@ -278,7 +266,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitKeyValueRow,
-    heex: renderKeyValueRowHeex,
     a11y: "presentational",
   },
   // --- Semantic anchor target + sticky-position wrapper ---------
@@ -400,7 +387,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSlot,
-    heex: renderSlotHeex,
     a11y: "presentational",
   },
   // Heading level is derived from Section/Card nesting depth — never authored.
@@ -502,7 +488,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     admissibleInSource: true,
     readsOf: true,
     tsx: emitChart,
-    heex: renderChartHeex,
     a11y: { role: "img", needsName: true },
   },
   Money: {
@@ -531,7 +516,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitIdLink,
-    heex: renderIdLinkHeex,
     a11y: { needsName: true },
   },
   // A download link for a `File` field — a plain `<a href download>` labelled
@@ -609,7 +593,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitCodeBlock,
-    heex: renderCodeBlockHeex,
     a11y: "presentational",
   },
   // Decorative by default (aria-hidden inside a named control); a standalone
@@ -677,7 +660,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   Column: {
     group: "sub",
     admissibleInSource: true,
-    heex: renderTableColumnHeex,
     a11y: { role: "columnheader", needsName: true },
   },
 };

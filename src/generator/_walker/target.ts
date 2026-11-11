@@ -1206,8 +1206,11 @@ export interface WalkerTarget {
   /** OPTIONAL — children-slot spelling for the `Slot()` primitive.
    *  Omitted targets fall back to the JSX `{children}` idiom (TSX,
    *  Vue's render path); Svelte 5 overrides with
-   *  `{@render children?.()}` (snippets aren't interpolatable). */
-  renderChildrenSlot?(): string;
+   *  `{@render children?.()}` (snippets aren't interpolatable).  The walk
+   *  context and depth are for a target whose slot depends on where the body
+   *  renders: HEEx inlines a component's body at its call site, where the slot
+   *  is the caller's children rather than `@inner_block`. */
+  renderChildrenSlot?(ctx: WalkContext, depth: number): string;
 
   /** OPTIONAL — separator token placed between a container's rendered
    *  children (before the `\n<indent>` the walker always inserts).
@@ -1503,6 +1506,20 @@ export interface WalkerTarget {
    *  `emitTimeline`'s per-framework branch; Feliz/Flutter fork here when they
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `IdLink(<id>, of: <Agg>)`.  The
+   *  shared `emitIdLink` delegates here first and uses a non-null return
+   *  verbatim.  Phoenix/HEEx overrides it: its link label reads the
+   *  `@<agg>_labels` assign the LiveView loads in `mount`, which the shared
+   *  per-cell label read (`renderRefLabelWrap`) does not model. */
+  renderIdLink?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `Chart { … }`.  The shared
+   *  `emitChart` delegates here first and uses a non-null return verbatim.
+   *  Phoenix/HEEx overrides it: the rows are a projection assign the LiveView
+   *  loads, plotted by a server-rendered SVG component, not a client charting
+   *  library fed by a query hook. */
+  renderChart?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
   /** REQUIRED — the markup for `LocaleSwitcher {}`, the language picker.  The
    *  shared `emitLocaleSwitcher` returns it verbatim, so every target names its

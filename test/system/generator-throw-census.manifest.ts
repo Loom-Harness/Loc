@@ -688,6 +688,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/elixir/heex-target.ts
+  "src/generator/elixir/heex-target.ts#renderChildrenSlot": {
+    invariant:
+      "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
+  },
   "src/generator/elixir/heex-target.ts#bindDataAccess": {
     invariant:
       "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",

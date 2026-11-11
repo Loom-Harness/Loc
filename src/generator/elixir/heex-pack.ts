@@ -74,6 +74,12 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Paper",
   "Section",
   "Sticky",
+  "Toolbar",
+  "KeyValueRow",
+  "Slot",
+  "CodeBlock",
+  "IdLink",
+  "Chart",
 ]);
 
 type VM = Record<string, unknown>;
@@ -101,6 +107,10 @@ const CONTAINER_MAX_W: Record<string, string> = {
   lg: "max-w-6xl",
   xl: "max-w-7xl",
 };
+
+/** `Toolbar`'s geometry: a row with its clusters pushed apart (the canonical
+ *  page-header layout), as the shadcn `primitive-toolbar` template spells it. */
+const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -472,6 +482,40 @@ function renderPaper(vm: VM): string {
   return element(".card", testid, vm);
 }
 
+/** `KeyValueRow(label, value)` → a `<dt>`/`<dd>` pair, the value inline in its
+ *  `<dd>` (so a nested value's later lines sit one level in from the row, not
+ *  at the depth the core walked it).  The testid names the
+ *  VALUE cell, as on the JSX packs: a detail page object reads
+ *  `detail.field("name")` with an exact text match, which the label would
+ *  break. */
+function renderKeyValueRow(vm: VM): string {
+  const close = str(vm.closeIndent);
+  return [
+    `<div class="key-value-row"${str(vm.styleAttr)}>`,
+    `${close}  <dt class="key-value-label">${str(vm.label)}</dt>`,
+    `${close}  <dd class="key-value-value"${str(vm.testidAttr)}>${dedentTail(str(vm.childJsx), 2)}</dd>`,
+    `${close}</div>`,
+  ].join("\n");
+}
+
+/** `CodeBlock(source, title?, language?)` → `<pre><code>` with the source
+ *  escaped as text, under a title bar when one is given.  The language class
+ *  is written only when the author named a language. */
+function renderCodeBlock(vm: VM): string {
+  const testid = str(vm.testidAttr);
+  const langClass = vm.hasLanguage ? ` class="language-${str(vm.language)}"` : "";
+  const code = `<pre><code${langClass}>${str(vm.source)}</code></pre>`;
+  if (!vm.hasTitle)
+    return `<pre class="loom-code-block"${testid}><code${langClass}>${str(vm.source)}</code></pre>`;
+  const close = str(vm.closeIndent);
+  return [
+    `<div class="loom-code-block"${testid}>`,
+    `${close}  <div class="loom-code-block-title">${str(vm.titleText)}</div>`,
+    `${close}  ${code}`,
+    `${close}</div>`,
+  ].join("\n");
+}
+
 /** `QueryView` → LiveView's loading / error / empty / data ladder over the
  *  assign its load fills in `handle_params` (`queryExpr`, bound by
  *  `heexTarget.bindQueryView`):
@@ -564,6 +608,14 @@ const RENDERERS: Record<string, Renderer> = {
       ` style="position: sticky; top: ${str(vm.top)}; z-index: 100"${str(vm.testidAttr)}`,
       vm,
     ),
+  "primitive-toolbar": (vm) =>
+    element(
+      "div",
+      ` class="${TOOLBAR_CLASS}"${str(vm.styleAttr)}${str(vm.testidAttr)}${str(vm.a11yAttr)}`,
+      vm,
+    ),
+  "primitive-key-value-row": renderKeyValueRow,
+  "primitive-code-block": renderCodeBlock,
   "primitive-field": (vm) => renderInput("text", vm),
   "primitive-number-field": (vm) => renderInput("number", vm),
   "primitive-password-field": (vm) => renderInput("password", vm),

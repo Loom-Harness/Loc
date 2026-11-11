@@ -499,6 +499,9 @@ export function emitKeyValueRow(
     // A missing label emits `label=""` rather than dropping the attribute.
     labelAttr: labelArg ? localizedPositionalAttr(call, ctx, "keyValue", "label") : ' label=""',
     childJsx,
+    // For a pack that lays the row out over several lines: the absolute indent
+    // of its later lines.
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

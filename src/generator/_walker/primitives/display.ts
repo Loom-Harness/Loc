@@ -101,9 +101,8 @@ export function emitSlot(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   // JSX `{children}` idiom (Svelte 5's `{@render children?.()}`)
   // override via the optional `renderChildrenSlot` seam.
   void call;
-  void depth;
   ctx.usesChildren = true;
-  const slot = ctx.target.renderChildrenSlot?.();
+  const slot = ctx.target.renderChildrenSlot?.(ctx, depth);
   if (slot !== undefined) return slot;
   if (!JSX_CHILDREN_PROP_FRAMEWORKS.has(ctx.target.framework)) {
     throw new Error(

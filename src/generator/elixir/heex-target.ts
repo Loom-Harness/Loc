@@ -26,10 +26,12 @@ import {
   bindStateInput,
   heexEnumBadgeText,
   queryViewDataContext,
+  renderChart,
   renderDestroyForm,
   renderFileLink,
   renderFileUpload,
   renderForm,
+  renderIdLink,
   renderModal,
   renderProvenanceInfo,
   renderTable,
@@ -145,6 +147,19 @@ export const heexTarget: WalkerTarget = {
    *  button's `to:` navigation — which the pack renders as a link — and the
    *  click binds nothing. */
   renderEventHandler: () => "",
+
+  /** `Slot()` in a component body: the caller's children when the component
+   *  is inlined at its call site, otherwise the function component's
+   *  `@inner_block`, which the component emitter then declares. */
+  renderChildrenSlot(ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex) {
+      throw new Error("heexTarget.renderChildrenSlot: no HEEx walk context in the sink");
+    }
+    if (heex.inlineSlot) return indentTail(heex.inlineSlot(), depth);
+    heex.slotUsed.value = true;
+    return "{render_slot(@inner_block)}";
+  },
 
   /** An absent `QueryView` branch: the pack fills in its default markup. */
   emptyChild: "",
@@ -360,8 +375,8 @@ export const heexTarget: WalkerTarget = {
   // Whole-primitive overrides.  A LiveView form binds an Ecto changeset in
   // `mount` and posts to a hoisted `handle_event`; a table re-runs its read
   // from a hoisted sort/page clause; an upload rides `allow_upload/3`; a
-  // modal, a file link, a provenance disclosure and an audit timeline read
-  // assigns the page loads.
+  // modal, a file link, a provenance disclosure, an audit timeline, a
+  // reference link's label and a chart's rows read assigns the page loads.
   // None of that fits the client-handle shape the shared emitters produce, so
   // these render their HEEx whole, as Feliz's and Flutter's overrides do, and
   // record their bindings on the HEEx walk context the LiveView emitter reads.
@@ -375,6 +390,8 @@ export const heexTarget: WalkerTarget = {
   renderTimeline: engineOverride(renderTimeline),
   renderTable: engineOverride(renderTable),
   renderFileUpload: engineOverride(renderFileUpload),
+  renderIdLink: engineOverride(renderIdLink),
+  renderChart: engineOverride(renderChart),
 
   /** `Action(<instance>.<operation>)` — a LiveView runs the operation from a
    *  hoisted `handle_event` clause, not through a client mutation handle, so
