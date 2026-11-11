@@ -1507,6 +1507,20 @@ export interface WalkerTarget {
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** OPTIONAL — whole-primitive override for `IdLink(<id>, of: <Agg>)`.  The
+   *  shared `emitIdLink` delegates here first and uses a non-null return
+   *  verbatim.  Phoenix/HEEx overrides it: its link label reads the
+   *  `@<agg>_labels` assign the LiveView loads in `mount`, which the shared
+   *  per-cell label read (`renderRefLabelWrap`) does not model. */
+  renderIdLink?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `Chart { … }`.  The shared
+   *  `emitChart` delegates here first and uses a non-null return verbatim.
+   *  Phoenix/HEEx overrides it: the rows are a projection assign the LiveView
+   *  loads, plotted by a server-rendered SVG component, not a client charting
+   *  library fed by a query hook. */
+  renderChart?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
   /** REQUIRED — the markup for `LocaleSwitcher {}`, the language picker.  The
    *  shared `emitLocaleSwitcher` returns it verbatim, so every target names its
    *  own binding into the generated locale runtime and none can fall through to

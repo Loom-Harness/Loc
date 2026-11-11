@@ -89,8 +89,10 @@ function jsChartData({ queryExpr, dataKey, seriesField }: ChartDataSpec): string
 export function emitChart(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-  _depth: number,
+  depth: number,
 ): string {
+  const override = ctx.target.renderChart?.(call, ctx, depth);
+  if (override != null) return override;
   // `loom.chart-kind-invalid` pins the kind to "line" | "bar"; the bar default
   // only keeps the walker total under programmatic IR that skipped validation.
   const isLine = stringNamed(call, "kind") === "line";

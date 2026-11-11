@@ -78,6 +78,8 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "KeyValueRow",
   "Slot",
   "CodeBlock",
+  "IdLink",
+  "Chart",
 ]);
 
 type VM = Record<string, unknown>;

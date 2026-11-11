@@ -49,12 +49,6 @@
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
-// Re-exported renderers from the Phoenix/HEEx walker.  Each function
-// takes `(call, ctx)` and returns the HEEx fragment.
-import {
-  renderChart as renderChartHeex,
-  renderIdLink as renderIdLinkHeex,
-} from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
@@ -494,7 +488,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     admissibleInSource: true,
     readsOf: true,
     tsx: emitChart,
-    heex: renderChartHeex,
     a11y: { role: "img", needsName: true },
   },
   Money: {
@@ -523,7 +516,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitIdLink,
-    heex: renderIdLinkHeex,
     a11y: { needsName: true },
   },
   // A download link for a `File` field — a plain `<a href download>` labelled
