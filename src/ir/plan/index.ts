@@ -26,6 +26,14 @@ export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
 export {
+  domainServiceReadPorts,
+  type ReadPort,
+  serviceOpReadPorts,
+  serviceReadPorts,
+  servicesCalled,
+  withReadPortRepos,
+} from "./service-read-ports.js";
+export {
   type RemoteApiOpRef,
   type ResourceCalls,
   type ResourceOpRef,

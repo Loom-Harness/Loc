@@ -9,6 +9,8 @@ import {
   isWorkflowSelfType,
   observableWorkflows,
   resourceCalls,
+  serviceOpReadPorts,
+  servicesCalled,
   subscriptionHandler,
   workflowIsolation,
   workflowRunsInTransaction,
@@ -45,7 +47,6 @@ type ResolvedWorkflowBody = {
 
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
 import {
   camelId,
@@ -54,12 +55,7 @@ import {
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
-import {
-  mapExprChildren,
-  walkWorkflowStmtChildren,
-  walkWorkflowStmtExprsDeep,
-  workflowEmits,
-} from "../../ir/util/walk.js";
+import { mapExprChildren, walkWorkflowStmtChildren, workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -2246,18 +2242,7 @@ export function renderExprWithCmdParams(
  *  read-port; a PURE-only service is excluded (its calls stay the static shape,
  *  needing no injection).  De-duplicated by service name. */
 export function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Set<string> {
-  const out = new Set<string>();
-  for (const s of wf.statements) {
-    walkWorkflowStmtExprsDeep(s, (e) => {
-      if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
-        const svc = ctx.domainServices?.find((x) => x.name === e.serviceRef?.service);
-        const op = svc?.operations.find((o) => o.name === e.serviceRef?.op);
-        if (op && readPortsForOperation(op).length > 0 && e.serviceRef)
-          out.add(e.serviceRef.service);
-      }
-    });
-  }
-  return out;
+  return new Set(servicesCalled(wf.statements, ctx, "reading"));
 }
 
 /** Resolver handed to the workflow render context: maps a `reading`-tier
@@ -2268,9 +2253,7 @@ export function workflowReadingServiceCallResolver(
   ctx: EnrichedBoundedContextIR,
 ): NonNullable<CsRenderContext["domainServiceReadingCall"]> {
   return (service, op) => {
-    const svc = ctx.domainServices?.find((s) => s.name === service);
-    const operation = svc?.operations.find((o) => o.name === op);
-    if (!operation || readPortsForOperation(operation).length === 0) return undefined;
+    if (serviceOpReadPorts(ctx, service, op).length === 0) return undefined;
     return { receiver: `_${lowerFirst(service)}`, method: `${upperFirst(op)}Async` };
   };
 }
