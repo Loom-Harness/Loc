@@ -18,9 +18,11 @@ capability softDeletable {
 aggregate Order with softDeletable { subject: string }   // gains the field + filter
 ```
 
-`softDeletable`, `auditable`, `tenantOwned`, and `versioned` ship **built in**
-(the toolchain prelude, `src/macros/prelude.ts`) — available by name with nothing
-declared. The `softDelete()`/`restore()` operations stay in the `softDelete`
+`softDeletable`, `auditable`, `tenantOwned`, `tenantRegistry`, and `versioned`
+ship **built in** (the toolchain prelude, `src/macros/prelude.ts`) — available by
+name with nothing declared.  The prelude also declares `shareable`, a
+member-less marker whose declarations the macro layer unfolds (see
+[Relationship to macros](#relationship-to-macros)). The `softDelete()`/`restore()` operations stay in the `softDelete`
 macro (operations aren't part of a pure-mixin capability): `with softDeletable,
 softDelete`. Because the capability adds no operation, it does not change
 `crudish`'s `destroy` either: on `with softDeletable, crudish`, `DELETE /{id}`
@@ -516,10 +518,34 @@ IR arrays.
 
 ## Relationship to macros
 
-A `capability` subsumes the field/filter/stamp macros: `auditable` and
-`softDeletable` are built-in capabilities, not macros.  Macros remain for
-**operations and structure** — `softDelete` (operations), `crudish`,
-`scaffold*`.  See [`scaffold-macros.md`](scaffold-macros.md).
+The two mechanisms split by what they add:
+
+| | Capability | Macro |
+|---|---|---|
+| Adds | fields, plus `filter` (read path) and `stamp` (save path) contributions | declarations and behaviour: operations, aggregates, events, policies, workflows, pages |
+| Applied with | `with Cap` / `implements Cap` on an aggregate (or context) | `with Macro(...)` on its target (aggregate, context, ui, api) |
+| Defined in | `capability Name { … }` (`.ddd`), or the prelude | TypeScript via `defineMacro` ([`macro-api.md`](macro-api.md)), or the stdlib |
+| `unfold` shows | the mixed-in fields, filter and stamps | the generated source |
+
+A `capability` subsumes the field/filter/stamp macros: `auditable`,
+`softDeletable`, `tenantOwned`, `tenantRegistry` and `versioned` are built-in
+capabilities, not macros.  Macros remain for **operations and structure** —
+`softDelete` (operations), `crudish`, `scaffold*`.  See
+[`scaffold-macros.md`](scaffold-macros.md).
+
+A feature that needs both halves pairs them: `with softDeletable, softDelete`
+is the capability (field + filter) next to the macro (the `softDelete()` /
+`restore()` operations).
+
+`shareable` is the one built-in that is **both under one name**: the prelude
+declares it as a member-less capability *marker*, and the macro layer
+(`src/macros/stdlib/shareable/`) unfolds, for every aggregate carrying the
+marker, the share declarations into its context — the `<X>Share` aggregate,
+the `<X>Shared` / `<X>Unshared` events, the `GranteeIsMe` / `SharedWithMe`
+policy functions and the sharing rules ([`auth.md`](auth.md#sharing--shareable)).
+So `with shareable` reads like a capability, but what it adds is macro output:
+`unfold` ejects it as editable source, and an authored member of the same name
+wins.
 
 ## Validation rules
 

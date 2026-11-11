@@ -403,6 +403,11 @@ export interface WalkContext {
   formBindings: FormBinding[];
   /** Query bindings discovered as the walker visits `QueryView(...)`. */
   queryBindings: QueryBinding[];
+  /** The assign each `QueryView` on this body loads into, keyed by its call
+   *  node — shared by reference across the `{...ctx}` copies, so the view's
+   *  data scope and its load binding agree, and two reads never take the same
+   *  assign (`reserveQueryAssign`). */
+  queryAssigns: Map<ExprIR, string>;
   /** PageIR being walked — its `state[]` drives state-reference resolution
    *  and its `params[]` resolves route-param refs. */
   page: PageIR;
@@ -661,6 +666,7 @@ export function walkBodyToHeex(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames,
@@ -729,7 +735,7 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
  *  core under the current HEEx walk state.  It walks at depth 0 because this
  *  engine indents a child relative to its parent (`indent`), and the shared
  *  core's depth-0 output is exactly that relative form. */
-function renderThroughSharedCore(expr: ExprIR & { kind: "call" }, ctx: WalkContext): string {
+function renderThroughSharedCore(expr: ExprIR, ctx: WalkContext): string {
   const sink: HeexWalkSink = { heex: ctx };
   const shared = ctx.sharedWalk;
   if (!shared) return walkShared(expr, sink);
@@ -1709,80 +1715,84 @@ function andGate(...parts: readonly (string | undefined)[]): string | undefined 
   return kept.map((p) => `(${p})`).join(" && ");
 }
 
-function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
-  // `match { p => v; … else => f }` → Elixir `cond do … end`.
-  //
-  // HEEx has TWO `cond` spellings and they are not interchangeable:
-  //
-  //   EXPRESSION form   `<%= cond do  p -> term  end %>`   — arms are Elixir terms
-  //   BLOCK form        `<%= cond do %>`                   — arms are MARKUP
-  //                     `  <% p -> %>`
-  //                     `    <div>…</div>`
-  //                     `<% end %>`
-  //
-  // Rendering markup arms in the expression form emits a `<%= cond do` that is
-  // never closed — the arm bodies carry their own `<%= … %>` / `<% end %>`, so
-  // the outer `end` lands inside a nested block and Elixir reports the
-  // unclosed delimiter pages later:
-  //
-  //   ** (TokenMissingError) missing terminator: end
-  //    128 │           cond do      ← unclosed delimiter
-  //
-  // That is a WHOLE-PROJECT compile failure, not a bad render: `mix compile`
-  // fails, so the app never boots (schemathesis F27, found on the elixir leg,
-  // which could not fuzz at all). It reproduces on any page whose `match` arms
-  // are primitives — a list page with two filter-driven finds is the shape in
-  // `web/src/examples/storefront-elixir.ddd`.
-  //
-  // So pick the form by what the arms actually render. The block form is the
-  // same one the QueryView loading/error/empty/data ladder already emits
-  // (`heex-primitives.ts`), which is why nesting one inside the other is
-  // exactly the case that broke.
-  const markupArms =
+/** True when a `match` renders as a HEEx `cond` BLOCK — its arms are markup
+ *  — rather than as an Elixir term.
+ *
+ *  HEEx has two `cond` spellings and they are not interchangeable:
+ *
+ *    EXPRESSION form   `<%= cond do  p -> term  end %>`   — arms are Elixir terms
+ *    BLOCK form        `<%= cond do %>`                   — arms are MARKUP
+ *                      `  <% p -> %>`
+ *                      `    <div>…</div>`
+ *                      `<% end %>`
+ *
+ *  Markup arms in the expression form open a `<%= cond do` that never closes —
+ *  the arm bodies carry their own `<%= … %>` / `<% end %>`, so the outer `end`
+ *  lands inside a nested block and `mix compile` reports a missing terminator
+ *  for the whole project.  So the form follows what the arms render: one
+ *  markup arm makes the block, in which a term arm still gets its own
+ *  `<%= … %>`. */
+function matchRendersMarkup(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): boolean {
+  return (
     ctx.position === "template" &&
     (expr.arms.some((a) => armRendersMarkup(a.value, ctx)) ||
-      (expr.otherwise !== undefined && armRendersMarkup(expr.otherwise, ctx)));
+      (expr.otherwise !== undefined && armRendersMarkup(expr.otherwise, ctx)))
+  );
+}
 
-  if (markupArms) {
-    // `renderChild` gives each arm the right treatment individually: markup
-    // passes through, a plain term still gets its own `<%= … %>`. So a match
-    // that MIXES markup and term arms stays valid.
-    const lines: string[] = ["<%= cond do %>"];
-    // The same arm conditions, rendered for HANDLER position, threaded onto the
-    // arm's subtree so a `QueryView` inside it records the gate its load must
-    // run under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an
-    // arm's gate carries the negation of every earlier arm and the fallback's
-    // gate is the negation of them all — otherwise two arms could both load
-    // into the same assign and the later one would win, which is the bug this
-    // gating exists to close.
-    //
-    // …but only when EVERY arm's predicate survives the move to handler scope
-    // (`gateIsHandlerSafe`).  One unsafe arm disables gating for the WHOLE
-    // match: a partly-gated `cond` is worse than none, since the ungated load
-    // still clobbers the gated one, and a gate naming a render-only binding
-    // fails `mix compile` outright.
-    const gatable = expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx));
-    const handlerConds: string[] = [];
-    for (const a of expr.arms) {
-      lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      const mine = gatable ? renderExpr(a.cond, { ...ctx, position: "handler" }) : undefined;
-      lines.push(
-        `    ${renderChild(a.value, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) } : ctx)}`,
-      );
-      if (mine !== undefined) handlerConds.push(mine);
-    }
-    // `cond` raises CondClauseError when no arm matches, so the fallback is
-    // not cosmetic. Without an authored `else` the page renders nothing rather
-    // than crashing at request time.
-    lines.push(`  <% true -> %>`);
-    lines.push(
-      expr.otherwise !== undefined
-        ? `    ${renderChild(expr.otherwise, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) } : ctx)}`
-        : `    <%= nil %>`,
-    );
-    lines.push(`<% end %>`);
-    return lines.join("\n");
-  }
+/** True when a ternary in a markup position renders as a HEEx `if` BLOCK —
+ *  either branch is markup.  The expression form `if c, do: a, else: b`
+ *  takes Elixir terms; markup there is not valid HEEx. */
+function ternaryRendersMarkup(
+  expr: Extract<ExprIR, { kind: "ternary" }>,
+  ctx: WalkContext,
+): boolean {
+  return (
+    ctx.position === "template" &&
+    (armRendersMarkup(expr.then, ctx) || armRendersMarkup(expr.otherwise, ctx))
+  );
+}
+
+/** True when `expr` is control flow over markup — a block `match`
+ *  (`renderMatchChild`) or a markup ternary (`renderConditionalChild`) — which
+ *  the shared walker core renders rather than this engine. */
+export function rendersMarkupBlock(expr: ExprIR, ctx: WalkContext): boolean {
+  if (expr.kind === "match") return matchRendersMarkup(expr, ctx);
+  return expr.kind === "ternary" && ternaryRendersMarkup(expr, ctx);
+}
+
+/** The walk context one arm of a block `match` renders under (`index ===
+ *  arms.length` is the fallback).
+ *
+ *  The arm conditions, rendered for HANDLER position, are threaded onto the
+ *  arm's subtree so a `QueryView` inside it records the gate its load runs
+ *  under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an arm's
+ *  gate carries the negation of every earlier arm and the fallback's the
+ *  negation of them all — otherwise two arms could both load into the same
+ *  assign and the later one would win.
+ *
+ *  Only when EVERY arm's predicate survives the move to handler scope
+ *  (`gateIsHandlerSafe`): a partly-gated `cond` is worse than none, since the
+ *  ungated load still clobbers the gated one, and a gate naming a render-only
+ *  binding fails `mix compile`. */
+export function matchArmContext(
+  expr: Extract<ExprIR, { kind: "match" }>,
+  index: number,
+  ctx: WalkContext,
+): WalkContext {
+  if (!expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx))) return ctx;
+  const handler = { ...ctx, position: "handler" as const };
+  const prior = expr.arms.slice(0, index).map((a) => notGate(renderExpr(a.cond, handler)));
+  const own = expr.arms[index];
+  const mine = own ? renderExpr(own.cond, handler) : undefined;
+  return { ...ctx, matchGate: andGate(ctx.matchGate, ...prior, mine) };
+}
+
+function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
+  // `match { p => v; … else => f }` → Elixir `cond do … end`.
+  // The block form is control flow: the shared walker core renders it, each
+  // arm under `matchArmContext`, through `heexTarget.renderMatchChild`.
+  if (matchRendersMarkup(expr, ctx)) return renderThroughSharedCore(expr, ctx);
 
   // Delegates the bare `cond do … end` shape to `heexTarget.renderMatch`
   // (cross-framework contract — see src/generator/_walker/target.ts).
@@ -2402,6 +2412,9 @@ function modelTextMarkup(e: Extract<ExprIR, { kind: "modelText" }>, ctx: WalkCon
 
 export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): string {
   if (child.kind === "modelText") return modelTextMarkup(child, ctx);
+  if (child.kind === "ternary" && ternaryRendersMarkup(child, { ...ctx, position: "template" })) {
+    return renderThroughSharedCore(child, { ...ctx, position: "template" });
+  }
   const localized = localizedHeex(child, ctx, role);
   if (localized !== undefined) return localized;
   // If the child is itself a primitive call that returns HEEx markup,
@@ -2424,6 +2437,9 @@ export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): str
 
 export function renderInTemplate(arg: ExprIR, ctx: WalkContext, role?: string): string {
   if (arg.kind === "modelText") return modelTextMarkup(arg, ctx);
+  if (arg.kind === "ternary" && ternaryRendersMarkup(arg, { ...ctx, position: "template" })) {
+    return renderThroughSharedCore(arg, { ...ctx, position: "template" });
+  }
   const localized = localizedHeex(arg, ctx, role);
   if (localized !== undefined) return localized;
   if (arg.kind === "literal" && arg.lit === "string") return escapeHeexText(arg.value);
@@ -2824,14 +2840,19 @@ function renderVariantMatchStmt(
     const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
     return `            ${pattern} ->\n              ${piped}`;
   };
-  // Classify the error variant.  The lowered `arm.isError` hint is unreliable
-  // from a UI body (a context-local `error` type doesn't resolve in the page's
-  // lowering env — same caveat the JS walker documents), so treat the success
-  // variant as the aggregate's own type and any other tag as an error.  Honour a
-  // `true` hint too, for the case where lowering DID resolve it.
+  // Classify each variant by what the aggregate's context declares: a tag
+  // declared as an `error` comes back as `{:error, tag, data}`, any other —
+  // the aggregate itself, a payload / response, a scalar — as `{:ok, value}`.
+  // The lowered `arm.isError` hint is unreliable from a UI body (a
+  // context-local `error` type doesn't resolve in the page's lowering env), so
+  // the context decides; a `true` hint is honoured too.  Without the context
+  // (a caller that threads none) only the aggregate's own tag is a success.
+  const bc = ctx.bcByAggregate.get(aggName);
+  const isErrorTag = (tag: string): boolean =>
+    bc ? bc.payloads.some((p) => p.name === tag && p.kind === "error") : tag !== aggName;
   const clauses = stmt.arms.map((arm) => {
     const tag = variantTag(arm.varType);
-    const isError = arm.isError === true || tag !== aggName;
+    const isError = arm.isError === true || isErrorTag(tag);
     const steps = arm.body.map((s) => renderStmt(s, hctx));
     // Elixir's `--warnings-as-errors` rejects a bound-but-unused pattern var, so
     // prefix the binder with `_` when the arm body never references it (e.g.
@@ -2839,7 +2860,14 @@ function renderVariantMatchStmt(
     const raw = arm.binding ? snake(arm.binding) : "_";
     const used = arm.binding ? steps.some((st) => new RegExp(`\\b${raw}\\b`).test(st)) : false;
     const binder = arm.binding && !used ? `_${raw}` : raw;
-    const pattern = isError ? `{:error, ${JSON.stringify(tag)}, ${binder}}` : `{:ok, ${binder}}`;
+    // A success variant other than the aggregate is a tagged map
+    // (`%{type: "Ok", …}`), so its arm matches on the tag and two success arms
+    // stay apart; the aggregate itself comes back as its untagged struct.
+    const pattern = isError
+      ? `{:error, ${JSON.stringify(tag)}, ${binder}}`
+      : tag === aggName
+        ? `{:ok, ${binder}}`
+        : `{:ok, %{type: ${JSON.stringify(tag)}} = ${binder}}`;
     const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
     return `            ${pattern} ->\n              ${piped}`;
   });
@@ -2907,6 +2935,7 @@ function renderRequiresGuardAt(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames: new Set(page.state.map((f) => snake(f.name))),
