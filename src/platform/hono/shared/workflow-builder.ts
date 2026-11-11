@@ -126,10 +126,7 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../../ir/util/workflow-command-route.js";
-import {
-  type WriteScopeContext,
-  writeScopeContext,
-} from "../../../ir/util/write-scope-guards.js";
+import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import {
   LOOM_OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,

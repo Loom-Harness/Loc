@@ -294,8 +294,9 @@ describe("resource isolationLevel — end-to-end emit", () => {
   // of those pins the dataSource level.  Each pair below checks the transactional
   // workflow DOES pin it, so the absence on the plain one is not vacuous.
   // String tier: the isolation option is wiring no booted leg observes.
-  const allFiles = async (platform: string, header: string) =>
-    [...(await emit(nodeModel(platform, header))).entries()];
+  const allFiles = async (platform: string, header: string) => [
+    ...(await emit(nodeModel(platform, header))).entries(),
+  ];
   const cases: [string, RegExp][] = [
     ["java", /Isolation\.SERIALIZABLE/],
     ["python", /"isolation_level": "SERIALIZABLE"/],

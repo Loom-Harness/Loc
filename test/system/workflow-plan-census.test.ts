@@ -390,7 +390,8 @@ function scan(file: string): Violation[] {
       let transactional = false;
       let guards = false;
       const look = (m: ts.Node): void => {
-        if (ts.isPropertyAccessExpression(m) && m.name.text === "transactional") transactional = true;
+        if (ts.isPropertyAccessExpression(m) && m.name.text === "transactional")
+          transactional = true;
         if (
           ts.isCallExpression(m) &&
           ts.isIdentifier(m.expression) &&
