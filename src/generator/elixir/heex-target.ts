@@ -21,6 +21,7 @@ import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/w
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
   bindHeexQueryView,
+  bindStateInput,
   heexEnumBadgeText,
   queryViewDataContext,
   withRowType,
@@ -31,11 +32,13 @@ import {
   type WalkContext as HeexWalkContext,
   type HeexWalkSink,
   heexContextOf,
+  hoistLambdaToHandler,
   matchArmContext,
   renderChild,
   renderExpr,
   renderInTemplate,
   rendersMarkupBlock,
+  storeActionEvent,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
@@ -107,6 +110,31 @@ export const heexTarget: WalkerTarget = {
     const heex = heexContextOf(ctx.sink);
     return heex ? bindHeexQueryView(spec.call, engineContext(heex, ctx)) : undefined;
   },
+
+  /** A LiveView handler body lives in a `handle_event/3` clause, apart from
+   *  the markup: an inline lambda is hoisted into one, a named page action or
+   *  a store action already has its own, a bound input writes its field back
+   *  through one, and the use site names the event. */
+  bindEventHandler(source, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex) return undefined;
+    switch (source.kind) {
+      case "lambda":
+        return hoistLambdaToHandler(source.lambda, engineContext(heex, ctx));
+      case "action":
+        return snake(source.actionName);
+      case "store-action":
+        return storeActionEvent(source.storeName, source.actionName);
+      case "input":
+        return bindStateInput(source.stateName, source.control, engineContext(heex, ctx));
+    }
+  },
+
+  /** A handler the core would render at the use site.  Every LiveView
+   *  handler is bound through `bindEventHandler`, so what reaches here is a
+   *  button's `to:` navigation — which the pack renders as a link — and the
+   *  click binds nothing. */
+  renderEventHandler: () => "",
 
   /** An absent `QueryView` branch: the pack fills in its default markup. */
   emptyChild: "",

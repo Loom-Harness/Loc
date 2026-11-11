@@ -714,7 +714,7 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
     heexTarget,
     heexPack(sink),
     undefined,
-    undefined,
+    pageStateNames(sink.heex.page),
     undefined,
     undefined,
     undefined,
@@ -739,7 +739,23 @@ function renderThroughSharedCore(expr: ExprIR, ctx: WalkContext): string {
   const sink: HeexWalkSink = { heex: ctx };
   const shared = ctx.sharedWalk;
   if (!shared) return walkShared(expr, sink);
-  return walk(expr, { ...shared, sink, headingDepth: ctx.headingDepth }, 0);
+  return walk(
+    expr,
+    {
+      ...shared,
+      sink,
+      headingDepth: ctx.headingDepth,
+      i18nPrefix: ctx.i18nPrefix,
+      stateNames: pageStateNames(ctx.page),
+    },
+    0,
+  );
+}
+
+/** The state fields of the body being walked, in their source spelling — the
+ *  shared core resolves a `bind:` against them. */
+function pageStateNames(page: PageIR): ReadonlySet<string> {
+  return new Set(page.state.map((f) => f.name));
 }
 
 /** The HEEx walk state the shared core carries in `ctx.sink` for this target. */
@@ -850,7 +866,7 @@ function seedHoistedHandlers(ctx: WalkContext, page: PageIR, body: ExprIR | unde
  *  Cart.clear` → `"store-cart-clear"`).  Hyphenated like the emitter's other
  *  synthesized events (`loom-sort`), so it cannot equal a `snake(action)`
  *  clause a page or component action hoists. */
-function storeActionEvent(store: string, action: string): string {
+export function storeActionEvent(store: string, action: string): string {
   return `store-${snake(store)}-${snake(action)}`;
 }
 
@@ -2495,7 +2511,7 @@ export function renderAttrValue(
 // Lambda hoisting → handle_event clauses.
 // ---------------------------------------------------------------------------
 
-function hoistLambdaToHandler(arg: ExprIR, ctx: WalkContext): string {
+export function hoistLambdaToHandler(arg: ExprIR, ctx: WalkContext): string {
   if (arg.kind !== "lambda") {
     // Not a lambda — try to lower as expression in handler context.
     // Caller will get back something it can put in `phx-click="…"`.

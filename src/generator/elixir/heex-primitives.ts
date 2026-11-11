@@ -44,7 +44,7 @@ import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
-import type { QueryViewRead } from "../_walker/target.js";
+import type { InputControl, QueryViewRead } from "../_walker/target.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -858,7 +858,7 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
  *  table — the HEEx leg of the shared walker's `renderFilterInput` seam
  *  (`loom.table-filter-unsupported`).
  *
- *  Same shape as every other bound input on this target (`controlledInput`):
+ *  Same shape as every other bound input on this target (`bindStateInput`):
  *  an `<.input>` whose `phx-change` writes the bound assign, with the
  *  write-back clause hoisted once into the host LiveView.  The re-render that
  *  follows re-runs `LoomTable.filter_rows/2` in the template — there is
@@ -1842,68 +1842,28 @@ function heexChrome(ctx: WalkContext, name: string): { english: string; call?: s
 // A `bind:` that isn't a known state field renders a disabled stub (nothing
 // to two-way bind to) so the page still renders.
 // ---------------------------------------------------------------------------
-function controlledInput(
-  expr: Extract<ExprIR, { kind: "call" }>,
+/** Bind a controlled input to the page-state field `stateName`: hoist the
+ *  write-back `handle_event` clause once per field and answer its event name
+ *  (`update_<field>`, or `toggle_<field>` for a checkbox), or `undefined` when
+ *  `stateName` is not a state field of this body.
+ *
+ *  `bind:` carries the field's `.ddd` spelling (camelCase); `stateNames` is
+ *  keyed by the SNAKE-CASED assign name, so the lookup snakes it first — a
+ *  raw comparison only ever matched a single-word field, and every multi-word
+ *  bound input fell through to the unbound stub.  A component's state lives in
+ *  the HOST LiveView's assigns under its namespaced name (`hostStateAssign`),
+ *  and the clause runs there, so the assign, the form field name and the
+ *  `phx-change` payload key all spell that one name. */
+export function bindStateInput(
+  stateName: string,
+  control: InputControl,
   ctx: WalkContext,
-  type: "text" | "number" | "password" | "textarea" | "select" | "checkbox",
-): string {
-  let label = "";
-  let labelArg: ExprIR | undefined;
-  let bind: string | undefined;
-  let optionsExpr: ExprIR | undefined;
-  let seenPositional = false;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      if (!seenPositional) {
-        labelArg = arg;
-        if (arg.kind === "literal") label = arg.value;
-      }
-      seenPositional = true;
-    } else if (name === "bind" && arg.kind === "ref") bind = arg.name;
-    else if (name === "options") optionsExpr = arg;
-  }
-  // The label is a user-visible slot (`inputLabel`): a plain literal
-  // rides `pgettext` through the `{…}` expression-attribute form, so the
-  // most-read prose in any generated form translates like the `Select…`
-  // placeholder beside it.  Off i18n it is the quoted literal —
-  // byte-identical.
-  const labelValue = labelArg ? localizedHeexAttr(labelArg, ctx, "inputLabel") : undefined;
-  const labelAttr = labelValue
-    ? ` label=${labelValue}`
-    : label
-      ? // `escapeHeexAttr` is the ONE attribute-escape funnel this target
-        // shares (heex-walker-core.ts).  Do not inline a local copy here: a
-        // second implementation of the funnel drifts (a two-replacement
-        // `&`/`"` copy misses `<` and `>`).
-        ` label="${escapeHeexAttr(label)}"`
-      : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // `bind:` carries the state field's `.ddd` spelling (camelCase); `stateNames`
-  // is keyed by the SNAKE-CASED assign name (built once at walker entry from
-  // `page.state`).  Comparing the two spellings directly is a membership test
-  // that can only succeed for a single-word field — `bind: query` matched,
-  // `bind: byNameN` did not — so every multi-word bound input silently fell
-  // through to the unbound stub below and rendered `disabled`, with the backing
-  // assign sitting in `mount/3` unread.  That is how the scaffolded list page's
-  // whole filter bar came out inert (its fields are `<find><Param>` by
-  // construction, never one word).  `snake` here is what every other
-  // `stateNames` lookup in the walker already does — `stateRefArg`,
-  // `renderFileUpload`, `renderStateRef`.
-  const bound = bind ? snake(bind) : undefined;
-  if (!bound || !ctx.stateNames.has(bound)) {
-    const opt = type === "select" ? ` options={[]}` : "";
-    return `<.input type="${type}" name="_unbound"${labelAttr}${opt} value="" disabled${testidAttr} />`;
-  }
-  // A component's state lives in the HOST LiveView's assigns under its
-  // namespaced name (heex-walker-core `hostStateAssign`), and the write-back
-  // clause hoisted just below runs THERE — so the assign, the form field name
-  // and the `phx-change` payload key all spell that one name.
+): string | undefined {
+  const bound = snake(stateName);
+  if (!ctx.stateNames.has(bound)) return undefined;
   const field = hostStateAssign(ctx.stateOwner, bound);
-  const isCheckbox = type === "checkbox";
+  const isCheckbox = control === "checkbox";
   const eventName = isCheckbox ? `toggle_${field}` : `update_${field}`;
-  // Hoist the write-back handler once per bound field.
   if (!ctx.handlers.some((h) => h.name === eventName)) {
     ctx.handlers.push({
       name: eventName,
@@ -1913,42 +1873,7 @@ function controlledInput(
       ],
     });
   }
-  const optionsAttr =
-    type === "select"
-      ? ` options={${optionsExpr ? renderExpr(optionsExpr, { ...ctx, position: "template" }) : "[]"}}`
-      : "";
-  return `<.input type="${type}" name="${field}" value={@${field}}${optionsAttr}${labelAttr} phx-change="${eventName}"${testidAttr} />`;
-}
-
-export function renderField(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return controlledInput(expr, ctx, "text");
-}
-export function renderNumberField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "number");
-}
-export function renderPasswordField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "password");
-}
-export function renderMultilineField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "textarea");
-}
-export function renderSelectField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "select");
-}
-export function renderToggle(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return controlledInput(expr, ctx, "checkbox");
+  return eventName;
 }
 
 /** `FileUpload { "Label", bind: <File state> }` → a LiveView-native file input.
@@ -1964,10 +1889,10 @@ export function renderToggle(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  progress-consumer emission is driven by the `UploadBinding` this pushes onto
  *  `ctx.uploadBindings` (consumed in liveview-emit.ts); the `phx-change`
  *  validate handler (required for a live-file-input form) is hoisted here the
- *  same way `controlledInput` hoists its write-back clause.
+ *  same way `bindStateInput` hoists its write-back clause.
  *
  *  An unbound (or non-`File`-state) `bind:` renders a disabled plain file input
- *  — there's nothing to two-way bind to — mirroring `controlledInput`'s stub. */
+ *  — there's nothing to two-way bind to — mirroring the unbound `<.input>` stub. */
 export function renderFileUpload(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
@@ -2059,66 +1984,6 @@ export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 }
 export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
-}
-/** `Button("Save", icon: "plus", iconPosition: "left", loading: <expr>)`.
- *
- *  `icon:` / `iconSvg:` / `iconPosition:` / `loading:` are not attrs
- *  `<.button>` declares, and an undeclared attribute on a Phoenix function
- *  component is a compile WARNING — a build failure under
- *  `mix compile --warnings-as-errors`.  Both shipping HEEx packs' buttons do,
- *  however, carry an `inner_block` slot and `attr :rest, :global`, and that is
- *  enough to render all four without touching the pack:
- *
- *    - the glyph goes in the CHILDREN slot as a `<span class="loom-icon">`
- *      sibling of the label — the exact shape the shadcn / flowbite /
- *      shadcnSvelte templates emit — positioned by `iconPosition:`
- *      (default `"right"`, matching `_walker/primitives/controls.ts`);
- *    - `loading:` becomes `aria-busy={…}` (the `aria-` prefix is one of
- *      Phoenix's global prefixes, so `:global` accepts it).  It does not also
- *      force `disabled` — see the note in the body.
- *
- *  A builtin `icon:` name resolves through the SAME `lookupBuiltinIcon`
- *  registry the JSX walker uses, so the two targets ship the same glyph. */
-export function renderButton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const spec = CLOSED_PRIMITIVE_SPECS.Button!;
-  // `icon:` / `iconSvg:` / `iconPosition:` and `loading:` — the four knobs the
-  // TSX `emitButton` consumes.  `<.button>` declares none of them, and an
-  // undeclared attribute on a Phoenix function component is a compile warning,
-  // i.e. a failure under `mix compile --warnings-as-errors`.  Neither needs to
-  // be an attribute, so neither has to touch the packs:
-  //
-  //   - the GLYPH is markup — an inline `<span class="loom-icon">` spliced into
-  //     the button's inner block on the authored side (`iconPosition:`,
-  //     defaulting to `"right"` exactly as the TSX emitter does).  It is
-  //     `aria-hidden` because the button's text (or its `label:` aria-label) is
-  //     already the accessible name — the same decorative-by-default contract
-  //     `renderIcon` applies.
-  //   - `loading:` becomes `aria-busy`, an ARIA global Phoenix's `:global`
-  //     attr accepts on any component, so the busy state reaches assistive tech
-  //     instead of vanishing.  It deliberately does NOT also force `disabled`:
-  //     that is the author's `disabled:` knob, which already passes through,
-  //     and emitting both would put two `disabled` attributes on one tag.
-  const loadingArg = namedArg(expr, "loading");
-  const loadingValue = loadingArg ? renderAttrValue(loadingArg, ctx, false) : undefined;
-  const iconSvg =
-    stringNamedLit(expr, "iconSvg") ??
-    ((n) => (n === undefined ? undefined : lookupBuiltinIcon(n)))(stringNamedLit(expr, "icon"));
-  const iconHeex = iconSvg
-    ? `<span class="loom-icon" aria-hidden="true">${iconSvg}</span>`
-    : undefined;
-  const iconLeads = stringNamedLit(expr, "iconPosition") === "left";
-  return renderPrimitive(
-    {
-      ...spec,
-      extraAttrs: loadingValue
-        ? [...(spec.extraAttrs ?? []), `aria-busy=${loadingValue}`]
-        : spec.extraAttrs,
-      leadingChildHeex: iconLeads ? iconHeex : undefined,
-      trailingChildHeex: iconLeads ? undefined : iconHeex,
-    },
-    expr,
-    ctx,
-  );
 }
 
 /** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.
