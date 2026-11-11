@@ -31,6 +31,16 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               → use `workflowBodyUsesOwnState` / `workflowBodyReadsOwnState`
 //               (`src/ir/util/workflow-own-state.ts`).
 //
+//   audited-call  a body-scan callback (handed to a `walk…Deep` walker or to
+//               `.some` / `.every` / `.filter` / `.find` / `.forEach`) that
+//               compares a `kind` with `"op-call"` and reads `.audited` — the
+//               hand-rolled "does this body call an audited operation" scan.
+//               → use `auditedOpCallAggregates` / `callsAuditedOp`.
+//   needs-user  the same kind of callback comparing a `kind` with `"op-call"`
+//               and asking `operation{Body,Gates,}Use(s)CurrentUser` — the
+//               hand-rolled "must this body bind the principal" scan.
+//               → use `workflowNeedsCurrentUser`.
+//
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
 //               create returns the workflow itself" test.
@@ -100,7 +110,7 @@ function isTruthinessRead(body: ts.Node, prop: string): boolean {
 }
 
 interface Violation {
-  rule: "state-row" | "set-filter" | "self-result" | "own-state";
+  rule: "state-row" | "set-filter" | "self-result" | "own-state" | "audited-call" | "needs-user";
   where: string;
   text: string;
 }
@@ -195,6 +205,51 @@ function scan(file: string): Violation[] {
         }
       }
     }
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const isWalker = ts.isIdentifier(callee) && /^walk\w*Deep$/.test(callee.text);
+      const isIter =
+        ts.isPropertyAccessExpression(callee) &&
+        ["some", "every", "filter", "find", "forEach"].includes(callee.name.text);
+      if (isWalker || isIter) {
+        for (const arg of n.arguments) {
+          if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) continue;
+          let opCall = false;
+          let audited = false;
+          let userAsk = false;
+          const collect = (m: ts.Node): void => {
+            if (
+              ts.isBinaryExpression(m) &&
+              [
+                ts.SyntaxKind.EqualsEqualsEqualsToken,
+                ts.SyntaxKind.ExclamationEqualsEqualsToken,
+              ].includes(m.operatorToken.kind) &&
+              propName(m.left) === "kind" &&
+              ts.isStringLiteral(m.right) &&
+              m.right.text === "op-call"
+            ) {
+              opCall = true;
+            }
+            if (ts.isPropertyAccessExpression(m) && m.name.text === "audited") audited = true;
+            if (
+              ts.isCallExpression(m) &&
+              ts.isIdentifier(m.expression) &&
+              /^operation(Body|Gates)?Uses?CurrentUser$/.test(m.expression.text)
+            ) {
+              userAsk = true;
+            }
+            ts.forEachChild(m, collect);
+          };
+          collect(arg.body);
+          if (opCall && audited) {
+            out.push({ rule: "audited-call", where: at(n), text: callee.getText(sf) });
+          }
+          if (opCall && userAsk) {
+            out.push({ rule: "needs-user", where: at(n), text: callee.getText(sf) });
+          }
+        }
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -221,6 +276,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-filters the event-sourced / observable workflow sets (use eventSourcedWorkflows / observableWorkflows)", () => {
     const hits = violations.filter((v) => v.rule === "set-filter");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for audited op-calls (use auditedOpCallAggregates / callsAuditedOp)", () => {
+    const hits = violations.filter((v) => v.rule === "audited-call");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for principal-needing op-calls (use workflowNeedsCurrentUser)", () => {
+    const hits = violations.filter((v) => v.rule === "needs-user");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

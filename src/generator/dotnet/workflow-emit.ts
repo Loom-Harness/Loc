@@ -1,6 +1,10 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
-import { isWorkflowSelfType, observableWorkflows } from "../../ir/plan/index.js";
+import {
+  auditedOpCallAggregates,
+  isWorkflowSelfType,
+  observableWorkflows,
+} from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -681,21 +685,9 @@ function renderEventReactorHandler(
   // The reactor is an INotificationHandler dispatched through the Mediator
   // pipeline, so ExecutionContextBehavior has already opened its frame — the
   // staged row's correlation / scope / parent ids resolve from RequestContext.
-  const auditAggs = new Set<string>();
-  // Every op-call in the body, nested ones included (a loop body, an `if let`
-  // branch, a `match` arm): an audited one injects the audit writer.
-  const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const root of sts) {
-      walkWorkflowStmtsDeep(root, (s) => {
-        if (s.kind !== "op-call") return;
-        const o = ctx.aggregates
-          .find((a) => a.name === s.aggName)
-          ?.operations.find((x) => x.name === s.op);
-        if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      });
-    }
-  };
-  collectAuditAggs(statements);
+  // Every audited op-call in the body, nested ones included, injects the
+  // audit writer.
+  const auditAggs = auditedOpCallAggregates(ctx, statements);
   const auditsOps = auditAggs.size > 0;
   if (auditsOps) {
     fields.push("    private readonly IAuditWriter _audit;");
@@ -1109,21 +1101,9 @@ function renderMergedEventSourcedHandler(
     ctorParamPairs.push(`${ifaceName} ${fieldName.replace(/^_/, "")}`);
     ctorAssigns.push(`${fieldName} = ${fieldName.replace(/^_/, "")}`);
   }
-  const auditAggs = new Set<string>();
-  // Every op-call in the body, nested ones included (a loop body, an `if let`
-  // branch, a `match` arm): an audited one injects the audit writer.
-  const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const root of sts) {
-      walkWorkflowStmtsDeep(root, (s) => {
-        if (s.kind !== "op-call") return;
-        const o = ctx.aggregates
-          .find((a) => a.name === s.aggName)
-          ?.operations.find((x) => x.name === s.op);
-        if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      });
-    }
-  };
-  collectAuditAggs(mergedStatements);
+  // Every audited op-call in the body, nested ones included, injects the
+  // audit writer.
+  const auditAggs = auditedOpCallAggregates(ctx, mergedStatements);
   const auditsOps = auditAggs.size > 0;
   if (auditsOps) {
     fields.push("    private readonly IAuditWriter _audit;");
@@ -1516,21 +1496,9 @@ function renderHandler(
   // Inject the writer + the usings the staged record and its before/after wire
   // projection (`new <Agg>Response(...)`) need, when any audited op-call is
   // present.  Provenance needs nothing here — it already flushes inside SaveAsync.
-  const auditAggs = new Set<string>();
-  // Every op-call in the body, nested ones included (a loop body, an `if let`
-  // branch, a `match` arm): an audited one injects the audit writer.
-  const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const root of sts) {
-      walkWorkflowStmtsDeep(root, (s) => {
-        if (s.kind !== "op-call") return;
-        const o = ctx.aggregates
-          .find((a) => a.name === s.aggName)
-          ?.operations.find((x) => x.name === s.op);
-        if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      });
-    }
-  };
-  collectAuditAggs(wf.statements);
+  // Every audited op-call in the body, nested ones included, injects the
+  // audit writer.
+  const auditAggs = auditedOpCallAggregates(ctx, wf.statements);
   const auditsOps = auditAggs.size > 0;
   if (auditsOps) {
     fields.push("    private readonly IAuditWriter _audit;");

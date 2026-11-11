@@ -514,6 +514,13 @@ export const AUTHZ_LADDERS = {
         arms: { anonymous: null, unauthorized: 403, authorized: 204 },
       },
       {
+        label: "gated operation — the one a workflow also calls inline",
+        method: "POST",
+        path: "/api/employees/{id}/promote",
+        body: {},
+        arms: { anonymous: null, unauthorized: 403, authorized: 204 },
+      },
+      {
         label: "inherited gate — the gated list read",
         method: "GET",
         path: "/api/payslips",

@@ -59,10 +59,12 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
+  callsAuditedOp,
   commandCreateReturnsSelf,
   eventSourcedWorkflows,
   hasStateRow,
   lookupOp,
+  workflowNeedsCurrentUser,
 } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
@@ -77,7 +79,6 @@ import {
   type WorkflowStmtIR,
   workflowCanAnswerNotFound,
   workflowIsGuarded,
-  workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
@@ -95,11 +96,7 @@ import {
   type EntryResultLeaf,
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
-import {
-  operationBodyUsesCurrentUser,
-  operationGates,
-  operationGatesUseCurrentUser,
-} from "../../../ir/util/op-gates.js";
+import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
 import {
   camelId,
   opOperation,
@@ -933,21 +930,6 @@ function renderProvFlush(
   return ls;
 }
 
-/** True when any inline op-call in `sts` targets an `audited` (non-extern)
- *  operation — the trigger for staging an audit_records row (and opening a
- *  child frame).  Shared by the workflow command route and the event reactor,
- *  both of which invoke ops inline (bypassing the per-operation route's audit). */
-function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") {
-      const o = lookupOp(ctx, s.aggName, s.op);
-      return !!o && o.audited && !o.extern;
-    }
-    if (s.kind === "for-each") return hasAuditedOpCall(ctx, s.body);
-    return false;
-  });
-}
-
 // Emit a workflow's `function` helpers as module-scoped, workflow-namespaced
 // functions.  Pure over params (the IR validators reject `this` + impurity), so
 // a plain `renderTsExpr` / `renderTsStatements` with the default `this`-context
@@ -1149,19 +1131,7 @@ function emitWorkflowRoute(
   // argument that the op-call renderer threads through (see the `op-call`
   // case), so `currentUser` must be in scope even if the workflow body
   // itself never names it.
-  const callsUserGatedOp = (sts: WorkflowStmtIR[]): boolean =>
-    sts.some((s) => {
-      if (s.kind === "op-call") {
-        const o = lookupOp(ctx, s.aggName, s.op);
-        // Either half can need the binding now: the remaining body (which
-        // still takes the trailing argument) or the hoisted gate rendered at
-        // this call site.
-        return !!o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o));
-      }
-      if (s.kind === "for-each") return callsUserGatedOp(s.body);
-      return false;
-    });
-  if (workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements)) {
+  if (workflowNeedsCurrentUser(wf, ctx)) {
     out.push(
       `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
@@ -1211,7 +1181,7 @@ function emitWorkflowRoute(
   // audit_records row (the per-operation route audits it; a workflow calling
   // it inline used to skip it — an audit-completeness gap).  Those rows also
   // want the child frame's scope / parent ids, so the frame opens for either.
-  const auditsOps = hasAuditedOpCall(ctx, wf.statements);
+  const auditsOps = callsAuditedOp(ctx, wf.statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, wf.statements);
   // aggregate name → its repo variable, so an inline audited op-call can take
   // the before/after wire snapshots through the repo (`repo.toWire(agg)`).
@@ -2453,7 +2423,7 @@ function emitHandlerFn(
     const agg = ctx.aggregates.find((a) => a.name === s.aggName);
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
-  const auditsOps = hasAuditedOpCall(ctx, statements);
+  const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
@@ -2587,7 +2557,7 @@ function emitEventSourcedHandlerFn(
     const agg = ctx.aggregates.find((a) => a.name === s.aggName);
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
-  const auditsOps = hasAuditedOpCall(ctx, statements);
+  const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));

@@ -1,5 +1,10 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
-import { isWorkflowSelfType, lookupOp, observableWorkflows } from "../../ir/plan/index.js";
+import {
+  isWorkflowSelfType,
+  lookupOp,
+  observableWorkflows,
+  workflowNeedsCurrentUser,
+} from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
@@ -11,14 +16,9 @@ import {
   type WorkflowStmtIR,
   workflowCanAnswerNotFound,
   workflowIsGuarded,
-  workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { type ReadPort, readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
-import {
-  operationBodyUsesCurrentUser,
-  operationGates,
-  operationGatesUseCurrentUser,
-} from "../../ir/util/op-gates.js";
+import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
 import {
   camelId,
   opWorkflow,
@@ -269,28 +269,6 @@ export function buildPyWorkflowsFile(
     body,
     "",
   );
-}
-
-/** The workflow body calls a currentUser-gated operation — the op's
- *  method signature takes a trailing `current_user` argument the
- *  op-call renderer threads through, so the actor must be bound even
- *  if the workflow body itself never names `currentUser`. */
-function callsUserGatedOp(sts: WorkflowStmtIR[], ctx: EnrichedBoundedContextIR): boolean {
-  // Rides the shared deep walker: the hand-rolled recursion this replaces
-  // descended into `for-each` ONLY, so a gated op-call inside an `if-let`
-  // branch never bound the actor (CLAUDE.md, no hand-rolled IR walks).
-  let found = false;
-  for (const top of sts) {
-    walkWorkflowStmtsDeep(top, (s) => {
-      if (found || s.kind !== "op-call") return;
-      const o = lookupOp(ctx, s.aggName, s.op);
-      // Either half can need the binding: the remaining body (trailing
-      // argument) or the hoisted gate rendered at this call site.
-      if (o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o))) found = true;
-    });
-    if (found) return true;
-  }
-  return false;
 }
 
 interface RepoNeed {
@@ -588,7 +566,7 @@ function workflowRoute(
   // A `requires`-guarded workflow declares its 403 outcome; a
   // currentUser-referencing one binds the actor off the request scope
   // before any rendered statement mentions the bare `current_user`.
-  const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
+  const usesUser = workflowNeedsCurrentUser(wf, ctx);
   const needsRequest = usesUser || commandCreateEntryResult(wf) !== undefined;
   const sig = [
     pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),

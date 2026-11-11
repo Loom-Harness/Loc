@@ -207,22 +207,6 @@ function stateRepoField(wf: WorkflowIR): string {
   return `${lowerFirst(wf.name)}StateRepository`;
 }
 
-/** Rides `walkWorkflowStmtExprsDeep` (M-T6.50 class, wave-2 packet 2.3): the
- *  hand-rolled `visit` this replaced had no arm for `assign` /
- *  `domain-service-call` / `if-let` / `repo-delete` (4 of `WorkflowStmtIR`'s
- *  14 kinds) — so a workflow that reads `currentUser` only inside one of
- *  those (`field := currentUser.id`, an `if-let` branch, …) never triggered
- *  the principal-threading this predicate gates, and the generated method
- *  omits the `currentUser` parameter its own body reads. */
-function workflowUsesCurrentUser(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): boolean {
-  // Delegates rather than walking `wf.statements` itself: a workflow that calls
-  // an operation whose GATE reads `currentUser` needs the principal too, and
-  // the gate is not in the workflow's own statement tree.  Walking only the
-  // statements missed it, so the emitted method omitted the `currentUser`
-  // parameter that the inlined gate then read — `javac` rejects it.
-  return workflowNeedsCurrentUser(wf, ctx);
-}
-
 /** Aggregates whose repository the given workflow BODIES touch — repo binds,
  *  factory-lets, deletes, and every save (at exit, per iteration, per `if-let`
  *  branch).  Each one becomes an injected `<Agg>Repository` field on the class
@@ -1143,7 +1127,7 @@ export function renderJavaWorkflows(
   // workflow below, emitted once into this package after the loop).
   const localVoRequests = new Set<string>();
   for (const wf of cmdWorkflows) {
-    const usesUser = workflowUsesCurrentUser(wf, ctx);
+    const usesUser = workflowNeedsCurrentUser(wf, ctx);
     // The own-state receiver: the loaded saga row, whose fields are
     // package-private with record-style accessors — so READS go through the
     // accessor (`accessorProps`) and WRITES through the JavaBean setter, the
@@ -1586,7 +1570,7 @@ export function renderJavaWorkflows(
   }
 
   const repoFields = [...repoAggs].sort();
-  const anyUser = authed && cmdWorkflows.some((wf) => workflowUsesCurrentUser(wf, ctx));
+  const anyUser = authed && cmdWorkflows.some((wf) => workflowNeedsCurrentUser(wf, ctx));
   const hasEmit = cmdWorkflows.some((wf) => workflowEmits(wf.statements).length > 0);
   const serviceName = `${ctx.name}Workflows`;
   // Injected reading-tier service beans (domain-services.md rev. 4): field name
