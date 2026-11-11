@@ -2,7 +2,9 @@ import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import {
   isWorkflowSelfType,
   lookupOp,
+  namesUsed,
   observableWorkflows,
+  refsRead,
   workflowIsolation,
   workflowNeedsCurrentUser,
 } from "../../ir/plan/index.js";
@@ -27,7 +29,6 @@ import {
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
 import {
-  walkExprDeep,
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
@@ -353,7 +354,7 @@ export function pyReadPortResolver(
  *  repository name across all service calls in the body.
  *
  *  On the SHARED, `never`-checked walker (`ir/util/walk.ts`), like
- *  `collectUsedLetNames` below.  The hand-enumerated `switch` it replaced had
+ *  `refsRead` (`src/ir/plan/`).  The hand-enumerated `switch` it replaced had
  *  no `domain-service-call` arm — the statement form a BARE `Audit.record(s, c)`
  *  lowers to — so a service invoked as a statement (rather than
  *  `let x = Svc.op(…)`) contributed no port.  The call site still rendered the
@@ -399,34 +400,8 @@ function mergeReadPortRepos(
   return out;
 }
 
-/** Names of `let` bindings referenced anywhere in the workflow body.  An
- *  `expr-let` whose name is absent here is dead — Python's ruff rejects the
- *  unused local (F841), so the emitter drops the binding and keeps the (still
- *  side-effecting) RHS as a bare statement.  Expression reads only — the
- *  emitter's guard set is {@link collectLiveLetNames}, which adds the bindings
- *  a statement names structurally (op-call receivers, saves).
- *
- *  Rides the SHARED, `never`-checked walker (`ir/util/walk.ts`) rather than a
- *  hand-enumerated `switch`: a missed statement kind here is not a cosmetic
- *  traversal gap, it emits a reference to a name the body never binds.  The
- *  hand-rolled copy this replaced had no `assign` / `domain-service-call` /
- *  `repo-delete` arm, so a `let` read only by `total := q.amount`,
- *  `Transfer.run(s, d, fee)` or `Orders.delete(o)` was scored "unused", its
- *  binding dropped, and the emitted body referenced an undefined name (ruff
- *  F821 → runtime `NameError`).  With the shared walker, the next
- *  `WorkflowStmtIR` kind fails `tsc` in ONE place instead of silently
- *  regressing this collector. */
-export function collectUsedLetNames(sts: WorkflowStmtIR[]): Set<string> {
-  const used = new Set<string>();
-  for (const st of sts)
-    walkWorkflowStmtExprsDeep(st, (n) => {
-      if (n.kind === "ref" && n.refKind === "let") used.add(n.name);
-    });
-  return used;
-}
-
-/** Names of `let` bindings the emitted body still needs — every name
- *  {@link collectUsedLetNames} finds (an expression read), PLUS the bindings a
+/** Names of `let` bindings the emitted body still needs — every `let`
+ *  read in an expression (`refsRead`), PLUS the bindings a
  *  statement names structurally rather than through an `ExprIR`: an `op-call`
  *  receiver (`j.mark(…)` carries `target: "j"`, not a `ref`) and every
  *  exit / per-iteration / branch save (`await jobs.save(j)`).  A `repo-let`
@@ -438,7 +413,7 @@ export function collectLiveLetNames(
   sts: readonly WorkflowStmtIR[],
   savesAtExit: readonly { name: string }[],
 ): Set<string> {
-  const live = collectUsedLetNames([...sts]);
+  const live = refsRead(sts, [], "let");
   for (const s of savesAtExit) live.add(s.name);
   // Closed, never-checked: a new statement kind that names a binding
   // outside an `ExprIR` must decide here whether it keeps a `let` alive.
@@ -488,20 +463,11 @@ function armReads(
   st: Extract<WorkflowStmtIR, { kind: "variant-match" }>,
   binding: string,
 ): boolean {
-  let found = false;
-  for (const arm of st.arms) {
-    if (arm.binding !== binding) continue;
-    if (arm.savesInArm.some((s) => s.name === binding)) found = true;
-    for (const root of arm.body) {
-      walkWorkflowStmtExprsDeep(root, (e) => {
-        if (e.kind === "ref" && e.name === binding) found = true;
-      });
-      walkWorkflowStmtsDeep(root, (n) => {
-        if (n.kind === "op-call" && n.target === binding) found = true;
-      });
-    }
-  }
-  return found;
+  return st.arms.some(
+    (arm) =>
+      arm.binding === binding &&
+      (arm.savesInArm.some((s) => s.name === binding) || namesUsed(arm.body).has(binding)),
+  );
 }
 
 /** Postgres `isolation_level` execution-option string for a DSL level. */
@@ -633,17 +599,7 @@ function workflowRoute(
   // (the corpus python leg runs `ruff check` as a gate), and a create that
   // takes a param it does not use is valid `.ddd` (`workflow-primitive-params`
   // exercises exactly that shape to pin the wire types).
-  const readParams = new Set<string>();
-  for (const st of wf.statements) {
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
-    });
-  }
-  if (result) {
-    walkExprDeep(result.value, (e) => {
-      if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
-    });
-  }
+  const readParams = refsRead(wf.statements, [result?.value], "param");
   const readCorrParam = commandCreateCorrelationParam(wf);
   if (readCorrParam) readParams.add(readCorrParam.name);
   for (const p of wf.params) {

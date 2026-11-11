@@ -32,6 +32,7 @@ export {
   resourceCalls,
 } from "./workflow-calls.js";
 export { dereferencedLoads } from "./workflow-loads.js";
+export { namesBound, namesUsed, refsRead } from "./workflow-names.js";
 export {
   auditedOpCallAggregates,
   callsAuditedOp,

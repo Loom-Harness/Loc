@@ -1,6 +1,6 @@
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
-import { isWorkflowSelfType, workflowIsolation } from "../../../ir/plan/index.js";
+import { isWorkflowSelfType, namesBound, workflowIsolation } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
   typeKey,
@@ -821,54 +821,6 @@ export function workflowBodyDerefNames(
   return out;
 }
 
-/** Every name a workflow statement body binds as a Java method local — `let`
- *  (expr / repo / factory / run), `for-each` and `if-let` variables — in
- *  first-seen order.  Exhaustive over `WorkflowStmtIR` so a new binding kind is
- *  a compile error here rather than a binding `withLetLocals` never sees. */
-export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[]): string[] {
-  const out = new Set<string>();
-  for (const body of bodies) {
-    for (const top of body) {
-      walkWorkflowStmtsDeep(top, (s) => {
-        switch (s.kind) {
-          case "factory-let":
-          case "repo-let":
-          case "repo-run":
-          case "expr-let":
-            out.add(s.name);
-            break;
-          case "for-each":
-          case "if-let":
-            out.add(s.var);
-            break;
-          // The present arm of a `T?` match declares its binding as a local; a
-          // tagged arm's binding is a pattern variable, not a `let`.
-          case "variant-match":
-            if (s.subjectShape === "absence") {
-              for (const arm of s.arms) if (arm.binding) out.add(arm.binding);
-            }
-            break;
-          case "repo-delete":
-          case "op-call":
-          case "precondition":
-          case "requires":
-          case "emit":
-          case "assign":
-          case "resource-call":
-          case "domain-service-call":
-          case "not-found":
-            break;
-          default: {
-            const _exhaustive: never = s;
-            void _exhaustive;
-          }
-        }
-      });
-    }
-  }
-  return [...out];
-}
-
 /** `base` extended with a `letExpr` that moves each of `names` (a body's
  *  `let`-style bindings) off `reserved` — the names the enclosing generated
  *  METHOD spells itself (its parameters, `request`, the saga row `state` /
@@ -1241,7 +1193,7 @@ export function renderJavaWorkflows(
         paramExpr: (n) => paramLocals.get(n),
         unionPkgOf: domainServiceUnionPkgOf(ctx, wctx.domainServicePkg, wctx.entityPkgOf),
       },
-      workflowBoundNames([wf.statements]),
+      namesBound([wf.statements]),
       new Set([
         ...(wf.params.length > 0 ? ["request"] : []),
         ...methodNames,

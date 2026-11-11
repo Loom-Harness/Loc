@@ -38,6 +38,7 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
+import { namesBound } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -93,7 +94,6 @@ import {
   repoField,
   withLetLocals,
   workflowBodyDerefNames,
-  workflowBoundNames,
 } from "./emit/workflow.js";
 import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
@@ -496,7 +496,7 @@ function renderHandlerClass(
       paramExpr: (n) => locals.get(n),
       unionPkgOf: domainServiceUnionPkgOf(ctx, domainServicePkg, entityPkgOf),
     },
-    workflowBoundNames([h.statements]),
+    namesBound([h.statements]),
     new Set([...methodNames, ...locals.values()]),
   );
   const bodyLines = renderWorkflowStmtChunks(

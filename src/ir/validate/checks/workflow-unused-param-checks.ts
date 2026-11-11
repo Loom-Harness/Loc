@@ -48,8 +48,13 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { BoundedContextIR, CreateIR, WorkflowIR } from "../../types/loom-ir.js";
-import { walkWorkflowStmtExprsDeep } from "../../util/walk.js";
+import { refsRead } from "../../plan/index.js";
+import type {
+  BoundedContextIR,
+  CreateIR,
+  WorkflowIR,
+  WorkflowStmtIR,
+} from "../../types/loom-ir.js";
 import { commandCreateCorrelationParam, facadeCreate } from "../../util/workflow-own-state.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -64,13 +69,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
  *  would read as unused and the warning would be a FALSE positive
  *  (`ir-walk-census`, the #2720/#2705 defect class). */
 function paramNamesRead(statements: readonly { kind: string }[]): Set<string> {
-  const read = new Set<string>();
-  for (const top of statements as readonly Parameters<typeof walkWorkflowStmtExprsDeep>[0][]) {
-    walkWorkflowStmtExprsDeep(top, (e) => {
-      if (e.kind === "ref" && e.refKind === "param") read.add(e.name);
-    });
-  }
-  return read;
+  return refsRead(statements as readonly WorkflowStmtIR[], [], "param");
 }
 
 function checkEntry(

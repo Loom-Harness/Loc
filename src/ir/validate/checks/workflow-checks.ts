@@ -18,7 +18,7 @@ import {
   isConstructible,
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
-import { hasStateRow, isWorkflowSelfType } from "../../plan/index.js";
+import { hasStateRow, isWorkflowSelfType, refsRead } from "../../plan/index.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
@@ -1159,13 +1159,8 @@ function validateWorkflowCrossContextRepositories(
     for (const st of statements) {
       // (a) the unresolved-receiver residue — the shape that actually occurs.
       walkWorkflowStmtsDeep(st, (inner) => {
-        const names = new Set<string>();
-        walkWorkflowStmtExprsDeep(inner, (e) => {
-          if (e.kind === "ref" && e.refKind === "unknown" && foreignRepos.has(e.name)) {
-            names.add(e.name);
-          }
-        });
-        if (names.size === 0) return;
+        const names = [...refsRead([inner], [], "unknown")].filter((n) => foreignRepos.has(n));
+        if (names.length === 0) return;
         // The `let` that bound the broken read — its name is now poisoned, so
         // every later use of it is a symptom, not a separate defect.
         if (inner.kind === "expr-let") poisoned.add(inner.name);

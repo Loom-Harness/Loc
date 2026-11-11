@@ -1,6 +1,6 @@
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { esStarterSharesEvent, subscriptionHandler } from "../../../ir/plan/index.js";
+import { esStarterSharesEvent, namesBound, subscriptionHandler } from "../../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -40,7 +40,6 @@ import {
   repoField,
   withLetLocals,
   workflowBodyDerefNames,
-  workflowBoundNames,
 } from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
@@ -846,7 +845,7 @@ function renderHandler(
       sub.param,
       param,
     ),
-    workflowBoundNames([resolved.statements]),
+    namesBound([resolved.statements]),
     new Set([...reserved, param]),
   );
   // Routing key: the `by <expr>` value, else the event field name-matching the
@@ -995,7 +994,7 @@ function renderEsHandler(
       sub.param,
       param,
     ),
-    workflowBoundNames([resolved.statements]),
+    namesBound([resolved.statements]),
     new Set([...reserved, param]),
   );
   const keyExpr = resolved.correlation
@@ -1176,7 +1175,7 @@ function esMergedBranchLines(
       branchParam,
       branchLocal,
     ),
-    workflowBoundNames([resolved.statements]),
+    namesBound([resolved.statements]),
     new Set([...reserved, methodParam, branchLocal]),
   );
   const stmtChunks = renderWorkflowStmtChunks(

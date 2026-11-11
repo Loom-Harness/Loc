@@ -30,6 +30,7 @@
 // limitation, matching the workflow op-call's `{:ok, _} <-` discard.
 // ---------------------------------------------------------------------------
 
+import { refsRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -95,8 +96,6 @@ import {
 import {
   type BodyLine,
   bodyReadsActor,
-  collectParamRefs,
-  collectWorkflowStmtParamRefs,
   lookupServiceTier,
   lowerStatements,
   tagsNotFoundMiss,
@@ -183,8 +182,7 @@ function handlerDestructure(
   // set also contains record param NAMES (their member receiver is a param ref),
   // but those are handled via the flattened field path below, not as scalars.
   const scalarRefs = new Set<string>();
-  for (const st of h.statements) collectWorkflowStmtParamRefs(st, scalarRefs);
-  collectParamRefs(h.returnValue, scalarRefs);
+  for (const n of refsRead(h.statements, [h.returnValue], "param")) scalarRefs.add(n);
   // Record-param field accesses (`cmd.<field>`) → which fields to destructure.
   const fieldRefs = new Map<string, Set<string>>();
   for (const st of h.statements) collectRecordFieldsInStmt(st, records, fieldRefs);
