@@ -13,7 +13,7 @@ import { lambdaArg, namedArgValue, positionalArgs } from "../shared/args.js";
 import { cellRowAggregate, extendRowScope } from "../shared/row-field-type.js";
 import type { ChildSlot } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
-import { emitExpr, propagateChildFlags, targetIdent, walk } from "../walker-core.js";
+import { emitExpr, enterScope, propagateChildFlags, targetIdent, walk } from "../walker-core.js";
 
 /** `For { each: <coll>, empty?: <markup>, <item> => <markup> }`.
  *
@@ -97,11 +97,9 @@ export function emitFor(
   // reason) answered "unknown" for a `For` item.  `cellRowAggregate` reads the
   // enclosing `QueryView`'s recording through both the bare-ref and the
   // server-paged `rows.items` spellings, exactly as the cell path does.
-  const bodyCtx: WalkContext = extendRowScope(
-    ctx,
-    itemLam.param,
-    itemVar,
-    cellRowAggregate(collArg, ctx),
+  const bodyCtx: WalkContext = enterScope(
+    extendRowScope(ctx, itemLam.param, itemVar, cellRowAggregate(collArg, ctx)),
+    { kind: "row", param: itemLam.param, collection: collArg },
   );
   // The `"value"` slot is F-024: this body renders into a VALUE position, so a
   // nested `For` must splice rather than emit a statement (Feliz FS0747 /

@@ -678,14 +678,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never bindDataAccess, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
   },
-  "src/generator/elixir/heex-target.ts#renderConditionalChild": {
-    invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderConditionalChild, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
-  },
-  "src/generator/elixir/heex-target.ts#renderForEach": {
-    invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderForEach, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
-  },
   "src/generator/elixir/heex-target.ts#renderLocaleSwitcher": {
     invariant:
       "heexTarget is never handed to the shared _walker engine; the HEEx walker renders LocaleSwitcher through heex-primitives.ts:renderLocaleSwitcher and never calls this seam, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked))",
