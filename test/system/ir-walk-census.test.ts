@@ -709,17 +709,6 @@ const STANDING_UI_BODY_VOCAB = {
     "unreachable — `loom.ui-body-statement-kind` (return/precondition/requires on every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, every frontend) and phase-③ scope resolution (`emit` has no aggregate to emit from in ui scope) refuse every kind this switch omits",
 } as const;
 
-/** Already rides a sanctioned walker (`walkWorkflowStmtChildren` /
- *  `walkExprDeep`) for the RECURSION step, with its own narrow, local per-kind
- *  logic layered on top — the census's if-chain detector still flags the local
- *  `if`/`||` guard itself (a narrow membership test, not a full dispatch),
- *  which a terminal `never`-checked `else` does not fit.  STANDING: the site is
- *  already in the shape this convention asks for. */
-const DELEGATES_TO_SANCTIONED_WALKER = {
-  standing:
-    "already rides walkWorkflowStmtChildren/walkExprDeep for recursion; the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage",
-} as const;
-
 // ---------------------------------------------------------------------------
 // Waivers — every entry names the exact site (file + enclosing function) and a
 // reason.  Ratcheted by the tests below: a waiver whose site is gone, whose
