@@ -735,7 +735,14 @@ export function buildWorkflowsFile(
   const outboxRowReferenced = new RegExp(`\\b${MIKRO_OUTBOX_ROW_CLASS}\\b`).test(bodyStr)
     ? [MIKRO_OUTBOX_ROW_CLASS]
     : [];
-  const entityImports = [...workflowRowsReferenced, ...eventRowsReferenced, ...outboxRowReferenced];
+  // An inline audited op-call's row under MikroORM (`AuditRecordRow`).
+  const auditRowReferenced = /\bAuditRecordRow\b/.test(bodyStr) ? ["AuditRecordRow"] : [];
+  const entityImports = [
+    ...workflowRowsReferenced,
+    ...eventRowsReferenced,
+    ...outboxRowReferenced,
+    ...auditRowReferenced,
+  ];
   if (entityImports.length > 0)
     imports.push(`import { ${entityImports.join(", ")} } from "../db/entities";`);
   // The persisted-workflow load helper filters by the correlation column.
@@ -1275,7 +1282,7 @@ function emitWorkflowRoute(
         ctx,
         paramExprs,
         wfThis,
-        { dbHandle: "tx", repoVarByAgg },
+        { dbHandle: "tx", repoVarByAgg, usingMikro },
         writeScope,
         "tx",
       ),
@@ -1318,7 +1325,7 @@ function emitWorkflowRoute(
         ctx,
         paramExprs,
         wfThis,
-        { dbHandle: "db", repoVarByAgg },
+        { dbHandle: "db", repoVarByAgg, usingMikro },
         writeScope,
         "db",
       ),
@@ -2400,7 +2407,7 @@ function emitHandlerFn(
       ctx,
       noParams,
       thisName,
-      { dbHandle: "db", repoVarByAgg },
+      { dbHandle: "db", repoVarByAgg, usingMikro },
       undefined,
       "db",
     ),
@@ -2534,7 +2541,7 @@ function emitEventSourcedHandlerFn(
       ctx,
       noParams,
       "state",
-      { dbHandle: "db", repoVarByAgg },
+      { dbHandle: "db", repoVarByAgg, usingMikro },
       undefined,
       "db",
     ),
@@ -2770,7 +2777,7 @@ export function honoWorkflowStmtTarget(
   thisName = "this",
   /** Present only on the command-route path: enables staging an audit_records
    *  row for an inline `audited` op-call (the reactor path passes none). */
-  audit?: { dbHandle: string; repoVarByAgg: Map<string, string> },
+  audit?: { dbHandle: string; repoVarByAgg: Map<string, string>; usingMikro?: boolean },
   /** The body's write-scope requirement — present on a command body (a
    *  workflow's command route, a command handler) in a context with a
    *  narrowed write scope; a reactor passes none. */
@@ -2903,7 +2910,11 @@ export function honoWorkflowStmtTarget(
           `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
           `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
           `${indent}  const ${c} = requestContext();`,
-          `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
+          // drizzle inserts through the table, MikroORM through the row entity
+          // (the routes' `historyInsertCall` spelling).
+          audit.usingMikro
+            ? `${indent}  await ${audit.dbHandle}.insert(AuditRecordRow, {`
+            : `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
           `${indent}    auditId: randomUUID(),`,
           `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
           `${indent}    action: "${st.op}",`,

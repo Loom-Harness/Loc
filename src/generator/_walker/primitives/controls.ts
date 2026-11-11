@@ -24,12 +24,15 @@ import {
   positionalArgs,
   stringNamed,
 } from "../shared/args.js";
+import type { EventHandlerSource } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import {
   emitExpr,
   emitStmt,
+  enterScope,
   extendLambdaParams,
   navArgValue,
+  navAttrFragment,
   propagateChildFlags,
   recordStoreUse,
   STANDARD_AGG_OPS,
@@ -120,8 +123,26 @@ export function emitButton(
   // through the event-handler seam.
   const onClickAction = actionRefArg(call, "onClick");
   const onClick = lambdaArg(call, "onClick");
-  let onClickHandler: string | undefined;
-  if (onClickAction?.storeName) {
+  // A target whose handler bodies live outside the view binds the handler
+  // itself and hands back what the button names.
+  const source: EventHandlerSource | undefined = onClickAction?.storeName
+    ? {
+        kind: "store-action",
+        storeName: onClickAction.storeName,
+        actionName: onClickAction.actionName,
+      }
+    : onClickAction
+      ? { kind: "action", actionName: onClickAction.actionName }
+      : onClick && (onClick.block || onClick.body)
+        ? { kind: "lambda", lambda: onClick }
+        : undefined;
+  let onClickHandler = source ? ctx.target.bindEventHandler?.(source, ctx) : undefined;
+  // The destination of a navigating button, for a pack that renders one as a
+  // link rather than through a click handler.
+  const navigateTo = navArgValue(call, "to", ctx);
+  if (onClickHandler !== undefined) {
+    // Bound by the target.
+  } else if (onClickAction?.storeName) {
     // A bare STORE action as the handler (`onClick: Cart.clear`) — record the
     // store use (so the shell binds the store-action local) and reference that
     // local, exactly as a store-action call from a body does.  Without this the
@@ -146,7 +167,7 @@ export function emitButton(
     // param, or a computed one (`to: "/greet/" + who`).  Accepting only the
     // literal and param forms would leave a button that renders but navigates
     // nowhere.
-    const to = navArgValue(call, "to", ctx)?.expr;
+    const to = navigateTo?.expr;
     if (to) {
       ctx.usesNavigate = true;
       // Route through the navigate + event-handler seams so statement-binding
@@ -186,6 +207,10 @@ export function emitButton(
   }
   return renderPrimitive(ctx, "primitive-button", {
     label: localizedText(call, ctx, "button", '"Button"'),
+    toAttr: navigateTo ? navAttrFragment(navigateTo, ctx, "to") : "",
+    hasText: positionalArgs(call).length > 0,
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     onClick: onClickHandler,
     hasOnClick: onClickHandler !== undefined,
     disabled,
@@ -750,31 +775,34 @@ export function emitQueryView(
     const recordProjections = new Set(
       [...(ctx.projectionsByName ?? [])].filter((n) => !ctx.listShapedProjections?.has(n)),
     );
-    const childCtx: WalkContext = {
-      ...ctx,
-      lambdaParams: extendLambdaParams(ctx, data.param, dataAccess),
-      paramTypes: childParamTypes,
-      pagedListBindings: childPagedListBindings,
-      listRowAggregates: listAgg
-        ? new Map([...(ctx.listRowAggregates ?? []), [data.param, listAgg]])
-        : ctx.listRowAggregates,
-      pagedEnvelopeBindings: childPagedEnvelopeBindings,
-      // A non-`single` `data:` param IS a collection, however the target
-      // spells the access — but it carries no array `TypeIR` (lowering leaves
-      // UI-primitive lambda params at the `string` placeholder), so a
-      // collection op read off it (`rows.count`) is recognisable only through
-      // this set.  Grown by the SAME function the IR-validate gate uses
-      // (`rowSetLambdaParam`), so gate and walker cannot disagree about which
-      // nodes are collection-op sites — a disagreement in the "gate allows,
-      // walker doesn't recognise" direction would re-open the verbatim
-      // emission `loom.frontend-collection-op-unsupported` exists to prevent.
-      rowSetBindings: rowSetLambdaParam(call, recordProjections)
-        ? new Set([...(ctx.rowSetBindings ?? []), data.param])
-        : // `single: true` binds ONE record — SHADOW an outer binding of the
-          // same name rather than inheriting it (the same rebind discipline
-          // the two paged maps above follow).
-          shadow(ctx.rowSetBindings, data.param),
-    };
+    const childCtx: WalkContext = enterScope(
+      {
+        ...ctx,
+        lambdaParams: extendLambdaParams(ctx, data.param, dataAccess),
+        paramTypes: childParamTypes,
+        pagedListBindings: childPagedListBindings,
+        listRowAggregates: listAgg
+          ? new Map([...(ctx.listRowAggregates ?? []), [data.param, listAgg]])
+          : ctx.listRowAggregates,
+        pagedEnvelopeBindings: childPagedEnvelopeBindings,
+        // A non-`single` `data:` param IS a collection, however the target
+        // spells the access — but it carries no array `TypeIR` (lowering leaves
+        // UI-primitive lambda params at the `string` placeholder), so a
+        // collection op read off it (`rows.count`) is recognisable only through
+        // this set.  Grown by the SAME function the IR-validate gate uses
+        // (`rowSetLambdaParam`), so gate and walker cannot disagree about which
+        // nodes are collection-op sites — a disagreement in the "gate allows,
+        // walker doesn't recognise" direction would re-open the verbatim
+        // emission `loom.frontend-collection-op-unsupported` exists to prevent.
+        rowSetBindings: rowSetLambdaParam(call, recordProjections)
+          ? new Set([...(ctx.rowSetBindings ?? []), data.param])
+          : // `single: true` binds ONE record — SHADOW an outer binding of the
+            // same name rather than inheriting it (the same rebind discipline
+            // the two paged maps above follow).
+            shadow(ctx.rowSetBindings, data.param),
+      },
+      { kind: "query-data", query: call, param: data.param },
+    );
     dataJsx = data.body ? walk(data.body, childCtx, depth + 2, "value") : nothing;
     propagateChildFlags(ctx, childCtx);
   } else if (data) {
@@ -791,14 +819,17 @@ export function emitQueryView(
   // signal / `?? []` variant) instead of a bare `<query>.data.length`.  The
   // `data:` lambda binding stays `<query>.data` (the envelope) in both modes —
   // a paged body reads `rows.items` / `rows.totalPages` off it.
+  // A target that keeps the read's state itself binds it now, after the
+  // branches, and answers what the ladder tests.
+  const bound = ctx.target.bindQueryView?.({ call, of: ofArg }, ctx);
   return renderPrimitive(ctx, "primitive-query-view", {
-    queryExpr,
+    queryExpr: bound?.readExpr ?? queryExpr,
     loadingJsx,
     errorJsx,
     emptyJsx,
     dataJsx,
-    single,
-    paged,
+    single: bound?.single ?? single,
+    paged: bound?.paged ?? paged,
     indent,
     branchIndent,
     closeIndent,

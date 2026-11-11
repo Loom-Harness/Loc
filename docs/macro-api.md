@@ -174,6 +174,16 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `workflowsIn(ctx)` | All workflows in a bounded context. |
 | `originOf(node)` | The `OriginToken` for a synthesised node (or `undefined` for user-written code).  Used by composer macros to filter out macro-synthesised fields when scanning the host. |
 
+## Macro or capability?
+
+Write a **capability** when the feature is fields plus read/save-path hooks
+(`filter`, `stamp`) — it needs no TypeScript and stays a pure mixin.  Write a
+**macro** when it adds declarations or behaviour (operations, aggregates,
+events, policies, workflows, pages).  When a feature needs both, pair them
+(`with softDeletable, softDelete`).  The full table, and the one built-in that
+combines both under a single name (`shareable`), is in
+[`capabilities.md`](capabilities.md#relationship-to-macros).
+
 ## When macros run
 
 Macro expansion is **AST phase ②**, between parse and scope/link

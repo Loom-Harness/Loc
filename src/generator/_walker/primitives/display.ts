@@ -209,12 +209,13 @@ export function emitSkeleton(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
   const height = numericNamed(call, "height") ?? 28;
   const count = numericNamed(call, "count") ?? 1;
   return renderPrimitive(ctx, "primitive-skeleton", {
     height,
     count,
+    hasCount: numericNamed(call, "count") !== undefined,
+    closeIndent: "  ".repeat(depth),
     isMulti: count > 1,
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),

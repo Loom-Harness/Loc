@@ -632,7 +632,7 @@ Worked example and the node output: [`../tenancy.md`](../tenancy.md#the-policy--
 
 ### Sharing — `shareable`
 
-`with shareable` on a `tenantOwned` aggregate X lets its rows be shared beyond their org. It unfolds to ordinary context members (`unfold` ejects them as editable source, and an authored member of the same name wins):
+`with shareable` on a `tenantOwned` aggregate X lets its rows be shared beyond their org. `shareable` is a member-less capability marker; the macro layer unfolds it ([capability vs macro](../capabilities.md#relationship-to-macros)) to ordinary context members (`unfold` ejects them as editable source, and an authored member of the same name wins):
 
 - `enum ShareGranteeKind { Org, Subtree, User }` — once per context;
 - `aggregate XShare with tenantOwned` — the target (`x: X id`), the grantee (`granteeKind`, `org: <Registry> id?`, `user: <user id type>?`), `write: bool`, `revoked: bool`, two grantee invariants, a `create` that emits `XShared`, and `operation revoke()` that emits `XUnshared`; both require `exists X for write as x where x.id == <x> && x.tenantId == organizationContext.org` — the sharer may write the row, in its own org;
