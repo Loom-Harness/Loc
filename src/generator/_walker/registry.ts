@@ -52,7 +52,6 @@ import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
 // Re-exported renderers from the Phoenix/HEEx walker.  Each function
 // takes `(call, ctx)` and returns the HEEx fragment.
 import {
-  renderAction as renderActionHeex,
   renderBreadcrumbs as renderBreadcrumbsHeex,
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
@@ -688,7 +687,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitAction,
-    heex: renderActionHeex,
     a11y: { role: "button", needsName: true, keyboard: "activate" },
   },
   // --- For-comprehension — list rendering with an item lambda.

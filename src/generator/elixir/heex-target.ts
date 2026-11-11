@@ -18,6 +18,7 @@ import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
+import { renderHeexAction } from "./heex-action.js";
 import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
@@ -346,6 +347,15 @@ export const heexTarget: WalkerTarget = {
       "<% end %>",
     ].join("\n");
     return indentTail(fragment, depth);
+  },
+
+  /** `Action(<instance>.<operation>)` — a LiveView runs the operation from a
+   *  hoisted `handle_event` clause, not through a client mutation handle, so
+   *  the whole primitive renders here (`heex-action.ts`). */
+  renderAction(call, ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") return null;
+    return indentTail(renderHeexAction(call, engineContext(heex, ctx)), depth);
   },
 
   /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under

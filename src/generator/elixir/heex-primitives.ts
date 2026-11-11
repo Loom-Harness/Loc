@@ -45,6 +45,7 @@ import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.j
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
 import type { InputControl, QueryViewRead } from "../_walker/target.js";
+import { gateActionButton } from "./heex-action.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -55,7 +56,6 @@ import {
 import {
   escapeHeexAttr,
   escapeHeexText,
-  gateActionButton,
   hostStateAssign,
   indent,
   isAttrRenderable,
