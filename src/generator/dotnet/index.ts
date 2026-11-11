@@ -4,6 +4,7 @@ import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { aggregateRouteTypes } from "../../ir/enrich/wire-policy.js";
+import { hasDurableEvents } from "../../ir/plan/index.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -780,7 +781,7 @@ function emitProjectFromContexts(
     // (`emitDapperMigrations`) — every table the repositories and the workflow /
     // saga / outbox / projection / audit / provenance surfaces read is in that
     // chain, so this adapter keeps no DDL of its own.
-    const dapperWfDurable = durableEventTypes(merged).size > 0;
+    const dapperWfDurable = hasDurableEvents(merged);
     out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
@@ -882,7 +883,7 @@ function emitProjectFromContexts(
       merged.workflows,
       ns,
       out,
-      durableEventTypes(merged).size > 0,
+      hasDurableEvents(merged),
       resolveWorkflowSchema,
     );
     // Projection read-model row POCOs + EF configs (one per projection); the

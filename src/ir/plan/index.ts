@@ -22,7 +22,15 @@
 //
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
+export { hasDurableEvents } from "./context-events.js";
 export { lookupOp } from "./operation-lookup.js";
+export {
+  type RemoteApiOpRef,
+  type ResourceCalls,
+  type ResourceOpRef,
+  resourceCalls,
+} from "./workflow-calls.js";
+export { dereferencedLoads } from "./workflow-loads.js";
 export {
   auditedOpCallAggregates,
   callsAuditedOp,

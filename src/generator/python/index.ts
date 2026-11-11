@@ -12,7 +12,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../ir/enrich/wire-policy.js";
-import { observableWorkflows } from "../../ir/plan/index.js";
+import { hasDurableEvents, observableWorkflows } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   DeployableIR,
@@ -524,7 +524,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // (design §5): no subscription, but the relay must still drain the outbox
   // to publish.  No durable channel → byte-identical boot.
   const startsRelay =
-    durableEventTypes(merged).size > 0 &&
+    hasDurableEvents(merged) &&
     (dispatchSubscriptionsOf(merged).length > 0 || durableBrokerEvents.size > 0);
   // Explicit transport layer (unfoldable-api-derivation.md, A2): one APIRouter
   // per served api whose `route` list resolves to a hosted handler, dispatching

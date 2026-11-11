@@ -5,7 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import { hasStateRow } from "../../../ir/plan/index.js";
+import { hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -16,7 +16,6 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
@@ -271,7 +270,7 @@ export function renderSchema(
   // channel asks for durability (`retention: log | work`).  The dispatcher
   // records durable events here; the relay drains undispatched rows in
   // insert order (serial id) through the in-process dispatcher.
-  if (durableEventTypes(ctx).size > 0) tables.push(OUTBOX_TABLE);
+  if (hasDurableEvents(ctx)) tables.push(OUTBOX_TABLE);
   // Persisted workflow-correlation state (workflow-and-applier.md A2-S2):
   // one row per running workflow instance, keyed by the correlation field, with
   // the saga state fields as columns.  Emitted for any workflow that declares a
@@ -613,7 +612,7 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
   // durable channel the relay redelivers at-least-once, so the saga row
   // records the last processed outbox event id — the handler preamble
   // no-ops on a repeat.  Ephemeral-only contexts stay byte-identical.
-  if (durableEventTypes(ctx).size > 0) {
+  if (hasDurableEvents(ctx)) {
     lines.push(`  lastEventId: text("last_event_id"),`);
   }
   lines.push(`});`);

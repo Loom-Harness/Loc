@@ -2,8 +2,11 @@ import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
+  dereferencedLoads,
+  hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
+  resourceCalls,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -37,7 +40,6 @@ type ResolvedWorkflowBody = {
 
 import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
 import {
@@ -50,10 +52,9 @@ import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   mapExprChildren,
-  walkExprDeep,
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
-  walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
@@ -168,37 +169,18 @@ export function buildResourceClasses(sys: SystemIR | undefined): Map<string, str
   return out;
 }
 
-/** Every resource-op call in a workflow (bare or let-bound). */
-function workflowResourceOps(wf: WorkflowIR): { resourceName: string }[] {
-  const out: { resourceName: string }[] = [];
-  for (const st of wf.statements) {
-    const call =
-      st.kind === "resource-call" ? st.call : st.kind === "expr-let" ? st.expr : undefined;
-    if (call?.kind === "call" && call.callKind === "resource-op" && call.resourceOp) {
-      out.push({ resourceName: call.resourceOp.resourceName });
-    }
-  }
-  return out;
-}
-
-/** True when any of these statements issues a typed in-system api call — the
- *  gate for the `<ns>.Resources` using.  Separate from `usesResourceOp`
- *  because an api-bound resource has NO sourceType-routed helper class, so
- *  `resourceClasses` is empty for it and the resource-op gate never fires.
- *  Uses the DEEP walker: a typed call nested inside another expression is
- *  legal, and the shallow statement shapes would miss it. */
-function usesRemoteApiOp(statements: readonly WorkflowStmtIR[]): boolean {
-  let found = false;
-  for (const st of statements) {
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (e.kind === "call" && e.callKind === "remote-api-op") found = true;
-    });
-  }
-  return found;
-}
-
-function workflowUsesResourceOp(wf: WorkflowIR): boolean {
-  return workflowResourceOps(wf).length > 0;
+/** True when the body calls a raw-verb resource op or a typed in-system api.
+ *  A resource op needs the `<ns>.Resources` using only when a sourceType-routed
+ *  helper class exists for it; an api-bound resource has no such class, so a
+ *  typed call needs the using on its own. */
+function usesResourcesNamespace(
+  statements: readonly WorkflowStmtIR[],
+  resourceClasses: ReadonlyMap<string, string>,
+): boolean {
+  const calls = resourceCalls(statements);
+  return (
+    (resourceClasses.size > 0 && calls.resourceOps.length > 0) || calls.remoteApiOps.length > 0
+  );
 }
 
 export function emitWorkflows(
@@ -588,7 +570,6 @@ function analyseStmts(
   // injected `I<Op><Agg>Handler` to collect / inject), so `externs` stays empty
   // — kept only to satisfy the WorkflowUsage shape the handler renderers read.
   const externs = new Map<string, { aggName: string; opName: string }>();
-  let hasEmit = false;
   for (const save of saves) repos.set(save.repoName, save.aggName);
   // INSERTION ORDER on `repos` is load-bearing downstream, so this rides
   // `walkWorkflowStmtChildren` (wave-2 packet 2.3) for the RECURSION step
@@ -599,10 +580,6 @@ function analyseStmts(
       repos.set(st.repoName, st.aggName);
       return;
     }
-    if (st.kind === "emit") {
-      hasEmit = true;
-      return;
-    }
     // The if-let single-row lookup reads through its repo; every nesting
     // statement saves through the repos its branches stage.
     if (st.kind === "if-let") repos.set(st.repoName, st.aggName);
@@ -610,7 +587,7 @@ function analyseStmts(
     walkWorkflowStmtChildren(st, { workflowStmt: walk });
   };
   for (const st of statements) walk(st);
-  return { repos, hasEmit, externs };
+  return { repos, hasEmit: workflowEmits(statements).length > 0, externs };
 }
 
 /** One `INotificationHandler<TEvent>` for a reactor / event-create.  The
@@ -758,13 +735,7 @@ function renderEventReactorHandler(
     );
   }
   const resourceClasses = buildResourceClasses(sys);
-  const usesResourceOp = statements.some((st) => {
-    const call =
-      st.kind === "resource-call" ? st.call : st.kind === "expr-let" ? st.expr : undefined;
-    return call?.kind === "call" && call.callKind === "resource-op";
-  });
-  if ((resourceClasses.size > 0 && usesResourceOp) || usesRemoteApiOp(statements))
-    usings.add(`${ns}.Resources`);
+  if (usesResourcesNamespace(statements, resourceClasses)) usings.add(`${ns}.Resources`);
   const renderArg = (e: ExprIR): string => {
     collectCsExprUsings(e, usings, ns);
     return renderExprWithEventParam(e, paramName, resourceClasses, thisName);
@@ -830,7 +801,7 @@ function renderEventReactorHandler(
         stmtLines.push("            return;");
         stmtLines.push("        }");
       }
-      if (durableEventTypes(ctx).size > 0) {
+      if (hasDurableEvents(ctx)) {
         // Idempotent-consumer marker (dispatch-delivery-semantics.md §3):
         // the relay rides the outbox row id on OutboxDelivery.CurrentEventId;
         // a repeat of the recorded id is a no-op (at-least-once →
@@ -898,7 +869,7 @@ function renderEventReactorHandler(
     }
   } else if (persisted) {
     // Persist the saga row (a new allocation, or a `this.<stateField>` mutation).
-    if (durableEventTypes(ctx).size > 0) {
+    if (hasDurableEvents(ctx)) {
       stmtLines.push("        if (__eventId is not null) state.LastEventId = __eventId;");
     }
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
@@ -1126,13 +1097,7 @@ function renderMergedEventSourcedHandler(
   usings.add(`${ns}.Infrastructure.Persistence.Events`);
 
   const resourceClasses = buildResourceClasses(sys);
-  const usesResourceOp = mergedStatements.some((st) => {
-    const call =
-      st.kind === "resource-call" ? st.call : st.kind === "expr-let" ? st.expr : undefined;
-    return call?.kind === "call" && call.callKind === "resource-op";
-  });
-  if ((resourceClasses.size > 0 && usesResourceOp) || usesRemoteApiOp(mergedStatements))
-    usings.add(`${ns}.Resources`);
+  if (usesResourcesNamespace(mergedStatements, resourceClasses)) usings.add(`${ns}.Resources`);
 
   const corr = wf.correlationField as string;
   const corrPascal = upperFirst(corr);
@@ -1250,7 +1215,6 @@ interface WorkflowUsage {
 function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
   const repos = new Map<string, string>();
   const externs = new Map<string, { aggName: string; opName: string }>();
-  let hasEmit = false;
   for (const save of wf.savesAtExit) {
     repos.set(save.repoName, save.aggName);
   }
@@ -1262,10 +1226,6 @@ function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
       repos.set(st.repoName, st.aggName);
       return;
     }
-    if (st.kind === "emit") {
-      hasEmit = true;
-      return;
-    }
     // The if-let single-row lookup dereferences its repo (`Run…Async`), and
     // every nesting statement saves per branch — register the repo + the
     // branch saves, else the handler references `_<repo>` without injecting it
@@ -1275,7 +1235,7 @@ function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
     walkWorkflowStmtChildren(st, { workflowStmt: walk });
   };
   for (const st of wf.statements) walk(st);
-  return { repos, hasEmit, externs };
+  return { repos, hasEmit: workflowEmits(wf.statements).length > 0, externs };
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,8 +1514,7 @@ function renderHandler(
   // built from the system's resources + storages.  Empty when the
   // deployable wires no consumable resources.
   const resourceClasses = buildResourceClasses(sys);
-  if ((resourceClasses.size > 0 && workflowUsesResourceOp(wf)) || usesRemoteApiOp(wf.statements))
-    usings.add(`${ns}.Resources`);
+  if (usesResourcesNamespace(wf.statements, resourceClasses)) usings.add(`${ns}.Resources`);
   const renderArg = (e: import("../../ir/types/loom-ir.js").ExprIR): string => {
     // Collect the rendered expression's non-implicit namespaces adjacent
     // to rendering (`renderArg` is the single choke point for every
@@ -1590,7 +1549,7 @@ function renderHandler(
   }
   // Guard exactly the getById loads this command handler later dereferences
   // (op-call targets); loads only read to seed a `create` stay unguarded.
-  const dereffedLoads = collectDereferencedLoads(wf.statements);
+  const dereffedLoads = dereferencedLoads(wf.statements);
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
   // (`renderWorkflowStmts` IS `chunks.flat()` by construction), but the
@@ -1787,52 +1746,6 @@ function renderCsOmission(
     case "null":
       return "null";
   }
-}
-
-/**
- * Walk a workflow body (recursing into `for-each` bodies) and collect the
- * names that are dereferenced — every `op-call` target, every aggregate arg
- * to a domain-service call, and every name whose MEMBERS are read inside any
- * body expression (`loaded.code + "-" + seg` in an op-call arg or
- * factory-let seed).  A `getById` load bound to such a name is load-or-throw:
- * the deref (`b.Promote(...)`, `loaded.Code`) would be a CS8602 under
- * nullable-reference types unless the `Task<T?>` result is guarded.  Loads
- * that are never dereferenced (e.g. a load passed whole into a `create`
- * field) stay unguarded and byte-identical.
- */
-function collectDereferencedLoads(stmts: readonly WorkflowStmtIR[]): Set<string> {
-  const names = new Set<string>();
-  const visitExpr = (e: ExprIR): void => {
-    // Member/method reads on a plain ref dereference that name —
-    // `loaded.Code` on an unguarded `Task<T?>` result is the same CS8602
-    // an op-call deref is.
-    if ((e.kind === "member" || e.kind === "method-call") && e.receiver.kind === "ref") {
-      names.add(e.receiver.name);
-    }
-  };
-  // Rides `walkWorkflowStmtsDeep` (M-T6.50 class, wave-2 packet 2.3): the
-  // hand-rolled version only recursed into `for-each` bodies — an `op-call`
-  // / `domain-service-call` / member-dereferencing expression living inside
-  // an `if-let` branch was invisible to both halves of this collector, so a
-  // `getById` load only dereferenced there stayed unguarded and could throw
-  // CS8602/CS8604 under nullable-reference types.
-  for (const top of stmts) {
-    walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "op-call") names.add(st.target);
-      else if (st.kind === "domain-service-call") {
-        // A `mutating`/`reading` service call dereferences every aggregate ARG
-        // it is passed (the service operates on them), so a `getById` load
-        // passed into one is load-or-throw — guard it, or the non-null
-        // `Account` param is a CS8604 (domain-services.md rev. 4).
-        const args = st.call.kind === "call" ? st.call.args : [];
-        for (const a of args) {
-          if (a.kind === "ref") names.add(a.name);
-        }
-      }
-      walkWorkflowStmtChildren(st, { expr: (e) => walkExprDeep(e, visitExpr) });
-    });
-  }
-  return names;
 }
 
 // The .NET leaf table for the shared workflow statement spine

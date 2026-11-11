@@ -31,8 +31,10 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               → use `workflowBodyUsesOwnState` / `workflowBodyReadsOwnState`
 //               (`src/ir/util/workflow-own-state.ts`).
 //
-//   audited-call  a body-scan callback (handed to a `walk…Deep` walker or to
-//               `.some` / `.every` / `.filter` / `.find` / `.forEach`) that
+//   audited-call  a body-scan callback (handed to a `walk…Deep` /
+//               `walk…Children` walker or to `.some` / `.every` / `.filter` /
+//               `.find` / `.forEach`; inline, or a same-file function passed by
+//               name or as a visitor-object property) that
 //               compares a `kind` with `"op-call"` and reads `.audited` — the
 //               hand-rolled "does this body call an audited operation" scan.
 //               → use `auditedOpCallAggregates` / `callsAuditedOp`.
@@ -40,6 +42,24 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               and asking `operation{Body,Gates,}Use(s)CurrentUser` — the
 //               hand-rolled "must this body bind the principal" scan.
 //               → use `workflowNeedsCurrentUser`.
+//   resource-calls  the same kind of callback, over workflow statements (a
+//               `walkWorkflowStmt…` walker, or one that also tests the
+//               `"resource-call"` statement kind), comparing a `callKind` with
+//               `"resource-op"` or `"remote-api-op"` — the hand-rolled "which
+//               resource helpers does this body import" scan.
+//               → use `resourceCalls`.
+//   emits       a callback handed to a `walkWorkflowStmt…` walker comparing a
+//               `kind` with `"emit"` — the hand-rolled "does this body emit"
+//               scan.  (Operation statements have an `emit` kind too, so the
+//               rule reads only the workflow walkers.)
+//               → use `workflowEmits`.
+//   deref-loads the same kind of callback comparing a `kind` with `"op-call"`
+//               and collecting its `.target` into a set (`names.add(st.target)`)
+//               — the hand-rolled "which loads does this body dereference" scan.
+//               → use `dereferencedLoads`.
+//   durable     `durableEventTypes(…).size` — the hand-spelled "does this
+//               context route events through the outbox" test.
+//               → use `hasDurableEvents`.
 //
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
@@ -110,9 +130,115 @@ function isTruthinessRead(body: ts.Node, prop: string): boolean {
 }
 
 interface Violation {
-  rule: "state-row" | "set-filter" | "self-result" | "own-state" | "audited-call" | "needs-user";
+  rule:
+    | "state-row"
+    | "set-filter"
+    | "self-result"
+    | "own-state"
+    | "audited-call"
+    | "needs-user"
+    | "resource-calls"
+    | "emits"
+    | "deref-loads"
+    | "durable";
   where: string;
   text: string;
+}
+
+/** Bodies of the function-like callbacks among `args`: an inline arrow or
+ *  function, a same-file named function or `const f = (…) => …` passed by
+ *  name, or either of those as a property value of an object literal (the
+ *  `walkWorkflowStmtChildren(st, { workflowStmt: walk })` visitor form). */
+function callbackBodies(
+  args: readonly ts.Expression[],
+  localFns: ReadonlyMap<string, ts.Node>,
+): ts.Node[] {
+  const out: ts.Node[] = [];
+  const take = (e: ts.Expression): void => {
+    if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) out.push(e.body);
+    else if (ts.isIdentifier(e)) {
+      const body = localFns.get(e.text);
+      if (body) out.push(body);
+    } else if (ts.isObjectLiteralExpression(e)) {
+      for (const prop of e.properties) {
+        if (ts.isPropertyAssignment(prop)) take(prop.initializer);
+        else if (ts.isShorthandPropertyAssignment(prop)) take(prop.name);
+      }
+    }
+  };
+  for (const a of args) take(a);
+  return out;
+}
+
+/** Named function-like declarations in a file: `function f` and
+ *  `const f = (…) => …` / `function (…)`. */
+function localFunctions(sf: ts.SourceFile): Map<string, ts.Node> {
+  const out = new Map<string, ts.Node>();
+  const visit = (n: ts.Node): void => {
+    if (ts.isFunctionDeclaration(n) && n.name && n.body) out.set(n.name.text, n.body);
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+    ) {
+      out.set(n.name.text, n.initializer.body);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** What a body-scan callback looks at. */
+function callbackFacts(body: ts.Node) {
+  const f = {
+    opCall: false,
+    audited: false,
+    userAsk: false,
+    resourceKind: false,
+    workflowOnlyKind: false,
+    emitKind: false,
+    addsTarget: false,
+  };
+  const collect = (m: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(m) &&
+      (m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        m.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) &&
+      ts.isStringLiteral(m.right)
+    ) {
+      const field = propName(m.left);
+      const lit = m.right.text;
+      if (field === "kind" && lit === "op-call") f.opCall = true;
+      if (field === "kind" && lit === "emit") f.emitKind = true;
+      if (field === "kind" && lit === "resource-call") f.workflowOnlyKind = true;
+      if (field === "callKind" && (lit === "resource-op" || lit === "remote-api-op")) {
+        f.resourceKind = true;
+      }
+    }
+    if (ts.isPropertyAccessExpression(m) && m.name.text === "audited") f.audited = true;
+    if (
+      ts.isCallExpression(m) &&
+      ts.isIdentifier(m.expression) &&
+      /^operation(Body|Gates)?Uses?CurrentUser$/.test(m.expression.text)
+    ) {
+      f.userAsk = true;
+    }
+    // `names.add(st.target)` — collecting op-call targets.
+    if (
+      ts.isCallExpression(m) &&
+      ts.isPropertyAccessExpression(m.expression) &&
+      m.expression.name.text === "add" &&
+      m.arguments.length === 1 &&
+      propName(m.arguments[0]!) === "target"
+    ) {
+      f.addsTarget = true;
+    }
+    ts.forEachChild(m, collect);
+  };
+  collect(body);
+  return f;
 }
 
 function scan(file: string): Violation[] {
@@ -120,6 +246,7 @@ function scan(file: string): Violation[] {
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true);
   const rel = path.relative(repoRoot, file);
   const out: Violation[] = [];
+  const localFns = localFunctions(sf);
   const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
   const visit = (n: ts.Node): void => {
     if (
@@ -207,48 +334,33 @@ function scan(file: string): Violation[] {
     }
     if (ts.isCallExpression(n)) {
       const callee = n.expression;
-      const isWalker = ts.isIdentifier(callee) && /^walk\w*Deep$/.test(callee.text);
+      const walkerName = ts.isIdentifier(callee) ? callee.text : "";
+      const isWalker = /^walk\w*(Deep|Children)$/.test(walkerName);
+      const isWorkflowWalker = /^walkWorkflowStmt/.test(walkerName);
       const isIter =
         ts.isPropertyAccessExpression(callee) &&
         ["some", "every", "filter", "find", "forEach"].includes(callee.name.text);
       if (isWalker || isIter) {
-        for (const arg of n.arguments) {
-          if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) continue;
-          let opCall = false;
-          let audited = false;
-          let userAsk = false;
-          const collect = (m: ts.Node): void => {
-            if (
-              ts.isBinaryExpression(m) &&
-              [
-                ts.SyntaxKind.EqualsEqualsEqualsToken,
-                ts.SyntaxKind.ExclamationEqualsEqualsToken,
-              ].includes(m.operatorToken.kind) &&
-              propName(m.left) === "kind" &&
-              ts.isStringLiteral(m.right) &&
-              m.right.text === "op-call"
-            ) {
-              opCall = true;
-            }
-            if (ts.isPropertyAccessExpression(m) && m.name.text === "audited") audited = true;
-            if (
-              ts.isCallExpression(m) &&
-              ts.isIdentifier(m.expression) &&
-              /^operation(Body|Gates)?Uses?CurrentUser$/.test(m.expression.text)
-            ) {
-              userAsk = true;
-            }
-            ts.forEachChild(m, collect);
-          };
-          collect(arg.body);
-          if (opCall && audited) {
-            out.push({ rule: "audited-call", where: at(n), text: callee.getText(sf) });
-          }
-          if (opCall && userAsk) {
-            out.push({ rule: "needs-user", where: at(n), text: callee.getText(sf) });
-          }
+        for (const body of callbackBodies(n.arguments, localFns)) {
+          const f = callbackFacts(body);
+          const hit = (rule: Violation["rule"]) =>
+            out.push({ rule, where: at(n), text: callee.getText(sf) });
+          if (f.opCall && f.audited) hit("audited-call");
+          if (f.opCall && f.userAsk) hit("needs-user");
+          if (f.resourceKind && (isWorkflowWalker || f.workflowOnlyKind)) hit("resource-calls");
+          if (f.emitKind && isWorkflowWalker) hit("emits");
+          if (f.opCall && f.addsTarget) hit("deref-loads");
         }
       }
+    }
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "size" &&
+      ts.isCallExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) &&
+      n.expression.expression.text === "durableEventTypes"
+    ) {
+      out.push({ rule: "durable", where: at(n), text: n.getText(sf) });
     }
     ts.forEachChild(n, visit);
   };
@@ -286,6 +398,26 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-scans a body for principal-needing op-calls (use workflowNeedsCurrentUser)", () => {
     const hits = violations.filter((v) => v.rule === "needs-user");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for resource calls (use resourceCalls)", () => {
+    const hits = violations.filter((v) => v.rule === "resource-calls");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for emits (use workflowEmits)", () => {
+    const hits = violations.filter((v) => v.rule === "emits");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for dereferenced loads (use dereferencedLoads)", () => {
+    const hits = violations.filter((v) => v.rule === "deref-loads");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the durable-events test (use hasDurableEvents)", () => {
+    const hits = violations.filter((v) => v.rule === "durable");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

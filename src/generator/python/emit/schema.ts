@@ -5,6 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
+import { hasDurableEvents } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -15,7 +16,6 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import {
   discriminatorValue,
@@ -223,7 +223,7 @@ export function renderPySchema(
   // one row per running instance, keyed by the correlation field.  The
   // shared migration leaves these unqualified (public schema).  A durable
   // channel adds the `last_event_id` idempotent-consumer marker.
-  const durable = durableEventTypes(ctx).size > 0;
+  const durable = hasDurableEvents(ctx);
   for (const wf of ctx.workflows) {
     if (!wf.correlationField) continue;
     // An `eventSourced` workflow's stream lives in the shared per-context

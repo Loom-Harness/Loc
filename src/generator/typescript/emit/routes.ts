@@ -5,6 +5,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { hasDurableEvents } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {
@@ -12,7 +13,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
@@ -273,7 +274,7 @@ export function renderHttpIndex(
   // same two exports over the `LoomOutboxRow` EntitySchema, so a durable channel
   // is at-least-once on both adapters (it silently degraded to the at-most-once
   // in-process path here before).
-  const wireOutbox = (wireDispatcher || !!options?.forceOutbox) && durableEventTypes(ctx).size > 0;
+  const wireOutbox = (wireDispatcher || !!options?.forceOutbox) && hasDurableEvents(ctx);
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast`
   // channel makes its carried events UI-observable — createApp wraps its
   // default dispatcher with the realtime tee and mounts GET /realtime/events.

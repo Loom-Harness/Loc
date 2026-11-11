@@ -62,8 +62,10 @@ import {
   callsAuditedOp,
   commandCreateReturnsSelf,
   eventSourcedWorkflows,
+  hasDurableEvents,
   hasStateRow,
   lookupOp,
+  resourceCalls,
   workflowNeedsCurrentUser,
 } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
@@ -596,7 +598,7 @@ export function buildWorkflowsFile(
         carriesOrigin,
       ),
     );
-  } else if (durableEventTypes(ctx).size > 0) {
+  } else if (hasDurableEvents(ctx)) {
     // PRODUCER-ONLY, but this context HAS a workflow — so the early return to
     // `buildProducerOutboxFile` above did not fire, and the branch that would
     // have emitted the machinery (`emitSubscriptionHandlers`) is skipped
@@ -810,7 +812,7 @@ export function buildWorkflowsFile(
   // pair the body uses.
   const helperByModule = new Map<string, Set<string>>();
   for (const wf of ctx.workflows) {
-    for (const op of resourceOpsIn(wf)) {
+    for (const op of resourceCalls(workflowBodyStmts(wf)).resourceOps) {
       const sourceType = resourceSourceTypes.get(op.resourceName);
       if (!sourceType) continue;
       const mod = `../resources/${sourceType}`;
@@ -822,19 +824,12 @@ export function buildWorkflowsFile(
   for (const [mod, helpers] of helperByModule) {
     imports.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
   }
-  // Typed in-system api helpers (M-T4.8): `<resource>$<operationId>` from the
-  // single generated client module.  Collected with the DEEP expression walker,
-  // unlike `resourceOpsIn` above which only scans top-level statements — a
-  // typed call nested inside another expression is legal and would otherwise
-  // lose its import and fail `tsc`.
+  // Typed in-system api helpers: `<resource>$<operationId>` from the single
+  // generated client module.
   const apiHelpers = new Set<string>();
   for (const wf of ctx.workflows) {
-    for (const st of workflowBodyStmts(wf)) {
-      walkWorkflowStmtExprsDeep(st, (e) => {
-        if (e.kind === "call" && e.callKind === "remote-api-op" && e.remoteApiOp) {
-          apiHelpers.add(`${e.remoteApiOp.resourceName}$${e.remoteApiOp.operationId}`);
-        }
-      });
+    for (const op of resourceCalls(workflowBodyStmts(wf)).remoteApiOps) {
+      apiHelpers.add(`${op.resourceName}$${op.operationId}`);
     }
   }
   if (apiHelpers.size > 0) {
@@ -859,20 +854,6 @@ function workflowBodyStmts(wf: WorkflowIR): WorkflowStmtIR[] {
     ...(creates.length > 0 ? creates.flatMap((c) => c.statements) : wf.statements),
     ...(wf.subscriptions ?? []).flatMap((o) => o.statements),
   ];
-}
-
-/** Every resource-op call anywhere in a workflow's bodies — deep, so one
- *  nested in a `for` / `if let` or inside another expression keeps its import. */
-function resourceOpsIn(wf: WorkflowIR): { resourceName: string; verb: string }[] {
-  const out: { resourceName: string; verb: string }[] = [];
-  for (const st of workflowBodyStmts(wf)) {
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (e.kind === "call" && e.callKind === "resource-op" && e.resourceOp) {
-        out.push({ resourceName: e.resourceOp.resourceName, verb: e.resourceOp.verb });
-      }
-    });
-  }
-  return out;
 }
 
 /** True when `aggName` has an operation with a provenance write-site, so its
@@ -1249,7 +1230,7 @@ function emitWorkflowRoute(
             ctx,
             {
               keyExpr: corrParam.name,
-              mikroDurable: usingMikro && durableEventTypes(ctx).size > 0,
+              mikroDurable: usingMikro && hasDurableEvents(ctx),
             },
           )};`,
         ]
@@ -1807,7 +1788,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            durableEventTypes(ctx).size > 0,
+            hasDurableEvents(ctx),
             opFragments,
             usingMikro,
           )),

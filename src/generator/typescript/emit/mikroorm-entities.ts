@@ -15,7 +15,7 @@ import {
   partTableName,
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
-import { eventSourcedWorkflows, hasStateRow } from "../../../ir/plan/index.js";
+import { eventSourcedWorkflows, hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -27,7 +27,6 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
-import { durableEventTypes } from "../../../ir/util/channels.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
@@ -734,7 +733,7 @@ function workflowStateColumns(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Mi
   // of the drizzle `emitWorkflowStateTable`'s `last_event_id`.  Under a durable
   // channel the reactor preamble reads `state.lastEventId` and stamps it before
   // save, so without this column the emitted handler would not type-check.
-  if (durableEventTypes(ctx).size > 0) cols.push(TEXT("lastEventId", { nullable: true }));
+  if (hasDurableEvents(ctx)) cols.push(TEXT("lastEventId", { nullable: true }));
   return cols;
 }
 

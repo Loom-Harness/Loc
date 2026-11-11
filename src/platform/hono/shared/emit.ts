@@ -1,3 +1,4 @@
+import { hasDurableEvents } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
@@ -142,7 +143,7 @@ import type { OriginRef } from "../../../ir/types/origin.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
+import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
@@ -1129,7 +1130,7 @@ export function generateTypeScriptForContexts(
         // Transactional-outbox Row — the mikro twin of the drizzle
         // `__loom_outbox` table, on the same condition the drizzle schema
         // emitter uses (any durable channel in the deployable).
-        outbox: durableEventTypes(merged).size > 0,
+        outbox: hasDurableEvents(merged),
         resolveStreamContext,
         // Timer-scheduler watermark Row — same condition as `scheduler.ts`
         // below (this deployable OWNS a timerSource).  It has to be an entity
@@ -1168,10 +1169,7 @@ export function generateTypeScriptForContexts(
     const st = storeType.get(r.storageName);
     if (st) resourceSourceTypes.set(r.name, st);
   }
-  if (
-    merged.workflows.length > 0 ||
-    (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0)
-  ) {
+  if (merged.workflows.length > 0 || (durableBrokerEvents.size > 0 && hasDurableEvents(merged))) {
     const aggsByName = new Map(merged.aggregates.map((a) => [a.name, a] as const));
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
@@ -1265,7 +1263,7 @@ export function generateTypeScriptForContexts(
       // Durable broker-bound events must reach the outbox even from a
       // deployable with no local reactor (M-T4.4): the relay
       // publishes them on drain.
-      forceOutbox: durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0,
+      forceOutbox: durableBrokerEvents.size > 0 && hasDurableEvents(merged),
       forwardCallerCredential: !!system && forwardsCallerCredential(system.deployable, system.sys),
     }),
   );
@@ -1777,10 +1775,10 @@ export function generateTypeScriptForContexts(
     // is wired (subscriptions exist).  Persistence-neutral — the mikro
     // adapter emits the same relay over the EntityManager.
     outboxRelay:
-      contexts.some((c) => c.eventSubscriptions.length > 0 && durableEventTypes(c).size > 0) ||
+      contexts.some((c) => c.eventSubscriptions.length > 0 && hasDurableEvents(c)) ||
       // A durable-broker producer relays even without local subscribers:
       // the drained rows publish to the broker.
-      (durableBrokerEvents.size > 0 && durableEventTypes(merged).size > 0),
+      (durableBrokerEvents.size > 0 && hasDurableEvents(merged)),
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
