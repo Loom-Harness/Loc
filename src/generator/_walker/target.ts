@@ -111,6 +111,57 @@ export type RenderPosition = "template" | "handler";
  *  looking. */
 export type ChildSlot = "children" | "value";
 
+/** A child scope the shared core opens while walking: the per-item body of a
+ *  row-rendering primitive (`For`), or one arm of a markup `match`
+ *  (`index === match.arms.length` is the fallback arm).  Handed to
+ *  {@link WalkerTarget.scopeSink} so a target that keeps its own per-scope
+ *  state in the sink can derive the child's. */
+export type WalkScope =
+  | { readonly kind: "row"; readonly param: string; readonly collection: ExprIR }
+  | {
+      readonly kind: "match-arm";
+      readonly match: ExprIR & { kind: "match" };
+      readonly index: number;
+    }
+  | {
+      readonly kind: "query-data";
+      readonly query: ExprIR & { kind: "call" };
+      readonly param: string;
+    };
+
+/** An event handler a use site binds: an inline lambda, a named page
+ *  `action`, a store action, or a controlled input's write-back (see
+ *  {@link WalkerTarget.bindEventHandler}). */
+export type EventHandlerSource =
+  | { readonly kind: "lambda"; readonly lambda: ExprIR & { kind: "lambda" } }
+  | { readonly kind: "action"; readonly actionName: string }
+  | { readonly kind: "store-action"; readonly storeName: string; readonly actionName: string }
+  | {
+      /** A controlled input's write-back into the page-state field it binds. */
+      readonly kind: "input";
+      readonly stateName: string;
+      readonly control: InputControl;
+    };
+
+/** The control a `bind:` input renders. */
+export type InputControl = "text" | "number" | "password" | "textarea" | "select" | "checkbox";
+
+/** A `QueryView` the target binds itself (see {@link WalkerTarget.bindQueryView}). */
+export interface QueryViewSpec {
+  /** The `QueryView { … }` call. */
+  readonly call: ExprIR & { kind: "call" };
+  /** Its `of:` read. */
+  readonly of: ExprIR;
+}
+
+/** What a target-bound `QueryView` reads: the expression its loading / error /
+ *  empty / data ladder tests, and the read's shape. */
+export interface QueryViewRead {
+  readonly readExpr: string;
+  readonly single: boolean;
+  readonly paged: boolean;
+}
+
 /** A state field reference — produced by the walker when it
  *  encounters a `LooseName` resolving to a state field declared in
  *  the enclosing `state { ... }` block. */
@@ -763,13 +814,23 @@ export interface WalkerTarget {
    *  page-metamodel §7 predicate-arms conditional).  TSX wraps the
    *  flat `renderMatch` ternary chain in braces at depth > 0; Vue
    *  renders a structural `<template v-if>` / `v-else-if` / `v-else`
-   *  chain (template expressions cannot evaluate to markup); HEEx's
-   *  parallel walker never reaches this. */
+   *  chain (template expressions cannot evaluate to markup); HEEx
+   *  renders a `<%= cond do %>` block whose arms are markup. */
   renderMatchChild(
     arms: ReadonlyArray<{ predicate: string; value: string }>,
     elseArm: string | undefined,
     depth: number,
   ): string;
+
+  /** OPTIONAL — the sink a child scope walks under.
+   *
+   *  The walk's sink is one object shared by every context.  A target whose
+   *  per-scope state lives in that sink — what a row variable is, which data
+   *  loads an arm's condition gates — returns the child scope's sink here, and
+   *  the core walks the scope under it.  Omitted, or `undefined` returned, the
+   *  scope walks under the parent's sink, which is what every target that
+   *  keeps no per-scope state in the sink wants. */
+  scopeSink?(sink: unknown, scope: WalkScope): unknown;
 
   // --- List-comprehension seam --------------------------------------------
 
@@ -801,8 +862,8 @@ export interface WalkerTarget {
    *  byte-identical to the un-`empty:` form; when present each target
    *  reaches for its native idiom — Svelte's `{:else}`, a TSX
    *  `coll.length === 0 ? (emptyBody) : (.map(…))` ternary, a Vue
-   *  `v-if="!coll.length"` sibling `<template>`.  (HEEx renders `For`
-   *  through its own engine, not this seam.)
+   *  `v-if="!coll.length"` sibling `<template>`, a HEEx `Enum.empty?/1`
+   *  guard around the comprehension.
    *
    *  `slot` says whether the `For` sits in a container's children SEQUENCE
    *  or is the whole of a single-expression slot (see `ChildSlot`).  The
@@ -863,10 +924,7 @@ export interface WalkerTarget {
   // pack templates plus a few inline forms.  Most inline forms are
   // identical across JSX-family frameworks (`{expr}` interpolation,
   // `<Comp x={y}/>`, `data-testid={expr}`) and stay hardcoded; the
-  // four below diverge.  HEEx has its own parallel walker
-  // (heex-walker.ts) that never reaches these — its impls exist for
-  // contract completeness (renderConditionalChild throws unreachable,
-  // mirroring bindDataAccess).
+  // four below diverge.
 
   /** Render an inline placeholder/diagnostic comment in markup-child
    *  position.  TSX: `{/* text *​/}`; Svelte: `<!-- text -->`;
@@ -1148,8 +1206,11 @@ export interface WalkerTarget {
   /** OPTIONAL — children-slot spelling for the `Slot()` primitive.
    *  Omitted targets fall back to the JSX `{children}` idiom (TSX,
    *  Vue's render path); Svelte 5 overrides with
-   *  `{@render children?.()}` (snippets aren't interpolatable). */
-  renderChildrenSlot?(): string;
+   *  `{@render children?.()}` (snippets aren't interpolatable).  The walk
+   *  context and depth are for a target whose slot depends on where the body
+   *  renders: HEEx inlines a component's body at its call site, where the slot
+   *  is the caller's children rather than `@inner_block`. */
+  renderChildrenSlot?(ctx: WalkContext, depth: number): string;
 
   /** OPTIONAL — separator token placed between a container's rendered
    *  children (before the `\n<indent>` the walker always inserts).
@@ -1191,6 +1252,17 @@ export interface WalkerTarget {
     paged?: boolean,
     autoPaged?: boolean,
   ): string;
+
+  /** OPTIONAL — bind a `QueryView`'s read where the target keeps the read's
+   *  state itself rather than behind a handle the body declares.
+   *
+   *  A server-session target loads the read into session state (a LiveView
+   *  assign filled when the page loads), so the view's ladder tests that
+   *  state, and the read's shape is the target's own answer.  Called once
+   *  per view, after its branches are walked, so a read nested in a branch
+   *  is bound first.  Omitted, or `undefined` returned, the view reads the
+   *  handle `emitExpr` bound for its `of:` expression. */
+  bindQueryView?(spec: QueryViewSpec, ctx: WalkContext): QueryViewRead | undefined;
 
   /** OPTIONAL — resolve a member read off a PAGED query binding for a target
    *  whose Model does NOT hold the `Paged<T>` envelope.
@@ -1435,6 +1507,20 @@ export interface WalkerTarget {
    *  port it, and everything else falls through to a visible comment. */
   renderTimeline?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
+  /** OPTIONAL — whole-primitive override for `IdLink(<id>, of: <Agg>)`.  The
+   *  shared `emitIdLink` delegates here first and uses a non-null return
+   *  verbatim.  Phoenix/HEEx overrides it: its link label reads the
+   *  `@<agg>_labels` assign the LiveView loads in `mount`, which the shared
+   *  per-cell label read (`renderRefLabelWrap`) does not model. */
+  renderIdLink?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `Chart { … }`.  The shared
+   *  `emitChart` delegates here first and uses a non-null return verbatim.
+   *  Phoenix/HEEx overrides it: the rows are a projection assign the LiveView
+   *  loads, plotted by a server-rendered SVG component, not a client charting
+   *  library fed by a query hook. */
+  renderChart?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
   /** REQUIRED — the markup for `LocaleSwitcher {}`, the language picker.  The
    *  shared `emitLocaleSwitcher` returns it verbatim, so every target names its
    *  own binding into the generated locale runtime and none can fall through to
@@ -1444,6 +1530,19 @@ export interface WalkerTarget {
    *  and Flutter builds `const LocaleSwitcher()`.  HEEx renders through its own
    *  walker and never reaches this seam. */
   renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;
+
+  /** OPTIONAL — whole-primitive override for `Table { … }`.  The shared
+   *  `emitTable` sorts, filters and pages the bound rows on the client; a
+   *  server-session target re-runs the read with the new sort/page arguments
+   *  from a hoisted handler, and filters through a server-side helper, so it
+   *  renders the whole table here.  A non-null return is used verbatim. */
+  renderTable?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `FileUpload { … }`.  The shared
+   *  `emitFileUpload` posts the chosen file to `/files` from the client; a
+   *  server-session target receives it over its own upload channel, so it
+   *  renders the input here.  A non-null return is used verbatim. */
+  renderFileUpload?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
   /** OPTIONAL — whole-primitive override for `DestroyForm(of: <Agg>)`.  The
    *  shared `emitDestroyForm` delegates here first; a non-null return is used
@@ -1461,6 +1560,17 @@ export interface WalkerTarget {
    *  statement.  Distinct from `renderNavigate` (raw-route, for `then:`/Anchor)
    *  — this takes the pre-rendered arg the button already resolved. */
   renderNavigateExpr?(toArg: string): string;
+
+  /** OPTIONAL — bind an event handler whose body the target renders OUTSIDE
+   *  the view.
+   *
+   *  A hoisted handler topology keeps every handler body in one place apart
+   *  from the markup (a LiveView `handle_event/3` clause), and the use site
+   *  names it.  Such a target registers the handler here — an inline lambda's
+   *  body included, which it renders itself — and returns the value the use
+   *  site binds (an event name).  Omitted, or `undefined` returned, the core
+   *  renders the handler at the use site through `renderEventHandler`. */
+  bindEventHandler?(source: EventHandlerSource, ctx: WalkContext): string | undefined;
 
   /** OPTIONAL — declare a named `action` as a hoisted handler function at the
    *  page/component top (named-actions-and-stores.md, Proposal A Stage 1).

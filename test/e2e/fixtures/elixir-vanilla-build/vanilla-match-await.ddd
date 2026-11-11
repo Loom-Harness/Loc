@@ -8,14 +8,18 @@
 // through `mix compile --warnings-as-errors`.  The arms NAME both context-local
 // error variants (the scope-provider widening in ddd-scope.ts makes that legal
 // in a UI match-await arm) so the multi-error server-side `case` compiles.
+// `hold` succeeds with a PAYLOAD, not the aggregate: its arm matches the
+// tagged `{:ok, %{type: "Held"}}` result, not an error tuple.
 system MatchAwait {
   subdomain Sales {
     context Orders {
       error Rejected { reason: string }
       error Blocked { code: int }
+      payload Held { code: string }
       aggregate Order with crudish {
         code: string
         operation confirm(): Order or Rejected or Blocked { return Rejected { reason: code } }
+        operation hold(): Held or Rejected { return Held { code: code } }
       }
       repository OrderRepo for Order { }
     }
@@ -33,9 +37,16 @@ system MatchAwait {
           Blocked b  => { message := "blocked" }
         }
       }
+      action holdNow() {
+        match await Orders.Order.hold() {
+          Held h     => { message := h.code }
+          Rejected r => { message := r.reason }
+        }
+      }
       body: Stack {
         Heading { "Order" },
-        Button { "Confirm", onClick: confirmNow }
+        Button { "Confirm", onClick: confirmNow },
+        Button { "Hold", onClick: holdNow }
       }
     }
   }

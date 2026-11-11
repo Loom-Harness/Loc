@@ -41,7 +41,6 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask, maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
-import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -50,7 +49,6 @@ import type {
   ExprIR,
   PageIR,
   StateFieldIR,
-  StmtIR,
   TypeIR,
   UiIR,
   ValueObjectIR,
@@ -58,22 +56,18 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
-import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { richTextMessage } from "../../ir/util/icu-message.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
-import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
-import { floorRuleText } from "../_i18n/rule-text.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -85,6 +79,7 @@ import {
 } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { type WalkContext as SharedWalkContext, walk, walkBody } from "../_walker/walker-core.js";
+import { hoistLambdaToHandler, seedHoistedHandlers, storeActionEvent } from "./heex-handlers.js";
 import { modelTextExpr } from "./heex-model-text.js";
 import { HEEX_SHARED_PRIMITIVES, heexPack } from "./heex-pack.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
@@ -403,6 +398,11 @@ export interface WalkContext {
   formBindings: FormBinding[];
   /** Query bindings discovered as the walker visits `QueryView(...)`. */
   queryBindings: QueryBinding[];
+  /** The assign each `QueryView` on this body loads into, keyed by its call
+   *  node — shared by reference across the `{...ctx}` copies, so the view's
+   *  data scope and its load binding agree, and two reads never take the same
+   *  assign (`reserveQueryAssign`). */
+  queryAssigns: Map<ExprIR, string>;
   /** PageIR being walked — its `state[]` drives state-reference resolution
    *  and its `params[]` resolves route-param refs. */
   page: PageIR;
@@ -661,6 +661,7 @@ export function walkBodyToHeex(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames,
@@ -708,7 +709,7 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
     heexTarget,
     heexPack(sink),
     undefined,
-    undefined,
+    pageStateNames(sink.heex.page),
     undefined,
     undefined,
     undefined,
@@ -729,11 +730,27 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
  *  core under the current HEEx walk state.  It walks at depth 0 because this
  *  engine indents a child relative to its parent (`indent`), and the shared
  *  core's depth-0 output is exactly that relative form. */
-function renderThroughSharedCore(expr: ExprIR & { kind: "call" }, ctx: WalkContext): string {
+function renderThroughSharedCore(expr: ExprIR, ctx: WalkContext): string {
   const sink: HeexWalkSink = { heex: ctx };
   const shared = ctx.sharedWalk;
   if (!shared) return walkShared(expr, sink);
-  return walk(expr, { ...shared, sink, headingDepth: ctx.headingDepth }, 0);
+  return walk(
+    expr,
+    {
+      ...shared,
+      sink,
+      headingDepth: ctx.headingDepth,
+      i18nPrefix: ctx.i18nPrefix,
+      stateNames: pageStateNames(ctx.page),
+    },
+    0,
+  );
+}
+
+/** The state fields of the body being walked, in their source spelling — the
+ *  shared core resolves a `bind:` against them. */
+function pageStateNames(page: PageIR): ReadonlySet<string> {
+  return new Set(page.state.map((f) => f.name));
 }
 
 /** The HEEx walk state the shared core carries in `ctx.sink` for this target. */
@@ -785,96 +802,6 @@ function pageTitleExpr(page: PageIR, ctx: WalkContext): string | undefined {
   return heexTranslateCall(title, handlerCtx, "title", "handler") ?? renderExpr(title, handlerCtx);
 }
 
-/** Pre-hoist the handlers a body's markup refers to by name: its declared
- *  `action`s and its bare store-action handler refs.  Runs before the body
- *  renders so synthesized lambda events number after them: a component walked
- *  standalone and the same component inlined into a page therefore name their
- *  lambda handlers identically. */
-function seedHoistedHandlers(ctx: WalkContext, page: PageIR, body: ExprIR | undefined): void {
-  // Hoist named page `action`s (named-actions-and-stores.md, Proposal A
-  // Stage 1) into `handle_event` clauses named `snake(action.name)`, so a
-  // bare `onClick: next` reference — lowered to an `action-ref` ExprIR that
-  // renders to `snake(name)` — binds to a real clause.  Mirrors the inline-
-  // lambda hoist (`hoistLambdaToHandler`) but keyed by the declared name.
-  // Guarded with `?? []`: component synth-pages carry no `actions`.
-  for (const action of page.actions ?? []) {
-    const bodyLines: string[] = [`    socket =`, `      socket`];
-    for (const s of action.body) bodyLines.push(`      ${renderStmt(s, ctx)}`);
-    bodyLines.push(`    {:noreply, socket}`);
-    ctx.handlers.push({ name: snake(action.name), paramsPattern: "_params", body: bodyLines });
-  }
-
-  // Direct store-action handlers (`onClick: Cart.clear`) — a bare store-action
-  // reference used as a handler has no matching page `action`, so the button's
-  // `phx-click` would dangle without a clause.  Synthesize the clause
-  // (dispatch the store action over its per-page assign) exactly like a page
-  // action whose body is the single store-action call.  The event is named
-  // `storeActionEvent(store, action)` — a hyphenated name no `snake(action)`
-  // can spell — so it never shares a clause with a page or component action
-  // of the same name (`Cart.clear` beside a component's own `action clear()`
-  // is two handlers, not one).  Deduped by event name so a store action
-  // onClicked twice emits one clause.
-  const existingHandlers = new Set(ctx.handlers.map((h) => h.name));
-  for (const { store, action } of collectStoreActionRefs(body)) {
-    const name = storeActionEvent(store, action);
-    if (existingHandlers.has(name)) continue;
-    existingHandlers.add(name);
-    ctx.usedStores.add(store);
-    const call: StmtIR = {
-      kind: "call",
-      target: "store-action",
-      name: action,
-      args: [],
-      store,
-    };
-    ctx.handlers.push({
-      name,
-      paramsPattern: "_params",
-      body: [
-        `    socket =`,
-        `      socket`,
-        `      ${renderStmt(call, ctx)}`,
-        `    {:noreply, socket}`,
-      ],
-    });
-  }
-}
-
-/** The `handle_event` name of a bare store-action handler (`onClick:
- *  Cart.clear` → `"store-cart-clear"`).  Hyphenated like the emitter's other
- *  synthesized events (`loom-sort`), so it cannot equal a `snake(action)`
- *  clause a page or component action hoists. */
-function storeActionEvent(store: string, action: string): string {
-  return `store-${snake(store)}-${snake(action)}`;
-}
-
-/** Collect the bare store-action handler references (`action-ref` with a
- *  `storeName`, e.g. `onClick: Cart.clear`) reachable in a page body, deduped
- *  by `<store>.<action>`.  Used to synthesize their `handle_event` clauses —
- *  the parallel HEEx walker's analogue of the JSX shell binding a store-action
- *  local. */
-function collectStoreActionRefs(root: ExprIR | undefined): { store: string; action: string }[] {
-  const out: { store: string; action: string }[] = [];
-  const seen = new Set<string>();
-  const visit = (e: ExprIR | undefined): void => {
-    if (!e || typeof e !== "object") return;
-    if (e.kind === "action-ref" && e.storeName) {
-      const key = `${e.storeName}.${e.actionName}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push({ store: e.storeName, action: e.actionName });
-      }
-    }
-    // Recurse structurally — visit every ExprIR-typed child field.
-    for (const v of Object.values(e as Record<string, unknown>)) {
-      if (Array.isArray(v)) for (const el of v) visit(el as ExprIR);
-      else if (v && typeof v === "object" && "kind" in (v as object)) visit(v as ExprIR);
-    }
-  };
-  visit(root);
-  return out;
-}
-
 // ---------------------------------------------------------------------------
 // Expression dispatch.
 // ---------------------------------------------------------------------------
@@ -906,7 +833,7 @@ const HEEX_NODE_RENDERERS: {
   // Lambdas only appear as argument values (onSubmit, onClick, etc.).
   // The walker hoists each lambda into a handle_event clause and
   // returns the phx-event name to wire into the parent attribute.
-  lambda: hoistLambdaToHandler,
+  lambda: (e, ctx) => hoistLambdaToHandler(e, ctx),
   object: renderObjectLiteral,
   new: renderNew,
   match: renderMatch,
@@ -1379,94 +1306,6 @@ function externModuleFromPath(path: string): string {
     .join(".");
 }
 
-/** `Action(<instance>.<operation>, then?)` → a `<.button phx-click=…>`
- *  whose event loads the instance by id and invokes the operation.
- *  The operation is referenced through an in-scope aggregate instance
- *  (a component param or a QueryView record), resolved via
- *  `instanceTypes`.  The handler is recorded as an `ActionBinding` and
- *  hoisted to the host page's LiveView by the emitter. */
-export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const opRef = expr.args.find((_, i) => !expr.argNames?.[i]);
-  if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "Action: expected <instance>.<operation>")} -->`;
-  }
-  const instanceName = opRef.receiver.name;
-  const opName = opRef.member;
-  // A record (`instanceTypes`), or a ROW of a list — the `phx-value-id` then
-  // carries that row's own id.
-  const aggName = ctx.instanceTypes?.get(instanceName) ?? ctx.rowTypes?.get(instanceName);
-  if (!aggName) {
-    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
-  }
-  const agg = ctx.aggregatesByName.get(aggName);
-  const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
-  if (!op) {
-    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName}`)} -->`;
-  }
-  const eventName = `${snake(opName)}_${snake(aggName)}`;
-  const idExpr = `${renderExpr(opRef.receiver, { ...ctx, position: "template" })}.id`;
-  // `then: navigate(<Page>)` → push_navigate route (snake convention,
-  // matching renderNavigate / the scaffold router).
-  let thenRoute: string | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    if (expr.argNames?.[i] !== "then") continue;
-    const eff = expr.args[i]!;
-    if (eff.kind === "call" && eff.name === "navigate") {
-      const target = eff.args[0];
-      // A STRING argument is a literal route path — the shape a body uses when a
-      // page REF can't address the route unambiguously (every scaffolded
-      // aggregate names its list page `List`).  Twin of the JSX-side arm in
-      // `walker-core.ts`'s `tryRenderNavigateCall`.
-      if (target && target.kind === "literal" && target.lit === "string") thenRoute = target.value;
-      else if (target && target.kind === "ref") thenRoute = `/${snake(target.name)}`;
-    }
-  }
-  if (!ctx.actionBindings.some((b) => b.eventName === eventName)) {
-    ctx.actionBindings.push({
-      agg: aggName,
-      op: snake(opName),
-      opHuman: humanize(opName),
-      eventName,
-      thenRoute,
-    });
-  }
-  const button = `<.button phx-click="${eventName}" phx-value-id={${idExpr}}>${humanize(opName)}</.button>`;
-  return gateActionButton(button, op, ctx);
-}
-
-/** Wrap an `Action` `<.button>` in a server-side currentUser gate when the
- *  host deployable has auth AND every `requires` predicate on the operation
- *  is currentUser-only — the LiveView/HEEx mirror of the JSX frontends'
- *  action-button gating (`emitAction` in _walker/primitives/controls.ts).
- *
- *  Gating signal: `ctx.authEnabled` (the deployable runs `auth: required`,
- *  so `LiveAuth.on_mount` assigns `@current_user`).  Without auth there is
- *  no `@current_user` to read, so the button is left ungated and the output
- *  stays byte-identical.  An op with no `requires`, or any predicate that
- *  touches `this.<field>` / params (not currentUser-only — `tryRenderGate`
- *  returns null), is also left ungated; the operation still enforces the
- *  gate server-side regardless (defence-in-depth). */
-export function gateActionButton(
-  button: string,
-  op: import("../../ir/types/loom-ir.js").OperationIR,
-  ctx: WalkContext,
-): string {
-  if (!ctx.authEnabled) return button;
-  const gates = operationActionGates(op);
-  if (gates.length === 0) return button;
-  // Classify with the JS gate-expr (currentUser-only ⇒ non-null); gate only
-  // when EVERY predicate is currentUser-only.  The rendered Elixir gate is
-  // produced by `renderExpr` in template scope (`@current_user.…`), NOT by
-  // the JS renderer — `tryRenderGate` is used purely as the classifier.
-  if (!gates.every((g) => tryRenderGate(g, "currentUser") !== null)) return button;
-  const tmplCtx: WalkContext = { ...ctx, position: "template" };
-  // Multiple `requires` clauses combine with Elixir's `and` (the JSX mirror
-  // uses `&&`); `renderExpr` already emits `@current_user.…` in template
-  // scope, so the parenthesised predicates compose directly inside `if`.
-  const gate = gates.map((g) => `(${renderExpr(g, tmplCtx)})`).join(" and ");
-  return `<%= if (${gate}) do %>${button}<% end %>`;
-}
-
 function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   // Store-action call — `Cart.add(sku)` / `Cart.clear()` (Stage 5).  Resolved
   // at lowering into a `call` carrying `callKind: "store-action"` +
@@ -1709,80 +1548,84 @@ function andGate(...parts: readonly (string | undefined)[]): string | undefined 
   return kept.map((p) => `(${p})`).join(" && ");
 }
 
-function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
-  // `match { p => v; … else => f }` → Elixir `cond do … end`.
-  //
-  // HEEx has TWO `cond` spellings and they are not interchangeable:
-  //
-  //   EXPRESSION form   `<%= cond do  p -> term  end %>`   — arms are Elixir terms
-  //   BLOCK form        `<%= cond do %>`                   — arms are MARKUP
-  //                     `  <% p -> %>`
-  //                     `    <div>…</div>`
-  //                     `<% end %>`
-  //
-  // Rendering markup arms in the expression form emits a `<%= cond do` that is
-  // never closed — the arm bodies carry their own `<%= … %>` / `<% end %>`, so
-  // the outer `end` lands inside a nested block and Elixir reports the
-  // unclosed delimiter pages later:
-  //
-  //   ** (TokenMissingError) missing terminator: end
-  //    128 │           cond do      ← unclosed delimiter
-  //
-  // That is a WHOLE-PROJECT compile failure, not a bad render: `mix compile`
-  // fails, so the app never boots (schemathesis F27, found on the elixir leg,
-  // which could not fuzz at all). It reproduces on any page whose `match` arms
-  // are primitives — a list page with two filter-driven finds is the shape in
-  // `web/src/examples/storefront-elixir.ddd`.
-  //
-  // So pick the form by what the arms actually render. The block form is the
-  // same one the QueryView loading/error/empty/data ladder already emits
-  // (`heex-primitives.ts`), which is why nesting one inside the other is
-  // exactly the case that broke.
-  const markupArms =
+/** True when a `match` renders as a HEEx `cond` BLOCK — its arms are markup
+ *  — rather than as an Elixir term.
+ *
+ *  HEEx has two `cond` spellings and they are not interchangeable:
+ *
+ *    EXPRESSION form   `<%= cond do  p -> term  end %>`   — arms are Elixir terms
+ *    BLOCK form        `<%= cond do %>`                   — arms are MARKUP
+ *                      `  <% p -> %>`
+ *                      `    <div>…</div>`
+ *                      `<% end %>`
+ *
+ *  Markup arms in the expression form open a `<%= cond do` that never closes —
+ *  the arm bodies carry their own `<%= … %>` / `<% end %>`, so the outer `end`
+ *  lands inside a nested block and `mix compile` reports a missing terminator
+ *  for the whole project.  So the form follows what the arms render: one
+ *  markup arm makes the block, in which a term arm still gets its own
+ *  `<%= … %>`. */
+function matchRendersMarkup(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): boolean {
+  return (
     ctx.position === "template" &&
     (expr.arms.some((a) => armRendersMarkup(a.value, ctx)) ||
-      (expr.otherwise !== undefined && armRendersMarkup(expr.otherwise, ctx)));
+      (expr.otherwise !== undefined && armRendersMarkup(expr.otherwise, ctx)))
+  );
+}
 
-  if (markupArms) {
-    // `renderChild` gives each arm the right treatment individually: markup
-    // passes through, a plain term still gets its own `<%= … %>`. So a match
-    // that MIXES markup and term arms stays valid.
-    const lines: string[] = ["<%= cond do %>"];
-    // The same arm conditions, rendered for HANDLER position, threaded onto the
-    // arm's subtree so a `QueryView` inside it records the gate its load must
-    // run under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an
-    // arm's gate carries the negation of every earlier arm and the fallback's
-    // gate is the negation of them all — otherwise two arms could both load
-    // into the same assign and the later one would win, which is the bug this
-    // gating exists to close.
-    //
-    // …but only when EVERY arm's predicate survives the move to handler scope
-    // (`gateIsHandlerSafe`).  One unsafe arm disables gating for the WHOLE
-    // match: a partly-gated `cond` is worse than none, since the ungated load
-    // still clobbers the gated one, and a gate naming a render-only binding
-    // fails `mix compile` outright.
-    const gatable = expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx));
-    const handlerConds: string[] = [];
-    for (const a of expr.arms) {
-      lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      const mine = gatable ? renderExpr(a.cond, { ...ctx, position: "handler" }) : undefined;
-      lines.push(
-        `    ${renderChild(a.value, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) } : ctx)}`,
-      );
-      if (mine !== undefined) handlerConds.push(mine);
-    }
-    // `cond` raises CondClauseError when no arm matches, so the fallback is
-    // not cosmetic. Without an authored `else` the page renders nothing rather
-    // than crashing at request time.
-    lines.push(`  <% true -> %>`);
-    lines.push(
-      expr.otherwise !== undefined
-        ? `    ${renderChild(expr.otherwise, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) } : ctx)}`
-        : `    <%= nil %>`,
-    );
-    lines.push(`<% end %>`);
-    return lines.join("\n");
-  }
+/** True when a ternary in a markup position renders as a HEEx `if` BLOCK —
+ *  either branch is markup.  The expression form `if c, do: a, else: b`
+ *  takes Elixir terms; markup there is not valid HEEx. */
+function ternaryRendersMarkup(
+  expr: Extract<ExprIR, { kind: "ternary" }>,
+  ctx: WalkContext,
+): boolean {
+  return (
+    ctx.position === "template" &&
+    (armRendersMarkup(expr.then, ctx) || armRendersMarkup(expr.otherwise, ctx))
+  );
+}
+
+/** True when `expr` is control flow over markup — a block `match`
+ *  (`renderMatchChild`) or a markup ternary (`renderConditionalChild`) — which
+ *  the shared walker core renders rather than this engine. */
+export function rendersMarkupBlock(expr: ExprIR, ctx: WalkContext): boolean {
+  if (expr.kind === "match") return matchRendersMarkup(expr, ctx);
+  return expr.kind === "ternary" && ternaryRendersMarkup(expr, ctx);
+}
+
+/** The walk context one arm of a block `match` renders under (`index ===
+ *  arms.length` is the fallback).
+ *
+ *  The arm conditions, rendered for HANDLER position, are threaded onto the
+ *  arm's subtree so a `QueryView` inside it records the gate its load runs
+ *  under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an arm's
+ *  gate carries the negation of every earlier arm and the fallback's the
+ *  negation of them all — otherwise two arms could both load into the same
+ *  assign and the later one would win.
+ *
+ *  Only when EVERY arm's predicate survives the move to handler scope
+ *  (`gateIsHandlerSafe`): a partly-gated `cond` is worse than none, since the
+ *  ungated load still clobbers the gated one, and a gate naming a render-only
+ *  binding fails `mix compile`. */
+export function matchArmContext(
+  expr: Extract<ExprIR, { kind: "match" }>,
+  index: number,
+  ctx: WalkContext,
+): WalkContext {
+  if (!expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx))) return ctx;
+  const handler = { ...ctx, position: "handler" as const };
+  const prior = expr.arms.slice(0, index).map((a) => notGate(renderExpr(a.cond, handler)));
+  const own = expr.arms[index];
+  const mine = own ? renderExpr(own.cond, handler) : undefined;
+  return { ...ctx, matchGate: andGate(ctx.matchGate, ...prior, mine) };
+}
+
+function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
+  // `match { p => v; … else => f }` → Elixir `cond do … end`.
+  // The block form is control flow: the shared walker core renders it, each
+  // arm under `matchArmContext`, through `heexTarget.renderMatchChild`.
+  if (matchRendersMarkup(expr, ctx)) return renderThroughSharedCore(expr, ctx);
 
   // Delegates the bare `cond do … end` shape to `heexTarget.renderMatch`
   // (cross-framework contract — see src/generator/_walker/target.ts).
@@ -1967,7 +1810,7 @@ function renderApiCall(call: ApiCallSite, ctx: WalkContext): string {
 // Navigation + toast.
 // ---------------------------------------------------------------------------
 
-function renderNavigate(navArgs: readonly ExprIR[], ctx: WalkContext): string {
+export function renderNavigate(navArgs: readonly ExprIR[], ctx: WalkContext): string {
   // navigate(<Page>, { customerId: x }) — first arg is the page
   // reference, second is the params object.  The router uses
   // `live "<route>", <Page>Live`; lowers to `push_navigate(socket,
@@ -1996,7 +1839,7 @@ function renderNavigate(navArgs: readonly ExprIR[], ctx: WalkContext): string {
   return heexTarget.renderNavigate(routePath, args);
 }
 
-function renderToastArgs(args: readonly ExprIR[], ctx: WalkContext): string {
+export function renderToastArgs(args: readonly ExprIR[], ctx: WalkContext): string {
   const msg = args[0] ? renderExpr(args[0], ctx) : `""`;
   return `put_flash(socket, :info, ${msg})`;
 }
@@ -2402,6 +2245,9 @@ function modelTextMarkup(e: Extract<ExprIR, { kind: "modelText" }>, ctx: WalkCon
 
 export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): string {
   if (child.kind === "modelText") return modelTextMarkup(child, ctx);
+  if (child.kind === "ternary" && ternaryRendersMarkup(child, { ...ctx, position: "template" })) {
+    return renderThroughSharedCore(child, { ...ctx, position: "template" });
+  }
   const localized = localizedHeex(child, ctx, role);
   if (localized !== undefined) return localized;
   // If the child is itself a primitive call that returns HEEx markup,
@@ -2424,6 +2270,9 @@ export function renderChild(child: ExprIR, ctx: WalkContext, role?: string): str
 
 export function renderInTemplate(arg: ExprIR, ctx: WalkContext, role?: string): string {
   if (arg.kind === "modelText") return modelTextMarkup(arg, ctx);
+  if (arg.kind === "ternary" && ternaryRendersMarkup(arg, { ...ctx, position: "template" })) {
+    return renderThroughSharedCore(arg, { ...ctx, position: "template" });
+  }
   const localized = localizedHeex(arg, ctx, role);
   if (localized !== undefined) return localized;
   if (arg.kind === "literal" && arg.lit === "string") return escapeHeexText(arg.value);
@@ -2479,388 +2328,9 @@ export function renderAttrValue(
 // Lambda hoisting → handle_event clauses.
 // ---------------------------------------------------------------------------
 
-function hoistLambdaToHandler(arg: ExprIR, ctx: WalkContext): string {
-  if (arg.kind !== "lambda") {
-    // Not a lambda — try to lower as expression in handler context.
-    // Caller will get back something it can put in `phx-click="…"`.
-    return "noop";
-  }
-  // Event name is scoped to this page's walk: each hoist pushes exactly one
-  // handler onto ctx.handlers (shared by reference across nested renders), so
-  // its length gives a per-page sequence that resets for the next page and is
-  // deterministic regardless of how many pages were walked before.
-  // Namespaced by the owning component so a component's inline lambda and the
-  // host page's own `event_1` don't collide once the host hoists both.  A page
-  // body keeps the bare `event_<n>` (byte-identical).
-  const eventName = ctx.stateOwner
-    ? `${snake(ctx.stateOwner)}_event_${ctx.handlers.length + 1}`
-    : `event_${ctx.handlers.length + 1}`;
-  // Lambda body — either single-expression or block.
-  const bodyLines: string[] = [];
-  bodyLines.push(`    socket =`);
-  if (arg.block) {
-    const stmtLines = arg.block.map((s) => renderStmt(s, ctx));
-    bodyLines.push(`      socket`);
-    for (const line of stmtLines) bodyLines.push(`      ${line}`);
-  } else if (arg.body) {
-    // Single-expression lambda — typically `() => navigate(...)`.
-    const expr = renderExpr(arg.body, { ...ctx, position: "handler" });
-    bodyLines.push(`      ${expr}`);
-  } else {
-    bodyLines.push(`      socket`);
-  }
-  bodyLines.push(`    {:noreply, socket}`);
-  ctx.handlers.push({
-    name: eventName,
-    paramsPattern: "_params",
-    body: bodyLines,
-  });
-  return eventName;
-}
-
-function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
-  switch (stmt.kind) {
-    case "assign": {
-      // state.field := value  →  |> assign(:field, value)
-      // Path's first segment is the state field name.  Delegates
-      // the pipe-assign shape to `heexTarget.renderStateWrite`
-      // (cross-framework contract — see src/generator/_walker/target.ts).
-      // We don't carry the full `StateFieldIR` at this site, so pass
-      // a minimal-shape StateRef — the target's `renderStateWrite`
-      // consumes only the `.name` slot.  When/if the contract grows
-      // a method that consults the field's type, this site threads
-      // the full StateFieldIR via `ctx.page.state` lookup.
-      const fieldName = stmt.target.segments[0];
-      if (!fieldName) return `# bad assign`;
-      const value = renderExpr(stmt.value, { ...ctx, position: "handler" });
-      const stateRef = {
-        field: { name: fieldName, type: { kind: "primitive" as const, name: "string" as const } },
-        name: hostStateAssignIfOwned(fieldName, ctx),
-      };
-      return heexTarget.renderStateWrite(stateRef, value);
-    }
-    case "let": {
-      const value = renderExpr(stmt.expr, { ...ctx, position: "handler" });
-      return `|> tap(fn _ -> ${snake(stmt.name)} = ${value} end)`;
-    }
-    case "expression": {
-      const e = renderExpr(stmt.expr, { ...ctx, position: "handler" });
-      // If this is a navigate/toast call, route the socket through it.
-      if (
-        stmt.expr.kind === "call" &&
-        (stmt.expr.name === "navigate" || stmt.expr.name === "toast")
-      ) {
-        return `|> then(fn socket -> ${e} end)`;
-      }
-      return `|> tap(fn _ -> ${e} end)`;
-    }
-    case "add":
-    case "remove": {
-      // `count += 1` / `count -= 1` lower to `add` / `remove` (the same
-      // IR kinds collection mutations use).  In a LiveView page handler
-      // the only meaningful target is a page-`state` field: emit a
-      // pipe-assign whose value reads the field's current handler-scope
-      // value (`socket.assigns.<f>`) and either does compound arithmetic
-      // (scalar) or list append/remove (collection).  Mirrors the React
-      // walker's `emitStmt` add/remove arm, re-shaped to the socket pipe.
-      const fieldName = stmt.target.segments[0];
-      if (!fieldName) return `# bad ${stmt.kind}`;
-      const stateRef = {
-        field: { name: fieldName, type: { kind: "primitive" as const, name: "string" as const } },
-        name: hostStateAssignIfOwned(fieldName, ctx),
-      };
-      const rhs = renderExpr(stmt.value, { ...ctx, position: "handler" });
-      // Nested target (`order.total += v`) reads the dotted handler path;
-      // a single-segment field reads via the state seam.
-      const read =
-        stmt.target.segments.length === 1
-          ? heexTarget.renderStateRead(stateRef, "handler")
-          : `socket.assigns.${[stateRef.name, ...stmt.target.segments.slice(1).map((s) => snake(s))].join(".")}`;
-      const value = stmt.collection
-        ? stmt.kind === "add"
-          ? `${read} ++ [${rhs}]`
-          : `Enum.reject(${read}, &(&1 == ${rhs}))`
-        : `${read} ${stmt.kind === "add" ? "+" : "-"} ${rhs}`;
-      return heexTarget.renderStateWrite(stateRef, value);
-    }
-    case "precondition":
-    case "requires": {
-      // Guard statement in a handler body → keep the socket when the
-      // predicate holds, otherwise flash and halt the rest of the chain.
-      // `requires` is an authorization gate (forbidden); `precondition`
-      // is a domain check.  Both surface as a server-side flash since a
-      // page handler can't raise the way a domain action does.
-      const pred = renderExpr(stmt.expr, { ...ctx, position: "handler" });
-      // The flash is user-facing, so it never carries the guard's `.ddd`
-      // source: a refused gate answers the constant `Forbidden`, a refused
-      // precondition its rule's text (a named rule's own, else the generic
-      // sentence) — what the REST rungs answer too.  Through the escaping
-      // funnel: a translator's override can carry a `#{`.
-      const msg = stmt.kind === "requires" ? CONSTANT_FORBIDDEN_DETAIL : floorRuleText(stmt);
-      return `|> then(fn socket -> if ${pred}, do: socket, else: put_flash(socket, :error, ${elixirString(msg)}) end)`;
-    }
-    case "emit": {
-      // Broadcast a domain event over Phoenix.PubSub.  No changeset in a
-      // page handler, so the struct is built inline and piped via `tap`
-      // (the socket flows through unchanged).  Module prefix uses the
-      // app module — page handlers don't carry a per-context module.
-      const fields = stmt.fields
-        .map((f) => `${snake(f.name)}: ${renderExpr(f.value, { ...ctx, position: "handler" })}`)
-        .join(", ");
-      const moduleName = upperFirst(stmt.eventName);
-      return `|> tap(fn _ -> Phoenix.PubSub.broadcast(${ctx.appModule}.PubSub, "events", %${ctx.appModule}.Events.${moduleName}{${fields}}) end)`;
-    }
-    case "call": {
-      if (stmt.target === "store-action" && stmt.store) {
-        // `Cart.clear()` / `Cart.add(sku)` from a page/component action body
-        // (Stage 5).  A pipe step over the socket: `|> update(:cart, …)`
-        // applies the pure store-module fn to the store's per-page assign.
-        // (Same-store action→action composition is pure and handled inside the
-        // store module; a page calling a store action lands here.)  Record the
-        // use so the LiveView emitter seeds the `:cart` assign + alias.
-        ctx.usedStores.add(stmt.store);
-        const assign = snake(stmt.store);
-        const module = upperFirst(stmt.store);
-        const fn = snake(stmt.name);
-        if (stmt.args.length === 0) {
-          return `|> update(:${assign}, &${module}.${fn}/1)`;
-        }
-        const callArgs = stmt.args
-          .map((a) => renderExpr(a, { ...ctx, position: "handler" }))
-          .join(", ");
-        return `|> update(:${assign}, fn c -> ${module}.${fn}(c, ${callArgs}) end)`;
-      }
-      if (stmt.target === "action") {
-        // Sibling action→action call (Proposal A Stage 1, Fix 1).  LiveView
-        // can't cleanly call one `handle_event` clause from another — the
-        // callee is a clause, not a callable function that returns a piped
-        // socket.  Inline the callee action's body pipe-steps at the call site
-        // instead (the same shape the hoist at `walkBodyToHeex` emits), so the
-        // socket flows through the callee's effects and back.  This is the
-        // HEEx analogue of the JS frontends marking the callee used.
-        if (ctx.actionInlineStack?.has(stmt.name)) {
-          // Cycle — already inlining this action higher in the chain.  Emit a
-          // no-op marker rather than recurse (the validator owns the cycle
-          // diagnostic; codegen just must not loop).
-          return `|> tap(fn _ -> :ok end) # action '${snake(stmt.name)}' cycle (HEEx)`;
-        }
-        const callee = ctx.page.actions?.find((a) => a.name === stmt.name);
-        if (!callee) {
-          // No such action in scope — the validator owns the diagnostic; codegen
-          // must not emit a call to a function that does not exist.
-          return `|> tap(fn _ -> :ok end) # action '${snake(stmt.name)}' not found`;
-        }
-        if (callee.body.length === 0) return "|> tap(fn _ -> :ok end)";
-        // A PARAMETERISED callee inlines the same way, with its parameters
-        // bound to the caller's arguments — rendered here, in the CALLER's
-        // scope, and substituted at each `ref` inside the callee body
-        // (`ctx.actionArgSubst`).  Elixir has no way to introduce a binding
-        // mid-pipe, so substitution is the inline; the arguments are pure
-        // expressions, so evaluating them once per use is equivalent.
-        const subst = new Map<string, string>();
-        callee.params.forEach((p, i) => {
-          const arg = stmt.args[i];
-          if (arg) subst.set(p.name, renderExpr(arg, { ...ctx, position: "handler" }));
-        });
-        const innerCtx: WalkContext = {
-          ...ctx,
-          actionInlineStack: new Set([...(ctx.actionInlineStack ?? []), stmt.name]),
-          // Replaces (never merges) the caller's substitutions: the callee's
-          // body resolves ITS parameter names, and the arguments that carried
-          // the caller's own parameters were already rendered above.
-          actionArgSubst: subst,
-        };
-        return callee.body.map((s) => renderStmt(s, innerCtx)).join("\n      ");
-      }
-      // `navigate(<Page>)` — the DOCUMENTED navigation shape (docs/actions.md).
-      // It is a `private-operation` call, so the bare-call line below would
-      // emit `|> tap(fn _ -> navigate(other) end)`: an undefined function AND
-      // an unbound `other`, i.e. an Elixir CompileError.  Routed through the
-      // SAME resolver the expression position uses; `then/2` gives
-      // the mid-pipe socket the `push_navigate(socket, …)` shape needs.
-      if (stmt.name === "navigate" && stmt.target === "private-operation") {
-        return `|> then(fn socket -> ${renderNavigate(stmt.args, ctx)} end)`;
-      }
-      // `toast(<msg>)` is the exact twin of the `navigate` case above: also a
-      // `private-operation` call, so the bare-call line would emit
-      // `|> tap(fn _ -> toast("Saved") end)` — an undefined function, i.e. an
-      // Elixir CompileError on a page whose only sin is a documented effect.
-      // `then/2` for the same reason: `put_flash/3` RETURNS the new socket, so
-      // `tap` would evaluate it and throw the result away even if the function
-      // existed.
-      if (stmt.name === "toast" && stmt.target === "private-operation") {
-        return `|> then(fn socket -> ${renderToastArgs(stmt.args, ctx)} end)`;
-      }
-      // Bare function / private-operation call statement.  Evaluated for
-      // its effect; the socket flows through unchanged via `tap`.
-      const args = stmt.args.map((a) => renderExpr(a, { ...ctx, position: "handler" })).join(", ");
-      return `|> tap(fn _ -> ${snake(stmt.name)}(${args}) end)`;
-    }
-    case "return": {
-      // Elixir has no `return`; a page handler has no value sink, so the
-      // expression is evaluated for effect and the socket flows through.
-      const e = renderExpr(stmt.value, { ...ctx, position: "handler" });
-      return `|> tap(fn _ -> ${e} end)`;
-    }
-    case "variant-match":
-      // `match await <api>.<Agg>.<op>(args) { … }` (async-actions-and-effects.md
-      // Stage 2).  On LiveView the async boundary is server-side, not the
-      // client-side await the JS frontends emit: load the route-id record, run
-      // the aggregate's returning-op context fn, and `case` on its tagged Result
-      // tuple — the SAME `{:ok, v}` / `{:error, "<tag>", data}` shape the
-      // returning-op controller action produces (operation-returns-emit), here
-      // re-shaped to a socket-piped `then/2` step so each arm threads assigns.
-      return renderVariantMatchStmt(stmt, ctx);
-    case "if":
-      // A plain `if` statement is a BACKEND-body form (node/.NET/java/python).
-      // A LiveView handler is a socket pipe-chain, and a page body expresses a
-      // condition with `match` or a ternary, so the statement is refused for
-      // every frontend by `loom.if-stmt-page-body-unsupported`
-      // (ir/validate/checks/if-stmt-checks.ts).  Defensive fail-fast, not a
-      // silent drop — unreachable on validated `.ddd`.
-      throw new Error(
-        `platform: elixir — an \`if\` statement reached the LiveView handler emitter on page ` +
-          `'${ctx.page.name}'; it is refused at validation ` +
-          `(loom.if-stmt-page-body-unsupported).`,
-      );
-    default: {
-      // EXHAUSTIVENESS — see the twin note on `renderExpr` above.
-      const _exhaustive: never = stmt;
-      return _exhaustive;
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // `match await` (Stage 2) — server-side effect-form variant match.
 // ---------------------------------------------------------------------------
-
-/** Extract `{aggregate, operation, args}` from an awaited variant-match subject.
- *  Handles both the api-param-prefixed form (`<api>.<Agg>.<op>(args)`, Pattern
- *  B/A) and the bare-aggregate form (`<Agg>.<op>(args)`, Pattern E/D) — for the
- *  awaited match the aggregate name is all we need (the api handle only selected
- *  the bounded context, which `contextModuleByAggName` already resolves). */
-function detectAwaitedOp(
-  subject: ExprIR,
-): { aggName: string; opName: string; args: ExprIR[] } | null {
-  if (subject.kind === "method-call") {
-    const aggName = qualifierName(subject.receiver);
-    if (aggName) return { aggName, opName: subject.member, args: subject.args };
-  }
-  if (subject.kind === "member") {
-    const aggName = qualifierName(subject.receiver);
-    if (aggName) return { aggName, opName: subject.member, args: [] };
-  }
-  return null;
-}
-
-/** The aggregate name a `match await` subject is qualified by: the LAST segment
- *  of the receiver chain, whatever its depth.  `Order` in each of `Order.op()`,
- *  `Api.Order.op()` and any deeper `a.b.Order.op()` qualification — only the
- *  aggregate matters here, since `contextModuleByAggName` already resolves the
- *  bounded context the api handle would have selected. */
-function qualifierName(recv: ExprIR): string | null {
-  if (recv.kind === "member") return recv.member;
-  if (recv.kind === "ref") return recv.name;
-  return null;
-}
-
-/** Render an awaited `match await <op>() { … }` as a socket-piped `then/2` step.
- *  Mirrors the returning-op controller action (operation-returns-emit): load the
- *  route-id record, run the op's context fn, `case` on the `{:ok, v}` /
- *  `{:error, "<tag>", data}` tuple.  Each arm is a socket pipe-chain; `else` and
- *  any unmatched outcome (`{:error, %Ecto.Changeset{}}`) fall through to the
- *  socket unchanged, keeping the `case` total.
- *
- *  The op is dispatched through `apply/3` on purpose: Elixir 1.18's type checker
- *  narrows a direct cross-module call's result to the op body's inferred variants
- *  and would flag the `{:ok, _}` arm as unreachable for an always-rejecting op
- *  (the exact pitfall the controller sidesteps with a public `_result/2` helper —
- *  operation-returns-emit §"unused clause").  `apply/3` returns `term()`, so
- *  every arm stays reachable under `--warnings-as-errors`. */
-function renderVariantMatchStmt(
-  stmt: Extract<StmtIR, { kind: "variant-match" }>,
-  ctx: WalkContext,
-): string {
-  // An unrecognised subject must not render a `tap(fn _ -> :ok end)` marker —
-  // valid Elixir that silently does nothing at runtime.  Fail at CODEGEN
-  // instead: the awaited call is the whole point of the statement, so dropping
-  // it is never the right answer.
-  const detected = detectAwaitedOp(stmt.subject);
-  if (!detected) {
-    throw new Error(
-      `platform: elixir — a variant \`match\` statement on page '${ctx.page.name}' has a subject the LiveView emitter cannot resolve to an aggregate operation (ExprIR kind '${stmt.subject.kind}'). A LiveView discriminates a union by RUNNING the operation server-side, so the subject must be the awaited call itself: \`match await <Aggregate>.<operation>(…)\` (optionally api-qualified).`,
-    );
-  }
-  const { aggName, opName, args } = detected;
-  const agg = ctx.aggregatesByName.get(aggName);
-  if (!agg) {
-    throw new Error(
-      `platform: elixir — \`match await\` on page '${ctx.page.name}' resolves to '${aggName}.${opName}', but '${aggName}' is not an aggregate served by this deployable, so there is no context function to run.`,
-    );
-  }
-  const ctxModule = ctx.contextModuleByAggName.get(aggName) ?? ctx.appModule;
-  const aggSnake = snake(aggName);
-  const opSnake = snake(opName);
-  const op = agg?.operations.find((o) => o.name === opName);
-  const hctx: WalkContext = { ...ctx, position: "handler" };
-  // op params → string-keyed attrs map (mirrors the controller's
-  // `attrs = Map.drop(params, ["id"])`, string keys from the JSON body).
-  const params = op?.params ?? [];
-  const attrs =
-    params.length === 0
-      ? "%{}"
-      : `%{${params
-          .map(
-            (p, i) =>
-              `${JSON.stringify(snake(p.name))} => ${args[i] ? renderExpr(args[i]!, hctx) : "nil"}`,
-          )
-          .join(", ")}}`;
-  // One `case` clause per arm; the arm body is a socket pipe-chain (empty ⇒ bare
-  // `socket`).  `binder`/`snake(binding)` match render-expr's `match-binding`
-  // fallback so `o.code` inside the arm resolves to the bound clause var.
-  const armClause = (pattern: string, body: readonly StmtIR[]): string => {
-    const steps = body.map((s) => renderStmt(s, hctx));
-    const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
-    return `            ${pattern} ->\n              ${piped}`;
-  };
-  // Classify the error variant.  The lowered `arm.isError` hint is unreliable
-  // from a UI body (a context-local `error` type doesn't resolve in the page's
-  // lowering env — same caveat the JS walker documents), so treat the success
-  // variant as the aggregate's own type and any other tag as an error.  Honour a
-  // `true` hint too, for the case where lowering DID resolve it.
-  const clauses = stmt.arms.map((arm) => {
-    const tag = variantTag(arm.varType);
-    const isError = arm.isError === true || tag !== aggName;
-    const steps = arm.body.map((s) => renderStmt(s, hctx));
-    // Elixir's `--warnings-as-errors` rejects a bound-but-unused pattern var, so
-    // prefix the binder with `_` when the arm body never references it (e.g.
-    // `Blocked _b -> assign(:message, "blocked")`).
-    const raw = arm.binding ? snake(arm.binding) : "_";
-    const used = arm.binding ? steps.some((st) => new RegExp(`\\b${raw}\\b`).test(st)) : false;
-    const binder = arm.binding && !used ? `_${raw}` : raw;
-    const pattern = isError ? `{:error, ${JSON.stringify(tag)}, ${binder}}` : `{:ok, ${binder}}`;
-    const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
-    return `            ${pattern} ->\n              ${piped}`;
-  });
-  // Catch-all keeps the inner `case` total (unmatched error variants + the
-  // audited-op `{:error, %Ecto.Changeset{}}`): run the `else` body if present,
-  // else thread the socket through unchanged.
-  clauses.push(armClause("_", stmt.elseBody ?? []));
-  const notFoundMsg = JSON.stringify(`${upperFirst(aggName)} not found`);
-  return [
-    `|> then(fn socket ->`,
-    `        case ${ctxModule}.get_${aggSnake}(socket.assigns.id) do`,
-    `          {:ok, record} ->`,
-    `            case apply(${ctxModule}, :${opSnake}_${aggSnake}, [record, ${attrs}]) do`,
-    ...clauses,
-    `            end`,
-    `          {:error, :not_found} ->`,
-    `            put_flash(socket, :error, ${notFoundMsg})`,
-    `        end`,
-    `      end)`,
-  ].join("\n");
-}
 
 // ---------------------------------------------------------------------------
 // `requires` page-level guard → handle_params guard expression.
@@ -2907,6 +2377,7 @@ function renderRequiresGuardAt(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames: new Set(page.state.map((f) => snake(f.name))),
@@ -2952,7 +2423,7 @@ export function hostStateAssign(owner: string | undefined, field: string): strin
 /** `hostStateAssign` for a mutation target — namespaced only when the target
  *  really is one of THIS body's declared state fields (a dotted path into an
  *  aggregate instance, or a name the body doesn't own, is left alone). */
-function hostStateAssignIfOwned(field: string, ctx: WalkContext): string {
+export function hostStateAssignIfOwned(field: string, ctx: WalkContext): string {
   return ctx.stateNames.has(snake(field)) ? hostStateAssign(ctx.stateOwner, field) : snake(field);
 }
 
