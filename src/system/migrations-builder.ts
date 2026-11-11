@@ -11,7 +11,7 @@ import {
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
-import { hasDurableEvents, hasStateRow } from "../ir/plan/index.js";
+import { eventLogTable, hasDurableEvents, hasStateRow } from "../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -847,7 +847,7 @@ function eventLogTableForStream(
   ownerModule: string,
   carriesTenant: boolean,
 ): TableShape {
-  const tableName = `${snakeCtxName}_events`;
+  const tableName = eventLogTable(snakeCtxName);
   return {
     name: tableName,
     ownerModule,
@@ -3518,7 +3518,7 @@ function resolveTableRenames(
     isMove: boolean,
     oldSchemaFor: (probe: string) => string | undefined,
   ): void {
-    const newLog = `${snake(ctx.name)}_events`;
+    const newLog = eventLogTable(ctx.name);
     const newSchema = contextSchemaOf(ctx);
     const target = qualified(newSchema, newLog);
     const rewrite = (key: string, table: string) =>
@@ -3530,7 +3530,7 @@ function resolveTableRenames(
       if (ri.from !== ri.to) rewrite("eventlog", target);
       return;
     }
-    const oldLog = `${snake(ri.fromContext!)}_events`;
+    const oldLog = eventLogTable(ri.fromContext!);
     const oldSchema = oldSchemaFor(oldLog);
     // No baseline holds the old log: there is nothing (left) to move — the
     // move is recorded already, or the stream never had a log.

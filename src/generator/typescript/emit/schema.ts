@@ -5,7 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import { hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
+import { eventLogTable, hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -632,7 +632,7 @@ function emitEventLogTable(
   name: string,
   options: { schema?: string; prefix?: string; tenant?: boolean } = {},
 ): string {
-  const baseTable = `${snake(name)}_events`;
+  const baseTable = eventLogTable(name);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const constName = `${lowerFirst(name)}Events`;

@@ -1,4 +1,5 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
+import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -2625,11 +2626,11 @@ export function renderDapperEventSourcedRepository(
   // The single per-context event log (event-log-architecture.md): every load /
   // append / fold scopes to `stream_type = @st` (this aggregate's name) so a
   // sibling stream sharing the `<ctx>_events` table is never folded in.
-  const table = `${snake(ctxName)}_events`;
+  const table = eventLogTable(ctxName);
   const streamType = agg.name;
   // Audit staging seam — shared with the relational + document emitters.
   const audit = dapperAuditSeam(agg, ns);
-  const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(agg);
   const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"

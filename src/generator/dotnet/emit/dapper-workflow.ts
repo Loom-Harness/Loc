@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import { stateRowWorkflows } from "../../../ir/plan/index.js";
+import { eventLogTable, stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -241,7 +241,7 @@ function renderRowStore(
 function renderEventStore(ns: string, ctxName: string): string[] {
   const cls = eventStoreClass(ctxName);
   const rec = `global::${ns}.Infrastructure.Persistence.Events.${eventRecordClass(ctxName)}`;
-  const table = `${snake(ctxName)}_events`;
+  const table = eventLogTable(ctxName);
   return [
     `public sealed class ${cls} : IWorkflowEventStore<${rec}>`,
     "{",

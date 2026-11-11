@@ -6,7 +6,11 @@ import {
   eventToDataFn,
   rowToEventFn,
 } from "../../../generator/typescript/repository-eventsourced-builder.js";
-import { eventSourcedWorkflows } from "../../../ir/plan/index.js";
+import {
+  eventSourcedWorkflows,
+  foldedEventNames,
+  workflowStreamType,
+} from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -31,11 +35,6 @@ import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 // repo wiring already live.  Reuses the aggregate event store's `eventToData`
 // / `rowToEvent` (de)serialisers — the stream row shape is identical.
 // ---------------------------------------------------------------------------
-
-/** The event types a workflow folds — the events its appliers consume. */
-export function foldedEventNames(wf: WorkflowIR): string[] {
-  return [...new Set((wf.appliers ?? []).map((a) => a.event))];
-}
 
 /** The Drizzle stream-table const for a workflow — the single per-context
  *  `<ctx>_events` log (event-log-architecture.md), shared by every ES aggregate
@@ -180,7 +179,7 @@ export function emitWorkflowFoldHelpers(
   // The stream-type discriminator that carves this workflow's slice out of the
   // shared per-context event log — mirrors the ES aggregate repo's
   // `stream_type = "<Agg>"`.
-  const streamType = T;
+  const streamType = workflowStreamType(wf);
   // MikroORM branch: the same stream, reached through the EntityManager over the
   // generated `<Ctx>EventRow` entity (db/entities.ts) rather than the drizzle
   // table const.  `dbT` types every helper's `db` param accordingly.

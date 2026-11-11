@@ -67,6 +67,13 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               call — the hand-spelled "does this body run in one
 //               transaction" test.
 //               → use `workflowRunsInTransaction`.
+//   folded-events  a `.map(…)` over an `appliers` list whose callback returns
+//               the applier's `.event` — the hand-rolled "which events does
+//               this stream fold" list.
+//               → use `foldedEventNames`.
+//   event-log   a template literal with a `${snake(…)}_events` span — the
+//               hand-spelled per-context event-log table name.
+//               → use `eventLogTable`.
 //
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
@@ -149,7 +156,9 @@ interface Violation {
     | "deref-loads"
     | "durable"
     | "isolation"
-    | "implicit-tx";
+    | "implicit-tx"
+    | "folded-events"
+    | "event-log";
   where: string;
   text: string;
 }
@@ -406,6 +415,30 @@ function scan(file: string): Violation[] {
         out.push({ rule: "implicit-tx", where: at(n), text: n.getText(sf) });
       }
     }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === "map" &&
+      /\bappliers\b/.test(n.expression.expression.getText(sf)) &&
+      n.arguments.length === 1 &&
+      ts.isArrowFunction(n.arguments[0]!) &&
+      ts.isExpression(n.arguments[0]!.body) &&
+      propName(n.arguments[0]!.body) === "event"
+    ) {
+      out.push({ rule: "folded-events", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isTemplateExpression(n) &&
+      n.templateSpans.some(
+        (span) =>
+          span.literal.text.startsWith("_events") &&
+          ts.isCallExpression(span.expression) &&
+          ts.isIdentifier(span.expression.expression) &&
+          span.expression.expression.text === "snake",
+      )
+    ) {
+      out.push({ rule: "event-log", where: at(n), text: n.getText(sf) });
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -472,6 +505,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells when a workflow body runs in one transaction (use workflowRunsInTransaction)", () => {
     const hits = violations.filter((v) => v.rule === "implicit-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-lists the events a stream folds (use foldedEventNames)", () => {
+    const hits = violations.filter((v) => v.rule === "folded-events");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the event-log table name (use eventLogTable)", () => {
+    const hits = violations.filter((v) => v.rule === "event-log");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

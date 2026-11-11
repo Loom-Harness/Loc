@@ -1,4 +1,5 @@
 import { aggregateTableName } from "../ir/enrich/storage-names.js";
+import { eventLogTable } from "../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -149,7 +150,7 @@ export function enumJsonPlaces(
       ctx.aggregates.some((a) => a.persistedAs === "eventLog") ||
       ctx.workflows.some((w) => w.eventSourced);
     if (!hasEventStream) continue;
-    const log = rel(contextSchemaOf(ctx), `${snake(ctx.name)}_events`);
+    const log = rel(contextSchemaOf(ctx), eventLogTable(ctx.name));
     for (const ev of ctx.events) {
       if (reaches(ev.fields)) out.push(`  - ${log}.data (payloads of ${ev.name})`);
     }

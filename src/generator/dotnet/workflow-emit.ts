@@ -3,6 +3,7 @@ import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-pro
 import {
   auditedOpCallAggregates,
   dereferencedLoads,
+  eventLogTable,
   hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
@@ -2574,7 +2575,7 @@ function renderInstancesController(
       const corrId = esCorrIdClass(wf);
       if (usingDapper) {
         const rec = `global::${ns}.Infrastructure.Persistence.Events.${esEventRecordClass(wf, ownerOf)}`;
-        const table = `${snake(ownerOf(wf.name))}_events`;
+        const table = eventLogTable(ownerOf(wf.name));
         const cols =
           "seq AS Seq, stream_type AS StreamType, stream_id AS StreamId, version AS Version, type AS Type, data AS Data, occurred_at AS OccurredAt";
         listBody =

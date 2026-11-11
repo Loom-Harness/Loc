@@ -1,3 +1,4 @@
+import { foldedEventNames, workflowStreamType } from "../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -206,7 +207,7 @@ export function esWorkflowFoldBlock(
   const row = pyRef("app.db.schema", esEventRow(wf, ctx, resolveStreamContext));
   const fns = esFns(wf);
   const fields = wf.stateFields ?? [];
-  const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(wf);
   const foldedEvents: EventIR[] = ctx.events.filter((e) => eventNames.includes(e.name));
 
   // State class — public attributes, keyword __init__ (correlation + required
@@ -262,7 +263,7 @@ export function esWorkflowFoldBlock(
     "    rows = (",
     `        await session.execute(`,
     `            ${SELECT}(${row})`,
-    `            .where(${row}.stream_type == "${wf.name}", ${row}.stream_id == key)`,
+    `            .where(${row}.stream_type == "${workflowStreamType(wf)}", ${row}.stream_id == key)`,
     `            .order_by(${row}.version)`,
     "        )",
     "    ).scalars().all()",
@@ -277,7 +278,7 @@ export function esWorkflowFoldBlock(
     "    rows = (",
     `        await session.execute(`,
     `            ${SELECT}(${row})`,
-    `            .where(${row}.stream_type == "${wf.name}")`,
+    `            .where(${row}.stream_type == "${workflowStreamType(wf)}")`,
     `            .order_by(${row}.stream_id, ${row}.version)`,
     "        )",
     "    ).scalars().all()",
@@ -293,7 +294,7 @@ export function esWorkflowFoldBlock(
     "    prior = (",
     `        await session.execute(`,
     `            ${SELECT}(${FUNC}.max(${row}.version)).where(`,
-    `                ${row}.stream_type == "${wf.name}", ${row}.stream_id == key`,
+    `                ${row}.stream_type == "${workflowStreamType(wf)}", ${row}.stream_id == key`,
     "            )",
     "        )",
     "    ).scalar()",
@@ -302,7 +303,7 @@ export function esWorkflowFoldBlock(
     "        version += 1",
     "        await session.execute(",
     `            ${INSERT}(${row}).values(`,
-    `                stream_type="${wf.name}",`,
+    `                stream_type="${workflowStreamType(wf)}",`,
     "                stream_id=key,",
     "                version=version,",
     "                type=type(ev).type,",

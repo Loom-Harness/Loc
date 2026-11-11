@@ -1,6 +1,7 @@
+import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
@@ -41,7 +42,7 @@ export function esWorkflowStateClass(wf: WorkflowIR): string {
  *  discriminated by `stream_type`.  Unqualified when no schema — byte-identical
  *  for binding-free systems. */
 export function esEventLogTable(ctxName: string, schema?: string): string {
-  const base = `${snake(ctxName)}_events`;
+  const base = eventLogTable(ctxName);
   return schema ? `${schema}.${base}` : base;
 }
 
@@ -72,7 +73,7 @@ export function renderEsWorkflowFoldClass(
   const corrId = esWorkflowCorrIdClass(wf);
   const fields = wf.stateFields ?? [];
   const stateOnly = fields.filter((f) => f.name !== corr);
-  const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(wf);
   const renderCtx = { thisName: "this" as const };
 
   // Plain state fields — package-private so the same-package handler body reads

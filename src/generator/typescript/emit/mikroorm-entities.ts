@@ -15,7 +15,12 @@ import {
   partTableName,
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
-import { eventSourcedWorkflows, hasDurableEvents, hasStateRow } from "../../../ir/plan/index.js";
+import {
+  eventLogTable,
+  eventSourcedWorkflows,
+  hasDurableEvents,
+  hasStateRow,
+} from "../../../ir/plan/index.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -1056,7 +1061,7 @@ export function renderMikroEntities(
         "",
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
-        `  tableName: "${snake(owner)}_events",`,
+        `  tableName: "${eventLogTable(owner)}",`,
         "  properties: {",
         // `seq` — context-global monotonic cursor (bigserial), inert until the
         // replay reader lands; not part of the PK.  Must be a real Postgres

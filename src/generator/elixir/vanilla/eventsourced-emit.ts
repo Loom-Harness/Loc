@@ -32,6 +32,7 @@ import {
   streamTenancyFor,
 } from "../../../ir/enrich/stream-tenancy.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -315,7 +316,7 @@ function renderEventLogSchema(
   const scopeBlock = tenancy
     ? renderSchemaReadScope(ectoStreamReadScope(agg, pool, `${appModule}.${ctxModule}`))
     : "";
-  const table = `${ctxSnake}_events`;
+  const table = eventLogTable(ctxSnake);
   // `@schema_prefix` targets the migration's `prefix:` schema; without it Ecto
   // queries `public.<ctx>_events` while the table was created under `<ctx>`.
   const prefixLine = ctxSchema ? `  @schema_prefix ${JSON.stringify(ctxSchema)}\n` : "";
@@ -414,7 +415,7 @@ function renderEsRepository(
 
   // Event types that may appear in this aggregate's stream — its appliers'
   // event set (ES discipline: every emitted event has a matching applier).
-  const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(agg);
   const events = eventNames.map((n) => eventsByName.get(n)).filter((e): e is EventIR => !!e);
 
   const typeClauses = events

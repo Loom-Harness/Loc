@@ -1,6 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { eventSourcedWorkflows } from "../../ir/plan/index.js";
+import { eventSourcedWorkflows, foldedEventNames } from "../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -423,9 +423,7 @@ export function buildPyDispatchFile(
     .filter((w): w is WorkflowIR => w != null);
   // The folded events of an ES workflow are constructed/dispatched in its
   // codec + isinstance fold, so import them alongside the subscribed events.
-  const esEventNames = eventSourcedWorkflows(touchedWorkflows).flatMap((w) =>
-    (w.appliers ?? []).map((a) => a.event),
-  );
+  const esEventNames = eventSourcedWorkflows(touchedWorkflows).flatMap(foldedEventNames);
 
   return lines(
     `"""In-process event dispatch (channels.md).  Auto-generated."""`,
