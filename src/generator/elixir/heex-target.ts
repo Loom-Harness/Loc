@@ -27,11 +27,10 @@ import {
   type HeexWalkSink,
   heexContextOf,
   matchArmContext,
-  matchRendersMarkup,
   renderChild,
   renderExpr,
   renderInTemplate,
-  ternaryRendersMarkup,
+  rendersMarkupBlock,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
@@ -74,16 +73,10 @@ export const heexTarget: WalkerTarget = {
       }
       return undefined;
     }
-    // A `match` whose arms are markup is control flow the shared core renders
-    // (`renderMatchChild`); one whose arms are terms is an Elixir value.
-    if (expr.kind === "match" && matchRendersMarkup(expr, engineContext(heex, ctx))) {
-      return undefined;
-    }
-    // Likewise a ternary with a markup branch (`renderConditionalChild`).
-    if (expr.kind === "ternary" && ternaryRendersMarkup(expr, engineContext(heex, ctx))) {
-      return undefined;
-    }
     const engine = engineContext(heex, ctx);
+    // A `match` or ternary whose branches are markup is control flow the
+    // shared core renders; one whose branches are terms is an Elixir value.
+    if (rendersMarkupBlock(expr, engine)) return undefined;
     return depth === 0 ? renderExpr(expr, engine) : indentTail(renderChild(expr, engine), depth);
   },
 

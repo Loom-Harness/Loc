@@ -1750,6 +1750,14 @@ export function ternaryRendersMarkup(
   );
 }
 
+/** True when `expr` is control flow over markup — a block `match`
+ *  (`renderMatchChild`) or a markup ternary (`renderConditionalChild`) — which
+ *  the shared walker core renders rather than this engine. */
+export function rendersMarkupBlock(expr: ExprIR, ctx: WalkContext): boolean {
+  if (expr.kind === "match") return matchRendersMarkup(expr, ctx);
+  return expr.kind === "ternary" && ternaryRendersMarkup(expr, ctx);
+}
+
 /** The walk context one arm of a block `match` renders under (`index ===
  *  arms.length` is the fallback).
  *
