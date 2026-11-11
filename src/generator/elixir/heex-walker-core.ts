@@ -1726,10 +1726,7 @@ function andGate(...parts: readonly (string | undefined)[]): string | undefined 
  *  for the whole project.  So the form follows what the arms render: one
  *  markup arm makes the block, in which a term arm still gets its own
  *  `<%= … %>`. */
-function matchRendersMarkup(
-  expr: Extract<ExprIR, { kind: "match" }>,
-  ctx: WalkContext,
-): boolean {
+function matchRendersMarkup(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): boolean {
   return (
     ctx.position === "template" &&
     (expr.arms.some((a) => armRendersMarkup(a.value, ctx)) ||
