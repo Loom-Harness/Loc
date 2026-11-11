@@ -75,6 +75,7 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Section",
   "Sticky",
   "Toolbar",
+  "KeyValueRow",
 ]);
 
 type VM = Record<string, unknown>;
@@ -477,6 +478,22 @@ function renderPaper(vm: VM): string {
   return element(".card", testid, vm);
 }
 
+/** `KeyValueRow(label, value)` → a `<dt>`/`<dd>` pair, the value inline in its
+ *  `<dd>` (so a nested value's later lines sit one level in from the row, not
+ *  at the depth the core walked it).  The testid names the
+ *  VALUE cell, as on the JSX packs: a detail page object reads
+ *  `detail.field("name")` with an exact text match, which the label would
+ *  break. */
+function renderKeyValueRow(vm: VM): string {
+  const close = str(vm.closeIndent);
+  return [
+    `<div class="key-value-row"${str(vm.styleAttr)}>`,
+    `${close}  <dt class="key-value-label">${str(vm.label)}</dt>`,
+    `${close}  <dd class="key-value-value"${str(vm.testidAttr)}>${dedentTail(str(vm.childJsx), 2)}</dd>`,
+    `${close}</div>`,
+  ].join("\n");
+}
+
 /** `QueryView` → LiveView's loading / error / empty / data ladder over the
  *  assign its load fills in `handle_params` (`queryExpr`, bound by
  *  `heexTarget.bindQueryView`):
@@ -575,6 +592,7 @@ const RENDERERS: Record<string, Renderer> = {
       ` class="${TOOLBAR_CLASS}"${str(vm.styleAttr)}${str(vm.testidAttr)}${str(vm.a11yAttr)}`,
       vm,
     ),
+  "primitive-key-value-row": renderKeyValueRow,
   "primitive-field": (vm) => renderInput("text", vm),
   "primitive-number-field": (vm) => renderInput("number", vm),
   "primitive-password-field": (vm) => renderInput("password", vm),

@@ -55,7 +55,6 @@ import {
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
   renderIdLink as renderIdLinkHeex,
-  renderKeyValueRow as renderKeyValueRowHeex,
   renderSlot as renderSlotHeex,
   renderTableColumn as renderTableColumnHeex,
 } from "../elixir/heex-walker.js";
@@ -276,7 +275,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitKeyValueRow,
-    heex: renderKeyValueRowHeex,
     a11y: "presentational",
   },
   // --- Semantic anchor target + sticky-position wrapper ---------

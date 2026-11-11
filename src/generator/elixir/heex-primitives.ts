@@ -1384,34 +1384,6 @@ export function bindHeexQueryView(
   return { readExpr: assignName, single: isSingle, paged: plan.isPaged };
 }
 
-/** `KeyValueRow("Label", value_expr)` → `<div class="key-value-row">` */
-export function renderKeyValueRow(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  // The row label is a user-visible slot (`keyValue`), so a plain literal rides
-  // the translation runtime under i18n and stays raw otherwise.
-  const label = positionals[0]
-    ? renderInTemplate(positionals[0], ctx, "keyValue")
-    : heexChromeText(ctx, "fieldFallback");
-  // The VALUE is authored prose too, and it rode NO role — so the row's two
-  // halves diverged: the label translated and the value shipped in English at
-  // every locale (G2667 §D9).  `keyValueValue` is the same role the JSX walker
-  // uses, so the key the extraction pass writes and the key HEEx reads are one
-  // by construction.  Non-literals are unaffected (`localizedHeex` returns
-  // undefined for them), so this is byte-identical wherever the value is an
-  // expression or a nested primitive.
-  const value = positionals[1] ? renderInTemplate(positionals[1], ctx, "keyValueValue") : "";
-  // The testid identifies the VALUE cell, not the row — the same placement the
-  // React/Vue/Svelte packs use (`<div … data-testid={testid}>{children}</div>`
-  // inside `KeyValueRow`), and what the emitted page objects assume: a detail
-  // read is `expect(detail.field("name")).toHaveText("Sprocket")`, which is an
-  // EXACT text match and would see "Name Sprocket" if the id sat on the row.
-  return `<div class="key-value-row">\n  <dt class="key-value-label">${label}</dt>\n  <dd class="key-value-value"${testidAttr}>${value}</dd>\n</div>`;
-}
-
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
  *
  *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
