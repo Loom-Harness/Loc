@@ -720,7 +720,9 @@ describe("WalkerTarget — angularTarget (angular-frontend-plan.md)", () => {
   });
 
   it("renderChildrenSlot is Angular content projection", () => {
-    expect(angularTarget.renderChildrenSlot?.()).toBe("<ng-content></ng-content>");
+    expect(angularTarget.renderChildrenSlot?.({} as WalkContext, 0)).toBe(
+      "<ng-content></ng-content>",
+    );
   });
 });
 
