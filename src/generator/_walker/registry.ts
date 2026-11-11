@@ -56,7 +56,6 @@ import {
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
   renderEmpty as renderEmptyHeex,
-  renderFileUpload as renderFileUploadHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
   renderPaper as renderPaperHeex,
@@ -65,7 +64,6 @@ import {
   renderSlot as renderSlotHeex,
   renderSticky as renderStickyHeex,
   renderTableColumn as renderTableColumnHeex,
-  renderTable as renderTableHeex,
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
@@ -368,7 +366,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFileUpload,
-    heex: renderFileUploadHeex,
     a11y: { labelled: "associate" },
   },
   // --- Display -----------------------------------------------------------
@@ -482,7 +479,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitTable,
-    heex: renderTableHeex,
     a11y: { role: "table", owns: "Column" },
   },
   // TanStack-Table-backed grid (multi-sort / per-column filters / column

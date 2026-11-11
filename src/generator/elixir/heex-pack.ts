@@ -66,6 +66,8 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "FileLink",
   "ProvenanceInfo",
   "Timeline",
+  "Table",
+  "FileUpload",
 ]);
 
 type VM = Record<string, unknown>;

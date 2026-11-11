@@ -68,6 +68,8 @@ export function emitTable(
   ctx: WalkContext,
   depth: number,
 ): string {
+  const override = ctx.target.renderTable?.(call, ctx, depth);
+  if (override != null) return override;
   const rowsArg = namedArgValue(call, "rows");
   let rowsExpr = rowsArg ? emitExpr(rowsArg, ctx) : "[]";
   // The bound rows expression before any sort/slice wrapping.  Sort and slice

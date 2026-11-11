@@ -28,9 +28,11 @@ import {
   queryViewDataContext,
   renderDestroyForm,
   renderFileLink,
+  renderFileUpload,
   renderForm,
   renderModal,
   renderProvenanceInfo,
+  renderTable,
   renderTimeline,
   testIdAttr,
   withRowType,
@@ -356,8 +358,10 @@ export const heexTarget: WalkerTarget = {
   },
 
   // Whole-primitive overrides.  A LiveView form binds an Ecto changeset in
-  // `mount` and posts to a hoisted `handle_event`; a modal, a file link, a
-  // provenance disclosure and an audit timeline read assigns the page loads.
+  // `mount` and posts to a hoisted `handle_event`; a table re-runs its read
+  // from a hoisted sort/page clause; an upload rides `allow_upload/3`; a
+  // modal, a file link, a provenance disclosure and an audit timeline read
+  // assigns the page loads.
   // None of that fits the client-handle shape the shared emitters produce, so
   // these render their HEEx whole, as Feliz's and Flutter's overrides do, and
   // record their bindings on the HEEx walk context the LiveView emitter reads.
@@ -369,6 +373,8 @@ export const heexTarget: WalkerTarget = {
   renderFileLink: engineOverride(renderFileLink),
   renderProvenanceInfo: engineOverride(renderProvenanceInfo),
   renderTimeline: engineOverride(renderTimeline),
+  renderTable: engineOverride(renderTable),
+  renderFileUpload: engineOverride(renderFileUpload),
 
   /** `Action(<instance>.<operation>)` — a LiveView runs the operation from a
    *  hoisted `handle_event` clause, not through a client mutation handle, so

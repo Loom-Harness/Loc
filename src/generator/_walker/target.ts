@@ -1514,6 +1514,19 @@ export interface WalkerTarget {
    *  walker and never reaches this seam. */
   renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;
 
+  /** OPTIONAL — whole-primitive override for `Table { … }`.  The shared
+   *  `emitTable` sorts, filters and pages the bound rows on the client; a
+   *  server-session target re-runs the read with the new sort/page arguments
+   *  from a hoisted handler, and filters through a server-side helper, so it
+   *  renders the whole table here.  A non-null return is used verbatim. */
+  renderTable?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
+  /** OPTIONAL — whole-primitive override for `FileUpload { … }`.  The shared
+   *  `emitFileUpload` posts the chosen file to `/files` from the client; a
+   *  server-session target receives it over its own upload channel, so it
+   *  renders the input here.  A non-null return is used verbatim. */
+  renderFileUpload?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
+
   /** OPTIONAL — whole-primitive override for `DestroyForm(of: <Agg>)`.  The
    *  shared `emitDestroyForm` delegates here first; a non-null return is used
    *  verbatim and the shared path (which records an `actionMutations` sink +
