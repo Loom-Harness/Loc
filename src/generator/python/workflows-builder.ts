@@ -5,6 +5,7 @@ import {
   namesUsed,
   observableWorkflows,
   refsRead,
+  reposNeeded,
   serviceOpReadPorts,
   serviceReadPorts,
   withReadPortRepos,
@@ -30,11 +31,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import {
-  walkWorkflowStmtChildren,
-  walkWorkflowStmtsDeep,
-  workflowEmits,
-} from "../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -60,7 +57,6 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -284,32 +280,7 @@ interface RepoNeed {
 // `never`-checked "which kinds nest further bodies" fact `walk.ts` owns —
 // while keeping its own per-kind ordering around it, exactly as it was.
 function reposFor(wf: WorkflowIR): RepoNeed[] {
-  const out = new Map<string, RepoNeed>();
-  const visit = (st: WorkflowStmtIR): void => {
-    if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete") {
-      out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      return;
-    }
-    if (st.kind === "if-let") {
-      // The retrieval itself reads through the repo, and each branch carries
-      // its own saves (mirrors the Hono `collectReposFromStmts` walk).
-      out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      for (const s of [...st.savesInThen, ...st.savesInElse]) {
-        out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-      }
-    }
-    walkWorkflowStmtChildren(st, { workflowStmt: visit });
-    if (st.kind === "for-each" || st.kind === "variant-match") {
-      // A loop iteration's and a match arm's saves (an arm may create an
-      // aggregate no read in the body names).
-      for (const s of nestedSaves(st)) {
-        out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-      }
-    }
-  };
-  for (const st of wf.statements) visit(st);
-  for (const s of wf.savesAtExit) out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-  return [...out.values()];
+  return reposNeeded([wf.statements], wf.savesAtExit);
 }
 
 // --- read-port wiring (domain-services.md rev. 4) -----------------

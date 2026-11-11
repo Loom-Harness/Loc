@@ -39,7 +39,7 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
-import { serviceReadPorts } from "../../ir/plan/index.js";
+import { handlerNeedsCurrentUser, reposNeeded, serviceReadPorts } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -50,7 +50,6 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
-import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { entryResult } from "../../ir/util/entry-result.js";
 import {
@@ -58,7 +57,6 @@ import {
   requestRecordFor,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
-import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -67,11 +65,7 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
-import {
-  walkWorkflowStmtChildren,
-  walkWorkflowStmtsDeep,
-  workflowEmits,
-} from "../../ir/util/walk.js";
+import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -87,7 +81,7 @@ import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
-import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
 import {
@@ -254,43 +248,17 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
  *  bodies" fact `walk.ts` owns) while keeping this function's own ordering
  *  around it. */
 function collectRepos(h: Handler): Map<string, string> {
-  const repos = new Map<string, string>();
-  const walk = (s: WorkflowStmtIR): void => {
-    if (s.kind === "repo-let" || s.kind === "repo-run" || s.kind === "repo-delete") {
-      repos.set(s.repoName, s.aggName);
-      return;
-    }
-    if (s.kind === "if-let") repos.set(s.repoName, s.aggName);
-    walkWorkflowStmtChildren(s, { workflowStmt: walk });
-    for (const sv of nestedSaves(s)) repos.set(sv.repoName, sv.aggName);
-  };
-  for (const s of h.statements) walk(s);
-  for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);
-  return repos;
-}
-
-function lookupGatedOp(ctx: EnrichedBoundedContextIR, aggName: string, opName: string): boolean {
-  const op = ctx.aggregates
-    .find((a) => a.name === aggName)
-    ?.operations.find((o) => o.name === opName);
-  return !!op && operationBodyUsesCurrentUser(op);
+  return new Map(reposNeeded([h.statements], h.savesAtExit).map((r) => [r.repoName, r.aggName]));
 }
 
 /** Whether the handler needs the actor: its body reads `currentUser` (a
- *  `requires` gate or an expression), or it calls a currentUser-gated
- *  operation whose method takes a trailing `current_user`.  Either way the
+ *  `requires` gate or an expression), or it calls an operation whose
+ *  remaining body takes a trailing `current_user` or whose hoisted gate reads
+ *  it at the call site.  Either way the
  *  handler takes `current_user` and its route binds it; a handler that does
  *  neither stays byte-identical to a no-user handler. */
 function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  if (handlerUsesCurrentUser(h)) return true;
-  for (const s of h.statements) {
-    let hit = false;
-    walkWorkflowStmtsDeep(s, (st) => {
-      if (st.kind === "op-call" && lookupGatedOp(ctx, st.aggName, st.op)) hit = true;
-    });
-    if (hit) return true;
-  }
-  return false;
+  return handlerNeedsCurrentUser(h, ctx);
 }
 
 /** Recover the synthesized `repo-run` statement of a paged-run queryHandler

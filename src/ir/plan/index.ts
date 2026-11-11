@@ -25,6 +25,7 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
+export { type RepoNeed, reposNeeded } from "./repos-needed.js";
 export {
   domainServiceReadPorts,
   type ReadPort,
@@ -44,6 +45,7 @@ export { namesBound, namesUsed, refsRead } from "./workflow-names.js";
 export {
   auditedOpCallAggregates,
   callsAuditedOp,
+  handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
