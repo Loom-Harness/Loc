@@ -822,9 +822,6 @@ const WAIVERS: Record<string, Waiver> = {
   // a walk migration.
 
   // --- already delegates to a sanctioned walker for recursion --------------
-  "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
-  "src/generator/python/explicit-handlers-emit.ts#walk": DELEGATES_TO_SANCTIONED_WALKER,
-  "src/generator/python/workflows-builder.ts#visit": DELEGATES_TO_SANCTIONED_WALKER,
 
   // --- CR1-f: the former `THROWING_DISPATCHER` bucket, per-site ------------
   // 32 in, 27 out (+1 new, for this packet's own gate).  FIVE waivers DELETED, not rewritten — `mermaid.ts`'s two,
