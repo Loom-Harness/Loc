@@ -274,6 +274,8 @@ export function emitFileUpload(
   ctx: WalkContext,
   depth: number,
 ): string {
+  const override = ctx.target.renderFileUpload?.(call, ctx, depth);
+  if (override != null) return override;
   // FileUpload("Label", bind: <File state>) — standalone file-upload
   // input bound to a `File`-typed state field.  On select it POSTs the
   // file to `/files` (multipart via `api.upload`) and writes the returned

@@ -12,12 +12,13 @@
 // `framework: "phoenixLiveView"` matches the IR enum.
 // ---------------------------------------------------------------------------
 
-import type { TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
+import { renderHeexAction } from "./heex-action.js";
 import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
@@ -25,6 +26,14 @@ import {
   bindStateInput,
   heexEnumBadgeText,
   queryViewDataContext,
+  renderDestroyForm,
+  renderFileLink,
+  renderFileUpload,
+  renderForm,
+  renderModal,
+  renderProvenanceInfo,
+  renderTable,
+  renderTimeline,
   testIdAttr,
   withRowType,
 } from "./heex-primitives.js";
@@ -348,6 +357,34 @@ export const heexTarget: WalkerTarget = {
     return indentTail(fragment, depth);
   },
 
+  // Whole-primitive overrides.  A LiveView form binds an Ecto changeset in
+  // `mount` and posts to a hoisted `handle_event`; a table re-runs its read
+  // from a hoisted sort/page clause; an upload rides `allow_upload/3`; a
+  // modal, a file link, a provenance disclosure and an audit timeline read
+  // assigns the page loads.
+  // None of that fits the client-handle shape the shared emitters produce, so
+  // these render their HEEx whole, as Feliz's and Flutter's overrides do, and
+  // record their bindings on the HEEx walk context the LiveView emitter reads.
+  renderCreateForm: engineOverride(renderForm),
+  renderOperationForm: engineOverride(renderForm),
+  renderWorkflowForm: engineOverride(renderForm),
+  renderDestroyForm: engineOverride(renderDestroyForm),
+  renderModal: engineOverride(renderModal),
+  renderFileLink: engineOverride(renderFileLink),
+  renderProvenanceInfo: engineOverride(renderProvenanceInfo),
+  renderTimeline: engineOverride(renderTimeline),
+  renderTable: engineOverride(renderTable),
+  renderFileUpload: engineOverride(renderFileUpload),
+
+  /** `Action(<instance>.<operation>)` — a LiveView runs the operation from a
+   *  hoisted `handle_event` clause, not through a client mutation handle, so
+   *  the whole primitive renders here (`heex-action.ts`). */
+  renderAction(call, ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") return null;
+    return indentTail(renderHeexAction(call, engineContext(heex, ctx)), depth);
+  },
+
   /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under
    *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
    *  the `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs
@@ -499,6 +536,19 @@ function indentLines(fragment: string, depth: number): string {
     .split("\n")
     .map((line) => (line.length > 0 ? pad + line : line))
     .join("\n");
+}
+
+/** A whole-primitive override that renders `call` with `render` under the HEEx
+ *  walk context in the sink, placed at the shared core's indent.  `null` (the
+ *  shared path) only for a walk with no HEEx context. */
+function engineOverride(
+  render: (call: ExprIR & { kind: "call" }, ctx: HeexWalkContext) => string,
+): (call: ExprIR, ctx: SharedWalkContext, depth: number) => string | null {
+  return (call, ctx, depth) => {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") return null;
+    return indentTail(render(call, engineContext(heex, ctx)), depth);
+  };
 }
 
 /** Elixir literal-zero per type.  HEEx walker doesn't have a

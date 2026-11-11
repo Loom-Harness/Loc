@@ -44,6 +44,7 @@ import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.j
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
 import type { InputControl, QueryViewRead } from "../_walker/target.js";
+import { gateActionButton } from "./heex-action.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -54,7 +55,6 @@ import {
 import {
   escapeHeexAttr,
   escapeHeexText,
-  gateActionButton,
   hostStateAssign,
   indent,
   isAttrRenderable,
@@ -105,24 +105,6 @@ export function testIdAttr(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   const idx = (expr.argNames ?? []).indexOf("testid");
   const arg = idx >= 0 ? expr.args[idx] : undefined;
   return arg ? ` data-testid=${attrValue(arg, ctx)}` : "";
-}
-
-/** `Breadcrumbs(items...)` → `<nav aria-label="breadcrumb">` with
- *  a list of spans/links.  Positional children are each an Anchor
- *  (link) or Text (current page) from the scaffold expander. */
-export function renderBreadcrumbs(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const items = expr.args.map((a) => renderChild(a, ctx));
-  const itemsHeex = items
-    .map((item, i) =>
-      i < items.length - 1
-        ? `  <li class="breadcrumb-item">${item}</li>\n  <li class="breadcrumb-sep" aria-hidden="true">/</li>`
-        : `  <li class="breadcrumb-item breadcrumb-current" aria-current="page">${item}</li>`,
-    )
-    .join("\n");
-  return `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${indent(itemsHeex, 2)}\n  </ol>\n</nav>`;
 }
 
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
@@ -1430,26 +1412,6 @@ export function renderKeyValueRow(
   return `<div class="key-value-row">\n  <dt class="key-value-label">${label}</dt>\n  <dd class="key-value-value"${testidAttr}>${value}</dd>\n</div>`;
 }
 
-/** `Skeleton(count: N)` → `<div class="animate-pulse">` repeated loading lines. */
-export function renderSkeleton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let count = 3;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "count" && arg.kind === "literal") {
-      count = parseInt(arg.value, 10) || 3;
-    }
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const lines = Array.from(
-    { length: count },
-    () => `  <div class="h-4 bg-gray-200 rounded animate-pulse mb-2"></div>`,
-  ).join("\n");
-  // Decorative loading placeholder — hidden from assistive tech (the loading
-  // state is announced elsewhere; real content announces once loaded).
-  return `<div class="skeleton" aria-hidden="true"${testidAttr}>\n${lines}\n</div>`;
-}
-
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
  *
  *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
@@ -1683,12 +1645,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
     baseClass: TOOLBAR_CLASS,
   },
-  // `Empty("No results yet")` carries the author's message in positional 0 (the
-  // `empty` user-visible slot).  It rendered as a childless `<.empty />`, so the
-  // message was discarded and every Phoenix app showed the core component's
-  // hardcoded English "No items." instead — a content defect, not just an i18n
-  // one.  `.empty` now takes an inner block (keeping that text as its fallback).
-  Empty: { tag: ".empty", takesChildren: true },
   // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
   // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
   // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
@@ -1704,10 +1660,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     passThroughAttrs: ["to", "disabled", "type", "variant"],
     staticAttrs: ["variant", "type"],
   },
-  // --- scaffold expander primitives ---
-  // `Paper` is a titleless `Card` (same surface, no header) — same pack
-  // component, so the two stay visually consistent by construction.
-  Paper: { tag: ".card", takesChildren: true },
 };
 
 // Per-primitive registry-facing wrappers — bind the generic
@@ -1933,97 +1885,16 @@ export function renderFileUpload(
     .join("\n");
 }
 /** The literal value of a named arg, or undefined when absent / non-literal. */
-function stringNamedLit(expr: Extract<ExprIR, { kind: "call" }>, name: string): string | undefined {
+function _stringNamedLit(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  name: string,
+): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
 }
 
-/** `Paper(…children)` → the pack's `<.card>` with no title: every positional
- *  is a body child.
- *
- *  The card SURFACE is design vocabulary, so it goes through the pack's
- *  function component — the same `<.card>` the shared `Card` renders through
- *  `heex-pack.ts`.  `variant:`/`shadow:` are consumed as component attrs.  A
- *  Paper is a heading-nesting level, like `Card`.  `card/1` declares `attr
- *  :testid` and no `:global` rest, so the testid goes in as `testid=`: a
- *  `data-testid=` would be an undefined attribute, a compile warning
- *  `--warnings-as-errors` turns fatal. */
-export function renderPaper(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const bodyExprs = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const attrs: string[] = [];
-  for (const knob of ["variant", "shadow"] as const) {
-    const value = stringNamedLit(expr, knob);
-    if (value) attrs.push(`${knob}="${escapeHeexAttr(value)}"`);
-  }
-  const attrStr = attrs.length > 0 ? ` ${attrs.join(" ")}` : "";
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const children = bodyExprs.map((c) => renderChild(c, childCtx)).join("\n");
-  const testidAttr = testIdAttr(expr, ctx).replace(/^ data-testid=/, " testid=");
-  if (children.length === 0) return `<.card${attrStr}${testidAttr} />`;
-  return `<.card${attrStr}${testidAttr}>\n${indent(children, 2)}\n</.card>`;
-}
-
 export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
-}
-export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
-}
-
-/** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.
- *  Semantic anchor target for in-page navigation (matches the TSX
- *  `<section>` element exactly — same HTML semantics, no Phoenix-
- *  specific wrapping).  `id:` and `testid:` are extracted as
- *  attributes; positional children render through the standard child
- *  pipeline. */
-export function renderSection(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let id: string | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "id" && arg.kind === "literal") {
-      id = arg.value;
-    }
-  }
-  const idAttr = id ? ` id="${id}"` : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // A Section is a heading-nesting level (like the JSX `emitSection`): a
-  // `Heading` in its body derives a rank one deeper (accessibility.md).
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const childrenHeex = positional.map((c) => renderChild(c, childCtx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<section${idAttr}${testidAttr} />`;
-  }
-  return `<section${idAttr}${testidAttr}>\n${indent(childrenHeex, 2)}\n</section>`;
-}
-
-/** `Sticky(...children, top: "0")` → `<div style="position: sticky; top: 0; z-index: 100">…</div>`.
- *  Pins the wrapped content on scroll.  `top:` defaults to `"0"`
- *  matching the TSX `Sticky` primitive's default; the `z-index: 100`
- *  matches the Mantine pack's inline style.  `testid:` extracted
- *  the same way as `renderSection`. */
-export function renderSticky(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let top = "0";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "top" && arg.kind === "literal") {
-      top = arg.value;
-    }
-  }
-  const style = `style="position: sticky; top: ${top}; z-index: 100"`;
-  const testidAttr = testIdAttr(expr, ctx);
-  const childrenHeex = positional.map((c) => renderChild(c, ctx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<div ${style}${testidAttr} />`;
-  }
-  return `<div ${style}${testidAttr}>\n${indent(childrenHeex, 2)}\n</div>`;
 }
 
 /** `CodeBlock("source", title?: "…", language?: "ts")` →

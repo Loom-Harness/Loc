@@ -52,27 +52,12 @@ import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
 // Re-exported renderers from the Phoenix/HEEx walker.  Each function
 // takes `(call, ctx)` and returns the HEEx fragment.
 import {
-  renderAction as renderActionHeex,
-  renderBreadcrumbs as renderBreadcrumbsHeex,
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
-  renderDestroyForm as renderDestroyFormHeex,
-  renderEmpty as renderEmptyHeex,
-  renderFileLink as renderFileLinkHeex,
-  renderFileUpload as renderFileUploadHeex,
-  renderForm as renderFormHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
-  renderModal as renderModalHeex,
-  renderPaper as renderPaperHeex,
-  renderProvenanceInfo as renderProvenanceInfoHeex,
-  renderSection as renderSectionHeex,
-  renderSkeleton as renderSkeletonHeex,
   renderSlot as renderSlotHeex,
-  renderSticky as renderStickyHeex,
   renderTableColumn as renderTableColumnHeex,
-  renderTable as renderTableHeex,
-  renderTimeline as renderTimelineHeex,
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
@@ -265,7 +250,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitEmpty,
-    heex: renderEmptyHeex,
     a11y: "presentational",
   },
   // A card is visual grouping, not a landmark, but it increments the
@@ -280,7 +264,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitPaper,
-    heex: renderPaperHeex,
     a11y: "presentational",
   },
   // A breadcrumb trail is a navigation landmark (`<nav aria-label>`).
@@ -288,7 +271,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitBreadcrumbs,
-    heex: renderBreadcrumbsHeex,
     a11y: { landmark: "navigation", needsName: true },
   },
   // Description-list row (`<dt>`/`<dd>`) — native semantics, no ARIA.
@@ -313,14 +295,12 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSection,
-    heex: renderSectionHeex,
     a11y: { landmark: "region", nesting: true },
   },
   Sticky: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSticky,
-    heex: renderStickyHeex,
     a11y: "presentational",
   },
   // --- Inputs (TSX-only; HEEx renders inputs via Form-level dispatch) ----
@@ -375,7 +355,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFileUpload,
-    heex: renderFileUploadHeex,
     a11y: { labelled: "associate" },
   },
   // --- Display -----------------------------------------------------------
@@ -489,7 +468,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitTable,
-    heex: renderTableHeex,
     a11y: { role: "table", owns: "Column" },
   },
   // TanStack-Table-backed grid (multi-sort / per-column filters / column
@@ -564,7 +542,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFileLink,
-    heex: renderFileLinkHeex,
     a11y: { needsName: true },
   },
   // A "?" disclosure over a `provenanced` field's lineage — a native
@@ -578,7 +555,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitProvenanceInfo,
-    heex: renderProvenanceInfoHeex,
     a11y: "presentational",
   },
   // Entity audit trail (docs/audit.md) — the `AuditEntry[]` a backend serves at
@@ -593,7 +569,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitTimeline,
-    heex: renderTimelineHeex,
     a11y: "presentational",
   },
   // Loading placeholder — content hidden from AT (aria-busy) while pending.
@@ -601,7 +576,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSkeleton,
-    heex: renderSkeletonHeex,
     a11y: { busy: true, live: "polite" },
   },
   // An alert announces assertively.
@@ -623,7 +597,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitModal,
-    heex: renderModalHeex,
     a11y: { role: "dialog", modal: true, needsName: true, focus: "trap-restore" },
   },
   // --- Code / icon primitives ------------------------------------
@@ -654,21 +627,18 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitCreateForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   OperationForm: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitOperationForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   WorkflowForm: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitWorkflowForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   // Confirmation-only destroy form (loom-forms.md).  HEEx renders a
@@ -678,7 +648,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitDestroyForm,
-    heex: renderDestroyFormHeex,
     a11y: { landmark: "form", needsName: true },
   },
   // --- Action primitive --------------------------------------------------
@@ -688,7 +657,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitAction,
-    heex: renderActionHeex,
     a11y: { role: "button", needsName: true, keyboard: "activate" },
   },
   // --- For-comprehension — list rendering with an item lambda.
