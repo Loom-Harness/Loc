@@ -67,9 +67,11 @@ import {
   hasStateRow,
   lookupOp,
   reposNeeded,
+  requiredStateFields,
   resourceCalls,
   serviceOpReadPorts,
   serviceReadPorts,
+  stateZero,
   subscriptionHandler,
   withReadPortRepos,
   workflowNeedsCurrentUser,
@@ -2223,8 +2225,7 @@ function allocateLiteral(
   // `__key` on the reactor path (it binds one); the command route allocates
   // straight off the correlation param local, which is already domain-typed.
   const parts = [`${corr}: ${opts.keyExpr ?? "__key"}`];
-  for (const f of wf.stateFields ?? []) {
-    if (f.name === corr || f.optional) continue;
+  for (const f of requiredStateFields(wf)) {
     parts.push(`${f.name}: ${defaultLiteralFor(f.type, ctx)}`);
   }
   // The idempotent-consumer marker is a NULLABLE column, which drizzle's
@@ -2252,34 +2253,30 @@ function allocateLiteral(
  *  `create` body's own assignment (`claimState := Filed`) before the row is
  *  ever saved, so this is a type-level placeholder, not a persisted default. */
 function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      // The saga state holds the DOMAIN form (`emitCodecStateHelpers`).
-      case "decimal":
-        return "0";
-      case "money":
-        return numericEncode(TS_NUMERIC, "money", "repo-read", `"0"`);
-      case "bool":
-        return "false";
-      case "datetime":
-        return "new Date()";
-      case "date":
-        return tsTodayCalendarDate();
-      case "json":
-        return "{}";
-      default:
-        return `""`;
-    }
+  const z = stateZero(t, ctx);
+  switch (z.kind) {
+    case "int":
+    case "long":
+    // The saga state holds the DOMAIN form (`emitCodecStateHelpers`).
+    case "decimal":
+      return "0";
+    case "money":
+      return numericEncode(TS_NUMERIC, "money", "repo-read", `"0"`);
+    case "bool":
+      return "false";
+    case "datetime":
+      return "new Date()";
+    case "date":
+      return tsTodayCalendarDate();
+    case "json":
+      return "{}";
+    case "array":
+      return "[]";
+    case "enum":
+      return z.first !== undefined ? JSON.stringify(z.first) : `""`;
+    default:
+      return `""`;
   }
-  if (t.kind === "array") return "[]";
-  if (t.kind === "enum") {
-    const first = enumPool(ctx).find((e) => e.name === t.name)?.values[0];
-    if (first !== undefined) return JSON.stringify(first);
-  }
-  return `""`;
 }
 
 /** One reactor / event-create handler.  The inbound event instance binds as

@@ -91,6 +91,14 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               resolver.
 //               → use `serviceOpReadPorts` / `serviceReadPorts` /
 //               `servicesCalled` / `domainServiceReadPorts`.
+//   state-required  a `||` of a `.name === corr` test and a `.optional` read
+//               — the hand-spelled "which state fields need a zero" skip.
+//               → use `requiredStateFields`.
+//   state-zero  a state-zero function (`…StateDefault`, `…Zero…`,
+//               `initialValueFor`, `defaultLiteralFor`) whose body switches on a
+//               primitive's `.name` over `int`, `bool`, `datetime` and `date` — a per-backend copy of the zero
+//               classification instead of a spelling table over `stateZero`.
+//               → switch on `stateZero(t, ctx).kind`.
 //   guarded     a `wf.statements.some(…)` whose callback is just
 //               `s.kind === "requires"` — the hand-spelled, top-level-only
 //               "can this workflow route answer 403" test.
@@ -191,6 +199,8 @@ interface Violation {
     | "repos"
     | "refs-read"
     | "read-ports"
+    | "state-required"
+    | "state-zero"
     | "guarded"
     | "sub-handler"
     | "es-shared";
@@ -503,6 +513,43 @@ function scan(file: string): Violation[] {
         out.push({ rule: "read-ports", where: at(n), text: "service-op port lookup" });
     }
     if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
+      [n.left, n.right].some(
+        (e) =>
+          ts.isBinaryExpression(e) &&
+          e.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+          propName(e.left) === "name" &&
+          /^(corr|wf\.correlationField)$/.test(e.right.getText(sf)),
+      ) &&
+      [n.left, n.right].some((e) => propName(peel(e).inner) === "optional")
+    ) {
+      out.push({ rule: "state-required", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      (ts.isFunctionDeclaration(n) || ts.isVariableDeclaration(n)) &&
+      n.name &&
+      ts.isIdentifier(n.name) &&
+      /(statedefault|zero|initialvaluefor|defaultliteralfor)/i.test(n.name.text)
+    ) {
+      // Only a switch on a primitive's `.name` — a spelling table switches on
+      // `stateZero(…).kind` instead.
+      const labels = new Set<string>();
+      const look = (m: ts.Node): void => {
+        if (ts.isSwitchStatement(m) && propName(m.expression) === "name") {
+          for (const c of m.caseBlock.clauses) {
+            if (ts.isCaseClause(c) && ts.isStringLiteral(c.expression))
+              labels.add(c.expression.text);
+          }
+        }
+        ts.forEachChild(m, look);
+      };
+      look(n);
+      if (["int", "bool", "datetime", "date"].every((l) => labels.has(l))) {
+        out.push({ rule: "state-zero", where: at(n), text: n.name.text });
+      }
+    }
+    if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       n.expression.text === "resolveWorkflowIsolation"
@@ -699,6 +746,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-resolves a service call's read ports (use serviceOpReadPorts / serviceReadPorts / servicesCalled)", () => {
     const hits = violations.filter((v) => v.rule === "read-ports");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells which state fields need a zero (use requiredStateFields)", () => {
+    const hits = violations.filter((v) => v.rule === "state-required");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-classifies a state field's zero (switch on stateZero)", () => {
+    const hits = violations.filter((v) => v.rule === "state-zero");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

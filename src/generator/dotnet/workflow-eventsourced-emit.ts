@@ -1,6 +1,7 @@
 import {
   eventSourcedWorkflows,
   foldedEventNames,
+  requiredStateFields,
   workflowStreamType,
 } from "../../ir/plan/index.js";
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
@@ -132,8 +133,7 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
   // Seed a from-zero fold: correlation key + a typed default per required
   // (non-optional, non-correlation) state field.
   const seeds = [`${upperFirst(corr)} = __key`];
-  for (const f of wf.stateFields ?? []) {
-    if (f.name === corr || f.optional) continue;
+  for (const f of requiredStateFields(wf)) {
     seeds.push(`${upperFirst(f.name)} = ${csStateDefault(f.type)}`);
   }
 

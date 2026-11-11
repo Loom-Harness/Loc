@@ -34,6 +34,7 @@ export {
   servicesCalled,
   withReadPortRepos,
 } from "./service-read-ports.js";
+export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
 export {
   type RemoteApiOpRef,
   type ResourceCalls,

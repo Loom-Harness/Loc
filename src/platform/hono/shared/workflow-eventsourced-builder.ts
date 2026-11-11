@@ -9,6 +9,7 @@ import {
 import {
   eventSourcedWorkflows,
   foldedEventNames,
+  stateZero,
   workflowStreamType,
 } from "../../../ir/plan/index.js";
 import type {
@@ -18,7 +19,6 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
@@ -56,35 +56,31 @@ export function stateTypeName(wf: WorkflowIR): string {
  *  `defaultLiteralFor`, but typed (enum → first value, money → `new
  *  Decimal(0)`, datetime → `new Date()`). */
 function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive") {
-    switch (inner.name) {
-      case "int":
-      case "long":
-      case "decimal":
-        return "0";
-      case "money":
-        return "new Decimal(0)";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "new Date()";
-      case "date":
-        return tsTodayCalendarDate();
-      case "json":
-        return "{}";
-      default:
-        return `""`;
-    }
+  const z = stateZero(t, ctx);
+  switch (z.kind) {
+    case "int":
+    case "long":
+    case "decimal":
+      return "0";
+    case "money":
+      return "new Decimal(0)";
+    case "bool":
+      return "false";
+    case "datetime":
+      return "new Date()";
+    case "date":
+      return tsTodayCalendarDate();
+    case "json":
+      return "{}";
+    case "enum":
+      return z.first ? `"${z.first}"` : `""`;
+    case "array":
+      return "[]";
+    case "id":
+      return `"" as ${tsParamType(z.type)}`;
+    default:
+      return `""`;
   }
-  if (inner.kind === "enum") {
-    const e = enumPool(ctx).find((x) => x.name === inner.name);
-    const first = e?.values[0];
-    return first ? `"${first}"` : `""`;
-  }
-  if (inner.kind === "array") return "[]";
-  if (inner.kind === "id") return `"" as ${tsParamType(inner)}`;
-  return `""`;
 }
 
 /** Render one applier statement against the folded `state` object — the
