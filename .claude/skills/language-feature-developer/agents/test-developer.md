@@ -35,7 +35,7 @@ string-match can't see. Cover, as the change demands:
    (`test/generator/<platform>/*`), string-matching the emitted source. This is
    the default home and where most of the coverage lives.
 5. **Completeness gates** — make sure the change satisfies (or the test suite
-   already covers) print-completeness, walker-stdlib-completeness, heex-parity,
+   already covers) print-completeness, walker-stdlib-completeness, heex-coverage,
    diagnostic-codes-completeness, queryable-subset-parity, corpus-coverage —
    whichever the change trips. If you added a corpus example, add its manifest
    row.

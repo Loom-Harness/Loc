@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // A `Modal`-less instance op-form must not vanish WITHOUT A WORD on HEEx.
 //
-// `renderForm` (heex-primitives.ts) bails on an instance-qualified positional —
+// `renderForm` (heex-form.ts) bails on an instance-qualified positional —
 // `OperationForm { row.<op> }` — because that shape is owned by `renderModal`,
 // which consumes its form child directly.  Its comment called the guard a
 // totality backstop for a shape that "is ever reached"; it IS reached:
@@ -72,10 +72,10 @@ describe("HEEx — a standalone instance OperationForm leaves a visible marker",
       src,
       "the op-form vanished without a marker — a reader sees a blank panel and cannot tell " +
         "whether the page is empty or the emitter dropped it",
-    ).toMatch(
-      // The marker now carries its `loom.*` code between the sentinel and the
-      // prose (M-T9.55) — a give-up says WHY, not only THAT.
-      /<%!--\s*loom:unrendered \[loom\.page-primitive-target-gap\] OperationForm\(<instance>\.rename\)/,
+    ).toContain(
+      // The marker carries its `loom.*` code between the sentinel and the
+      // prose — a give-up says WHY, not only THAT.
+      "<%!-- loom:unrendered [loom.page-primitive-target-gap] OperationForm(<instance>.rename)",
     );
     // The marker must say what DOES work, or it is only half a diagnostic.
     expect(src).toMatch(/OperationForm \{ of: <Agg>, op: rename \}/);

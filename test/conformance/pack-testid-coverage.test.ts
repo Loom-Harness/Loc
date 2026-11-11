@@ -88,8 +88,9 @@ const BUILT_IN_PACKS: ReadonlyArray<PackUnderTest> = [
   { dir: "designs/primeng/v1", label: "primeng@v1", format: "tsx" },
 ];
 
-// Phoenix testid emission lives entirely in the walker
-// (`testIdAttr`/`renderPrimitive` in heex-primitives.ts / heex-walker-core.ts)
+// Phoenix testid emission lives entirely in the walker (the shared
+// `testidAttr` through the procedural `heex-pack.ts`, and `testIdAttr` in
+// `heex-markup.ts` for the whole-primitive overrides)
 // — a HEEx pack ships NO call-site `primitive-*` templates at all (its design
 // surface is the shell: core-components / layouts / sidebar / theme / assets;
 // see `REQUIRED_PRIMITIVES.heex`).  The lock below pins that architectural

@@ -159,7 +159,7 @@ Not every feature walks all six phases at full weight. Use the audit to right-si
   every backend gets a `render-expr-kinds`/`render-stmt` arm test.
 - **UI page primitive**: the 3 shared-walker frontends + Phoenix HEEx (separate
   engine) + Angular optional seam; the simulation shows the rendered page per
-  framework; watch walker-stdlib-completeness and heex-parity.
+  framework; watch walker-stdlib-completeness and heex-coverage.
 - **Full new surface syntax** (a `criterion`-scale feature): the whole pipeline,
   the whole workflow, a `docs/<feature>.md`, and probably an `examples/` entry.
 

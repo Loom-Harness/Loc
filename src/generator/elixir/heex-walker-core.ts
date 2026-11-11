@@ -1,14 +1,21 @@
 // ---------------------------------------------------------------------------
 // HEEx walker core.
 //
-// Renders a page body (`PageIR.body` expression IR) as HEEx for the Phoenix
-// LiveView platform.  It is a separate engine from the shared walker core
-// (`src/generator/_walker/walker-core.ts`, `walkBody`) because LiveView's
-// output topology differs: lambdas hoist to `handle_event/3` clauses, lists
-// render as `for` comprehensions, and conditional children are `if` blocks.
-// Its expression leaves still ride the shared dispatcher —
-// `renderExprWith(…, HEEX_TARGET)` — so it carries no expression switch of its
-// own.
+// Renders a page or component body (`PageIR.body` expression IR) as HEEx for
+// the Phoenix LiveView platform.  The walk is the shared walker core's
+// (`src/generator/_walker/walker-core.ts`, `walkBody`) under `heexTarget`;
+// this module holds what LiveView adds to it:
+//
+//   - the HEEx walk context (`WalkContext`), carried in the shared walk's sink,
+//     and the binding accumulators the LiveView emitters read back
+//     (`WalkResult`);
+//   - the entry, `walkBodyToHeex`, and the bridge a whole-primitive override
+//     uses to walk a child primitive or component (`renderThroughSharedCore`);
+//   - the HEEx expression renderer (`renderExpr`, over the shared
+//     `renderExprWith(…, HEEX_TARGET)` dispatcher), which `heexTarget` answers
+//     every expression and text slot with: Elixir has its own names for state
+//     (`@x` in a template, `socket.assigns.x` in a handler), lambdas hoist to
+//     `handle_event/3` clauses, and reads are in-process context calls.
 //
 // What this walker produces, per page:
 //
@@ -17,11 +24,10 @@
 //     and block-body lambdas (`onSubmit`, `Action(op).then`).
 //
 // Coverage.  Every page renders through here, scaffolded ones included (the
-// scaffold macros give each page its full body).  Every primitive that has a
-// TSX renderer has a HEEx renderer too, except `DataGrid`, which LiveView
-// refuses (a compile-time diagnostic, not a blank region);
-// `test/generator/elixir/heex-parity.test.ts` pins that set.  A construct the
-// walker still cannot render (a missing or unreadable primitive argument, an
+// scaffold macros give each page its full body).  Every primitive renders,
+// except `DataGrid`, which LiveView refuses (a compile-time diagnostic, not a
+// blank region); `test/generator/elixir/heex-coverage.test.ts` reaches each
+// one.  A construct the walker still cannot render (a missing or unreadable primitive argument, an
 // unreachable reference) emits a `loom:unrendered [<code>]` HEEx comment via
 // `giveUpText`, naming the catalogued `loom.*` code.
 //
@@ -271,7 +277,7 @@ export interface QueryBinding {
    *  the refusal is a backstop, not the user-facing message). */
   readFn?: string;
   /** `source: "aggregate"` only — trailing arguments threading the socket's
-   *  principal into the read (`readActorArgs` in `heex-primitives.ts`); absent
+   *  principal into the read (`readActorArgs` in `heex-query.ts`); absent
    *  when the read's context function takes no actor. */
   actorArgs?: string[];
   /** kind:"list" only — the enclosing `match` arm's condition (handler-position
@@ -319,7 +325,7 @@ export interface TableControlBinding {
  *  &handle_<field>_progress/3)` in `mount/3` plus a `handle_<field>_progress/3`
  *  consumer that persists the entry and assigns the resulting `FileRef` map
  *  into the bound `:<field>` state assign.  See `renderFileUpload`
- *  (heex-primitives.ts) and `renderMount` / `renderUploadProgressHandlers`
+ *  (`heex-form.ts`) and `renderMount` / `renderUploadProgressHandlers`
  *  (liveview-emit.ts). */
 export interface UploadBinding {
   /** snake-cased page-state field the FileRef is written into — also the
@@ -451,7 +457,7 @@ export interface WalkContext {
   chartUsed: { value: boolean };
   /** Shared box flag set when a CLIENT-side `Table` control renders — a
    *  filter, a sort or a page window over rows the server did not page
-   *  (`heex-primitives.ts` `renderTable`).  Boxed for the same reason as
+   *  (`heex-table.ts` `renderTable`).  Boxed for the same reason as
    *  `chartUsed`, and drives the per-deployable `LoomTable` helper module:
    *  the three transforms are Elixir list arithmetic, not markup, and they
    *  are called from BOTH the page LiveViews and the shared components
@@ -478,13 +484,13 @@ export interface WalkContext {
    *  the other accumulator Sets above), surfaced as `WalkResult.usedStores`. */
   usedStores: Set<string>;
   /** FileUpload bindings discovered as the walker visits `FileUpload(…)` calls
-   *  (heex-primitives.ts::renderFileUpload).  Surfaced as
+   *  (`heex-display.ts` `renderFileUpload`).  Surfaced as
    *  `WalkResult.uploadBindings`; drives mount `allow_upload` + the progress
    *  consumer.  An array (mutation survives `{...ctx}` shallow copies, like the
    *  other accumulator arrays above). */
   uploadBindings: UploadBinding[];
   /** Table control bindings discovered as the walker visits `Table(…)` calls
-   *  (heex-primitives.ts::renderTable).  Surfaced as `WalkResult.tableControls`;
+   *  (`heex-table.ts` `renderTable`).  Surfaced as `WalkResult.tableControls`;
    *  drives the hoisted sort/page `handle_event` clauses.  An array (mutation
    *  survives `{...ctx}` shallow copies, like the other accumulators above). */
   tableControls: TableControlBinding[];
@@ -550,19 +556,19 @@ export interface WalkContext {
    *  derives its rank from structure — `min(6, 2 + headingDepth)`, matching
    *  the JSX frontends' `WalkEnv.headingDepth` (accessibility.md, so
    *  ranks never skip).  Incremented by `Section` / `Card` / `Paper` for
-   *  their children (the shared walk and this engine keep it in step);
+   *  their children (the shared walk keeps it in step);
    *  undefined at page top ⇒ depth 0 ⇒ `<h2>` (the app shell
    *  owns the single `<h1>`). */
   headingDepth?: number;
-  /** The shared walker-core context this engine was entered from.  A ported
-   *  primitive (`HEEX_SHARED_PRIMITIVES`) below an engine-rendered node goes
-   *  back through it, so the two engines nest in either direction. */
+  /** The shared walker-core context this HEEx walk was entered from.  A
+   *  primitive or component call a whole-primitive override renders as a
+   *  child walks back into the shared core under it. */
   sharedWalk?: SharedWalkContext;
   /** i18n key prefix for this body — `page.<Page>` / `component.<Comp>`
    *  Set only when the ui has extractable user-visible strings;
    *  undefined ⇒ every literal renders raw.
-   *  The HEEx engine is a FORK of the shared walker, so this mirrors
-   *  `_walker/walker-core.ts`'s `i18nPrefix` rather than sharing it. */
+   *  The same prefix as the shared walk's `i18nPrefix`; the HEEx expression
+   *  renderer reads it from here. */
   i18nPrefix?: string;
   /** The locales the app ships, with their generate-time endonyms — read by
    *  `LocaleSwitcher`.  Undefined means the system has a single locale. */
@@ -682,9 +688,8 @@ export function walkBodyToHeex(
 
   seedHoistedHandlers(ctx, page, body);
 
-  // The body runs through the shared walker core.  Every node it reaches is
-  // handed back to this engine through `heexTarget.renderNodeOverride`, which
-  // renders it with the HEEx walk context carried in the sink.
+  // The body runs through the shared walker core, with the HEEx walk context
+  // in its sink for `heexTarget`'s seams.
   const sink: HeexWalkSink = { heex: ctx };
   const heex = body ? walkShared(body, sink) : `<!-- empty body -->`;
   const titleExpr = pageTitleExpr(page, ctx);
@@ -720,10 +725,11 @@ function walkShared(body: ExprIR, sink: HeexWalkSink): string {
   ).tsx;
 }
 
-/** A ported primitive reached from inside this engine, rendered by the shared
- *  core under the current HEEx walk state.  It walks at depth 0 because this
- *  engine indents a child relative to its parent (`indent`), and the shared
- *  core's depth-0 output is exactly that relative form. */
+/** A primitive or component call reached while rendering an expression or a
+ *  whole-primitive override's children, walked by the shared core under the
+ *  current HEEx walk state.  It walks at depth 0 because the override indents
+ *  a child relative to its parent (`indent`), and the shared core's depth-0
+ *  output is exactly that relative form. */
 function renderThroughSharedCore(expr: ExprIR, ctx: WalkContext): string {
   const sink: HeexWalkSink = { heex: ctx };
   const shared = ctx.sharedWalk;
@@ -1407,7 +1413,7 @@ function ternaryRendersMarkup(
 
 /** True when `expr` is control flow over markup — a block `match`
  *  (`renderMatchChild`) or a markup ternary (`renderConditionalChild`) — which
- *  the shared walker core renders rather than this engine. */
+ *  the shared walker core renders rather than the expression renderer. */
 export function rendersMarkupBlock(expr: ExprIR, ctx: WalkContext): boolean {
   if (expr.kind === "match") return matchRendersMarkup(expr, ctx);
   return expr.kind === "ternary" && ternaryRendersMarkup(expr, ctx);
@@ -1527,8 +1533,8 @@ function renderCollectionOp(
       return `false`;
     // ---- four arms that must not fall through -----------------------------
     //
-    // HEEx runs a PARALLEL walker, so nothing the shared `_walker` seam gains
-    // reaches it.  Left to the `default:` below, these four would be
+    // HEEx renders its expressions itself, so nothing the shared `_walker`
+    // expression seams gain reaches it.  Left to the `default:` below, these four would be
     // snake-cased into a call Elixir has no function for —
     // `@names.join(", ")`, `@nums.take(2)` — and, worse for the λ-taking one,
     // the λ would render through `renderExpr`, whose `lambda` arm HOISTS it to

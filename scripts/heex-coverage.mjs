@@ -1,9 +1,8 @@
 // HEEx coverage — which walker primitives and which `WalkResult` accumulators a
 // set of generated systems actually reaches on the Phoenix/HEEx page walker.
 //
-// It wraps every `heex` renderer in the walker primitive registry, and the
-// shared `tsx` renderer of each primitive the shared core renders for HEEx
-// (`HEEX_SHARED_PRIMITIVES`) when it runs in a HEEx walk.  Each call counts the
+// It wraps the shared renderer of every primitive the HEEx target renders
+// (`heexRenderedPrimitives`) for its calls in a HEEx walk.  Each call counts the
 // primitive (and any sub-primitive among its arguments, which the parent
 // renders without the registry) and records the HEEx `WalkContext` it renders
 // under.  That

@@ -50,12 +50,17 @@ const WALKER_TREES = ["_walker", "react", "vue", "svelte", "angular", "feliz", "
  *  recurring failure shape (`experience_gathered.md` §59, §63). */
 const WALKER_GLOBS = [
   ...WALKER_TREES.flatMap((t) => [`src/generator/${t}/*.ts`, `src/generator/${t}/**/*.ts`]),
-  // The HEEx parallel engine — a walker in every sense that matters here (it
-  // emits page-body markup and it gives up), but it lives beside the rest of
-  // the Phoenix emitter, whose comments are ordinary source comments. So the
-  // two files are named rather than the tree globbed.
+  // The HEEx target and its renderers — walker code in every sense that
+  // matters here (they emit page-body markup and they give up), but they live
+  // beside the rest of the Phoenix emitter, whose comments are ordinary source
+  // comments. So the files are named rather than the tree globbed.
   "src/generator/elixir/heex-walker-core.ts",
   "src/generator/elixir/heex-target.ts",
+  "src/generator/elixir/heex-pack.ts",
+  "src/generator/elixir/heex-component.ts",
+  ...["display", "form", "markup", "modal", "query", "table"].map(
+    (f) => `src/generator/elixir/heex-${f}.ts`,
+  ),
 ];
 
 /** Files allowed to call `renderComment` / `renderNotice` directly, each with

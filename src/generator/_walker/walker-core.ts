@@ -1633,7 +1633,7 @@ function emitMemberAccess(
  *  Keyed on the field NAME, not on the type: a page body carries unresolved
  *  receiver types (every `receiverType`/`memberType` in a body lowers to the
  *  `string` placeholder — see the `emitExpr` header), so there is nothing else
- *  to key on.  The HEEx engine recognises the same carrier the same way, from
+ *  to key on.  The HEEx expression renderer recognises the same carrier the same way, from
  *  the same set, which is the point: the two edits are exact opposites and must
  *  never disagree about WHICH fields are carriers.
  *
@@ -1865,7 +1865,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
     case "paren":
       // Explicit grouping — `(a + b) * c`.  Every walker target embeds a
       // language that groups with round brackets (JS, F#, Dart), so this needs
-      // no seam; HEEx runs its own engine and never reaches here.
+      // no seam; HEEx renders every expression itself and never reaches here.
       //
       // This arm was MISSING, which made `paren` fall to the `default:` below
       // and emit `/* unsupported expr: paren */ undefined` — so `(a + b) * c`
@@ -2577,9 +2577,9 @@ export interface NavTarget {
  *  ({@link stringOrRefArgValue}) accepted only a string literal or a bare
  *  route-param ref and returned `undefined` for everything else, so a computed
  *  `to:` was SILENTLY DROPPED — the anchor/button rendered with no navigation
- *  at all, on six of the seven frontends, with no diagnostic.  (HEEx, which
- *  runs its own engine, renders it correctly — that is the intended
- *  semantics.)  A param ref must not come back as a JS TEMPLATE LITERAL
+ *  at all, on six of the seven frontends, with no diagnostic.  (HEEx, whose
+ *  expression renderer renders the value itself, renders it correctly — that
+ *  is the intended semantics.)  A param ref must not come back as a JS TEMPLATE LITERAL
  *  (`` `${id}` ``), which is neither valid in a JSX/HTML attribute position nor
  *  valid F#/Dart at all.
  *

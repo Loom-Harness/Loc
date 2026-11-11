@@ -187,8 +187,8 @@ export function numericNamed(call: ExprIR & { kind: "call" }, name: string): num
  *  arg itself is absent, returns `undefined` and consumers fall back
  *  to their own non-responsive default.
  *
- *  Shared rather than per-frontend: the JSX walker (`primitives/layout.ts`)
- *  and the HEEx walker (`elixir/heex-primitives.ts`) must agree on what
+ *  Shared rather than per-frontend: every frontend's `Grid` (`primitives/layout.ts`)
+ *  and anything else that reads `cols:` must agree on what
  *  `cols: [3, 2, 1]` MEANS, or the same page lays out differently per
  *  frontend.  It lives here — a pure IR reader with no walker context —
  *  because both consumers sit at this layer. */

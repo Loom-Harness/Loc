@@ -12,7 +12,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 //     return `/* unresolved: ${expr.name} */ undefined`;
 //
 // — one site, reached by every unresolved identifier in any page body, on all
-// six shared-walker frontends AND the HEEx parallel walker.  It shipped
+// seven frontends, HEEx's expression renderer included.  It shipped
 // `undefined` into the page and `ddd generate system` reported `0 error(s), 0
 // warning(s)`.  Downstream that is `TS18050: The value 'undefined' cannot be
 // used here` on a typed client, a `TypeError` at runtime, or — worst — a
@@ -101,7 +101,7 @@ system DashGap {
 }
 
 /** The Phoenix leg: LiveView is served by the BACKEND deployable (`ui:` on the
- *  elixir api), and it runs the parallel HEEx walker — which reaches the same
+ *  elixir api), and its HEEx walk reaches the same
  *  `tryDetectApiHook` seam, so it is in scope for exactly the same reason. */
 function phoenixDashboardSystem(variant: "scaffolded" | "handwritten"): string {
   return dashboardSystem("node", variant, null)

@@ -16,8 +16,9 @@ import { repoRoot } from "../../_helpers/examples.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // The HEEx showcase fixture reaches every walker primitive the HEEx target
-// renders (a `heex` renderer, or the shared core's for `HEEX_SHARED_PRIMITIVES`)
-// and every `WalkResult` accumulator the HEEx walker fills.
+// renders (`heexRenderedPrimitives`: every registered primitive the capability
+// table admits on LiveView) and every `WalkResult` accumulator the HEEx walker
+// fills.  This is the per-target primitive completeness check for HEEx.
 //
 // This is the coverage floor the HEEx walker refactors rely on: the corpus
 // diff (`scripts/heex-corpus-diff.mjs`) can only prove a change byte-identical

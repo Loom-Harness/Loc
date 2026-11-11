@@ -490,8 +490,8 @@ describe("frontend render degradation — the emitted page must not give up", ()
   // comment arm is the braces, and it is still reached by an UNVALIDATED model
   // — a playground buffer mid-edit, `loom_generate` over a partial source, a
   // macro-built body.  So the sentinel gets its own purpose-built system,
-  // which also proves the two spellings (`walker-core.ts`'s and the parallel
-  // HEEx engine's) both still match.
+  // which also proves every frontend, HEEx included, still spells it the
+  // shared way.
   // -------------------------------------------------------------------------
   const misplacedSubPrimitive = (frontend: string): string => `
     system MisplacedSub {

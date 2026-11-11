@@ -23,7 +23,7 @@
 //
 // Both shapes, all three frontends that ride the SHARED form path (Angular,
 // Feliz and Flutter fork the whole primitive through `renderOperationForm` /
-// `renderModal`; HEEx runs its own engine).
+// `renderModal`, and HEEx through its own overrides).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";

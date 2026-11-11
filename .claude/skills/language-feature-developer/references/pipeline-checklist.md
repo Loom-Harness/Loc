@@ -114,9 +114,12 @@ tells you when it applies.
   `src/language/walker-stdlib.ts` (**walker-stdlib-completeness.test.ts** gates
   the mirror). Framework seams go on `WalkerTarget` (`_walker/target.ts`),
   consumed by `react/walker/tsx-target.ts`, `vue/walker/vue-target.ts`,
-  `svelte/walker/svelte-target.ts`. Write the Phoenix HEEx renderer in
-  `src/generator/elixir/heex-target.ts` (+ `heex-walker-core.ts`), or pin the
-  gap — **heex-parity.test.ts** freezes the set of TSX-only primitives.
+  `svelte/walker/svelte-target.ts` and the rest. HEEx rides the same shared
+  emitter: add the primitive's renderer to the procedural `elixir/heex-pack.ts`
+  (or, when it needs LiveView wiring — a changeset, an assign the page loads —
+  a whole-primitive override on `elixir/heex-target.ts`), add a use to
+  `test/fixtures/heex-showcase.ddd` (**heex-coverage.test.ts** reaches every
+  primitive), or refuse it on LiveView in the capability table.
   Framework-neutral pieces (zod schemas, page objects, the e2e harness) live in
   `src/generator/_frontend/`.
 - **Optional framework-only seam** (e.g. Angular forms): add OPTIONAL `render*?`

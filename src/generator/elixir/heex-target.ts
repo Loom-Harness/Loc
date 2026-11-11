@@ -2,12 +2,14 @@
 // HEEx `WalkerTarget` — the Phoenix LiveView implementation of the
 // cross-framework walker contract (`src/generator/_walker/target.ts`).
 //
-// A HEEx body runs through the shared walker core.  The primitives in
-// `HEEX_SHARED_PRIMITIVES` render through their shared `emit*` functions and
-// the procedural `heex-pack.ts`; every other node goes to the HEEx engine
-// (`heex-walker-core.ts`) through `renderNodeOverride`, and the expression and
-// text overrides send the shared emitters' arguments to that engine too, so
-// both halves render a value the same way.
+// A HEEx body runs on the shared walker core.  Primitives render through
+// their shared `emit*` functions and the procedural `heex-pack.ts`, except the
+// ones whose LiveView wiring (a changeset bound in `mount`, a hoisted
+// `handle_event`, an assign the page loads) the shared emitters do not model:
+// those render whole through the overrides below (`heex-form.ts`,
+// `heex-table.ts`, `heex-display.ts`, …).  Every expression and text slot
+// renders through the HEEx expression renderer (`heex-walker-core.ts`), so a
+// value reads the same wherever it appears.
 //
 // `framework: "phoenixLiveView"` matches the IR enum.
 // ---------------------------------------------------------------------------
@@ -21,26 +23,22 @@ import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_wa
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
 import { renderHeexAction } from "./heex-action.js";
 import { renderHeexUserComponent } from "./heex-component.js";
-import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
-import { dedentTail, indentTail } from "./heex-pack.js";
 import {
-  bindHeexQueryView,
-  bindStateInput,
   heexEnumBadgeText,
-  queryViewDataContext,
   renderChart,
-  renderDestroyForm,
   renderFileLink,
   renderFileUpload,
-  renderForm,
   renderIdLink,
-  renderModal,
   renderProvenanceInfo,
-  renderTable,
   renderTimeline,
-  testIdAttr,
-  withRowType,
-} from "./heex-primitives.js";
+} from "./heex-display.js";
+import { bindStateInput, renderDestroyForm, renderForm } from "./heex-form.js";
+import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
+import { testIdAttr } from "./heex-markup.js";
+import { renderModal } from "./heex-modal.js";
+import { dedentTail, indentTail } from "./heex-pack.js";
+import { bindHeexQueryView, queryViewDataContext } from "./heex-query.js";
+import { renderTable, withRowType } from "./heex-table.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
@@ -96,7 +94,7 @@ export const heexTarget: WalkerTarget = {
    *  load is registered here, after the view's branches registered theirs. */
   bindQueryView(spec, ctx) {
     const heex = heexContextOf(ctx.sink);
-    return heex ? bindHeexQueryView(spec.call, engineContext(heex, ctx)) : undefined;
+    return heex ? bindHeexQueryView(spec.call, heexWalkContext(heex, ctx)) : undefined;
   },
 
   /** A LiveView handler body lives in a `handle_event/3` clause, apart from
@@ -108,13 +106,13 @@ export const heexTarget: WalkerTarget = {
     if (!heex) return undefined;
     switch (source.kind) {
       case "lambda":
-        return hoistLambdaToHandler(source.lambda, engineContext(heex, ctx));
+        return hoistLambdaToHandler(source.lambda, heexWalkContext(heex, ctx));
       case "action":
         return snake(source.actionName);
       case "store-action":
         return storeActionEvent(source.storeName, source.actionName);
       case "input":
-        return bindStateInput(source.stateName, source.control, engineContext(heex, ctx));
+        return bindStateInput(source.stateName, source.control, heexWalkContext(heex, ctx));
     }
   },
 
@@ -140,32 +138,33 @@ export const heexTarget: WalkerTarget = {
   /** An absent `QueryView` branch: the pack fills in its default markup. */
   emptyChild: "",
 
-  /** Every expression a shared emitter renders goes through the HEEx engine,
-   *  in template position — a ported primitive's `testid:` binding, `style:`
-   *  value or ICU hole reads exactly as the engine reads it. */
+  /** Every expression a shared emitter renders goes through the HEEx
+   *  expression renderer, in template position — a primitive's `testid:`
+   *  binding, `style:` value or ICU hole reads as any other Elixir value. */
   renderExprOverride(expr, ctx) {
     const heex = heexContextOf(ctx.sink);
     if (!heex) return undefined;
-    return renderExpr(expr, { ...engineContext(heex, ctx), position: "template" });
+    return renderExpr(expr, { ...heexWalkContext(heex, ctx), position: "template" });
   },
 
-  /** A non-literal primitive TEXT (a caption, a label) renders as the engine
-   *  renders a template slot: `<%= expr %>`, a `label(…)` as its gettext call
-   *  or escaped English, a nested primitive as its markup.  A string literal
-   *  takes the shared path, which escapes it with `escapeText`. */
+  /** A non-literal TEXT — a value child, or a primitive's caption — renders as
+   *  a template slot: `<%= expr %>`, a `label(…)` as its gettext call or
+   *  escaped English.  Markup (a primitive or component call, a `match` over
+   *  markup) and a string literal take the shared path, which walks the one
+   *  and escapes the other with `escapeText`. */
   renderTextContentOverride(expr, ctx) {
     const heex = heexContextOf(ctx.sink);
     if (!heex || (expr.kind === "literal" && expr.lit === "string")) return undefined;
-    const engine = engineContext(heex, ctx);
-    if (rendersAsMarkup(expr, engine)) return undefined;
-    return renderInTemplate(expr, engine);
+    const walkCtx = heexWalkContext(heex, ctx);
+    if (rendersAsMarkup(expr, walkCtx)) return undefined;
+    return renderInTemplate(expr, walkCtx);
   },
 
-  /** An `EnumBadge`'s text, through the engine's enum-label lookup (which
+  /** An `EnumBadge`'s text, through the HEEx enum-label lookup (which
    *  also resolves a table row's field type). */
   renderEnumBadgeText(value, ctx) {
     const heex = heexContextOf(ctx.sink);
-    return heex ? heexEnumBadgeText(value, engineContext(heex, ctx)) : undefined;
+    return heex ? heexEnumBadgeText(value, heexWalkContext(heex, ctx)) : undefined;
   },
 
   /** A call into the Gettext runtime: `pgettext(<key>, <English>)`, wrapped in
@@ -179,7 +178,7 @@ export const heexTarget: WalkerTarget = {
   },
 
   // Expression-syntax leaves.  Every expression a shared emitter renders goes
-  // through `renderExprOverride` to the HEEx engine, so the JS-shaped leaves
+  // through `renderExprOverride` to the HEEx expression renderer, so the JS-shaped leaves
   // stay unreachable and throw if that ever regresses — except the literal,
   // which the shared emitters also spell directly (a nav destination).
   ...unreachableExprLeaves,
@@ -202,11 +201,11 @@ export const heexTarget: WalkerTarget = {
     return `|> assign(:${snakeLocal(ref.name)}, ${value})`;
   },
 
-  /** Unreachable: the HEEx walker (heex-walker-core.ts) renders state
-   *  mutation through its own engine, never the shared `stateWrite`. */
+  /** Unreachable: HEEx writes state in hoisted `handle_event` clauses
+   *  (`heex-handlers.ts`), never through the shared `stateWrite`. */
   renderNestedStateWrite(): never {
     throw new Error(
-      "heexTarget.renderNestedStateWrite: HEEx renders state through its own engine; this should never be called.",
+      "heexTarget.renderNestedStateWrite: HEEx writes state in its hoisted handle_event clauses; this should never be called.",
     );
   },
 
@@ -216,7 +215,7 @@ export const heexTarget: WalkerTarget = {
    *  access is an in-process call to the aggregate's Phoenix context module:
    *  `<App>.<Context>.<op>_<aggregate_snake>!(args)`.  The binding IS that
    *  call — there is no client handle to declare — and its arguments render
-   *  through the HEEx engine under the walk context in `ctx.sink`, since the
+   *  through the HEEx expression renderer under the walk context in `ctx.sink`, since the
    *  shared expression renderer does not speak Elixir. */
   bindDataAccess(access, _renderArg, ctx) {
     const heex = heexContextOf(ctx?.sink);
@@ -235,7 +234,7 @@ export const heexTarget: WalkerTarget = {
   },
 
   /** The in-process context call, written at the site.  A site the shared
-   *  core binds carries the whole call as `varName`; the HEEx engine passes
+   *  core binds carries the whole call as `varName`; the HEEx expression renderer passes
    *  the bare operation and prepends the context module itself. */
   renderApiCall(call: ApiCallSite, renderedArgs: string, ctx?: WalkContext): string {
     if (ctx !== undefined && call.varName !== undefined) return call.varName;
@@ -318,8 +317,7 @@ export const heexTarget: WalkerTarget = {
 
   // --- Markup seams ---------------------------------------------------------
   //
-  // The shared emitters of the ported primitives (`HEEX_SHARED_PRIMITIVES`)
-  // render through these.
+  // The shared emitters render through these.
 
   /** HEEx template comment. */
   renderComment(text: string): string {
@@ -358,18 +356,18 @@ export const heexTarget: WalkerTarget = {
   // None of that fits the client-handle shape the shared emitters produce, so
   // these render their HEEx whole, as Feliz's and Flutter's overrides do, and
   // record their bindings on the HEEx walk context the LiveView emitter reads.
-  renderCreateForm: engineOverride(renderForm),
-  renderOperationForm: engineOverride(renderForm),
-  renderWorkflowForm: engineOverride(renderForm),
-  renderDestroyForm: engineOverride(renderDestroyForm),
-  renderModal: engineOverride(renderModal),
-  renderFileLink: engineOverride(renderFileLink),
-  renderProvenanceInfo: engineOverride(renderProvenanceInfo),
-  renderTimeline: engineOverride(renderTimeline),
-  renderTable: engineOverride(renderTable),
-  renderFileUpload: engineOverride(renderFileUpload),
-  renderIdLink: engineOverride(renderIdLink),
-  renderChart: engineOverride(renderChart),
+  renderCreateForm: wholePrimitive(renderForm),
+  renderOperationForm: wholePrimitive(renderForm),
+  renderWorkflowForm: wholePrimitive(renderForm),
+  renderDestroyForm: wholePrimitive(renderDestroyForm),
+  renderModal: wholePrimitive(renderModal),
+  renderFileLink: wholePrimitive(renderFileLink),
+  renderProvenanceInfo: wholePrimitive(renderProvenanceInfo),
+  renderTimeline: wholePrimitive(renderTimeline),
+  renderTable: wholePrimitive(renderTable),
+  renderFileUpload: wholePrimitive(renderFileUpload),
+  renderIdLink: wholePrimitive(renderIdLink),
+  renderChart: wholePrimitive(renderChart),
 
   /** `Action(<instance>.<operation>)` — a LiveView runs the operation from a
    *  hoisted `handle_event` clause, not through a client mutation handle, so
@@ -377,7 +375,7 @@ export const heexTarget: WalkerTarget = {
   renderAction(call, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
     if (!heex || call.kind !== "call") return null;
-    return indentTail(renderHeexAction(call, engineContext(heex, ctx)), depth);
+    return indentTail(renderHeexAction(call, heexWalkContext(heex, ctx)), depth);
   },
 
   /** A user `component` call: a function-component invocation, a
@@ -388,7 +386,7 @@ export const heexTarget: WalkerTarget = {
     if (!heex || call.kind !== "call") return null;
     const comp = heex.ui.components.find((c) => c.name === call.name);
     if (!comp) return null;
-    return indentTail(renderHeexUserComponent(call, comp, engineContext(heex, ctx)), depth);
+    return indentTail(renderHeexUserComponent(call, comp, heexWalkContext(heex, ctx)), depth);
   },
 
   /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under
@@ -400,9 +398,9 @@ export const heexTarget: WalkerTarget = {
     if (!heex || call.kind !== "call") {
       throw new Error("heexTarget.renderLocaleSwitcher: no HEEx walk context in the sink");
     }
-    const engine = engineContext(heex, ctx);
-    const testid = testIdAttr(call, engine) || ' data-testid="locale-switcher"';
-    return indentTail(renderLocaleSelect(engine.appModule, engine.locales ?? [], testid), depth);
+    const walkCtx = heexWalkContext(heex, ctx);
+    const testid = testIdAttr(call, walkCtx) || ' data-testid="locale-switcher"';
+    return indentTail(renderLocaleSelect(walkCtx.appModule, walkCtx.locales ?? [], testid), depth);
   },
 
   /** `For` → LiveView's for-comprehension block, `<%= for x <- coll do %> …
@@ -451,19 +449,18 @@ export const heexTarget: WalkerTarget = {
     return ` style="${css}"`;
   },
 
-  /** HEEx text escaping.  Delegates to the LIVE funnel the parallel
-   *  heex-walker uses (`escapeHeexText`) so the contract-tested seam and
-   *  the code path that actually renders can never disagree on escaping
-   *  — the exact divergence audit finding 13 flagged (a standalone copy
-   *  here would silently drift from `renderChild`/`renderInTemplate`). */
+  /** HEEx text escaping.  Delegates to the one funnel the HEEx renderers use
+   *  (`escapeHeexText`), so the shared emitters and the whole-primitive
+   *  overrides can never disagree on escaping (a standalone copy here would
+   *  drift from `renderChild` / `renderInTemplate`). */
   escapeText(text: string): string {
     return escapeHeexText(text);
   },
 
   /** HEEx attribute escaping.  Delegates to the LIVE funnel
    *  (`escapeHeexAttr`) every real `attr="…"` emit site already shares
-   *  (`heex-primitives.ts` / `heex-walker-core.ts`), same discipline as
-   *  `escapeText` above (Wave 2 packet 2.2, F2-ELX-ESCAPE-FUNNEL). */
+   *  (the HEEx renderers and `heex-walker-core.ts`), same discipline as
+   *  `escapeText` above. */
   escapeAttr(text: string): string {
     return escapeHeexAttr(text);
   },
@@ -473,12 +470,10 @@ export const heexTarget: WalkerTarget = {
 // Store seam (Stage 5) — HEEx-specific.
 //
 // The cross-framework `WalkerTarget.renderStoreFieldRead`/`…ActionCall`
-// signatures are shaped for the SHARED `walkBody` engine (`{ storeName,
-// field }` / a shell-bound `local`), which the JSX/markup frontends drive.
-// Phoenix LiveView runs the PARALLEL heex-walker engine and needs a
-// position-aware read + an `update/3` call form, so the store seams live as
-// standalone helpers the heex walker calls directly (the same way HEEx owns
-// its parallel match / For rendering).  Keeping them off the `WalkerTarget`
+// signatures are shaped for a client-state frontend (`{ storeName, field }` /
+// a shell-bound `local`).  Phoenix LiveView needs a position-aware read + an
+// `update/3` call form, so the store seams live as standalone helpers the HEEx
+// expression renderer calls directly.  Keeping them off the `WalkerTarget`
 // object keeps `heexTarget` byte-conformant to the shared contract.
 //
 // A `store Cart { … }` mounted on a LiveView page is seeded as one per-page
@@ -529,9 +524,9 @@ export function renderHeexStoreActionCall(
 // Internals.
 // ---------------------------------------------------------------------------
 
-/** The HEEx walk context for a node the shared core hands to the engine: the
- *  sink's state, entered from `shared`, at the shared walk's heading depth. */
-function engineContext(heex: HeexWalkContext, shared: SharedWalkContext): HeexWalkContext {
+/** The HEEx walk context a seam renders under: the sink's state, entered from
+ *  `shared`, at the shared walk's heading depth. */
+function heexWalkContext(heex: HeexWalkContext, shared: SharedWalkContext): HeexWalkContext {
   return { ...heex, sharedWalk: shared, headingDepth: shared.headingDepth };
 }
 
@@ -561,13 +556,13 @@ function indentLines(fragment: string, depth: number): string {
 /** A whole-primitive override that renders `call` with `render` under the HEEx
  *  walk context in the sink, placed at the shared core's indent.  `null` (the
  *  shared path) only for a walk with no HEEx context. */
-function engineOverride(
+function wholePrimitive(
   render: (call: ExprIR & { kind: "call" }, ctx: HeexWalkContext) => string,
 ): (call: ExprIR, ctx: SharedWalkContext, depth: number) => string | null {
   return (call, ctx, depth) => {
     const heex = heexContextOf(ctx.sink);
     if (!heex || call.kind !== "call") return null;
-    return indentTail(render(call, engineContext(heex, ctx)), depth);
+    return indentTail(render(call, heexWalkContext(heex, ctx)), depth);
   };
 }
 

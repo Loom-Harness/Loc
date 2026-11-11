@@ -446,7 +446,7 @@ describe("a hand-written page body reading a `provenanced` field bare", () => {
     const out = allFiles(await generateSystemFiles(bareReadHeex));
     // LiveView renders server-side off the Ecto struct, where `total` is the
     // typed column and the lineage is a separate jsonb sibling.  A `.value` hop
-    // would raise on an integer, so the HEEx engine strips it — and must not
+    // would raise on an integer, so the HEEx expression renderer strips it — and must not
     // acquire the JS walker's opposite edit.
     expect(out).toContain("<%= @o.total %>");
     expect(out).toContain("<%= to_string(@o.total) %>");
