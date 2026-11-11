@@ -58,17 +58,15 @@ import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/lo
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { richTextMessage } from "../../ir/util/icu-message.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
-import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
