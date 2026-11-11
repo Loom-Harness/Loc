@@ -1621,52 +1621,6 @@ export function heexEnumBadgeText(value: ExprIR, ctx: WalkContext): string {
 // ---------------------------------------------------------------------------
 // Closed primitive library — HEEx component dispatch.
 // ---------------------------------------------------------------------------
-/** Tailwind utility classes for the `Toolbar` layout.  Flex geometry is
- *  design-neutral, so it lives here rather than in a design pack; it mirrors
- *  the shadcn `primitive-toolbar` template and the layout classes in
- *  `heex-pack.ts`. */
-const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
-
-/** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
- *  Listed inline so the small set is easy to scan.  The registered
- *  per-primitive exports (`renderToolbar`, `renderButton`, …) bind to
- *  these specs; the typed dispatch table at
- *  src/generator/_walker/registry.ts wires them up by name. */
-const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
-  // author's `label:` overrides it (and translates), which needs
-  // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
-  // while the hardcoded default stays the accessible name.
-  Toolbar: {
-    tag: "div",
-    staticAttrs: ["class"],
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
-    baseClass: TOOLBAR_CLASS,
-  },
-  // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
-  // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
-  // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
-  // and `loading:` are NOT attributes on this spec — `renderButton` turns them
-  // into an inner-block glyph and an `aria-busy` ARIA global respectively,
-  // because an undeclared attribute on a Phoenix function component is a
-  // compile WARNING, i.e. a build failure under
-  // `mix compile --warnings-as-errors`.
-  Button: {
-    tag: ".button",
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    passThroughAttrs: ["to", "disabled", "type", "variant"],
-    staticAttrs: ["variant", "type"],
-  },
-};
-
-// Per-primitive registry-facing wrappers — bind the generic
-// `renderPrimitive` helper to a specific `closedPrimitive` spec so
-// the typed dispatch table can reference one named function per
-// primitive (rather than re-dispatching by name inside the renderer).
-
 /** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
  *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
  *  declares the matching `slot :inner_block`. */
@@ -1891,10 +1845,6 @@ function _stringNamedLit(
 ): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
-}
-
-export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
 }
 
 /** `CodeBlock("source", title?: "…", language?: "ts")` →

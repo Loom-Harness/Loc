@@ -58,7 +58,6 @@ import {
   renderKeyValueRow as renderKeyValueRowHeex,
   renderSlot as renderSlotHeex,
   renderTableColumn as renderTableColumnHeex,
-  renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
 // Re-exported emitters from the React/TSX walker.  Each function
@@ -243,7 +242,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitToolbar,
-    heex: renderToolbarHeex,
     a11y: { role: "toolbar", needsName: true },
   },
   Empty: {

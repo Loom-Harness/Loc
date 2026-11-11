@@ -74,6 +74,7 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Paper",
   "Section",
   "Sticky",
+  "Toolbar",
 ]);
 
 type VM = Record<string, unknown>;
@@ -101,6 +102,10 @@ const CONTAINER_MAX_W: Record<string, string> = {
   lg: "max-w-6xl",
   xl: "max-w-7xl",
 };
+
+/** `Toolbar`'s geometry: a row with its clusters pushed apart (the canonical
+ *  page-header layout), as the shadcn `primitive-toolbar` template spells it. */
+const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -562,6 +567,12 @@ const RENDERERS: Record<string, Renderer> = {
     element(
       "div",
       ` style="position: sticky; top: ${str(vm.top)}; z-index: 100"${str(vm.testidAttr)}`,
+      vm,
+    ),
+  "primitive-toolbar": (vm) =>
+    element(
+      "div",
+      ` class="${TOOLBAR_CLASS}"${str(vm.styleAttr)}${str(vm.testidAttr)}${str(vm.a11yAttr)}`,
       vm,
     ),
   "primitive-field": (vm) => renderInput("text", vm),
