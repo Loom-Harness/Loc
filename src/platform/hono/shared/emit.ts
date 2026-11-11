@@ -1,4 +1,4 @@
-import { hasDurableEvents } from "../../../ir/plan/index.js";
+import { hasDurableEvents, workflowIsolation } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
@@ -172,7 +172,6 @@ import {
   effectiveSavingShape,
   resolveContextSchema,
   resolveDataSourceConfig,
-  resolveWorkflowIsolation,
 } from "../../../ir/util/resolve-datasource.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
@@ -1092,7 +1091,11 @@ export function generateTypeScriptForContexts(
   // OWNING context, whose state dataSource supplies the default level.
   const resolveWorkflowIsolationLevel = (wf: import("../../../ir/types/loom-ir.js").WorkflowIR) => {
     const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
-    return owningCtx ? resolveWorkflowIsolation(wf, owningCtx, system.sys) : wf.isolation;
+    return owningCtx
+      ? workflowIsolation(wf, owningCtx, system.sys)
+      : wf.transactional
+        ? wf.isolation
+        : undefined;
   };
   // Per-projection read-model-table schema — same owning-context map-back.
   const resolveProjectionSchema = (proj: import("../../../ir/types/loom-ir.js").ProjectionIR) => {
