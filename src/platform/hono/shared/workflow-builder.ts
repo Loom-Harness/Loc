@@ -67,6 +67,7 @@ import {
   lookupOp,
   resourceCalls,
   workflowNeedsCurrentUser,
+  workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
@@ -126,7 +127,6 @@ import {
   emitsCommandRoute,
 } from "../../../ir/util/workflow-command-route.js";
 import {
-  bodyWriteScopeGuards,
   type WriteScopeContext,
   writeScopeContext,
 } from "../../../ir/util/write-scope-guards.js";
@@ -221,7 +221,7 @@ export function buildWorkflowsFile(
   carriesOrigin = false,
   /** The isolation level a `transactional` workflow opens its transaction
    *  with: its own `transactional(<level>)`, else its OWNING context's state
-   *  dataSource `isolationLevel` (`resolveWorkflowIsolation`).  The caller
+   *  dataSource `isolationLevel` (`workflowIsolation`).  The caller
    *  resolves it because a merged multi-context deployable's `ctx` is not the
    *  workflow's owning context.  Absent → the workflow's own level only. */
   resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
@@ -1128,7 +1128,6 @@ function emitWorkflowRoute(
   // so a row outside the scope fails the whole command and rolls back the
   // rows it already changed.
   const writeScope = writeScopeContext(wf.statements, ctx);
-  const rechecksWriteScope = bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
   const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
@@ -1240,16 +1239,14 @@ function emitWorkflowRoute(
   // An expected-failure result runs in one transaction whether or not the
   // workflow is `transactional`: an error answer rolls everything back.
   if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
-  if (wf.transactional || er || rechecksWriteScope) {
+  if (workflowRunsInTransaction(wf, ctx)) {
     // The adapter's transaction seam (shared with the audited / provenanced
     // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
     // EntityManager has no `transaction` (TS2551).  The isolation option is
     // spelled per adapter too: drizzle takes the space-cased string, MikroORM
     // its `IsolationLevel` enum (a bare string literal is not assignable).
-    // Only a `transactional` workflow pins a level; the implicit transaction
-    // an entry result or a write-scope re-check opens keeps the connection
-    // default — the same rule as the .NET `BeginTransactionAsync` path.
-    const isolation = wf.transactional ? resolveIsolation(wf) : undefined;
+    // Only a `transactional` workflow pins a level (`workflowIsolation`).
+    const isolation = resolveIsolation(wf);
     const txOpts = isolation
       ? usingMikro
         ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`

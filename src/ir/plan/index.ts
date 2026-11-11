@@ -43,3 +43,4 @@ export {
   observableWorkflows,
   stateRowWorkflows,
 } from "./workflow-sets.js";
+export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";

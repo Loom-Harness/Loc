@@ -60,6 +60,13 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   durable     `durableEventTypes(…).size` — the hand-spelled "does this
 //               context route events through the outbox" test.
 //               → use `hasDurableEvents`.
+//   isolation   a call to `resolveWorkflowIsolation` — the per-backend choice
+//               of when a dataSource's `isolationLevel:` applies.
+//               → use `workflowIsolation`.
+//   implicit-tx a `||` over `.transactional` and a `bodyWriteScopeGuards(…)`
+//               call — the hand-spelled "does this body run in one
+//               transaction" test.
+//               → use `workflowRunsInTransaction`.
 //
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
@@ -140,7 +147,9 @@ interface Violation {
     | "resource-calls"
     | "emits"
     | "deref-loads"
-    | "durable";
+    | "durable"
+    | "isolation"
+    | "implicit-tx";
   where: string;
   text: string;
 }
@@ -362,6 +371,40 @@ function scan(file: string): Violation[] {
     ) {
       out.push({ rule: "durable", where: at(n), text: n.getText(sf) });
     }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "resolveWorkflowIsolation"
+    ) {
+      out.push({ rule: "isolation", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
+      !(
+        ts.isBinaryExpression(n.parent) && n.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      )
+    ) {
+      // The outermost `||` of a chain: does it test `.transactional` and ask
+      // for the body's write-scope guards?
+      let transactional = false;
+      let guards = false;
+      const look = (m: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(m) && m.name.text === "transactional") transactional = true;
+        if (
+          ts.isCallExpression(m) &&
+          ts.isIdentifier(m.expression) &&
+          m.expression.text === "bodyWriteScopeGuards"
+        ) {
+          guards = true;
+        }
+        ts.forEachChild(m, look);
+      };
+      look(n);
+      if (transactional && guards) {
+        out.push({ rule: "implicit-tx", where: at(n), text: n.getText(sf) });
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -418,6 +461,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells the durable-events test (use hasDurableEvents)", () => {
     const hits = violations.filter((v) => v.rule === "durable");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend decides on its own when a dataSource isolation level applies (use workflowIsolation)", () => {
+    const hits = violations.filter((v) => v.rule === "isolation");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells when a workflow body runs in one transaction (use workflowRunsInTransaction)", () => {
+    const hits = violations.filter((v) => v.rule === "implicit-tx");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

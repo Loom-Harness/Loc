@@ -3,6 +3,7 @@ import {
   isWorkflowSelfType,
   lookupOp,
   observableWorkflows,
+  workflowIsolation,
   workflowNeedsCurrentUser,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
@@ -25,7 +26,6 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   walkExprDeep,
   walkWorkflowStmtChildren,
@@ -621,7 +621,7 @@ function workflowRoute(
   // `isolationLevel:`) pins the request transaction's isolation before any
   // query runs — parity with the .NET BeginTransactionAsync(IsolationLevel.X)
   // and Java @Transactional(isolation = …) paths.
-  const isolation = sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+  const isolation = workflowIsolation(wf, ctx, sys);
   if (isolation) {
     out.push(
       `        await session.connection(execution_options={"isolation_level": "${pyIsolationLevel(isolation)}"})`,

@@ -7,6 +7,8 @@ import {
   isWorkflowSelfType,
   observableWorkflows,
   resourceCalls,
+  workflowIsolation,
+  workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -49,7 +51,6 @@ import {
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
-import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   mapExprChildren,
   walkWorkflowStmtChildren,
@@ -62,7 +63,6 @@ import {
   emitsCommandRoute,
 } from "../../ir/util/workflow-command-route.js";
 import {
-  bodyWriteScopeGuards,
   type WriteScopeContext,
   writeScopeContext,
 } from "../../ir/util/write-scope-guards.js";
@@ -1352,17 +1352,9 @@ function renderHandler(
   // of `Unit` (the route answers 200 with it).
   const result = commandCreateResult(wf);
   const resultCs = result ? workflowResultCs(wf, result.type, ns) : "Unit";
-  // An expected-failure result (`T or E`) runs in one transaction whether or
-  // not the workflow is `transactional`; an error answer rolls it back.
   const er = commandCreateEntryResult(wf);
-  // A body that re-checks a held row's write scope runs in one transaction
-  // too, so a row outside the scope fails the whole command and rolls back
-  // the rows it already changed.
   const writeScope = writeScopeContext(wf.statements, ctx);
-  const inTx =
-    wf.transactional ||
-    er !== undefined ||
-    bodyWriteScopeGuards(wf.statements, writeScope).length > 0;
+  const inTx = workflowRunsInTransaction(wf, ctx);
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1375,7 +1367,7 @@ function renderHandler(
   // Effective isolation: workflow's `transactional(<level>)` wins; else
   // the state-kind dataSource for this context's `isolationLevel:`; else
   // undefined (connection default applies at runtime).
-  const effectiveIsolation = sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+  const effectiveIsolation = workflowIsolation(wf, ctx, sys);
   // Workflow handler emits domain-logic statements via renderCsExpr and
   // (when transactional with an explicit isolation level) an
   // IsolationLevel.X enum literal.  Both surfaces may reach namespaces
@@ -1623,10 +1615,9 @@ function renderHandler(
   if (usage.hasEmit) body += "        var _workflowEvents = new List<IDomainEvent>();\n";
   if (result) body += `        ${resultCs} workflowResult = default!;\n`;
   if (inTx) {
-    const beginCall =
-      wf.transactional && effectiveIsolation
-        ? `_uow.BeginTransactionAsync(${CS.IsolationLevel}.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
-        : `_uow.BeginTransactionAsync(cancellationToken)`;
+    const beginCall = effectiveIsolation
+      ? `_uow.BeginTransactionAsync(${CS.IsolationLevel}.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
+      : `_uow.BeginTransactionAsync(cancellationToken)`;
     // Aggregate events raised by the body's saves buffer in this scope and
     // dispatch only after CommitAsync (banking-eval B-04); a rollback
     // disposes the scope unflushed.  See `DomainEventDeferral` (common.ts).

@@ -70,7 +70,12 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
-import { lookupOp, workflowNeedsCurrentUser } from "../../../ir/plan/index.js";
+import {
+  lookupOp,
+  workflowIsolation,
+  workflowNeedsCurrentUser,
+  workflowRunsInTransaction,
+} from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -87,7 +92,6 @@ import {
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
-import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
   walkExprDeep,
   walkWorkflowStmtChildren,
@@ -1814,17 +1818,9 @@ function renderWorkflowModule(
   const moduleName = `${appModule}.${ctxModule}.Workflows.${wfPascal}`;
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
-  // A body that re-checks a held row's write scope runs in one transaction,
-  // so a row outside the scope fails the whole command and rolls back the
-  // rows it already changed.
   const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
-  const transactional =
-    !!wf.transactional ||
-    (writeScope !== undefined && bodyWriteScopeGuards(wf.statements, writeScope).length > 0);
-  // Resolved transaction isolation (workflow override → state-dataSource
-  // default → undefined).  Only meaningful on the transactional path.
-  const isolation =
-    transactional && ctx && sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+  const transactional = ctx ? workflowRunsInTransaction(wf, ctx) : !!wf.transactional;
+  const isolation = ctx ? workflowIsolation(wf, ctx, sys) : wf.isolation;
 
   // F58 — a state-bearing workflow's COMMAND route addresses the SAME persisted
   // saga row its event-triggered starter does (`dispatch-emit.ts`

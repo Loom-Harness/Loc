@@ -287,4 +287,26 @@ describe("resource isolationLevel — end-to-end emit", () => {
     const body = await nodeWorkflows(nodeModel("node", "bumpCredit"));
     expect(body).not.toMatch(/isolationLevel/);
   });
+
+  // One rule on every backend: the dataSource default applies only to a
+  // declared `transactional` workflow.  java and python run every request in a
+  // transaction anyway, and elixir opens one for a write-scope re-check — none
+  // of those pins the dataSource level.  Each pair below checks the transactional
+  // workflow DOES pin it, so the absence on the plain one is not vacuous.
+  // String tier: the isolation option is wiring no booted leg observes.
+  const allFiles = async (platform: string, header: string) =>
+    [...(await emit(nodeModel(platform, header))).entries()];
+  const cases: [string, RegExp][] = [
+    ["java", /Isolation\.SERIALIZABLE/],
+    ["python", /"isolation_level": "SERIALIZABLE"/],
+    ["elixir", /SET TRANSACTION ISOLATION LEVEL SERIALIZABLE/],
+  ];
+  for (const [platform, pinned] of cases) {
+    it(`${platform}: only a transactional workflow pins the dataSource isolationLevel`, async () => {
+      const tx = await allFiles(platform, "bumpCredit transactional");
+      expect(tx.some(([, body]) => pinned.test(body))).toBe(true);
+      const plain = await allFiles(platform, "bumpCredit");
+      expect(plain.filter(([, body]) => pinned.test(body)).map(([k]) => k)).toEqual([]);
+    });
+  }
 });

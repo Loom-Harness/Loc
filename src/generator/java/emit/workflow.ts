@@ -1,6 +1,6 @@
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
-import { isWorkflowSelfType } from "../../../ir/plan/index.js";
+import { isWorkflowSelfType, workflowIsolation } from "../../../ir/plan/index.js";
 import {
   isScalarVariant,
   typeKey,
@@ -26,7 +26,6 @@ import {
   workflowNeedsCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
-import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
@@ -1334,7 +1333,7 @@ export function renderJavaWorkflows(
     // an isolation level (`transactional(<level>)`, or its state dataSource's
     // `isolationLevel:`) overrides it per-method — parity with the .NET
     // BeginTransactionAsync(IsolationLevel.X) path.
-    const isolation = sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+    const isolation = workflowIsolation(wf, ctx, sys);
     // `create(…): T { … return <expr> }` — the method returns the WIRE value
     // (an id's raw `value()`), read inside the class-level `@Transactional`
     // boundary and handed back after it commits.  No result keeps `void`.
