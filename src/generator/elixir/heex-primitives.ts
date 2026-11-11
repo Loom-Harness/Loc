@@ -59,12 +59,10 @@ import {
   indent,
   isAttrRenderable,
   localizedHeexAttr,
-  type PrimitiveSpec,
   registerBinding,
   renderChild,
   renderExpr,
   renderInTemplate,
-  renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
@@ -933,7 +931,7 @@ function stateRefArg(
  *  `<:col :let={row} label="...">...</:col>` slot.  Called only from
  *  `renderTable` — never registered as a top-level primitive because
  *  Column nodes are always children of Table in the expander output. */
-export function renderTableColumn(
+function renderTableColumn(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
   /** True when the enclosing Table carries an active `sortKey:`/`sortDir:`
