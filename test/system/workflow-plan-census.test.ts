@@ -74,6 +74,12 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   event-log   a template literal with a `${snake(…)}_events` span — the
 //               hand-spelled per-context event-log table name.
 //               → use `eventLogTable`.
+//   refs-read   a callback handed to a `walkWorkflowStmt…` walker that tests
+//               `kind === "ref"` and collects the ref's `.name` into a set —
+//               the hand-rolled "which names / params / lets does this body
+//               read" scan.  A diagnostic scan that also pushes a finding is
+//               not a name set and is not flagged.
+//               → use `refsRead` / `namesUsed`.
 //   sub-handler a `.find(…)` whose callback matches a `create`'s
 //               `.eventBinding` against a subscription's `.param` — the
 //               hand-rolled "which body does this subscription run" lookup.
@@ -167,6 +173,7 @@ interface Violation {
     | "implicit-tx"
     | "folded-events"
     | "event-log"
+    | "refs-read"
     | "sub-handler"
     | "es-shared";
   where: string;
@@ -228,6 +235,9 @@ function callbackFacts(body: ts.Node) {
     workflowOnlyKind: false,
     emitKind: false,
     addsTarget: false,
+    refKind: false,
+    addsName: false,
+    reports: false,
   };
   const collect = (m: ts.Node): void => {
     if (
@@ -241,6 +251,7 @@ function callbackFacts(body: ts.Node) {
       if (field === "kind" && lit === "op-call") f.opCall = true;
       if (field === "kind" && lit === "emit") f.emitKind = true;
       if (field === "kind" && lit === "resource-call") f.workflowOnlyKind = true;
+      if (field === "kind" && lit === "ref") f.refKind = true;
       if (field === "callKind" && (lit === "resource-op" || lit === "remote-api-op")) {
         f.resourceKind = true;
       }
@@ -262,6 +273,23 @@ function callbackFacts(body: ts.Node) {
       propName(m.arguments[0]!) === "target"
     ) {
       f.addsTarget = true;
+    }
+    if (
+      ts.isCallExpression(m) &&
+      ts.isPropertyAccessExpression(m.expression) &&
+      m.expression.name.text === "add" &&
+      m.arguments.length === 1 &&
+      propName(m.arguments[0]!) === "name"
+    ) {
+      f.addsName = true;
+    }
+    // A diagnostic scan (it pushes a finding per name) is not a name set.
+    if (
+      ts.isCallExpression(m) &&
+      ts.isPropertyAccessExpression(m.expression) &&
+      m.expression.name.text === "push"
+    ) {
+      f.reports = true;
     }
     ts.forEachChild(m, collect);
   };
@@ -378,6 +406,7 @@ function scan(file: string): Violation[] {
           if (f.resourceKind && (isWorkflowWalker || f.workflowOnlyKind)) hit("resource-calls");
           if (f.emitKind && isWorkflowWalker) hit("emits");
           if (f.opCall && f.addsTarget) hit("deref-loads");
+          if (f.refKind && f.addsName && !f.reports && isWorkflowWalker) hit("refs-read");
         }
       }
     }
@@ -558,6 +587,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells the event-log table name (use eventLogTable)", () => {
     const hits = violations.filter((v) => v.rule === "event-log");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for the names it reads (use refsRead / namesUsed)", () => {
+    const hits = violations.filter((v) => v.rule === "refs-read");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

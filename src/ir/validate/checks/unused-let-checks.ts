@@ -29,12 +29,12 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { refsRead } from "../../plan/index.js";
 import type { BoundedContextIR, ExprIR, StmtIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
   walkStmtsDeep,
-  walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -87,10 +87,8 @@ function unreadWorkflowLets(
   };
   saved(savesAtExit);
   for (const e of tail) if (e) refNames(e, used);
+  for (const n of refsRead(statements)) used.add(n);
   for (const top of statements) {
-    walkWorkflowStmtExprsDeep(top, (e) => {
-      if (e.kind === "ref") used.add(e.name);
-    });
     walkWorkflowStmtsDeep(top, (s) => {
       switch (s.kind) {
         case "factory-let":

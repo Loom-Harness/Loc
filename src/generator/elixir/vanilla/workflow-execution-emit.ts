@@ -72,6 +72,8 @@
 
 import {
   lookupOp,
+  namesUsed,
+  refsRead,
   workflowIsolation,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
@@ -92,11 +94,7 @@ import {
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
-import {
-  walkExprDeep,
-  walkWorkflowStmtChildren,
-  walkWorkflowStmtsDeep,
-} from "../../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import {
   bodyWriteScopeGuards,
@@ -1464,24 +1462,6 @@ function renderLoopBody(
   ];
 }
 
-/** Collect every `ref` name reachable from `e` (any refKind) into `acc`.
- *
- *  Rides the SHARED `walkExprDeep` rather than a local `ExprIR.kind` switch.
- *  The local copy had already lost this exact bet twice — the variant-`match`
- *  `subject` arm below the previous comment, and (on the statement side) the
- *  `repo-run` `page:` bounds — and each miss has the same shape: the name reads
- *  as unread, M-T6.21 `_`-prefixes the bind to satisfy
- *  `--warnings-as-errors`, and the renderer that DOES read it then names an
- *  undefined variable → `CompileError` on every `mix compile`.
- *
- *  `walkExprChildren` carries a trailing-`never` guard, so a new `ExprIR.kind`
- *  is a compile error there instead of a silent hole here. */
-function collectRefNames(e: ExprIR | undefined, acc: Set<string>): void {
-  walkExprDeep(e, (sub) => {
-    if (sub.kind === "ref") acc.add(sub.name);
-  });
-}
-
 /** Is `name` referenced by any statement in `rest` — or by any `trailing`
  *  expression the caller evaluates after the list (`ReadScope.trailing`)?  Used
  *  to decide whether a branch/loop/with-chain `let`-bind needs its real name or
@@ -1492,10 +1472,7 @@ function bindUsedLater(
   rest: WorkflowStmtIR[],
   trailing: readonly ExprIR[] = [],
 ): boolean {
-  const refs = new Set<string>();
-  for (const st of rest) collectWorkflowStmtParamRefsAll(st, refs);
-  for (const e of trailing) collectRefNames(e, refs);
-  return refs.has(name);
+  return namesUsed(rest, trailing).has(name);
 }
 
 /** M-T6.21 — the `{:ok, <name>}` half of a fallible bind (`factory-let` /
@@ -1517,28 +1494,6 @@ function tupleBind(
     return { pattern: bare, bindName: bare };
   }
   return { pattern: `_${bare}`, bindName: undefined };
-}
-
-/** Like `collectWorkflowStmtParamRefs` but collects ALL ref names (not just
- *  declared create-params) — feeds the unused-bind discard check. */
-function collectWorkflowStmtParamRefsAll(st: WorkflowStmtIR, acc: Set<string>): void {
-  // The `op-call` TARGET is not an expression — it is the bound aggregate the
-  // call mutates (`order.confirm()`), so it has no child-expression slot for a
-  // walker to hand over and is added here.
-  if (st.kind === "op-call") acc.add(st.target);
-  // Everything else rides the SHARED, `never`-guarded child walker.  The
-  // hand-enumerated switch this replaces read only `repo-run`'s `retrievalArgs`
-  // and never its `page:` bounds — which the renderer DOES read — so a `let`
-  // used solely as a page offset/limit was `_`-prefixed by the M-T6.21
-  // underscore rule while the emitted `Repo.run(...)` still named it:
-  // `** (CompileError) undefined variable "x"` on every `mix compile`.
-  //
-  // A new `WorkflowStmtIR` kind (or a new child slot on an existing one) is now
-  // a compile error in `walkWorkflowStmtChildren`, not a silent hole here.
-  walkWorkflowStmtChildren(st, {
-    expr: (e) => collectRefNames(e, acc),
-    workflowStmt: (inner) => collectWorkflowStmtParamRefsAll(inner, acc),
-  });
 }
 
 /** Render a single `if-let` branch statement (`thenBody` / `elseBody`) as the
@@ -1621,50 +1576,11 @@ function renderBranchStmt(
 // destructured off the `run/1` map.
 // ---------------------------------------------------------------------------
 
-/** Add every `refKind: "param"` name reachable from `e` into `acc` — at any
- *  depth, through every child slot `walk.ts` knows (a `match` subject, a
- *  `duration` amount, an `i18nFormat` hole, a block-bodied lambda's
- *  statements).  A param read only in one of those slots and not destructured
- *  off `run/1` is an undefined variable in the emitted Elixir. */
-export function collectParamRefs(e: ExprIR | undefined, acc: Set<string>): void {
-  walkExprDeep(e, (sub) => {
-    if (sub.kind === "ref" && sub.refKind === "param") acc.add(sub.name);
-  });
-}
-
-/** Collect referenced create-params from EVERY lowered statement kind: each
- *  lowers to real code emitting its param refs, so the full WorkflowStmtIR
- *  union is covered.  Must stay in lock-step with
- *  `lowerStatement`; if a future kind is added without a matching arm
- *  here, an unused param destructure could trip `--warnings-as-errors`. */
-export function collectWorkflowStmtParamRefs(st: WorkflowStmtIR, acc: Set<string>): void {
-  // Rides the SHARED, `never`-guarded child walker, exactly like its sibling
-  // `collectWorkflowStmtParamRefsAll` below.  The hand-enumerated switch this
-  // replaces was missing the `assign` arm entirely — 13 of the 14
-  // `WorkflowStmtIR` kinds, no `default`, so no compile error — and an `assign`
-  // is precisely where a create-param lands in a state-bearing workflow:
-  //
-  //   create start(order: Order id) { orderId := order }
-  //     def run(params) …
-  //       with state <- (%{state | order_id: order})   # `order` never bound
-  //
-  // which is `** (CompileError) undefined variable "order"` on `mix compile`.
-  // The same shape the `#2720`/`M-T6.50` class keeps producing (CLAUDE.md,
-  // "No hand-rolled IR walks"); a new kind is now a compile error in
-  // `walkWorkflowStmtChildren`, not a silent hole here.
-  walkWorkflowStmtChildren(st, {
-    expr: (e) => collectParamRefs(e, acc),
-    workflowStmt: (inner) => collectWorkflowStmtParamRefs(inner, acc),
-  });
-}
-
 /** The declared create-params referenced anywhere in the body, in
  *  declaration order (stable output). */
 function referencedParams(wf: WorkflowIR): string[] {
-  const refs = new Set<string>();
-  for (const st of wf.statements ?? []) collectWorkflowStmtParamRefs(st, refs);
   // A `create(…): T` result may read a param the body never does.
-  collectParamRefs(commandCreateResult(wf)?.value, refs);
+  const refs = refsRead(wf.statements ?? [], [commandCreateResult(wf)?.value], "param");
   return (wf.params ?? []).map((p) => p.name).filter((n) => refs.has(n));
 }
 
