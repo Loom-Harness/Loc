@@ -28,6 +28,7 @@ import type { WalkContext } from "../walker-core.js";
 import {
   emitExpr,
   emitStmt,
+  enterScope,
   extendLambdaParams,
   navArgValue,
   propagateChildFlags,
@@ -750,31 +751,34 @@ export function emitQueryView(
     const recordProjections = new Set(
       [...(ctx.projectionsByName ?? [])].filter((n) => !ctx.listShapedProjections?.has(n)),
     );
-    const childCtx: WalkContext = {
-      ...ctx,
-      lambdaParams: extendLambdaParams(ctx, data.param, dataAccess),
-      paramTypes: childParamTypes,
-      pagedListBindings: childPagedListBindings,
-      listRowAggregates: listAgg
-        ? new Map([...(ctx.listRowAggregates ?? []), [data.param, listAgg]])
-        : ctx.listRowAggregates,
-      pagedEnvelopeBindings: childPagedEnvelopeBindings,
-      // A non-`single` `data:` param IS a collection, however the target
-      // spells the access — but it carries no array `TypeIR` (lowering leaves
-      // UI-primitive lambda params at the `string` placeholder), so a
-      // collection op read off it (`rows.count`) is recognisable only through
-      // this set.  Grown by the SAME function the IR-validate gate uses
-      // (`rowSetLambdaParam`), so gate and walker cannot disagree about which
-      // nodes are collection-op sites — a disagreement in the "gate allows,
-      // walker doesn't recognise" direction would re-open the verbatim
-      // emission `loom.frontend-collection-op-unsupported` exists to prevent.
-      rowSetBindings: rowSetLambdaParam(call, recordProjections)
-        ? new Set([...(ctx.rowSetBindings ?? []), data.param])
-        : // `single: true` binds ONE record — SHADOW an outer binding of the
-          // same name rather than inheriting it (the same rebind discipline
-          // the two paged maps above follow).
-          shadow(ctx.rowSetBindings, data.param),
-    };
+    const childCtx: WalkContext = enterScope(
+      {
+        ...ctx,
+        lambdaParams: extendLambdaParams(ctx, data.param, dataAccess),
+        paramTypes: childParamTypes,
+        pagedListBindings: childPagedListBindings,
+        listRowAggregates: listAgg
+          ? new Map([...(ctx.listRowAggregates ?? []), [data.param, listAgg]])
+          : ctx.listRowAggregates,
+        pagedEnvelopeBindings: childPagedEnvelopeBindings,
+        // A non-`single` `data:` param IS a collection, however the target
+        // spells the access — but it carries no array `TypeIR` (lowering leaves
+        // UI-primitive lambda params at the `string` placeholder), so a
+        // collection op read off it (`rows.count`) is recognisable only through
+        // this set.  Grown by the SAME function the IR-validate gate uses
+        // (`rowSetLambdaParam`), so gate and walker cannot disagree about which
+        // nodes are collection-op sites — a disagreement in the "gate allows,
+        // walker doesn't recognise" direction would re-open the verbatim
+        // emission `loom.frontend-collection-op-unsupported` exists to prevent.
+        rowSetBindings: rowSetLambdaParam(call, recordProjections)
+          ? new Set([...(ctx.rowSetBindings ?? []), data.param])
+          : // `single: true` binds ONE record — SHADOW an outer binding of the
+            // same name rather than inheriting it (the same rebind discipline
+            // the two paged maps above follow).
+            shadow(ctx.rowSetBindings, data.param),
+      },
+      { kind: "query-data", query: call, param: data.param },
+    );
     dataJsx = data.body ? walk(data.body, childCtx, depth + 2, "value") : nothing;
     propagateChildFlags(ctx, childCtx);
   } else if (data) {
@@ -791,14 +795,17 @@ export function emitQueryView(
   // signal / `?? []` variant) instead of a bare `<query>.data.length`.  The
   // `data:` lambda binding stays `<query>.data` (the envelope) in both modes —
   // a paged body reads `rows.items` / `rows.totalPages` off it.
+  // A target that keeps the read's state itself binds it now, after the
+  // branches, and answers what the ladder tests.
+  const bound = ctx.target.bindQueryView?.({ call, of: ofArg }, ctx);
   return renderPrimitive(ctx, "primitive-query-view", {
-    queryExpr,
+    queryExpr: bound?.readExpr ?? queryExpr,
     loadingJsx,
     errorJsx,
     emptyJsx,
     dataJsx,
-    single,
-    paged,
+    single: bound?.single ?? single,
+    paged: bound?.paged ?? paged,
     indent,
     branchIndent,
     closeIndent,

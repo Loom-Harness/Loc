@@ -10,7 +10,9 @@
 //     that mixes a markup arm with a term arm;
 //   - a ternary with markup branches (the `if` block form — the expression form
 //     `if c, do: <markup>` is not valid HEEx);
-//   - a `For` with an `empty:` arm, and a nested `For`.
+//   - a `For` with an `empty:` arm, and a nested `For`;
+//   - two `QueryView`s on one page whose `data:` lambdas share a param — each
+//     loads into its own assign.
 
 system ControlFlow {
   subdomain Shop {
@@ -25,6 +27,13 @@ system ControlFlow {
 
       repository Orders for Order { }
 
+      aggregate Customer with crudish {
+        name: string
+        derived display: string = name
+      }
+
+      repository Customers for Customer { }
+
       criterion OrdersByCode(c: string) of Order = this.code == c
     }
   }
@@ -36,6 +45,21 @@ system ControlFlow {
 
   ui Web {
     api S: ShopApi
+
+    page Both {
+      route: "/both"
+      title: "Both"
+      body: Stack {
+        QueryView {
+          of: S.Customer.all,
+          data: rows => Table { rows: rows, Column { "Name", c => Text { c.name } } }
+        },
+        QueryView {
+          of: S.Order.all,
+          data: rows => Table { rows: rows, Column { "Code", o => Text { o.code } } }
+        }
+      }
+    }
 
     page Filters {
       route: "/filters"

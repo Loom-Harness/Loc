@@ -44,6 +44,7 @@ import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
+import type { QueryViewRead } from "../_walker/target.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -1045,14 +1046,6 @@ function renderColLetVar(accessor: ExprIR | undefined, _ctx: WalkContext): strin
   return "row";
 }
 
-/** `QueryView(of: expr, loading: ..., error: ..., empty: ..., data: rows => ...)` →
- *  LiveView-idiomatic conditional rendering.
- *
- *  The `data:` lambda's parameter (usually `rows` or `data`) maps to a
- *  LiveView assign (`@items` or `@data`).  mount() is responsible for
- *  pre-loading (or setting nil for lazy loading).  The success branch
- *  renders the lambda body directly — the Table primitive reads its
- *  own `rows={…}` from the same assign, so no for-loop is needed here. */
 /** Resolve the aggregate PascalCase name out of a `QueryView`
  *  `of:` argument.  The scaffold-expander emits one of:
  *    detail  → method-call `<api>.<Agg>.byId(id)` (receiver is a
@@ -1197,16 +1190,26 @@ function readActorArgs(
   }
 }
 
-export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let ofExpr = "";
-  let ofArgNode: ExprIR | undefined;
-  let loadingHeex = `<div class="animate-pulse">Loading...</div>`;
-  let errorHeex = `<div class="alert alert-error">Error loading data.</div>`;
-  let emptyHeex = `<div class="empty">No items.</div>`;
-  let dataHeex = "";
-  let dataVar = "rows";
-  let assignName = "items";
-  // Resolve the read's SHAPE up front, from the IR rather than from the flags.
+/** What a `QueryView` reads on a LiveView page, decided from the IR: the assign
+ *  its load fills, the read's shape, and which read it is.  Pure apart from
+ *  the per-page assign reservation (`reserveQueryAssign`). */
+interface QueryViewPlan {
+  ofNode: ExprIR;
+  assignName: string;
+  isSingle: boolean;
+  isPaged: boolean;
+  autoPaged: boolean;
+  detected: DetectedApiCall | null;
+  projectionRead?: string;
+  historyRead?: string;
+}
+
+function queryViewPlan(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  ofNode: ExprIR,
+  ctx: WalkContext,
+): QueryViewPlan {
+  // Resolve the read's SHAPE from the IR rather than from the flags.
   // `paged:` / `single:` are opt-INs; the facts behind them are properties of
   // the find, and taking them from the flags alone is what made a hand-written
   // `QueryView { of: X.all }` render `Enum.empty?/1` against the paged envelope
@@ -1214,34 +1217,18 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   // iterated the map's key/value pairs) and a `byId` read without `single:`
   // raise `Protocol.UndefinedError` on a struct.  Same derivation the JSX
   // walker uses — see `_walker/paged-query.ts`.
-  //
-  // Pre-scanned rather than read inside the arg loop below: `data:` may precede
-  // `single:` in source order, and the data-lambda branch needs the answer.
   const names = expr.argNames ?? [];
   const litTrue = (i: number): boolean => {
     const a = i >= 0 ? expr.args[i] : undefined;
     return a?.kind === "literal" && a.value === "true";
   };
-  const ofNode = expr.args[names.indexOf("of")];
-  // No `of:` at all — the JSX walker gives up here (`emitQueryView` in
-  // `_walker/primitives/controls.ts`).  Falling through to the `cond` below
-  // with `ofExpr === ""` would render the loading / error / empty arms plus an
-  // EMPTY `true ->` branch: a framed panel that reads as "loaded, nothing to
-  // show" for a read that was never wired.  Same shape as the standalone
-  // op-form guard in `renderForm` — every target says what it could not do.
-  if (!ofNode)
-    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "QueryView: missing 'of:' query expression")} -->`;
   // Entity-history read (`<Agg>.history(id)`, docs/audit.md) — NOT an ordinary
   // aggregate read: it scans `audit_records` for one target, so binding it as
-  // one would load `list_<aggs>` (the LIST, not the trail).  Tagged here and
-  // loaded by the LiveView's page-private `load_<agg>_history/2`, which is why
-  // `phoenixLiveView` is in `HISTORY_CAPABLE_FRAMEWORKS` and there is no skip
-  // branch here — the JSX walker still consults the shared predicate for the
-  // targets that have NOT ported the read.
-  const historyRead =
-    ofNode && isEntityHistoryRead(ofNode, ctx.aggregatesByName)
-      ? resolveQueryAggregate(ofNode)
-      : undefined;
+  // one would load `list_<aggs>` (the LIST, not the trail).  Loaded by the
+  // LiveView's page-private `load_<agg>_history/2`.
+  const historyRead = isEntityHistoryRead(ofNode, ctx.aggregatesByName)
+    ? resolveQueryAggregate(ofNode)
+    : undefined;
   // Detector context, shared by the shape derivation and the Pattern H probe
   // below so the two can't answer from different name sets.
   const detectCtx = {
@@ -1251,29 +1238,13 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     projectionsByName: ctx.projectionsByName,
     listShapedProjections: ctx.listShapedProjections,
   };
-  const shape = ofNode ? queryShape(ofNode, detectCtx) : { paged: false, single: false };
-  // Pattern H — `QueryView { of: <api>.<Projection> }`.  The
-  // read resolves to the query-time projection's own `run/1`, in-process: a
-  // LiveView deployable hosts its contexts in the SAME OTP app, so what the SPA
-  // frontends reach over `GET /projections/<slug>` is one function call here.
-  //
-  // Probed BEFORE the arg loop because the projection also names the assign
-  // (below) — a fact the loop's `data:` branch would otherwise decide first.
-  const detected = ofNode ? tryDetectApiHook(ofNode, detectCtx) : null;
+  const shape = queryShape(ofNode, detectCtx);
+  // Pattern H — `QueryView { of: <api>.<Projection> }`.  The read resolves to
+  // the query-time projection's own `run/1`, in-process: a LiveView deployable
+  // hosts its contexts in the SAME OTP app, so what the SPA frontends reach
+  // over `GET /projections/<slug>` is one function call here.
+  const detected = tryDetectApiHook(ofNode, detectCtx);
   const projectionRead = detected?.kind === "projection" ? detected.aggregateName : undefined;
-  // A projection read names its assign after the PROJECTION (`:order_totals`),
-  // not after the `data:` lambda's parameter.  The param-derived name is fine
-  // for the aggregate arms — a page rarely carries two — but the scaffolded
-  // dashboard puts ONE KPI `QueryView` PER AGGREGATE on `Home`, each written by
-  // the same macro with the same lambda param `t`.  Named off the param, every
-  // one of them would assign `:t` and the last load would win: every tile
-  // showing the same aggregate's numbers, with nothing to see in the diff.
-  if (projectionRead) assignName = snake(projectionRead);
-  // A history read names its assign after the AGGREGATE (`:order_history`) for
-  // the same reason: the scaffold's `data:` lambda param is `entries`, which is
-  // a name any hand-written read could also pick — and a detail page carrying
-  // both would have the two loads fight over one assign.
-  if (historyRead) assignName = `${snake(historyRead)}_history`;
   // Flag OR fact: an author may opt in explicitly (the scaffold does), but
   // omitting the flag does NOT mean "not paged" / "not single".
   const isSingle = litTrue(names.indexOf("single")) || shape.single;
@@ -1286,58 +1257,107 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   // `<.table>` iterated its key/value pairs.  An explicit `paged: true` body
   // (the scaffold) reads `rows.items` itself, so it binds the envelope.
   const autoPaged = !explicitPaged && !isSingle && shape.paged;
+  return {
+    ofNode,
+    assignName: queryAssignName(expr, projectionRead, historyRead, ctx),
+    isSingle,
+    isPaged,
+    autoPaged,
+    detected,
+    ...(projectionRead === undefined ? {} : { projectionRead }),
+    ...(historyRead === undefined ? {} : { historyRead }),
+  };
+}
 
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "of") {
-      ofArgNode = arg;
-      ofExpr = renderExpr(arg, { ...ctx, position: "template" });
-    } else if (name === "loading") {
-      loadingHeex = renderChild(arg, ctx);
-    } else if (name === "error") {
-      errorHeex = renderChild(arg, ctx);
-    } else if (name === "empty") {
-      emptyHeex = renderChild(arg, ctx);
-    } else if (name === "data") {
-      if (arg.kind === "lambda") {
-        dataVar = snake(arg.param);
-        // Map the lambda param name to a LiveView assign.
-        // Convention: "rows" → @items (list pages), "data" → @data (detail pages)
-        // A projection read already took its assign from the projection name.
-        if (!projectionRead && !historyRead) assignName = dataVar === "rows" ? "items" : dataVar;
-        // Build a remapping so ref("rows") → @items, ref("data") → @data, etc.
-        const remapping = new Map<string, string>([
-          [dataVar, autoPaged ? `${assignName}.items` : assignName],
-        ]);
-        // Type the data binding so a nested instance-qualified op-form
-        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on
-        // — or, for a list, so its `Table` / `For` rows type theirs.
-        const queried = ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
-        const known = queried !== undefined && ctx.aggregatesByName.has(queried);
-        const innerCtx: WalkContext = {
-          ...ctx,
-          varRemapping: remapping,
-          instanceTypes:
-            known && isSingle
-              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, queried]])
-              : ctx.instanceTypes,
-          listTypes:
-            known && !isSingle
-              ? new Map([...(ctx.listTypes ?? []), [arg.param, queried]])
-              : ctx.listTypes,
-        };
-        if (arg.body) dataHeex = renderChild(arg.body, innerCtx);
-      } else {
-        dataHeex = renderChild(arg, ctx);
-      }
-    }
-  }
-  void ofExpr;
+/** The assign a `QueryView`'s load fills.
+ *
+ *  A projection read names it after the PROJECTION (`:order_totals`) and a
+ *  history read after the AGGREGATE (`:order_history`): the scaffolded
+ *  dashboard puts one KPI `QueryView` per aggregate on `Home`, each with the
+ *  same lambda param, and a detail page's history read uses `entries`, a name
+ *  any hand-written read could also pick.  Any other read names it after its
+ *  `data:` lambda param — `rows` reads as `items`, the scaffold's list
+ *  convention — reserved per page, so two reads whose lambdas share a param
+ *  each get their own assign (`items`, `items_2`) instead of loading into one
+ *  where the last load wins. */
+function queryAssignName(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  projectionRead: string | undefined,
+  historyRead: string | undefined,
+  ctx: WalkContext,
+): string {
+  if (projectionRead) return snake(projectionRead);
+  if (historyRead) return `${snake(historyRead)}_history`;
+  const data = expr.args[(expr.argNames ?? []).indexOf("data")];
+  const param = data?.kind === "lambda" ? snake(data.param) : "rows";
+  return reserveQueryAssign(expr, param === "rows" ? "items" : param, ctx);
+}
 
-  // Register the query binding so the LiveView emitter loads the
-  // record(s) in handle_params (the assign the cond below reads is
-  // never populated otherwise — see QueryBinding).
+/** The assign `base` for this `QueryView`, or the first free `base_<n>` when
+ *  another read on the page already holds `base`.  Keyed by the call node, so
+ *  the view's data scope and its load binding agree on the name. */
+function reserveQueryAssign(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  base: string,
+  ctx: WalkContext,
+): string {
+  const reserved = ctx.queryAssigns.get(expr);
+  if (reserved !== undefined) return reserved;
+  const taken = new Set(ctx.queryAssigns.values());
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}_${n}`;
+  ctx.queryAssigns.set(expr, name);
+  return name;
+}
+
+/** The `of:` read of a `QueryView`, when it has one. */
+function queryViewOf(expr: Extract<ExprIR, { kind: "call" }>): ExprIR | undefined {
+  return expr.args[(expr.argNames ?? []).indexOf("of")];
+}
+
+/** The walk context a `QueryView`'s `data:` lambda body renders under: its
+ *  parameter remapped to the assign the load fills (the envelope's `.items`
+ *  when the read is auto-paged), and typed so a nested instance-qualified
+ *  op-form (`OperationForm(data.confirm)`) resolves the aggregate it operates
+ *  on — or, for a list, so its `Table` / `For` rows type theirs. */
+export function queryViewDataContext(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  param: string,
+  ctx: WalkContext,
+): WalkContext {
+  const ofNode = queryViewOf(expr);
+  if (!ofNode) return ctx;
+  const plan = queryViewPlan(expr, ofNode, ctx);
+  const remapping = new Map<string, string>([
+    [snake(param), plan.autoPaged ? `${plan.assignName}.items` : plan.assignName],
+  ]);
+  const queried = resolveQueryAggregate(ofNode);
+  const known = queried !== undefined && ctx.aggregatesByName.has(queried);
+  return {
+    ...ctx,
+    varRemapping: remapping,
+    instanceTypes:
+      known && plan.isSingle
+        ? new Map([...(ctx.instanceTypes ?? []), [param, queried]])
+        : ctx.instanceTypes,
+    listTypes:
+      known && !plan.isSingle
+        ? new Map([...(ctx.listTypes ?? []), [param, queried]])
+        : ctx.listTypes,
+  };
+}
+
+/** Register a `QueryView`'s load so the LiveView emitter fills its assign in
+ *  `handle_params` (the assign the ladder reads is never populated otherwise —
+ *  see `QueryBinding`), and answer what the ladder tests. */
+export function bindHeexQueryView(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  ctx: WalkContext,
+): QueryViewRead | undefined {
+  const ofNode = queryViewOf(expr);
+  if (!ofNode) return undefined;
+  const plan = queryViewPlan(expr, ofNode, ctx);
+  const { assignName, isSingle, projectionRead, historyRead, detected } = plan;
   if (projectionRead) {
     // The projection load takes no arguments (the read IS the row) and no
     // `listArgs` — a query-time projection has no page/sort surface.
@@ -1349,24 +1369,19 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     });
   }
   if (historyRead) {
-    // The entity-history read.  `listArgs` carries the entity id the `of:` call
-    // passed (`socket.assigns.id` on a scaffolded detail page) — the loader
-    // takes it as an argument rather than reaching for `@id`, so a hand-written
+    // `listArgs` carries the entity id the `of:` call passed
+    // (`socket.assigns.id` on a scaffolded detail page) — the loader takes it
+    // as an argument rather than reaching for `@id`, so a hand-written
     // `history(someOtherId)` loads what it asked for.
     registerBinding(ctx, ctx.queryBindings, {
       kind: "list",
       assign: assignName,
       aggregate: historyRead,
       source: "history",
-      listArgs: queryCallArgs(ofArgNode, ctx),
+      listArgs: queryCallArgs(ofNode, ctx),
     });
   }
-  const aggName =
-    projectionRead || historyRead
-      ? undefined
-      : ofArgNode
-        ? resolveQueryAggregate(ofArgNode)
-        : undefined;
+  const aggName = projectionRead || historyRead ? undefined : resolveQueryAggregate(ofNode);
   if (aggName) {
     registerBinding(ctx, ctx.queryBindings, {
       kind: isSingle ? "single" : "list",
@@ -1377,58 +1392,17 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // the emitted `list_<agg>s()` takes the repository defaults and the page
       // never moves off 1.  HANDLER position — the load block is a function
       // body, so state refs must render `socket.assigns.<f>`, not `@<f>`.
-      listArgs: queryCallArgs(ofArgNode, ctx),
-      // WHICH context function this read calls.  Resolved from the `of:` call's
-      // OPERATION, not assumed from the read's shape — see `contextReadFn`.
-      // (This subsumes the earlier `retrieval` slot, which derived the same
-      // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
+      listArgs: queryCallArgs(ofNode, ctx),
+      // WHICH context function this read calls, resolved from the `of:`
+      // call's OPERATION — see `contextReadFn`.
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
       // The request principal, when the read's repository function takes one.
-      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofArgNode),
+      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofNode),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });
   }
-
-  if (isSingle) {
-    // Single-record (detail page).  handle_params assigns one of:
-    //   nil        → still loading            → loading branch
-    //   :error     → load error               → error branch
-    //   :not_found → no record for that id     → empty branch
-    //   record     → loaded                    → data branch
-    return [
-      `<%= cond do %>`,
-      `  <% is_nil(@${assignName}) -> %>`,
-      `    ${loadingHeex}`,
-      `  <% @${assignName} == :error -> %>`,
-      `    ${errorHeex}`,
-      `  <% @${assignName} == :not_found -> %>`,
-      `    ${emptyHeex}`,
-      `  <% true -> %>`,
-      `    ${dataHeex}`,
-      `<% end %>`,
-    ].join("\n");
-  }
-
-  // List query: check for nil (loading), error, empty, then render data.
-  // The Table primitive already iterates @items internally via rows={@items},
-  // so no Elixir for-loop is needed here.  When the auto-`findAll` is paged
-  // the assign is the `%{items, page, …}` envelope, so the emptiness guard
-  // unwraps `.items` (the pager/sort UI itself is the Table's job — this is
-  // only the envelope-unwrap paging forces).
-  const emptyTarget = isPaged ? `@${assignName}.items` : `@${assignName}`;
-  return [
-    `<%= cond do %>`,
-    `  <% is_nil(@${assignName}) -> %>`,
-    `    ${loadingHeex}`,
-    `  <% @${assignName} == :error -> %>`,
-    `    ${errorHeex}`,
-    `  <% Enum.empty?(${emptyTarget}) -> %>`,
-    `    ${emptyHeex}`,
-    `  <% true -> %>`,
-    `    ${dataHeex}`,
-    `<% end %>`,
-  ].join("\n");
+  return { readExpr: assignName, single: isSingle, paged: plan.isPaged };
 }
 
 /** `KeyValueRow("Label", value_expr)` → `<div class="key-value-row">` */

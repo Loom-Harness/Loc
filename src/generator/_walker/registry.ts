@@ -72,7 +72,6 @@ import {
   renderPaper as renderPaperHeex,
   renderPasswordField as renderPasswordFieldHeex,
   renderProvenanceInfo as renderProvenanceInfoHeex,
-  renderQueryView as renderQueryViewHeex,
   renderSection as renderSectionHeex,
   renderSelectField as renderSelectFieldHeex,
   renderSkeleton as renderSkeletonHeex,
@@ -633,7 +632,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     admissibleInSource: true,
     readsOf: true,
     tsx: emitQueryView,
-    heex: renderQueryViewHeex,
     a11y: "presentational",
   },
   // A dialog — role, aria-modal, named, focus trap + restore on close.

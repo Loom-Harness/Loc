@@ -403,6 +403,11 @@ export interface WalkContext {
   formBindings: FormBinding[];
   /** Query bindings discovered as the walker visits `QueryView(...)`. */
   queryBindings: QueryBinding[];
+  /** The assign each `QueryView` on this body loads into, keyed by its call
+   *  node — shared by reference across the `{...ctx}` copies, so the view's
+   *  data scope and its load binding agree, and two reads never take the same
+   *  assign (`reserveQueryAssign`). */
+  queryAssigns: Map<ExprIR, string>;
   /** PageIR being walked — its `state[]` drives state-reference resolution
    *  and its `params[]` resolves route-param refs. */
   page: PageIR;
@@ -661,6 +666,7 @@ export function walkBodyToHeex(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames,
@@ -1726,10 +1732,7 @@ function andGate(...parts: readonly (string | undefined)[]): string | undefined 
  *  for the whole project.  So the form follows what the arms render: one
  *  markup arm makes the block, in which a term arm still gets its own
  *  `<%= … %>`. */
-function matchRendersMarkup(
-  expr: Extract<ExprIR, { kind: "match" }>,
-  ctx: WalkContext,
-): boolean {
+function matchRendersMarkup(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): boolean {
   return (
     ctx.position === "template" &&
     (expr.arms.some((a) => armRendersMarkup(a.value, ctx)) ||
@@ -2837,14 +2840,19 @@ function renderVariantMatchStmt(
     const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
     return `            ${pattern} ->\n              ${piped}`;
   };
-  // Classify the error variant.  The lowered `arm.isError` hint is unreliable
-  // from a UI body (a context-local `error` type doesn't resolve in the page's
-  // lowering env — same caveat the JS walker documents), so treat the success
-  // variant as the aggregate's own type and any other tag as an error.  Honour a
-  // `true` hint too, for the case where lowering DID resolve it.
+  // Classify each variant by what the aggregate's context declares: a tag
+  // declared as an `error` comes back as `{:error, tag, data}`, any other —
+  // the aggregate itself, a payload / response, a scalar — as `{:ok, value}`.
+  // The lowered `arm.isError` hint is unreliable from a UI body (a
+  // context-local `error` type doesn't resolve in the page's lowering env), so
+  // the context decides; a `true` hint is honoured too.  Without the context
+  // (a caller that threads none) only the aggregate's own tag is a success.
+  const bc = ctx.bcByAggregate.get(aggName);
+  const isErrorTag = (tag: string): boolean =>
+    bc ? bc.payloads.some((p) => p.name === tag && p.kind === "error") : tag !== aggName;
   const clauses = stmt.arms.map((arm) => {
     const tag = variantTag(arm.varType);
-    const isError = arm.isError === true || tag !== aggName;
+    const isError = arm.isError === true || isErrorTag(tag);
     const steps = arm.body.map((s) => renderStmt(s, hctx));
     // Elixir's `--warnings-as-errors` rejects a bound-but-unused pattern var, so
     // prefix the binder with `_` when the arm body never references it (e.g.
@@ -2852,7 +2860,14 @@ function renderVariantMatchStmt(
     const raw = arm.binding ? snake(arm.binding) : "_";
     const used = arm.binding ? steps.some((st) => new RegExp(`\\b${raw}\\b`).test(st)) : false;
     const binder = arm.binding && !used ? `_${raw}` : raw;
-    const pattern = isError ? `{:error, ${JSON.stringify(tag)}, ${binder}}` : `{:ok, ${binder}}`;
+    // A success variant other than the aggregate is a tagged map
+    // (`%{type: "Ok", …}`), so its arm matches on the tag and two success arms
+    // stay apart; the aggregate itself comes back as its untagged struct.
+    const pattern = isError
+      ? `{:error, ${JSON.stringify(tag)}, ${binder}}`
+      : tag === aggName
+        ? `{:ok, ${binder}}`
+        : `{:ok, %{type: ${JSON.stringify(tag)}} = ${binder}}`;
     const piped = steps.length ? ["socket", ...steps].join("\n              ") : "socket";
     return `            ${pattern} ->\n              ${piped}`;
   });
@@ -2920,6 +2935,7 @@ function renderRequiresGuardAt(
     refLabelBindings: new Set(),
     formBindings: [],
     queryBindings: [],
+    queryAssigns: new Map(),
     page,
     ui,
     stateNames: new Set(page.state.map((f) => snake(f.name))),

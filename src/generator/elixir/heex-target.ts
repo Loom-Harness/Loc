@@ -18,8 +18,13 @@ import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
-import { HEEX_SHARED_PRIMITIVES } from "./heex-pack.js";
-import { heexEnumBadgeText, withRowType } from "./heex-primitives.js";
+import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
+import {
+  bindHeexQueryView,
+  heexEnumBadgeText,
+  queryViewDataContext,
+  withRowType,
+} from "./heex-primitives.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
@@ -80,18 +85,31 @@ export const heexTarget: WalkerTarget = {
     return depth === 0 ? renderExpr(expr, engine) : indentTail(renderChild(expr, engine), depth);
   },
 
-  /** A `For` item and a block `match` arm render under their own HEEx walk
-   *  context: the item's row aggregate, the arm's load gate. */
+  /** A `For` item, a block `match` arm and a `QueryView` `data:` body render
+   *  under their own HEEx walk context: the item's row aggregate, the arm's
+   *  load gate, the data param's assign. */
   scopeSink(sink, scope): HeexWalkSink | undefined {
     const heex = heexContextOf(sink);
     if (!heex) return undefined;
-    return {
-      heex:
-        scope.kind === "row"
-          ? withRowType(heex, scope.collection, scope.param)
-          : matchArmContext(scope.match, scope.index, heex),
-    };
+    switch (scope.kind) {
+      case "row":
+        return { heex: withRowType(heex, scope.collection, scope.param) };
+      case "match-arm":
+        return { heex: matchArmContext(scope.match, scope.index, heex) };
+      case "query-data":
+        return { heex: queryViewDataContext(scope.query, scope.param, heex) };
+    }
   },
+
+  /** A `QueryView` reads an assign its LiveView loads in `handle_params`; the
+   *  load is registered here, after the view's branches registered theirs. */
+  bindQueryView(spec, ctx) {
+    const heex = heexContextOf(ctx.sink);
+    return heex ? bindHeexQueryView(spec.call, engineContext(heex, ctx)) : undefined;
+  },
+
+  /** An absent `QueryView` branch: the pack fills in its default markup. */
+  emptyChild: "",
 
   /** Every expression a shared emitter renders goes through the HEEx engine,
    *  in template position — a ported primitive's `testid:` binding, `style:`
@@ -438,28 +456,6 @@ export function renderHeexStoreActionCall(
  *  sink's state, entered from `shared`, at the shared walk's heading depth. */
 function engineContext(heex: HeexWalkContext, shared: SharedWalkContext): HeexWalkContext {
   return { ...heex, sharedWalk: shared, headingDepth: shared.headingDepth };
-}
-
-/** Indent every non-empty line after the first by `depth` levels — the engine
- *  renders a fragment relative to its own first column, the shared core
- *  expects later lines at their absolute indent. */
-function indentTail(fragment: string, depth: number): string {
-  const pad = "  ".repeat(depth);
-  return fragment
-    .split("\n")
-    .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
-    .join("\n");
-}
-
-/** The inverse of `indentTail`: strip `depth` levels from every line after
- *  the first — a child the shared core walked at `depth`, back to the
- *  first-column-relative form a HEEx block nests. */
-function dedentTail(fragment: string, depth: number): string {
-  const pad = "  ".repeat(depth);
-  return fragment
-    .split("\n")
-    .map((line, i) => (i > 0 && line.startsWith(pad) ? line.slice(pad.length) : line))
-    .join("\n");
 }
 
 /** Indent every non-empty line by `depth` levels. */

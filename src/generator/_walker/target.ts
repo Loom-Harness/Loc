@@ -122,7 +122,28 @@ export type WalkScope =
       readonly kind: "match-arm";
       readonly match: ExprIR & { kind: "match" };
       readonly index: number;
+    }
+  | {
+      readonly kind: "query-data";
+      readonly query: ExprIR & { kind: "call" };
+      readonly param: string;
     };
+
+/** A `QueryView` the target binds itself (see {@link WalkerTarget.bindQueryView}). */
+export interface QueryViewSpec {
+  /** The `QueryView { … }` call. */
+  readonly call: ExprIR & { kind: "call" };
+  /** Its `of:` read. */
+  readonly of: ExprIR;
+}
+
+/** What a target-bound `QueryView` reads: the expression its loading / error /
+ *  empty / data ladder tests, and the read's shape. */
+export interface QueryViewRead {
+  readonly readExpr: string;
+  readonly single: boolean;
+  readonly paged: boolean;
+}
 
 /** A state field reference — produced by the walker when it
  *  encounters a `LooseName` resolving to a state field declared in
@@ -1211,6 +1232,17 @@ export interface WalkerTarget {
     paged?: boolean,
     autoPaged?: boolean,
   ): string;
+
+  /** OPTIONAL — bind a `QueryView`'s read where the target keeps the read's
+   *  state itself rather than behind a handle the body declares.
+   *
+   *  A server-session target loads the read into session state (a LiveView
+   *  assign filled when the page loads), so the view's ladder tests that
+   *  state, and the read's shape is the target's own answer.  Called once
+   *  per view, after its branches are walked, so a read nested in a branch
+   *  is bound first.  Omitted, or `undefined` returned, the view reads the
+   *  handle `emitExpr` bound for its `of:` expression. */
+  bindQueryView?(spec: QueryViewSpec, ctx: WalkContext): QueryViewRead | undefined;
 
   /** OPTIONAL — resolve a member read off a PAGED query binding for a target
    *  whose Model does NOT hold the `Paged<T>` envelope.

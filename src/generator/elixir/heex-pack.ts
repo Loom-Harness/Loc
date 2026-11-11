@@ -48,6 +48,7 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "DateDisplay",
   "Alert",
   "For",
+  "QueryView",
 ]);
 
 type VM = Record<string, unknown>;
@@ -190,7 +191,7 @@ function renderTabs(vm: VM, sink: HeexWalkSink | undefined): string {
 
 /** Indent every non-empty line after the first by `pad` — a fragment the HEEx
  *  engine rendered relative to its own first column, placed at `pad`. */
-function indentTail(fragment: string, pad: string): string {
+function padTail(fragment: string, pad: string): string {
   return fragment
     .split("\n")
     .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
@@ -203,7 +204,7 @@ function indentTail(fragment: string, pad: string): string {
 function textElement(tag: string, vm: VM, rest: readonly string[] = []): string {
   const indent = str(vm.indent);
   const text = str(vm.text);
-  const children = [...(text.length > 0 ? [indentTail(text, indent)] : []), ...rest];
+  const children = [...(text.length > 0 ? [padTail(text, indent)] : []), ...rest];
   const attrs = `${str(vm.styleAttr)}${str(vm.testidAttr)}`;
   if (children.length === 0) return `<${tag}${attrs} />`;
   return `<${tag}${attrs}>\n${indent}${children.join(`\n${indent}`)}\n${str(vm.closeIndent)}</${tag}>`;
@@ -355,6 +356,60 @@ function escapeAttr(text: string): string {
 }
 
 /** `primitive-*` template name → its HEEx renderer. */
+/** `QueryView` → LiveView's loading / error / empty / data ladder over the
+ *  assign its load fills in `handle_params` (`queryExpr`, bound by
+ *  `heexTarget.bindQueryView`):
+ *
+ *    nil        → still loading → `loading:`
+ *    :error     → load error    → `error:`
+ *    :not_found / empty         → `empty:` (`:not_found` for one record,
+ *                                  `Enum.empty?/1` of the list — of the
+ *                                  envelope's `.items` when the read is paged)
+ *    otherwise  → loaded        → `data:`
+ *
+ *  An absent branch arrives empty (`heexTarget.emptyChild`) and takes its
+ *  default markup; an absent `data:` renders nothing. */
+function renderQueryView(vm: VM): string {
+  const depth = str(vm.closeIndent).length / 2;
+  const assign = `@${str(vm.queryExpr)}`;
+  const branch = (b: unknown, dflt: string): string =>
+    str(b) === "" ? dflt : dedentTail(str(b), depth + 2);
+  const emptyTest = vm.single
+    ? `${assign} == :not_found`
+    : `Enum.empty?(${vm.paged ? `${assign}.items` : assign})`;
+  const lines = [
+    "<%= cond do %>",
+    `  <% is_nil(${assign}) -> %>`,
+    `    ${branch(vm.loadingJsx, '<div class="animate-pulse">Loading...</div>')}`,
+    `  <% ${assign} == :error -> %>`,
+    `    ${branch(vm.errorJsx, '<div class="alert alert-error">Error loading data.</div>')}`,
+    `  <% ${emptyTest} -> %>`,
+    `    ${branch(vm.emptyJsx, '<div class="empty">No items.</div>')}`,
+    "  <% true -> %>",
+    `    ${branch(vm.dataJsx, "")}`,
+    "<% end %>",
+  ];
+  return indentTail(lines.join("\n"), depth);
+}
+
+/** Indent every non-empty line after the first by `depth` levels — a fragment
+ *  rendered relative to its own first column, placed at the shared core's
+ *  absolute indent. */
+export function indentTail(fragment: string, depth: number): string {
+  return padTail(fragment, "  ".repeat(depth));
+}
+
+/** The inverse of `indentTail`: strip `depth` levels from every line after
+ *  the first — a child the shared core walked at `depth`, back to the
+ *  first-column-relative form a HEEx block nests. */
+export function dedentTail(fragment: string, depth: number): string {
+  const pad = "  ".repeat(depth);
+  return fragment
+    .split("\n")
+    .map((line, i) => (i > 0 && line.startsWith(pad) ? line.slice(pad.length) : line))
+    .join("\n");
+}
+
 const RENDERERS: Record<string, Renderer> = {
   "primitive-stack": (vm) => layoutDiv(LAYOUT_CLASSES.Stack, vm),
   "primitive-group": (vm) => layoutDiv(LAYOUT_CLASSES.Group, vm),
@@ -379,6 +434,7 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-money": renderMoney,
   "primitive-date-display": renderDateDisplay,
   "primitive-alert": renderAlert,
+  "primitive-query-view": renderQueryView,
 };
 
 /** The pack for one HEEx walk.  `sink` is that walk's HEEx state, for the
