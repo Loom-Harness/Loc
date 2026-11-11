@@ -880,7 +880,8 @@ language reference ([§17](language-reference/17-auth.md#row-rules-when-and-own)
 ### Sharing — `shareable`
 
 `with shareable` on a `tenantOwned` aggregate shares individual rows beyond their
-org. It unfolds to plain Loom — a `<X>Share` aggregate (grantee by kind: an
+org. `shareable` is a member-less capability marker; the macro layer unfolds it
+to plain Loom ([capability vs macro](capabilities.md#relationship-to-macros)) — a `<X>Share` aggregate (grantee by kind: an
 org, an org and every org below it, or one user; a `write` flag; `revoke()`),
 its `<X>Shared` / `<X>Unshared` events, the `GranteeIsMe` / `SharedWithMe`
 policy functions and the row rules that open X to its grantees — and

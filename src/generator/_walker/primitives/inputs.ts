@@ -13,6 +13,7 @@ import {
 } from "../i18n-emit.js";
 import { renderPrimitive } from "../render-primitive.js";
 import { namedArgValue, positionalArgs } from "../shared/args.js";
+import type { InputControl } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import { emitExpr, testidAttr } from "../walker-core.js";
 
@@ -59,6 +60,20 @@ function inputErrorExpr(call: ExprIR & { kind: "call" }, ctx: WalkContext): stri
   const arg = namedArgValue(call, "error");
   if (!arg) return undefined;
   return emitExpr(arg, ctx);
+}
+
+/** The write-back a target whose handler bodies live outside the view binds
+ *  for a `bind:` input — the event the input names — or `undefined`. */
+function inputChangeHandler(
+  bind: string | undefined,
+  control: InputControl,
+  ctx: WalkContext,
+): { onChange?: string; hasOnChange: boolean } {
+  const onChange =
+    bind === undefined
+      ? undefined
+      : ctx.target.bindEventHandler?.({ kind: "input", stateName: bind, control }, ctx);
+  return onChange === undefined ? { hasOnChange: false } : { onChange, hasOnChange: true };
 }
 
 /** Read a `bind:` named arg as a state-field name.
@@ -110,6 +125,7 @@ export function emitField(
   // with no error slot is not the case this contract is about.
   const fieldId = bind !== undefined ? `loom-field-${bind}` : undefined;
   return renderPrimitive(ctx, "primitive-field", {
+    ...inputChangeHandler(bind, "text", ctx),
     fieldId,
     errorId: fieldId !== undefined ? `${fieldId}-error` : undefined,
     // Templates guard the aria attrs on this: an id alone is not enough,
@@ -140,6 +156,7 @@ export function emitToggle(
   const setter = bind !== undefined ? "set" + bind[0]!.toUpperCase() + bind.slice(1) : undefined;
   const error = inputErrorExpr(call, ctx);
   return renderPrimitive(ctx, "primitive-toggle", {
+    ...inputChangeHandler(bind, "checkbox", ctx),
     labelAttr,
     labelText,
     labelValue,
@@ -167,6 +184,7 @@ export function emitNumberField(
   const setter = bind !== undefined ? "set" + bind[0]!.toUpperCase() + bind.slice(1) : undefined;
   const error = inputErrorExpr(call, ctx);
   return renderPrimitive(ctx, "primitive-number-field", {
+    ...inputChangeHandler(bind, "number", ctx),
     labelAttr,
     labelText,
     labelValue,
@@ -192,6 +210,7 @@ export function emitMultilineField(
   const setter = bind !== undefined ? "set" + bind[0]!.toUpperCase() + bind.slice(1) : undefined;
   const error = inputErrorExpr(call, ctx);
   return renderPrimitive(ctx, "primitive-multiline-field", {
+    ...inputChangeHandler(bind, "textarea", ctx),
     labelAttr,
     labelText,
     labelValue,
@@ -221,6 +240,7 @@ export function emitSelectField(
   const optionsArg = namedArgValue(call, "options");
   const optionsExpr = optionsArg ? emitExpr(optionsArg, ctx) : "[]";
   return renderPrimitive(ctx, "primitive-select-field", {
+    ...inputChangeHandler(bind, "select", ctx),
     labelAttr,
     labelText,
     labelValue,
@@ -292,6 +312,7 @@ export function emitPasswordField(
   const setter = bind !== undefined ? "set" + bind[0]!.toUpperCase() + bind.slice(1) : undefined;
   const error = inputErrorExpr(call, ctx);
   return renderPrimitive(ctx, "primitive-password-field", {
+    ...inputChangeHandler(bind, "password", ctx),
     labelAttr,
     labelText,
     labelValue,

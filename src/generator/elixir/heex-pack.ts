@@ -47,6 +47,16 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Money",
   "DateDisplay",
   "Alert",
+  "For",
+  "QueryView",
+  "Button",
+  "Field",
+  "NumberField",
+  "PasswordField",
+  "MultilineField",
+  "SelectField",
+  "Toggle",
+  "LocaleSwitcher",
 ]);
 
 type VM = Record<string, unknown>;
@@ -189,7 +199,7 @@ function renderTabs(vm: VM, sink: HeexWalkSink | undefined): string {
 
 /** Indent every non-empty line after the first by `pad` — a fragment the HEEx
  *  engine rendered relative to its own first column, placed at `pad`. */
-function indentTail(fragment: string, pad: string): string {
+function padTail(fragment: string, pad: string): string {
   return fragment
     .split("\n")
     .map((line, i) => (i === 0 || line.length === 0 ? line : pad + line))
@@ -202,7 +212,7 @@ function indentTail(fragment: string, pad: string): string {
 function textElement(tag: string, vm: VM, rest: readonly string[] = []): string {
   const indent = str(vm.indent);
   const text = str(vm.text);
-  const children = [...(text.length > 0 ? [indentTail(text, indent)] : []), ...rest];
+  const children = [...(text.length > 0 ? [padTail(text, indent)] : []), ...rest];
   const attrs = `${str(vm.styleAttr)}${str(vm.testidAttr)}`;
   if (children.length === 0) return `<${tag}${attrs} />`;
   return `<${tag}${attrs}>\n${indent}${children.join(`\n${indent}`)}\n${str(vm.closeIndent)}</${tag}>`;
@@ -354,6 +364,108 @@ function escapeAttr(text: string): string {
 }
 
 /** `primitive-*` template name → its HEEx renderer. */
+/** `Button` → the design pack's `<.button>`.  A click binds the hoisted
+ *  `handle_event` the target registered (`phx-click="<event>"`); a `to:`
+ *  destination makes the pack's button a navigation link (`to=`).  `icon:`
+ *  becomes an inline, `aria-hidden` glyph in the inner block — `<.button>`
+ *  declares no icon attribute, and an undeclared attribute on a function
+ *  component fails `mix compile --warnings-as-errors` — and `loading:` becomes
+ *  `aria-busy`, a global ARIA attribute the component's `:global` rest
+ *  accepts. */
+function renderButton(vm: VM): string {
+  const attrs = [
+    str(vm.styleAttr),
+    str(vm.onClick) !== "" ? ` phx-click="${str(vm.onClick)}"` : "",
+    str(vm.toAttr),
+    vm.hasDisabled ? ` disabled={${str(vm.disabled)}}` : "",
+    vm.hasVariant ? ` variant="${str(vm.variant)}"` : "",
+    str(vm.a11yAttr),
+    str(vm.testidAttr),
+    vm.hasLoading ? ` aria-busy={${str(vm.loading)}}` : "",
+  ].join("");
+  const icon = vm.hasIcon
+    ? `<span class="loom-icon" aria-hidden="true">${str(vm.iconSvg)}</span>`
+    : undefined;
+  const label = vm.hasText ? str(vm.label) : undefined;
+  const inner = (vm.iconPosition === "left" ? [icon, label] : [label, icon]).filter(
+    (c): c is string => c !== undefined,
+  );
+  if (inner.length === 0) return `<.button${attrs} />`;
+  const indent = str(vm.indent);
+  return `<.button${attrs}>\n${inner.map((c) => indent + c).join("\n")}\n${str(vm.closeIndent)}</.button>`;
+}
+
+/** A `bind:` input → the design pack's `<.input>`, named after the state
+ *  assign it writes back and bound to the `handle_event` clause the target
+ *  hoisted for it (`update_<field>` / `toggle_<field>`).  An input with no
+ *  state field to bind renders a disabled stub. */
+function renderInput(type: string, vm: VM): string {
+  const label = str(vm.labelAttr);
+  const testid = str(vm.testidAttr);
+  if (!vm.hasOnChange) {
+    const opts = type === "select" ? " options={[]}" : "";
+    return `<.input type="${type}" name="_unbound"${label}${opts} value="" disabled${testid} />`;
+  }
+  const event = str(vm.onChange);
+  const field = event.replace(/^(update|toggle)_/, "");
+  const opts = type === "select" ? ` options={${str(vm.optionsExpr)}}` : "";
+  return `<.input type="${type}" name="${field}" value={@${field}}${opts}${label} phx-change="${event}"${testid} />`;
+}
+
+/** `QueryView` → LiveView's loading / error / empty / data ladder over the
+ *  assign its load fills in `handle_params` (`queryExpr`, bound by
+ *  `heexTarget.bindQueryView`):
+ *
+ *    nil        → still loading → `loading:`
+ *    :error     → load error    → `error:`
+ *    :not_found / empty         → `empty:` (`:not_found` for one record,
+ *                                  `Enum.empty?/1` of the list — of the
+ *                                  envelope's `.items` when the read is paged)
+ *    otherwise  → loaded        → `data:`
+ *
+ *  An absent branch arrives empty (`heexTarget.emptyChild`) and takes its
+ *  default markup; an absent `data:` renders nothing. */
+function renderQueryView(vm: VM): string {
+  const depth = str(vm.closeIndent).length / 2;
+  const assign = `@${str(vm.queryExpr)}`;
+  const branch = (b: unknown, dflt: string): string =>
+    str(b) === "" ? dflt : dedentTail(str(b), depth + 2);
+  const emptyTest = vm.single
+    ? `${assign} == :not_found`
+    : `Enum.empty?(${vm.paged ? `${assign}.items` : assign})`;
+  const lines = [
+    "<%= cond do %>",
+    `  <% is_nil(${assign}) -> %>`,
+    `    ${branch(vm.loadingJsx, '<div class="animate-pulse">Loading...</div>')}`,
+    `  <% ${assign} == :error -> %>`,
+    `    ${branch(vm.errorJsx, '<div class="alert alert-error">Error loading data.</div>')}`,
+    `  <% ${emptyTest} -> %>`,
+    `    ${branch(vm.emptyJsx, '<div class="empty">No items.</div>')}`,
+    "  <% true -> %>",
+    `    ${branch(vm.dataJsx, "")}`,
+    "<% end %>",
+  ];
+  return indentTail(lines.join("\n"), depth);
+}
+
+/** Indent every non-empty line after the first by `depth` levels — a fragment
+ *  rendered relative to its own first column, placed at the shared core's
+ *  absolute indent. */
+export function indentTail(fragment: string, depth: number): string {
+  return padTail(fragment, "  ".repeat(depth));
+}
+
+/** The inverse of `indentTail`: strip `depth` levels from every line after
+ *  the first — a child the shared core walked at `depth`, back to the
+ *  first-column-relative form a HEEx block nests. */
+export function dedentTail(fragment: string, depth: number): string {
+  const pad = "  ".repeat(depth);
+  return fragment
+    .split("\n")
+    .map((line, i) => (i > 0 && line.startsWith(pad) ? line.slice(pad.length) : line))
+    .join("\n");
+}
+
 const RENDERERS: Record<string, Renderer> = {
   "primitive-stack": (vm) => layoutDiv(LAYOUT_CLASSES.Stack, vm),
   "primitive-group": (vm) => layoutDiv(LAYOUT_CLASSES.Group, vm),
@@ -378,6 +490,14 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-money": renderMoney,
   "primitive-date-display": renderDateDisplay,
   "primitive-alert": renderAlert,
+  "primitive-query-view": renderQueryView,
+  "primitive-button": renderButton,
+  "primitive-field": (vm) => renderInput("text", vm),
+  "primitive-number-field": (vm) => renderInput("number", vm),
+  "primitive-password-field": (vm) => renderInput("password", vm),
+  "primitive-multiline-field": (vm) => renderInput("textarea", vm),
+  "primitive-select-field": (vm) => renderInput("select", vm),
+  "primitive-toggle": (vm) => renderInput("checkbox", vm),
 };
 
 /** The pack for one HEEx walk.  `sink` is that walk's HEEx state, for the
