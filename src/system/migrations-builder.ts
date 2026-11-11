@@ -11,7 +11,7 @@ import {
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
-import { hasStateRow } from "../ir/plan/index.js";
+import { hasDurableEvents, hasStateRow } from "../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -328,7 +328,7 @@ export function schemaFromModule(
   // schema, matching the plain `pgTable(...)` the Drizzle schema emitter uses
   // for these, so the runtime DDL and the ORM mapping line up.
   for (const ctx of module.contexts) {
-    const durable = durableEvents.size > 0 || durableEventTypes(ctx).size > 0;
+    const durable = durableEvents.size > 0 || hasDurableEvents(ctx);
     // The workflow's saga tables are context-owned (a workflow belongs to a
     // context), so they live in that context's schema — beside its aggregate
     // tables — not in `public`, where two contexts each with a `Tracker`
@@ -374,7 +374,7 @@ export function schemaFromModule(
   // when any context's channel asks for durability (`retention: log | work`).
   // The dispatcher records durable events here; the relay drains rows in
   // insert order (the serial id) through the in-process dispatcher.
-  if (module.contexts.some((c) => durableEventTypes(c).size > 0)) {
+  if (module.contexts.some((c) => hasDurableEvents(c))) {
     tables.push(outboxTableShape(module.name));
   }
   // Command audit (audit-and-logging.md): one shared append-only table when any

@@ -1,5 +1,5 @@
+import { resourceCalls } from "../../ir/plan/index.js";
 import type { DataSourceIR, StorageIR, SystemIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
-import { walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
@@ -569,15 +569,7 @@ export function resourceVerbImport(
 // ---------------------------------------------------------------------------
 
 /** Import lines (`from app.resources.<src> import a_put, b_get`) for every
- *  resource-op called across `statements`, deduped + grouped by module.
- *
- *  Both halves ride the SHARED, `never`-checked walker (`ir/util/walk.ts`).
- *  The untyped half used to walk a hand-enumerated statement/expression switch
- *  that reached neither `if-let`'s `thenBody`/`elseBody` nor
- *  `domain-service-call.call` / `repo-delete.entity` — so
- *  `if let o = … { salesFiles.put(…) }` emitted the call with no import (ruff
- *  F821 → runtime `NameError`) while the typed half, already on the deep
- *  walker, was fine.  One walker, one traversal, no second copy to drift. */
+ *  resource-op called across `statements`, deduped + grouped by module. */
 export function resourceImportLines(
   sys: SystemIR,
   statements: readonly WorkflowStmtIR[],
@@ -586,19 +578,16 @@ export function resourceImportLines(
   // Typed in-system api helpers (M-T4.8): `<resource>_<operation_id>` from the
   // single generated client module.
   const apiFns = new Set<string>();
-  for (const st of statements) {
-    walkWorkflowStmtExprsDeep(st, (e) => {
-      if (e.kind !== "call") return;
-      if (e.callKind === "resource-op" && e.resourceOp) {
-        const resolved = resourceVerbImport(sys, e.resourceOp.resourceName, e.resourceOp.verb);
-        if (!resolved) return;
-        const fns = byModule.get(resolved.module) ?? new Set<string>();
-        fns.add(resolved.fn);
-        byModule.set(resolved.module, fns);
-      } else if (e.callKind === "remote-api-op" && e.remoteApiOp) {
-        apiFns.add(`${snake(e.remoteApiOp.resourceName)}_${snake(e.remoteApiOp.operationId)}`);
-      }
-    });
+  const calls = resourceCalls(statements);
+  for (const op of calls.resourceOps) {
+    const resolved = resourceVerbImport(sys, op.resourceName, op.verb);
+    if (!resolved) continue;
+    const fns = byModule.get(resolved.module) ?? new Set<string>();
+    fns.add(resolved.fn);
+    byModule.set(resolved.module, fns);
+  }
+  for (const op of calls.remoteApiOps) {
+    apiFns.add(`${snake(op.resourceName)}_${snake(op.operationId)}`);
   }
   if (apiFns.size > 0) {
     byModule.set("app.resources.api_clients", apiFns);

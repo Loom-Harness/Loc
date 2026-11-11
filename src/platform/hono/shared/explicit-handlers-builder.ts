@@ -7,6 +7,7 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
+import { type ResourceCalls, resourceCalls } from "../../../ir/plan/index.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
@@ -78,7 +79,6 @@ import type {
   CommandHandlerIR,
   EnrichedBoundedContextIR,
   EnumIR,
-  ExprIR,
   QueryHandlerIR,
   RouteIR,
   TypeIR,
@@ -114,7 +114,7 @@ import {
   routedErrorStatuses,
   routedParamSource,
 } from "../../../ir/util/routed-handler.js";
-import { walkExprDeep, walkWorkflowStmtExprsDeep, workflowEmits } from "../../../ir/util/walk.js";
+import { workflowEmits } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
@@ -791,26 +791,20 @@ export function buildExplicitRoutesFile(
   // 200 body resolves in-scope without re-declaring the composite schema.
   const responseImports = new Map<string, string>();
   // Resource-op verb helpers a routed handler body calls: `../resources/<st>`
-  // module → the `<resource>$<verb>` names to import from it.  Collected with
-  // the DEEP walker (a resource-op nested inside another expression is legal
-  // and would otherwise lose its import and fail `tsc`), mirroring the workflow
-  // leg's typed-api-helper scan.
+  // module → the `<resource>$<verb>` names to import from it.
   const resourceHelperByModule = new Map<string, Set<string>>();
   /** Typed in-system api helpers (`<resource>$<operationId>`) — one module. */
   const apiHelpers = new Set<string>();
-  const collectResourceHelpers = (e: ExprIR): void => {
-    if (e.kind !== "call") return;
-    if (e.callKind === "remote-api-op" && e.remoteApiOp) {
-      apiHelpers.add(`${e.remoteApiOp.resourceName}$${e.remoteApiOp.operationId}`);
-      return;
+  const collectResourceHelpers = (calls: ResourceCalls): void => {
+    for (const op of calls.remoteApiOps) apiHelpers.add(`${op.resourceName}$${op.operationId}`);
+    for (const op of calls.resourceOps) {
+      const sourceType = resourceSourceTypes.get(op.resourceName);
+      if (!sourceType) continue;
+      const mod = `../resources/${sourceType}`;
+      const set = resourceHelperByModule.get(mod) ?? new Set<string>();
+      set.add(`${op.resourceName}$${op.verb}`);
+      resourceHelperByModule.set(mod, set);
     }
-    if (e.callKind !== "resource-op" || !e.resourceOp) return;
-    const sourceType = resourceSourceTypes.get(e.resourceOp.resourceName);
-    if (!sourceType) return;
-    const mod = `../resources/${sourceType}`;
-    const set = resourceHelperByModule.get(mod) ?? new Set<string>();
-    set.add(`${e.resourceOp.resourceName}$${e.resourceOp.verb}`);
-    resourceHelperByModule.set(mod, set);
   };
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
@@ -819,8 +813,7 @@ export function buildExplicitRoutesFile(
     const qry = (ctx.queryHandlers ?? []).find((hd) => hd.name === r.target.handler);
     const h = cmd ?? qry;
     if (!h) continue;
-    for (const st of h.statements) walkWorkflowStmtExprsDeep(st, collectResourceHelpers);
-    if (h.returnValue) walkExprDeep(h.returnValue, collectResourceHelpers);
+    collectResourceHelpers(resourceCalls(h.statements, [h.returnValue]));
     const inBody = (name: string): boolean => routedParamSource(name, r, false) === "body";
     // Seed the VO/enum wire-schema closure from every body-bound field.  A
     // record param contributes its individual field types (the body deserialises
