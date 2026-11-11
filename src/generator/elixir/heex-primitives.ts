@@ -107,24 +107,6 @@ export function testIdAttr(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   return arg ? ` data-testid=${attrValue(arg, ctx)}` : "";
 }
 
-/** `Breadcrumbs(items...)` → `<nav aria-label="breadcrumb">` with
- *  a list of spans/links.  Positional children are each an Anchor
- *  (link) or Text (current page) from the scaffold expander. */
-export function renderBreadcrumbs(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const items = expr.args.map((a) => renderChild(a, ctx));
-  const itemsHeex = items
-    .map((item, i) =>
-      i < items.length - 1
-        ? `  <li class="breadcrumb-item">${item}</li>\n  <li class="breadcrumb-sep" aria-hidden="true">/</li>`
-        : `  <li class="breadcrumb-item breadcrumb-current" aria-current="page">${item}</li>`,
-    )
-    .join("\n");
-  return `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${indent(itemsHeex, 2)}\n  </ol>\n</nav>`;
-}
-
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
  *  → a `<.button phx-click={show_modal(id)}>` trigger followed by
  *  a `<.modal id=…>` hosting a `<.simple_form for={@<op>_form}>`
@@ -1430,26 +1412,6 @@ export function renderKeyValueRow(
   return `<div class="key-value-row">\n  <dt class="key-value-label">${label}</dt>\n  <dd class="key-value-value"${testidAttr}>${value}</dd>\n</div>`;
 }
 
-/** `Skeleton(count: N)` → `<div class="animate-pulse">` repeated loading lines. */
-export function renderSkeleton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let count = 3;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "count" && arg.kind === "literal") {
-      count = parseInt(arg.value, 10) || 3;
-    }
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const lines = Array.from(
-    { length: count },
-    () => `  <div class="h-4 bg-gray-200 rounded animate-pulse mb-2"></div>`,
-  ).join("\n");
-  // Decorative loading placeholder — hidden from assistive tech (the loading
-  // state is announced elsewhere; real content announces once loaded).
-  return `<div class="skeleton" aria-hidden="true"${testidAttr}>\n${lines}\n</div>`;
-}
-
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
  *
  *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
@@ -1683,12 +1645,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
     baseClass: TOOLBAR_CLASS,
   },
-  // `Empty("No results yet")` carries the author's message in positional 0 (the
-  // `empty` user-visible slot).  It rendered as a childless `<.empty />`, so the
-  // message was discarded and every Phoenix app showed the core component's
-  // hardcoded English "No items." instead — a content defect, not just an i18n
-  // one.  `.empty` now takes an inner block (keeping that text as its fallback).
-  Empty: { tag: ".empty", takesChildren: true },
   // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
   // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
   // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
@@ -1704,10 +1660,6 @@ const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
     passThroughAttrs: ["to", "disabled", "type", "variant"],
     staticAttrs: ["variant", "type"],
   },
-  // --- scaffold expander primitives ---
-  // `Paper` is a titleless `Card` (same surface, no header) — same pack
-  // component, so the two stay visually consistent by construction.
-  Paper: { tag: ".card", takesChildren: true },
 };
 
 // Per-primitive registry-facing wrappers — bind the generic
@@ -1933,41 +1885,16 @@ export function renderFileUpload(
     .join("\n");
 }
 /** The literal value of a named arg, or undefined when absent / non-literal. */
-function stringNamedLit(expr: Extract<ExprIR, { kind: "call" }>, name: string): string | undefined {
+function _stringNamedLit(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  name: string,
+): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
 }
 
-/** `Paper(…children)` → the pack's `<.card>` with no title: every positional
- *  is a body child.
- *
- *  The card SURFACE is design vocabulary, so it goes through the pack's
- *  function component — the same `<.card>` the shared `Card` renders through
- *  `heex-pack.ts`.  `variant:`/`shadow:` are consumed as component attrs.  A
- *  Paper is a heading-nesting level, like `Card`.  `card/1` declares `attr
- *  :testid` and no `:global` rest, so the testid goes in as `testid=`: a
- *  `data-testid=` would be an undefined attribute, a compile warning
- *  `--warnings-as-errors` turns fatal. */
-export function renderPaper(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const bodyExprs = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const attrs: string[] = [];
-  for (const knob of ["variant", "shadow"] as const) {
-    const value = stringNamedLit(expr, knob);
-    if (value) attrs.push(`${knob}="${escapeHeexAttr(value)}"`);
-  }
-  const attrStr = attrs.length > 0 ? ` ${attrs.join(" ")}` : "";
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const children = bodyExprs.map((c) => renderChild(c, childCtx)).join("\n");
-  const testidAttr = testIdAttr(expr, ctx).replace(/^ data-testid=/, " testid=");
-  if (children.length === 0) return `<.card${attrStr}${testidAttr} />`;
-  return `<.card${attrStr}${testidAttr}>\n${indent(children, 2)}\n</.card>`;
-}
-
 export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
-}
-export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
 }
 
 /** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.

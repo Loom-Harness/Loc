@@ -68,6 +68,10 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Timeline",
   "Table",
   "FileUpload",
+  "Empty",
+  "Skeleton",
+  "Breadcrumbs",
+  "Paper",
 ]);
 
 type VM = Record<string, unknown>;
@@ -423,6 +427,49 @@ function renderInput(type: string, vm: VM): string {
   return `<.input type="${type}" name="${field}" value={@${field}}${opts}${label} phx-change="${event}"${testid} />`;
 }
 
+/** `Empty(message)` → the design pack's `<.empty>` with the message as its
+ *  block (the component's own "No items." is only its fallback). */
+function renderEmpty(vm: VM): string {
+  const attrs = `${str(vm.styleAttr)}${str(vm.testidAttr)}`;
+  if (!vm.hasText) return `<.empty${attrs} />`;
+  return `<.empty${attrs}>\n${str(vm.indent)}${str(vm.text)}\n${str(vm.closeIndent)}</.empty>`;
+}
+
+/** `Skeleton(count:)` → a decorative stack of `count` placeholder bars, hidden
+ *  from assistive tech (the loading state is announced elsewhere).  Three bars
+ *  when no count is given, the scaffold's loading convention. */
+function renderSkeleton(vm: VM): string {
+  const count = vm.hasCount && typeof vm.count === "number" ? vm.count : 3;
+  const close = str(vm.closeIndent);
+  const bar = `${close}  <div class="h-4 bg-gray-200 rounded animate-pulse mb-2"></div>`;
+  const bars = Array.from({ length: count }, () => bar).join("\n");
+  return `<div class="skeleton" aria-hidden="true"${str(vm.testidAttr)}>\n${bars}\n${close}</div>`;
+}
+
+/** `Breadcrumbs(...crumbs)` → a labelled `<nav>` over an ordered list, a
+ *  decorative `/` between crumbs and `aria-current="page"` on the last. */
+function renderBreadcrumbs(vm: VM): string {
+  const close = str(vm.closeIndent);
+  const depth = close.length / 2;
+  const crumbs = (vm.children as readonly string[] | undefined) ?? [];
+  const items = crumbs.map((c, i) => {
+    const crumb = indentTail(dedentTail(c, depth + 1), 1);
+    return i < crumbs.length - 1
+      ? `    <li class="breadcrumb-item">${crumb}</li>\n    <li class="breadcrumb-sep" aria-hidden="true">/</li>`
+      : `    <li class="breadcrumb-item breadcrumb-current" aria-current="page">${crumb}</li>`;
+  });
+  const fragment = `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${items.join("\n")}\n  </ol>\n</nav>`;
+  return indentTail(fragment, depth);
+}
+
+/** `Paper` is a titleless `Card`: the same pack surface, no header.  The
+ *  testid rides `testid=` because `card/1` declares it and no `:global`
+ *  rest. */
+function renderPaper(vm: VM): string {
+  const testid = str(vm.testidAttr).replace(/^ data-testid=/, " testid=");
+  return element(".card", testid, vm);
+}
+
 /** `QueryView` → LiveView's loading / error / empty / data ladder over the
  *  assign its load fills in `handle_params` (`queryExpr`, bound by
  *  `heexTarget.bindQueryView`):
@@ -503,6 +550,10 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-alert": renderAlert,
   "primitive-query-view": renderQueryView,
   "primitive-button": renderButton,
+  "primitive-empty": renderEmpty,
+  "primitive-skeleton": renderSkeleton,
+  "primitive-breadcrumbs": renderBreadcrumbs,
+  "primitive-paper": renderPaper,
   "primitive-field": (vm) => renderInput("text", vm),
   "primitive-number-field": (vm) => renderInput("number", vm),
   "primitive-password-field": (vm) => renderInput("password", vm),

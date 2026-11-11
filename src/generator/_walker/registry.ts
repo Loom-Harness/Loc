@@ -52,15 +52,11 @@ import type { WalkContext as HeexWalkContext } from "../elixir/heex-walker.js";
 // Re-exported renderers from the Phoenix/HEEx walker.  Each function
 // takes `(call, ctx)` and returns the HEEx fragment.
 import {
-  renderBreadcrumbs as renderBreadcrumbsHeex,
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
-  renderEmpty as renderEmptyHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
-  renderPaper as renderPaperHeex,
   renderSection as renderSectionHeex,
-  renderSkeleton as renderSkeletonHeex,
   renderSlot as renderSlotHeex,
   renderSticky as renderStickyHeex,
   renderTableColumn as renderTableColumnHeex,
@@ -256,7 +252,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitEmpty,
-    heex: renderEmptyHeex,
     a11y: "presentational",
   },
   // A card is visual grouping, not a landmark, but it increments the
@@ -271,7 +266,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitPaper,
-    heex: renderPaperHeex,
     a11y: "presentational",
   },
   // A breadcrumb trail is a navigation landmark (`<nav aria-label>`).
@@ -279,7 +273,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitBreadcrumbs,
-    heex: renderBreadcrumbsHeex,
     a11y: { landmark: "navigation", needsName: true },
   },
   // Description-list row (`<dt>`/`<dd>`) — native semantics, no ARIA.
@@ -587,7 +580,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSkeleton,
-    heex: renderSkeletonHeex,
     a11y: { busy: true, live: "polite" },
   },
   // An alert announces assertively.
