@@ -41,7 +41,6 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask, maskedReadPredicates } from "../../ir/enrich/mask-taint.js";
-import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -50,7 +49,6 @@ import type {
   ExprIR,
   PageIR,
   StateFieldIR,
-  StmtIR,
   TypeIR,
   UiIR,
   ValueObjectIR,
@@ -58,22 +56,18 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
-import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { richTextMessage } from "../../ir/util/icu-message.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
-import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
-import { floorRuleText } from "../_i18n/rule-text.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";

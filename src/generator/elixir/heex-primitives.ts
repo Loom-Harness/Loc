@@ -40,7 +40,6 @@ import {
   opDialogChrome,
   sentenceChromeName,
 } from "../_walker/i18n-chrome.js";
-import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
@@ -62,7 +61,6 @@ import {
   localizedHeexAttr,
   type PrimitiveSpec,
   registerBinding,
-  renderAttrValue,
   renderChild,
   renderExpr,
   renderInTemplate,

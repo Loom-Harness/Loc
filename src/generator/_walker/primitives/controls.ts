@@ -47,6 +47,7 @@ export function emitIdLink(
   ctx: WalkContext,
   depth: number,
 ): string {
+  void depth;
   const id = namedArgValue(call, "id") ?? positionalArgs(call)[0];
   const idExpr = id ? emitExpr(id, ctx) : '""';
   const ofArg = namedArgValue(call, "of");
