@@ -1726,7 +1726,7 @@ function andGate(...parts: readonly (string | undefined)[]): string | undefined 
  *  for the whole project.  So the form follows what the arms render: one
  *  markup arm makes the block, in which a term arm still gets its own
  *  `<%= … %>`. */
-export function matchRendersMarkup(
+function matchRendersMarkup(
   expr: Extract<ExprIR, { kind: "match" }>,
   ctx: WalkContext,
 ): boolean {
@@ -1740,7 +1740,7 @@ export function matchRendersMarkup(
 /** True when a ternary in a markup position renders as a HEEx `if` BLOCK —
  *  either branch is markup.  The expression form `if c, do: a, else: b`
  *  takes Elixir terms; markup there is not valid HEEx. */
-export function ternaryRendersMarkup(
+function ternaryRendersMarkup(
   expr: Extract<ExprIR, { kind: "ternary" }>,
   ctx: WalkContext,
 ): boolean {
