@@ -18,6 +18,7 @@ import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
+import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
   bindHeexQueryView,
@@ -33,13 +34,11 @@ import {
   type WalkContext as HeexWalkContext,
   type HeexWalkSink,
   heexContextOf,
-  hoistLambdaToHandler,
   matchArmContext,
   renderChild,
   renderExpr,
   renderInTemplate,
   rendersMarkupBlock,
-  storeActionEvent,
 } from "./heex-walker-core.js";
 import { pgettextCall } from "./i18n.js";
 import { renderLocaleSelect } from "./locale.js";

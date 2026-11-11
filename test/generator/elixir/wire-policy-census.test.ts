@@ -106,12 +106,12 @@ const WAIVERS: { file: string; line: string; reason: string }[] = [
     reason: "a generation-time diagnostic comment in the page, not a response body",
   },
   {
-    file: "src/generator/elixir/heex-walker-core.ts",
+    file: "src/generator/elixir/heex-handlers.ts",
     line: "' not found`",
     reason: "an emitted code comment naming a missing page action",
   },
   {
-    file: "src/generator/elixir/heex-walker-core.ts",
+    file: "src/generator/elixir/heex-handlers.ts",
     line: "notFoundMsg = JSON.stringify",
     reason: "the LiveView flash text for a missing row — the UI surface, not the REST wire",
   },

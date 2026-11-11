@@ -40,7 +40,7 @@ const NOT_USER_VISIBLE =
 const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {
   "elixir/liveview-emit.ts": ["${b.opHuman} succeeded"],
   "elixir/heex-primitives.ts": ["is not available in the current state"],
-  "elixir/heex-walker-core.ts": ["${upperFirst(aggName)} not found"],
+  "elixir/heex-handlers.ts": ["${upperFirst(aggName)} not found"],
 };
 
 /** The emitters that write UI text (the backends emit error text through the
