@@ -59,10 +59,12 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
+  callsAuditedOp,
   commandCreateReturnsSelf,
   eventSourcedWorkflows,
   hasStateRow,
   lookupOp,
+  workflowNeedsCurrentUser,
 } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
@@ -77,7 +79,6 @@ import {
   type WorkflowStmtIR,
   workflowCanAnswerNotFound,
   workflowIsGuarded,
-  workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
@@ -95,11 +96,7 @@ import {
   type EntryResultLeaf,
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
-import {
-  operationBodyUsesCurrentUser,
-  operationGates,
-  operationGatesUseCurrentUser,
-} from "../../../ir/util/op-gates.js";
+import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
 import {
   camelId,
   opOperation,
@@ -737,7 +734,14 @@ export function buildWorkflowsFile(
   const outboxRowReferenced = new RegExp(`\\b${MIKRO_OUTBOX_ROW_CLASS}\\b`).test(bodyStr)
     ? [MIKRO_OUTBOX_ROW_CLASS]
     : [];
-  const entityImports = [...workflowRowsReferenced, ...eventRowsReferenced, ...outboxRowReferenced];
+  // An inline audited op-call's row under MikroORM (`AuditRecordRow`).
+  const auditRowReferenced = /\bAuditRecordRow\b/.test(bodyStr) ? ["AuditRecordRow"] : [];
+  const entityImports = [
+    ...workflowRowsReferenced,
+    ...eventRowsReferenced,
+    ...outboxRowReferenced,
+    ...auditRowReferenced,
+  ];
   if (entityImports.length > 0)
     imports.push(`import { ${entityImports.join(", ")} } from "../db/entities";`);
   // The persisted-workflow load helper filters by the correlation column.
@@ -931,21 +935,6 @@ function renderProvFlush(
     ls.push(`${indent}}`);
   }
   return ls;
-}
-
-/** True when any inline op-call in `sts` targets an `audited` (non-extern)
- *  operation — the trigger for staging an audit_records row (and opening a
- *  child frame).  Shared by the workflow command route and the event reactor,
- *  both of which invoke ops inline (bypassing the per-operation route's audit). */
-function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") {
-      const o = lookupOp(ctx, s.aggName, s.op);
-      return !!o && o.audited && !o.extern;
-    }
-    if (s.kind === "for-each") return hasAuditedOpCall(ctx, s.body);
-    return false;
-  });
 }
 
 // Emit a workflow's `function` helpers as module-scoped, workflow-namespaced
@@ -1149,19 +1138,7 @@ function emitWorkflowRoute(
   // argument that the op-call renderer threads through (see the `op-call`
   // case), so `currentUser` must be in scope even if the workflow body
   // itself never names it.
-  const callsUserGatedOp = (sts: WorkflowStmtIR[]): boolean =>
-    sts.some((s) => {
-      if (s.kind === "op-call") {
-        const o = lookupOp(ctx, s.aggName, s.op);
-        // Either half can need the binding now: the remaining body (which
-        // still takes the trailing argument) or the hoisted gate rendered at
-        // this call site.
-        return !!o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o));
-      }
-      if (s.kind === "for-each") return callsUserGatedOp(s.body);
-      return false;
-    });
-  if (workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements)) {
+  if (workflowNeedsCurrentUser(wf, ctx)) {
     out.push(
       `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
@@ -1211,7 +1188,7 @@ function emitWorkflowRoute(
   // audit_records row (the per-operation route audits it; a workflow calling
   // it inline used to skip it — an audit-completeness gap).  Those rows also
   // want the child frame's scope / parent ids, so the frame opens for either.
-  const auditsOps = hasAuditedOpCall(ctx, wf.statements);
+  const auditsOps = callsAuditedOp(ctx, wf.statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, wf.statements);
   // aggregate name → its repo variable, so an inline audited op-call can take
   // the before/after wire snapshots through the repo (`repo.toWire(agg)`).
@@ -1328,7 +1305,7 @@ function emitWorkflowRoute(
         ctx,
         paramExprs,
         wfThis,
-        { dbHandle: "tx", repoVarByAgg },
+        { dbHandle: "tx", repoVarByAgg, usingMikro },
         writeScope,
         "tx",
       ),
@@ -1371,7 +1348,7 @@ function emitWorkflowRoute(
         ctx,
         paramExprs,
         wfThis,
-        { dbHandle: "db", repoVarByAgg },
+        { dbHandle: "db", repoVarByAgg, usingMikro },
         writeScope,
         "db",
       ),
@@ -2453,7 +2430,7 @@ function emitHandlerFn(
     const agg = ctx.aggregates.find((a) => a.name === s.aggName);
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
-  const auditsOps = hasAuditedOpCall(ctx, statements);
+  const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
@@ -2468,7 +2445,7 @@ function emitHandlerFn(
       ctx,
       noParams,
       thisName,
-      { dbHandle: "db", repoVarByAgg },
+      { dbHandle: "db", repoVarByAgg, usingMikro },
       undefined,
       "db",
     ),
@@ -2587,7 +2564,7 @@ function emitEventSourcedHandlerFn(
     const agg = ctx.aggregates.find((a) => a.name === s.aggName);
     return !!agg && agg.operations.some((o) => opHasProvSite(o));
   });
-  const auditsOps = hasAuditedOpCall(ctx, statements);
+  const auditsOps = callsAuditedOp(ctx, statements);
   const wrapsFrame = provSaves.length > 0 || auditsOps || hasNestedProvSave(ctx, statements);
   const reactorRepos = collectReposFromStmts(statements, saves);
   const repoVarByAgg = new Map(reactorRepos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
@@ -2602,7 +2579,7 @@ function emitEventSourcedHandlerFn(
       ctx,
       noParams,
       "state",
-      { dbHandle: "db", repoVarByAgg },
+      { dbHandle: "db", repoVarByAgg, usingMikro },
       undefined,
       "db",
     ),
@@ -2838,7 +2815,7 @@ export function honoWorkflowStmtTarget(
   thisName = "this",
   /** Present only on the command-route path: enables staging an audit_records
    *  row for an inline `audited` op-call (the reactor path passes none). */
-  audit?: { dbHandle: string; repoVarByAgg: Map<string, string> },
+  audit?: { dbHandle: string; repoVarByAgg: Map<string, string>; usingMikro?: boolean },
   /** The body's write-scope requirement — present on a command body (a
    *  workflow's command route, a command handler) in a context with a
    *  narrowed write scope; a reactor passes none. */
@@ -2971,7 +2948,11 @@ export function honoWorkflowStmtTarget(
           `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
           `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
           `${indent}  const ${c} = requestContext();`,
-          `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
+          // drizzle inserts through the table, MikroORM through the row entity
+          // (the routes' `historyInsertCall` spelling).
+          audit.usingMikro
+            ? `${indent}  await ${audit.dbHandle}.insert(AuditRecordRow, {`
+            : `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
           `${indent}    auditId: randomUUID(),`,
           `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
           `${indent}    action: "${st.op}",`,

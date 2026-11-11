@@ -640,6 +640,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/audit-history-guarded": [
     "api.employees.history (no derived operation)",
     "api.payslips.history (no derived operation)",
+    "api.promoteIfPresent.run (no such aggregate)",
   ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:

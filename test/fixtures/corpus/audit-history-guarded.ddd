@@ -57,8 +57,22 @@ system AuditHistoryGuarded {
           precondition amount > 0
           salary := salary + amount
         }
+        // Gated like `raise`, and called only from `PromoteIfPresent` below.
+        operation promote() requires currentUser.role == "agent" {
+          grade := grade + 1
+        }
       }
       repository Employees for Employee
+
+      // A gated operation called INSIDE an `if let` branch of a workflow.  The
+      // inline call renders the operation's hoisted `requires` gate at the call
+      // site, so the workflow must bind the principal even though its own body
+      // never names `currentUser` — and must find the call at any depth.
+      workflow PromoteIfPresent {
+        create(employee: Employee id) {
+          if let e = Employees.find(employee) { e.promote() }
+        }
+      }
 
       // The GATED history: no own `requires` — it inherits the list read's.
       // Gated AND masked, so one route reads the principal twice — once to
@@ -155,6 +169,15 @@ system AuditHistoryGuarded {
     let allSlips = api.payslips.all()
     expect(allSlips.total).toBe(1)
     expect(api.payslips.getById(p).amount).toBe(3000)
+
+    // The gated `promote`, called from a workflow's `if let` branch: the gate
+    // admits this principal and the row moves.  (Driven after every trail read
+    // above, so the employee's trail is not re-read here.)
+    api.promoteIfPresent.run({ employee: e.id })
+    expect(api.employees.getById(e).grade).toBe(2)
+    // …and through its own route, which renders the same gate.
+    api.employees.promote(e)
+    expect(api.employees.getById(e).grade).toBe(3)
 
     // The unaudited sibling round-trips like any aggregate; its (absent)
     // history route is probed by the authz ladder.

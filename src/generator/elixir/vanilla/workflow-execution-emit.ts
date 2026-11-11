@@ -70,7 +70,7 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
-import { lookupOp } from "../../../ir/plan/index.js";
+import { lookupOp, workflowNeedsCurrentUser } from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -1234,19 +1234,20 @@ function opCallThreadsUser(
   return !!op && operationUsesCurrentUser(op);
 }
 
-/** True when the workflow body itself names `currentUser`, OR it calls a
- *  `currentUser`-gated operation (whose context fn takes the trailing actor),
- *  OR it creates an aggregate whose lifecycle stamps read the principal.  Any
+/** True when the workflow needs a principal (`workflowNeedsCurrentUser`: the
+ *  body names `currentUser`, or calls a `currentUser`-gated operation whose
+ *  context fn takes the trailing actor), OR it runs a read that consumes the
+ *  actor, OR it creates an aggregate whose lifecycle stamps read the
+ *  principal, OR a write-scope re-check passes it.  Any
  *  of these means the workflow function threads `current_user \\ nil` so the
  *  binding is in scope for the rendered guard / op-call / create call, at any
  *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
-function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
-  if (workflowUsesCurrentUser(wf)) return true;
+function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
+  if (workflowNeedsCurrentUser(wf, ctx)) return true;
   if (bodyReadsActor([wf.statements], ctx)) return true;
   let needs = false;
   for (const st of wf.statements)
     walkWorkflowStmtsDeep(st, (n) => {
-      if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
       if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
     });
   if (needs) return true;
@@ -1861,7 +1862,7 @@ function renderWorkflowModule(
     ...(writeScope ? { writeScope } : {}),
     // A workflow that binds `current_user` forwards it to every read that
     // scopes by the actor, as an explicit handler does.
-    ...(ctx && workflowNeedsCurrentUser(wf, ctx) ? { repoRunActor: true } : {}),
+    ...(ctx && workflowThreadsActor(wf, ctx) ? { repoRunActor: true } : {}),
   };
   // Workflow lifecycle narrative — `workflow_started` at run entry, woven into
   // the success tail of the body by `assembleBody` (`workflow_completed`).  The
@@ -1980,7 +1981,7 @@ function renderWorkflowModule(
   // `current_user` (and the trailing op-call actor) bind.  The
   // `WorkflowsController` passes `conn.assigns[:current_user]`.  A workflow
   // that references no actor renders byte-identically to before (no extra arg).
-  const needsUser = ctx ? workflowNeedsCurrentUser(wf, ctx) : workflowUsesCurrentUser(wf);
+  const needsUser = ctx ? workflowThreadsActor(wf, ctx) : workflowUsesCurrentUser(wf);
   const userParam = needsUser ? ", current_user \\\\ nil" : "";
   // Emit the `Context` alias iff the body actually references the context
   // module — a `with`-clause alone is NOT proof (a workflow whose `with`
@@ -2269,7 +2270,7 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
         // When the workflow threads `current_user` (it names `currentUser` or
         // calls a `currentUser`-gated op), bind it off `conn.assigns` and pass it
         // through — mirrors the per-op controller action (api-emit.ts).
-        const needsUser = workflowNeedsCurrentUser(wf, g.ctx);
+        const needsUser = workflowThreadsActor(wf, g.ctx);
         // `create(…): T` answers 200 with the value (`respond_result`); a
         // result-less workflow keeps the shared 204 `respond`.
         const responder = commandCreateResult(wf) ? "respond_result" : "respond";
