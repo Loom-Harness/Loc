@@ -32,7 +32,6 @@ import { describe, expect, it } from "vitest";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
 import type { WalkerTarget } from "../../../src/generator/_walker/target.js";
 import { angularTarget } from "../../../src/generator/angular/walker/angular-target.js";
-import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.js";
 import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
@@ -223,13 +222,10 @@ describe("text-escaping registry classification (auto-covers new primitives)", (
     }
   });
 
-  it("every tested text primitive renders on tsx AND heex", () => {
+  it("every tested text primitive has a shared renderer (every target, HEEx included)", () => {
     for (const name of Object.keys(TEXT_PRIMITIVE_CALLS)) {
       const def = WALKER_PRIMITIVES[name]!;
-      expect(def.tsx, `${name} needs a tsx renderer`).toBeDefined();
-      // The shared core renders a `HEEX_SHARED_PRIMITIVES` name for HEEx too.
-      const heex = HEEX_SHARED_PRIMITIVES.has(name) ? def.tsx : def.heex;
-      expect(heex, `${name} needs a heex renderer`).toBeDefined();
+      expect(def.tsx, `${name} needs a shared renderer`).toBeDefined();
     }
   });
 });

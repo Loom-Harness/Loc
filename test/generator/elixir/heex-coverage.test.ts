@@ -6,11 +6,12 @@ import {
   formatHeexCoverage,
   type HeexCoverageRecorder,
   type HeexCoverageReport,
+  heexRenderedPrimitives,
   installHeexCoverage,
 } from "../../../scripts/heex-coverage.mjs";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
-import { HEEX_SHARED_PRIMITIVES } from "../../../src/generator/elixir/heex-pack.js";
 import type { WalkResult } from "../../../src/generator/elixir/heex-walker.js";
+import { uiCapability } from "../../../src/util/target-capabilities.js";
 import { repoRoot } from "../../_helpers/examples.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -56,7 +57,10 @@ describe("HEEx showcase coverage", () => {
   let files: Map<string, string>;
 
   beforeAll(async () => {
-    recorder = installHeexCoverage(WALKER_PRIMITIVES, HEEX_SHARED_PRIMITIVES);
+    recorder = installHeexCoverage(
+      WALKER_PRIMITIVES,
+      heexRenderedPrimitives(WALKER_PRIMITIVES, uiCapability),
+    );
     recorder.setInput("heex-showcase");
     try {
       files = await generateSystemFiles(fs.readFileSync(FIXTURE, "utf8"));

@@ -20,68 +20,6 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { giveUpText } from "../_walker/give-up.js";
 import type { HeexWalkSink } from "./heex-walker-core.js";
 
-/** The primitives the shared walker core renders for HEEx.  The HEEx engine
- *  hands a call to one of these back to the shared core, and
- *  `heexTarget.renderNodeOverride` lets them through. */
-export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
-  "Stack",
-  "Group",
-  "Grid",
-  "Container",
-  "Card",
-  "Divider",
-  "Tabs",
-  "Heading",
-  "Text",
-  "Bold",
-  "Italic",
-  "InlineCode",
-  "Anchor",
-  "Badge",
-  "EnumBadge",
-  "Stat",
-  "Avatar",
-  "Loader",
-  "Image",
-  "Icon",
-  "Money",
-  "DateDisplay",
-  "Alert",
-  "For",
-  "QueryView",
-  "Button",
-  "Field",
-  "NumberField",
-  "PasswordField",
-  "MultilineField",
-  "SelectField",
-  "Toggle",
-  "LocaleSwitcher",
-  "Action",
-  "CreateForm",
-  "OperationForm",
-  "WorkflowForm",
-  "DestroyForm",
-  "Modal",
-  "FileLink",
-  "ProvenanceInfo",
-  "Timeline",
-  "Table",
-  "FileUpload",
-  "Empty",
-  "Skeleton",
-  "Breadcrumbs",
-  "Paper",
-  "Section",
-  "Sticky",
-  "Toolbar",
-  "KeyValueRow",
-  "Slot",
-  "CodeBlock",
-  "IdLink",
-  "Chart",
-]);
-
 type VM = Record<string, unknown>;
 type Renderer = (vm: VM, sink: HeexWalkSink | undefined) => string;
 

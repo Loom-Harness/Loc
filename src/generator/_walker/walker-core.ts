@@ -1049,10 +1049,10 @@ export function walk(
    *  sequence). */
   slot: ChildSlot = "value",
 ): string {
-  // A target still moving onto this core keeps an unported node on its
-  // previous renderer (see `WalkerTarget.renderNodeOverride`).
-  const overridden = ctx.target.renderNodeOverride?.(expr, ctx, depth, slot);
-  if (overridden !== undefined) return overridden;
+  // A value child renders as text in a target that renders its own
+  // expressions (`WalkerTarget.renderTextContentOverride`).
+  const text = ctx.target.renderTextContentOverride?.(expr, ctx);
+  if (text !== undefined) return text;
   // A data read in child position renders as its access site, interpolated.
   const access = detectDataAccess(expr, ctx);
   if (access) {

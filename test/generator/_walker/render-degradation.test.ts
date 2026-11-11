@@ -188,21 +188,15 @@ const SENTINELS: ReadonlyArray<{
       },
     ],
   },
-  // Both spellings of `walk()`'s "registered primitive, no renderer here" arm:
-  // the shared `walker-core.ts` comment (`not supported by the walker yet` —
-  // it used to say "the React walker" even on Vue/Svelte/Angular/Feliz/Flutter)
-  // and `heex-walker-core.ts`'s LiveView wording.
+  // `walk()`'s "registered primitive, no renderer here" arm — the shared
+  // `walker-core.ts` comment every frontend renders, Phoenix LiveView included.
   {
     label: "primitive not supported",
-    re: /not supported by (?:the (?:\w+ )?walker yet|Phoenix LiveView target)/g,
+    re: /not supported by the (?:\w+ )?walker yet/g,
     origins: [
       {
         file: "src/generator/_walker/walker-core.ts",
         template: "`${call.name}: not supported by the walker yet`",
-      },
-      {
-        file: "src/generator/elixir/heex-walker-core.ts",
-        template: "`${expr.name}: not supported by Phoenix LiveView target`",
       },
     ],
   },

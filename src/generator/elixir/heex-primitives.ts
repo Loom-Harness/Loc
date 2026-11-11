@@ -1519,10 +1519,6 @@ export function renderProvenanceInfo(
  *  (docs/audit.md).  The HEEx twin of the JSX renderers: same markup, same
  *  semantics, so a Phoenix app shows the history a React one does.
  *
- *  Written rather than pinned as a parity gap because Phoenix is one of the
- *  backends that serves `/history` — a TSX-only Timeline would be exactly the
- *  silent LiveView degradation `heex-parity.test.ts` exists to catch.
- *
  *  Entries cross the wire as string-keyed maps, hence `e["action"]` rather than
  *  `e.action`. */
 export function renderTimeline(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {

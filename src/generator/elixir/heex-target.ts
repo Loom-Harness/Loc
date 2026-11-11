@@ -16,12 +16,13 @@ import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { snake } from "../../util/naming.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
+import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
 import { renderHeexAction } from "./heex-action.js";
 import { renderHeexUserComponent } from "./heex-component.js";
 import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
-import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
+import { dedentTail, indentTail } from "./heex-pack.js";
 import {
   bindHeexQueryView,
   bindStateInput,
@@ -47,7 +48,6 @@ import {
   type HeexWalkSink,
   heexContextOf,
   matchArmContext,
-  renderChild,
   renderExpr,
   renderInTemplate,
   rendersMarkupBlock,
@@ -67,43 +67,7 @@ export const heexTarget: WalkerTarget = {
   framework: "phoenixLiveView",
   axes: requireFrontendAxes("phoenixLiveView"),
 
-  // --- Bridge seam ----------------------------------------------------------
-
-  /** A node of a HEEx body renders through the HEEx engine
-   *  (`heex-walker-core.ts`) under the HEEx walk context the sink carries,
-   *  unless it is a call to a primitive the shared core renders
-   *  (`HEEX_SHARED_PRIMITIVES`).  The engine recurses into the node's subtree
-   *  itself.  Below the body root it renders the node as a child and the
-   *  result is re-indented to the shared core's absolute convention.  A walk
-   *  with no HEEx context in its sink falls through to the shared path. */
-  renderNodeOverride(expr, ctx, depth) {
-    const heex = heexContextOf(ctx.sink);
-    if (!heex) return undefined;
-    // A value object sharing a primitive's name (`Money`) is a construction,
-    // which the engine renders.
-    if (
-      expr.kind === "call" &&
-      HEEX_SHARED_PRIMITIVES.has(expr.name) &&
-      !heex.valueObjectsByName.has(expr.name)
-    ) {
-      if (expr.name === "Tabs" && expr.args.some((_, i) => !expr.argNames?.[i])) {
-        // Number the group on entry, before its panels walk, so a nested
-        // group gets a later id than its parent (see `tabSeq`).
-        heex.tabSeq.value += 1;
-        heex.tabSeq.reserved = [...(heex.tabSeq.reserved ?? []), heex.tabSeq.value];
-      }
-      return undefined;
-    }
-    // A user component renders through `renderUserComponent`.
-    if (expr.kind === "call" && heex.ui.components.some((c) => c.name === expr.name)) {
-      return undefined;
-    }
-    const engine = engineContext(heex, ctx);
-    // A `match` or ternary whose branches are markup is control flow the
-    // shared core renders; one whose branches are terms is an Elixir value.
-    if (rendersMarkupBlock(expr, engine)) return undefined;
-    return depth === 0 ? renderExpr(expr, engine) : indentTail(renderChild(expr, engine), depth);
-  },
+  // --- Walk-scope seams ---------------------------------------------------
 
   /** A `For` item, a block `match` arm and a `QueryView` `data:` body render
    *  under their own HEEx walk context: the item's row aggregate, the arm's
@@ -118,6 +82,13 @@ export const heexTarget: WalkerTarget = {
         return { heex: matchArmContext(scope.match, scope.index, heex) };
       case "query-data":
         return { heex: queryViewDataContext(scope.query, scope.param, heex) };
+      case "tab-group":
+        // Number the group on entry, before its panels walk, so a nested
+        // group gets a later id than its parent (see `tabSeq`).  The panels
+        // walk under the same context.
+        heex.tabSeq.value += 1;
+        heex.tabSeq.reserved = [...(heex.tabSeq.reserved ?? []), heex.tabSeq.value];
+        return undefined;
     }
   },
 
@@ -185,7 +156,9 @@ export const heexTarget: WalkerTarget = {
   renderTextContentOverride(expr, ctx) {
     const heex = heexContextOf(ctx.sink);
     if (!heex || (expr.kind === "literal" && expr.lit === "string")) return undefined;
-    return renderInTemplate(expr, engineContext(heex, ctx));
+    const engine = engineContext(heex, ctx);
+    if (rendersAsMarkup(expr, engine)) return undefined;
+    return renderInTemplate(expr, engine);
   },
 
   /** An `EnumBadge`'s text, through the engine's enum-label lookup (which
@@ -560,6 +533,20 @@ export function renderHeexStoreActionCall(
  *  sink's state, entered from `shared`, at the shared walk's heading depth. */
 function engineContext(heex: HeexWalkContext, shared: SharedWalkContext): HeexWalkContext {
   return { ...heex, sharedWalk: shared, headingDepth: shared.headingDepth };
+}
+
+/** Whether `expr` is markup the shared core renders: a primitive or user
+ *  component call (a value object sharing a primitive's name, `Money`, is a
+ *  construction instead), or a `match` / ternary whose branches are markup. */
+function rendersAsMarkup(expr: ExprIR, ctx: HeexWalkContext): boolean {
+  if (expr.kind === "call") {
+    if (ctx.valueObjectsByName.has(expr.name)) return false;
+    return (
+      WALKER_PRIMITIVES[expr.name] !== undefined ||
+      ctx.ui.components.some((c) => c.name === expr.name)
+    );
+  }
+  return rendersMarkupBlock(expr, ctx);
 }
 
 /** Indent every non-empty line by `depth` levels. */

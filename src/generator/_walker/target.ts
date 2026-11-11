@@ -127,7 +127,11 @@ export type WalkScope =
       readonly kind: "query-data";
       readonly query: ExprIR & { kind: "call" };
       readonly param: string;
-    };
+    }
+  /** A `Tabs` group about to walk its panels.  A target that numbers groups in
+   *  document order takes the group's number here, before a nested group
+   *  inside one of its panels takes a later one. */
+  | { readonly kind: "tab-group"; readonly tabs: ExprIR & { kind: "call" } };
 
 /** An event handler a use site binds: an inline lambda, a named page
  *  `action`, a store action, or a controlled input's write-back (see
@@ -1434,43 +1438,25 @@ export interface WalkerTarget {
    *  .add(call.name)` so the shell wires the class import + directive. */
   renderUserComponent?(call: ExprIR, ctx: WalkContext, depth: number): string | null;
 
-  /** OPTIONAL — whole-node override, consulted by `walk` before anything else
-   *  (before api-read detection and before the per-kind dispatch).  A string
-   *  return is used verbatim as that node's markup; `undefined` sends the node
-   *  through the shared path.
-   *
-   *  It is the escape hatch for a target moving onto the shared core one node
-   *  kind at a time: a node kind or primitive the target has not ported yet
-   *  keeps rendering through the target's previous renderer, with the subtree
-   *  beneath it, so output stays byte-identical while each piece moves.  The
-   *  previous renderer's own walk state travels in `ctx.sink`, seeded through
-   *  `walkBody`'s `sink` argument.  Targets fully on the shared core leave it
-   *  undefined. */
-  renderNodeOverride?(
-    expr: ExprIR,
-    ctx: WalkContext,
-    depth: number,
-    slot: ChildSlot,
-  ): string | undefined;
-
   /** OPTIONAL — whole-expression override, consulted by `emitExpr` before
-   *  anything else.  The expression-position twin of `renderNodeOverride`: a
-   *  string return is used verbatim as the expression in the target's own
-   *  language; `undefined` sends the expression through the shared leaves.
-   *  A target whose expression language is rendered by its own engine (the
-   *  one `renderNodeOverride` hands unported nodes to) answers every
-   *  expression here, so a ported primitive's dynamic argument — a `testid:`
-   *  binding, a `style:` value, an ICU hole — renders exactly as that
-   *  engine renders it. */
+   *  anything else.  A string return is used verbatim as the expression in
+   *  the target's own language; `undefined` sends the expression through the
+   *  shared leaves.  A target with its own expression renderer (HEEx, whose
+   *  Elixir expressions resolve names through its LiveView walk context)
+   *  answers every expression here, so a primitive's dynamic argument — a
+   *  `testid:` binding, a `style:` value, an ICU hole — renders as that
+   *  renderer renders it. */
   renderExprOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
 
-  /** OPTIONAL — text-position override, consulted by `renderTextContent`
-   *  before anything else: the markup a non-literal expression renders as when
-   *  it is a primitive's TEXT (a `Heading`'s caption, a `Divider`'s label).  A
-   *  string return is used verbatim; `undefined` sends the expression through
-   *  the shared path.  Same escape hatch as `renderExprOverride`, for the
-   *  position where the shared path would otherwise resolve refs against its
-   *  own lookups. */
+  /** OPTIONAL — text-position override, consulted by `walk` for every child
+   *  and by `renderTextContent` before anything else: the markup an expression
+   *  renders as when it is TEXT — a value child of a container, or a
+   *  primitive's caption (a `Heading`'s title, a `Divider`'s label).  A string
+   *  return is used verbatim; `undefined` sends the node through the shared
+   *  path, which is the answer for markup (a primitive or component call, a
+   *  `match` over markup).  The text-position twin of `renderExprOverride`,
+   *  for the position where the shared path would otherwise resolve refs
+   *  against its own lookups. */
   renderTextContentOverride?(expr: ExprIR, ctx: WalkContext): string | undefined;
 
   /** OPTIONAL — the TEXT an `EnumBadge` shows for `value`, for a target that
