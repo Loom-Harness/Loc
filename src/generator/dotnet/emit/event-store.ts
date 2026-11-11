@@ -20,10 +20,11 @@
 // `HasColumnName` fix).
 
 import { STREAM_TENANT_METADATA, streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
+import { eventLogTable } from "../../../ir/plan/index.js";
 import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 
@@ -208,7 +209,7 @@ export function renderEventRecordConfiguration(
 ): string {
   const cls = `${upperFirst(ctxName)}EventRecordConfiguration`;
   const record = eventRecordClass(ctxName);
-  const tableName = `${snake(ctxName)}_events`;
+  const tableName = eventLogTable(ctxName);
   // `schema` set (the context's dataSource schema) → two-arg ToTable; undefined
   // → single-arg, byte-identical with the unqualified default.
   const toTableArgs = schema ? `"${tableName}", "${schema}"` : `"${tableName}"`;

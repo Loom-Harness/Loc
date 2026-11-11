@@ -20,7 +20,11 @@
 // fans events to them unchanged (they are named like any other handler).
 // ---------------------------------------------------------------------------
 
-import { eventSourcedWorkflows } from "../../../ir/plan/index.js";
+import {
+  eventSourcedWorkflows,
+  foldedEventNames,
+  workflowStreamType,
+} from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -201,7 +205,7 @@ function renderStreamModule(
   // This workflow's stream is the subset of the shared `<ctx>_events` log
   // tagged with its own name — sibling streams (aggregates, other workflows)
   // in the same context must never fold in.
-  const streamType = JSON.stringify(wf.name);
+  const streamType = JSON.stringify(workflowStreamType(wf));
   return `# Auto-generated.
 defmodule ${wfModule(contextModule, wf)}Stream do
   @moduledoc "Event stream IO for the ${upperFirst(wf.name)} event-sourced workflow."
@@ -313,7 +317,7 @@ export function emitVanillaEsWorkflowFiles(
   for (const wf of eventSourcedWorkflows(ctx.workflows)) {
     const base = `lib/${appName}/${ctxSnake}/workflows`;
     const wfSnake = snake(wf.name);
-    const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
+    const eventNames = foldedEventNames(wf);
     const events = eventNames.map((n) => eventsByName.get(n)).filter((e): e is EventIR => !!e);
     const construct = `${ctx.name}.${wf.name}`;
     const files: [string, string][] = [

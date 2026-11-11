@@ -1,4 +1,5 @@
 import { forEachModelExpr } from "../../util/model-exprs.js";
+
 // -------------------------------------------------------------------------
 // Structural checks — workspace-scope uniqueness, find-name collisions,
 // unimplemented generics, extern ops, event-sourced discipline,
@@ -9,6 +10,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { foldedEventNames } from "../../plan/index.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -484,7 +486,7 @@ export function validateEventSourcedDiscipline(
     }
 
     // Rules 2 + 3 — command bodies emit-only; emitted events covered.
-    const appliedEvents = new Set(appliers.map((a) => a.event));
+    const appliedEvents = new Set(foldedEventNames({ appliers }));
     const commands: { label: string; statements: StmtIR[] }[] = [
       ...agg.operations.map((op) => ({
         label: `operation '${op.name}'`,

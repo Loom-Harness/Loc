@@ -6,6 +6,7 @@ import {
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
+import { foldedEventNames } from "../../../ir/plan/index.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -183,7 +184,7 @@ export function renderPyAggregate(
         ...s.operations.flatMap((op) =>
           op.statements.filter((st) => st.kind === "emit").map((st) => st.eventName),
         ),
-        ...(s.appliers ?? []).map((ap) => ap.event),
+        ...foldedEventNames(s),
         ...(s.esCreate?.statements ?? [])
           .filter((st) => st.kind === "emit")
           .map((st) => (st as { eventName: string }).eventName),

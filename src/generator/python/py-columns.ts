@@ -1,3 +1,4 @@
+import { eventLogTable } from "../../ir/plan/index.js";
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
@@ -62,7 +63,7 @@ export function contextEventRowClassName(ctxName: string): string {
 /** The per-context event-log table name (`<ctx>_events`), matching the shared
  *  DDL (`migrations-builder.eventLogTableForStream`). */
 export function contextEventsTableName(ctxName: string): string {
-  return `${snake(ctxName)}_events`;
+  return eventLogTable(ctxName);
 }
 
 /** Row-model class name for an association's join table

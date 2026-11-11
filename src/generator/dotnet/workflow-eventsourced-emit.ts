@@ -1,4 +1,8 @@
-import { eventSourcedWorkflows } from "../../ir/plan/index.js";
+import {
+  eventSourcedWorkflows,
+  foldedEventNames,
+  workflowStreamType,
+} from "../../ir/plan/index.js";
 import type { WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
@@ -61,7 +65,7 @@ export function esEventRecordClass(wf: WorkflowIR, ownerOf: OwnerOf): string {
  *  `agg.name`).  Every load/append/fold for this workflow filters + stamps it
  *  so foreign streams sharing the `<ctx>_events` table are never folded in. */
 export function esStreamType(wf: WorkflowIR): string {
-  return upperFirst(wf.name);
+  return workflowStreamType(wf);
 }
 
 /** The correlation field's id class (`OrderId`) — the stream key type.  The IR
@@ -84,7 +88,7 @@ function renderWorkflowFoldClass(wf: WorkflowIR, ns: string, ownerOf: OwnerOf): 
   const cls = workflowStateClass(wf);
   const corr = wf.correlationField as string;
   const corrId = esCorrIdClass(wf);
-  const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(wf);
   // A state field becomes a property of this class, so one spelled like a
   // static receiver shadows it here: `System` breaks the codec's
   // expression-position `System.Text.Json` references, and `Math` / `Regex` /

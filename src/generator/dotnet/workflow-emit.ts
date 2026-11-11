@@ -3,6 +3,7 @@ import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-pro
 import {
   auditedOpCallAggregates,
   dereferencedLoads,
+  eventLogTable,
   hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
@@ -62,10 +63,7 @@ import {
   commandCreateResult,
   emitsCommandRoute,
 } from "../../ir/util/workflow-command-route.js";
-import {
-  type WriteScopeContext,
-  writeScopeContext,
-} from "../../ir/util/write-scope-guards.js";
+import { type WriteScopeContext, writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
@@ -2577,7 +2575,7 @@ function renderInstancesController(
       const corrId = esCorrIdClass(wf);
       if (usingDapper) {
         const rec = `global::${ns}.Infrastructure.Persistence.Events.${esEventRecordClass(wf, ownerOf)}`;
-        const table = `${snake(ownerOf(wf.name))}_events`;
+        const table = eventLogTable(ownerOf(wf.name));
         const cols =
           "seq AS Seq, stream_type AS StreamType, stream_id AS StreamId, version AS Version, type AS Type, data AS Data, occurred_at AS OccurredAt";
         listBody =

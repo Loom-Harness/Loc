@@ -20,8 +20,9 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { snake, workflowStateTableName } from "../../../util/naming.js";
+import { workflowStateTableName } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { eventLogTable } from "../../plan/index.js";
 import type { BoundedContextIR } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
@@ -140,7 +141,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
   }
   if (hasEventStream) {
     out.push({
-      table: `${snake(ctx.name)}_events`,
+      table: eventLogTable(ctx.name),
       owner: `the event log of context '${ctx.name}'`,
       declaredName: ctx.name,
       kind: "event-log",

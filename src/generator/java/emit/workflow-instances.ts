@@ -1,4 +1,8 @@
-import { eventSourcedWorkflows, observableWorkflows } from "../../../ir/plan/index.js";
+import {
+  eventSourcedWorkflows,
+  observableWorkflows,
+  workflowStreamType,
+} from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import {
@@ -178,7 +182,7 @@ function renderInstancesController(
       // The single per-context event log; this workflow's instances are the
       // rows tagged `stream_type = "<Wf>"`.
       const table = esEventLogTable(ctx.name, wctx.contextSchema);
-      const streamType = wf.name;
+      const streamType = workflowStreamType(wf);
       routes.push(
         `    @GetMapping("/${slug}/instances")`,
         `    public List<${T}> ${camelId(opWorkflowInstances(wf.name))}() {`,

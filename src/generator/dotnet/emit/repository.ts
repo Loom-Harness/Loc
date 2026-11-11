@@ -1,5 +1,6 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { foldedEventNames } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -1341,7 +1342,7 @@ export function renderEventSourcedRepositoryImpl(
   const streamType = agg.name;
   // The event types this aggregate's stream can contain — the events its
   // appliers fold.  Drives the `RowToEvent` deserialiser dispatch.
-  const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
+  const eventNames = foldedEventNames(agg);
   const idValue = csValueTypeForId();
   const parseId =
     idValue === "Guid"

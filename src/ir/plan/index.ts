@@ -23,6 +23,7 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export { hasDurableEvents } from "./context-events.js";
+export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
 export {
   type RemoteApiOpRef,
