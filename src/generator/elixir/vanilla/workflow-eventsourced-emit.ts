@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import {
+  esStarterSharesEvent,
   eventSourcedWorkflows,
   foldedEventNames,
   workflowStreamType,
@@ -468,8 +469,7 @@ export function renderEsWorkflowHandler(
   // workflow (S5b) must no-op when the stream ALREADY exists — the inverse of
   // the `on` emptiness guard — so the event folds once, not twice.  A starter
   // with no paired `on` stays byte-identical (folds unconditionally).
-  const guardStreamExists =
-    sub.trigger === "create" && (wf.subscriptions ?? []).some((o) => o.event === sub.event);
+  const guardStreamExists = sub.trigger === "create" && esStarterSharesEvent(wf, sub.event);
   let inner: string;
   if (sub.trigger === "on") {
     // Reactor: a started saga has a non-empty stream; else drop + log.

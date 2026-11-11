@@ -74,6 +74,14 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   event-log   a template literal with a `${snake(…)}_events` span — the
 //               hand-spelled per-context event-log table name.
 //               → use `eventLogTable`.
+//   sub-handler a `.find(…)` whose callback matches a `create`'s
+//               `.eventBinding` against a subscription's `.param` — the
+//               hand-rolled "which body does this subscription run" lookup.
+//               → use `subscriptionHandler`.
+//   es-shared   a `.some(…)` over a workflow's `subscriptions` whose callback
+//               compares an `.event` — the hand-spelled "does this starter
+//               share its event with a reactor" test.
+//               → use `esStarterSharesEvent`.
 //
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
@@ -158,7 +166,9 @@ interface Violation {
     | "isolation"
     | "implicit-tx"
     | "folded-events"
-    | "event-log";
+    | "event-log"
+    | "sub-handler"
+    | "es-shared";
   where: string;
   text: string;
 }
@@ -428,6 +438,39 @@ function scan(file: string): Violation[] {
       out.push({ rule: "folded-events", where: at(n), text: n.getText(sf) });
     }
     if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      (n.expression.name.text === "find" || n.expression.name.text === "some") &&
+      n.arguments.length === 1 &&
+      (ts.isArrowFunction(n.arguments[0]!) || ts.isFunctionExpression(n.arguments[0]!))
+    ) {
+      const method = n.expression.name.text;
+      const receiver = n.expression.expression.getText(sf);
+      let bindingVsParam = false;
+      let comparesEvent = false;
+      const look = (m: ts.Node): void => {
+        if (
+          ts.isBinaryExpression(m) &&
+          m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+        ) {
+          const l = propName(m.left);
+          const r = propName(m.right);
+          if ((l === "eventBinding" && r === "param") || (l === "param" && r === "eventBinding")) {
+            bindingVsParam = true;
+          }
+          if (l === "event") comparesEvent = true;
+        }
+        ts.forEachChild(m, look);
+      };
+      look(n.arguments[0]!.body);
+      if (method === "find" && bindingVsParam) {
+        out.push({ rule: "sub-handler", where: at(n), text: n.getText(sf) });
+      }
+      if (method === "some" && /\bsubscriptions\b/.test(receiver) && comparesEvent) {
+        out.push({ rule: "es-shared", where: at(n), text: n.getText(sf) });
+      }
+    }
+    if (
       ts.isTemplateExpression(n) &&
       n.templateSpans.some(
         (span) =>
@@ -515,6 +558,16 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells the event-log table name (use eventLogTable)", () => {
     const hits = violations.filter((v) => v.rule === "event-log");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-resolves a subscription's handler body (use subscriptionHandler)", () => {
+    const hits = violations.filter((v) => v.rule === "sub-handler");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the shared starter/reactor event test (use esStarterSharesEvent)", () => {
+    const hits = violations.filter((v) => v.rule === "es-shared");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 

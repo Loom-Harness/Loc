@@ -1,6 +1,11 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { eventSourcedWorkflows, foldedEventNames } from "../../ir/plan/index.js";
+import {
+  esStarterSharesEvent,
+  eventSourcedWorkflows,
+  foldedEventNames,
+  subscriptionHandler,
+} from "../../ir/plan/index.js";
 import type {
   AggregateIR,
   EnrichedBoundedContextIR,
@@ -464,16 +469,7 @@ function resolveHandlerBody(
   statements: WorkflowStmtIR[];
   saves: { name: string; aggName: string; repoName: string }[];
 } | null {
-  if (sub.trigger === "on") {
-    const on = (wf.subscriptions ?? []).find((o) => o.event === sub.event && o.param === sub.param);
-    return on
-      ? { correlation: on.correlation, statements: on.statements, saves: on.savesAtExit }
-      : null;
-  }
-  const cr = wf.creates.find((c) => c.eventRef === sub.event && c.eventBinding === sub.param);
-  return cr
-    ? { correlation: cr.correlation, statements: cr.statements, saves: cr.savesAtExit }
-    : null;
+  return subscriptionHandler(wf, sub) ?? null;
 }
 
 /** The repositories a subscription handler body constructs.  Rides the shared
@@ -921,8 +917,7 @@ function esHandlerFn(
   // workflow (S5b) must no-op when the stream ALREADY exists — the inverse of
   // the `on` emptiness guard — so the event folds once, not twice.  A starter
   // with no paired `on` stays byte-identical.
-  const guardStreamExists =
-    sub.trigger === "create" && (wf.subscriptions ?? []).some((o) => o.event === sub.event);
+  const guardStreamExists = sub.trigger === "create" && esStarterSharesEvent(wf, sub.event);
   const out: string[] = [
     `@${IN_CHILD}`,
     `async def ${fn}(`,

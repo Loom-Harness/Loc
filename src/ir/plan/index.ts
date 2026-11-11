@@ -44,4 +44,9 @@ export {
   observableWorkflows,
   stateRowWorkflows,
 } from "./workflow-sets.js";
+export {
+  esStarterSharesEvent,
+  type SubscriptionHandler,
+  subscriptionHandler,
+} from "./workflow-subscriptions.js";
 export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";

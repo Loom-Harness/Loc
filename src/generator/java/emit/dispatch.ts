@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
+import { esStarterSharesEvent, subscriptionHandler } from "../../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -367,18 +368,7 @@ function accumulateJava(proj: ProjectionIR, field: string, op: "+" | "-", value:
 /** The handler body + correlation for one subscription (mirrors python's
  *  `resolveHandlerBody`): an `on` reactor or an event-triggered `create`. */
 function resolveHandler(wf: WorkflowIR, sub: EventSubscriptionIR): ResolvedHandler | null {
-  if (sub.trigger === "on") {
-    const on = (wf.subscriptions ?? []).find((o) => o.event === sub.event && o.param === sub.param);
-    return on
-      ? { correlation: on.correlation, statements: on.statements, saves: on.savesAtExit }
-      : null;
-  }
-  const cr = (wf.creates ?? []).find(
-    (c) => c.eventRef === sub.event && c.eventBinding === sub.param,
-  );
-  return cr
-    ? { correlation: cr.correlation, statements: cr.statements, saves: cr.savesAtExit }
-    : null;
+  return subscriptionHandler(wf, sub) ?? null;
 }
 
 /** Deterministic @EventListener method name — `on<Wf>Start<Event>` for an
@@ -448,12 +438,6 @@ export function renderJavaDispatcher(
   // (empty → create-logic, non-empty → on-logic), so exactly one appends
   // regardless of fan-out order.  Non-ES workflows and events without both an
   // `on` and a `create` stay two independent handlers (byte-identical).
-  const mergedEsEvent = (wf: WorkflowIR, event: string): boolean =>
-    !!wf.eventSourced &&
-    (wf.subscriptions ?? []).some((o) => o.event === event) &&
-    (wf.creates ?? []).some(
-      (c) => c.triggerKind === "event" && c.eventRef === event && !!c.eventBinding,
-    );
 
   const methods: string[] = [];
   // Handler index (method name × event type) returned to the orchestrator —
@@ -498,7 +482,7 @@ export function renderJavaDispatcher(
     }
     const wf = wfByName.get(sub.workflow);
     if (!wf?.correlationField) continue;
-    if (mergedEsEvent(wf, sub.event)) {
+    if (esStarterSharesEvent(wf, sub.event)) {
       // Render the merged handler once, on the `create` sub; drop the `on` sub
       // (its logic is the else-branch).
       if (sub.trigger !== "create") continue;
