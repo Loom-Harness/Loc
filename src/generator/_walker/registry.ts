@@ -55,23 +55,17 @@ import {
   renderBreadcrumbs as renderBreadcrumbsHeex,
   renderChart as renderChartHeex,
   renderCodeBlock as renderCodeBlockHeex,
-  renderDestroyForm as renderDestroyFormHeex,
   renderEmpty as renderEmptyHeex,
-  renderFileLink as renderFileLinkHeex,
   renderFileUpload as renderFileUploadHeex,
-  renderForm as renderFormHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
-  renderModal as renderModalHeex,
   renderPaper as renderPaperHeex,
-  renderProvenanceInfo as renderProvenanceInfoHeex,
   renderSection as renderSectionHeex,
   renderSkeleton as renderSkeletonHeex,
   renderSlot as renderSlotHeex,
   renderSticky as renderStickyHeex,
   renderTableColumn as renderTableColumnHeex,
   renderTable as renderTableHeex,
-  renderTimeline as renderTimelineHeex,
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
@@ -563,7 +557,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitFileLink,
-    heex: renderFileLinkHeex,
     a11y: { needsName: true },
   },
   // A "?" disclosure over a `provenanced` field's lineage — a native
@@ -577,7 +570,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitProvenanceInfo,
-    heex: renderProvenanceInfoHeex,
     a11y: "presentational",
   },
   // Entity audit trail (docs/audit.md) — the `AuditEntry[]` a backend serves at
@@ -592,7 +584,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitTimeline,
-    heex: renderTimelineHeex,
     a11y: "presentational",
   },
   // Loading placeholder — content hidden from AT (aria-busy) while pending.
@@ -622,7 +613,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitModal,
-    heex: renderModalHeex,
     a11y: { role: "dialog", modal: true, needsName: true, focus: "trap-restore" },
   },
   // --- Code / icon primitives ------------------------------------
@@ -653,21 +643,18 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitCreateForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   OperationForm: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitOperationForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   WorkflowForm: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitWorkflowForm,
-    heex: renderFormHeex,
     a11y: { landmark: "form", needsName: true, live: "polite" },
   },
   // Confirmation-only destroy form (loom-forms.md).  HEEx renders a
@@ -677,7 +664,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitDestroyForm,
-    heex: renderDestroyFormHeex,
     a11y: { landmark: "form", needsName: true },
   },
   // --- Action primitive --------------------------------------------------

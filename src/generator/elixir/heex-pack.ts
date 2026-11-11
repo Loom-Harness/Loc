@@ -58,6 +58,14 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Toggle",
   "LocaleSwitcher",
   "Action",
+  "CreateForm",
+  "OperationForm",
+  "WorkflowForm",
+  "DestroyForm",
+  "Modal",
+  "FileLink",
+  "ProvenanceInfo",
+  "Timeline",
 ]);
 
 type VM = Record<string, unknown>;
