@@ -61,11 +61,13 @@ import {
 import {
   callsAuditedOp,
   commandCreateReturnsSelf,
+  esStarterSharesEvent,
   eventSourcedWorkflows,
   hasDurableEvents,
   hasStateRow,
   lookupOp,
   resourceCalls,
+  subscriptionHandler,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -1744,24 +1746,9 @@ function emitSubscriptionHandlers(
   for (const sub of subs) {
     const wf = ctx.workflows.find((w) => w.name === sub.workflow);
     if (!wf) continue;
-    let statements: WorkflowStmtIR[];
-    let saves: { name: string; aggName: string; repoName: string }[];
-    let correlation: ExprIR | undefined;
-    if (sub.trigger === "on") {
-      const on = (wf.subscriptions ?? []).find(
-        (o) => o.event === sub.event && o.param === sub.param,
-      );
-      if (!on) continue;
-      statements = on.statements;
-      saves = on.savesAtExit;
-      correlation = on.correlation;
-    } else {
-      const cr = wf.creates.find((c) => c.eventRef === sub.event && c.eventBinding === sub.param);
-      if (!cr) continue;
-      statements = cr.statements;
-      saves = cr.savesAtExit;
-      correlation = cr.correlation;
-    }
+    const handler = subscriptionHandler(wf, sub);
+    if (!handler) continue;
+    const { statements, saves, correlation } = handler;
     const fn = handlerName(sub.workflow, sub.trigger, sub.event);
     out.push(
       ...(wf.eventSourced
@@ -1775,7 +1762,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            sub.trigger === "create" && (wf.subscriptions ?? []).some((o) => o.event === sub.event),
+            sub.trigger === "create" && esStarterSharesEvent(wf, sub.event),
             opFragments,
             usingMikro,
           )

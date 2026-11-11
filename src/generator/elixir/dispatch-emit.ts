@@ -1,14 +1,12 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { hasStateRow, lookupOp } from "../../ir/plan/index.js";
+import { hasStateRow, lookupOp, subscriptionHandler } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
-  CreateIR,
   EnrichedBoundedContextIR,
   EnumIR,
   ExprIR,
   FunctionIR,
-  OnIR,
   ProjectionIR,
   ProjectionOnIR,
   StmtIR,
@@ -138,33 +136,16 @@ function resolveSubscriptions(
     if (s.projection) continue;
     const wf = ctx.workflows.find((w) => w.name === s.workflow);
     if (!wf) continue;
-    if (s.trigger === "on") {
-      const on = (wf.subscriptions ?? []).find(
-        (o: OnIR) => o.event === s.event && o.param === s.param,
-      );
-      if (!on) continue;
-      subs.push({
-        trigger: "on",
-        event: s.event,
-        param: s.param,
-        workflow: wf,
-        correlation: on.correlation,
-        statements: on.statements,
-      });
-    } else {
-      const cr = wf.creates.find(
-        (c: CreateIR) => c.eventRef === s.event && c.eventBinding === s.param,
-      );
-      if (!cr) continue;
-      subs.push({
-        trigger: "create",
-        event: s.event,
-        param: s.param,
-        workflow: wf,
-        correlation: cr.correlation,
-        statements: cr.statements,
-      });
-    }
+    const handler = subscriptionHandler(wf, s);
+    if (!handler) continue;
+    subs.push({
+      trigger: s.trigger,
+      event: s.event,
+      param: s.param,
+      workflow: wf,
+      correlation: handler.correlation,
+      statements: handler.statements,
+    });
   }
   return subs;
 }

@@ -3,11 +3,13 @@ import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-pro
 import {
   auditedOpCallAggregates,
   dereferencedLoads,
+  esStarterSharesEvent,
   eventLogTable,
   hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
   resourceCalls,
+  subscriptionHandler,
   workflowIsolation,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
@@ -446,37 +448,14 @@ export function emitDispatchHandlers(
   // handler that reads the stream once and branches (empty → create-logic,
   // non-empty → on-logic).  Non-ES workflows and events without both an `on` and
   // a `create` stay two independent handlers (byte-identical).
-  const isMergedEsEvent = (wf: WorkflowIR, event: string): boolean =>
-    !!wf.eventSourced &&
-    (wf.subscriptions ?? []).some((o) => o.event === event) &&
-    wf.creates.some((c) => c.triggerKind === "event" && c.eventRef === event && !!c.eventBinding);
 
-  const resolveSub = (
-    wf: WorkflowIR,
-    sub: EventSubscriptionIR,
-  ): {
-    statements: WorkflowStmtIR[];
-    saves: { name: string; aggName: string; repoName: string }[];
-    correlation: ExprIR | undefined;
-  } | null => {
-    if (sub.trigger === "on") {
-      const on = (wf.subscriptions ?? []).find(
-        (o) => o.event === sub.event && o.param === sub.param,
-      );
-      return on
-        ? { statements: on.statements, saves: on.savesAtExit, correlation: on.correlation }
-        : null;
-    }
-    const cr = wf.creates.find((c) => c.eventRef === sub.event && c.eventBinding === sub.param);
-    return cr
-      ? { statements: cr.statements, saves: cr.savesAtExit, correlation: cr.correlation }
-      : null;
-  };
+  const resolveSub = (wf: WorkflowIR, sub: EventSubscriptionIR) =>
+    subscriptionHandler(wf, sub) ?? null;
 
   for (const sub of ctx.eventSubscriptions) {
     const wf = ctx.workflows.find((w) => w.name === sub.workflow);
     if (!wf) continue;
-    if (isMergedEsEvent(wf, sub.event)) {
+    if (esStarterSharesEvent(wf, sub.event)) {
       // Render the merged handler once (on the `create` sub); drop the `on` sub
       // (its logic is the else-branch).
       if (sub.trigger !== "create") continue;
