@@ -1897,62 +1897,6 @@ export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
   return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
 }
 
-/** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.
- *  Semantic anchor target for in-page navigation (matches the TSX
- *  `<section>` element exactly — same HTML semantics, no Phoenix-
- *  specific wrapping).  `id:` and `testid:` are extracted as
- *  attributes; positional children render through the standard child
- *  pipeline. */
-export function renderSection(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let id: string | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "id" && arg.kind === "literal") {
-      id = arg.value;
-    }
-  }
-  const idAttr = id ? ` id="${id}"` : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // A Section is a heading-nesting level (like the JSX `emitSection`): a
-  // `Heading` in its body derives a rank one deeper (accessibility.md).
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const childrenHeex = positional.map((c) => renderChild(c, childCtx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<section${idAttr}${testidAttr} />`;
-  }
-  return `<section${idAttr}${testidAttr}>\n${indent(childrenHeex, 2)}\n</section>`;
-}
-
-/** `Sticky(...children, top: "0")` → `<div style="position: sticky; top: 0; z-index: 100">…</div>`.
- *  Pins the wrapped content on scroll.  `top:` defaults to `"0"`
- *  matching the TSX `Sticky` primitive's default; the `z-index: 100`
- *  matches the Mantine pack's inline style.  `testid:` extracted
- *  the same way as `renderSection`. */
-export function renderSticky(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let top = "0";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "top" && arg.kind === "literal") {
-      top = arg.value;
-    }
-  }
-  const style = `style="position: sticky; top: ${top}; z-index: 100"`;
-  const testidAttr = testIdAttr(expr, ctx);
-  const childrenHeex = positional.map((c) => renderChild(c, ctx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<div ${style}${testidAttr} />`;
-  }
-  return `<div ${style}${testidAttr}>\n${indent(childrenHeex, 2)}\n</div>`;
-}
-
 /** `CodeBlock("source", title?: "…", language?: "ts")` →
  *  `<pre class="loom-code-block"><code class="language-ts">source</code></pre>`.
  *  With an optional `title:`, wraps the `<pre>` in a `<div>` with a

@@ -72,6 +72,8 @@ export const HEEX_SHARED_PRIMITIVES: ReadonlySet<string> = new Set([
   "Skeleton",
   "Breadcrumbs",
   "Paper",
+  "Section",
+  "Sticky",
 ]);
 
 type VM = Record<string, unknown>;
@@ -554,6 +556,14 @@ const RENDERERS: Record<string, Renderer> = {
   "primitive-skeleton": renderSkeleton,
   "primitive-breadcrumbs": renderBreadcrumbs,
   "primitive-paper": renderPaper,
+  "primitive-section": (vm) =>
+    element("section", `${vm.hasId ? ` id="${str(vm.id)}"` : ""}${str(vm.testidAttr)}`, vm),
+  "primitive-sticky": (vm) =>
+    element(
+      "div",
+      ` style="position: sticky; top: ${str(vm.top)}; z-index: 100"${str(vm.testidAttr)}`,
+      vm,
+    ),
   "primitive-field": (vm) => renderInput("text", vm),
   "primitive-number-field": (vm) => renderInput("number", vm),
   "primitive-password-field": (vm) => renderInput("password", vm),

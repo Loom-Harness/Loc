@@ -56,9 +56,7 @@ import {
   renderCodeBlock as renderCodeBlockHeex,
   renderIdLink as renderIdLinkHeex,
   renderKeyValueRow as renderKeyValueRowHeex,
-  renderSection as renderSectionHeex,
   renderSlot as renderSlotHeex,
-  renderSticky as renderStickyHeex,
   renderTableColumn as renderTableColumnHeex,
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
@@ -297,14 +295,12 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSection,
-    heex: renderSectionHeex,
     a11y: { landmark: "region", nesting: true },
   },
   Sticky: {
     group: "layout",
     admissibleInSource: true,
     tsx: emitSticky,
-    heex: renderStickyHeex,
     a11y: "presentational",
   },
   // --- Inputs (TSX-only; HEEx renders inputs via Form-level dispatch) ----
