@@ -2,7 +2,7 @@
 
 > Convention spec. Status: describes the shipped command set
 > (`src/cli/main.ts`, Commander-based) and pins how new sub-commands
-> (next up: `ddd i18n`) attach.
+> (`ddd i18n` is the multi-verb example) attach.
 
 ## Shipped commands
 
@@ -25,7 +25,7 @@ it is, because the shape dictates its flag contract and exit semantics:
 |---|---|---|---|
 | **check** (`parse`) | `.ddd` | nothing | non-zero on diagnostics |
 | **emit** (`generate`, `verify`) | `.ddd` | files under `-o` | non-zero on diagnostics or generation failure |
-| **steward** (`snapshot`, future `i18n sync`) | `.ddd` + an existing tracked artefact | updates that artefact deliberately | non-zero on conflict |
+| **steward** (`snapshot`, `i18n sync`) | `.ddd` + an existing tracked artefact | updates that artefact deliberately | non-zero on conflict |
 
 **emit** commands must honour `--dry-run` (print plan, touch nothing)
 and must be idempotent (re-running with no source change is a no-op
@@ -37,7 +37,7 @@ part of `generate`.
 ## Adding a sub-command
 
 1. Add the Commander command in `src/cli/main.ts` (or a sub-module under
-   `src/cli/<area>/` for multi-verb groups — `i18n.md` puts its verbs in
+   `src/cli/<area>/` for multi-verb groups — `ddd i18n` puts its verbs in
    `src/cli/i18n/`).
 2. Declare its taxonomy shape and honour that shape's flag contract
    (`--dry-run` for emit; deliberate-run + conflict exit for steward).
@@ -51,14 +51,15 @@ part of `generate`.
    from the highest diagnostic severity.
 5. Add a `test/cli/<command>.test.ts`.
 
-## Next sub-command: `ddd i18n` (i18n.md)
+## Example sub-command group: `ddd i18n` ([`i18n.md`](../i18n.md))
 
 A multi-verb **steward** group:
 
 | Verb | Role |
 |---|---|
-| `ddd i18n init` | scaffold `<repo>/locales/<locale>/<ns>.json` + `.loom/source.lock/<ns>.json` |
+| `ddd i18n init` | scaffold `<repo>/locales/<locale>/<ns>.json` + `locales/.loom/source.lock/<ns>.json` |
 | `ddd i18n sync` | three-way merge (BASE = source.lock, OURS = translator file, THEIRS = current source) → updated locale files + refreshed lock |
+| `ddd i18n status` / `check` / `approve` / `export` / `import` / `prune` | inspect, gate, review, exchange with a translation tool, and prune the tree |
 
 Both write under the author-owned `<repo>/locales/` tree (never under
 the generated `out/`), exit non-zero on unresolved merge conflict, and

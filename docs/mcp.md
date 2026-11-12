@@ -26,8 +26,10 @@ The tools (`src/tools/catalog.ts`) come in three families. Every tool is a **pur
 |---|---|---|
 | `loom_validate` | `{ source }` | Validate a model. Returns coded, located diagnostics (each with an optional fix-hint patch) plus the outline. The repair loop's oracle. |
 | `loom_outline` | `{ source }` | The model's address book — contexts, aggregates, members. The addresses here are exactly the `target`s `loom_apply_patch` takes and the diagnostics point at. |
+| `loom_read_model` | `{ source }` | The RESOLVED model: each system's deployables plus every aggregate's canonical wire shape (ordered DTO fields with rendered type, optionality, provenance). The semantic contract `loom_outline` (a name-only address book) omits. Empty when the source cannot lower. |
+| `loom_list_primitives` | `{}` | The closed page-body primitive vocabulary the UI walker admits — the only names valid as component types without declaring a domain type. |
 | `loom_generate` | `{ source }` | Validate, and report the deployable manifest (name / platform / port). Writes no files. |
-| `loom_apply_patch` | `{ source, patches[] }` | Apply node-addressed edits atomically. Each patch is `{ op: add\|replace\|remove\|insert, target, source?, position? }`. If any patch fails to resolve, nothing is applied. Returns the patched source or per-patch errors. |
+| `loom_apply_patch` | `{ source, patches[] }` | Apply node-addressed edits atomically. Each patch is `{ op: add\|replace\|remove\|insert\|rename, target, source?, position? }` (`rename` takes the new name as `source` and rewrites every cross-reference). If any patch fails to resolve, nothing is applied. Returns `{ ok, text, applied, errors }` — `text` is the patched source, or the original when a patch failed. |
 
 **Navigational family** — over the LSP providers, addressed by symbol name:
 

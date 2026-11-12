@@ -60,7 +60,7 @@ These cover a single language feature each.  Each one is self-contained.
 | [`domain-services.md`](domain-services.md) | `domainService` — stateless cross-aggregate pure calculators, the no-infra contract, and per-backend emission. |
 | [`scaffold-macros.md`](scaffold-macros.md) | The `scaffold`, `crudish`, and `softDelete` macros — what they expand to (auditing is the `auditable` capability). |
 | [`stdlib.md`](stdlib.md) | The standard library — Layer-0 scalar intrinsics, collection operations, and the ambient prelude. Generated from the registries. |
-| [`tools.md` → i18n](tools.md#i18n-translator-workflow-ddd-i18n) | Translating a generated app — the extracted string catalog, `t()` at runtime, and the `ddd i18n` translator workflow. |
+| [`i18n.md`](i18n.md) | Translating a generated app — what is translated, key families, the `locales/` tree, the `ddd i18n` workflow, runtime locale, and per-target support (CLI reference: [`tools.md`](tools.md#i18n-translator-workflow-ddd-i18n)). |
 | [`audit.md`](audit.md) | `audited` — the append-only command trail, and the derived entity-history read (`GET /<agg>/{id}/history`): the read-time field diff, what it excludes, and how the read gate, capability filters and `mask unless` compose onto it. |
 | [`provenance.md`](provenance.md) | `provenanced` field modifier, the `ddd snapshot` capture step, and the Hono runtime trace SDK. |
 | [`observability.md`](observability.md) | The catalog envelope, per-backend log emission, the catalog extension surface. |

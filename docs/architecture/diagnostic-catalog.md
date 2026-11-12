@@ -85,7 +85,6 @@ tightening rule. Document the promotion phase in the registry row.
 | `loom.throw-outside-domain` | warning → **error** | exception-less D10 | A1 → A4 |
 | `loom.findAll-no-page` | warning | criterion D33 | Crit4 |
 | `loom.bound-not-met` | error | payload-transport (carrier bound) | P3 |
-| `loom.unnamed-placeholder` | warning | i18n-strings | i18n |
 | `loom.datasource-missing-kind` | error | D-STORAGE-SPLIT validator rules | (storage F2) |
 | `loom.datasource-aggregate-for` | error | D-GRANULARITY (`for:` must be a context) | (storage F2) |
 | `loom.policy-missing` | warning | sensitivity → authorization (sensitive field w/o policy) | 3.2 |

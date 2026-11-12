@@ -17,7 +17,15 @@ All live in `src/api/index.ts`. Signatures (verified against source):
 validate(source: string, opts?: { path?: string }): Promise<ValidateReport>
 generate(source: string, opts?: { path?: string }): Promise<GenerateReport>
 outline(source: string): Promise<Outline>
+readModel(source: string): Promise<ModelView>        // resolved deployables + canonical wire shapes
+listPrimitives(): PrimitiveCatalog                   // the closed page-body primitive vocabulary
 applyPatches(source: string, patches: ModelPatch[]): Promise<PatchResult>   // re-exported from src/language/model-patch.ts
+
+// Evolution family (src/api/evolve.ts, src/api/migrate.ts)
+snapshot(source: string, options?: { commitHash?: string }): Promise<SnapshotReport>    // provenance rule snapshots `ddd snapshot` writes
+diff(source: string, baseline?: string, migrations?: { name: string; content: string }[]): Promise<DiffReport>
+migrationStatus(source: string, migrations?: ChainFile[]): Promise<MigrationStatusReport>   // `ddd migrate status`
+recordMigration(source: string, migrations: ChainFile[] | undefined, opts: { name: string; allowDestructive?: boolean; now?: string }): Promise<…>   // `ddd migrate add`
 
 // Navigational read family (src/api/navigate.ts) — address nodes by symbol name
 findSymbol(source: string, symbol: string, kind?: string): Promise<FindSymbolResult>
@@ -197,4 +205,4 @@ system Shop {
 
 ### Relation to the agent-tool catalog
 
-`src/tools/` (documented in [`mcp.md`](mcp.md)) is a strictly thinner layer *over* this toolkit, not a parallel implementation. Each `loom_*` tool — `loom_validate`, `loom_generate`, `loom_outline`, `loom_apply_patch`, plus the navigational `loom_find_symbol` / `loom_references` / `loom_hover` / `loom_rename` / `loom_quickfix` / `loom_unfold_macro` — is a JSON-Schema-described wrapper whose `handler` just calls the matching `src/api/` function and returns its contract shape. The catalog adds the agent-facing schema and the `callTool` dispatch; it adds no operation logic. The toolkit owns *what an operation does and what it returns*; the catalog owns *how an agent names and invokes it*. Both stay browser-safe, side-effect-free, and deterministic — file emission lives only in the CLI, never in a tool or a toolkit function.
+`src/tools/` (documented in [`mcp.md`](mcp.md)) is a strictly thinner layer *over* this toolkit, not a parallel implementation. Each `loom_*` tool — `loom_validate`, `loom_generate`, `loom_outline`, `loom_read_model`, `loom_list_primitives`, `loom_apply_patch`, the evolution tools (`loom_snapshot`, `loom_diff`, `loom_migration_status`, `loom_migration_record`), plus the navigational `loom_find_symbol` / `loom_references` / `loom_hover` / `loom_rename` / `loom_quickfix` / `loom_unfold_macro` — is a JSON-Schema-described wrapper whose `handler` just calls the matching `src/api/` function and returns its contract shape. The catalog adds the agent-facing schema and the `callTool` dispatch; it adds no operation logic. The toolkit owns *what an operation does and what it returns*; the catalog owns *how an agent names and invokes it*. Both stay browser-safe, side-effect-free, and deterministic — file emission lives only in the CLI, never in a tool or a toolkit function.
