@@ -90,12 +90,12 @@ A raw `tools/call` frame to validate a model:
   "method": "tools/call",
   "params": {
     "name": "loom_validate",
-    "arguments": { "source": "system Shop { context Sales { aggregate Order { id: Id } } }" }
+    "arguments": { "source": "system Shop { subdomain Sales { context Orders { aggregate Order with crudish { total: int } } } }" }
   }
 }
 ```
 
-The response `content[0].text` is the JSON `ValidateReport` (diagnostics + outline).
+The response `content[0].text` is the JSON `ValidateReport` (`ok`, `summary`, `diagnostics`, `outline`) — `"ok": true` for this model.
 
 The advertised server identity is `{ name: "ddd-mcp", version: "0.0.0-experimental" }` — the package is currently `private` and experimental (`loom: { kind: "mcp-server" }`), so the `npx ddd-mcp` form depends on a published or locally-linked build.
 
