@@ -749,8 +749,8 @@ docker run --rm --network host -v <deployable>:/src -w /src \
 # .NET — mounting /root/.ccr is NOT enough; see the CA note below.
 docker run --rm --network host -v <deployable>:/src -w /src \
   -v /root/.ccr:/root/.ccr:ro mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
-  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
-   && update-ca-certificates >/dev/null && dotnet build /warnaserror'
+  'cat /root/.ccr/ca-bundle.crt >> /etc/ssl/certs/ca-certificates.crt \
+   && dotnet build /warnaserror'
 
 # Phoenix
 docker run --rm -v <deployable>:/app -w /app hexpm/elixir:… bash -c \
@@ -761,7 +761,10 @@ docker run --rm -v <deployable>:/app -w /app hexpm/elixir:… bash -c \
 from the mounted `JAVA_TOOL_OPTIONS` truststore and Elixir has its own
 `LOOM_HEX_MIRROR` path (below), but NuGet trusts only the container's
 **system** certificate store.  Mounting `/root/.ccr` without installing
-the bundle into it fails restore before a single file compiles:
+the bundle into it fails restore before a single file compiles.  Appending the
+bundle to `/etc/ssl/certs/ca-certificates.crt` (the store NuGet reads) needs no
+extra tool; `update-ca-certificates` is not installed in every `dotnet/sdk`
+variant.  Without the append, restore fails with:
 
 ```
 error NU1301: Unable to load the service index for source https://api.nuget.org/v3/index.json.
@@ -783,8 +786,7 @@ docker run --rm --network host -v /home/user/Loc:/home/user/Loc -w <worktree> \
   -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY -e NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt \
   -e LOOM_DOTNET_BUILD=1 -e PATH=/opt/node22/bin:/usr/share/dotnet:/usr/bin:/bin \
   mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
-  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
-   && update-ca-certificates >/dev/null \
+  'cat /root/.ccr/ca-bundle.crt >> /etc/ssl/certs/ca-certificates.crt \
    && npx vitest run test/e2e/generated-dotnet-build.test.ts'
 ```
 
