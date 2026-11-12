@@ -43,8 +43,9 @@ import {
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { tsImportSlot } from "../../_imports/ts.js";
+import { DOMAIN_NAMES, tsServiceOpFn } from "../../_symbols/plan.js";
 import { renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
@@ -157,8 +158,7 @@ export function domainServiceNamesInExprs(exprs: readonly (ExprIR | undefined)[]
 }
 
 function renderService(svc: DomainServiceIR, ctx: BoundedContextIR): string {
-  const fnName = (op: DomainServiceOperationIR): string =>
-    `${lowerFirst(svc.name)}_${lowerFirst(op.name)}`;
+  const fnName = (op: DomainServiceOperationIR): string => tsServiceOpFn(svc.name, op.name);
   return lines(
     ...svc.operations.map((op) => renderOperation(op, fnName(op), ctx)),
     `export const ${svc.name} = {`,
@@ -182,7 +182,9 @@ function renderOperation(
   // Promise.
   const ports = readPortsForOperation(op);
   const portParams = ports.map((p) => `${lowerFirst(p.repo)}: ${repoPortName(p.aggregate)}`);
-  const userParams = op.params.map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`);
+  const userParams = op.params.map(
+    (p) => `${DOMAIN_NAMES.ts.binding(p.name)}: ${renderTsType(p.type)}`,
+  );
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "async function" : "function";
