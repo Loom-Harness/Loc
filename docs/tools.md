@@ -1000,7 +1000,7 @@ docker run --rm --network host -v <deployable>:/src -w /src \
 gradle -I scripts/gradle-central-mirror.init.gradle.kts bootJar
 ```
 
-`gradle --info` then prints `Downloading https://maven-central.storage-download.googleapis.com/maven2/…`.
+The script also puts the mirror first among the plugin repositories, because `plugins.gradle.org` redirects back to the throttled host.  A generated Java deployable's `bootJar` builds with it on a cold Gradle cache.  `gradle --info` then prints `Downloading https://maven-central.storage-download.googleapis.com/maven2/…`.
 The container prints `Trust store file /etc/ssl/certs/java/cacerts does not
 exist` (the host path in `JAVA_TOOL_OPTIONS`); the proxy CA is still trusted
 and the build proceeds.

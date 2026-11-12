@@ -8,6 +8,8 @@ fun fix(r: RepositoryHandler) = r.configureEach {
     if (this is MavenArtifactRepository && (url.toString().trimEnd('/') == central || url.toString().contains("repo.maven.apache.org") || url.toString().contains("repo1.maven.org"))) setUrl(mirror)
 }
 settingsEvaluated {
+    // plugins.gradle.org redirects to the throttled host, so plugins resolve through the mirror first
+    pluginManagement.repositories.maven { url = uri(mirror) }
     fix(pluginManagement.repositories)
     fix(dependencyResolutionManagement.repositories)
 }
