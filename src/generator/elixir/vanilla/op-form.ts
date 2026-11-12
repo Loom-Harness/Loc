@@ -1,6 +1,6 @@
 // What a LiveView operation form may assume about the context façade — one
 // predicate per seam, shared by the façade emitter (`context-emit.ts`) and the
-// LiveView emitters (`heex-primitives.ts` / `liveview-emit.ts`) so a page can
+// LiveView emitters (`heex-form.ts` / `liveview-emit.ts`) so a page can
 // never call a function the façade did not emit.
 
 import type { AggregateIR, OperationIR } from "../../../ir/types/loom-ir.js";

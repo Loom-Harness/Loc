@@ -16,7 +16,15 @@ import {
 import { renderPrimitive } from "../render-primitive.js";
 import { gridCols, positionalArgs, slugify, stringNamed } from "../shared/args.js";
 import type { WalkContext } from "../walker-core.js";
-import { positionalChildren, styleAttr, styleWith, testidAttr, walk } from "../walker-core.js";
+import {
+  enterScope,
+  positionalChildren,
+  propagateChildFlags,
+  styleAttr,
+  styleWith,
+  testidAttr,
+  walk,
+} from "../walker-core.js";
 
 /** Run `fn` with the walk one semantic heading-nesting level deeper — used
  *  by the `nesting: true` a11y-contract containers (`Section` / `Card`) so a
@@ -258,6 +266,7 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   // silently — and the dropped literal would still reach
   // `.loom/messages.en.json`, handing translators a key nothing renders.
   const positionals = positionalArgs(call);
+  const tabsCtx = positionals.length > 0 ? enterScope(ctx, { kind: "tab-group", tabs: call }) : ctx;
   const innerIndent = "  ".repeat(depth + 2);
   /** Join already-walked panel children the way every other container does. */
   const joinBody = (parts: readonly string[]): string =>
@@ -272,7 +281,7 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
       // A tab PANEL is a children container (`bodyChildren` below is the
       // list every target joins), so a `For` here splices like any other
       // container child.
-      const only = walk(arg, ctx, depth + 2, "children");
+      const only = walk(arg, tabsCtx, depth + 2, "children");
       return {
         value: `tab-${i + 1}`,
         ...tabLabelForms(undefined, ctx, `Tab ${i + 1}`),
@@ -299,7 +308,7 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
     const labelStr = isLiteralLabel ? labelArg.value : `Tab ${i + 1}`;
     // Panel body — a children SEQUENCE, joined below exactly as every other
     // container joins its children.
-    const bodyParts = bodyArgs.map((e) => walk(e, ctx, depth + 2, "children"));
+    const bodyParts = bodyArgs.map((e) => walk(e, tabsCtx, depth + 2, "children"));
     return {
       // The switcher's anchor is derived from the SOURCE literal, never from the
       // translated caption — a `value:` that changed per locale would break
@@ -324,6 +333,7 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
       bodyChildren: bodyParts,
     };
   });
+  if (tabsCtx !== ctx) propagateChildFlags(ctx, tabsCtx);
   // Record the first tab group's default so the shell can declare the
   // controlled tab state a v-model target (Vue) needs. Keep the first when a
   // page has several groups — they share the single `__loomTab` model.

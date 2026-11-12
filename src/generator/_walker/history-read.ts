@@ -34,9 +34,9 @@
 // dangling handle that only fails at `dotnet fable` / `flutter analyze` /
 // `mix compile` time.
 //
-// The gate is one predicate, shared by BOTH walker engines (the JSX/markup
-// `walkBody` core and the parallel HEEx one), so the two cannot disagree about
-// which reads a target serves.  A frontend joins the set by collecting the
+// The gate is one predicate, shared by the `walkBody` core and HEEx's
+// QueryView read binding, so the two cannot disagree about which reads a
+// target serves.  A frontend joins the set by collecting the
 // history read AND implementing `Timeline` — the same day, or not at all — and
 // marking its `read:entity-history@body` row supported in
 // `src/util/target-capabilities.ts`.

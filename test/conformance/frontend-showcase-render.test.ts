@@ -28,7 +28,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 //   2. a SILENT-FALLBACK marker — the shared walker emits a "not supported"
 //      comment for an unrenderable primitive/seam.
 //
-// The freeze is BIDIRECTIONAL, exactly like `heex-parity.test.ts`:
+// The freeze is BIDIRECTIONAL:
 //   - a cell that starts failing WITHOUT a `GAPS` entry fails CI (a new silent
 //     gap — write the renderer or add a reasoned entry);
 //   - a `GAPS` cell that now renders ALSO fails CI (the gap closed — delete the
@@ -200,8 +200,8 @@ const FRONTENDS: ReadonlyArray<Frontend> = [
     // project would therefore report a permanent false gap.  Scope to what the
     // HEEx walker + design pack actually render.
     //
-    // No `extraScan`: the parallel HEEx engine's single give-up arm carries the
-    // same sentinel the shared walker's do (`heex-walker-core.ts`).
+    // No `extraScan`: HEEx gives up through the shared walker and its pack,
+    // with the same sentinel.
     rendered: /_live\.ex$|\.heex$|_web\/components\//,
   },
 ];

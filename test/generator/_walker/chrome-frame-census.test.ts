@@ -39,7 +39,7 @@ const NOT_USER_VISIBLE =
 /** file → the frames not yet in the catalog, by a distinctive substring. */
 const KNOWN_UNCATALOGUED: Readonly<Record<string, readonly string[]>> = {
   "elixir/liveview-emit.ts": ["${b.opHuman} succeeded"],
-  "elixir/heex-primitives.ts": ["is not available in the current state"],
+  "elixir/heex-modal.ts": ["is not available in the current state"],
   "elixir/heex-handlers.ts": ["${upperFirst(aggName)} not found"],
 };
 

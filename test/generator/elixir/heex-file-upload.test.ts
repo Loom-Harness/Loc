@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // HEEx renderer uses the LiveView-native `allow_upload`/`<.live_file_input>`
 // flow — the entry streams over the channel and a `handle_<field>_progress/3`
 // consumer persists it and assigns the FileRef map into the bound page-state
-// assign.  This is the closing of the last `heex-parity` gap.
+// assign.
 // ---------------------------------------------------------------------------
 
 const SRC = `

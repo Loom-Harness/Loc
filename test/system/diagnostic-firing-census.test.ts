@@ -4717,8 +4717,8 @@ const UNREACHABLE_PINS: Record<string, string> = {
   "loom.table-filter-unsupported":
     "`TABLE_FILTER_FRAMEWORKS` (ui-collection-display-checks.ts) now covers every `framework:` " +
     "the grammar admits: the six `walkBody` targets declare `renderFilteredRows` + " +
-    "`renderFilterInput`, and phoenixLiveView's parallel engine grew the equivalent in wave C2 " +
-    'packet 2m (`renderTable` emits the bound `<.input type="search">` plus ' +
+    "`renderFilterInput`, and phoenixLiveView's `renderTable` override renders the equivalent " +
+    '(the bound `<.input type="search">` plus ' +
     "`LoomTable.filter_rows/2`).  The gate's SIBLING, `loom.table-filter-server-paged`, is the " +
     "one that still bites and is driven by a fixture.  Checked by `LATENT_GATES`.",
   "loom.flutter-primitive-unsupported":
@@ -4978,7 +4978,7 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
-  "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
+  "loom.page-primitive-target-gap": "test/generator/elixir/heex-standalone-op-form-marker.test.ts",
 };
 
 const catalogueCodes = (): string[] => [

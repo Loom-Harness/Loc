@@ -921,7 +921,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/dotnet/emit/dapper.ts#whereToSql$2": SOUND_FALLBACK_DISPATCH,
   "src/generator/dotnet/render-expr.ts#isIdTyped": SHAPE_PREDICATE,
   "src/generator/dotnet/render-expr.ts#operandType": SHAPE_PREDICATE,
-  "src/generator/elixir/heex-primitives.ts#resolveQueryAggregate": SHAPE_PREDICATE,
+  "src/generator/elixir/heex-query.ts#resolveQueryAggregate": SHAPE_PREDICATE,
   "src/generator/elixir/heex-walker-core.ts#renderChild": SOUND_FALLBACK_DISPATCH,
   "src/generator/elixir/heex-walker-core.ts#renderInTemplate": SOUND_FALLBACK_DISPATCH,
   "src/generator/elixir/render-expr.ts#ectoNilTest": SHAPE_PREDICATE,

@@ -20,14 +20,13 @@ import * as workflowPageObject from "../../../src/generator/_frontend/workflow-p
 // builder (a new page archetype the SPAs gain a page object for) has NO
 // compile-time link to Phoenix — a contributor can add it and silently leave
 // Phoenix's parallel emitter without the matching archetype, and only the
-// heex-parity / conformance gates might (or might not) notice.
+// conformance gates might (or might not) notice.
 //
 // This test FREEZES the shared page-object builder surface.  Adding a new
 // `build*` export under `_frontend/` fails CI until the author records — in the
 // map below — how Phoenix's parallel emitter covers (or deliberately declines)
 // the same archetype.  Removing one also fails: delete the entry.  Same
-// pinned-allowlist discipline as heex-parity.test.ts and
-// walker-stdlib-completeness.test.ts.
+// pinned-allowlist discipline as walker-stdlib-completeness.test.ts.
 // ---------------------------------------------------------------------------
 
 /** Every page-object builder the `_frontend/` modules export to the SPA

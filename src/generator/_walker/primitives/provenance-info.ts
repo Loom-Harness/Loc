@@ -15,8 +15,8 @@
 // `@if`/`@for` + signal access) that each target renders its own branch —
 // rather than one fragile seam-based build.  A frontend whose response schema
 // doesn't carry the lineage yet falls through to a visible comment (the value
-// still renders, only the "?" is absent).  A future Feliz/HEEx port implements
-// the `renderProvenanceInfo` WalkerTarget seam / the parallel HEEx walker.
+// still renders, only the "?" is absent).  Feliz and HEEx implement the
+// `renderProvenanceInfo` WalkerTarget seam.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../../_payload/provenanced-wire.js";
