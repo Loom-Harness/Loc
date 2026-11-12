@@ -1055,6 +1055,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
   },
   {
+    id: "vo-date-invariant",
+    title:
+      "a value-object invariant ORDERING two `date` fields (`checkOut > checkIn`) — compiled and judged at the wire boundary in calendar order",
+    doc: "language",
+    backends: ALL,
+    note: ".NET judged it on the `<VO>Request` record, whose `date` members are the wire string, as `x.CheckOut > x.CheckIn` (CS0019 — the project did not build).  It now compares the exact `yyyy-MM-dd` strings ordinally, which is calendar order.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",

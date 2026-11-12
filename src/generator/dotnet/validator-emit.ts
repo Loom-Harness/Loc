@@ -558,8 +558,12 @@ function renderFluentPredicate(e: ExprIR): string {
       return `(${renderFluentPredicate(e.inner)})`;
     case "unary":
       return `${e.op}${renderFluentPredicate(e.operand)}`;
-    case "binary":
-      return `${renderFluentPredicate(e.left)} ${e.op} ${renderFluentPredicate(e.right)}`;
+    case "binary": {
+      const left = renderFluentPredicate(e.left);
+      const right = renderFluentPredicate(e.right);
+      if (isWireDateOrdering(e)) return `string.CompareOrdinal(${left}, ${right}) ${e.op} 0`;
+      return `${left} ${e.op} ${right}`;
+    }
     case "ternary":
       return `${renderFluentPredicate(e.cond)} ? ${renderFluentPredicate(e.then)} : ${renderFluentPredicate(e.otherwise)}`;
     case "lambda":
@@ -602,6 +606,27 @@ function renderFluentPredicate(e: ExprIR): string {
 }
 
 type Lit = ExprIR & { kind: "literal" };
+
+const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
+
+/** True for an ordering comparison of `date` operands that reads a
+ *  value-object field.  A VO invariant is judged on the `<VO>Request` record,
+ *  whose `date` members are the wire STRING (parsed to `DateOnly` only after
+ *  validation), and C# has no `>` over strings (CS0019).  A wire date is
+ *  exactly `yyyy-MM-dd`, so ordinal order IS calendar order — the same
+ *  comparison node makes on its ISO strings; a malformed value is refused by
+ *  the request mapping's own parse guard.  A command's `date` members are
+ *  already `DateOnly`, so its comparisons keep the native operator. */
+function isWireDateOrdering(e: Extract<ExprIR, { kind: "binary" }>): boolean {
+  if (!ORDERING_OPS.has(e.op)) return false;
+  const isDate = (t: TypeIR | undefined): boolean => {
+    const u = t?.kind === "optional" ? t.inner : t;
+    return u?.kind === "primitive" && u.name === "date";
+  };
+  if (!isDate(e.leftType) && !isDate(e.rightType)) return false;
+  const isVoField = (x: ExprIR): boolean => x.kind === "ref" && x.refKind === "this-vo-prop";
+  return isVoField(e.left) || isVoField(e.right);
+}
 
 function renderLit(lit: Lit["lit"], value: string): string {
   if (lit === "string") return csStringLiteral(value);

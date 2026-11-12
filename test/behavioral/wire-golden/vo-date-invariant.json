@@ -1,0 +1,137 @@
+{
+  "case": "vo-date-invariant",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/bookings/{id}",
+      "status": 200,
+      "body": {
+        "guest": "Ada",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "stay": {
+          "checkIn": "2026-01-30",
+          "checkOut": "2026-02-02"
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/stay/checkOut"
+          }
+        ],
+        "instance": "/api/bookings",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/stay/checkOut"
+          }
+        ],
+        "instance": "/api/bookings",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/bookings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "guest": "Ada",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "stay": {
+              "checkIn": "2026-01-30",
+              "checkOut": "2026-02-02"
+            }
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "PATCH",
+      "path": "/api/bookings",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bookings",
+        "instance": "/api/bookings",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/bookings",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bookings",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

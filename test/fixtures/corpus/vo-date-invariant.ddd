@@ -1,0 +1,51 @@
+// shape: an ORDERING comparison between two `date` fields of a VALUE OBJECT,
+// judged at the wire boundary — the witness that a value-object invariant
+// over calendar dates compiles and judges on every backend.
+//
+// .NET validates a value object on its `<VO>Request` record, whose `date`
+// members are still the wire string (they become `DateOnly` only after
+// validation), and rendered the invariant as `x.CheckOut > x.CheckIn` —
+// `string > string`, CS0019, so the project did not build.  The same
+// comparison on an aggregate's own `date` fields was fine: the command record
+// is already typed `DateOnly`.
+//
+// The e2e pins the judgement as well as the build: a stay that ends after it
+// starts is created; one that ends before, or on, its start day is refused.
+system VoDateInvariant {
+  subdomain Lodging {
+    context Stays {
+      valueobject Stay {
+        checkIn: date
+        checkOut: date
+        invariant checkOut > checkIn
+      }
+      aggregate Booking with crudish {
+        guest: string
+        stay: Stay
+      }
+      repository Bookings for Booking { }
+    }
+  }
+
+  api LodgingApi from Lodging
+  storage primary { type: postgres }
+  resource staysState { for: Stays, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stays]
+    dataSources: [staysState]
+    serves: LodgingApi
+    port: 4000
+  }
+
+  test e2e "a value-object date ordering invariant judges calendar order" against d {
+    let b = api.bookings.create({ guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-02" } })
+    let read = api.bookings.getById(b)
+    expect(read.stay.checkIn).toBe("2026-01-30")
+    expect(read.stay.checkOut).toBe("2026-02-02")
+    expect(api.bookings.create({ guest: "Bob", stay: { checkIn: "2026-02-02", checkOut: "2026-01-30" } })).toThrow(422)
+    expect(api.bookings.create({ guest: "Cy", stay: { checkIn: "2026-03-01", checkOut: "2026-03-01" } })).toThrow(422)
+    let all = api.bookings.all()
+    expect(all.total).toBe(1)
+  }
+}
