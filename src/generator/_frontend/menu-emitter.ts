@@ -122,7 +122,7 @@ const UNSECTIONED_LABEL = "Pages";
  *  parameterless route to navigate to, and must not have been mounted
  *  outside the app shell (`layout: none` — a login screen has no
  *  sidebar to appear in). */
-function isNavigable(p: PageIR): boolean {
+export function isNavigable(p: PageIR): boolean {
   const route = p.route;
   if (!route || route.includes(":")) return false;
   if (p.layout?.kind === "preset" && p.layout.name === "none") return false;
