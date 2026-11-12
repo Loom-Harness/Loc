@@ -16,7 +16,7 @@
 // touches one aggregate — need the resolved IR and live in the phase-⑦
 // `api-checks.ts`; these two are purely structural and gate at the AST side.)
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type CommandHandler,
@@ -25,6 +25,7 @@ import {
   type Model,
   type QueryHandler,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** True when a handler carries a braced `{ … }` body (vs. the bodyless `;`).  A
  *  non-empty `body` is unambiguously braced; for an EMPTY body — `{ }` and `;`
@@ -39,7 +40,7 @@ function hasBracedBody(node: CommandHandler | QueryHandler): boolean {
 /** Enforce the `extern` ↔ body pairing on every `commandHandler` /
  *  `queryHandler` in the model (both context-member kinds share the rule). */
 export function checkHandlerBodies(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isCommandHandler(node) && !isQueryHandler(node)) continue;
     const kind = isCommandHandler(node) ? "commandHandler" : "queryHandler";
     const braced = hasBracedBody(node);

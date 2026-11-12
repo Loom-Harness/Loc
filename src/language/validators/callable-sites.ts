@@ -30,7 +30,7 @@
 // there), so the `code:` is stated once.
 // ---------------------------------------------------------------------------
 
-import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
+import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   CALLABLE_FEATURE_PROPERTY,
@@ -39,6 +39,7 @@ import {
   callableSiteOf,
 } from "../callable-sites.js";
 import type { Model, Parameter } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** The callable sites whose lowerer passes `defaults: false` to
  *  `lowerCallableParams` (`src/ir/lower/callable-params.ts`): the grammar
@@ -92,7 +93,7 @@ function deny(accept: ValidationAcceptor, node: AstNode, property: string, messa
 }
 
 export function checkCallableSites(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     const site = callableSiteOf(node.$type);
     if (!site) continue;
     checkDroppedParamDefaults(node, site.label, accept);

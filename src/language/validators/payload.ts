@@ -7,13 +7,14 @@
 // with P3 / P4, so the checks here are deliberately narrow: name
 // uniqueness and well-formed field lists.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { BoundedContext, Model } from "../generated/ast.js";
 import { isBoundedContext, isEventDecl, isPayloadDecl, isValueObject } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkPayloads(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isBoundedContext(node)) checkContextPayloads(node, accept);
   }
 }

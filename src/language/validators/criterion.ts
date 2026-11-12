@@ -40,6 +40,7 @@ import {
   type NameRef,
 } from "../generated/ast.js";
 import { findOperation } from "../type-system.js";
+import { modelContents } from "./model-contents.js";
 
 /** Resolve the candidate aggregate of a criterion's `of <T>`, or
  *  `undefined` when the candidate is not a (non-array, non-optional)
@@ -63,7 +64,7 @@ function isBoolTarget(c: Criterion): boolean {
 }
 
 export function checkCriteria(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isBoundedContext(node)) checkCriterionRetrievalClash(node, accept);
     if (!isCriterion(node)) continue;
     checkOneCriterion(node, accept);
@@ -229,7 +230,7 @@ function shadowsCriterionName(
  *  The unambiguous call form (`X(args)`) is always checked; a bare name
  *  is checked only when it is not shadowed by a field / enum value. */
 function checkCriterionUseSites(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     // Call form: `X(args)` — head NameRef + leading CallSuffix.
     if (isPostfixChain(node)) {
       const head = node.head;

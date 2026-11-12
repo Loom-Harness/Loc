@@ -22,11 +22,12 @@
 // literal. A purely numeric `+` in a value slot (`Stat { "Total", count + 1 }`)
 // is arithmetic, not text composition, and is left alone.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { USER_VISIBLE_SLOTS, type UserVisibleSlot } from "../../util/user-visible-slots.js";
 import type { BuilderCall, Expression } from "../generated/ast.js";
 import { isBinaryChain, isParenExpr, isStringLit } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** Unwrap redundant parentheses to reach the operative expression. */
 function unwrap(e: Expression): Expression {
@@ -64,7 +65,7 @@ export function checkUserVisibleConcat(
   model: import("../generated/ast.js").Model,
   accept: ValidationAcceptor,
 ): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "BuilderCall") continue;
     const bc = node as BuilderCall;
     const slots = USER_VISIBLE_SLOTS[bc.type];

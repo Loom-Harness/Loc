@@ -6,7 +6,7 @@
 // declaration that was written and the position it was written in, with the
 // table's code, instead of "Unknown type".
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isEventDecl, isNamedType, isPayloadDecl, type Model } from "../generated/ast.js";
 import {
@@ -15,9 +15,10 @@ import {
   positionLabel,
   positionRule,
 } from "../type-positions.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkTransportTypePositions(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isNamedType(node)) continue;
     const target = node.target?.ref;
     if (!target || !(isEventDecl(target) || isPayloadDecl(target))) continue;
