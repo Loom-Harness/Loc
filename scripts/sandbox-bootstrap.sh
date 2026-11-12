@@ -53,21 +53,22 @@ ensure_dockerd() {
   return 1
 }
 
-# pull <image>: retry Docker Hub 429s, then fall back to mirror.gcr.io for
-# library images (`gradle`, `node`, ...), which the sandbox proxy serves
-# without the Hub rate limit.
+# pull <image>: retry Docker Hub 429s, then fall back to mirror.gcr.io, which
+# serves Docker Hub images (`gradle`, `node`, `hexpm/elixir`) without the Hub
+# rate limit.  Images on other registries (mcr.microsoft.com, ghcr.io) have no
+# mirror and are only retried.
 pull() {
-  local img="$1" n
+  local img="$1" n mirror
   for n in 1 2 3; do
     docker pull -q "$img" >/dev/null 2>&1 && return 0
     sleep $((n * 5))
   done
   case "$img" in
-    */*/*|*/*) : ;;                           # namespaced image: no library mirror
-    *) docker pull -q "mirror.gcr.io/library/$img" >/dev/null 2>&1 \
-         && docker tag "mirror.gcr.io/library/$img" "$img" && return 0 ;;
+    */*/*) return 1 ;;                          # registry-qualified (mcr, ghcr)
+    */*)   mirror="mirror.gcr.io/$img" ;;
+    *)     mirror="mirror.gcr.io/library/$img" ;;
   esac
-  return 1
+  docker pull -q "$mirror" >/dev/null 2>&1 && docker tag "$mirror" "$img"
 }
 
 # extract <image> <name> <src:dest>...   (dest is relative to $TC/<name>)
