@@ -43,6 +43,19 @@ function sessionTexts(
     : { loading: authGateMessage("sessionLoading"), signIn: authGateMessage("signIn") };
 }
 
+/** The forbidden view a `requires`-gated page falls back to, in one framework's
+ *  text syntax — same contract as {@link sessionTexts}: `wrap` turns a `t(…)`
+ *  call into the binding; an app with no i18n runtime carries the literal
+ *  English. */
+export function forbiddenTexts(
+  i18n: boolean,
+  wrap: (call: string) => string,
+): { title: string; body: string } {
+  return i18n
+    ? { title: wrap(sessionT("forbiddenTitle")), body: wrap(sessionT("forbiddenBody")) }
+    : { title: authGateMessage("forbiddenTitle"), body: authGateMessage("forbiddenBody") };
+}
+
 /** `src/auth/session.ts` — session probe + sign-in/out redirects. */
 export const AUTH_SESSION_TS = `// Auto-generated.
 import { ApiError, api } from "../api/client";

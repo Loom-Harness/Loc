@@ -775,6 +775,73 @@ describe("i18n round trip — frontends (M-T9.39)", () => {
   });
 });
 
+// --- the forbidden view of a page-level `requires` ---------------------------
+
+/** The four pack-rendered frontends draw their own forbidden fallback for a
+ *  `requires`-gated page; one cell per framework. */
+const FORBIDDEN_CELLS: readonly FrontendTarget[] = [
+  { id: "mantine", platform: "react", pack: "mantine" },
+  { id: "vuetify", platform: "vue", pack: "vuetify" },
+  { id: "flowbite", platform: "svelte", pack: "flowbite" },
+  { id: "angularMaterial", platform: "angular", pack: "angularMaterial" },
+];
+
+/** A minimal `auth: ui` frontend with a `requires`-gated page.  `heading` is
+ *  the authored text that turns the UI's i18n runtime on (empty ⇒ off). */
+const gatedSystem = (t: FrontendTarget, heading: string): string => `
+system Helpdesk {
+  user { id: string  role: string }
+  auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
+  subdomain Support {
+    context Tickets {
+      aggregate Ticket { subject: string }
+      repository Tickets for Ticket
+      policy { read Ticket requires true }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Tickets, kind: state, use: primary }
+  api SupportApi from Support
+  deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
+  ui WebApp {
+    api Support: SupportApi
+    page Secret { route: "/secret" requires currentUser.role == "agent" body: Stack { ${heading} Divider() } }
+  }
+  deployable web { platform: ${t.platform} design: "${t.pack}" targets: api ui: WebApp { Support: api } port: 3001 auth: ui }
+}`;
+
+describe("i18n round trip — the page-level `requires` forbidden view", () => {
+  for (const t of FORBIDDEN_CELLS) {
+    it(`${t.id}: the forbidden text is catalogued, read through its key, and bound`, async () => {
+      const files = await generateSystemFiles(gatedSystem(t, 'Heading { "Secret" },'));
+      const r = roundTrip(files, t, "derived");
+      const keys = ["chrome.forbiddenTitle", "chrome.forbiddenBody"];
+      expect(keys.map((k) => r.catalog[k])).toEqual([
+        "Forbidden",
+        "You do not have access to this page.",
+      ]);
+      const about = (rows: { key: string }[]) => rows.filter((x) => keys.includes(x.key));
+      expect({
+        dead: r.dead.filter((k) => keys.includes(k)),
+        // The English rendered raw next to a catalogued key.
+        raw: about(r.raw),
+        // The key present but inside inert markup.
+        unbound: about(r.unbound),
+      }).toEqual({ dead: [], raw: [], unbound: [] });
+    });
+
+    it(`${t.id}: an app without a translation runtime keeps the literal English`, async () => {
+      const files = await generateSystemFiles(gatedSystem(t, ""));
+      const page = [...files].find(
+        ([p, src]) => p.startsWith("web/") && /currentUser/.test(src) && /agent/.test(src),
+      );
+      expect(page, `${t.id}: no gated page emitted`).toBeDefined();
+      expect(page![1]).toContain("Forbidden");
+      expect(page![1]).not.toContain("chrome.forbidden");
+    });
+  }
+});
+
 // --- the backend half --------------------------------------------------------
 
 /** The five backends.  None ships a runtime catalog: each answers a rule's

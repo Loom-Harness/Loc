@@ -365,8 +365,8 @@ export interface FormSentenceScope {
   /** The rendering frontend draws its own session gate (sign-in prompt,
    *  forbidden view), so {@link AUTH_GATE_CHROME} belongs in the catalog. */
   readonly authGate?: boolean;
-  /** The rendering frontend ships the generated session view (a loading state
-   *  and a sign-in screen, no forbidden view), so {@link SESSION_VIEW_CHROME}
+  /** The rendering frontend ships the generated session view (a loading state,
+   *  a sign-in screen and the forbidden view), so {@link SESSION_VIEW_CHROME}
    *  belongs in the catalog. */
   readonly sessionView?: boolean;
   /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
@@ -660,13 +660,17 @@ export const AUTH_GATE_CHROME: Record<string, string> = {
 };
 
 /** Chrome the session view of the pack-rendered frontends (React, Vue, Svelte,
- *  Angular) renders: the loading state while `/auth/me` is probed, and the
- *  sign-in screen's heading and button.  Merged only for a frontend that ships
+ *  Angular) renders: the loading state while `/auth/me` is probed, the
+ *  sign-in screen's heading and button, and the forbidden view a
+ *  `requires`-gated page falls back to.  Merged only for a frontend that ships
  *  that view (`FormSentenceScope.sessionView`), under the same already-enabled
  *  gate as the other tables.  The sign-in text is the gate's own `signIn`. */
 export const SESSION_VIEW_CHROME: Record<string, string> = {
   [chromeKey("sessionLoading")]: "Loading…",
   [chromeKey("signIn")]: AUTH_GATE_CHROME[chromeKey("signIn")]!,
+  // The page-level `requires` fallback every pack-rendered page shell draws.
+  [chromeKey("forbiddenTitle")]: AUTH_GATE_CHROME[chromeKey("forbiddenTitle")]!,
+  [chromeKey("forbiddenBody")]: AUTH_GATE_CHROME[chromeKey("forbiddenBody")]!,
 };
 
 /** The source-language text of a session-gate or session-view chrome string, as

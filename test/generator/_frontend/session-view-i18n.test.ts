@@ -62,8 +62,8 @@ describe("session view chrome", () => {
       const catalog = JSON.parse(on.get(".loom/messages.en.json")!);
       expect(catalog["chrome.signIn"]).toBe("Sign in");
       expect(catalog["chrome.sessionLoading"]).toBe("Loading…");
-      // The view draws no forbidden screen, so that text carries no key.
-      expect(catalog["chrome.forbiddenTitle"]).toBeUndefined();
+      expect(catalog["chrome.forbiddenTitle"]).toBe("Forbidden");
+      expect(catalog["chrome.forbiddenBody"]).toBe("You do not have access to this page.");
 
       const off = JSON.parse(
         (await generateSystemFiles(SYS(platform, "", 'Heading { "Helpdesk" }'))).get(
@@ -72,6 +72,7 @@ describe("session view chrome", () => {
       );
       expect(off["chrome.signIn"]).toBeUndefined();
       expect(off["chrome.sessionLoading"]).toBeUndefined();
+      expect(off["chrome.forbiddenTitle"]).toBeUndefined();
     });
 
     it(`${platform}: stays literal English when the app has no translation runtime`, async () => {
