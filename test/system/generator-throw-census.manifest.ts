@@ -673,22 +673,32 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The gate runs the identical elixirMatchRefusal(op.body,'value') predicate on every domain-service operation of a context hosted by an elixir deployable.",
   },
 
+  // src/generator/elixir/heex-handlers.ts
+  "src/generator/elixir/heex-handlers.ts#renderStmt": {
+    guardedBy: ["loom.if-stmt-page-body-unsupported"],
+    note: "Any `if` statement in any ui page/component/store action or inline handler is an error on every frontend.",
+  },
+  "src/generator/elixir/heex-handlers.ts#renderVariantMatchStmt": {
+    guardedBy: ["loom.async-effect-subject-unsupported", "loom.effect-in-lambda"],
+    note: "Every page/component action variant-match whose subject is not an aggregate-op method call is refused, and that accepted shape always satisfies detectAwaitedOp; inline-lambda placement is refused by loom.effect-in-lambda (verified).",
+  },
+  "src/generator/elixir/heex-handlers.ts#renderVariantMatchStmt$2": {
+    guardedBy: ["loom.ui-aggregate-unserved"],
+    note: "A page `match await <Agg>.op()` names an aggregate through a bare aggregate ref; loom.ui-aggregate-unserved now also covers a backend that mounts its ui itself (HEEx LiveView), refusing any page read of an aggregate outside the deployable's own contexts \u2014 so every awaited aggregate is a served one.",
+  },
+
   // src/generator/elixir/heex-target.ts
+  "src/generator/elixir/heex-target.ts#renderChildrenSlot": {
+    invariant:
+      "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
+  },
   "src/generator/elixir/heex-target.ts#bindDataAccess": {
     invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never bindDataAccess, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
-  },
-  "src/generator/elixir/heex-target.ts#renderConditionalChild": {
-    invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderConditionalChild, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
-  },
-  "src/generator/elixir/heex-target.ts#renderForEach": {
-    invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker calls only a handful of its methods directly and never renderForEach, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked, at :873,:1466,:1620,:2178,:2222))",
+      "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
   },
   "src/generator/elixir/heex-target.ts#renderLocaleSwitcher": {
     invariant:
-      "heexTarget is never handed to the shared _walker engine; the HEEx walker renders LocaleSwitcher through heex-primitives.ts:renderLocaleSwitcher and never calls this seam, so this shim is dead. (src/generator/elixir/heex-walker-core.ts:74 (heexTarget imported only here; only renderStateRead/renderStateWrite/renderMatch/renderApiCall/renderNavigate are invoked))",
+      "heexTarget is walked only by walkBodyToHeex / renderThroughSharedCore, which always seed the HEEx walk context into the sink, and LocaleSwitcher is a call node; the guard only names a broken caller. (src/generator/elixir/heex-walker-core.ts walkShared / renderThroughSharedCore)",
   },
   "src/generator/elixir/heex-target.ts#renderNestedStateWrite": {
     invariant:
@@ -703,18 +713,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/heex-walker-core.ts#rejectAuthzFilter": {
     invariant:
       "authz-filter sentinels are built only by tenancy/deny enrichment into aggregate query-filter positions, never into a UI page body expression. (src/ir/util/tenant-stance.ts:349,:451 (only producers of authz-filter, used for aggregate contextFilters/writeScopeFilter in enrichment))",
-  },
-  "src/generator/elixir/heex-walker-core.ts#renderStmt": {
-    guardedBy: ["loom.if-stmt-page-body-unsupported"],
-    note: "Any `if` statement in any ui page/component/store action or inline handler is an error on every frontend.",
-  },
-  "src/generator/elixir/heex-walker-core.ts#renderVariantMatchStmt": {
-    guardedBy: ["loom.async-effect-subject-unsupported", "loom.effect-in-lambda"],
-    note: "Every page/component action variant-match whose subject is not an aggregate-op method call is refused, and that accepted shape always satisfies detectAwaitedOp; inline-lambda placement is refused by loom.effect-in-lambda (verified).",
-  },
-  "src/generator/elixir/heex-walker-core.ts#renderVariantMatchStmt$2": {
-    guardedBy: ["loom.ui-aggregate-unserved"],
-    note: "A page `match await <Agg>.op()` names an aggregate through a bare aggregate ref; loom.ui-aggregate-unserved now also covers a backend that mounts its ui itself (HEEx LiveView), refusing any page read of an aggregate outside the deployable's own contexts \u2014 so every awaited aggregate is a served one.",
   },
 
   // src/generator/elixir/liveview-emit.ts

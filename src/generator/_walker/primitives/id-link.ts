@@ -49,6 +49,8 @@ export function emitIdLink(
   ctx: WalkContext,
   depth: number,
 ): string {
+  const override = ctx.target.renderIdLink?.(call, ctx, depth);
+  if (override != null) return override;
   const idArg = namedArgValue(call, "id") ?? positionalArgs(call)[0];
   // A required reference — the overwhelmingly common case — takes the emitter
   // it always took, with the argument it always had.  Nothing about its output

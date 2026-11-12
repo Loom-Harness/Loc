@@ -1141,7 +1141,7 @@ function readDependsOnState(qb: QueryBinding, field: string): boolean {
 /** Make a state-bound input's write-back clause RE-RUN the list reads that
  *  depend on the assign it just wrote.
  *
- *  `controlledInput` hoists `update_<field>` / `toggle_<field>` clauses that do
+ *  `bindStateInput` hoists `update_<field>` / `toggle_<field>` clauses that do
  *  one thing: `assign(socket, :<field>, value)`.  That is enough for a field
  *  only the MARKUP reads, and not enough for one a QUERY reads — typing in the
  *  scaffolded list page's filter box flips the render `cond` into the filtered

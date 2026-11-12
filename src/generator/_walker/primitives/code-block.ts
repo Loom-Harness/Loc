@@ -45,8 +45,8 @@ export function emitCodeBlock(
   ctx: WalkContext,
   depth: number,
 ): string {
-  void depth;
-  const language = stringNamed(call, "language") ?? "plaintext";
+  const authoredLanguage = stringNamed(call, "language");
+  const language = authoredLanguage ?? "plaintext";
   // `source:` named arg wins when present; otherwise fall back to the
   // first positional string literal so the Phoenix-style call shape
   // (`CodeBlock { "...code...", language: "ts" }`) emits the same code.
@@ -68,7 +68,9 @@ export function emitCodeBlock(
   const source = ctx.target.escapeText(sourceRaw);
   return renderPrimitive(ctx, "primitive-code-block", {
     language,
+    hasLanguage: authoredLanguage !== undefined,
     source,
+    closeIndent: "  ".repeat(depth),
     titleText,
     hasTitle,
     testidAttr: testidAttr(call, ctx),

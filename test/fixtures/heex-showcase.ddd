@@ -16,6 +16,8 @@
 //     body, and a stateless component rendered twice on one page;
 //   - `match await` in a page action;
 //   - store reads and store actions, from a page and from a component;
+//   - Buttons with an icon on either side, `loading:`, `disabled:`, `variant:`,
+//     an accessible `label:` and a `to:` link;
 //   - a projection-backed Chart.
 
 system HeexShowcase {
@@ -188,7 +190,19 @@ system HeexShowcase {
           Heading { "Board", level: 2 },
           Button { "Reserve", onClick: reserveNow },
           Button { "Clear basket", onClick: discard },
-          Button { "Clear basket directly", onClick: Basket.clear }
+          Button { "Clear basket directly", onClick: Basket.clear },
+          Button {
+            "Save",
+            onClick: toggle,
+            icon: "check",
+            iconPosition: "left",
+            disabled: editing,
+            variant: "secondary",
+            label: "Save the board",
+            testid: "save",
+            loading: editing
+          },
+          Button { "Next", to: "/desk", icon: "arrow-right" }
         },
         Grid {
           cols: [2, 1],

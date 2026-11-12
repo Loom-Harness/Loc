@@ -40,10 +40,11 @@ import {
   opDialogChrome,
   sentenceChromeName,
 } from "../_walker/i18n-chrome.js";
-import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { paramLabelOwner, workflowRunEntry } from "../_walker/model-text-sites.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
+import type { InputControl, QueryViewRead } from "../_walker/target.js";
+import { gateActionButton } from "./heex-action.js";
 import {
   enumLabelLookup,
   enumOptionTuples,
@@ -54,22 +55,17 @@ import {
 import {
   escapeHeexAttr,
   escapeHeexText,
-  gateActionButton,
   hostStateAssign,
   indent,
   isAttrRenderable,
   localizedHeexAttr,
-  type PrimitiveSpec,
   registerBinding,
-  renderAttrValue,
   renderChild,
   renderExpr,
   renderInTemplate,
-  renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
 import { formChromeAttr, pgettextCall } from "./i18n.js";
-import { renderLocaleSelect } from "./locale.js";
 import { updateSeamGates } from "./vanilla/gate.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 // ---------------------------------------------------------------------------
@@ -107,24 +103,6 @@ export function testIdAttr(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   const idx = (expr.argNames ?? []).indexOf("testid");
   const arg = idx >= 0 ? expr.args[idx] : undefined;
   return arg ? ` data-testid=${attrValue(arg, ctx)}` : "";
-}
-
-/** `Breadcrumbs(items...)` → `<nav aria-label="breadcrumb">` with
- *  a list of spans/links.  Positional children are each an Anchor
- *  (link) or Text (current page) from the scaffold expander. */
-export function renderBreadcrumbs(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const items = expr.args.map((a) => renderChild(a, ctx));
-  const itemsHeex = items
-    .map((item, i) =>
-      i < items.length - 1
-        ? `  <li class="breadcrumb-item">${item}</li>\n  <li class="breadcrumb-sep" aria-hidden="true">/</li>`
-        : `  <li class="breadcrumb-item breadcrumb-current" aria-current="page">${item}</li>`,
-    )
-    .join("\n");
-  return `<nav aria-label="breadcrumb">\n  <ol class="breadcrumbs">\n${indent(itemsHeex, 2)}\n  </ol>\n</nav>`;
 }
 
 /** `Modal(trigger: Button(...), title: "…", OperationForm(of: Agg, op: x))`
@@ -671,56 +649,6 @@ function htmlInputTypeForIRType(t: TypeIR): string {
   }
 }
 
-/** `For { each: <coll>, empty?: <markup>, <item> => <markup> }` →
- *  `<%= for <item> <- <coll> do %> … <% end %>` — LiveView's
- *  for-comprehension block.  No keyed wrapper: the `key:` arg is a
- *  client-framework reconciliation hint (React/Vue/Svelte) with no
- *  HEEx analogue, so it's accepted-and-ignored here.  The loop
- *  variable is a plain local (bare `snake(name)`), so item refs in the
- *  body resolve through `renderRef`'s unknown-refKind fall-through —
- *  same mechanism the Table `<:col :let={row}>` slot relies on.
- *
- *  An `empty:` arm wraps the comprehension in an `Enum.empty?/1` guard
- *  (`for` has no native else clause).  The collection is read twice —
- *  fine for the page DSL's simple `each:` refs / assigns. */
-export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let coll: ExprIR | undefined;
-  let itemLam: Extract<ExprIR, { kind: "lambda" }> | undefined;
-  let emptyExpr: ExprIR | undefined;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (arg.kind === "lambda") {
-      // First positional (or `render:`) lambda is the item renderer;
-      // a `key:` lambda has no HEEx analogue and is skipped.
-      if (name === undefined || name === "render") itemLam ??= arg;
-      continue;
-    }
-    if (name === "each") coll = arg;
-    else if (name === "empty") emptyExpr = arg;
-    else if (name === undefined) coll ??= arg;
-  }
-  if (!coll) {
-    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing 'each:' collection expression")} --%>`;
-  }
-  if (!itemLam?.body) {
-    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing item lambda")} --%>`;
-  }
-  const itemVar = snake(itemLam.param);
-  const collHeex = renderExpr(coll, { ...ctx, position: "template" });
-  const body = renderChild(itemLam.body, withRowType(ctx, coll, itemLam.param));
-  const loop = [`<%= for ${itemVar} <- ${collHeex} do %>`, indent(body, 2), `<% end %>`].join("\n");
-  if (!emptyExpr) return loop;
-  const emptyBody = renderChild(emptyExpr, ctx);
-  return [
-    `<%= if Enum.empty?(${collHeex}) do %>`,
-    indent(emptyBody, 2),
-    `<% else %>`,
-    indent(loop, 2),
-    `<% end %>`,
-  ].join("\n");
-}
-
 /** The aggregate a `Table` `rows:` / `For` `each:` collection's rows are: a
  *  list QueryView's data param (`rows`), or its server-paged envelope's
  *  `rows.items`. */
@@ -733,7 +661,11 @@ function collectionRowType(coll: ExprIR | undefined, ctx: WalkContext): string |
 }
 
 /** `ctx` with a row lambda's param typed as the collection's row aggregate. */
-function withRowType(ctx: WalkContext, coll: ExprIR | undefined, param: string): WalkContext {
+export function withRowType(
+  ctx: WalkContext,
+  coll: ExprIR | undefined,
+  param: string,
+): WalkContext {
   const agg = collectionRowType(coll, ctx);
   return agg ? { ...ctx, rowTypes: new Map([...(ctx.rowTypes ?? []), [param, agg]]) } : ctx;
 }
@@ -903,7 +835,7 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
  *  table — the HEEx leg of the shared walker's `renderFilterInput` seam
  *  (`loom.table-filter-unsupported`).
  *
- *  Same shape as every other bound input on this target (`controlledInput`):
+ *  Same shape as every other bound input on this target (`bindStateInput`):
  *  an `<.input>` whose `phx-change` writes the bound assign, with the
  *  write-back clause hoisted once into the host LiveView.  The re-render that
  *  follows re-runs `LoomTable.filter_rows/2` in the template — there is
@@ -999,7 +931,7 @@ function stateRefArg(
  *  `<:col :let={row} label="...">...</:col>` slot.  Called only from
  *  `renderTable` — never registered as a top-level primitive because
  *  Column nodes are always children of Table in the expander output. */
-export function renderTableColumn(
+function renderTableColumn(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
   /** True when the enclosing Table carries an active `sortKey:`/`sortDir:`
@@ -1091,14 +1023,6 @@ function renderColLetVar(accessor: ExprIR | undefined, _ctx: WalkContext): strin
   return "row";
 }
 
-/** `QueryView(of: expr, loading: ..., error: ..., empty: ..., data: rows => ...)` →
- *  LiveView-idiomatic conditional rendering.
- *
- *  The `data:` lambda's parameter (usually `rows` or `data`) maps to a
- *  LiveView assign (`@items` or `@data`).  mount() is responsible for
- *  pre-loading (or setting nil for lazy loading).  The success branch
- *  renders the lambda body directly — the Table primitive reads its
- *  own `rows={…}` from the same assign, so no for-loop is needed here. */
 /** Resolve the aggregate PascalCase name out of a `QueryView`
  *  `of:` argument.  The scaffold-expander emits one of:
  *    detail  → method-call `<api>.<Agg>.byId(id)` (receiver is a
@@ -1243,16 +1167,26 @@ function readActorArgs(
   }
 }
 
-export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let ofExpr = "";
-  let ofArgNode: ExprIR | undefined;
-  let loadingHeex = `<div class="animate-pulse">Loading...</div>`;
-  let errorHeex = `<div class="alert alert-error">Error loading data.</div>`;
-  let emptyHeex = `<div class="empty">No items.</div>`;
-  let dataHeex = "";
-  let dataVar = "rows";
-  let assignName = "items";
-  // Resolve the read's SHAPE up front, from the IR rather than from the flags.
+/** What a `QueryView` reads on a LiveView page, decided from the IR: the assign
+ *  its load fills, the read's shape, and which read it is.  Pure apart from
+ *  the per-page assign reservation (`reserveQueryAssign`). */
+interface QueryViewPlan {
+  ofNode: ExprIR;
+  assignName: string;
+  isSingle: boolean;
+  isPaged: boolean;
+  autoPaged: boolean;
+  detected: DetectedApiCall | null;
+  projectionRead?: string;
+  historyRead?: string;
+}
+
+function queryViewPlan(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  ofNode: ExprIR,
+  ctx: WalkContext,
+): QueryViewPlan {
+  // Resolve the read's SHAPE from the IR rather than from the flags.
   // `paged:` / `single:` are opt-INs; the facts behind them are properties of
   // the find, and taking them from the flags alone is what made a hand-written
   // `QueryView { of: X.all }` render `Enum.empty?/1` against the paged envelope
@@ -1260,34 +1194,18 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   // iterated the map's key/value pairs) and a `byId` read without `single:`
   // raise `Protocol.UndefinedError` on a struct.  Same derivation the JSX
   // walker uses — see `_walker/paged-query.ts`.
-  //
-  // Pre-scanned rather than read inside the arg loop below: `data:` may precede
-  // `single:` in source order, and the data-lambda branch needs the answer.
   const names = expr.argNames ?? [];
   const litTrue = (i: number): boolean => {
     const a = i >= 0 ? expr.args[i] : undefined;
     return a?.kind === "literal" && a.value === "true";
   };
-  const ofNode = expr.args[names.indexOf("of")];
-  // No `of:` at all — the JSX walker gives up here (`emitQueryView` in
-  // `_walker/primitives/controls.ts`).  Falling through to the `cond` below
-  // with `ofExpr === ""` would render the loading / error / empty arms plus an
-  // EMPTY `true ->` branch: a framed panel that reads as "loaded, nothing to
-  // show" for a read that was never wired.  Same shape as the standalone
-  // op-form guard in `renderForm` — every target says what it could not do.
-  if (!ofNode)
-    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "QueryView: missing 'of:' query expression")} -->`;
   // Entity-history read (`<Agg>.history(id)`, docs/audit.md) — NOT an ordinary
   // aggregate read: it scans `audit_records` for one target, so binding it as
-  // one would load `list_<aggs>` (the LIST, not the trail).  Tagged here and
-  // loaded by the LiveView's page-private `load_<agg>_history/2`, which is why
-  // `phoenixLiveView` is in `HISTORY_CAPABLE_FRAMEWORKS` and there is no skip
-  // branch here — the JSX walker still consults the shared predicate for the
-  // targets that have NOT ported the read.
-  const historyRead =
-    ofNode && isEntityHistoryRead(ofNode, ctx.aggregatesByName)
-      ? resolveQueryAggregate(ofNode)
-      : undefined;
+  // one would load `list_<aggs>` (the LIST, not the trail).  Loaded by the
+  // LiveView's page-private `load_<agg>_history/2`.
+  const historyRead = isEntityHistoryRead(ofNode, ctx.aggregatesByName)
+    ? resolveQueryAggregate(ofNode)
+    : undefined;
   // Detector context, shared by the shape derivation and the Pattern H probe
   // below so the two can't answer from different name sets.
   const detectCtx = {
@@ -1297,29 +1215,13 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     projectionsByName: ctx.projectionsByName,
     listShapedProjections: ctx.listShapedProjections,
   };
-  const shape = ofNode ? queryShape(ofNode, detectCtx) : { paged: false, single: false };
-  // Pattern H — `QueryView { of: <api>.<Projection> }`.  The
-  // read resolves to the query-time projection's own `run/1`, in-process: a
-  // LiveView deployable hosts its contexts in the SAME OTP app, so what the SPA
-  // frontends reach over `GET /projections/<slug>` is one function call here.
-  //
-  // Probed BEFORE the arg loop because the projection also names the assign
-  // (below) — a fact the loop's `data:` branch would otherwise decide first.
-  const detected = ofNode ? tryDetectApiHook(ofNode, detectCtx) : null;
+  const shape = queryShape(ofNode, detectCtx);
+  // Pattern H — `QueryView { of: <api>.<Projection> }`.  The read resolves to
+  // the query-time projection's own `run/1`, in-process: a LiveView deployable
+  // hosts its contexts in the SAME OTP app, so what the SPA frontends reach
+  // over `GET /projections/<slug>` is one function call here.
+  const detected = tryDetectApiHook(ofNode, detectCtx);
   const projectionRead = detected?.kind === "projection" ? detected.aggregateName : undefined;
-  // A projection read names its assign after the PROJECTION (`:order_totals`),
-  // not after the `data:` lambda's parameter.  The param-derived name is fine
-  // for the aggregate arms — a page rarely carries two — but the scaffolded
-  // dashboard puts ONE KPI `QueryView` PER AGGREGATE on `Home`, each written by
-  // the same macro with the same lambda param `t`.  Named off the param, every
-  // one of them would assign `:t` and the last load would win: every tile
-  // showing the same aggregate's numbers, with nothing to see in the diff.
-  if (projectionRead) assignName = snake(projectionRead);
-  // A history read names its assign after the AGGREGATE (`:order_history`) for
-  // the same reason: the scaffold's `data:` lambda param is `entries`, which is
-  // a name any hand-written read could also pick — and a detail page carrying
-  // both would have the two loads fight over one assign.
-  if (historyRead) assignName = `${snake(historyRead)}_history`;
   // Flag OR fact: an author may opt in explicitly (the scaffold does), but
   // omitting the flag does NOT mean "not paged" / "not single".
   const isSingle = litTrue(names.indexOf("single")) || shape.single;
@@ -1332,58 +1234,107 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   // `<.table>` iterated its key/value pairs.  An explicit `paged: true` body
   // (the scaffold) reads `rows.items` itself, so it binds the envelope.
   const autoPaged = !explicitPaged && !isSingle && shape.paged;
+  return {
+    ofNode,
+    assignName: queryAssignName(expr, projectionRead, historyRead, ctx),
+    isSingle,
+    isPaged,
+    autoPaged,
+    detected,
+    ...(projectionRead === undefined ? {} : { projectionRead }),
+    ...(historyRead === undefined ? {} : { historyRead }),
+  };
+}
 
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "of") {
-      ofArgNode = arg;
-      ofExpr = renderExpr(arg, { ...ctx, position: "template" });
-    } else if (name === "loading") {
-      loadingHeex = renderChild(arg, ctx);
-    } else if (name === "error") {
-      errorHeex = renderChild(arg, ctx);
-    } else if (name === "empty") {
-      emptyHeex = renderChild(arg, ctx);
-    } else if (name === "data") {
-      if (arg.kind === "lambda") {
-        dataVar = snake(arg.param);
-        // Map the lambda param name to a LiveView assign.
-        // Convention: "rows" → @items (list pages), "data" → @data (detail pages)
-        // A projection read already took its assign from the projection name.
-        if (!projectionRead && !historyRead) assignName = dataVar === "rows" ? "items" : dataVar;
-        // Build a remapping so ref("rows") → @items, ref("data") → @data, etc.
-        const remapping = new Map<string, string>([
-          [dataVar, autoPaged ? `${assignName}.items` : assignName],
-        ]);
-        // Type the data binding so a nested instance-qualified op-form
-        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on
-        // — or, for a list, so its `Table` / `For` rows type theirs.
-        const queried = ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
-        const known = queried !== undefined && ctx.aggregatesByName.has(queried);
-        const innerCtx: WalkContext = {
-          ...ctx,
-          varRemapping: remapping,
-          instanceTypes:
-            known && isSingle
-              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, queried]])
-              : ctx.instanceTypes,
-          listTypes:
-            known && !isSingle
-              ? new Map([...(ctx.listTypes ?? []), [arg.param, queried]])
-              : ctx.listTypes,
-        };
-        if (arg.body) dataHeex = renderChild(arg.body, innerCtx);
-      } else {
-        dataHeex = renderChild(arg, ctx);
-      }
-    }
-  }
-  void ofExpr;
+/** The assign a `QueryView`'s load fills.
+ *
+ *  A projection read names it after the PROJECTION (`:order_totals`) and a
+ *  history read after the AGGREGATE (`:order_history`): the scaffolded
+ *  dashboard puts one KPI `QueryView` per aggregate on `Home`, each with the
+ *  same lambda param, and a detail page's history read uses `entries`, a name
+ *  any hand-written read could also pick.  Any other read names it after its
+ *  `data:` lambda param — `rows` reads as `items`, the scaffold's list
+ *  convention — reserved per page, so two reads whose lambdas share a param
+ *  each get their own assign (`items`, `items_2`) instead of loading into one
+ *  where the last load wins. */
+function queryAssignName(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  projectionRead: string | undefined,
+  historyRead: string | undefined,
+  ctx: WalkContext,
+): string {
+  if (projectionRead) return snake(projectionRead);
+  if (historyRead) return `${snake(historyRead)}_history`;
+  const data = expr.args[(expr.argNames ?? []).indexOf("data")];
+  const param = data?.kind === "lambda" ? snake(data.param) : "rows";
+  return reserveQueryAssign(expr, param === "rows" ? "items" : param, ctx);
+}
 
-  // Register the query binding so the LiveView emitter loads the
-  // record(s) in handle_params (the assign the cond below reads is
-  // never populated otherwise — see QueryBinding).
+/** The assign `base` for this `QueryView`, or the first free `base_<n>` when
+ *  another read on the page already holds `base`.  Keyed by the call node, so
+ *  the view's data scope and its load binding agree on the name. */
+function reserveQueryAssign(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  base: string,
+  ctx: WalkContext,
+): string {
+  const reserved = ctx.queryAssigns.get(expr);
+  if (reserved !== undefined) return reserved;
+  const taken = new Set(ctx.queryAssigns.values());
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}_${n}`;
+  ctx.queryAssigns.set(expr, name);
+  return name;
+}
+
+/** The `of:` read of a `QueryView`, when it has one. */
+function queryViewOf(expr: Extract<ExprIR, { kind: "call" }>): ExprIR | undefined {
+  return expr.args[(expr.argNames ?? []).indexOf("of")];
+}
+
+/** The walk context a `QueryView`'s `data:` lambda body renders under: its
+ *  parameter remapped to the assign the load fills (the envelope's `.items`
+ *  when the read is auto-paged), and typed so a nested instance-qualified
+ *  op-form (`OperationForm(data.confirm)`) resolves the aggregate it operates
+ *  on — or, for a list, so its `Table` / `For` rows type theirs. */
+export function queryViewDataContext(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  param: string,
+  ctx: WalkContext,
+): WalkContext {
+  const ofNode = queryViewOf(expr);
+  if (!ofNode) return ctx;
+  const plan = queryViewPlan(expr, ofNode, ctx);
+  const remapping = new Map<string, string>([
+    [snake(param), plan.autoPaged ? `${plan.assignName}.items` : plan.assignName],
+  ]);
+  const queried = resolveQueryAggregate(ofNode);
+  const known = queried !== undefined && ctx.aggregatesByName.has(queried);
+  return {
+    ...ctx,
+    varRemapping: remapping,
+    instanceTypes:
+      known && plan.isSingle
+        ? new Map([...(ctx.instanceTypes ?? []), [param, queried]])
+        : ctx.instanceTypes,
+    listTypes:
+      known && !plan.isSingle
+        ? new Map([...(ctx.listTypes ?? []), [param, queried]])
+        : ctx.listTypes,
+  };
+}
+
+/** Register a `QueryView`'s load so the LiveView emitter fills its assign in
+ *  `handle_params` (the assign the ladder reads is never populated otherwise —
+ *  see `QueryBinding`), and answer what the ladder tests. */
+export function bindHeexQueryView(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  ctx: WalkContext,
+): QueryViewRead | undefined {
+  const ofNode = queryViewOf(expr);
+  if (!ofNode) return undefined;
+  const plan = queryViewPlan(expr, ofNode, ctx);
+  const { assignName, isSingle, projectionRead, historyRead, detected } = plan;
   if (projectionRead) {
     // The projection load takes no arguments (the read IS the row) and no
     // `listArgs` — a query-time projection has no page/sort surface.
@@ -1395,24 +1346,19 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     });
   }
   if (historyRead) {
-    // The entity-history read.  `listArgs` carries the entity id the `of:` call
-    // passed (`socket.assigns.id` on a scaffolded detail page) — the loader
-    // takes it as an argument rather than reaching for `@id`, so a hand-written
+    // `listArgs` carries the entity id the `of:` call passed
+    // (`socket.assigns.id` on a scaffolded detail page) — the loader takes it
+    // as an argument rather than reaching for `@id`, so a hand-written
     // `history(someOtherId)` loads what it asked for.
     registerBinding(ctx, ctx.queryBindings, {
       kind: "list",
       assign: assignName,
       aggregate: historyRead,
       source: "history",
-      listArgs: queryCallArgs(ofArgNode, ctx),
+      listArgs: queryCallArgs(ofNode, ctx),
     });
   }
-  const aggName =
-    projectionRead || historyRead
-      ? undefined
-      : ofArgNode
-        ? resolveQueryAggregate(ofArgNode)
-        : undefined;
+  const aggName = projectionRead || historyRead ? undefined : resolveQueryAggregate(ofNode);
   if (aggName) {
     registerBinding(ctx, ctx.queryBindings, {
       kind: isSingle ? "single" : "list",
@@ -1423,106 +1369,17 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // the emitted `list_<agg>s()` takes the repository defaults and the page
       // never moves off 1.  HANDLER position — the load block is a function
       // body, so state refs must render `socket.assigns.<f>`, not `@<f>`.
-      listArgs: queryCallArgs(ofArgNode, ctx),
-      // WHICH context function this read calls.  Resolved from the `of:` call's
-      // OPERATION, not assumed from the read's shape — see `contextReadFn`.
-      // (This subsumes the earlier `retrieval` slot, which derived the same
-      // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
+      listArgs: queryCallArgs(ofNode, ctx),
+      // WHICH context function this read calls, resolved from the `of:`
+      // call's OPERATION — see `contextReadFn`.
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
       // The request principal, when the read's repository function takes one.
-      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofArgNode),
+      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofNode),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });
   }
-
-  if (isSingle) {
-    // Single-record (detail page).  handle_params assigns one of:
-    //   nil        → still loading            → loading branch
-    //   :error     → load error               → error branch
-    //   :not_found → no record for that id     → empty branch
-    //   record     → loaded                    → data branch
-    return [
-      `<%= cond do %>`,
-      `  <% is_nil(@${assignName}) -> %>`,
-      `    ${loadingHeex}`,
-      `  <% @${assignName} == :error -> %>`,
-      `    ${errorHeex}`,
-      `  <% @${assignName} == :not_found -> %>`,
-      `    ${emptyHeex}`,
-      `  <% true -> %>`,
-      `    ${dataHeex}`,
-      `<% end %>`,
-    ].join("\n");
-  }
-
-  // List query: check for nil (loading), error, empty, then render data.
-  // The Table primitive already iterates @items internally via rows={@items},
-  // so no Elixir for-loop is needed here.  When the auto-`findAll` is paged
-  // the assign is the `%{items, page, …}` envelope, so the emptiness guard
-  // unwraps `.items` (the pager/sort UI itself is the Table's job — this is
-  // only the envelope-unwrap paging forces).
-  const emptyTarget = isPaged ? `@${assignName}.items` : `@${assignName}`;
-  return [
-    `<%= cond do %>`,
-    `  <% is_nil(@${assignName}) -> %>`,
-    `    ${loadingHeex}`,
-    `  <% @${assignName} == :error -> %>`,
-    `    ${errorHeex}`,
-    `  <% Enum.empty?(${emptyTarget}) -> %>`,
-    `    ${emptyHeex}`,
-    `  <% true -> %>`,
-    `    ${dataHeex}`,
-    `<% end %>`,
-  ].join("\n");
-}
-
-/** `KeyValueRow("Label", value_expr)` → `<div class="key-value-row">` */
-export function renderKeyValueRow(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx);
-  const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  // The row label is a user-visible slot (`keyValue`), so a plain literal rides
-  // the translation runtime under i18n and stays raw otherwise.
-  const label = positionals[0]
-    ? renderInTemplate(positionals[0], ctx, "keyValue")
-    : heexChromeText(ctx, "fieldFallback");
-  // The VALUE is authored prose too, and it rode NO role — so the row's two
-  // halves diverged: the label translated and the value shipped in English at
-  // every locale (G2667 §D9).  `keyValueValue` is the same role the JSX walker
-  // uses, so the key the extraction pass writes and the key HEEx reads are one
-  // by construction.  Non-literals are unaffected (`localizedHeex` returns
-  // undefined for them), so this is byte-identical wherever the value is an
-  // expression or a nested primitive.
-  const value = positionals[1] ? renderInTemplate(positionals[1], ctx, "keyValueValue") : "";
-  // The testid identifies the VALUE cell, not the row — the same placement the
-  // React/Vue/Svelte packs use (`<div … data-testid={testid}>{children}</div>`
-  // inside `KeyValueRow`), and what the emitted page objects assume: a detail
-  // read is `expect(detail.field("name")).toHaveText("Sprocket")`, which is an
-  // EXACT text match and would see "Name Sprocket" if the id sat on the row.
-  return `<div class="key-value-row">\n  <dt class="key-value-label">${label}</dt>\n  <dd class="key-value-value"${testidAttr}>${value}</dd>\n</div>`;
-}
-
-/** `Skeleton(count: N)` → `<div class="animate-pulse">` repeated loading lines. */
-export function renderSkeleton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let count = 3;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (name === "count" && arg.kind === "literal") {
-      count = parseInt(arg.value, 10) || 3;
-    }
-  }
-  const testidAttr = testIdAttr(expr, ctx);
-  const lines = Array.from(
-    { length: count },
-    () => `  <div class="h-4 bg-gray-200 rounded animate-pulse mb-2"></div>`,
-  ).join("\n");
-  // Decorative loading placeholder — hidden from assistive tech (the loading
-  // state is announced elsewhere; real content announces once loaded).
-  return `<div class="skeleton" aria-hidden="true"${testidAttr}>\n${lines}\n</div>`;
+  return { readExpr: assignName, single: isSingle, paged: plan.isPaged };
 }
 
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
@@ -1734,86 +1591,6 @@ export function heexEnumBadgeText(value: ExprIR, ctx: WalkContext): string {
 // ---------------------------------------------------------------------------
 // Closed primitive library — HEEx component dispatch.
 // ---------------------------------------------------------------------------
-/** Tailwind utility classes for the `Toolbar` layout.  Flex geometry is
- *  design-neutral, so it lives here rather than in a design pack; it mirrors
- *  the shadcn `primitive-toolbar` template and the layout classes in
- *  `heex-pack.ts`. */
-const TOOLBAR_CLASS = "flex flex-row items-center justify-between gap-4";
-
-/** Per-primitive HEEx spec for the generic `renderPrimitive` helper.
- *  Listed inline so the small set is easy to scan.  The registered
- *  per-primitive exports (`renderToolbar`, `renderButton`, …) bind to
- *  these specs; the typed dispatch table at
- *  src/generator/_walker/registry.ts wires them up by name. */
-const CLOSED_PRIMITIVE_SPECS: Record<string, PrimitiveSpec> = {
-  // `{role:"toolbar", needsName:true}` — "Actions" is the FALLBACK name; an
-  // author's `label:` overrides it (and translates), which needs
-  // `labelAsAriaLabel` or the label lands as a bogus `label=` attr on the div
-  // while the hardcoded default stays the accessible name.
-  Toolbar: {
-    tag: "div",
-    staticAttrs: ["class"],
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    extraAttrs: ['role="toolbar"', 'aria-label="Actions"'],
-    baseClass: TOOLBAR_CLASS,
-  },
-  // `Empty("No results yet")` carries the author's message in positional 0 (the
-  // `empty` user-visible slot).  It rendered as a childless `<.empty />`, so the
-  // message was discarded and every Phoenix app showed the core component's
-  // hardcoded English "No items." instead — a content defect, not just an i18n
-  // one.  `.empty` now takes an inner block (keeping that text as its fallback).
-  Empty: { tag: ".empty", takesChildren: true },
-  // `to:`/`disabled:`/`type:`/`variant:` are the four knobs `<.button>` declares
-  // (`to` = render as a nav link, `variant` = the pack's rank vocabulary,
-  // `disabled`/`type` its global/`attr`).  `icon:`/`iconSvg:`/`iconPosition:`
-  // and `loading:` are NOT attributes on this spec — `renderButton` turns them
-  // into an inner-block glyph and an `aria-busy` ARIA global respectively,
-  // because an undeclared attribute on a Phoenix function component is a
-  // compile WARNING, i.e. a build failure under
-  // `mix compile --warnings-as-errors`.
-  Button: {
-    tag: ".button",
-    takesChildren: true,
-    labelAsAriaLabel: true,
-    passThroughAttrs: ["to", "disabled", "type", "variant"],
-    staticAttrs: ["variant", "type"],
-  },
-  // --- scaffold expander primitives ---
-  // `Paper` is a titleless `Card` (same surface, no header) — same pack
-  // component, so the two stay visually consistent by construction.
-  Paper: { tag: ".card", takesChildren: true },
-};
-
-// Per-primitive registry-facing wrappers — bind the generic
-// `renderPrimitive` helper to a specific `closedPrimitive` spec so
-// the typed dispatch table can reference one named function per
-// primitive (rather than re-dispatching by name inside the renderer).
-
-/** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under its
- *  own generate-time name (`Deutsch`, `Français`).  Choosing one writes the
- *  `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs the
- *  server-side negotiation reads first (the URL, then the cookie).  The locale
- *  list is threaded into the walk context at generate time. */
-export function renderLocaleSwitcher(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  const testidAttr = testIdAttr(expr, ctx) || ' data-testid="locale-switcher"';
-  return renderLocaleSelect(ctx.appModule, ctx.locales ?? [], testidAttr);
-}
-
-/** `Slot()` → `{render_slot(@inner_block)}` — the children passthrough inside a
- *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
- *  declares the matching `slot :inner_block`. */
-export function renderSlot(_expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  // An INLINED component call has no `@inner_block`: its children render here,
-  // in the caller's scope (`WalkContext.inlineSlot`).
-  if (ctx.inlineSlot) return ctx.inlineSlot();
-  ctx.slotUsed.value = true;
-  return `{render_slot(@inner_block)}`;
-}
-
 /** `DestroyForm(of: <Agg>)` → a confirm-delete `<.button>` that calls the
  *  aggregate's destroy context function (`destroy_<agg>!(id)`) and navigates
  *  to its list route.  Requires a canonical `destroy` (declare `destroy { }`
@@ -1914,68 +1691,28 @@ function heexChrome(ctx: WalkContext, name: string): { english: string; call?: s
 // A `bind:` that isn't a known state field renders a disabled stub (nothing
 // to two-way bind to) so the page still renders.
 // ---------------------------------------------------------------------------
-function controlledInput(
-  expr: Extract<ExprIR, { kind: "call" }>,
+/** Bind a controlled input to the page-state field `stateName`: hoist the
+ *  write-back `handle_event` clause once per field and answer its event name
+ *  (`update_<field>`, or `toggle_<field>` for a checkbox), or `undefined` when
+ *  `stateName` is not a state field of this body.
+ *
+ *  `bind:` carries the field's `.ddd` spelling (camelCase); `stateNames` is
+ *  keyed by the SNAKE-CASED assign name, so the lookup snakes it first — a
+ *  raw comparison only ever matched a single-word field, and every multi-word
+ *  bound input fell through to the unbound stub.  A component's state lives in
+ *  the HOST LiveView's assigns under its namespaced name (`hostStateAssign`),
+ *  and the clause runs there, so the assign, the form field name and the
+ *  `phx-change` payload key all spell that one name. */
+export function bindStateInput(
+  stateName: string,
+  control: InputControl,
   ctx: WalkContext,
-  type: "text" | "number" | "password" | "textarea" | "select" | "checkbox",
-): string {
-  let label = "";
-  let labelArg: ExprIR | undefined;
-  let bind: string | undefined;
-  let optionsExpr: ExprIR | undefined;
-  let seenPositional = false;
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      if (!seenPositional) {
-        labelArg = arg;
-        if (arg.kind === "literal") label = arg.value;
-      }
-      seenPositional = true;
-    } else if (name === "bind" && arg.kind === "ref") bind = arg.name;
-    else if (name === "options") optionsExpr = arg;
-  }
-  // The label is a user-visible slot (`inputLabel`): a plain literal
-  // rides `pgettext` through the `{…}` expression-attribute form, so the
-  // most-read prose in any generated form translates like the `Select…`
-  // placeholder beside it.  Off i18n it is the quoted literal —
-  // byte-identical.
-  const labelValue = labelArg ? localizedHeexAttr(labelArg, ctx, "inputLabel") : undefined;
-  const labelAttr = labelValue
-    ? ` label=${labelValue}`
-    : label
-      ? // `escapeHeexAttr` is the ONE attribute-escape funnel this target
-        // shares (heex-walker-core.ts).  Do not inline a local copy here: a
-        // second implementation of the funnel drifts (a two-replacement
-        // `&`/`"` copy misses `<` and `>`).
-        ` label="${escapeHeexAttr(label)}"`
-      : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // `bind:` carries the state field's `.ddd` spelling (camelCase); `stateNames`
-  // is keyed by the SNAKE-CASED assign name (built once at walker entry from
-  // `page.state`).  Comparing the two spellings directly is a membership test
-  // that can only succeed for a single-word field — `bind: query` matched,
-  // `bind: byNameN` did not — so every multi-word bound input silently fell
-  // through to the unbound stub below and rendered `disabled`, with the backing
-  // assign sitting in `mount/3` unread.  That is how the scaffolded list page's
-  // whole filter bar came out inert (its fields are `<find><Param>` by
-  // construction, never one word).  `snake` here is what every other
-  // `stateNames` lookup in the walker already does — `stateRefArg`,
-  // `renderFileUpload`, `renderStateRef`.
-  const bound = bind ? snake(bind) : undefined;
-  if (!bound || !ctx.stateNames.has(bound)) {
-    const opt = type === "select" ? ` options={[]}` : "";
-    return `<.input type="${type}" name="_unbound"${labelAttr}${opt} value="" disabled${testidAttr} />`;
-  }
-  // A component's state lives in the HOST LiveView's assigns under its
-  // namespaced name (heex-walker-core `hostStateAssign`), and the write-back
-  // clause hoisted just below runs THERE — so the assign, the form field name
-  // and the `phx-change` payload key all spell that one name.
+): string | undefined {
+  const bound = snake(stateName);
+  if (!ctx.stateNames.has(bound)) return undefined;
   const field = hostStateAssign(ctx.stateOwner, bound);
-  const isCheckbox = type === "checkbox";
+  const isCheckbox = control === "checkbox";
   const eventName = isCheckbox ? `toggle_${field}` : `update_${field}`;
-  // Hoist the write-back handler once per bound field.
   if (!ctx.handlers.some((h) => h.name === eventName)) {
     ctx.handlers.push({
       name: eventName,
@@ -1985,42 +1722,7 @@ function controlledInput(
       ],
     });
   }
-  const optionsAttr =
-    type === "select"
-      ? ` options={${optionsExpr ? renderExpr(optionsExpr, { ...ctx, position: "template" }) : "[]"}}`
-      : "";
-  return `<.input type="${type}" name="${field}" value={@${field}}${optionsAttr}${labelAttr} phx-change="${eventName}"${testidAttr} />`;
-}
-
-export function renderField(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return controlledInput(expr, ctx, "text");
-}
-export function renderNumberField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "number");
-}
-export function renderPasswordField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "password");
-}
-export function renderMultilineField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "textarea");
-}
-export function renderSelectField(
-  expr: Extract<ExprIR, { kind: "call" }>,
-  ctx: WalkContext,
-): string {
-  return controlledInput(expr, ctx, "select");
-}
-export function renderToggle(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return controlledInput(expr, ctx, "checkbox");
+  return eventName;
 }
 
 /** `FileUpload { "Label", bind: <File state> }` → a LiveView-native file input.
@@ -2036,10 +1738,10 @@ export function renderToggle(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  progress-consumer emission is driven by the `UploadBinding` this pushes onto
  *  `ctx.uploadBindings` (consumed in liveview-emit.ts); the `phx-change`
  *  validate handler (required for a live-file-input form) is hoisted here the
- *  same way `controlledInput` hoists its write-back clause.
+ *  same way `bindStateInput` hoists its write-back clause.
  *
  *  An unbound (or non-`File`-state) `bind:` renders a disabled plain file input
- *  — there's nothing to two-way bind to — mirroring `controlledInput`'s stub. */
+ *  — there's nothing to two-way bind to — mirroring the unbound `<.input>` stub. */
 export function renderFileUpload(
   expr: Extract<ExprIR, { kind: "call" }>,
   ctx: WalkContext,
@@ -2096,197 +1798,12 @@ export function renderFileUpload(
     .join("\n");
 }
 /** The literal value of a named arg, or undefined when absent / non-literal. */
-function stringNamedLit(expr: Extract<ExprIR, { kind: "call" }>, name: string): string | undefined {
+function _stringNamedLit(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  name: string,
+): string | undefined {
   const arg = namedArg(expr, name);
   return arg?.kind === "literal" && arg.lit === "string" ? arg.value : undefined;
-}
-
-/** `Paper(…children)` → the pack's `<.card>` with no title: every positional
- *  is a body child.
- *
- *  The card SURFACE is design vocabulary, so it goes through the pack's
- *  function component — the same `<.card>` the shared `Card` renders through
- *  `heex-pack.ts`.  `variant:`/`shadow:` are consumed as component attrs.  A
- *  Paper is a heading-nesting level, like `Card`.  `card/1` declares `attr
- *  :testid` and no `:global` rest, so the testid goes in as `testid=`: a
- *  `data-testid=` would be an undefined attribute, a compile warning
- *  `--warnings-as-errors` turns fatal. */
-export function renderPaper(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const bodyExprs = expr.args.filter((_, i) => !expr.argNames?.[i]);
-  const attrs: string[] = [];
-  for (const knob of ["variant", "shadow"] as const) {
-    const value = stringNamedLit(expr, knob);
-    if (value) attrs.push(`${knob}="${escapeHeexAttr(value)}"`);
-  }
-  const attrStr = attrs.length > 0 ? ` ${attrs.join(" ")}` : "";
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const children = bodyExprs.map((c) => renderChild(c, childCtx)).join("\n");
-  const testidAttr = testIdAttr(expr, ctx).replace(/^ data-testid=/, " testid=");
-  if (children.length === 0) return `<.card${attrStr}${testidAttr} />`;
-  return `<.card${attrStr}${testidAttr}>\n${indent(children, 2)}\n</.card>`;
-}
-
-export function renderToolbar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Toolbar!, expr, ctx);
-}
-export function renderEmpty(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  return renderPrimitive(CLOSED_PRIMITIVE_SPECS.Empty!, expr, ctx);
-}
-/** `Button("Save", icon: "plus", iconPosition: "left", loading: <expr>)`.
- *
- *  `icon:` / `iconSvg:` / `iconPosition:` / `loading:` are not attrs
- *  `<.button>` declares, and an undeclared attribute on a Phoenix function
- *  component is a compile WARNING — a build failure under
- *  `mix compile --warnings-as-errors`.  Both shipping HEEx packs' buttons do,
- *  however, carry an `inner_block` slot and `attr :rest, :global`, and that is
- *  enough to render all four without touching the pack:
- *
- *    - the glyph goes in the CHILDREN slot as a `<span class="loom-icon">`
- *      sibling of the label — the exact shape the shadcn / flowbite /
- *      shadcnSvelte templates emit — positioned by `iconPosition:`
- *      (default `"right"`, matching `_walker/primitives/controls.ts`);
- *    - `loading:` becomes `aria-busy={…}` (the `aria-` prefix is one of
- *      Phoenix's global prefixes, so `:global` accepts it).  It does not also
- *      force `disabled` — see the note in the body.
- *
- *  A builtin `icon:` name resolves through the SAME `lookupBuiltinIcon`
- *  registry the JSX walker uses, so the two targets ship the same glyph. */
-export function renderButton(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const spec = CLOSED_PRIMITIVE_SPECS.Button!;
-  // `icon:` / `iconSvg:` / `iconPosition:` and `loading:` — the four knobs the
-  // TSX `emitButton` consumes.  `<.button>` declares none of them, and an
-  // undeclared attribute on a Phoenix function component is a compile warning,
-  // i.e. a failure under `mix compile --warnings-as-errors`.  Neither needs to
-  // be an attribute, so neither has to touch the packs:
-  //
-  //   - the GLYPH is markup — an inline `<span class="loom-icon">` spliced into
-  //     the button's inner block on the authored side (`iconPosition:`,
-  //     defaulting to `"right"` exactly as the TSX emitter does).  It is
-  //     `aria-hidden` because the button's text (or its `label:` aria-label) is
-  //     already the accessible name — the same decorative-by-default contract
-  //     `renderIcon` applies.
-  //   - `loading:` becomes `aria-busy`, an ARIA global Phoenix's `:global`
-  //     attr accepts on any component, so the busy state reaches assistive tech
-  //     instead of vanishing.  It deliberately does NOT also force `disabled`:
-  //     that is the author's `disabled:` knob, which already passes through,
-  //     and emitting both would put two `disabled` attributes on one tag.
-  const loadingArg = namedArg(expr, "loading");
-  const loadingValue = loadingArg ? renderAttrValue(loadingArg, ctx, false) : undefined;
-  const iconSvg =
-    stringNamedLit(expr, "iconSvg") ??
-    ((n) => (n === undefined ? undefined : lookupBuiltinIcon(n)))(stringNamedLit(expr, "icon"));
-  const iconHeex = iconSvg
-    ? `<span class="loom-icon" aria-hidden="true">${iconSvg}</span>`
-    : undefined;
-  const iconLeads = stringNamedLit(expr, "iconPosition") === "left";
-  return renderPrimitive(
-    {
-      ...spec,
-      extraAttrs: loadingValue
-        ? [...(spec.extraAttrs ?? []), `aria-busy=${loadingValue}`]
-        : spec.extraAttrs,
-      leadingChildHeex: iconLeads ? iconHeex : undefined,
-      trailingChildHeex: iconLeads ? undefined : iconHeex,
-    },
-    expr,
-    ctx,
-  );
-}
-
-/** `Section(...children, id: "anchor")` → `<section id="anchor">…</section>`.
- *  Semantic anchor target for in-page navigation (matches the TSX
- *  `<section>` element exactly — same HTML semantics, no Phoenix-
- *  specific wrapping).  `id:` and `testid:` are extracted as
- *  attributes; positional children render through the standard child
- *  pipeline. */
-export function renderSection(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let id: string | undefined;
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "id" && arg.kind === "literal") {
-      id = arg.value;
-    }
-  }
-  const idAttr = id ? ` id="${id}"` : "";
-  const testidAttr = testIdAttr(expr, ctx);
-  // A Section is a heading-nesting level (like the JSX `emitSection`): a
-  // `Heading` in its body derives a rank one deeper (accessibility.md).
-  const childCtx: WalkContext = { ...ctx, headingDepth: (ctx.headingDepth ?? 0) + 1 };
-  const childrenHeex = positional.map((c) => renderChild(c, childCtx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<section${idAttr}${testidAttr} />`;
-  }
-  return `<section${idAttr}${testidAttr}>\n${indent(childrenHeex, 2)}\n</section>`;
-}
-
-/** `Sticky(...children, top: "0")` → `<div style="position: sticky; top: 0; z-index: 100">…</div>`.
- *  Pins the wrapped content on scroll.  `top:` defaults to `"0"`
- *  matching the TSX `Sticky` primitive's default; the `z-index: 100`
- *  matches the Mantine pack's inline style.  `testid:` extracted
- *  the same way as `renderSection`. */
-export function renderSticky(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let top = "0";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "top" && arg.kind === "literal") {
-      top = arg.value;
-    }
-  }
-  const style = `style="position: sticky; top: ${top}; z-index: 100"`;
-  const testidAttr = testIdAttr(expr, ctx);
-  const childrenHeex = positional.map((c) => renderChild(c, ctx)).join("\n");
-  if (childrenHeex.length === 0) {
-    return `<div ${style}${testidAttr} />`;
-  }
-  return `<div ${style}${testidAttr}>\n${indent(childrenHeex, 2)}\n</div>`;
-}
-
-/** `CodeBlock("source", title?: "…", language?: "ts")` →
- *  `<pre class="loom-code-block"><code class="language-ts">source</code></pre>`.
- *  With an optional `title:`, wraps the `<pre>` in a `<div>` with a
- *  title bar — matches the Mantine pack's `<pre>` + title pattern.
- *  Source content is HTML-escaped to keep markup safe (the source
- *  IS user code; entities are part of valid display). */
-export function renderCodeBlock(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let source = "";
-  let title: string | undefined;
-  let language = "";
-  const positional: ExprIR[] = [];
-  for (let i = 0; i < expr.args.length; i++) {
-    const name = expr.argNames?.[i];
-    const arg = expr.args[i]!;
-    if (!name) {
-      positional.push(arg);
-    } else if (name === "title") {
-      // The caption is a user-visible slot (`codeBlockTitle`) — translated
-      // under i18n, the raw escaped literal otherwise.  The code SOURCE below
-      // is deliberately not one.
-      title = renderInTemplate(arg, ctx, "codeBlockTitle");
-    } else if (name === "language" && arg.kind === "literal") {
-      language = arg.value;
-    }
-  }
-  if (positional[0]?.kind === "literal") source = positional[0].value;
-  const testidAttr = testIdAttr(expr, ctx);
-  const langClass = language ? ` class="language-${language}"` : "";
-  const escaped = escapeHeexText(source);
-  if (title) {
-    return (
-      `<div class="loom-code-block"${testidAttr}>\n` +
-      `  <div class="loom-code-block-title">${title}</div>\n` +
-      `  <pre><code${langClass}>${escaped}</code></pre>\n` +
-      `</div>`
-    );
-  }
-  return `<pre class="loom-code-block"${testidAttr}><code${langClass}>${escaped}</code></pre>`;
 }
 
 // ---------------------------------------------------------------------------

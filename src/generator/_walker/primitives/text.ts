@@ -218,9 +218,11 @@ export function emitEmpty(
   // dedicated component on either pack; both compose a centred
   // dimmed text block.  The first positional is the message;
   // refs / ops welcome (routes through renderTextContent).
-  void depth;
   return renderPrimitive(ctx, "primitive-empty", {
     text: localizedText(call, ctx, "empty", '"No results."'),
+    hasText: positionalArgs(call).length > 0,
+    indent: "  ".repeat(depth + 1),
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
@@ -497,6 +499,9 @@ export function emitKeyValueRow(
     // A missing label emits `label=""` rather than dropping the attribute.
     labelAttr: labelArg ? localizedPositionalAttr(call, ctx, "keyValue", "label") : ' label=""',
     childJsx,
+    // For a pack that lays the row out over several lines: the absolute indent
+    // of its later lines.
+    closeIndent: "  ".repeat(depth),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });
