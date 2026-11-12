@@ -1,4 +1,5 @@
-import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 
 // ---------------------------------------------------------------------------
 // The ONE rule deciding whether a literal written in a `test` body needs
@@ -79,6 +80,44 @@ export function coerceTestLiteral(
   if (c.kind === "datetime") return target.datetime(rendered);
   if (c.kind === "date") return target.date(rendered);
   return rendered;
+}
+
+/** The leaves `coerceTestValue` adds for a value-object position. */
+export interface TestValueTarget extends TestLiteralTarget {
+  /** The VO's positional constructor over its declared fields, in order. */
+  valueObject(name: string, args: readonly string[]): string;
+  /** The spelling of an omitted (optional) VO field. */
+  omitted: string;
+}
+
+/** Coerce one test value to the type its position declares: an object literal
+ *  in a value-object position (`period: { start: "…", end: "…" }`) constructs
+ *  the VO positionally in declared field order, each field coerced the same
+ *  way (nested VOs, ids, dates), an omitted optional field spelled
+ *  `target.omitted`; anything else goes through `coerceTestLiteral`.  A bare
+ *  object literal is a map on no backend's domain surface — java answered
+ *  `Map.of(…)`, .NET an anonymous `new { … }`, neither of which converts to
+ *  the VO. */
+export function coerceTestValue(
+  type: TypeIR | undefined,
+  value: ExprIR,
+  ctx: BoundedContextIR,
+  render: (e: ExprIR) => string,
+  target: TestValueTarget,
+): string {
+  const t = type?.kind === "optional" ? type.inner : type;
+  if (t?.kind === "valueobject" && value.kind === "object") {
+    const vo = findValueObjectInScope(ctx, t.name);
+    if (vo) {
+      const byName = new Map(value.fields.map((f) => [f.name, f.value] as const));
+      const args = vo.fields.map((vf) => {
+        const v = byName.get(vf.name);
+        return v ? coerceTestValue(vf.type, v, ctx, render, target) : target.omitted;
+      });
+      return target.valueObject(vo.name, args);
+    }
+  }
+  return coerceTestLiteral(type, value, render(value), target);
 }
 
 /** Coerce a positional argument list against a parameter list — the

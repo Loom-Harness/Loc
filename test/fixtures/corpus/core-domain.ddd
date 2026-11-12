@@ -33,6 +33,16 @@ system CoreShop {
           expect(o.lines.count).toBe(1)
           expect(o.total.amount).toBe(10.00)
         }
+
+        // A value object written as an OBJECT LITERAL in a create position.
+        // java rendered it `Map.of("amount", …)` and .NET an anonymous
+        // `new { … }` — neither converts to `Money`, so the test projects did
+        // not compile.
+        test "a value object passed as an object literal is constructed" {
+          let o = Order.create(code: "CD9", status: Draft, total: { amount: 5.00, currency: "EUR" })
+          expect(o.total.currency).toBe("EUR")
+          expect(o.total.amount).toBe(5.00)
+        }
       }
       repository Orders for Order { }
       criterion OrdersByStatus(s: Status) of Order = this.status == s
