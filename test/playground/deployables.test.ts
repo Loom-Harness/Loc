@@ -97,3 +97,32 @@ describe("frontendApiTarget", () => {
     expect(frontendApiTarget(compose, "api")).toBeNull();
   });
 });
+
+describe("analyzeDeployables names every toolchain the browser does not run", () => {
+  it("lists Java, Python, Feliz and Flutter deployables as files-only", async () => {
+    const source = `system Shop {
+  subdomain Core {
+    context Sales {
+      aggregate Item with crudish { title: string }
+      repository Items for Item { }
+    }
+  }
+  ui WebApp with scaffold(subdomains: [Core]) { }
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable jvApi { platform: java, contexts: [Sales], dataSources: [st], port: 3000 }
+  deployable pyApi { platform: python, contexts: [Sales], dataSources: [st], port: 3002 }
+  deployable fzWeb { platform: feliz, targets: jvApi, ui: WebApp, port: 3001 }
+  deployable flWeb { platform: flutter, targets: pyApi, ui: WebApp, port: 3003 }
+}`;
+    const out = analyzeDeployables(await tree(source));
+    expect(out.backends).toEqual([]);
+    expect(out.react).toBeNull();
+    expect(out.unsupported).toEqual([
+      { slug: "fl_web", platform: "flutter" },
+      { slug: "fz_web", platform: "feliz" },
+      { slug: "jv_api", platform: "java" },
+      { slug: "py_api", platform: "python" },
+    ]);
+  });
+});
