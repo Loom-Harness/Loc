@@ -66,8 +66,14 @@ import {
   hasDurableEvents,
   hasStateRow,
   lookupOp,
+  reposNeeded,
+  requiredStateFields,
   resourceCalls,
+  serviceOpReadPorts,
+  serviceReadPorts,
+  stateZero,
   subscriptionHandler,
+  withReadPortRepos,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -93,10 +99,6 @@ import {
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
-  type ReadPort,
-  readPortsForOperation,
-} from "../../../ir/util/domain-service-read-ports.js";
-import {
   type EntryResult,
   type EntryResultLeaf,
   entryErrorTags,
@@ -117,12 +119,7 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
-import {
-  walkExprDeep,
-  walkWorkflowStmtExprsDeep,
-  walkWorkflowStmtsDeep,
-  workflowEmits,
-} from "../../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -2235,8 +2232,7 @@ function allocateLiteral(
   // `__key` on the reactor path (it binds one); the command route allocates
   // straight off the correlation param local, which is already domain-typed.
   const parts = [`${corr}: ${opts.keyExpr ?? "__key"}`];
-  for (const f of wf.stateFields ?? []) {
-    if (f.name === corr || f.optional) continue;
+  for (const f of requiredStateFields(wf)) {
     parts.push(`${f.name}: ${defaultLiteralFor(f.type, ctx)}`);
   }
   // The idempotent-consumer marker is a NULLABLE column, which drizzle's
@@ -2264,34 +2260,30 @@ function allocateLiteral(
  *  `create` body's own assignment (`claimState := Filed`) before the row is
  *  ever saved, so this is a type-level placeholder, not a persisted default. */
 function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      // The saga state holds the DOMAIN form (`emitCodecStateHelpers`).
-      case "decimal":
-        return "0";
-      case "money":
-        return numericEncode(TS_NUMERIC, "money", "repo-read", `"0"`);
-      case "bool":
-        return "false";
-      case "datetime":
-        return "new Date()";
-      case "date":
-        return tsTodayCalendarDate();
-      case "json":
-        return "{}";
-      default:
-        return `""`;
-    }
+  const z = stateZero(t, ctx);
+  switch (z.kind) {
+    case "int":
+    case "long":
+    // The saga state holds the DOMAIN form (`emitCodecStateHelpers`).
+    case "decimal":
+      return "0";
+    case "money":
+      return numericEncode(TS_NUMERIC, "money", "repo-read", `"0"`);
+    case "bool":
+      return "false";
+    case "datetime":
+      return "new Date()";
+    case "date":
+      return tsTodayCalendarDate();
+    case "json":
+      return "{}";
+    case "array":
+      return "[]";
+    case "enum":
+      return z.first !== undefined ? JSON.stringify(z.first) : `""`;
+    default:
+      return `""`;
   }
-  if (t.kind === "array") return "[]";
-  if (t.kind === "enum") {
-    const first = enumPool(ctx).find((e) => e.name === t.name)?.values[0];
-    if (first !== undefined) return JSON.stringify(first);
-  }
-  return `""`;
 }
 
 /** One reactor / event-create handler.  The inbound event instance binds as
@@ -2694,56 +2686,7 @@ function collectReposFromStmts(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
-  const seen = new Map<string, string>();
-  for (const root of statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
-  for (const save of saves) seen.set(save.repoName, save.aggName);
-  return [...seen.entries()].map(([repoName, aggName]) => ({ repoName, aggName }));
-}
-
-/** The repositories ONE workflow statement names directly — its own
- *  `repoName`/`aggName` pair plus every save it stages.
- *
- *  Split out of the two collectors above/below so both ride
- *  `walkWorkflowStmtsDeep` for the RECURSION (the `for-each` / `if-let` nesting
- *  is the walker's business, not a per-collector hand-rolled copy — CLAUDE.md
- *  "no hand-rolled IR walks") and share one per-kind rule.  `walkWorkflowStmtsDeep`
- *  yields the roots too, so this is called on every reachable statement. */
-function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
-  switch (st.kind) {
-    case "repo-let":
-    case "repo-run":
-    case "repo-delete":
-      seen.set(st.repoName, st.aggName);
-      break;
-    case "for-each":
-      for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "if-let":
-      seen.set(st.repoName, st.aggName);
-      for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "variant-match":
-      for (const arm of st.arms) for (const sv of arm.savesInArm) seen.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "precondition":
-    case "requires":
-    case "expr-let":
-    case "assign":
-    case "emit":
-    case "factory-let":
-    case "op-call":
-    case "resource-call":
-    case "domain-service-call":
-    case "not-found":
-      // Name no repository of their own.
-      break;
-    default: {
-      const _exhaustive: never = st;
-      void _exhaustive;
-    }
-  }
+  return reposNeeded([statements], saves);
 }
 
 // The Hono leaf table for the shared workflow statement spine
@@ -3145,60 +3088,7 @@ export function renderExprWithParams(
  *  A pure service op has no ports, so the resolver returns `[]` and the call
  *  renders byte-identically. */
 export function readPortResolver(ctx: BoundedContextIR): (service: string, op: string) => string[] {
-  return (service, op) => {
-    const svc = ctx.domainServices.find((s) => s.name === service);
-    const operation = svc?.operations.find((o) => o.name === op);
-    if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => lowerFirst(p.repo));
-  };
-}
-
-/** Every read-port a workflow's `reading`-tier domain-service calls require —
- *  the repository handles those services read, so the workflow constructs them
- *  (`new <Aggregate>Repository(tx, events)`) even when its own body never reads
- *  that repository directly.  De-duplicated by repository name across all
- *  service calls in the body. */
-function collectServiceReadPorts(wf: WorkflowIR, ctx: BoundedContextIR): ReadPort[] {
-  return serviceReadPorts(wf.statements, [], ctx);
-}
-
-/** The read ports every `reading`-tier domain-service call inside `statements`
- *  (plus any loose `extraExprs`, e.g. a handler's `return` expression) needs.
- *  De-duplicated by repository name.
- *
- *  Split out of `collectServiceReadPorts` so the EXPLICIT-HANDLER route builder
- *  can reuse it: a `commandHandler` / `queryHandler` orchestrates services
- *  exactly as a workflow does, but constructed none of their ports and rendered
- *  its `return` expression without the resolver — so
- *  `return Registration.isHolderFree(holder)` emitted a call that was both
- *  arity-short and un-awaited against an `async isHolderFree(accounts, holder)`
- *  (M-T5.14). */
-function serviceReadPorts(
-  statements: WorkflowStmtIR[],
-  extraExprs: readonly ExprIR[],
-  ctx: BoundedContextIR,
-): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  const visit = (e: ExprIR): void => {
-    if (e.kind !== "call" || e.callKind !== "domain-service" || !e.serviceRef) return;
-    const svc = ctx.domainServices.find((s) => s.name === e.serviceRef?.service);
-    const operation = svc?.operations.find((o) => o.name === e.serviceRef?.op);
-    if (!operation) return;
-    for (const p of readPortsForOperation(operation)) {
-      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-    }
-  };
-  // Ride the sanctioned walkers for BOTH levels (CLAUDE.md "no hand-rolled IR
-  // walks").  The two hand-rolled enumerations this replaced each had holes of
-  // the #2720/M-T6.50 class: the statement-level one carried no arm for
-  // `domain-service-call` / `assign` / `repo-delete` / `repo-run`, and the
-  // expression-level one none for `match` / `list` / `convert` / `duration` /
-  // `i18nFormat` / `authz-filter` / a block-bodied lambda's statements — so a
-  // `reading`-tier service call in any of those slots derived NO read port and
-  // the emitted handler was missing the repository it needs.
-  for (const st of statements) walkWorkflowStmtExprsDeep(st, visit);
-  for (const e of extraExprs) walkExprDeep(e, visit);
-  return [...byRepo.values()];
+  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => lowerFirst(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
@@ -3211,7 +3101,7 @@ function mergeReadPortRepos(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
 ): { repoName: string; aggName: string }[] {
-  return mergeServiceReadPortRepos(own, collectServiceReadPorts(wf, ctx));
+  return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
 /** The statements-and-expressions form of {@link mergeReadPortRepos}, for the
@@ -3222,21 +3112,7 @@ export function mergeHandlerReadPortRepos(
   extraExprs: readonly ExprIR[],
   ctx: BoundedContextIR,
 ): { repoName: string; aggName: string }[] {
-  return mergeServiceReadPortRepos(own, serviceReadPorts(statements, extraExprs, ctx));
-}
-
-function mergeServiceReadPortRepos(
-  own: { repoName: string; aggName: string }[],
-  ports: readonly ReadPort[],
-): { repoName: string; aggName: string }[] {
-  const seen = new Set(own.map((r) => r.repoName));
-  const out = [...own];
-  for (const port of ports) {
-    if (seen.has(port.repo)) continue;
-    seen.add(port.repo);
-    out.push({ repoName: port.repo, aggName: port.aggregate });
-  }
-  return out;
+  return withReadPortRepos(own, serviceReadPorts(statements, extraExprs, ctx));
 }
 
 export function collectReposForWorkflow(wf: {
@@ -3246,13 +3122,7 @@ export function collectReposForWorkflow(wf: {
   repoName: string;
   aggName: string;
 }[] {
-  const seen = new Map<string, string>();
-  for (const root of wf.statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
-  for (const save of wf.savesAtExit) seen.set(save.repoName, save.aggName);
-  return [...seen.entries()].map(([repoName, aggName]) => ({
-    repoName,
-    aggName,
-  }));
+  return reposNeeded([wf.statements], wf.savesAtExit);
 }
 
 /** Drizzle-postgres `isolationLevel` enum values are space-cased

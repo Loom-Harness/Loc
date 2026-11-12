@@ -19,6 +19,7 @@ import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext as SharedWalkContext, WalkContext } from "../_walker/walker-core.js";
 import { renderHeexAction } from "./heex-action.js";
+import { renderHeexUserComponent } from "./heex-component.js";
 import { hoistLambdaToHandler, storeActionEvent } from "./heex-handlers.js";
 import { dedentTail, HEEX_SHARED_PRIMITIVES, indentTail } from "./heex-pack.js";
 import {
@@ -91,6 +92,10 @@ export const heexTarget: WalkerTarget = {
         heex.tabSeq.value += 1;
         heex.tabSeq.reserved = [...(heex.tabSeq.reserved ?? []), heex.tabSeq.value];
       }
+      return undefined;
+    }
+    // A user component renders through `renderUserComponent`.
+    if (expr.kind === "call" && heex.ui.components.some((c) => c.name === expr.name)) {
       return undefined;
     }
     const engine = engineContext(heex, ctx);
@@ -400,6 +405,17 @@ export const heexTarget: WalkerTarget = {
     const heex = heexContextOf(ctx.sink);
     if (!heex || call.kind !== "call") return null;
     return indentTail(renderHeexAction(call, engineContext(heex, ctx)), depth);
+  },
+
+  /** A user `component` call: a function-component invocation, a
+   *  `<.live_component>` for an `extern` one, or the body inlined into the
+   *  caller when it needs host-LiveView state (`heex-component.ts`). */
+  renderUserComponent(call, ctx, depth) {
+    const heex = heexContextOf(ctx.sink);
+    if (!heex || call.kind !== "call") return null;
+    const comp = heex.ui.components.find((c) => c.name === call.name);
+    if (!comp) return null;
+    return indentTail(renderHeexUserComponent(call, comp, engineContext(heex, ctx)), depth);
   },
 
   /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under

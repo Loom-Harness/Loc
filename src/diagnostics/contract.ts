@@ -88,6 +88,11 @@ export interface JsonDiagnostic {
   severity: JsonSeverity;
   phase: JsonPhase;
   message: string;
+  /** Present (and `true`) only on an ADVISORY diagnostic — a code in
+   *  `src/diagnostics/advisory.ts`.  An advisory rides at `warning` severity
+   *  but is advice, not a verdict: it is counted under `summary.suggestions`,
+   *  never `summary.warnings`, matching the CLI's `Suggestions (N):` heading. */
+  advisory?: true;
   /** Canonical node address (`<keyword> <Context>.<Decl>[.<member>]`),
    *  shared with the outline address book.  Best-effort; may be absent. */
   node?: string;
@@ -207,8 +212,13 @@ export interface PrimitiveCatalog {
 
 export interface JsonReportSummary {
   errors: number;
+  /** Warning-severity diagnostics that are NOT advisory — the same number the
+   *  human `N warning(s).` footer prints. */
   warnings: number;
   infos: number;
+  /** Advisory diagnostics (`advisory: true`) — the human `Suggestions (N):`
+   *  count.  Never part of `warnings`, never affects `ok`. */
+  suggestions: number;
 }
 
 /** `ddd parse --json` / `validate --json` (contract §2). */
