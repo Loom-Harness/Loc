@@ -23,6 +23,7 @@ import {
   planPrune,
   serializeManifest,
 } from "../../system/manifest.js";
+import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
 import { isScaffoldOnce } from "../../util/scaffold-once.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
@@ -297,7 +298,7 @@ async function runGenerate(
     // crash — report it as a clean CLI failure (with the recovery hint from
     // the error message).  Re-throw anything else for the top-level handler.
     if (isMigrationRefusal(err)) {
-      console.error(`${file}: ${err.message}`);
+      console.error(`${file}: ${refusalText(err)}`);
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
