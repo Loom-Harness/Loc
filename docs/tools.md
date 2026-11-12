@@ -729,11 +729,34 @@ toolchains are older than what the emitted projects target:
 | `test:phoenix` | `mix` (Elixir/Ecto) | — | **`hexpm/elixir` container** |
 | `test:python` | `uv` + ruff + mypy + pytest | `uv` | host |
 
-A managed remote/sandbox environment usually ships the Docker **client**
-but not a running daemon — start one with `dockerd` (root /
-passwordless-sudo) before any Docker-backed suite, e.g. `sudo dockerd
->/tmp/dockerd.log 2>&1 &`.  Image pulls from Docker Hub / `mcr.microsoft.com`
-work through the standard egress.
+A managed remote/sandbox environment ships the Docker **client** but no
+running daemon.  `scripts/sandbox-bootstrap.sh` starts one and, in the same
+step, puts the toolchains the table lists on the **host**:
+
+```bash
+scripts/sandbox-bootstrap.sh            # all targets; or: java dotnet elixir node24 flutter
+source /opt/loom-tc/env.sh              # PATH, JAVA_HOME, DOTNET_ROOT, ELIXIR_ERL_OPTIONS
+```
+
+| Target | Lifted out of | Lands in `/opt/loom-tc/` | Serves |
+|---|---|---|---|
+| `java` | `gradle:9-jdk25` (`/opt/java/openjdk`, `/opt/gradle`) | `java/{jdk,gradle}` | `run-java.mjs`, `test:java` |
+| `dotnet` | `mcr.microsoft.com/dotnet/sdk:10.0` (`/usr/share/dotnet`) | `dotnet/dotnet` | `run-dotnet.mjs`, `test:dotnet`, Feliz (`sdk:9.0` fails `NETSDK1045` against `net10.0`) |
+| `elixir` | the generated Dockerfile's `hexpm/elixir` image (`/usr/local/lib/{elixir,erlang}`) | `elixir/{elixir,erlang}` | `run-elixir.mjs`, `phoenix-ui-e2e` |
+| `node24` | `node:24` (`/usr/local/bin/node`, `lib/node_modules`) | `node24/` | Angular CLI (needs Node ≥ 22.22.3; the host has 22.22.0) |
+| `flutter` | `ghcr.io/cirruslabs/flutter:stable` (`/sdks/flutter`) | `flutter/flutter` | the Flutter suites; also `npm install` in `test/behavioral` (else `Cannot find package 'esbuild'`) |
+
+The image tags are read from the constants the generators pin (the Java
+version, the Phoenix Dockerfile `ARG`s, the .NET SDK tag), so a bump moves
+the script with it.  The script is idempotent (a `.ok` marker per target;
+`LOOM_TC_FORCE=1` re-extracts) and fail-soft: a target that cannot pull or
+extract is reported and the rest still run, and the exit code is 1 when any
+requested target failed.  Each image is removed after extraction;
+`LOOM_TC_KEEP_IMAGES=1` keeps them.  The extracted toolchains take about
+3 GB (Flutter is 1.8 GB) of the per-session disk allowance; on
+`no space left on device`, run `docker system prune -af` and re-run.  The
+`elixir:1.18` image does not work as a source: its crypto NIF needs
+`OPENSSL_3.4.0` and the host has 3.0.
 
 An agent verifying a backend change can generate a project
 (`node bin/cli.js generate system <f.ddd> -o out`) and compile it directly:
@@ -805,20 +828,12 @@ repo, the host Node and a postgres route into the container just to reach
 the same `mix`.
 
 The simpler route is to lift the toolchain out of the image and run it
-natively.  The `hexpm/elixir` binaries are built for Debian bookworm and
-run unmodified on the Ubuntu 24.04 host (newer glibc, backward
-compatible):
+natively: `scripts/sandbox-bootstrap.sh elixir` does it (the `hexpm/elixir`
+binaries are built for Debian bookworm and run unmodified on the Ubuntu 24.04
+host), then:
 
 ```bash
-IMG=hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim
-CID=$(docker create "$IMG")
-mkdir -p /opt/elixir-toolchain
-docker cp "$CID":/usr/local/lib/elixir  /opt/elixir-toolchain/elixir
-docker cp "$CID":/usr/local/lib/erlang  /opt/elixir-toolchain/erlang
-docker rm "$CID"
-
-export PATH=/opt/elixir-toolchain/erlang/bin:/opt/elixir-toolchain/elixir/bin:$PATH
-export ELIXIR_ERL_OPTIONS="+fnu"     # else the VM warns about latin1 name encoding
+source /opt/loom-tc/env.sh
 elixir --version                     # Elixir 1.18.4 (compiled with Erlang/OTP 27)
 ```
 
@@ -845,12 +860,8 @@ with Gradle 8.x + JDK 21 fails it outright:
 Cannot find a Java installation … {languageVersion=25}
 ```
 
-Install both to the host and point the run at them:
-
-```bash
-# Temurin JDK 25 -> /opt/jdk25, Gradle 9.6.1 -> /opt/gradle-9.6.1
-JAVA_HOME=/opt/jdk25 PATH=/opt/gradle-9.6.1/bin:$PATH node run-java.mjs [case…]
-```
+`scripts/sandbox-bootstrap.sh java` installs both (JDK 25 + Gradle 9) on the
+host; after `source /opt/loom-tc/env.sh`, `node run-java.mjs [case…]` works.
 
 **Port collision when running adapter legs side by side.** `run-java.mjs`,
 `run-dapper.mjs` and `run-mikroorm.mjs` all default to **8125**

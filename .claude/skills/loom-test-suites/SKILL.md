@@ -171,6 +171,8 @@ until docker info >/dev/null 2>&1; do sleep 1; done   # readiness gate
 
 It does **not** persist — if `docker info` starts failing mid-session, just relaunch it (the daemon process gets reaped). Image pulls from Docker Hub / `mcr.microsoft.com` work through the standard egress.
 
+**One command provisions every target's toolchain.** `scripts/sandbox-bootstrap.sh [java|dotnet|elixir|node24|flutter|all]` starts dockerd if needed, lifts JDK 25 + Gradle 9, .NET 10, Elixir/OTP 27, Node 24 and the Flutter SDK out of the pinned images into `/opt/loom-tc/`, and writes `/opt/loom-tc/env.sh`; `source` it and the behavioural runners (`run-java.mjs`, `run-dotnet.mjs`, `run-elixir.mjs`), `phoenix-ui-e2e`, Angular and Flutter suites find their toolchains on the host. Idempotent, fail-soft per target (exit 1 names the failures), about 3 GB of disk. Details and the proxy recipes (Hub/Maven 429, apt, hex): [`docs/tools.md`](docs/tools.md) → "Compiling generated backends in Docker".
+
 **Every backend target compiles locally without waiting on CI** (verified end-to-end here — generate → compile):
 
 - **Java** — the generated projects target a **Java 25** toolchain (needs Gradle 9.1+). The sandbox host ships JDK 21 + Gradle 8.14, which **cannot** build them, so build in the `gradle:9-jdk25` container (matches the emitted Dockerfile): `docker run --rm --network host -v <deployable>:/src -w /src -v /root/.ccr:/root/.ccr:ro -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" gradle:9-jdk25 gradle --no-daemon testClasses bootJar`. (CI installs JDK 25 + a pinned Gradle 9.6.1 via `gradle/actions/setup-gradle`.)
