@@ -77,7 +77,6 @@ const WAIVERS: readonly Waiver[] = [
   { doc: "docs/domain-services.md", marker: "function shippingFor(", why: "#4931" },
   { doc: "docs/extern.md", marker: "workflow placeAndConfirm(orderId: Order id)", why: "#3631" },
   { doc: "docs/generators.md", marker: "find byDef(def: string)", why: "#4932" },
-  { doc: "docs/language.md", marker: "ssn: string sensitive(pii, audited)", why: "#3642" },
   { doc: "docs/workflow.md", marker: "workflow transferCredit(...)", why: "#3631" },
 ];
 

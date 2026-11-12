@@ -34,40 +34,35 @@ and tooling see [`tools.md`](tools.md).
   span is built by the `days(n)` / `hours(n)` / `minutes(n)` constructors
   instead — see [Temporal arithmetic](#temporal-arithmetic).
 - **Whitespace** and comments are ignored between tokens.
-- **Member separators**: `aggregate` / `entity` / `valueobject` members are
-  **newline-separated** — a comma is rejected (`Expecting token of type '}'
-  but found ','`).  `event` fields, `enum` values, and every clause-style
-  block (`deployable`, `resource`, `storage`, `ui: X { … }` bindings, …)
-  accept commas **or** newlines.  When in doubt, **use newlines**: they are
-  accepted everywhere.
+- **Member separators**: a comma between members (and a trailing one) is
+  **optional and carries no meaning** in every member list — `aggregate` /
+  `entity` / `valueobject` members, `event` fields, `enum` values, and every
+  clause-style block (`deployable`, `resource`, `storage`, `ui: X { … }`
+  bindings, …) — so `aggregate Order { qty: int, total: money }` and the
+  newline-separated spelling parse identically.  The member lists are
+  enumerated in
+  [chapter 1](language-reference/01-lexical-structure.md).
 
 #### Keywords — hard vs. soft
 
-Loom keeps the *hard*-reserved set to declaration heads, type names and
-expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
-`find`, `where`, `derived`, `invariant`, `unique`, `function`, `operation`,
-`create`, `destroy`, `apply`, `precondition`, `requires`, `emit`, `let`,
-`return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
-`extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
-`true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`
-(`date` is a primitive type name too, but a SOFT one — a field may still be
-named `date`),
-plus the system-level heads — `system`, `subdomain`, `deployable`,
-`storage`, `api`, `ui`, `component`, `theme`, `user`,
-`auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
-`criterion`, `domainService`, `commandHandler`, `queryHandler`, `channel`,
-`channelSource`, `timerSource`, `requirement`, `solution`, `testCase`,
-`layout`, `import`).  None of these can name a **field**, and none can name
-a **declaration** either — `command File { … }` is a parse error for the same
-reason `File: string` is.  Both now say so: a keyword in a name
-position reports `'File' is a Loom keyword, so it cannot be used as a name
-here`, rather than Chevrotain's `Expecting token of type 'ID'` (audit #2864).
-The wording says "here" because most of Loom's keywords are soft — `page` is a
-field name but not a `derived` name — so the bar is positional, not global.
-A handful (`api`, `ui`, `component`, `policy`, `id`, `contains`,
-`permissions`, `create`, `destroy`) are nonetheless admitted as parameter /
-argument names or bare expression refs by the per-rule extras described next.
+Loom keeps the *hard*-reserved set short: the words that are **not** field
+names are `apply`, `as`, `bool`, `contains`, `create`, `datetime`, `decimal`,
+`DELETE`, `derived`, `destroy`, `else`, `emit`, `entity`, `expect`, `false`,
+`File`, `find`, `for`, `from`, `function`, `GET`, `guid`, `id`, `if`, `in`,
+`int`, `invariant`, `json`, `let`, `long`, `match`, `notFound`, `now`, `null`,
+`on`, `operation`, `PATCH`, `persist`, `POST`, `precondition`, `private`,
+`PUT`, `requires`, `return`, `Self`, `string`, `test`, `this`, `true`,
+`unique`, `unless`, `when`, `where`, `with`.  Every other word keyword —
+declaration heads (`system`, `subdomain`, `deployable`, `storage`, `api`,
+`ui`, `layout`, `import`, `extends`, `abstract`, `extern`, `audited`, `mask`,
+`route`, …) included — is **soft**: reserved only where its own rule begins
+and admitted as an ordinary identifier elsewhere, so `aggregate Order {
+system: string  route: string  audited: string }` parses.  The full list and
+the reasons the hard words stay hard are in
+[chapter 1](language-reference/01-lexical-structure.md#soft-keywords).  A hard word
+in a name position reports `'File' is a Loom keyword, so it cannot be used as
+a name here`; the wording says "here" because the bar is positional, not
+global.
 
 Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
@@ -85,10 +80,9 @@ example `await` is admissible as a **field** / parameter name but not as a
 bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
-refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
+refs and, being soft, field names too.  `of`, `allow`, `deny`, `local`, `deep`,
 `global`, `policy` and `persistence` are in the shared set, so `aggregate Claim { policy:
-Policy id }` parses.  `slot` joined them for #2864: its only hard position is
+Policy id }` parses.  `slot` is in the set too: its only hard position is
 the `component` element-param type, exactly the shape `money` and `action`
 already had, so `valueobject Berth { slot: int }` parses now.  The source of truth is the rule set in
 `src/language/ddd.langium`, pinned by
@@ -459,13 +453,13 @@ Inside an aggregate or an `entity` part:
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
 | `[private] invariant [name:] Expression [when Expression]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; the optional `name:` keys the rule's user-facing text (`<Ctx>.<Owner>.rule.<name>`, English in `locales/en/<Ctx>.json`) — see [Naming a rule](language-reference/07-invariants-derived-functions.md#naming-a-rule). The `message "…"` clause is removed (`loom.rule-message-removed`, an error that names the rule to write). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
-| `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
-| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
+| `function name(params): TypeRef = Expression` | Pure helper (expression form); a **public**, pure query: callable from any expression in the aggregate and, on a loaded aggregate, from workflows and domain services (every backend emits it public). Stays SQL-inlinable like a `criterion`. |
+| `function name(params): TypeRef { … }` | Pure helper (block form), public like the expression form; `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
 | `create [name](params) [audited] [{ … }]` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  The body is optional: `create(title: string)` is the same declaration as `create(title: string) { }` (likewise a workflow starter).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
-| `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
+| `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. On a state-based aggregate the body may hold only a `requires` guard (403); any other statement is refused by `loom.lifecycle-body-dropped`, because the removal does not run it. See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md#create--destroy--lifecycle-actions). |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
@@ -945,13 +939,13 @@ Conventional tag names (not enforced):
 | `pii` | Personally identifiable information (name, email, phone, address). |
 | `phi` | Protected health information (HIPAA-adjacent). |
 | `cred` | Credentials (passwords, API keys, tokens). |
-| `audited` | The field's value lineage should be retained for audit. |
+| `audit` | The field's value lineage should be retained for audit. (Tags must not be Loom keywords; `audited` is refused.) |
 
 ```ddd
 aggregate Patient {
   fullName: string sensitive(pii)
   diagnosis: string sensitive(pii, phi)
-  ssn: string sensitive(pii, audited) secret    // sensitive + secret access
+  ssn: string sensitive(pii, audit) secret    // sensitive + secret access
 }
 ```
 
