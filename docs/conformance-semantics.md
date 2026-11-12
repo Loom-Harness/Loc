@@ -1133,16 +1133,16 @@ the conforming backends, and the fix that established it.
   `DomainExceptionFilter` (.NET), `ApiExceptionAdvice` (java),
   `install_error_handlers` (python), `<App>Web.FaultHandler` (elixir). A rule
   checked only on the paths a fixture reaches is checked on the paths that were
-  already fine — see M-T6.30, where elixir's arm existed solely inside the
-  workflow/extern `respond/2` dispatchers, so the most common system shape
-  (CRUD, no workflow) emitted none at all and answered an HTML debug page in dev
-  and the exception's own message as `detail` in prod.
+  already fine — elixir's arm once existed solely inside the workflow/extern
+  `respond/2` dispatchers, so the most common system shape (CRUD, no workflow)
+  emitted none and answered an HTML debug page in dev and the exception's own
+  message as `detail` in prod; the per-file gate now uses a plain-CRUD fixture.
 - **Why it hid.** Elixir answered `400` and `inspect/1`'d the term straight into
   `detail`. It survived RS-15's 400 → 422 sweep *precisely because it is not the
   domain floor*: RS-15 moved the rejections the domain **makes**, and this is the
   rejection **nobody made**. And no system in the shared behavioural corpus
   reaches this arm — every error those fixtures produce is modelled — so all five
-  M-T9.11 legs were green with the divergence in place. An arm no fixture reaches
+  behavioural legs were green with the divergence in place. An arm no fixture reaches
   is exactly the arm that needs a *name*.
 - **A second, smaller divergence on the same arm — and how it was found.** The
   fix's own report proposed this rule as all-five-conforming. That list was
@@ -1150,17 +1150,16 @@ the conforming backends, and the fix that established it.
   while **python** emits `"An unexpected error occurred."`. Python has no *leak*
   — its string is fixed and reflects nothing — so it isn't the defect the rule
   was minted for; it simply isn't byte-identical, and byte-identity is the entire
-  premise of the M-T9.11 golden. Listed as a **target** until python moves.
+  premise of the wire golden. Listed as a **target** until python moves.
 - **The habit this rule family keeps failing at.** This is the **third** time an
   all-five `conforms` was asserted from reading rather than checking (RS-18
   twice, RS-19 once). Enumerate the other backends' emitted literal *before*
   writing the list, every time.
 - **Conforms.** node, dotnet, java, elixir. **Targets:** python.
 - **Provenance.** Found 2026-07-29 by grepping the vanilla Phoenix denial
-  protocol's edges after #2300 centralised it (M-T6.24). Python divergence found
+  protocol's edges. Python divergence found
   2026-08-01 by verifying the proposed `conforms` list instead of accepting it.
-  The third trigger above (and elixir's floor for it) landed 2026-08-23 with
-  M-T6.30, gated per-file on a plain-CRUD fixture in
+  The third trigger above (and elixir's floor for it) landed 2026-08-23, gated per-file on a plain-CRUD fixture in
   `test/conformance/internal-fault-parity.test.ts` and witnessed on a booted
   Phoenix app. Tier: **static** — promote to behavioral once a fixture reaches
   the arm.
@@ -1183,7 +1182,7 @@ the conforming backends, and the fix that established it.
   `"One or more fields are invalid."`. **Both halves of the body differed.**
 - **Where it sat is the point.** Wire validation is the **highest-traffic error
   path in any API** — every malformed request hits it — and it was invisible to
-  every gate. The M-T9.11 golden cannot see it because only **4 of the 31
+  every gate. The wire golden cannot see it because only **4 of the 31
   goldens record an error body at all** — and the single 422 among them
   (`wire-contract`) is the **domain floor**, i.e. the *other* rung.
   `conformance-parity` is no help either: it compares declared response
