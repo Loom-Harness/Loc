@@ -63,6 +63,7 @@ export interface AngularModalSpec {
   /** True when the form has ≥1 `File` param — page-shell emits the shared
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
+  hasList?: boolean;
   /** A `when`-gated op's `can_<op>` probe: page-shell hoists
    *  `readonly <local> = <hook>(() => <idExpr>)`, with the TEMPLATE-scope
    *  `idExpr` rebound against `this`.  Absent for an ungated op. */
@@ -216,6 +217,7 @@ export function renderAngularModal(
         fieldGroups: [],
         groupMarkup: [],
         hasFileField: false,
+        hasListField: false,
       };
   const fieldMarkup = applyAngularValidators(parts, opInvariants, available, formVar, ns, ctx);
 
@@ -252,6 +254,7 @@ export function renderAngularModal(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    hasList: parts.hasListField,
     ...(nullable.length > 0 ? { nullable } : {}),
     ...(seedMethod ? { seedMethod } : {}),
     ...(gate ? { gate: { local: gate.local, hook: gate.hook, idExpr } } : {}),
