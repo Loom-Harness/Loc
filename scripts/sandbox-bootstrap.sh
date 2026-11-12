@@ -25,20 +25,34 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TC="${LOOM_TC_DIR:-/opt/loom-tc}"
 ALL=(java dotnet elixir node24 flutter)
 
-# Image tags come from the constants the generators pin, so a bump moves the
-# bootstrap with it.  The fallbacks are the values at the time of writing.
-JAVA_V="$(grep -oP 'JAVA_VERSION = "\K[0-9]+' "$ROOT/src/generator/java/emit/program.ts" 2>/dev/null || echo 25)"
-ELIXIR_V="$(grep -oP 'ARG ELIXIR_VERSION=\K[0-9.]+' "$ROOT/src/generator/elixir/shell/project.ts" 2>/dev/null | head -1)"
-OTP_V="$(grep -oP 'ARG OTP_VERSION=\K[0-9.]+' "$ROOT/src/generator/elixir/shell/project.ts" 2>/dev/null | head -1)"
-DEB_V="$(grep -oP 'ARG DEBIAN_VERSION=\K[a-z0-9-]+' "$ROOT/src/generator/elixir/shell/project.ts" 2>/dev/null | head -1)"
-DOTNET_V="$(grep -oP 'FROM mcr.microsoft.com/dotnet/sdk:\K[0-9.]+(?= AS build)' "$ROOT/src/generator/dotnet/emit/program.ts" 2>/dev/null | head -1)"
-IMG_JAVA="gradle:9-jdk${JAVA_V}"
-IMG_DOTNET="mcr.microsoft.com/dotnet/sdk:${DOTNET_V:-10.0}"
-IMG_ELIXIR="hexpm/elixir:${ELIXIR_V:-1.18.4}-erlang-${OTP_V:-27.3.4}-debian-${DEB_V:-bookworm-20260610-slim}"
-IMG_NODE="node:24"
-IMG_FLUTTER="ghcr.io/cirruslabs/flutter:stable"
-
 log() { printf '[sandbox-bootstrap] %s\n' "$*" >&2; }
+
+# Image tags come from the constants the generators pin, so a bump moves the
+# bootstrap with it.  The fallback is used only when the generator constant
+# cannot be read, and then the script says which constant and which fallback.
+# scrape <what> <fallback> <file> <perl-regex>: the first match of the regex's
+# \K group in <file>, else the fallback with a warning.
+scrape() {
+  local what="$1" fallback="$2" file="$ROOT/$3" re="$4" v
+  v="$(grep -oP "$re" "$file" 2>/dev/null | head -1)"
+  if [ -z "$v" ]; then
+    log "warning: cannot read $what from $3; using fallback '$fallback'"
+    v="$fallback"
+  fi
+  printf '%s' "$v"
+}
+
+JAVA_V="$(scrape 'JAVA_VERSION' 25 src/generator/java/emit/program.ts 'JAVA_VERSION = "\K[0-9]+')"
+ELIXIR_V="$(scrape 'ARG ELIXIR_VERSION' 1.18.4 src/generator/elixir/shell/project.ts 'ARG ELIXIR_VERSION=\K[0-9.]+')"
+OTP_V="$(scrape 'ARG OTP_VERSION' 27.3.4 src/generator/elixir/shell/project.ts 'ARG OTP_VERSION=\K[0-9.]+')"
+DEB_V="$(scrape 'ARG DEBIAN_VERSION' bookworm-20260610-slim src/generator/elixir/shell/project.ts 'ARG DEBIAN_VERSION=\K[a-z0-9-]+')"
+DOTNET_V="$(scrape 'the dotnet build-stage SDK tag' 10.0 src/generator/dotnet/emit/program.ts 'FROM mcr.microsoft.com/dotnet/sdk:\K[0-9.]+(?= AS build)')"
+IMG_FLUTTER="$(scrape 'the flutter build-stage image' ghcr.io/cirruslabs/flutter:stable src/generator/flutter/index.ts 'FROM \K\S+(?= AS build)')"
+IMG_JAVA="gradle:9-jdk${JAVA_V}"
+IMG_DOTNET="mcr.microsoft.com/dotnet/sdk:${DOTNET_V}"
+IMG_ELIXIR="hexpm/elixir:${ELIXIR_V}-erlang-${OTP_V}-debian-${DEB_V}"
+IMG_NODE="node:24"
+
 
 ensure_dockerd() {
   docker info >/dev/null 2>&1 && return 0
