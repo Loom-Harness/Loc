@@ -803,6 +803,9 @@ function embeddedTableForAggregate(
     // loads back as `[]` — so the column must tolerate NULL.
     columns.push({ name: snake(c.name), type: { kind: "json" }, nullable: true });
   }
+  // The root row carries the capability columns exactly as the relational
+  // root does — `versioned`'s `DEFAULT 1` included.
+  stampCapabilityColumns(agg, columns);
   return { name: tableName, ownerModule, columns, primaryKey: ["id"], foreignKeys, indexes };
 }
 
@@ -821,7 +824,9 @@ function documentTableForAggregate(tableName: string, ownerModule: string): Tabl
     columns: [
       { name: "id", type: idColumnType(), nullable: false },
       { name: "data", type: { kind: "json" }, nullable: false },
-      { name: ROW_VERSION_COLUMN, type: { kind: "int" }, nullable: false },
+      // Seeded at 1 like every other table's counter, so an insert path that
+      // omits it (a raw seed row) does not violate NOT NULL.
+      { name: ROW_VERSION_COLUMN, type: { kind: "int" }, nullable: false, default: "1" },
     ],
     primaryKey: ["id"],
     foreignKeys: [],

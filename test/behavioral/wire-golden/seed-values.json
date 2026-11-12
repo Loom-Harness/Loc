@@ -235,6 +235,86 @@
     },
     {
       "seq": 15,
+      "method": "GET",
+      "path": "/api/racks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "Top",
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/racks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/racks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/racks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "Side 2",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/racks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "label": "Side 2",
+          "rowVersion": 2
+        },
+        {
+          "id": "<volatile:key>",
+          "label": "Top",
+          "rowVersion": 1
+        }
+      ]
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/racks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/racks/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Rack {id} not found",
+        "instance": "/api/racks/{id}",
+        "params": {
+          "type": "Catalog.Rack"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/parts",
       "status": 405,
@@ -248,7 +328,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -262,7 +342,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 24,
       "method": "POST",
       "path": "/api/parts",
       "status": 400,
@@ -272,6 +352,23 @@
         "instance": "/api/parts",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/racks/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Rack {id} not found",
+        "instance": "/api/racks/{id}/update",
+        "params": {
+          "type": "Catalog.Rack"
+        },
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

@@ -73,6 +73,14 @@ system SeedValues {
         Part { name: "Beta", size: 2, tier: Pro }
         Meetup { title: "Kickoff", startsAt: "2024-01-01T09:30:00Z", endsAt: "2024-01-02T17:00:00Z", venue: { line1: "1 Main St", city: "Springfield" } }
       }
+      // A raw row names only the columns it declares, so an embedded root's
+      // optimistic-concurrency counter must come from its column DEFAULT —
+      // without one the INSERT violates NOT NULL and the stack never boots.
+      aggregate Rack shape: embedded, with crudish { label: string }
+      repository Racks for Rack { }
+      seed default raw {
+        Rack { id: "44444444-4444-4444-8444-444444444444", label: "Top" }
+      }
       seed demo { Part { name: "Gamma", size: 3, tier: Pro } }
       seed wired raw {
         Part { id: "33333333-3333-3333-3333-333333333333", name: "Anchor", size: 4, tier: Free }
@@ -157,5 +165,16 @@ system SeedValues {
     expect(api.meetups.getById(talk).venue.line2).toBe("Unit 4")
     api.meetups.destroy(talk)
     expect(api.meetups.getById(talk)).toThrow(404)
+
+    // ── a raw seed row on an embedded root starts its counter at 1 ──────────
+    let top = api.racks.getById("44444444-4444-4444-8444-444444444444")
+    expect(top.label).toBe("Top")
+    expect(top.rowVersion).toBe(1)
+    let made = api.racks.create({ label: "Side" })
+    api.racks.update(made, { label: "Side 2" })
+    expect(api.racks.getById(made).label).toBe("Side 2")
+    expect(api.racks.all().length).toBe(2)
+    api.racks.destroy(made)
+    expect(api.racks.getById(made)).toThrow(404)
   }
 }
