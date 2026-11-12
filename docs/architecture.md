@@ -96,7 +96,7 @@ v0 type enum:
 
 The rows marked **no** parse as a `type:` and bind to nothing: there is no
 search kind and no analytics kind, and `queue` admits `rabbitmq` alone — so
-every `resource … use: <that storage>` is refused by `loom.kind-incompatible`,
+every `resource … use: <that storage>` is refused by `loom.resource-kind-storage-mismatch`,
 and no sidecar or client is emitted.
 See [`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet).
 

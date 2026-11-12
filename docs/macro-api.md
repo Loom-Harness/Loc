@@ -14,7 +14,7 @@ API exposes.  For each macro's source-equivalent and intent, see
 
 | Source | Discovery |
 |---|---|
-| **Stdlib** | `src/macros/stdlib/<name>/*.macro.ts`. Registered once at toolchain boot by `loadStdlibMacros()` in `src/macros/stdlib/index.ts`. |
+| **Stdlib** | `src/macros/stdlib/**/*.macro.ts` (grouped in a subdirectory such as `scaffold/` or `softDelete/`, or a single file such as `crudish.macro.ts`). Registered once at toolchain boot by `loadStdlibMacros()` in `src/macros/stdlib/index.ts`. |
 | **Project-local** | The registry (`src/macros/registry.ts`) accepts user-supplied `MacroDefinition`s via `registerMacro(...)`.  A workspace-level auto-discovery seam under `.loom/macros/*.js` is documented in the registry's header comment but **not yet wired** to the CLI / LSP boot path — today the only way to add a macro is to drop it into `src/macros/stdlib/` and rebuild the toolchain. |
 
 The shape of a macro module is the same in both cases.  Each macro
@@ -27,7 +27,7 @@ import { defineMacro } from "../../api/index.js";
 
 export default defineMacro({
   name: "<macro-name>",
-  target: "aggregate" | "ui" | "context",
+  target: "aggregate" | "ui" | "context" | "api",
   apiVersion: 1,
   description: "<one-line>",
   params: { /* declared parameters, see below */ },
@@ -45,13 +45,14 @@ the `ExpandContext` type so `ctx.args` is typed against the declared
 
 ## `target` — which host the macro attaches to
 
-The three host kinds:
+The four host kinds:
 
 | Target | Host AST node | What the macro returns |
 |---|---|---|
 | `"aggregate"` | `Aggregate` | `AggregateMember[]` — properties, operations, invariants, capability declarations. |
 | `"context"` | `BoundedContext` | `ContextMember[]` — aggregates, repositories, workflows, views, capability declarations, value objects, enums. |
 | `"ui"` | `Ui` | `UiMember[]` — pages, components, menu blocks, helper imports, api parameters. |
+| `"api"` | `Api` | `Route[]` — `route <METHOD> <path> -> Context.Handler` bindings, spliced into the api's `routes[]` (`scaffoldApi`, `scaffoldPagedApi`). |
 
 The expander rejects a macro applied at the wrong target with a
 validator error pointing at the `with` clause.
@@ -129,9 +130,10 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `operation(name, params, body, opts?)` | A public domain operation. |
 | `param(name, type)` | A `Parameter` for an operation. |
 | `primType(kind)` | A primitive `TypeRef` (`"string"`, `"int"`, `"datetime"`, …). |
-| `namedType(name)` | A type reference by name (enum / value-object / aggregate-id). |
+| `namedType(name, opts?)` | A type reference by name (enum / value object); `paged: true` builds `<Name> paged`. |
+| `idRef(name, opts?)` | An `X id` type reference to the aggregate `name`; `opts.array` / `opts.optional` add `[]` / `?`. |
+| `selfRef(opts?)` | The `Self` type, rewritten to the host aggregate at splice time — only meaningful in a capability body (`parent: Self id?`). |
 | `thisRef()` | The expression `this`. |
-| `idRef(name)` | An identifier expression. |
 | `nameRef(name)` | A bare name reference (for `magic` identifiers like `currentUser`). |
 | `memberAccess(receiver, member, opts?)` | A `recv.member` expression; pass `call: true` for `recv.member()` calls.  An `args` entry `{ name, value }` is a named argument (`Items.getBy(sku: s)`). |
 | `not(expr)` | The expression `!e`. |
@@ -141,9 +143,9 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `ifLetStmt(name, source, thenBody, elseBody)` | `if let <name> = <source> { … } else { … }` — the single-row lookup that binds its hit in the then-branch. |
 | `notFoundStmt(detail?)` | `notFound` / `notFound "<detail>"` — ends a workflow / handler body with the standard 404. |
 | `requiresStmt(expr)` | `requires <expr>` — the in-body 403 authorization gate.  The ONLY surface a macro-emitted aggregate `create` / `destroy` has for one: neither carries a header `requires` clause.  Pair it with `callExpr(policyName, [])` for `requires <Policy>()`. |
-| `contextFilter(expr, opts?)` | A context-scope `filter` declaration; `opts.capability` adds the `for "<name>"` qualifier. |
-| `contextStamp(event, assignments, opts?)` | A context-scope `stamp` declaration; same `opts.capability` rule. |
-| `implementsCapability(name)` | An `implements "<name>"` declaration. |
+| `contextFilter(expr)` | A `filter <expr>` aggregate / context member. |
+| `contextStamp({ onCreate?, onUpdate? })` | One `stamp onCreate { … }` / `stamp onUpdate { … }` member per non-empty event. |
+| `implementsCapabilityRef(cap)` | A typed `implements <Cap>` member: the expander resolves the declared capability and splices its members in (at context scope, into every aggregate). |
 | `aggregate(name, members, opts?)` | A whole `aggregate` declaration for a `context`-target macro; `opts.with` lists its `with` entries (applied by the expander like hand-written ones). |
 | `enumDecl(name, values)` | An `enum` declaration. |
 | `invariant(name, expr)` | An `invariant [<name>:] <expr>` aggregate member. |
@@ -151,6 +153,27 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `policyBlock(rules, opts?)` | A `policy [<name>] { … }` block; each rule is a `{ kind: "row", verb?, target, binding, where }` row rule or a `{ kind: "level", write?, level, target, when? }` level rule. |
 | `existsExpr(aggregate, binding, where)` | `exists <Aggregate> as <binding> where <where>`. |
 | `paren(expr)` | `( <expr> )` — explicit grouping for an operand the enclosing operator would rebind. |
+| `selfId()` | `id` — the enclosing aggregate's own identity. |
+| `create(params, body, opts?)` / `destroy(body?, opts?)` | A `create` factory / `destroy` terminator; omit `opts.name` for the canonical one. |
+| `eventDecl(name, fields)` / `emitStmt(event, fields)` | An `event` declaration / an `emit <Event> { … }` statement. |
+| `matchStmt(subject, arms, elseBody?)` | A statement `match` with one arm per union variant. |
+| `letStmt(name, expr)` / `callStmt(path, args?)` / `returnStmt(expr)` | `let`, a bare method-call statement, and `return`. |
+| `objectLit(fields)` | An object literal `{ field: <expr>, … }` (the argument of `<Agg>.create({ … })`). |
+| `cloneTypeRef(t)` / `cloneTypeHead(t)` / `cloneExpr(e)` | Rebuild a source type / one union variant / expression through the factories so it re-links after splicing. |
+
+### CQRS, payload and route builders
+
+Used by the context- and api-target scaffold macros.
+
+| Helper | Builds |
+|---|---|
+| `commandHandler(name, params, body, opts?)` | An application-layer `commandHandler` context member (`opts.returnType` optional). |
+| `queryHandler(name, params, returnType, body)` | A `queryHandler` context member; the return type is required. |
+| `payload(name, fields)` / `command(name, fields)` / `query(name, fields)` / `response(name, fields)` | The `payload` / `command` / `query` / `response` record kinds. |
+| `singletonProjection(name, source, alias, members, selects, opts?)` | A keyless query-time `projection` returning one row (`opts.where`, `groupBys`, `gate`). |
+| `handlerRef(context, handler)` | A `Context.Handler` reference, the target of a route. |
+| `route(method, path, target)` | A `route <METHOD> <path> -> Context.Handler` api member (`path` unquoted). |
+| `apiReadFields(agg)` / `apiReadFieldsOf(members, …)` | The response field list of an aggregate / entity part, with no `id` row. |
 
 ### `ui-factories.ts` — UI-side AST nodes
 
@@ -161,6 +184,10 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `callExpr(target, args)` | A call expression — used to invoke builtin primitives like `Stack(...)`, `Heading(...)`. |
 | `stringLit(s)` / `boolLit(b)` | Literal expressions. |
 | `nameRefExpr(name)` | A bare-name reference expression. |
+| `area(name, members)` | An `area` grouping pages. |
+| `intLit(n)` / `listLit(items)` / `nowExpr()` | Integer, list-literal and `now()` expressions. |
+| `lambda(param, body)` | A one-parameter lambda. |
+| `binaryExpr(head, op, rest)` / `ternaryExpr(cond, a, b)` / `matchExpr(arms)` | Binary, ternary and `match` expressions. |
 
 ### Inspection helpers
 
@@ -169,8 +196,9 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `targetFields(agg)` | Plain `Property[]` on the aggregate (excludes containments, derived, operations, entity parts, tests). |
 | `writableUpdateFields(agg)` | Subset of `targetFields` suitable for `update(...)` operation parameters — applies the access-modifier matrix (excludes `immutable` / `managed` / `token` / `internal`; keeps `secret`).  See [`language.md`](language.md#field-access-modifiers). |
 | `writableCreateFields(agg)` | Subset suitable for `create(...)` — keeps `immutable`, excludes `managed` / `token` / `internal`. |
+| `createInputProperties(agg)` | The properties a create's input record carries (narrowed the way the IR narrows a declared factory). |
+| `entityPartNames(agg)` / `containmentOf(member, partNames)` | The aggregate's entity-part names / the containment a member declares. |
 | `aggregatesIn(ctx)` | All aggregates in a bounded context. |
-| `viewsIn(ctx)` | All views in a bounded context. |
 | `workflowsIn(ctx)` | All workflows in a bounded context. |
 | `originOf(node)` | The `OriginToken` for a synthesised node (or `undefined` for user-written code).  Used by composer macros to filter out macro-synthesised fields when scanning the host. |
 
