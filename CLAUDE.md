@@ -98,7 +98,7 @@ node bin/cli.js patch           <file.ddd> …                           # apply
 node bin/cli.js i18n {extract|init|sync|status|check|prune} <file.ddd> # translator workflow over the extracted string catalog — `sync` is a three-way merge (BASE locales/.loom/source.lock.json, OURS locales/<locale>.json, THEIRS a fresh extraction); `check --strict` is the CI gate (src/cli/i18n/ over the pure merge core src/i18n/merge.ts)
 ```
 
-Flags: `-o/--out`, `-w/--watch`, `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
+Full flag table: [`docs/tools.md`](docs/tools.md#cli). Flags: `-o/--out` (`verify` takes `--out` only), `-w/--watch`, `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, `--k8s`, `--verify-ir`, `--locales <dir>`, and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
 
 ## Architecture — the one-directional pipeline
 
