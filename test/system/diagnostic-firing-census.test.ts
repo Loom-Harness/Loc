@@ -2662,9 +2662,11 @@ system S {
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
   "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
   "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
-  // A write whose head is a parameter lowers to a path rooted at a member that
-  // does not exist; the post-lowering verifier refuses it.
-  "loom.ir-ill-formed": orderOps("operation p(n: int) { n := 2 }"),
+  "loom.assign-to-local": orderOps("operation p(n: int) { n := 2 }"),
+  "loom.assign-through-local-unsupported": orderOps(
+    'operation p() { let t = tag\n t.label := "x" }',
+  ),
+  "loom.duplicate-let": orderOps("operation p() { let n = 1\n let n = 2\n total := n }"),
   "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
   "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
   "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
@@ -4908,6 +4910,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // `loom_migration_record`'s name refusal judges the record call's `name`
   // against the chain — an input `validate()` never sees.
   "loom.migration-name-invalid": "test/tools/catalog.test.ts",
+  // The post-lowering backstop: every construct lowering cannot express is
+  // refused by an AST validator first, so no source reaches it.  The pointed-at
+  // file seeds an ill-formed lowering and asserts the code at its span.
+  "loom.ir-ill-formed": "test/ir/verify-lowered.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
