@@ -48,5 +48,12 @@ system RuleParamsScalar {
     let read = api.bookings.getById(b)
     expect(read.holds.length).toBe(1)
     expect(read.holds.first().nights).toBe(2)
+
+    api.bookings.update(b, { guest: "Ada L." })
+    let all = api.bookings.all()
+    expect(all.total).toBe(1)
+    expect(all.items.first().guest).toBe("Ada L.")
+    api.bookings.destroy(b)
+    expect(api.bookings.getById(b)).toThrow(404)
   }
 }
