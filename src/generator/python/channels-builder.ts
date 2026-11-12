@@ -660,7 +660,14 @@ export function buildPyChannelsFile(
     "    address = CHANNEL_ROUTING.get(event.type)",
     "    if address is None:",
     "        return False",
-    "    await _publish_to(address, _envelope_for(event, address), event.type)",
+    "    envelope = _envelope_for(event, address)",
+    "    # An ephemeral channel is at-most-once and publishes after the command",
+    "    # committed: a broker that is down loses the envelope, never the",
+    "    # command's answer.",
+    "    try:",
+    "        await _publish_to(address, envelope, event.type)",
+    "    except Exception as err:  # noqa: BLE001 — any transport failure",
+    '        log("warn", "channel_publish_failed", address=address, type=event.type, id=envelope["id"], error=str(err))',
     "    return True",
     ...(hasDurable
       ? [
