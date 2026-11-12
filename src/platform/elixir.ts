@@ -99,11 +99,11 @@ const elixirPlatform: PlatformSurface = {
         // release runs `prod`; the partition only shards `mix test`).
         ["POOL_SIZE", "MIX_ENV", "MIX_TEST_PARTITION"],
       ),
-    listen: "ipv6-required",
+    listen: "dual-stack",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
-    gaps: { ...BROKER_BASELINE_GAPS, listen: "#3588" },
+    gaps: BROKER_BASELINE_GAPS,
   },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
