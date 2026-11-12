@@ -19,7 +19,7 @@ export class DapArgsError extends Error {
   override readonly name = "DapArgsError";
 }
 
-export const DAP_USAGE = "usage: ddd-dap [--map <path/to/.loom/sourcemap.json>]";
+const DAP_USAGE = "usage: ddd-dap [--map <path/to/.loom/sourcemap.json>]";
 
 /** Resolve the absolute sourcemap path from `argv` (process args after the
  *  script) and the `LOOM_DAP_MAP` env value. Throws `DapArgsError` on an

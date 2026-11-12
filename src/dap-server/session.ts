@@ -45,7 +45,7 @@ export type ReadSource = (path: string) => string | undefined;
  *  `launch`, `attach`, `continue`, `next`, `threads`, `pause`, … — needs a
  *  delegated target debugger, so it is refused with `success: false` rather
  *  than acknowledged as a no-op the client would read as "done". */
-export const SUPPORTED_DAP_REQUESTS: ReadonlySet<string> = new Set([
+const SUPPORTED_DAP_REQUESTS: ReadonlySet<string> = new Set([
   "initialize",
   "setBreakpoints",
   "stackTrace",
