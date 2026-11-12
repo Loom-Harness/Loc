@@ -211,19 +211,26 @@ node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable t
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
 node bin/cli.js verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
 node bin/cli.js verify  <file.ddd> --from-vitest <report.json>  # …reading `vitest run --reporter=json` directly
+node bin/cli.js migrate add <name> <file.ddd>          # record schema changes in migrations/ (also `migrate status|remove|rebase`)
+node bin/cli.js diff    <file.ddd> [--git <ref>]       # classify model changes: compatible / breaking-for-clients / breaking-for-data
+node bin/cli.js patch   <file.ddd> --patches <p.json>  # apply node-addressed model patches
+node bin/cli.js trace   <logfile> -o <out>             # map a stack trace back to .ddd source (needs `generate system --sourcemap`)
+node bin/cli.js breakpoints <file.ddd> --line <n> -o <out>  # resolve a .ddd line to the generated file:line(s)
+node bin/cli.js i18n    <extract|init|sync|status|check|approve|export|import|prune> <file.ddd>  # translator workflow
 ```
+
+Every flag and sub-command is in [`docs/tools.md`](docs/tools.md#cli); `node bin/cli.js <command> --help` is the source of truth.
 
 Common flags:
 
 | Flag | Effect |
 | --- | --- |
-| `-o, --out <dir>` | Output directory.  Created if missing. |
-| `-w, --watch` | Re-run the generator on every save of the `.ddd` source. |
-| `--dry-run` | Print the plan with `write` / `skip` annotations; touch nothing. |
+| `-o, --out <dir>` | Output directory (`generate system`, `snapshot`, `new`).  Created if missing. |
+| `-w, --watch` | Re-run `generate system` on every save of the `.ddd` source. |
+| `--dry-run` | Print the plan with `write` / `skip` annotations; touch nothing (`generate system`, `snapshot`). |
 
-`ddd parse` exits non-zero on validation errors.  All `generate`
-sub-commands run validation first and refuse to emit if there are
-errors.
+`ddd parse` exits non-zero on validation errors.  `generate system` runs validation first and refuses to emit if
+there are errors.
 
 ## What's in the box
 

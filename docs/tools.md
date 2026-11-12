@@ -116,7 +116,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
-| `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a repository `find`. |
+| `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a `criterion` + `retrieval` list read. |
 | `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
@@ -182,10 +182,15 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | every `generate`, `verify`, `snapshot` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`; optional on `verify` (defaults to the `.ddd` file's directory). |
-| `-w, --watch` | every `generate` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
-| `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
-| `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
+| `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
+| `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
+| `--dry-run` | `generate system`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
+| `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
+| `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
+| `--locales <dir>` | `generate system` | Translator tree root to read locale catalogs from (default `<.ddd dir>/locales`); each locale found is emitted into every frontend with a translation runtime — see [i18n](#i18n-translator-workflow-ddd-i18n). |
+| `--verify-ir` | `generate system` | Run the IR verifier (a compiler self-check of the lowering/enrichment output) before validation and exit non-zero on a violation. |
+| `--trace` | `generate system` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
 | `--allow-destructive` | `migrate add` | Permit destructive steps (column/table drops, NOT-NULL column adds without a default on an existing table, reshapes) in the recorded migration.  Off by default a destructive delta aborts with a `loom.migration-destructive` error — see [`migrations.md`](migrations.md) § Destructive changes. |
 | `--all-warnings` | `parse`, `generate system` | Print every IR-level warning in full.  By default a warning code that fires more than three times (the per-aggregate `denyByDefault` read-gate warnings, typically) prints its first occurrence plus one line naming the rest — `… and 3 more loom.default-deny-by-id-ungated warning(s): Desk/Agent, Desk/Queue, Desk/Tag`.  The `N warning(s)` count and `--json` output always carry every diagnostic. |
 
