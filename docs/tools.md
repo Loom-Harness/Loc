@@ -967,6 +967,74 @@ drop its `build:`) and the rest of the stack boots normally.  This is a
 sandbox-only workaround, not a generator concern — CI runners and normal dev
 machines run the in-container Gradle stage as-is.
 
+### Behind the sandbox proxy: Docker Hub, Maven Central, apt, Hex
+
+Four failure shapes recur when compiling generated backends in the cloud
+sandbox.  Each recipe below was run there.
+
+**Docker Hub `429 Too Many Requests` on `docker pull`** (seen on `postgres`,
+`hexpm/elixir`).  Pull the same image through `mirror.gcr.io` and tag it back:
+
+```bash
+docker pull mirror.gcr.io/library/postgres:16-alpine
+docker tag  mirror.gcr.io/library/postgres:16-alpine postgres:16-alpine
+docker pull mirror.gcr.io/hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim   # non-library images work too
+```
+
+`scripts/sandbox-bootstrap.sh` falls back to `mirror.gcr.io/library/<image>`
+for the library images it pulls.
+
+**Maven Central `429` inside `gradle:9-jdk25`** (`Could not GET
+'https://repo.maven.apache.org/maven2/…'. Received status code 429`).  The
+429 is intermittent.  Resolve through Google's Maven Central mirror with the
+init script `scripts/gradle-central-mirror.init.gradle.kts`, which rewrites
+every `repo.maven.apache.org` repository URL (build, settings and plugin
+repositories) to `maven-central.storage-download.googleapis.com`:
+
+```bash
+docker run --rm --network host -v <deployable>:/src -w /src \
+  -v "$PWD/scripts":/init:ro -v /root/.ccr:/root/.ccr:ro \
+  -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" \
+  gradle:9-jdk25 gradle --no-daemon -I /init/gradle-central-mirror.init.gradle.kts testClasses bootJar
+# host Gradle (after scripts/sandbox-bootstrap.sh java):
+gradle -I scripts/gradle-central-mirror.init.gradle.kts bootJar
+```
+
+`gradle --info` then prints `Downloading https://maven-central.storage-download.googleapis.com/maven2/…`.
+The container prints `Trust store file /etc/ssl/certs/java/cacerts does not
+exist` (the host path in `JAVA_TOOL_OPTIONS`); the proxy CA is still trusted
+and the build proceeds.
+
+**apt in an image build.**  A plain `apt-get update && apt-get install` in a
+`debian:bookworm-slim` build succeeds in the sandbox, with or without
+`--network host`.  When a build's apt traffic is refused by the proxy
+(`405 Method Not Allowed`, the signature of plain-`http` requests), switch apt
+to `https` and give it the proxy CA through the build context:
+
+```dockerfile
+FROM debian:bookworm-slim
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt   # cp /root/.ccr/ca-bundle.crt next to the Dockerfile
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+ && apt-get -o Acquire::https::CaInfo=/usr/local/share/ca-certificates/proxy.crt update \
+ && apt-get -o Acquire::https::CaInfo=/usr/local/share/ca-certificates/proxy.crt \
+      install -y --no-install-recommends ca-certificates curl
+```
+
+**Hex in the `hexpm/elixir` container.**  `mix local.hex` and `mix deps.get`
+work through the proxy by passing the proxy and its CA, without
+`LOOM_HEX_MIRROR`:
+
+```bash
+docker run --rm --network host -e HTTPS_PROXY \
+  -e HEX_CACERTS_PATH=/root/.ccr/ca-bundle.crt -e SSL_CERT_FILE=/root/.ccr/ca-bundle.crt \
+  -v /root/.ccr:/root/.ccr:ro -v <deployable>:/w -w /w \
+  hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim \
+  bash -c 'mix local.hex --force && mix local.rebar --force && mix deps.get'
+```
+
+Use `LOOM_HEX_MIRROR=1` (above) only when Hex is refused with a bare `503`
+despite this.
+
 ### Generated DSL-level e2e suite
 
 When the source declares `test e2e` blocks (see
