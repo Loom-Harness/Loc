@@ -98,12 +98,10 @@ export function heexIcuEnabled(ui: UiIR): boolean {
 
 /** `lib/<app>/cldr.ex` — the CLDR backend `ex_cldr_messages` formats against.
  *
- *  `locales:` carries the SOURCE language only.  A generated app ships one
- *  `.po` tree (`en`); a translator adding `fr` copies that tree AND adds the
- *  locale here, because CLDR's plural rules are per-locale data that has to be
- *  compiled in.  Both halves of that are stated in the moduledoc — a `.po` file
- *  whose plural forms no backend can evaluate is the failure mode this note
- *  exists to prevent. */
+ *  `locales:` compiles every shipped locale's CLDR plural rules in, because they
+ *  are per-locale data; a `.po` file whose plural forms no backend can evaluate
+ *  would silently fall back to the source rules.  The shipped set comes from the
+ *  `locales/<tag>.json` files beside the .ddd. */
 export function renderCldrBackend(
   appModule: string,
   sourceLocale: string = DEFAULT_SOURCE_LOCALE,
@@ -125,9 +123,8 @@ export function renderCldrBackend(
     "  CLDR aborts the compile on a configured tag it does not define, so a shipped",
     "  tag CLDR lacks is left out of `locales:`: its `.po` tree still serves, and",
     "  its plural-category messages fall back to the source language's rules.",
-    "  A locale added by hand needs both a `priv/gettext/<locale>` tree and an",
-    "  entry in `@shipped`; without the entry a translated",
-    "  `{n, plural, few {…} many {…}}` has no rules to select by.",
+    "  A `locales/<tag>.json` beside the .ddd yields both the `priv/gettext/<tag>`",
+    "  tree and the `@shipped` entry on generate, so no hand edit is needed.",
     '  """',
     `  @source ${JSON.stringify(sourceLocale)}`,
     `  @shipped [${locales.map((l) => JSON.stringify(l)).join(", ")}]`,

@@ -107,7 +107,9 @@ describe("React i18n runtime", () => {
     expect(i18n).toContain("formatterFor(current, message).format(formatValues(message, values))");
     expect(i18n).toContain("new IntlMessageFormat(message, locale)");
     // `values` widened to admit Date (`, date`), boolean and a Decimal (`, number`).
-    expect(i18n).toContain("type Values = Record<string, string | number | boolean | Date | NumberLike>;");
+    expect(i18n).toContain(
+      "type Values = Record<string, string | number | boolean | Date | NumberLike>;",
+    );
     expect(i18n).toMatch(/values\?: Values/);
     // No leftover regex shim.
     expect(i18n).not.toContain("message.replace(");

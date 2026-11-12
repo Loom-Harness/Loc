@@ -105,7 +105,10 @@ describe("a Decimal reaches a numeric ICU hole as a number", () => {
     it(`${platform}: type admits Decimal, number hole gets a number`, async () => {
       const files = await generateSystemFiles(system(platform, pack));
       const runtime = [...files].find(
-        ([p, c]) => p.startsWith("web/") && c.includes("intl-messageformat") && c.includes("export function t("),
+        ([p, c]) =>
+          p.startsWith("web/") &&
+          c.includes("intl-messageformat") &&
+          c.includes("export function t("),
       )![1];
 
       expect(
@@ -125,3 +128,13 @@ describe("a Decimal reaches a numeric ICU hole as a number", () => {
   }
 });
 
+describe("emitted runtime headers", () => {
+  // String tier (absence claim): no compile or boot tier observes header prose,
+  // and the claim is that stale hand-registration advice is gone.
+  it("does not instruct hand registration of a locale", async () => {
+    const files = await generateSystemFiles(system("static", "mantine"));
+    const runtime = [...files].find(([p]) => p === "web/src/i18n.ts")![1];
+    expect(runtime).not.toContain("drop a `src/locales/");
+    expect(runtime).not.toContain("register it in `catalogs`");
+  });
+});

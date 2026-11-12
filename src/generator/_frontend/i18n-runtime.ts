@@ -213,8 +213,8 @@ export function renderI18nModule(
   return `// Generated translation runtime (Loom i18n).
 // Locale negotiation + reactive-state store + source-language lookup with a
 // per-key fallback + ICU message formatting via \`intl-messageformat\`.
-// To add a locale, drop a \`src/locales/<locale>.json\` file, import it below,
-// and register it in \`catalogs\` and \`tagIndex\`. The \`t(key, default, values)\`
+// A \`locales/<tag>.json\` file beside the .ddd is imported and registered in
+// \`catalogs\` and \`tagIndex\` on generate — no hand edit. The \`t(key, default, values)\`
 // call sites are stable — a message may carry plain \`{name}\` holes or
 // locale-formatted ones (\`{total, number, ::currency/USD}\`, \`{d, date, ::yMMMd}\`).
 import { IntlMessageFormat } from "intl-messageformat";
