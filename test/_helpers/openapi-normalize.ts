@@ -663,6 +663,8 @@ export function queryParamSignatures(spec: OpenApiSpec): Map<string, string> {
 //     document omits is inferred from members that all pin the same property
 //     to one value.  A polymorphic base (`discriminator` on the base, subtypes
 //     `allOf` it) is the same union as `oneOf` over the subtypes.
+//   - An inline `oneOf` over `$ref`s naming exactly the members of one named
+//     union component is a `$ref` to it.
 //   - A discriminator mapping pins each arm's tag property: an arm the mapping
 //     tags `Circle` reads as `type: {enum: [Circle]}` when it does not already
 //     pin a value (Swashbuckle publishes the tag only in the mapping).
@@ -911,6 +913,34 @@ function polymorphicBasesAsUnions(spec: OpenApiSpec, bases: Map<string, Set<stri
   return out;
 }
 
+/** An inline `oneOf` over `$ref`s that names exactly the members of one named
+ *  union component is a `$ref` to that component (Swashbuckle inlines a
+ *  polymorphic body as `oneOf` over the subtypes while also publishing the
+ *  base).  Matched by member NAMES, so two unions whose arms happen to share a
+ *  structure stay distinct. */
+function refNamedUnions(spec: OpenApiSpec): OpenApiSpec {
+  const memberKey = (s: Json): string | undefined => {
+    if (!Array.isArray(s.oneOf) || s.oneOf.length === 0) return undefined;
+    const names = s.oneOf.map((m) => (isObj(m) ? refTarget(m.$ref) : undefined));
+    return names.every((n) => n !== undefined) ? [...names].sort().join("|") : undefined;
+  };
+  const byKey = new Map<string, string[]>();
+  for (const [name, schema] of Object.entries(spec.components?.schemas ?? {})) {
+    const k = isObj(schema) ? memberKey(schema) : undefined;
+    if (k) byKey.set(k, [...(byKey.get(k) ?? []), name]);
+  }
+  if (byKey.size === 0) return spec;
+  return mapDocumentSchemas(
+    spec,
+    (s) => {
+      const k = memberKey(s);
+      const names = k ? byKey.get(k) : undefined;
+      return names?.length === 1 ? { $ref: `#/components/schemas/${names[0]}` } : s;
+    },
+    false,
+  );
+}
+
 /** Write each explicit discriminator-mapping tag into the arm it targets, as
  *  a one-value `enum` on the tag property, unless the arm already pins one. */
 function pinDiscriminatorTags(spec: OpenApiSpec): OpenApiSpec {
@@ -1157,6 +1187,7 @@ export function canonicalizePair(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec, 
     const flat = flattenAllOf(spec);
     let s = inlineArrayAliases(flat.spec);
     s = polymorphicBasesAsUnions(s, flat.bases);
+    s = refNamedUnions(s);
     s = pinDiscriminatorTags(s);
     s = collapseProblemUnions(s, flat.bases);
     s = inlineArmOnlyComponents(s);
