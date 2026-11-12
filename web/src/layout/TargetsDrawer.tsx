@@ -16,6 +16,7 @@
 import { Alert, Badge, Button, Drawer, Group, Select, Stack, Text } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { applyPatches } from "../../../src/language/model-patch.js";
+import { unsupportedPlatformOf } from "../build/deployables.js";
 import { parseDdd } from "../builder/parse.js";
 import { isParseOk } from "../builder/pane-write.js";
 import {
@@ -58,8 +59,6 @@ export function TargetsDrawer({ ctx, opened, onClose }: Props): JSX.Element {
     return { targets: readTargets(parse.ast, source), parsed: true };
     // `epoch` is the re-read trigger after an apply.
   }, [opened, source, epoch]);
-
-  const unsupported = new Map(ctx.unsupportedDeployables.map((d) => [d.slug, d.platform]));
 
   async function apply(target: TargetDeployable, axis: TargetAxis, value: string): Promise<void> {
     if (busy) return;
@@ -127,7 +126,7 @@ export function TargetsDrawer({ ctx, opened, onClose }: Props): JSX.Element {
             key={target.name}
             target={target}
             disabled={busy || !ctx.sourcesWritable}
-            unsupportedAs={unsupported.get(target.name) ?? null}
+            unsupportedAs={unsupportedPlatformOf(ctx.unsupportedDeployables, target.name)}
             onChange={(axis, value) => void apply(target, axis, value)}
           />
         ))}

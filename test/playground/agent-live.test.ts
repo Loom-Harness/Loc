@@ -72,6 +72,76 @@ describe("latestSourceFrom", () => {
     expect(latestSourceFrom(messages)).toBe("V2");
   });
 
+  it("ignores a refused call's source — the host threw, so nothing was proposed", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "a", name: "loom_validate", input: { source: "V1" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "a", content: '{"ok":true}' }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "b", name: "loom_generate", input: { source: "X" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "b", content: "refused", is_error: true }],
+      },
+    ];
+    expect(latestSourceFrom(messages)).toBe("V1");
+  });
+
+  it("ignores the migration tools' source — it asserts the workspace model, it proposes none", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "a", name: "loom_validate", input: { source: "V1" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "a", content: '{"ok":true}' }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "b", name: "loom_migration_status", input: { source: "W" } },
+          {
+            type: "tool_use",
+            id: "c",
+            name: "loom_migration_record",
+            input: { source: "W", name: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "b", content: '{"unrecorded":false}' },
+          {
+            type: "tool_result",
+            tool_use_id: "c",
+            content: "That source is not the model",
+            is_error: true,
+          },
+        ],
+      },
+    ];
+    expect(latestSourceFrom(messages)).toBe("V1");
+  });
+
+  it("does not count a call whose result has not arrived", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "a", name: "loom_validate", input: { source: "V1" } }],
+      },
+    ];
+    expect(latestSourceFrom(messages)).toBeNull();
+  });
+
   it("returns null when no source appears", () => {
     expect(
       latestSourceFrom([{ role: "user", content: [{ type: "text", text: "hi" }] }]),

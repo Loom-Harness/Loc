@@ -68,6 +68,13 @@ system AuditHistoryGuarded {
       // inline call renders the operation's hoisted `requires` gate at the call
       // site, so the workflow must bind the principal even though its own body
       // never names `currentUser` — and must find the call at any depth.
+      // The same gated operation called from a routed command handler: the
+      // handler renders the hoisted gate too, so it binds the principal.
+      commandHandler PromoteNow(employee: Employee id) {
+        let e = Employees.get(employee)
+        e.promote()
+      }
+
       workflow PromoteIfPresent {
         create(employee: Employee id) {
           if let e = Employees.find(employee) { e.promote() }
@@ -97,7 +104,9 @@ system AuditHistoryGuarded {
       repository Desks for Desk
     }
   }
-  api OpsApi from Ops
+  api OpsApi from Ops {
+    route POST "/employees/{employee}/promote-now" -> Staff.PromoteNow
+  }
   storage primary { type: postgres }
   resource staffState { for: Staff, kind: state, use: primary }
   deployable d {
@@ -178,6 +187,9 @@ system AuditHistoryGuarded {
     // …and through its own route, which renders the same gate.
     api.employees.promote(e)
     expect(api.employees.getById(e).grade).toBe(3)
+    // …and through a routed command handler.
+    api.staff.promoteNow(e)
+    expect(api.employees.getById(e).grade).toBe(4)
 
     // The unaudited sibling round-trips like any aggregate; its (absent)
     // history route is probed by the authz ladder.

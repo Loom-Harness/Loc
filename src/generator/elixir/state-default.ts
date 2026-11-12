@@ -10,6 +10,7 @@
 // so hanging it off either of those would close an import cycle.
 // ---------------------------------------------------------------------------
 
+import { type StateZero, stateZero } from "../../ir/plan/index.js";
 import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { snake } from "../../util/naming.js";
@@ -37,45 +38,46 @@ export function stateDefaultDecls(ctx: BoundedContextIR): StateDefaultDecls {
  *  leaves), so it zeroes to a map of its own fields' zeroes — the shape the
  *  body's `Money { … }` construction writes.  An enum's zero is its FIRST
  *  member as the declared-case ATOM, which the `Ecto.Enum` state field dumps
- *  to the declared string (the seed every other backend writes; wave C3 D6).
- *  An undeclared name still falls back to `nil`. */
-export function stateDefault(
-  t: TypeIR,
-  decls: StateDefaultDecls = {},
-  seen: ReadonlySet<string> = new Set(),
-): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-      case "money":
-        return "Decimal.new(0)";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "DateTime.utc_now()";
-      case "date":
-        return "Date.utc_today()";
-      default:
-        return '""';
-    }
+ *  to the declared string (the seed every other backend writes).  Without
+ *  `decls` (the event-sourced fold seed) an enum or value object has no
+ *  resolved zero and falls back to `nil`, as an undeclared name does. */
+export function stateDefault(t: TypeIR, decls?: StateDefaultDecls): string {
+  return exStateZero(
+    stateZero(
+      t,
+      decls
+        ? { enums: [...(decls.enums ?? [])], valueObjects: [...(decls.valueObjects ?? [])] }
+        : undefined,
+    ),
+  );
+}
+
+function exStateZero(z: StateZero): string {
+  switch (z.kind) {
+    case "int":
+    case "long":
+      return "0";
+    case "decimal":
+    case "money":
+      return "Decimal.new(0)";
+    case "bool":
+      return "false";
+    case "datetime":
+      return "DateTime.utc_now()";
+    case "date":
+      return "Date.utc_today()";
+    case "json":
+    case "text":
+      return '""';
+    case "array":
+      return "[]";
+    case "enum":
+      return z.first === undefined ? "nil" : `:${z.first}`;
+    case "valueobject":
+      return z.fields
+        ? `%{${z.fields.map((f) => `${snake(f.name)}: ${f.zero ? exStateZero(f.zero) : "nil"}`).join(", ")}}`
+        : "nil";
+    default:
+      return "nil";
   }
-  if (t.kind === "array") return "[]";
-  if (t.kind === "enum") {
-    const first = decls.enums?.find((e) => e.name === t.name)?.values[0];
-    return first === undefined ? "nil" : `:${first}`;
-  }
-  if (t.kind === "valueobject" && !seen.has(t.name)) {
-    const vo = decls.valueObjects?.find((v) => v.name === t.name);
-    if (!vo) return "nil";
-    const inner = new Set([...seen, t.name]);
-    const entries = vo.fields.map(
-      (f) =>
-        `${snake(f.name)}: ${f.optional || f.type.kind === "optional" ? "nil" : stateDefault(f.type, decls, inner)}`,
-    );
-    return `%{${entries.join(", ")}}`;
-  }
-  return "nil";
 }

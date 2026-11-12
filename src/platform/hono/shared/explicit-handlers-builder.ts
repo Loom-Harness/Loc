@@ -7,7 +7,11 @@ import {
   wireStatus,
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
-import { type ResourceCalls, resourceCalls } from "../../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  type ResourceCalls,
+  resourceCalls,
+} from "../../../ir/plan/index.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
@@ -84,7 +88,6 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
-import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   aggregatesHaveUniqueKeys,
@@ -535,7 +538,7 @@ function emitRouteHandler(
   // A body that reads `currentUser` (a `requires` gate — `scaffoldGet` splices
   // the aggregate's read gate in — or an expression) needs it bound, exactly as
   // the workflow and aggregate routes bind it.
-  if (handlerUsesCurrentUser(h)) {
+  if (handlerNeedsCurrentUser(h, ctx)) {
     out.push(
       `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
     );
