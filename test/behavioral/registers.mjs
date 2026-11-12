@@ -240,6 +240,7 @@ export const BEHAVIOURAL_XFAIL = {
   node: {
     // The domain service's sibling call renders the bare `loadFactor(level)`
     // while the module defines `rating_loadFactor` — a ReferenceError → 500.
+    // The case's golden is python's; node compares against it once it passes.
     "service-decimal-chain": {
       issue: "#5180",
       expect: "fail",

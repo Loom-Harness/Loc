@@ -113,8 +113,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "outbound I/O inside a handler body; needs the resource's container — #4212",
   "optional-let":
     "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
-  "service-decimal-chain":
-    "the node ORACLE is a tracked expected failure (BEHAVIOURAL_XFAIL, #5180 — its domain-service sibling call names a function the module does not define), so no golden exists to compare against; python / java / .NET / elixir boot and assert it.  The entry goes when #5180 lands and node mints the golden",
   resources: "objectStore / queue / api / mailer clients need their containers — #4212",
   "api-call-auth":
     "in-system api call to an `auth: required` callee; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both, with auth required on each, and asserts the callee stamps the forwarded principal",
