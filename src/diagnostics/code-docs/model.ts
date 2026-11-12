@@ -18,6 +18,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
   "loom.aggregate-not-constructible": "03-domain-modeling.md#aggregate",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
+  "loom.provenanced-part-field": "20-observability-provenance.md#provenanced-fields",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
   "loom.crudish-hard-delete":

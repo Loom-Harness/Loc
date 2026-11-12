@@ -67,6 +67,7 @@ tightening rule. Document the promotion phase in the registry row.
 | `loom.ui-framework-unhostable` | error | the bound `ui`'s `framework:` is not in the host deployable's hostable set |
 | `loom.react-deployable-missing-ui` | error | react deployable with no `ui:` (post-#606) |
 | `loom.provenanced-never-written` | warning | `provenanced` field never assigned |
+| `loom.provenanced-part-field` | error | `provenanced` on an entity part's field (lineage is root-only) |
 | `loom.token-nullable` | error | nullable token field |
 | `loom.slot-member-access` / `loom.slot-out-of-position` | error | component slot misuse |
 | `loom.legacy-part-call` / `loom.legacy-vo-call` | warning | legacy call form |
