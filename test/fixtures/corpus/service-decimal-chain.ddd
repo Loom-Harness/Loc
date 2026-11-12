@@ -50,5 +50,13 @@ system ServiceDecimalChain {
     api.policies.rate(p, { level: 1 })
     let read = api.policies.getById(p)
     expect(read.premium).toBe(0.007)
+
+    api.policies.update(p, { base: 0.2, usage: 0.1, premium: 0 })
+    api.policies.rate(p, { level: 1 })
+    expect(api.policies.getById(p).premium).toBe(0.014)
+    let all = api.policies.all()
+    expect(all.total).toBe(1)
+    api.policies.destroy(p)
+    expect(api.policies.getById(p)).toThrow(404)
   }
 }
