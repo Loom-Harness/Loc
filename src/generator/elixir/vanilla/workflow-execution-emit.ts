@@ -411,7 +411,7 @@ function chainLine(step: PipelineStep): BodyLine {
 }
 
 /** A step as a link of a `with` chain; an effect is not a link. */
-function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
+export function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
   switch (step.kind) {
     case "clause":
       return step.text;
@@ -427,7 +427,7 @@ function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): string {
  *  the first failing link's error, passed through `wrapErr`, otherwise.  A
  *  body that ends in `notFound` answers that failure directly.  A body with
  *  no fallible link renders as plain sequential bindings. */
-function assembleChain(
+export function assembleChain(
   steps: readonly PipelineStep[],
   ok: string,
   wrapErr: (err: string) => string = (err) => err,
@@ -476,7 +476,7 @@ function guardClause(
 }
 
 /** The Elixir spelling of every workflow statement kind. */
-function elixirWorkflowTarget(
+export function elixirWorkflowTarget(
   contextModule: string,
   renderCtx: RenderCtx,
   ctx?: BoundedContextIR,
@@ -1000,7 +1000,7 @@ function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
  *  expression the caller evaluates after the list?  Decides whether a bind
  *  needs its real name or can be `_`-discarded (an unread real-named bind trips
  *  `mix compile --warnings-as-errors`). */
-function bindUsedLater(
+export function bindUsedLater(
   name: string,
   rest: readonly WorkflowStmtIR[],
   trailing: readonly ExprIR[] = [],
@@ -1013,7 +1013,7 @@ function bindUsedLater(
  *  only when it is unread downstream AND the bind is not the chain's result
  *  slot; the `:ok` half still gates the chain either way.  A discarded bind
  *  carries no `bindName`, so `assembleBody` can never answer `_name`. */
-function tupleBind(
+export function tupleBind(
   name: string,
   scope: PipelineScope,
 ): { pattern: string; bindName: string | undefined } {

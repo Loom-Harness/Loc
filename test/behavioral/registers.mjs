@@ -339,6 +339,13 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "per-call persistence bumps `rowVersion` once per loop iteration instead of once per workflow run",
     },
+    // Every test passes; the rated Survey's `rowVersion` reads 2, not 1: the
+    // reactor's create and its `rate` op each persist.
+    "reactor-failure-order": {
+      issue: "#4089",
+      expect: "wire",
+      reason: "per-call persistence bumps the Survey's `rowVersion` for the reactor's create and again for its op",
+    },
   },
 };
 

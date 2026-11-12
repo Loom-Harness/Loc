@@ -1,0 +1,405 @@
+{
+  "case": "reactor-failure-order",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/surveys",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ok@example.test",
+            "id": "<volatile:key>",
+            "rating": 4,
+            "rowVersion": 1,
+            "ticket": "<uuid>"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/workflows/ask_for_rating/instances/{id}",
+      "status": 200,
+      "body": {
+        "ticket": "<uuid>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "email": "boom@example.test",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "score": 4,
+        "status": "Resolved"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/surveys",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ok@example.test",
+            "id": "<volatile:key>",
+            "rating": 4,
+            "rowVersion": 1,
+            "ticket": "<uuid>"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/workflows/ask_for_rating/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "AskForRating {id} not found",
+        "instance": "/api/workflows/ask_for_rating/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "email": "zero@example.test",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "score": 0,
+        "status": "Resolved"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/surveys",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ok@example.test",
+            "id": "<volatile:key>",
+            "rating": 4,
+            "rowVersion": 1,
+            "ticket": "<uuid>"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/workflows/ask_for_rating/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "AskForRating {id} not found",
+        "instance": "/api/workflows/ask_for_rating/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/surveys",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/surveys/{id}/rate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/surveys/{id}",
+      "status": 200,
+      "body": {
+        "email": "manual@example.test",
+        "id": "<volatile:key>",
+        "rating": 5,
+        "rowVersion": 2,
+        "ticket": "<uuid>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/surveys/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "DELETE",
+      "path": "/api/surveys/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/surveys/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Survey {id} not found",
+        "instance": "/api/surveys/{id}",
+        "params": {
+          "type": "Desk.Survey"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "DELETE",
+      "path": "/api/tickets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}",
+        "params": {
+          "type": "Desk.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "PATCH",
+      "path": "/api/tickets",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/tickets",
+        "instance": "/api/tickets",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/tickets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/workflows/ask_for_rating/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "AskForRating {id} not found",
+        "instance": "/api/workflows/ask_for_rating/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/resolve",
+        "params": {
+          "type": "Desk.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/resolve",
+        "params": {
+          "type": "Desk.Ticket"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/tickets/{id}/resolve",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/surveys/{id}/rate",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "r is required",
+            "pointer": "/r"
+          }
+        ],
+        "instance": "/api/surveys/{id}/rate",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+// A reactor fails part-way through its body, AFTER it has already written.
+// The body runs in source order — a guard that reads an earlier binding runs
+// after that binding's write — and a failure at any point (a guard, or an
+// operation's own precondition) leaves none of the reaction's effects: no
+// Survey, no saga row.  The triggering command keeps its 2xx and its write
+// (workflow.md § "Reactor failures").
+system ReactorFailureOrder {
+  subdomain Desk {
+    context Desk {
+      event TicketResolved { ticket: Ticket id, email: string, score: int }
+
+      aggregate Ticket with crudish {
+        email: string
+        status: string
+        score: int
+
+        operation resolve() {
+          precondition status == "Open"
+          status := "Resolved"
+          emit TicketResolved { ticket: id, email: email, score: score }
+        }
+      }
+      repository Tickets for Ticket { }
+
+      aggregate Survey with crudish {
+        ticket: Ticket id
+        email: string
+        rating: int
+
+        operation rate(r: int) {
+          precondition r > 0
+          rating := r
+        }
+      }
+      repository Surveys for Survey { }
+
+      channel DeskEvents {
+        carries: TicketResolved
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // Writes first, then checks: the guard reads the Survey it just
+      // created, and the operation's own precondition refuses a zero score.
+      workflow AskForRating {
+        ticket: Ticket id
+        create(e: TicketResolved) by e.ticket {
+          let s = Survey.create(ticket: e.ticket, email: e.email, rating: 0)
+          precondition s.email != "boom@example.test"
+          s.rate(e.score)
+        }
+      }
+    }
+  }
+
+  api DeskApi from Desk
+  storage pg { type: postgres }
+  resource deskState { for: Desk, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a reactor that fails after writing leaves none of its effects" against d {
+    // The happy path: the reactor creates the Survey and rates it.
+    let ok = api.tickets.create({ email: "ok@example.test", status: "Open", score: 4 })
+    api.tickets.resolve(ok)
+    let surveys = api.surveys.all()
+    expect(surveys.total).toBe(1)
+    let rated = api.askForRating.instance(ok)
+    expect(rated.ticket).toBe(ok.id)
+
+    // The guard after the create refuses: the create is rolled back.
+    let guarded = api.tickets.create({ email: "boom@example.test", status: "Open", score: 4 })
+    api.tickets.resolve(guarded)
+    let resolved = api.tickets.getById(guarded)
+    expect(resolved.status).toBe("Resolved")
+    let afterGuard = api.surveys.all()
+    expect(afterGuard.total).toBe(1)
+    expect(api.askForRating.instance(guarded)).toThrow(404)
+
+    // The operation's precondition refuses a zero score, after the create
+    // and the guard both passed: the create is rolled back too.
+    let zero = api.tickets.create({ email: "zero@example.test", status: "Open", score: 0 })
+    api.tickets.resolve(zero)
+    let resolvedZero = api.tickets.getById(zero)
+    expect(resolvedZero.status).toBe("Resolved")
+    let afterOp = api.surveys.all()
+    expect(afterOp.total).toBe(1)
+    expect(api.askForRating.instance(zero)).toThrow(404)
+
+    // The remaining CRUD routes, on rows no reactor touches.
+    let manual = api.surveys.create({ ticket: ok.id, email: "manual@example.test", rating: 0 })
+    api.surveys.rate(manual, { r: 5 })
+    let manualRead = api.surveys.getById(manual)
+    expect(manualRead.rating).toBe(5)
+    api.surveys.update(manual, { ticket: ok.id, email: "edited@example.test", rating: 5 })
+    api.surveys.destroy(manual)
+    expect(api.surveys.getById(manual)).toThrow(404)
+    let spare = api.tickets.create({ email: "spare@example.test", status: "Open", score: 1 })
+    api.tickets.update(spare, { email: "spare@example.test", status: "Closed", score: 1 })
+    api.tickets.destroy(spare)
+    expect(api.tickets.getById(spare)).toThrow(404)
+  }
+}
