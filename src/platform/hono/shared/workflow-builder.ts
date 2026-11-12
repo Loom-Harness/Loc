@@ -66,6 +66,7 @@ import {
   hasDurableEvents,
   hasStateRow,
   lookupOp,
+  reposNeeded,
   resourceCalls,
   serviceOpReadPorts,
   serviceReadPorts,
@@ -2688,56 +2689,7 @@ function collectReposFromStmts(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
-  const seen = new Map<string, string>();
-  for (const root of statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
-  for (const save of saves) seen.set(save.repoName, save.aggName);
-  return [...seen.entries()].map(([repoName, aggName]) => ({ repoName, aggName }));
-}
-
-/** The repositories ONE workflow statement names directly — its own
- *  `repoName`/`aggName` pair plus every save it stages.
- *
- *  Split out of the two collectors above/below so both ride
- *  `walkWorkflowStmtsDeep` for the RECURSION (the `for-each` / `if-let` nesting
- *  is the walker's business, not a per-collector hand-rolled copy — CLAUDE.md
- *  "no hand-rolled IR walks") and share one per-kind rule.  `walkWorkflowStmtsDeep`
- *  yields the roots too, so this is called on every reachable statement. */
-function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
-  switch (st.kind) {
-    case "repo-let":
-    case "repo-run":
-    case "repo-delete":
-      seen.set(st.repoName, st.aggName);
-      break;
-    case "for-each":
-      for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "if-let":
-      seen.set(st.repoName, st.aggName);
-      for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "variant-match":
-      for (const arm of st.arms) for (const sv of arm.savesInArm) seen.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-      break;
-    case "precondition":
-    case "requires":
-    case "expr-let":
-    case "assign":
-    case "emit":
-    case "factory-let":
-    case "op-call":
-    case "resource-call":
-    case "domain-service-call":
-    case "not-found":
-      // Name no repository of their own.
-      break;
-    default: {
-      const _exhaustive: never = st;
-      void _exhaustive;
-    }
-  }
+  return reposNeeded([statements], saves);
 }
 
 // The Hono leaf table for the shared workflow statement spine
@@ -3173,13 +3125,7 @@ export function collectReposForWorkflow(wf: {
   repoName: string;
   aggName: string;
 }[] {
-  const seen = new Map<string, string>();
-  for (const root of wf.statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
-  for (const save of wf.savesAtExit) seen.set(save.repoName, save.aggName);
-  return [...seen.entries()].map(([repoName, aggName]) => ({
-    repoName,
-    aggName,
-  }));
+  return reposNeeded([wf.statements], wf.savesAtExit);
 }
 
 /** Drizzle-postgres `isolationLevel` enum values are space-cased

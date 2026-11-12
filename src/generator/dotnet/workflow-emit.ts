@@ -8,6 +8,7 @@ import {
   hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
+  reposNeeded,
   resourceCalls,
   serviceOpReadPorts,
   servicesCalled,
@@ -55,7 +56,7 @@ import {
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
-import { mapExprChildren, walkWorkflowStmtChildren, workflowEmits } from "../../ir/util/walk.js";
+import { mapExprChildren, workflowEmits } from "../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -73,7 +74,6 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
-  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -538,29 +538,13 @@ function analyseStmts(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): WorkflowUsage {
-  const repos = new Map<string, string>();
-  // Extern (b): an extern aggregate op is an ordinary method (no
-  // injected `I<Op><Agg>Handler` to collect / inject), so `externs` stays empty
-  // — kept only to satisfy the WorkflowUsage shape the handler renderers read.
-  const externs = new Map<string, { aggName: string; opName: string }>();
-  for (const save of saves) repos.set(save.repoName, save.aggName);
-  // INSERTION ORDER on `repos` is load-bearing downstream, so this rides
-  // `walkWorkflowStmtChildren` (wave-2 packet 2.3) for the RECURSION step
-  // only — the exhaustive, `never`-checked "which kinds nest further bodies"
-  // fact `walk.ts` owns — while keeping the original per-kind ordering.
-  const walk = (st: WorkflowStmtIR): void => {
-    if (st.kind === "repo-let" || st.kind === "repo-run") {
-      repos.set(st.repoName, st.aggName);
-      return;
-    }
-    // The if-let single-row lookup reads through its repo; every nesting
-    // statement saves through the repos its branches stage.
-    if (st.kind === "if-let") repos.set(st.repoName, st.aggName);
-    for (const sv of nestedSaves(st)) repos.set(sv.repoName, sv.aggName);
-    walkWorkflowStmtChildren(st, { workflowStmt: walk });
+  return {
+    repos: new Map(reposNeeded([statements], saves).map((r) => [r.repoName, r.aggName])),
+    hasEmit: workflowEmits(statements).length > 0,
+    // An extern aggregate op is an ordinary method (no injected handler), so
+    // there is nothing to collect; kept for the `WorkflowUsage` shape.
+    externs: new Map(),
   };
-  for (const st of statements) walk(st);
-  return { repos, hasEmit: workflowEmits(statements).length > 0, externs };
 }
 
 /** One `INotificationHandler<TEvent>` for a reactor / event-create.  The
@@ -1186,29 +1170,7 @@ interface WorkflowUsage {
 }
 
 function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
-  const repos = new Map<string, string>();
-  const externs = new Map<string, { aggName: string; opName: string }>();
-  for (const save of wf.savesAtExit) {
-    repos.set(save.repoName, save.aggName);
-  }
-  // INSERTION ORDER on `repos` is load-bearing downstream, so this rides
-  // `walkWorkflowStmtChildren` (wave-2 packet 2.3) for the RECURSION step
-  // only — see `analyseStmts` above (same shape).
-  const walk = (st: WorkflowStmtIR): void => {
-    if (st.kind === "repo-let" || st.kind === "repo-run") {
-      repos.set(st.repoName, st.aggName);
-      return;
-    }
-    // The if-let single-row lookup dereferences its repo (`Run…Async`), and
-    // every nesting statement saves per branch — register the repo + the
-    // branch saves, else the handler references `_<repo>` without injecting it
-    // (CS0103). Mirrors `collectReadingServices`.
-    if (st.kind === "if-let") repos.set(st.repoName, st.aggName);
-    for (const sv of nestedSaves(st)) repos.set(sv.repoName, sv.aggName);
-    walkWorkflowStmtChildren(st, { workflowStmt: walk });
-  };
-  for (const st of wf.statements) walk(st);
-  return { repos, hasEmit: workflowEmits(wf.statements).length > 0, externs };
+  return analyseStmts(wf.statements, wf.savesAtExit);
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import {
   isWorkflowSelfType,
   namesBound,
+  reposNeeded,
   serviceOpReadPorts,
   servicesCalled,
   workflowIsolation,
@@ -221,61 +222,17 @@ function stateRepoField(wf: WorkflowIR): string {
  *  and its `savesInThen` / `savesInElse` were invisible. */
 function reposInBodies(
   bodies: readonly (readonly WorkflowStmtIR[])[],
-  saves: readonly { aggName: string }[],
+  saves: readonly { repoName: string; aggName: string }[],
   ctx: EnrichedBoundedContextIR,
 ): string[] {
-  const aggs = new Set<string>();
-  for (const body of bodies) {
-    for (const top of body) {
-      // `walkWorkflowStmtsDeep` owns the traversal; this switch only SELECTS
-      // which visited kinds contribute a repository, and is exhaustive so a
-      // new `WorkflowStmtIR` kind is a compile error here rather than a
-      // silently-missing injection (the defect this function is fixing).
-      walkWorkflowStmtsDeep(top, (s) => {
-        switch (s.kind) {
-          case "factory-let":
-          case "repo-let":
-          case "repo-run":
-          case "repo-delete":
-            aggs.add(s.aggName);
-            break;
-          case "op-call":
-            // The op's receiver is a binding some other statement produced —
-            // that statement contributes the repo; the save does the rest.
-            break;
-          case "for-each":
-            for (const sv of s.savesPerIteration) aggs.add(sv.aggName);
-            break;
-          case "if-let":
-            // The retrieval itself reads through the repo (`Repo.find(...)`).
-            aggs.add(s.aggName);
-            for (const sv of s.savesInThen) aggs.add(sv.aggName);
-            for (const sv of s.savesInElse) aggs.add(sv.aggName);
-            break;
-          case "variant-match":
-            for (const arm of s.arms) for (const sv of arm.savesInArm) aggs.add(sv.aggName);
-            for (const sv of s.savesInElse) aggs.add(sv.aggName);
-            break;
-          case "precondition":
-          case "requires":
-          case "emit":
-          case "expr-let":
-          case "assign":
-          case "resource-call":
-          case "domain-service-call":
-          case "not-found":
-            // No repository of their own.
-            break;
-          default: {
-            const _exhaustive: never = s;
-            void _exhaustive;
-          }
-        }
-      });
-    }
-  }
-  for (const save of saves) aggs.add(save.aggName);
-  return [...aggs].filter((a) => ctx.aggregates.some((x) => x.name === a)).sort();
+  const inCtx = new Set(ctx.aggregates.map((a) => a.name));
+  return [
+    ...new Set(
+      reposNeeded(bodies, saves)
+        .map((r) => r.aggName)
+        .filter((a) => inCtx.has(a)),
+    ),
+  ];
 }
 
 /** Repositories the COMMAND path of a workflow touches — the primary-create
@@ -809,7 +766,7 @@ export const WORKFLOW_BODY_FIXED_NAMES: readonly string[] = [
  *  collision `javaLocals` steers the param local off. */
 export function workflowBodyDerefNames(
   bodies: readonly (readonly WorkflowStmtIR[])[],
-  saves: readonly { aggName: string }[],
+  saves: readonly { repoName: string; aggName: string }[],
   ctx: EnrichedBoundedContextIR,
 ): string[] {
   const out = [...WORKFLOW_BODY_FIXED_NAMES];

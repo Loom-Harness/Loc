@@ -4,6 +4,7 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldedEventNames,
+  reposNeeded,
   subscriptionHandler,
 } from "../../ir/plan/index.js";
 import type {
@@ -38,7 +39,7 @@ import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
-import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spelling.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
@@ -481,23 +482,7 @@ function reposIn(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
-  const out = new Map<string, { repoName: string; aggName: string }>();
-  const add = (r: { repoName: string; aggName: string }): void => {
-    out.set(r.repoName, { repoName: r.repoName, aggName: r.aggName });
-  };
-  for (const root of statements)
-    walkWorkflowStmtsDeep(root, (st) => {
-      // Per-kind SELECTION only — `walkWorkflowStmtsDeep` owns the recursion.
-      if (st.kind === "repo-let" || st.kind === "repo-run") add(st);
-      if (st.kind === "for-each" || st.kind === "variant-match") nestedSaves(st).forEach(add);
-      if (st.kind === "if-let") {
-        add(st);
-        st.savesInThen.forEach(add);
-        st.savesInElse.forEach(add);
-      }
-    });
-  saves.forEach(add);
-  return [...out.values()];
+  return reposNeeded([statements], saves);
 }
 
 function factoryAggsIn(statements: WorkflowStmtIR[]): string[] {

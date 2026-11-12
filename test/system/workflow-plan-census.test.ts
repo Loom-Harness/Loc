@@ -74,6 +74,11 @@ import { expectReach } from "../_helpers/census-reach.js";
 //   event-log   a template literal with a `${snake(…)}_events` span — the
 //               hand-spelled per-context event-log table name.
 //               → use `eventLogTable`.
+//   repos       a callback handed to a `walkWorkflowStmt…` walker that tests a
+//               `kind` against `"repo-let"` / `"repo-run"` / `"repo-delete"` and
+//               collects a statement's `.repoName` / `.aggName` — the
+//               hand-rolled "which repositories does this body need" scan.
+//               → use `reposNeeded`.
 //   refs-read   a callback handed to a `walkWorkflowStmt…` walker that tests
 //               `kind === "ref"` and collects the ref's `.name` into a set —
 //               the hand-rolled "which names / params / lets does this body
@@ -183,6 +188,7 @@ interface Violation {
     | "implicit-tx"
     | "folded-events"
     | "event-log"
+    | "repos"
     | "refs-read"
     | "read-ports"
     | "guarded"
@@ -238,7 +244,7 @@ function localFunctions(sf: ts.SourceFile): Map<string, ts.Node> {
 }
 
 /** What a body-scan callback looks at. */
-function callbackFacts(body: ts.Node) {
+function callbackFacts(body: ts.Node, localFns: ReadonlyMap<string, ts.Node>) {
   const f = {
     opCall: false,
     audited: false,
@@ -249,9 +255,28 @@ function callbackFacts(body: ts.Node) {
     addsTarget: false,
     refKind: false,
     addsName: false,
+    repoKind: false,
+    collectsRepo: false,
     reports: false,
   };
+  const seenFns = new Set<ts.Node>();
   const collect = (m: ts.Node): void => {
+    // A switch arm is the same comparison as `x.kind === "…"`.
+    if (ts.isCaseClause(m) && ts.isStringLiteral(m.expression)) {
+      const lit = m.expression.text;
+      if (lit === "repo-let" || lit === "repo-run" || lit === "repo-delete") f.repoKind = true;
+    }
+    // A call to a same-file helper is part of the callback (one helper deep is
+    // enough for `(st) => collectRepoRefs(st, seen)`).
+    if (ts.isCallExpression(m) && ts.isIdentifier(m.expression)) {
+      const helper = localFns.get(m.expression.text);
+      if (helper && !seenFns.has(helper)) {
+        seenFns.add(helper);
+        collect(helper);
+      }
+      // `add(st)` — a local collector handed the whole statement.
+      if (m.expression.text === "add" && m.arguments.length === 1) f.collectsRepo = true;
+    }
     if (
       ts.isBinaryExpression(m) &&
       (m.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
@@ -264,6 +289,9 @@ function callbackFacts(body: ts.Node) {
       if (field === "kind" && lit === "emit") f.emitKind = true;
       if (field === "kind" && lit === "resource-call") f.workflowOnlyKind = true;
       if (field === "kind" && lit === "ref") f.refKind = true;
+      if (field === "kind" && (lit === "repo-let" || lit === "repo-run" || lit === "repo-delete")) {
+        f.repoKind = true;
+      }
       if (field === "callKind" && (lit === "resource-op" || lit === "remote-api-op")) {
         f.resourceKind = true;
       }
@@ -294,6 +322,17 @@ function callbackFacts(body: ts.Node) {
       propName(m.arguments[0]!) === "name"
     ) {
       f.addsName = true;
+    }
+    if (
+      ts.isCallExpression(m) &&
+      m.arguments.some((a) => {
+        const name = propName(a);
+        return name === "repoName" || name === "aggName";
+      }) &&
+      ts.isPropertyAccessExpression(m.expression) &&
+      (m.expression.name.text === "set" || m.expression.name.text === "add")
+    ) {
+      f.collectsRepo = true;
     }
     // A diagnostic scan (it pushes a finding per name) is not a name set.
     if (
@@ -410,7 +449,7 @@ function scan(file: string): Violation[] {
         ["some", "every", "filter", "find", "forEach"].includes(callee.name.text);
       if (isWalker || isIter) {
         for (const body of callbackBodies(n.arguments, localFns)) {
-          const f = callbackFacts(body);
+          const f = callbackFacts(body, localFns);
           const hit = (rule: Violation["rule"]) =>
             out.push({ rule, where: at(n), text: callee.getText(sf) });
           if (f.opCall && f.audited) hit("audited-call");
@@ -419,6 +458,7 @@ function scan(file: string): Violation[] {
           if (f.emitKind && isWorkflowWalker) hit("emits");
           if (f.opCall && f.addsTarget) hit("deref-loads");
           if (f.refKind && f.addsName && !f.reports && isWorkflowWalker) hit("refs-read");
+          if (f.repoKind && f.collectsRepo && isWorkflowWalker) hit("repos");
         }
       }
     }
@@ -644,6 +684,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-spells the event-log table name (use eventLogTable)", () => {
     const hits = violations.filter((v) => v.rule === "event-log");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-scans a body for the repositories it needs (use reposNeeded)", () => {
+    const hits = violations.filter((v) => v.rule === "repos");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
