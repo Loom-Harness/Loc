@@ -1055,6 +1055,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
   },
   {
+    id: "rule-params-scalar",
+    title:
+      "a NAMED rule reading an entity-part collection — its wire `params` carry the scalar it read (`reason`), never the collection (`holds`)",
+    doc: "language",
+    backends: ALL,
+    note: "python serialized the whole part collection (each part's private fields, every other row's data) into the 422 body's `params`.  The rule's placeholder candidates (`ruleParamRefs`) are now the echoable reads only — a scalar, id, enum or value object — on every backend.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",

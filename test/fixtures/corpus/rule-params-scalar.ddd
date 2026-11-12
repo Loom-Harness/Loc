@@ -1,0 +1,52 @@
+// shape: a NAMED rule whose predicate reads an entity-part COLLECTION — the
+// witness that a rule's wire `params` carry only the values a message can
+// print (scalars, ids, enums, value objects), never a collection or a part.
+//
+// `noDuplicateHold` reads both the `reason` parameter and the `holds` part
+// collection.  `reason` is a placeholder candidate and rides the 422 body's
+// `params`; `holds` is internal aggregate state.  A backend that echoed every
+// read identifier serialized the whole collection into the response — each
+// part's private fields and every OTHER hold's data (python's
+// `jsonable_encoder` walked each part's `vars()`: `_id`, `_parent_id`, …).
+// The second `placeHold("x", …)` trips the rule, and the golden pins its
+// body: `params` is `{ "reason": "x" }` and nothing else.
+system RuleParamsScalar {
+  subdomain Desk {
+    context Reservations {
+      aggregate Booking with crudish {
+        guest: string
+        contains holds: Hold[]
+        entity Hold {
+          reason: string
+          nights: int
+        }
+
+        operation placeHold(reason: string, nights: int) {
+          precondition noDuplicateHold: !holds.any(h => h.reason == reason)
+          holds += Hold { reason: reason, nights: nights }
+        }
+      }
+      repository Bookings for Booking { }
+    }
+  }
+
+  api DeskApi from Desk
+  storage primary { type: postgres }
+  resource reservationsState { for: Reservations, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Reservations]
+    dataSources: [reservationsState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a tripped rule echoes the scalar it read, never the part collection" against d {
+    let b = api.bookings.create({ guest: "Ada" })
+    api.bookings.placeHold(b, { reason: "x", nights: 2 })
+    expect(api.bookings.placeHold(b, { reason: "x", nights: 3 })).toThrow(422)
+    let read = api.bookings.getById(b)
+    expect(read.holds.length).toBe(1)
+    expect(read.holds.first().nights).toBe(2)
+  }
+}
