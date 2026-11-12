@@ -43,6 +43,7 @@ import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -444,10 +445,16 @@ export const flutterTarget: WalkerTarget = {
   /** A wire field named after a Dart RESERVED word (`default`, `enum`,
    *  `extends`, …) or an `Object` member (`toString`, `hashCode`, …) is the
    *  `<name>_` member on the generated model (`dart-member.ts`), so
-   *  `row.default` — a parse error — reads `row.default_`.  Every other member
-   *  falls through `undefined` to the shared bare emit. */
-  renderMemberRead: ({ receiver, member }) =>
-    dartMember(member) !== member ? `${receiver}.${dartMember(member)}` : undefined,
+   *  `row.default` — a parse error — reads `row.default_`.  A read off an
+   *  OPTIONAL receiver (`policy.vehicle.vin` with `vehicle: Vehicle?`) takes
+   *  Dart's `?.`: a plain `.` on a nullable is `unchecked_use_of_nullable_value`.
+   *  Every other member falls through `undefined` to the shared bare emit. */
+  renderMemberRead: (spec) => {
+    const member = dartMember(spec.member);
+    const optional = optionalChainedMemberRead({ ...spec, member });
+    if (optional !== undefined) return optional;
+    return member !== spec.member ? `${spec.receiver}.${member}` : undefined;
+  },
 
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
