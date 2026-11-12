@@ -104,10 +104,10 @@ const dotnetPlatform: PlatformSurface = {
         dotnetPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
       ),
     listen: "dual-stack",
-    log: { format: "framework-json", levelEnv: "LOG_LEVEL" },
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     broker: BROKER_BASELINE,
     migrations: MIGRATIONS_BASELINE,
-    gaps: { ...BROKER_BASELINE_GAPS, "log.format": "#3579" },
+    gaps: BROKER_BASELINE_GAPS,
   },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
