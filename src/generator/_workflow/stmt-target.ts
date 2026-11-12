@@ -17,11 +17,14 @@ import {
 // guard idiom, the expression renderer) plus the indent unit. Without this
 // seam each backend re-implements the whole switch.
 //
-// `renderWorkflowStmts` owns the dispatch + the nested-body recursion
-// (`for-each` / `if-let` / `variant-match`) once; each
-// backend supplies a `WorkflowStmtTarget` leaf table. A new `WorkflowStmtIR`
-// kind is a compile error here (exhaustive switch) AND in every target (the
-// interface), exactly like adding an `ExprIR.kind`.
+// Two assembly strategies share the traversal.  `sequence`
+// (`renderWorkflowStmts` + a `WorkflowStmtTarget`) renders statements in order
+// for the four imperative backends; `pipeline` (`lowerWorkflowPipeline` + a
+// `WorkflowPipelineTarget`, below) lowers them to binding-chain steps for
+// Elixir.  Each owns the dispatch + the nested-body recursion (`for-each` /
+// `if-let` / `variant-match`) once; each backend supplies a leaf table.  A new
+// `WorkflowStmtIR` kind is a compile error here (exhaustive switch) AND in
+// every target (the interface), exactly like adding an `ExprIR.kind`.
 //
 // NOTE: this is the *statement* spine only. The per-workflow envelope
 // (route/handler shell, transaction wrapping, repo construction, param
