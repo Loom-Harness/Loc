@@ -70,6 +70,7 @@ import {
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
+  opFormTakesRecord,
   workflowFormWidgetName,
 } from "./forms-emit.js";
 import { dartStringLit } from "./i18n.js";
@@ -170,7 +171,18 @@ function instanceOperation(
   const versionExpr = sendsIfMatchPrecondition(agg, op)
     ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
-  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+  // The instance is the decoded record: its wire map seeds the form's inputs
+  // (`recordSeeds`), so an `update` opens on the current values.
+  const recordExpr = opFormTakesRecord(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.toJson()`
+    : undefined;
+  return {
+    agg,
+    op,
+    idExpr,
+    ...(versionExpr ? { versionExpr } : {}),
+    ...(recordExpr ? { recordExpr } : {}),
+  };
 }
 
 /** A resolved op-form reference: the aggregate + op, the Dart expression for the
@@ -180,13 +192,16 @@ interface OpFormTarget {
   op: AggregateIR["operations"][number];
   idExpr: string;
   versionExpr?: string;
+  /** The loaded record's wire map, when the form prefills from it. */
+  recordExpr?: string;
 }
 
 /** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
  *  `expectedVersion:` when the call site holds the loaded record. */
 function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
   const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
-  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
+  const record = r.recordExpr ? `, record: ${r.recordExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${record}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or

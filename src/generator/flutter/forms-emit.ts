@@ -42,6 +42,7 @@
 
 import { createInputFields, isConstructible } from "../../ir/enrich/wire-projection.js";
 import type {
+  AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
@@ -66,6 +67,7 @@ import {
   type FormFieldSpec,
   type FormSpecEnv,
   formFieldSpec,
+  operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -171,6 +173,11 @@ export interface FlutterFormField {
    *  `Addr`.  A PATH, not a single key: VO flattening is recursive, so the
    *  request body has to rebuild the same depth (`bodyAssembly`). */
   objectPath?: readonly string[];
+  /** The field seeds from the loaded record (`widget.record`) in `initState` —
+   *  its top-level operation param is named and typed like an aggregate field
+   *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
+   *  value-object leaf reads through its `objectPath`. */
+  fromRecord?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -265,6 +272,20 @@ export interface FlutterFormSpec {
    *  flag that disables its submit; the call site watches the provider.
    *  Absent for an ungated op: the widget is byte-identical. */
   gateProbe?: { provider: string };
+  /** The widget takes an optional `record` (the loaded record's wire map) and
+   *  seeds every {@link FlutterFormField.fromRecord} input from it, so an update
+   *  form opens on the current values.  Absent for a form with no
+   *  record-prefilled param: the widget is byte-identical. */
+  takesRecord?: true;
+}
+
+/** Whether an operation's form opens on a loaded record: some param is named
+ *  and typed like an aggregate field (`operationFormSpec`).  Independent of the
+ *  context the widget is built in, so the widget declaration and the call site
+ *  that passes the record always agree. */
+export function opFormTakesRecord(agg: AggregateIR, op: OperationIR): boolean {
+  return operationFormSpec(agg, op, flutterSpecEnv(new Map(), new Map(), new Map()))
+    .prefillsFromRecord;
 }
 
 /** The Riverpod provider of a `when`-gated op's `can_<op>` probe
@@ -879,6 +900,18 @@ export function flutterOperationForm(
     vosFromBc(bc),
     aggregatesByName,
   );
+  const takesRecord = agg !== undefined && opFormTakesRecord(agg, op);
+  if (agg && takesRecord) {
+    const spec = operationFormSpec(
+      agg,
+      op,
+      flutterSpecEnv(enumsFromBc(bc), vosFromBc(bc), aggregatesByName),
+    );
+    const seeded = new Set(
+      spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
+    );
+    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+  }
   attachRules(
     fields,
     [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
@@ -907,6 +940,7 @@ export function flutterOperationForm(
     dropped,
     destructive: false,
     ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    ...(takesRecord ? { takesRecord: true as const } : {}),
     ...(op.when ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
   };
 }
@@ -1294,16 +1328,105 @@ function loaderId(wireName: string): string {
   return `_load${upperFirst(wireName)}Options`;
 }
 
+/** The Dart expression reading one flattened input's value out of the record's
+ *  wire map `r` — through its value-object `objectPath`, null at any absent
+ *  level. */
+function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
+  let e = "r";
+  for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
+  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+}
+
+/** One object-array cell's initial slot value, read out of the row map `m`. */
+function recordCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]): string {
+  const v = `m['${dartStr(sf.jsonKey)}']`;
+  switch (sf.kind) {
+    case "bool":
+      return `${v} == true`;
+    case "enum":
+      return `${v} as String?`;
+    case "datetime":
+      return `DateTime.tryParse(${v}?.toString() ?? '')`;
+    default:
+      return `TextEditingController(text: ${v}?.toString() ?? '')`;
+  }
+}
+
+/** The `initState` statements seeding the record-prefilled inputs from
+ *  `widget.record` (empty when no input prefills).  The inverse of
+ *  `fieldValueExpr`: each kind reads the same wire form it submits. */
+function recordSeeds(fields: readonly FlutterFormField[]): string[] {
+  const out: string[] = [];
+  for (const f of fields) {
+    if (!f.fromRecord) continue;
+    const v = recordLeaf(f);
+    const st = stateId(f.wireName);
+    switch (f.kind) {
+      case "text":
+      case "number-int":
+      case "number-double":
+        out.push(`      ${ctrlId(f.wireName)}.text = ${v}?.toString() ?? '';`);
+        break;
+      case "bool":
+        out.push(`      ${st} = ${v} == true;`);
+        break;
+      case "enum":
+        out.push(`      ${st} = ${v} as String? ?? ${st};`);
+        break;
+      case "fk-select":
+        out.push(`      ${st} = ${v} as String?;`);
+        break;
+      case "datetime":
+        out.push(`      ${st} = DateTime.tryParse(${v}?.toString() ?? '');`);
+        break;
+      case "file":
+        out.push(
+          `      final ${st}Json = ${v};`,
+          `      ${st} = ${st}Json is Map<String, dynamic> ? FileRef.fromJson(${st}Json) : null;`,
+        );
+        break;
+      case "scalar-array":
+        out.push(
+          `      for (final e in (${v} as List? ?? const [])) { ${arrayCtrlsId(f.wireName)}.add(TextEditingController(text: e?.toString() ?? '')); }`,
+        );
+        break;
+      case "bool-array":
+        out.push(
+          `      ${arrayValuesId(f.wireName)}.addAll((${v} as List? ?? const []).map((e) => e == true));`,
+        );
+        break;
+      case "enum-array":
+        out.push(
+          `      ${arrayValuesId(f.wireName)}.addAll((${v} as List? ?? const []).map((e) => e.toString()));`,
+        );
+        break;
+      case "object-array": {
+        const cells = (f.objectFields ?? []).map(recordCell).join(", ");
+        out.push(
+          `      for (final e in (${v} as List? ?? const [])) { final m = e as Map<String, dynamic>; ${rowsId(f.wireName)}.add(<dynamic>[${cells}]); }`,
+        );
+        break;
+      }
+    }
+  }
+  return out.length === 0
+    ? []
+    : ["    final r = widget.record;", "    if (r != null) {", ...out, "    }"];
+}
+
 /** The `initState` + per-field loader methods for a form's fk-select inputs
- *  (empty when the form hosts none).  Each loader GETs `/<collection>`, unwraps
- *  the paged `{items}` envelope, and stores the rows as the dropdown options. */
+ *  (empty when the form hosts none and seeds nothing from a record).  Each
+ *  loader GETs `/<collection>`, unwraps the paged `{items}` envelope, and
+ *  stores the rows as the dropdown options. */
 function fkLoaders(fields: readonly FlutterFormField[]): string[] {
   const fks = fields.filter((f) => f.kind === "fk-select");
-  if (fks.length === 0) return [];
+  const seeds = recordSeeds(fields);
+  if (fks.length === 0 && seeds.length === 0) return [];
   const out: string[] = [
     "  @override",
     "  void initState() {",
     "    super.initState();",
+    ...seeds,
     ...fks.map((f) => `    ${loaderId(f.wireName)}();`),
     "  }",
   ];
@@ -1639,7 +1762,12 @@ function fieldWidget(f: FlutterFormField): string {
       const validator = f.required
         ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
         : "";
-      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, isExpanded: true, items: ${items}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
+      // A record-seeded id is held before its options load; the dropdown only
+      // shows it once an option carries it (an unmatched `initialValue` asserts).
+      const initial = f.fromRecord
+        ? `${optionsId(f.wireName)}.any((o) => o['id'] == ${stateId(f.wireName)}) ? ${stateId(f.wireName)} : null`
+        : stateId(f.wireName);
+      return `DropdownButtonFormField<String>(initialValue: ${initial}, decoration: ${decoration}, isExpanded: true, items: ${items}, onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
     }
     case "file":
       // A pick button + the current selection.  Not a `FormField`, so the
@@ -2083,7 +2211,7 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   const w = spec.widgetName;
   const ctorArgs =
     spec.needsId || spec.gateProbe
-      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}}`
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}${spec.takesRecord ? ", this.record" : ""}}`
       : "{super.key}";
   const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
   // The loaded record's `version` (the `versioned` capability's synthetic `int`
@@ -2091,6 +2219,8 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   if (spec.ifMatch) idField.push("  final int? expectedVersion;");
   // A `when`-gated op: the call site passes the `can_<op>` probe's verdict.
   if (spec.gateProbe) idField.push("  final bool blocked;");
+  // The loaded record's wire map, seeding the inputs (`recordSeeds`).
+  if (spec.takesRecord) idField.push("  final Map<String, dynamic>? record;");
 
   const errorBanner =
     "        if (_error != null)\n" +

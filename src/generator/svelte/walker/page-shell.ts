@@ -42,7 +42,8 @@ import {
   takeMoneyPropImport,
   valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
-import { idTargetHookVar } from "../../_frontend/form-helpers.js";
+import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
+import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
@@ -306,7 +307,15 @@ function renderFormOpWiring(
       hookVar: idTargetHookVar(t),
     })),
     useController,
-    defaultValuesTs,
+    // The decls build the form at page scope, where the loaded record is not in
+    // scope: a record-threaded form starts on the record-free seed, and its
+    // snippet's trigger — handed the record — writes the record seed
+    // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
+    defaultValuesTs: state.recordVar
+      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.bc, new Map())), state.bc)
+      : defaultValuesTs,
+    recordType: state.recordVar ? state.recordType : undefined,
+    recordSeed: state.recordVar ? defaultValuesTs : undefined,
     hasParams: fieldHtmls.length > 0,
     fieldHtmls,
     triggerLabel: state.triggerLabel,

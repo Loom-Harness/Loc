@@ -42,8 +42,6 @@ import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/inva
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
-import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
 import {
   chainSingleFieldNative,
@@ -58,6 +56,7 @@ import {
   collectUsedTypes,
   emitAuditEntrySchemas,
   provenancedZod,
+  zodForRequest,
 } from "./zod-schemas.js";
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + TanStack Query hooks.
@@ -845,25 +844,6 @@ function emitResponseSchema(
 // decimal.js parse chain; `moneySchema` outbound too because the
 // response form already produces decimal-string JSON).
 
-const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
-  long: "z.number().int()",
-  decimal: "z.number()",
-  money: "moneySchema",
-  string: "z.string()",
-  bool: "z.boolean()",
-  datetime: "z.string()",
-  date: "z.string()",
-  guid: "z.string()",
-  json: "z.unknown()",
-  // A `File` REQUEST field is `.nullable()`: a form starts with no file
-  // (a `null` FileRef — the `field-input-file` template seeds `null`,
-  // since a zero FileRef object is not a valid "unset" state) and the
-  // user uploads to fill it.  The RESPONSE File stays non-null — the
-  // server always returns a resolved ref.
-  File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() }).nullable()",
-};
-
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   int: "z.number().int()",
   long: "z.number().int()",
@@ -922,34 +902,6 @@ export function opRequestFields(op: OperationIR): { name: string; base: string }
     name: p.name,
     base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
   }));
-}
-
-function zodForRequest(t: TypeIR): string {
-  const info = wireTypeInfo(t, "request");
-  if (info.isNullable) return `${zodForRequest(peelNullable(t))}.nullish()`;
-  if (info.isCollection) return `z.array(${zodForRequest(peelCollection(t))})`;
-  switch (info.refKind) {
-    case "primitive":
-      return REQUEST_PRIMITIVE[info.primitive!];
-    case "id":
-      // Mirrors the server's request-side rule (`zodFor` in the Hono
-      // routes-builder): a reference is a uuid on the wire, so the FORM
-      // validator says so too and the caller is told at the field instead of
-      // by a server error.
-      // Tracks the shared `UUID_WIRE_PATTERN` so the form cannot refuse an id
-      // the server accepts — see `zodForRequest` in ./zod-schemas.ts.
-      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
-    case "enum":
-    case "valueObject":
-      return `${info.base}Schema`;
-    case "entity":
-      return "z.unknown()";
-    case "provenanced":
-      // Unreachable by construction: the carrier is stamped onto the RESPONSE
-      // wire shape only (`wireTypeForField`); a create/update input takes the
-      // bare `T` — a caller supplies a value, never a lineage.
-      throw new Error(PROVENANCED_REQUEST_ERROR);
-  }
 }
 
 export function zodForResponse(t: TypeIR, optional: boolean): string {

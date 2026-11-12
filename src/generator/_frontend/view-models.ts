@@ -217,6 +217,10 @@ export interface NamedLayoutVM {
 export interface FormFieldVM {
   /** Logical template name. */
   template: string;
+  /** Set on an optional value object (`field-input-valueobject`): the group is
+   *  opt-in, and `zeroTs` is the object its presence box seeds
+   *  (`_frontend/form-optional-group.ts`). */
+  optionalGroup?: { zeroTs: string };
   /** RHF dotted path (e.g. "customerId", "price.amount"). */
   path: string;
   /** Humanised label, derived from the leaf path segment so nested

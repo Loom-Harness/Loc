@@ -27,6 +27,8 @@ import {
   takeMoneyPropImport,
   valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
+import { formSeedTs } from "../../_frontend/form-helpers.js";
+import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
@@ -136,6 +138,32 @@ function recordQualifiedSeed(
   if (!recordVar || !resolvedIdExpr.endsWith(".id")) return defaultValuesTs;
   const recordExpr = resolvedIdExpr.slice(0, -".id".length);
   return defaultValuesTs.replace(/\brecord\./g, `${recordExpr}.`);
+}
+
+/** Where an operation dialog's form takes its values.  A record-threaded seed
+ *  (`record.<field>`, see `formSeedTs`) binds at setup when the record is the
+ *  in-scope component prop; inside a QueryView's data lambda it is not, so the
+ *  form starts on the record-free seed and the opener — which the trigger hands
+ *  the loaded record — writes the record seed into it each time the dialog
+ *  opens. */
+function opFormSeeds(
+  st: OperationFormState,
+  resolvedIdExpr: string,
+  formVar: string,
+): { setup: string; recordParam: string; onOpen: string } {
+  if (!st.recordVar || resolvedIdExpr.endsWith(".id")) {
+    return {
+      setup: recordQualifiedSeed(st.defaultValuesTs, st.recordVar, resolvedIdExpr),
+      recordParam: "",
+      onOpen: "",
+    };
+  }
+  const spec = operationFormSpec(st.agg, st.op, formSpecEnvOf(st.bc, new Map()));
+  return {
+    setup: formSeedTs(spec, st.bc),
+    recordParam: `, record?: ${st.recordType}`,
+    onOpen: `if (record) Object.assign(${formVar}.values, ${st.defaultValuesTs}); `,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -534,9 +562,12 @@ export function renderVuePage(input: VuePageShellInput): string {
     apiImports.set(from, names);
     opFormLines.push(`const ${opCamel}Open = ref(false);`);
     vueImports.add("ref");
-    opFormLines.push(`const ${openFn} = (_mut: unknown) => { ${opCamel}Open.value = true; };`);
+    const seeds1 = opFormSeeds(state, state.idExpr, `${opCamel}Form`);
     opFormLines.push(
-      `const ${opCamel}Form = useLoomForm(${opPascal}${agg}Request, ${recordQualifiedSeed(state.defaultValuesTs, state.recordVar, state.idExpr)});`,
+      `const ${openFn} = (_mut: unknown${seeds1.recordParam}) => { ${seeds1.onOpen}${opCamel}Open.value = true; };`,
+    );
+    opFormLines.push(
+      `const ${opCamel}Form = useLoomForm(${opPascal}${agg}Request, ${seeds1.setup});`,
     );
     // Field markup was walked with the create-form instance name
     // (`form.`) — re-point it at this dialog's instance.  Provisional
@@ -1395,9 +1426,12 @@ export function renderVueComponentFile(
     apiImports.set(from, names);
     formLines.push(`const ${opCamel}Open = ref(false);`);
     vueImports.add("ref");
-    formLines.push(`const ${openFn} = (_mut: unknown) => { ${opCamel}Open.value = true; };`);
+    const seeds2 = opFormSeeds(st, rewriteScript(st.idExpr), `${opCamel}Form`);
     formLines.push(
-      `const ${opCamel}Form = useLoomForm(${opPascal}${agg}Request, ${recordQualifiedSeed(st.defaultValuesTs, st.recordVar, rewriteScript(st.idExpr))});`,
+      `const ${openFn} = (_mut: unknown${seeds2.recordParam}) => { ${seeds2.onOpen}${opCamel}Open.value = true; };`,
+    );
+    formLines.push(
+      `const ${opCamel}Form = useLoomForm(${opPascal}${agg}Request, ${seeds2.setup});`,
     );
     const fields = st.fieldHtmls
       .map((h) => h.replaceAll("form.values.", `${opCamel}Form.values.`))

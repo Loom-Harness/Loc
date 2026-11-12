@@ -1,4 +1,11 @@
-import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ExprIR,
+  OperationIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
+import { operationFormParams } from "../../ir/util/op-gates.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 
@@ -72,6 +79,9 @@ export interface FormFieldSpec {
   optional: boolean;
   absence: FormAbsence;
   prefill: FormPrefill;
+  /** The declared `= <expr>` default, whatever the prefill source — a form
+   *  opened without the record falls back to it. */
+  default?: ExprIR;
   /** `enum` / `enumArray`: the enum's name and values, declaration order. */
   enumName?: string;
   enumValues?: readonly string[];
@@ -83,6 +93,20 @@ export interface FormFieldSpec {
   children?: FormFieldSpec[];
   /** `scalarArray`: the element's scalar kind. */
   elementKind?: FormScalarKind;
+}
+
+export type FormSpecKind = "update" | "operation";
+
+export interface FormSpec {
+  kind: FormSpecKind;
+  /** The aggregate the form posts to. */
+  owner: string;
+  /** The operation name. */
+  operation: string;
+  fields: FormFieldSpec[];
+  /** Some field seeds from the loaded record, so the target must have the
+   *  record in scope where the form's initial values are built. */
+  prefillsFromRecord: boolean;
 }
 
 /** One render arm per field kind.  `Extract` narrows each arm's argument so a
@@ -312,4 +336,21 @@ function sameValueType(a: TypeIR, b: TypeIR): boolean {
     default:
       return false;
   }
+}
+
+/** An operation form.  A param named and typed like one of the aggregate's
+ *  fields prefills from the loaded record, so an update form opens on the
+ *  current values and a partial edit keeps every other field.  The form is an
+ *  `update` form when every param prefills that way. */
+export function operationFormSpec(agg: AggregateIR, op: OperationIR, env: FormSpecEnv): FormSpec {
+  const recordFields = new Map<string, TypeIR>(agg.fields.map((f) => [f.name, f.type]));
+  const fields = operationFormParams(op).map((p) => formFieldSpec(p, env, p.name, recordFields));
+  const fromRecord = fields.filter((f) => f.prefill.from === "record").length;
+  return {
+    kind: fields.length > 0 && fromRecord === fields.length ? "update" : "operation",
+    owner: agg.name,
+    operation: op.name,
+    fields,
+    prefillsFromRecord: fromRecord > 0,
+  };
 }

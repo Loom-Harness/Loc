@@ -39,6 +39,7 @@ import {
   fileUploadMethodLines,
   groupArrayMembers,
 } from "../form-fields.js";
+import { submitInputExpr } from "../form-seed.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
@@ -962,7 +963,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
           ...submitBody(f.formVar, [
-            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: this.${f.formVar}.getRawValue() });`,
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable)} });`,
           ]),
           "  }",
         ].join("\n"),
@@ -1070,12 +1071,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       }
       members.push(`  readonly ${m.formVar} = new FormGroup({ ${formGroupBody(m)} });`);
       members.push(...formArrayMemberLines(m.formVar, m));
+      if (m.seedMethod) members.push(m.seedMethod);
       members.push(
         [
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
           ...submitBody(m.formVar, [
-            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: this.${m.formVar}.getRawValue() });`,
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable)} });`,
             `    this.${m.openSig}.set(false);`,
           ]),
           "  }",

@@ -833,6 +833,10 @@ export interface FelizOperationForm extends FormRecord {
    *  and the submit arm passes the loaded record's `version` (see
    *  `ifMatchVersionExpr`).  Optional so every other form stays byte-identical. */
   ifMatch?: boolean;
+  /** The F# expression (over the loaded record `__r`) that seeds this form from
+   *  the record its page loaded — set when some param prefills from the
+   *  aggregate's same-named field.  Absent keeps the form on `empty<Form>`. */
+  seed?: string;
 }
 
 /** The F# expression the submit arm passes as an op form's `If-Match` version:
