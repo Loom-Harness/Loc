@@ -511,8 +511,8 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 | Backend | Files emitted | Applied by |
 |---|---|---|
 | Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator over the same `__drizzle_migrations` ledger, plus the non-transactional `CREATE INDEX CONCURRENTLY` files, see [migrations.md](migrations.md#locks-on-a-populated-table)) called from `index.ts` at startup; `npm run db:migrate` runs the same `migrate()` out of band (`tsx db/migrate-cli.ts` against `DATABASE_URL`). |
-| .NET (EF Core) | `<deployable>/Infrastructure/Persistence/Migrations/<Ts>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
-| Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | `mix ecto.migrate` from the entrypoint script; `mix ecto.setup` on first boot. |
+| .NET (EF Core) | `<deployable>/Migrations/<Ts>_<Module>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
+| Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | the release entrypoint `rel/overlays/bin/server` runs `./bin/<app> eval "<App>.Release.migrate()"` before `start`. |
 | Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |
 | Java (Spring/Flyway) | `<deployable>/src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` Flyway scripts | Flyway runs them on Spring Boot startup (tracked in `flyway_schema_history`). |
 
@@ -605,9 +605,9 @@ docker run --rm -p 3000:3000 \
     my-sales:latest
 ```
 
-The image uses `node:22-alpine` for both build and runtime stages.
+The image uses `node:24-alpine` for both build and runtime stages.
 Build runs `npm install` + `npm run build`; runtime starts
-`node out/index.js` on port 3000.
+`node --enable-source-maps dist/index.js` on port 3000.
 
 ### .NET
 
@@ -632,16 +632,17 @@ images, pin the `Dockerfile` in `.loomignore` and edit freely.
 
 ### `/health`
 
-Every generated deployable mounts a `/health` endpoint that returns
-`{"status":"ok"}` (port 3000 on Hono, 8080 on .NET).  It's used by
-the compose healthchecks below and is the natural target for any
-external smoke test.
+Every generated deployable mounts a `/health` liveness endpoint that returns
+`{"status":"ok"}` (port 3000 on Hono, 8080 on .NET).  Hono, .NET, Java and
+Python also mount `/ready`, which checks the database; their compose
+healthchecks poll `/ready` (Phoenix polls `/health` on :4000).  Either is a
+natural target for an external smoke test.
 
 ### `docker-compose.yml` (system mode)
 
 `ddd generate system` emits a `docker-compose.yml` at the output
 root that wires every deployable to a postgres service, with a
-healthcheck on `/health` per deployable:
+healthcheck per deployable (`/ready`, or `/health` on Phoenix):
 
 ```bash
 cd ./out                # the generator's output dir
@@ -666,16 +667,14 @@ directory as `/docker-entrypoint-initdb.d/`, and the `db-bootstrap` one-shot
 re-applies it on every `up`.  The first deployable on a database applies its
 migrations at boot; the others wait for it to be healthy and apply none.
 
-To start fresh after schema changes that EF Core's `EnsureCreated`
-won't pick up (it only creates; it never alters), drop the volume:
+To start fresh, drop the volume:
 
 ```bash
 docker compose down -v && docker compose up -d
 ```
 
-For production, use the per-backend migration tools instead of the
-init script + `EnsureCreated` combo (see *Migrations workflow*
-above).
+For production, record schema changes with `ddd migrate add` (see
+*Migrations workflow* above): every backend applies its migrations at boot.
 
 Compose is the inner-loop story.  For a cluster, `ddd generate system
 --k8s` *additionally* emits a Helm chart (`helm/`) plus the raw manifests
@@ -925,9 +924,13 @@ signature and tarball checksums still verify.
 ```bash
 # Phoenix build behind a TLS-fingerprinting proxy (needs python3 + openssl
 # on the host and the privilege to bind :443):
-LOOM_PHOENIX_BUILD=1 LOOM_HEX_MIRROR=1 npx vitest run \
-  test/e2e/generated-phoenix-build.test.ts -t "paged.ddd"
+LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1 \
+  LOOM_PHOENIX_VANILLA_BUILD_CASE=key-lookup.ddd \
+  npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts
 ```
+
+In the sandbox the suite's container receives no proxy CA, so without the flag
+`mix local.hex` fails with `unknown_ca`.
 
 Unset (the default, and every CI runner with direct hex.pm access) the
 flag is a no-op and the suite runs `docker run` exactly as before.
@@ -939,7 +942,7 @@ dies in `mix local.hex` with `** (Mix) request timed out after 60000ms`, a
 uniform ~63s per case, *before* any generated Elixir is compiled.  A whole-file
 `LOOM_PHOENIX_VANILLA_BUILD=1 npm run test:phoenix` therefore reports something
 like `67 failed | 1 passed` that says nothing about the emitted code — the one
-pass is case 1, and the rest never got their dependencies.  Use `-t "<fixture>"`
+pass is case 1, and the rest never got their dependencies.  Use `LOOM_PHOENIX_VANILLA_BUILD_CASE=<fixture>.ddd[,…]`
 to run the cases a change actually touches (each gets a fresh mirror), and
 leave the full sweep to CI, which shards `elixir-vanilla-build.yml` and has
 direct hex.pm access.
@@ -964,10 +967,10 @@ cd out/<java-deployable>
 # NOT the sandbox host's JDK 21 / Gradle 8.14.  Either a host with those
 # versions, or the `gradle:9-jdk25` container from the table above.
 gradle bootJar
-cp build/libs/app.jar app.jar                   # .dockerignore excludes build/,
+cp build/libs/*.jar app.jar                     # .dockerignore excludes build/,
                                                 # so copy the jar INTO the context
 cat > Dockerfile.local <<'EOF'
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY app.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]
