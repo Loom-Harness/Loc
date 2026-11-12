@@ -83,7 +83,8 @@ const PINNED: Record<string, Pin> = {
   },
   "src/generator/dotnet/validator-emit.ts:dateLocal": {
     discipline: "per-run-reset",
-    reason: "`buildFluentRules` sets it to 0 before rendering each rule's predicate, synchronously.",
+    reason:
+      "`buildFluentRules` sets it to 0 before rendering each rule's predicate, synchronously.",
   },
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
