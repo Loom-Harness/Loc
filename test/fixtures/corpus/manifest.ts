@@ -450,6 +450,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
   },
   {
+    id: "eventsourced-workflow-body",
+    title:
+      "an event-sourced workflow handler loads a row, calls an operation on it and emits a value it read — one transaction, rolled back by a later guard",
+    doc: "workflow",
+    backends: ALL,
+    note: "Elixir's event-sourced handler rendered only guards, `let x = <expr>` and emits: a `let o = Orders.get(…)`, an operation call and a create were dropped with no diagnostic, so an emit reading `o` did not compile.  It also ran without a transaction, so nothing rolled back a failure after a write.",
+  },
+  {
     id: "reactor-failure-order",
     title:
       "a reactor that fails AFTER writing — a guard reading an earlier binding, or an operation's own precondition — leaves none of its effects",

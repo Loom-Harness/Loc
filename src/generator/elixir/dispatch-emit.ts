@@ -24,29 +24,16 @@ import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
-import {
-  lowerWorkflowPipeline,
-  type PipelineStep,
-  type WorkflowPipelineTarget,
-} from "../_workflow/stmt-target.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
-import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
+import { reactorTarget, renderReactorBody } from "./reactor-target.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { exEctoIdJsonType, exEctoIdType } from "./vanilla/codec-spelling-ex.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
-import { denialTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
-import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
-import {
-  assembleChain,
-  chainLink,
-  elixirWorkflowTarget,
-  tupleBind,
-} from "./vanilla/workflow-execution-emit.js";
 
 /** M13 — a handler-render result: the module's final content plus one
  *  statement-granular `fragment()` anchor per rendered statement — the
@@ -283,7 +270,13 @@ export function emitDispatch(
     // An event-sourced workflow's handler folds the stream on load and appends
     // its own emitted events (the saga analogue of the ES aggregate).
     const { content, regions }: HandlerResult = sub.workflow.eventSourced
-      ? renderEsWorkflowHandler(contextModule, sub, channels)
+      ? renderEsWorkflowHandler(
+          contextModule,
+          ctx,
+          sub,
+          reactorRenderCtx(appModule, contextModule, ctx, sub, sys),
+          channels,
+        )
       : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
@@ -491,24 +484,14 @@ function renderHandler(
   // (ruling D1) — `<Web>.Auth.system_principal/0`, carrying the originating
   // request's tenant and recording its user as `caused_by`.  Bound only when
   // the body — or an operation it calls — reads `currentUser`.
-  const bindsPrincipal = reactorNeedsPrincipal(sub.statements, ctx);
-  const renderCtx: RenderCtx = {
-    thisName: "state",
-    contextModule,
-    typesModule: `${appModule}.Types`,
-    resourceModules: buildPhoenixResourceModules(sys, appModule),
-    paramRenames: { [sub.param]: "event" },
-    reactorPrincipal: bindsPrincipal,
-  };
+  const renderCtx = reactorRenderCtx(appModule, contextModule, ctx, sub, sys);
+  const bindsPrincipal = renderCtx.reactorPrincipal === true;
 
-  // Body statements → ordered Elixir lines (0-indented), woven into a
-  // `with`-chain plus the re-entrant dispatches the do-branch runs.
-  const { lines: body, regions } = renderBody(
+  // Body statements → one 0-indented block: the `with`-chain in source order,
+  // the re-entrant dispatches in its do-branch, the first failure thrown.
+  const { lines: body, regions } = renderReactorBody(
     sub.statements,
-    ctx,
-    renderCtx,
-    contextModule,
-    channels,
+    reactorTarget(ctx, renderCtx, contextModule, channels),
   );
 
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a
@@ -554,6 +537,26 @@ ${inner}
 end
 `;
   return { content, regions };
+}
+
+/** The render context of a reactor / starter body: own state reads off the
+ *  loaded `state`, the event param is `event`, and the system principal is
+ *  bound when the body — or an operation it calls — reads `currentUser`. */
+function reactorRenderCtx(
+  appModule: string,
+  contextModule: string,
+  ctx: EnrichedBoundedContextIR,
+  sub: Subscription,
+  sys?: SystemIR,
+): RenderCtx {
+  return {
+    thisName: "state",
+    contextModule,
+    typesModule: `${appModule}.Types`,
+    resourceModules: buildPhoenixResourceModules(sys, appModule),
+    paramRenames: { [sub.param]: "event" },
+    reactorPrincipal: reactorNeedsPrincipal(sub.statements, ctx),
+  };
 }
 
 /** The workflow `function` helpers a reactor body calls — directly or through
@@ -951,141 +954,4 @@ function accumulateElixir(
     return `Decimal.${verb}(${cur} || Decimal.new(0), ${value})`;
   }
   return `(${cur} || 0) ${op} ${value}`;
-}
-
-// ---------------------------------------------------------------------------
-// Body rendering — the reactor / starter statement list, on the shared
-// workflow `pipeline` spine (`_workflow/stmt-target.ts`).
-// ---------------------------------------------------------------------------
-
-interface RenderBodyResult {
-  /** 0-indented Elixir lines (the caller indents the block to its position). */
-  lines: string[];
-  /** One `fragment()` anchor per lowered step: the text it renders to inside
-   *  the chain, paired with its statement's origin. */
-  regions: { text: string; origin: OriginRef | undefined }[];
-}
-
-/** A reactor / starter body as one block.  It runs in source order — a guard
- *  after a write sees that write's binding — and is one transaction with the
- *  handler's saga row: the first failure (a guard, a not-found, an operation's
- *  `{:error, _}`) is thrown, so `Repo.transaction` rolls the whole reaction
- *  back and the dispatcher that called it logs or retries it (workflow.md
- *  § Reactor failures), exactly as the other backends' raise does. */
-function renderBody(
-  statements: WorkflowStmtIR[],
-  ctx: EnrichedBoundedContextIR,
-  renderCtx: RenderCtx,
-  contextModule: string,
-  channels?: ElixirChannelsCfg,
-): RenderBodyResult {
-  const chunks = lowerWorkflowPipeline(
-    statements,
-    reactorTarget(ctx, renderCtx, contextModule, channels),
-  );
-  const regions = chunks.flatMap((steps, i) =>
-    steps.map((step) => ({
-      text: step.kind === "effect" ? step.text : chainLink(step),
-      origin: statements[i]!.origin,
-    })),
-  );
-  return {
-    lines: assembleChain(chunks.flat(), ":ok", (err) => `throw(${err})`),
-    regions,
-  };
-}
-
-/** The reactor flavour of the Elixir workflow target: the command target's
- *  chain, with the leaves a reactor spells differently.  A reactor has no
- *  request principal (reads take no actor, a create takes the ungated seam),
- *  its `emit` re-enters the context `Dispatcher` (or the broker tee) so
- *  choreography chains keep fanning out, and its own-state `:=` persists the
- *  saga row. */
-function reactorTarget(
-  ctx: EnrichedBoundedContextIR,
-  renderCtx: RenderCtx,
-  contextModule: string,
-  channels?: ElixirChannelsCfg,
-): WorkflowPipelineTarget {
-  const base = elixirWorkflowTarget(contextModule, renderCtx, ctx);
-  const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
-  const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
-    fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
-  const appModule = contextModule.split(".").slice(0, -1).join(".");
-  // A guard fails the chain with the shared denial term (`denialTerm`) — the
-  // tagged 2-tuple every other producer answers.
-  const guard = (
-    st: Extract<WorkflowStmtIR, { kind: "precondition" | "requires" }>,
-  ): PipelineStep[] => [
-    {
-      kind: "clause",
-      text: `:ok <- (if ${expr(st.expr)}, do: :ok, else: {:error, ${denialTerm(st)}})`,
-    },
-  ];
-  let emitted = 0;
-  return {
-    ...base,
-    precondition: guard,
-    requires: guard,
-
-    // The IN-PROCESS create: an event dispatcher has no request principal, so
-    // it takes the ungated seam (see `./lifecycle-seam.ts`).
-    factoryLet: (st, scope) => {
-      const { pattern, bindName } = tupleBind(st.name, scope);
-      const fn = internalCreateFn(
-        st.aggName,
-        ctx.aggregates.find((a) => a.name === st.aggName),
-      );
-      return [
-        {
-          kind: "clause",
-          text: `{:ok, ${pattern}} <- ${contextModule}.${fn}(%{${fieldsOf(st.fields)}})`,
-          ...(bindName ? { bindName } : {}),
-        },
-      ];
-    },
-
-    // A re-emit dispatches once the chain succeeded.  The event is built where
-    // the source states it: when a later statement may rebind what it reads
-    // (an own-state `:=`, an operation's rebound handle), it is bound first and
-    // dispatched after, so it carries the values of its own position.
-    emit: (st, scope) => {
-      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
-      const dispatch = (ev: string): string =>
-        channels
-          ? `${channels.appModule}.Channels.dispatch(${ev}, ${contextModule}.Dispatcher)`
-          : `${contextModule}.Dispatcher.dispatch(${ev})`;
-      if (!scope.rest.some((s) => s.kind === "assign" || s.kind === "op-call")) {
-        return [{ kind: "effect", text: dispatch(struct) }];
-      }
-      const name = `emitted_${++emitted}`;
-      return [
-        { kind: "let", pattern: name, expr: struct },
-        { kind: "effect", text: dispatch(name) },
-      ];
-    },
-
-    // `field := value` — the saga state is a plain Ecto schema: persist the
-    // write in place and rebind `state` when a later statement reads it.
-    assign: (st, scope) => [
-      {
-        kind: "let",
-        pattern: workflowBodyUsesOwnState(scope.rest) ? "state" : "_state",
-        expr: `${appModule}.Repo.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
-      },
-    ],
-
-    // The in-process delete entry exists only when the aggregate has a delete
-    // surface (`emitsRestDelete`); without one, `Repo.delete/1` — what the
-    // repository's `delete/1` does, with the same return shape.
-    repoDelete: (st) => {
-      const agg = ctx.aggregates.find((a) => a.name === st.aggName);
-      const entity = expr(st.entity);
-      const call =
-        agg && emitsRestDelete(agg)
-          ? `${contextModule}.${internalDeleteFn(st.aggName, agg)}(${entity})`
-          : `${appModule}.Repo.delete(${entity})`;
-      return [{ kind: "clause", text: `{:ok, _} <- ${call}` }];
-    },
-  };
 }

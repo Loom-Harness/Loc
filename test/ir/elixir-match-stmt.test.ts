@@ -160,7 +160,7 @@ describe("loom.elixir-match-stmt-unsupported — the refused sub-shapes", () => 
     expect(msg).toContain("more than one non-error variant");
   });
 
-  it("#event-sourced: any match in an eventSourced workflow handler", async () => {
+  it("admits a match in an eventSourced workflow handler (it renders on the reactor chain)", async () => {
     const src = shop(`
       event Tick { orderId: Order id, note: string? }
       event Ran { orderId: Order id }
@@ -176,9 +176,7 @@ describe("loom.elixir-match-stmt-unsupported — the refused sub-shapes", () => 
         }
         apply(r: Ran) { count := 1 }
       }`);
-    const [msg, ...rest] = await refusals(src);
-    expect(rest).toEqual([]);
-    expect(msg).toContain("EVENT-SOURCED");
+    expect(await refusals(src)).toEqual([]);
   });
 
   it("is elixir-only: node renders every one of those shapes' hosts", async () => {
