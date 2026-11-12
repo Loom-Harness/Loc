@@ -236,11 +236,6 @@ async function runGenerate(
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   }
-  // No `printLoomWarnings(loomDiags)` here: `printIrDiagnostics` above already
-  // printed the warnings — and printed the index-suggestions SEPARATELY, which
-  // is the half `printLoomWarnings` still gets wrong (it lumps them in with the
-  // real warnings under one count, so `generate`'s footer disagreed with
-  // `parse`'s for the same file).  Calling both would double-print.
   // Directory creation is deferred to the write loop below (and guarded by
   // `!options.dryRun`) so a `--dry-run` touches nothing on disk — not even
   // `mkdir`-ing the output dir.

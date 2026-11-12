@@ -25,6 +25,16 @@
 export { hasDurableEvents } from "./context-events.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export { lookupOp } from "./operation-lookup.js";
+export { type RepoNeed, reposNeeded } from "./repos-needed.js";
+export {
+  domainServiceReadPorts,
+  type ReadPort,
+  serviceOpReadPorts,
+  serviceReadPorts,
+  servicesCalled,
+  withReadPortRepos,
+} from "./service-read-ports.js";
+export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
 export {
   type RemoteApiOpRef,
   type ResourceCalls,
@@ -36,6 +46,7 @@ export { namesBound, namesUsed, refsRead } from "./workflow-names.js";
 export {
   auditedOpCallAggregates,
   callsAuditedOp,
+  handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";

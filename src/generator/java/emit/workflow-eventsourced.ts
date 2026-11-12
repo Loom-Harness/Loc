@@ -1,4 +1,4 @@
-import { eventLogTable, foldedEventNames } from "../../../ir/plan/index.js";
+import { eventLogTable, foldedEventNames, requiredStateFields } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -114,9 +114,9 @@ export function renderEsWorkflowFoldClass(
 
   // Fold-from-zero: seed correlation key + a typed default per required
   // (non-optional, non-correlation) state field.
-  const seeds = stateOnly
-    .filter((f) => !(f.optional || f.type.kind === "optional"))
-    .map((f) => `        s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`);
+  const seeds = requiredStateFields(wf).map(
+    (f) => `        s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`,
+  );
 
   return lines(
     `package ${pkg};`,

@@ -30,7 +30,7 @@
 // limitation, matching the workflow op-call's `{:ok, _} <-` discard.
 // ---------------------------------------------------------------------------
 
-import { refsRead } from "../../../ir/plan/index.js";
+import { handlerNeedsCurrentUser, refsRead } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -41,7 +41,6 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { handlerUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
 import {
@@ -439,7 +438,7 @@ end
  *  read?  Then its `run` takes `current_user` and the route passes it. */
 function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
   return (
-    handlerUsesCurrentUser(h) ||
+    handlerNeedsCurrentUser(h, ctx) ||
     handlerThreadsActor(h, ctx) ||
     writeScopeGuardsOf(h, ctx).some((g) => {
       const agg = ctx.aggregates.find((a) => a.name === g.aggName);
