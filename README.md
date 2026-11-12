@@ -466,9 +466,8 @@ file `ddd new` scaffolds &mdash; and it holds regardless of which verb
 produced the file.  Production users can ship generated projects
 without inheriting any FSL terms.
 
-The grant lives in the generator's own licence terms (this `LICENSE`,
-which incorporates [`LICENSE-OUTPUT`](LICENSE-OUTPUT); see also
-[§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
+The grant lives in the generator's own licence terms (this `LICENSE`
+plus [§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
 **not** in a file written into your output directory.  `ddd new` does
 scaffold a `LICENSE` file carrying the MIT grant into the starter
 project it creates; `ddd generate` deliberately writes none &mdash; it

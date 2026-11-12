@@ -15,7 +15,7 @@ file, the LICENSE file is authoritative.
 Everything in this repository: the `ddd` CLI, the Langium grammar,
 the IR, the per-platform generators (the five backends — TypeScript /
 .NET / Phoenix / Python / Java — and the frontends — React / Vue /
-Svelte / Angular / Feliz / Flutter), the VS Code extension, and the documentation.  This
+Svelte / Angular), the VS Code extension, and the documentation.  This
 is the **generator itself**.
 
 You may use the generator for any **Permitted Purpose** — internal
@@ -45,10 +45,9 @@ Concretely:
   self-documenting in a project Loom started.  `ddd generate` does
   **not** write one: it emits build output into a tree you may have
   already licensed differently, and a licence it re-created after
-  every delete would be the wrong default.
-  The posture below holds either way — it is stated in the
-  [`LICENSE-OUTPUT`](../LICENSE-OUTPUT) file that `LICENSE` incorporates,
-  not in a file in your output directory.
+  every delete would be the wrong default (M-FT.13, finding G9).
+  The posture below holds either way — it is a property of the
+  generator's licence, not of a file in your output directory.
 - Any small runtime helper snippets the generator embeds verbatim
   into the output (error classes, mapping helpers, page-object
   bases, etc.) are dual-licensed **MIT OR Apache-2.0** when they
@@ -106,8 +105,8 @@ LICENSE file for the conversion date or contact the maintainers.
 infrastructure scaffolding — is that all MIT too?
 
 Yes.  Everything `ddd generate` writes — including
-`docker-compose.yml`, `db-init/`, generated `Dockerfile`s,
-`.loom/wire-spec.json` — is part of the generated
+`docker-compose.yml`, `db-init/`, generated `Dockerfile`s, CI
+scaffolding, `.loom/wire-spec.json` — is part of the generated
 output and is licensed to you under MIT.
 
 ## 6. What if I pin a generated file via `.loomignore`?
@@ -126,5 +125,6 @@ file and copyright notice intact (per the Redistribution clause).
 
 ## 8. Where do I send licensing questions that aren't covered here?
 
-Open an issue on the GitHub repository.  Legal notices should reference the
+Open an issue on the GitHub repository, or contact the maintainers
+listed in `package.json`.  Legal notices should reference the
 specific clause of the LICENSE file your question is about.

@@ -1299,7 +1299,7 @@ Why framework-native rather than emitting OpenAPI from the IR:
   carrying a bespoke OpenAPI emitter.
 
 For the full dimension reference, how to read a divergence report,
-and the checklist for adding a dimension, see
+and the checklist for adding a tenth dimension, see
 [`conformance.md`](conformance.md).
 
 ## Compiling generated FRONTENDS locally
