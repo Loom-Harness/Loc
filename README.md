@@ -288,13 +288,21 @@ test runs against whichever runtime you point it at.
 | [`acme.ddd`](examples/acme.ddd) | Full system mode &mdash; multi-deployable, OpenAPI parity-checked.  See the [annotated walkthrough](examples/acme.md). |
 | [`acme-order-explicit.ddd`](examples/acme-order-explicit.ddd) | Hand-written equivalent of `scaffold aggregates: Order`; asserted byte-equivalent in CI. |
 | [`showcase.ddd`](examples/showcase.ddd) | Multi-pack design showcase; exercised by the design-pack matrix in CI. |
+| [`event-sourcing.ddd`](examples/event-sourcing.ddd) | An event-sourced ledger aggregate: `apply` folds over an append-only event stream. |
+| [`timers.ddd`](examples/timers.ddd) | `timerSource` &mdash; time as an event source feeding workflows. |
+| [`seeding.ddd`](examples/seeding.ddd) | Database seeding in the top-level context form. |
+| [`tasks-vanilla.ddd`](examples/tasks-vanilla.ddd) | Plain Phoenix + Ecto on `platform: elixir`. |
+| [`lifecycle.ddd`](examples/lifecycle.ddd) | Canonical CRUD lifecycle via `crudish`. |
+| [`document.ddd`](examples/document.ddd) | The three saving shapes: relational, `document`, `embedded`. |
+| [`vue-showcase.ddd`](examples/vue-showcase.ddd) | The acme system with a `platform: vue` frontend (Vuetify pack). |
+| [`svelte-shop.ddd`](examples/svelte-shop.ddd) | A themed system with a Svelte frontend. |
 
 ## Project layout
 
 ```
 src/
   language/        # Langium grammar, scoping, themed validators, type system, LSP, .ddd printer
-  macros/          # macro pipeline — expander, registry, authoring API, stdlib (scaffold/audit/softDelete/crudish)
+  macros/          # macro pipeline — expander, registry, authoring API, stdlib (scaffold/softDelete/crudish)
   ir/              # IR types, lowering, enrichment, validation
   generator/
     typescript/    # shared TypeScript emitter (consumed by the Hono backend)
@@ -458,8 +466,9 @@ file `ddd new` scaffolds &mdash; and it holds regardless of which verb
 produced the file.  Production users can ship generated projects
 without inheriting any FSL terms.
 
-The grant lives in the generator's own licence terms (this `LICENSE`
-plus [§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
+The grant lives in the generator's own licence terms (this `LICENSE`,
+which incorporates [`LICENSE-OUTPUT`](LICENSE-OUTPUT); see also
+[§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
 **not** in a file written into your output directory.  `ddd new` does
 scaffold a `LICENSE` file carrying the MIT grant into the starter
 project it creates; `ddd generate` deliberately writes none &mdash; it

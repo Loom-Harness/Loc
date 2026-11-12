@@ -1,21 +1,16 @@
 # Diagnostic catalog — the `loom.*` code registry
 
-> Convention spec — and, since 2026-09-22, a fact rather than an
-> aspiration: **every** diagnostic site in
+> Convention spec. **Every** diagnostic site in
 > `src/language/validators/**`, `src/language/ddd-validator.ts`,
 > `src/ir/validate/checks/**`, `src/macros/expander.ts` and `src/api/`
 > attaches a `loom.*` code, and `test/system/diagnostic-catalog.test.ts`
-> (invariant 5) fails on the first one that does not. The 129 codeless
-> conditions this doc used to describe — every one of them stamped
-> `loom.unknown` by `src/api/report.ts` on the way to the user — were
-> measured and ratcheted in Wave C1 and drained to zero in Wave C4
-> (M-T9.56). The wording of every code lives in
+> fails on the first one that does not. The wording of every code lives in
 > `src/diagnostics/messages/<family>.ts` (merged by
 > `src/diagnostics/messages.ts`; the family is the one whose `segments`
 > owns the code's first segment); its language-reference anchor lives in
-> the same family under `src/diagnostics/code-docs/`; a minimal `.ddd` that makes it fire
-> lives in `test/system/diagnostic-firing-census.test.ts`. A new code
-> owes all three.
+> the same family under `src/diagnostics/code-docs/`; a minimal `.ddd` that
+> makes it fire lives in `test/system/diagnostic-firing-census.test.ts`. A
+> new code owes all three.
 
 ## Why codes
 
@@ -38,7 +33,7 @@ loom.<area>-<symptom>
   `deployable`, `react`, `slot`, `derived`.
 - **`symptom`** — what is wrong, lower-kebab, phrased as the problem not
   the fix: `bare-aggregate-in-type`, `unmapped-error-status`,
-  `findAll-no-page`, `unnamed-placeholder`.
+  `findall-no-page`, `unnamed-placeholder`.
 
 One code per distinct condition. Do not reuse a code across two
 unrelated checks; do not mint two codes for one condition.
@@ -56,55 +51,31 @@ sources lands as a **warning**, then promotes to **error** in a later,
 coordinated phase — keeping the *same code* across the promotion. This
 is the exception-less D10 pattern (`loom.throw-outside-domain`: warning
 A1–A3, error after A4) and is the default migration path for any
-tightening rule. Document the promotion phase in the registry row.
+tightening rule. Document the promotion in the code's `code-docs` entry.
 
 ## Registry
 
-### Shipped (attached via `code:`)
+The registry is the catalog itself: `src/diagnostics/messages.ts` (merged
+from `src/diagnostics/messages/<family>.ts`) lists every code with its
+wording, and `src/diagnostics/code-docs/<family>.ts` maps each to its
+language-reference anchor. There is no hand-kept table to keep in sync;
+`test/system/diagnostic-catalog.test.ts` fails on an uncataloged code, an
+orphaned entry, or an entry filed under the wrong family.
 
-| Code | Severity | Meaning |
-|---|---|---|
-| `loom.ui-framework-unhostable` | error | the bound `ui`'s `framework:` is not in the host deployable's hostable set |
-| `loom.react-deployable-missing-ui` | error | react deployable with no `ui:` (post-#606) |
-| `loom.provenanced-never-written` | warning | `provenanced` field never assigned |
-| `loom.token-nullable` | error | nullable token field |
-| `loom.slot-member-access` / `loom.slot-out-of-position` | error | component slot misuse |
-| `loom.legacy-part-call` / `loom.legacy-vo-call` | warning | legacy call form |
-| `loom.unknown-builder-type` | error | unrecognised builder kind |
-| `loom.bare-aggregate-in-type` | error | cross-aggregate ref not spelled `X id` (scope provider) |
-| `loom.migration-duplicate-name` | error | two `migration` blocks share a name (M-T2.1) |
-| `loom.rename-to-self` | error | `rename Agg.x -> x` names the same field on both sides (M-T2.1) |
-| `loom.rename-duplicate-source` | error | one aggregate column is renamed FROM more than once (M-T2.1) |
-| `loom.rename-duplicate-target` | error | two renames collide ON one target column (M-T2.1) |
-
-### Reserved by in-flight proposals
-
-| Code | Severity | Source | Phase |
-|---|---|---|---|
-| `loom.unmapped-error-status` | warning | exception-less D8 | A3 |
-| `loom.throw-outside-domain` | warning → **error** | exception-less D10 | A1 → A4 |
-| `loom.findAll-no-page` | warning | criterion D33 | Crit4 |
-| `loom.bound-not-met` | error | payload-transport (carrier bound) | P3 |
-| `loom.unnamed-placeholder` | warning | i18n-strings | i18n |
-| `loom.datasource-missing-kind` | error | D-STORAGE-SPLIT validator rules | (storage F2) |
-| `loom.datasource-aggregate-for` | error | D-GRANULARITY (`for:` must be a context) | (storage F2) |
-| `loom.policy-missing` | warning | sensitivity → authorization (sensitive field w/o policy) | 3.2 |
-
-When a proposal mints a new code, add its row here in the same PR that
-adds the check — the registry is the index, the validator is the source
-of truth, and they must not drift.
+Code spelling is lower-case throughout (`loom.findall-no-page`).
 
 ## Mechanics
 
-Codes attach via Langium's diagnostic `code` property on the
-`ValidationAcceptor` call:
+A validator takes its text from the catalog with `diagMessage(key, params)`
+and attaches the bare `code` on the Langium `ValidationAcceptor` call:
 
 ```ts
-accept("error", "Cross-aggregate reference must use `X id`.", {
-  node, property: "type", code: "loom.bare-aggregate-in-type",
-});
+accept(
+  "error",
+  diagMessage("loom.bare-aggregate-in-type", { name }),
+  { node, property: "type", code: "loom.bare-aggregate-in-type" },
+);
 ```
 
-A small `test/language/diagnostic-codes.test.ts` (to add) can assert
-every `accept(...)` site passes a `code:` and that every code matches
-`loom.<area>-<symptom>` — turning this convention into a gate.
+An inline message literal fails `test/system/diagnostic-catalog.test.ts`,
+as does a code that does not match `loom.<area>-<symptom>`.

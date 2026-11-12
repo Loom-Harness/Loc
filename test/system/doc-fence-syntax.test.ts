@@ -70,8 +70,6 @@ const WAIVERS: readonly Waiver[] = [
     why: "intentional: before/after columns of a removed form",
   },
   // Stale syntax, tracked per doc.
-  { doc: "docs/architecture.md", marker: "api Mktg:  MarketingApi", why: "#3629" },
-  { doc: "docs/architecture.md", marker: "Mktg:  marketingApi", why: "#3629" },
   { doc: "docs/decisions.md", marker: "dataSource ordersState", why: "#4930" },
   { doc: "docs/domain-services.md", marker: "module Sales {", why: "#4931" },
   { doc: "docs/domain-services.md", marker: "function shippingFor(", why: "#4931" },
