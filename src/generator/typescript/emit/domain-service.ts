@@ -45,7 +45,8 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { tsImportSlot } from "../../_imports/ts.js";
-import { renderTsType } from "../render-expr.js";
+import { tsServiceOpFn, tsServiceSiblingScope } from "../../_symbols/plan.js";
+import { renderTsType, type TsRenderContext } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
 import { renderOperationReturnType } from "./aggregate.js";
@@ -157,10 +158,10 @@ export function domainServiceNamesInExprs(exprs: readonly (ExprIR | undefined)[]
 }
 
 function renderService(svc: DomainServiceIR, ctx: BoundedContextIR): string {
-  const fnName = (op: DomainServiceOperationIR): string =>
-    `${lowerFirst(svc.name)}_${lowerFirst(op.name)}`;
+  const fnName = (op: DomainServiceOperationIR): string => tsServiceOpFn(svc.name, op.name);
+  const scope: TsRenderContext = { thisName: "this", freeCall: tsServiceSiblingScope(svc) };
   return lines(
-    ...svc.operations.map((op) => renderOperation(op, fnName(op), ctx)),
+    ...svc.operations.map((op) => renderOperation(op, fnName(op), ctx, scope)),
     `export const ${svc.name} = {`,
     ...svc.operations.map((op) => `  ${lowerFirst(op.name)}: ${fnName(op)},`),
     "} as const;",
@@ -172,6 +173,7 @@ function renderOperation(
   op: DomainServiceOperationIR,
   fnName: string,
   ctx: BoundedContextIR,
+  scope: TsRenderContext,
 ): string {
   // Read-port parameters (domain-services.md rev. 4): a `reading`-tier
   // op takes one repository handle per repo it reads, AHEAD of the user params —
@@ -188,7 +190,12 @@ function renderOperation(
   const kw = isReading ? "async function" : "function";
   const inner = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
   const ret = isReading ? `Promise<${inner}>` : inner;
-  return lines(`${kw} ${fnName}(${params}): ${ret} {`, renderTsStatements(op.body), "}", "");
+  return lines(
+    `${kw} ${fnName}(${params}): ${ret} {`,
+    renderTsStatements(op.body, false, undefined, scope),
+    "}",
+    "",
+  );
 }
 
 /** The distinct read-port repositories (`<Aggregate>Repository` classes) every

@@ -1,0 +1,77 @@
+// Domain names that are legal Loom and collide with something a target
+// already binds — the gate of the per-target symbol plan
+// (`src/generator/_symbols/`).  Each declaration below was fatal on at least
+// one backend's compile or import:
+//
+//   - `domainService Calc` — `twice` calls its sibling `base` by bare name.
+//     TS emits the operations as module functions `calc_<op>`, and the bare
+//     sibling call must resolve to the same symbol the definition declares.
+//   - `enum TaskStatus` / `aggregate ServiceProvider` — the .NET implicit
+//     usings import `System.Threading.Tasks.TaskStatus` and
+//     `Microsoft.Extensions.DependencyInjection.ServiceProvider`, so every
+//     file that also imports the domain namespace sees an ambiguous name
+//     (CS0104).
+//   - `valueobject Money.plus(other: Money): Money` — a value-object method
+//     whose signature names its own class; python evaluates the annotation
+//     while the class body is still executing (NameError at import).
+//   - field `property` — python's `@property` decorator is rebound inside the
+//     class body by a member of that name.
+//   - operations `byRef` / `shared` — Visual Basic keywords; the .NET
+//     analyzers refuse a public member spelled as one (CA1716).
+//   - operation `raise` called from a workflow — the python method is escaped
+//     at its definition, so every call site must spell the same escaped name.
+//
+// The plan escapes or aliases only names that collide, so every other
+// declaration emits exactly what it emits without this fixture.
+system SymbolCollisions {
+  subdomain Providers {
+    context Providers {
+      enum TaskStatus { Open, Done }
+
+      valueobject Money {
+        amount: decimal
+        currency: string
+        function plus(other: Money): Money = Money { amount: amount + other.amount, currency: currency }
+      }
+
+      valueobject Risk {
+        score: decimal
+      }
+
+      aggregate ServiceProvider with crudish {
+        name: string
+        status: TaskStatus
+        property: Risk?
+        fee: Money?
+        tally: int
+        operation raise(amount: int) { tally := tally + amount }
+        operation rate(x: int) { tally := Calc.twice(x) }
+        operation byRef(x: int) { tally := x }
+        operation shared(x: int) { tally := x }
+      }
+      repository ServiceProviders for ServiceProvider { }
+
+      domainService Calc {
+        operation base(x: int): int { return x + 1 }
+        operation twice(x: int): int { return base(x) * 2 }
+      }
+
+      workflow RaiseIfPresent {
+        create(provider: ServiceProvider id, amount: int) {
+          if let p = ServiceProviders.find(provider) { p.raise(amount) }
+        }
+      }
+    }
+  }
+
+  api ProvidersApi from Providers
+  storage pg { type: postgres }
+  resource providerState { for: Providers, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Providers]
+    dataSources: [providerState]
+    serves: ProvidersApi
+    port: 4000
+  }
+}
