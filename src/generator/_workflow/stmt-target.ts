@@ -1,5 +1,5 @@
-import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { namesBound, namesUsed } from "../../ir/plan/index.js";
+import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
   type WriteScopeContext,
