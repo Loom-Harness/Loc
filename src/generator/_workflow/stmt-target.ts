@@ -1,4 +1,4 @@
-import type { WorkflowStmtIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
   type WriteScopeContext,
@@ -299,5 +299,222 @@ function renderWorkflowStmtOwn(
       return target.domainServiceCall(st, indent);
     case "not-found":
       return target.notFound(st, indent);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The `pipeline` assembly strategy.
+//
+// The four imperative backends render a body as statements in sequence
+// (`renderWorkflowStmts`).  A functional backend assembles it as a binding
+// chain whose first failure short-circuits the rest — Elixir's `with` chain,
+// or `Enum.reduce_while` for a loop body.  That backend cannot render a
+// statement in isolation: whether a binding may be discarded depends on the
+// statements after it, and a nested body is assembled differently from the
+// top level (a loop iteration continues or halts; a branch answers its own
+// result).
+//
+// So the pipeline spine lowers each statement to typed STEPS, not lines, and
+// hands every leaf its `PipelineScope` — the statements that follow it in the
+// same body, plus the expressions the caller evaluates after the body.  It
+// owns the kind dispatch and the recursion into `for-each` / `if-let` /
+// `variant-match` bodies; the target owns the spelling and the assembly of a
+// step list into a chain.
+// ---------------------------------------------------------------------------
+
+/** One lowered statement fragment in a binding chain. */
+export type PipelineStep =
+  /** A fallible link: its failure short-circuits the chain.  `bindName` is the
+   *  name it binds, when the chain may answer it as its result. */
+  | { kind: "clause"; text: string; bindName?: string }
+  /** An infallible binding.  Inside a chain it is a link that always matches;
+   *  in a body with no fallible link it is a plain sequential binding. */
+  | { kind: "let"; pattern: string; expr: string; bindName?: string }
+  /** A side effect that runs only when the whole chain succeeded. */
+  | { kind: "effect"; text: string }
+  /** End the body with a failure: `clause` is the link form (it never
+   *  matches); `term` is the failure the body answers when it is the body's
+   *  last step. */
+  | { kind: "fail"; clause: string; term: string };
+
+/** What a statement may know about the body around it. */
+export interface PipelineScope {
+  /** The statements after this one in the same body. */
+  readonly rest: readonly WorkflowStmtIR[];
+  /** Expressions the caller evaluates after the whole body (a handler's
+   *  `return`, a workflow's declared result) — reads of a binding too. */
+  readonly trailing: readonly ExprIR[];
+  /** True when this statement's binding is not the chain's result slot, so an
+   *  unread binding may be discarded. */
+  readonly discardableBind: boolean;
+}
+
+/** A nested body: its statements and the steps the spine lowered them to. */
+export interface PipelineBody {
+  readonly stmts: readonly WorkflowStmtIR[];
+  readonly steps: PipelineStep[];
+}
+
+export interface WorkflowPipelineTarget {
+  precondition(st: ByKind<"precondition">, scope: PipelineScope): PipelineStep[];
+  requires(st: ByKind<"requires">, scope: PipelineScope): PipelineStep[];
+  emit(st: ByKind<"emit">, scope: PipelineScope): PipelineStep[];
+  factoryLet(st: ByKind<"factory-let">, scope: PipelineScope): PipelineStep[];
+  repoLet(st: ByKind<"repo-let">, scope: PipelineScope): PipelineStep[];
+  exprLet(st: ByKind<"expr-let">, scope: PipelineScope): PipelineStep[];
+  assign(st: ByKind<"assign">, scope: PipelineScope): PipelineStep[];
+  repoRun(st: ByKind<"repo-run">, scope: PipelineScope): PipelineStep[];
+  opCall(st: ByKind<"op-call">, scope: PipelineScope): PipelineStep[];
+  repoDelete(st: ByKind<"repo-delete">, scope: PipelineScope): PipelineStep[];
+  resourceCall(st: ByKind<"resource-call">, scope: PipelineScope): PipelineStep[];
+  domainServiceCall(st: ByKind<"domain-service-call">, scope: PipelineScope): PipelineStep[];
+  notFound(st: ByKind<"not-found">, scope: PipelineScope): PipelineStep[];
+  forEach(st: ByKind<"for-each">, scope: PipelineScope, body: PipelineBody): PipelineStep[];
+  ifLet(
+    st: ByKind<"if-let">,
+    scope: PipelineScope,
+    thenBody: PipelineBody,
+    elseBody: PipelineBody,
+  ): PipelineStep[];
+  variantMatch(
+    st: ByKind<"variant-match">,
+    scope: PipelineScope,
+    arms: PipelineBody[],
+    elseBody: PipelineBody,
+  ): PipelineStep[];
+}
+
+/** How the caller closes a top-level body. */
+export interface PipelineOptions {
+  /** See `PipelineScope.trailing`. */
+  readonly trailing?: readonly ExprIR[];
+  /** The index of the statement whose binding the chain answers as its
+   *  result; every other statement's unread binding is discardable.  Omitted
+   *  when the caller answers its own result. */
+  readonly resultSlot?: number;
+}
+
+/** Does `st` always bind a name the chain can answer as its result?  The last
+ *  such statement of a body is the result slot of a chain that answers its
+ *  last binding.  A `domain-service-call` is absent on purpose: whether it
+ *  binds depends on how the backend inlines it. */
+function bindsResult(st: WorkflowStmtIR): boolean {
+  switch (st.kind) {
+    case "factory-let":
+    case "repo-let":
+    case "repo-run":
+    case "assign":
+      return true;
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "expr-let":
+    case "op-call":
+    case "repo-delete":
+    case "resource-call":
+    case "domain-service-call":
+    case "not-found":
+    case "for-each":
+    case "if-let":
+    case "variant-match":
+      return false;
+    default: {
+      const _exhaustive: never = st;
+      return _exhaustive;
+    }
+  }
+}
+
+/** The result slot of a chain that answers its last binding: the index of the
+ *  last statement that always binds, or -1 when none does. */
+export function lastBindingSlot(stmts: readonly WorkflowStmtIR[]): number {
+  let slot = -1;
+  for (let i = 0; i < stmts.length; i++) if (bindsResult(stmts[i]!)) slot = i;
+  return slot;
+}
+
+/** Lower a top-level body to pipeline steps, one chunk per statement (so a
+ *  caller can attribute each statement's own steps to its source).  A nested
+ *  body answers its own result, so every unread binding in it is
+ *  discardable. */
+export function lowerWorkflowPipeline(
+  stmts: readonly WorkflowStmtIR[],
+  target: WorkflowPipelineTarget,
+  opts: PipelineOptions = {},
+): PipelineStep[][] {
+  const trailing = opts.trailing ?? [];
+  return stmts.map((st, i) =>
+    lowerPipelineStmt(st, target, {
+      rest: stmts.slice(i + 1),
+      trailing,
+      discardableBind: i !== opts.resultSlot,
+    }),
+  );
+}
+
+function lowerPipelineBody(
+  stmts: readonly WorkflowStmtIR[],
+  target: WorkflowPipelineTarget,
+): PipelineBody {
+  return {
+    stmts,
+    steps: stmts.flatMap((st, i) =>
+      lowerPipelineStmt(st, target, {
+        rest: stmts.slice(i + 1),
+        trailing: [],
+        discardableBind: true,
+      }),
+    ),
+  };
+}
+
+function lowerPipelineStmt(
+  st: WorkflowStmtIR,
+  target: WorkflowPipelineTarget,
+  scope: PipelineScope,
+): PipelineStep[] {
+  switch (st.kind) {
+    case "precondition":
+      return target.precondition(st, scope);
+    case "requires":
+      return target.requires(st, scope);
+    case "emit":
+      return target.emit(st, scope);
+    case "factory-let":
+      return target.factoryLet(st, scope);
+    case "repo-let":
+      return target.repoLet(st, scope);
+    case "expr-let":
+      return target.exprLet(st, scope);
+    case "assign":
+      return target.assign(st, scope);
+    case "repo-run":
+      return target.repoRun(st, scope);
+    case "op-call":
+      return target.opCall(st, scope);
+    case "repo-delete":
+      return target.repoDelete(st, scope);
+    case "resource-call":
+      return target.resourceCall(st, scope);
+    case "domain-service-call":
+      return target.domainServiceCall(st, scope);
+    case "not-found":
+      return target.notFound(st, scope);
+    case "for-each":
+      return target.forEach(st, scope, lowerPipelineBody(st.body, target));
+    case "if-let":
+      return target.ifLet(
+        st,
+        scope,
+        lowerPipelineBody(st.thenBody, target),
+        lowerPipelineBody(st.elseBody ?? [], target),
+      );
+    case "variant-match":
+      return target.variantMatch(
+        st,
+        scope,
+        st.arms.map((arm) => lowerPipelineBody(arm.body, target)),
+        lowerPipelineBody(st.elseBody ?? [], target),
+      );
   }
 }
