@@ -3,9 +3,12 @@
 Loom has many test tiers because it generates code for **eleven** targets
 (five backends, six frontends) and the interesting failures live at
 different altitudes. This doc is the **placement guide**: given a change,
-which tier proves it, and where a new test belongs. For the exact run
-commands and env-var gates, `CLAUDE.md` → "Build & test commands" is the
-authoritative list; the CI column here maps each tier to its workflow.
+which tier proves it, and where a new test belongs. This doc is also the
+authoritative list of run commands: the tier table below gives each tier's
+command and workflow, "Running any CI gate locally" maps every workflow to its
+local command, and `jq -r '.scripts | keys[]' package.json | grep '^test'`
+lists every `npm run test:*` script. `CLAUDE.md` carries only the everyday
+commands.
 
 ## The mental model
 
@@ -18,11 +21,15 @@ Two axes decide where a test lives:
   correctly — boot it and exercise real round-trips.
 - **Docker-free vs docker.** Most tiers boot in-process (PGlite,
   `app.fetch`, headless Chromium). The cross-backend stack
-  (.NET/Java/Phoenix/Python over real Postgres) needs docker and runs
-  nightly.
+  (.NET/Java/Phoenix/Python over real Postgres) needs docker.
 
-Per-PR coverage is mostly structural + the docker-free behavioral tiers;
-the heavy cross-backend/runtime behavioral coverage is nightly.
+Where a tier runs follows its workflow's triggers, not its weight. The
+backend behavioral legs (`behavioral-e2e-{dotnet,java,python,elixir}`) and
+the docker-booting runtime legs run per-PR, path-scoped, plus a nightly run
+on `main`. The legs with no per-PR path scope (`channels-e2e`, `api-call-e2e`,
+the non-`flat` `tenancy-e2e` cells, the two compose OIDC legs) run in the
+merge queue. Only the "nightly / label" rows in the table below are off the
+per-PR and queue paths. `docs/ci-gating.md` has the tiers in full.
 
 ## The tiers
 
@@ -38,7 +45,7 @@ the heavy cross-backend/runtime behavioral coverage is nightly.
 | **Generated frontend build** | Generated frontend typechecks + `vite build`s, per `{example × pack}`. React (`tsc`), Svelte (`svelte-check` + build), Vue (`vue-tsc` + build). | `npm run test:tsc-react` / `:svelte-build` / `:vue-build` | `generated-react-build` / `generated-svelte-build` / `generated-vue-build` | ✅ |
 | **Generated frontend runtime** | The built React/Vue/Svelte/Angular bundle actually **runs** — `vite build` (`ng build` for Angular) + preview + the emitted Playwright smoke spec (every param-less route loads). Pure client-side, no backend. | `npm run test:react-e2e` / `:vue-e2e` / `:svelte-e2e` / `:angular-e2e` | `generated-{react,vue,svelte,angular}-e2e` | ✅ path-scoped (each fires on its own framework's emitters, the shared frontend/walker/pack seams and its example + stack — see the file's `pull_request.paths`; it carries a `!src/generator/{java,dotnet,python,elixir}/**` negation tail so a backend-only PR doesn't wake it) |
 | **Observability e2e** | The generated backend emits the catalog envelope on stdout (per backend). | `npm run test:obs` (+ `:obs-dotnet/-phoenix/-java/-python`) | `*-obs-e2e.yml` | ✅ path-scoped (`src/ir/**` + that backend's emitters + `src/generator/_obs/**` + its own test file; plus a nightly run on `main`) |
-| **OIDC auth e2e** | The generated backend really performs the OIDC code flow against a dockerized Keycloak — login → callback → token → `User` mapping — plus the negative-authz half (a `requires`-gated find `403`s the authorized-but-not-permitted caller, `401`s the anonymous one). | `npm run test:auth-e2e` (+ `:-dotnet/-java/-python/-phoenix`, `:-compose`) | `{hono,dotnet,java,python}-oidc-e2e` | ✅ path-scoped. The two **compose** legs (`elixir-oidc-e2e`, `auth-oidc-compose-e2e`) build images inside the runner and stay post-merge / `run-oidc` label. |
+| **OIDC auth e2e** | The generated backend really performs the OIDC code flow against a dockerized Keycloak — login → callback → token → `User` mapping — plus the negative-authz half (a `requires`-gated find `403`s the authorized-but-not-permitted caller, `401`s the anonymous one). | `npm run test:auth-e2e` (+ `:-dotnet/-java/-python/-phoenix`, `:-compose`) | `{hono,dotnet,java,python}-oidc-e2e` | ✅ path-scoped. The two **compose** legs (`elixir-oidc-e2e`, `auth-oidc-compose-e2e`) build images inside the runner; the merge queue is their only pre-merge run (the `run-oidc` label runs them earlier). |
 | **Runtime feature e2e** | One feature booted per backend against a real postgres: tenant isolation (`tenancy-e2e`), migrate-chain ≡ fresh-create + data survival (`migration-evolution-e2e`), cross-deployable broker eventing (`channels-e2e`), typed in-system calls (`api-call-e2e`), the LiveView route smoke + the Phoenix-embeds-React serve (`phoenix-ui-e2e`). | see "Running any CI gate locally" below | `tenancy-e2e` / `migration-evolution-e2e` / `channels-e2e` / `api-call-e2e` / `phoenix-ui-e2e` | ⚖️ split (2026-10-05): `phoenix-ui-e2e`, `migration-evolution-e2e` and `tenancy-e2e`'s `flat` cells are per-PR path-scoped; the rest of `tenancy-e2e`, `channels-e2e` and `api-call-e2e` run in the **merge queue** (their only pre-merge run unless a `run-*` label asks earlier), as does `migration-evolution-e2e` |
 | **Conformance — parity** | Cross-backend **OpenAPI / wire-shape** parity (the contract is identical across backends). | part of conformance | `conformance-parity.yml` | ✅ |
 | **k8s build** | `generate system --k8s` → `helm lint` + `helm template \| kubeconform`. | `npm run test:k8s` | `k8s-build.yml` | ✅ |

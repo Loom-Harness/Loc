@@ -75,7 +75,7 @@ Every slower tier is opt-in behind its own `LOOM_*` env var and has an `npm run 
 script — `jq -r '.scripts | keys[]' package.json | grep '^test'` lists them all. For the
 catalog (what each tier proves, the corpus/behavioral/runtime-e2e legs, the wire-golden
 differential) and the Docker recipes for compiling each generated backend locally, invoke
-the **`loom-test-suites`** skill; tier-placement guidance is [`docs/testing.md`](docs/testing.md).
+the **`loom-test-suites`** skill; the tier table and every gate's local run command are in [`docs/testing.md`](docs/testing.md).
 
 **Docker is runnable in the remote/sandbox environment** but the daemon is not auto-started
 (`dockerd >/tmp/dockerd.log 2>&1 &`, then poll `docker info`). It does not persist — relaunch
