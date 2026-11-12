@@ -148,6 +148,38 @@ describe("translateBreakpoint", () => {
     ]);
   });
 
+  it("lineLocalOnly: a line covered only by an enclosing region resolves to []", () => {
+    const map: SourceMap = {
+      version: 1,
+      sources: ["main.ddd"],
+      files: {
+        "hono_api/domain/order.ts": [
+          {
+            target: [40, 40],
+            origin: { kind: "source", path: "main.ddd", span: AGGREGATE_SPAN },
+            construct: "Orders.Order",
+          },
+          {
+            target: [55, 55],
+            origin: { kind: "source", path: "main.ddd", span: CONFIRM_SPAN },
+            construct: "Orders.Order.confirm",
+          },
+        ],
+      },
+    };
+
+    expect(translateBreakpoint(map, "main.ddd", 5, readSource, { lineLocalOnly: true })).toEqual(
+      [],
+    );
+    // A line with a region of its own is unaffected by the option.
+    const own = translateBreakpoint(map, "main.ddd", CONFIRM_LINE, readSource, {
+      lineLocalOnly: true,
+    });
+    expect(own.map((t) => ({ file: t.file, line: t.line }))).toEqual([
+      { file: "hono_api/domain/order.ts", line: 55 },
+    ]);
+  });
+
   it("a line with no covering region returns []", () => {
     const map: SourceMap = {
       version: 1,

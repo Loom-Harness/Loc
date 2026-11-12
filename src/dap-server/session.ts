@@ -28,7 +28,7 @@
 // caching fs-backed `readSource`) and `main.ts` (the stdio entrypoint).
 // ---------------------------------------------------------------------------
 
-import { DebugSession, InitializedEvent } from "@vscode/debugadapter";
+import { DebugSession, InitializedEvent, Response } from "@vscode/debugadapter";
 import type { DebugProtocol } from "@vscode/debugprotocol";
 import type { DapStackFrame } from "../dap/index.js";
 import { remapStackFrames, resolveSetBreakpoints } from "../dap/index.js";
@@ -40,6 +40,21 @@ import type { SourceMap } from "../trace/index.js";
  *  (`src/dap/set-breakpoints.ts` / `src/dap/stack-trace.ts`) for exactly how
  *  each core uses it. */
 export type ReadSource = (path: string) => string | undefined;
+
+/** The requests this remap layer actually answers. Every other request —
+ *  `launch`, `attach`, `continue`, `next`, `threads`, `pause`, … — needs a
+ *  delegated target debugger, so it is refused with `success: false` rather
+ *  than acknowledged as a no-op the client would read as "done". */
+export const SUPPORTED_DAP_REQUESTS: ReadonlySet<string> = new Set([
+  "initialize",
+  "setBreakpoints",
+  "stackTrace",
+  "configurationDone",
+  "disconnect",
+]);
+
+/** `body.error.id` of a refused request (DAP leaves the id space to the adapter). */
+const UNSUPPORTED_REQUEST_ERROR_ID = 2001;
 
 /**
  * `LoomDebugSession` — a `@vscode/debugadapter` `DebugSession` whose
@@ -53,6 +68,24 @@ export class LoomDebugSession extends DebugSession {
     private readonly readSource: ReadSource,
   ) {
     super();
+  }
+
+  /** Refuse every request outside `SUPPORTED_DAP_REQUESTS`. The SDK base
+   *  class answers most requests with an empty `success: true` response, so
+   *  an editor that sends `launch` / `continue` would believe the program
+   *  started or resumed when nothing happened. */
+  protected override dispatchRequest(request: DebugProtocol.Request): void {
+    if (SUPPORTED_DAP_REQUESTS.has(request.command)) {
+      super.dispatchRequest(request);
+      return;
+    }
+    this.sendErrorResponse(new Response(request), {
+      id: UNSUPPORTED_REQUEST_ERROR_ID,
+      format:
+        `${request.command} is not supported by the remap layer; ` +
+        "use the target's native debug configuration (the generated .vscode/launch.json).",
+      showUser: true,
+    });
   }
 
   /** Advertise the minimal, HONEST capability set this remap layer backs.
