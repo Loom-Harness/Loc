@@ -14,7 +14,14 @@ system CoreShop {
         entity Line { sku: string  qty: int }
         derived isDraft: bool = status == Status.Draft
         invariant total.amount >= 0
-        operation place() { status := Status.Placed }
+        // A precondition reading a DERIVED field.  Elixir's pure domain core
+        // (the module the unit test drives) rendered it as the struct key
+        // `record.is_draft`, which the schema does not define — KeyError on
+        // the unit test's `o.place()`.
+        operation place() {
+          precondition isDraft
+          status := Status.Placed
+        }
         operation addLine(sku: string, qty: int) { lines += Line { sku: sku, qty: qty } }
 
         // Pure-domain (unit) test — exercised on every backend's unit tier.

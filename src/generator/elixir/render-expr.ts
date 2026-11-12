@@ -223,8 +223,10 @@ export interface RenderCtx {
    *  this.  Unset everywhere else (bare call). */
   qualifyFunctions?: boolean;
   /** The host aggregate's `derived` definitions, for inlining a `this-derived`
-   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
-   *  only when `agg` is unset. */
+   *  read when no enriched {@link agg} is in hand (the stamp pipe, the pure
+   *  domain core).  Consulted only when `agg` is unset.  A body that reads a
+   *  derived with neither set falls back to `record.<name>`, a struct key the
+   *  schema does not define (`KeyError`), so every body renderer sets one. */
   derivedDefs?: readonly DerivedIR[];
 }
 
