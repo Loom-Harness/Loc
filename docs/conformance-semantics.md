@@ -38,9 +38,8 @@ This document names those runtime guarantees as **RS-rules** so that:
    tribal knowledge buried in a commit.
 2. The next regression is **"RS-N violated,"** reviewable against a spec,
    instead of a fresh archaeology dig.
-3. There is a single target for the enforcement work
-   (`A6.2` — a second backend in the per-PR behavioral tier), so the rules move
-   from *documented* to *gated*.
+3. There is a single target for the enforcement work (the per-PR behavioral
+   tier), so the rules move from *documented* to *gated*.
 
 **Scope boundary.** `conformance.md` owns the **spec** (what a client binds
 against). This doc owns the **runtime values** (what a booted backend actually
@@ -53,12 +52,12 @@ spec-diff cannot catch its violation.
 |---|---|---|---|
 | **T0 static** | assert a property of *emitted source* across all 5 backends (`test/conformance/*`) | per-PR, no docker | rules whose violation is visible in generated code |
 | **T1 behavioral (node)** | boot the Hono deployable on PGlite, round-trip (`test/behavioral/`) | per-PR, no docker | any runtime rule — but only proves **node** |
-| **T2 behavioral (Nth backend)** | **`A6.2` — landed for Python** (`test/behavioral/run-python.mjs` + `behavioral-e2e-python.yml`): boots the generated FastAPI backend on a `services: postgres` sidecar and HTTP-dispatches the same emitted api e2e | per-PR (path-filtered) | the actual cross-backend drift the RS-rules describe (RS-1/4/6/7/8 on Python) |
+| **T2 behavioral (per backend)** | one `behavioral-e2e-<backend>.yml` leg per backend (python, dotnet, java, elixir) plus the dapper and mikroorm persistence adapters (`test/behavioral/run-<backend>.mjs`): boots the generated backend on a `services: postgres` sidecar and HTTP-dispatches the same emitted api e2e | per-PR (path-filtered) | the actual cross-backend drift the RS-rules describe |
 | **T3 full** | 5-backend docker round-trip (`conformance-full.yml`) | nightly / label | everything — but too slow to be the per-PR net |
 
 The RS-rules below tag each with the **lowest tier that can gate it today**.
-The strategic goal of `A6.2` is to pull the T2 column into per-PR range so the
-casing/casting/association rules stop landing on `main` before they're caught.
+The T2 column runs per-PR, so casing/casting/association rules are caught
+before they land on `main`.
 
 ---
 
@@ -158,8 +157,7 @@ the conforming backends, and the fix that established it.
   (`test/behavioral/wire-golden/field-defaults.json`) is recorded on all seven
   wire-gated legs with no skip or waiver.
 - **Provenance.** July full-code-review finding B14; Java closed by RST-10. Tier:
-  **T1** — gated per-PR on node and python (A6.2) and on Java via the behavioral
-  tier. The python behavioral gate **found and closed** a real parity bug here:
+  **T1** — gated per-PR on every backend's behavioral leg. The python behavioral gate **found and closed** a real parity bug here:
   the FastAPI create model hardcoded `active: bool = False` (the zero value)
   instead of the declared default; fixed by rendering the field's lowered
   `default` expr in the create request field (`routes-builder.ts`). Java (RST-10)
@@ -921,59 +919,6 @@ the conforming backends, and the fix that established it.
   Tier: **static** — `create-input-default-parity.test.ts` asserts the rule on
   all five, and keeps an empty `UPDATE_BOOL_WAIVED` map as the ratchet so a
   regression is recorded rather than the assertion relaxed.
-### RS-28 · An unrecognised error term is a sanitized **500**, never a 400 that echoes it
-- **Guarantee.** A fault that matches no declared `error` variant, no
-  wire-validation failure and no denial rung answers **500 "Internal Server
-  Error"** with `detail` = the fixed string `"internal"`. Two claims, both
-  wire-visible:
-  - **Status.** An error the server did not model is a *server* fault. 4xx tells
-    the caller to fix a request that was never the problem.
-  - **Detail.** The term is **never** rendered into the body. A serialized
-    internal value leaks struct names, module paths, and sometimes the failing
-    value itself, to an unauthenticated caller.
-- **Modelled faults are unaffected.** A declared `error` payload, a
-  wire-validation failure, and each denial rung (403 / 409 / 422) keep their own
-  status and their occurrence-specific `detail`. This rule governs only the arm
-  none of them matched.
-- **Trigger.** A hand-written `extern` handler returning an unmodelled error, an
-  unexpected fault escaping a workflow's `run`, or — the case both of those
-  presuppose away — **a fault raised anywhere else in the app**, on a system that
-  declares neither. That last one is the reason each backend needs an
-  APP-GLOBAL handler and not only per-route arms: `app.onError` (hono),
-  `DomainExceptionFilter` (.NET), `ApiExceptionAdvice` (java),
-  `install_error_handlers` (python), `<App>Web.FaultHandler` (elixir). A rule
-  checked only on the paths a fixture reaches is checked on the paths that were
-  already fine — see M-T6.30, where elixir's arm existed solely inside the
-  workflow/extern `respond/2` dispatchers, so the most common system shape
-  (CRUD, no workflow) emitted none at all and answered an HTML debug page in dev
-  and the exception's own message as `detail` in prod.
-- **Why it hid.** Elixir answered `400` and `inspect/1`'d the term straight into
-  `detail`. It survived RS-15's 400 → 422 sweep *precisely because it is not the
-  domain floor*: RS-15 moved the rejections the domain **makes**, and this is the
-  rejection **nobody made**. And no system in the shared behavioural corpus
-  reaches this arm — every error those fixtures produce is modelled — so all five
-  M-T9.11 legs were green with the divergence in place. An arm no fixture reaches
-  is exactly the arm that needs a *name*.
-- **A second, smaller divergence on the same arm — and how it was found.** The
-  fix's own report proposed this rule as all-five-conforming. That list was
-  **inferred**. Checking it showed node/.NET/java emit the literal `"internal"`
-  while **python** emits `"An unexpected error occurred."`. Python has no *leak*
-  — its string is fixed and reflects nothing — so it isn't the defect the rule
-  was minted for; it simply isn't byte-identical, and byte-identity is the entire
-  premise of the M-T9.11 golden. Listed as a **target** until python moves.
-- **The habit this rule family keeps failing at.** This is the **third** time an
-  all-five `conforms` was asserted from reading rather than checking (RS-18
-  twice, RS-19 once). Enumerate the other backends' emitted literal *before*
-  writing the list, every time.
-- **Conforms.** node, dotnet, java, elixir. **Targets:** python.
-- **Provenance.** Found 2026-07-29 by grepping the vanilla Phoenix denial
-  protocol's edges after #2300 centralised it (M-T6.24). Python divergence found
-  2026-08-01 by verifying the proposed `conforms` list instead of accepting it.
-  The third trigger above (and elixir's floor for it) landed 2026-08-23 with
-  M-T6.30, gated per-file on a plain-CRUD fixture in
-  `test/conformance/internal-fault-parity.test.ts` and witnessed on a booted
-  Phoenix app. Tier: **static** — promote to behavioral once a fixture reaches
-  the arm.
 
 ### RS-27 · A 404-**by-id** carries the sentence `"<Aggregate> <id> not found"`
 - **Guarantee.** When a read addressed **by id** finds nothing, the RFC 9457
@@ -1165,6 +1110,61 @@ the conforming backends, and the fix that established it.
   byte-for-byte on `core-domain`.
   Tier: **behavioral** — the wire golden now holds `"Order {id} not found"`, so
   every behavioral leg gates it per-PR.
+
+### RS-28 · An unrecognised error term is a sanitized **500**, never a 400 that echoes it
+- **Guarantee.** A fault that matches no declared `error` variant, no
+  wire-validation failure and no denial rung answers **500 "Internal Server
+  Error"** with `detail` = the fixed string `"internal"`. Two claims, both
+  wire-visible:
+  - **Status.** An error the server did not model is a *server* fault. 4xx tells
+    the caller to fix a request that was never the problem.
+  - **Detail.** The term is **never** rendered into the body. A serialized
+    internal value leaks struct names, module paths, and sometimes the failing
+    value itself, to an unauthenticated caller.
+- **Modelled faults are unaffected.** A declared `error` payload, a
+  wire-validation failure, and each denial rung (403 / 409 / 422) keep their own
+  status and their occurrence-specific `detail`. This rule governs only the arm
+  none of them matched.
+- **Trigger.** A hand-written `extern` handler returning an unmodelled error, an
+  unexpected fault escaping a workflow's `run`, or — the case both of those
+  presuppose away — **a fault raised anywhere else in the app**, on a system that
+  declares neither. That last one is the reason each backend needs an
+  APP-GLOBAL handler and not only per-route arms: `app.onError` (hono),
+  `DomainExceptionFilter` (.NET), `ApiExceptionAdvice` (java),
+  `install_error_handlers` (python), `<App>Web.FaultHandler` (elixir). A rule
+  checked only on the paths a fixture reaches is checked on the paths that were
+  already fine — see M-T6.30, where elixir's arm existed solely inside the
+  workflow/extern `respond/2` dispatchers, so the most common system shape
+  (CRUD, no workflow) emitted none at all and answered an HTML debug page in dev
+  and the exception's own message as `detail` in prod.
+- **Why it hid.** Elixir answered `400` and `inspect/1`'d the term straight into
+  `detail`. It survived RS-15's 400 → 422 sweep *precisely because it is not the
+  domain floor*: RS-15 moved the rejections the domain **makes**, and this is the
+  rejection **nobody made**. And no system in the shared behavioural corpus
+  reaches this arm — every error those fixtures produce is modelled — so all five
+  M-T9.11 legs were green with the divergence in place. An arm no fixture reaches
+  is exactly the arm that needs a *name*.
+- **A second, smaller divergence on the same arm — and how it was found.** The
+  fix's own report proposed this rule as all-five-conforming. That list was
+  **inferred**. Checking it showed node/.NET/java emit the literal `"internal"`
+  while **python** emits `"An unexpected error occurred."`. Python has no *leak*
+  — its string is fixed and reflects nothing — so it isn't the defect the rule
+  was minted for; it simply isn't byte-identical, and byte-identity is the entire
+  premise of the M-T9.11 golden. Listed as a **target** until python moves.
+- **The habit this rule family keeps failing at.** This is the **third** time an
+  all-five `conforms` was asserted from reading rather than checking (RS-18
+  twice, RS-19 once). Enumerate the other backends' emitted literal *before*
+  writing the list, every time.
+- **Conforms.** node, dotnet, java, elixir. **Targets:** python.
+- **Provenance.** Found 2026-07-29 by grepping the vanilla Phoenix denial
+  protocol's edges after #2300 centralised it (M-T6.24). Python divergence found
+  2026-08-01 by verifying the proposed `conforms` list instead of accepting it.
+  The third trigger above (and elixir's floor for it) landed 2026-08-23 with
+  M-T6.30, gated per-file on a plain-CRUD fixture in
+  `test/conformance/internal-fault-parity.test.ts` and witnessed on a booted
+  Phoenix app. Tier: **static** — promote to behavioral once a fixture reaches
+  the arm.
+
 ### RS-29 · The wire-validation rung is `Validation failed`, distinct from the domain floor
 - **Guarantee.** A 422 raised by **wire validation** — a malformed body, a
   missing required field, a boundary-expressible `invariant` — carries title
@@ -1202,102 +1202,6 @@ the conforming backends, and the fix that established it.
   moment a golden records a 4xx.
 
 ---
-
-## Adding a rule
-
-When a cross-backend runtime bug is fixed:
-
-1. Add an `RS-N` entry to `test/conformance/semantics-rules.ts` (id, title,
-   `.ddd` trigger sketch, conforming backends, provenance PR, lowest gating
-   tier).
-2. Add the human clause here, mirroring the registry.
-3. If the rule is **T0-gateable**, add the static assertion in
-   `test/conformance/`. If **T1/T2**, add the round-trip to
-   `test/behavioral/corpus.json` (and, once `A6.2` lands, it gates the Nth
-   backend too).
-4. `semantics-rules.test.ts` fails until the registry entry is well-formed and
-   its `backends` are a subset of the five — so a rule can't be added as prose
-   only.
-5. Regenerate the committed spec mirror:
-   `UPDATE_SEMANTICS_SPEC=1 npx vitest run test/conformance/semantics-spec-sync.test.ts`
-   and commit `test/conformance/semantics-spec.json` — `semantics-spec-sync.test.ts`
-   gates the drift.
-
-### Claim the NUMBER before you build
-
-The registry is append-only with a monotonic counter and **no reservation
-mechanism**, so two agents minting rules in parallel collide every time — and
-`RS-26` was minted twice on 2026-08-03 by two branches that were both correct.
-The `id` contract ("never renumbered") settles *who* moves — whichever landed
-on `main` first keeps the number — but the loser then renames across every
-citing file, which on that occasion was 23 of them.
-
-**So: state the id you are taking in your draft PR title/body before you write
-the rule**, the same way CLAUDE.md has you claim the work itself. Read the open
-drafts first; if one already claims your number, take the next.
-
-If you do have to renumber, note that applying `26→27, 27→28, 28→29` as a
-left-to-right sweep **double-bumps** anything already advanced during conflict
-resolution. Verify with a uniqueness check over the emitted ids rather than by
-reading the diff:
-
-```bash
-grep -o 'id: "RS-[0-9]*"' test/conformance/semantics-rules.ts | sort | uniq -d
-```
-
-### Make the fixture able to falsify the rule
-
-A rule is only as good as the data its fixture carries. **RS-30** (declared-error
-extension members are camelCase) sat undetected because the one golden recording
-a declared-error body used `error NotFound { resource: string }` — and
-`resource` is the same string in snake_case and camelCase. Before trusting a new
-gate, ask what its fixture would have to look like for the rule to *fail*:
-
-| rule about | fixture must carry |
-|---|---|
-| casing | a **multi-word** field name |
-| defaults | a value that differs from the type's zero value |
-| an override being honoured | a **non-default** override — default emission cannot distinguish "resolved to the default" from "hardcoded" |
-| an error arm | the path the rule's own `trigger` sentence names, not just the fall-through arm |
-
-And verify the gate by reverting **the emitter line**, not by stashing the
-working tree: if the fix is already committed, `git stash push -- src/` reverts
-nothing and the test passes vacuously.
-
-## Roadmap
-
-> **Claimable follow-up tickets** (parallel-agent-ready — RS-9 gating, more
-> backends, the diffable spec artifact, corpus breadth) are enumerated in
-> [`plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md).
-
-- **v1 (this doc):** the registry + well-formedness gate + the T0-tier rules
-  gated statically across all five backends — **RS-2** (`enum-casing-parity`),
-  **RS-3** (`wire-no-leak-parity`), and **RS-5** (the absence-shape
-  describe in `variant-match-render.test.ts`). *(here)* Every rule assertable from emitted
-  source is now gated per-PR; the remainder (RS-1/4/6/7/8/9) are behavioral and
-  wait on A6.2.
-- **A6.2 (Python api tier LANDED):** `run-python.mjs` + `behavioral-e2e-python.yml`
-  boot the generated FastAPI backend on a `services: postgres` sidecar and
-  HTTP-dispatch the emitted api e2e — the T2 column is now per-PR for
-  **RS-1/4/6/7/8** on Python. On day one it surfaced a real codegen bug (a
-  cross-aggregate operation-param id type — `ProductId` — omitted from the
-  emitted FastAPI route imports); **that fix has landed** (the route import
-  collector now draws candidates from every context aggregate), and the
-  association round-trip (RS-8) is back in the fixture. Next: a second backend
-  (.NET/Java) on the same seam, then the unit tier.
-- **v2 (diffable spec artifact — LANDED):** the registry is mirrored to a
-  committed, diffable JSON spec at
-  [`test/conformance/semantics-spec.json`](../test/conformance/semantics-spec.json)
-  (the `wire-spec.json` / `langium-generated` "derived file + CI drift gate"
-  precedent) so a contract change surfaces as a reviewable JSON diff. The
-  registry is a **global toolchain contract**, not a per-generated-system fact,
-  so the mirror lives here — it is **not** emitted into each system's `.loom/`
-  bundle. The JSON is derived by `serializeSemanticsSpec()` in
-  `semantics-rules.ts` and pinned by `semantics-spec-sync.test.ts`; regenerate
-  after editing the registry with
-  `UPDATE_SEMANTICS_SPEC=1 npx vitest run test/conformance/semantics-spec-sync.test.ts`
-  and commit the result. Still open: wire each RS-rule to a live round-trip
-  assertion in the harness.
 
 ### RS-30 · A declared error's fields are camelCase extension members on the problem body
 - **Guarantee.** When an operation or find declared `T or SomeError` returns the
@@ -2326,3 +2230,88 @@ nothing and the test passes vacuously.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** #3585 (owner ruling 2026-11-03). Tier: **static** —
   `test/generator/_expr/checked-int.test.ts`.
+
+## Adding a rule
+
+When a cross-backend runtime bug is fixed:
+
+1. Add an `RS-N` entry to `test/conformance/semantics-rules.ts` (id, title,
+   `.ddd` trigger sketch, conforming backends, provenance PR, lowest gating
+   tier).
+2. Add the human clause here, mirroring the registry.
+3. If the rule is **T0-gateable**, add the static assertion in
+   `test/conformance/`. If **T1/T2**, add the round-trip to
+   `test/behavioral/corpus.json` (it then gates every backend's behavioral
+   leg).
+4. `semantics-rules.test.ts` fails until the registry entry is well-formed and
+   its `backends` are a subset of the five — so a rule can't be added as prose
+   only.
+5. Regenerate the committed spec mirror:
+   `UPDATE_SEMANTICS_SPEC=1 npx vitest run test/conformance/semantics-spec-sync.test.ts`
+   and commit `test/conformance/semantics-spec.json` — `semantics-spec-sync.test.ts`
+   gates the drift.
+
+### Claim the NUMBER before you build
+
+The registry is append-only with a monotonic counter and **no reservation
+mechanism**, so two agents minting rules in parallel collide every time — and
+`RS-26` was minted twice on 2026-08-03 by two branches that were both correct.
+The `id` contract ("never renumbered") settles *who* moves — whichever landed
+on `main` first keeps the number — but the loser then renames across every
+citing file, which on that occasion was 23 of them.
+
+**So: state the id you are taking in your draft PR title/body before you write
+the rule**, the same way CLAUDE.md has you claim the work itself. Read the open
+drafts first; if one already claims your number, take the next.
+
+If you do have to renumber, note that applying `26→27, 27→28, 28→29` as a
+left-to-right sweep **double-bumps** anything already advanced during conflict
+resolution. Verify with a uniqueness check over the emitted ids rather than by
+reading the diff:
+
+```bash
+grep -o 'id: "RS-[0-9]*"' test/conformance/semantics-rules.ts | sort | uniq -d
+```
+
+### Make the fixture able to falsify the rule
+
+A rule is only as good as the data its fixture carries. **RS-30** (declared-error
+extension members are camelCase) sat undetected because the one golden recording
+a declared-error body used `error NotFound { resource: string }` — and
+`resource` is the same string in snake_case and camelCase. Before trusting a new
+gate, ask what its fixture would have to look like for the rule to *fail*:
+
+| rule about | fixture must carry |
+|---|---|
+| casing | a **multi-word** field name |
+| defaults | a value that differs from the type's zero value |
+| an override being honoured | a **non-default** override — default emission cannot distinguish "resolved to the default" from "hardcoded" |
+| an error arm | the path the rule's own `trigger` sentence names, not just the fall-through arm |
+
+And verify the gate by reverting **the emitter line**, not by stashing the
+working tree: if the fix is already committed, `git stash push -- src/` reverts
+nothing and the test passes vacuously.
+
+## Current state
+
+- **Registry.** Every rule (RS-1 onward) lives in
+  `test/conformance/semantics-rules.ts`, with a well-formedness gate. Each rule
+  names the lowest tier that gates it.
+- **T0 static.** Every rule assertable from emitted source is gated per-PR
+  across all five backends (for example RS-2 `enum-casing-parity`, RS-3
+  `wire-no-leak-parity`, RS-5 `union-find-absence-parity`).
+- **T1/T2 behavioral.** The node leg boots the Hono deployable on PGlite; the
+  python, dotnet, java and elixir legs, and the dapper and mikroorm persistence
+  adapters, boot the generated backend on a Postgres sidecar and HTTP-dispatch
+  the same emitted api e2e, per-PR and path-scoped.
+- **Diffable spec artifact.** The registry is mirrored to a committed JSON spec at
+  [`test/conformance/semantics-spec.json`](../test/conformance/semantics-spec.json)
+  (the `wire-spec.json` / `langium-generated` "derived file + CI drift gate"
+  precedent) so a contract change surfaces as a reviewable JSON diff. The
+  registry is a **global toolchain contract**, not a per-generated-system fact,
+  so the mirror lives here — it is **not** emitted into each system's `.loom/`
+  bundle. The JSON is derived by `serializeSemanticsSpec()` in
+  `semantics-rules.ts` and pinned by `semantics-spec-sync.test.ts`; regenerate
+  after editing the registry with
+  `UPDATE_SEMANTICS_SPEC=1 npx vitest run test/conformance/semantics-spec-sync.test.ts`
+  and commit the result.

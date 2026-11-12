@@ -98,7 +98,7 @@ design record.  You do not need it to use Loom.
 | [`loom-artifacts.md`](loom-artifacts.md) | The `.loom/` output directory — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
 | [`api-toolkit.md`](api-toolkit.md) | The transport-neutral `src/api/` toolkit (`validate` / `generate` / `outline` / `applyPatches` + nav/refactor) and the `src/diagnostics/contract.ts` wire shapes — one browser-safe core behind the CLI, MCP, LSP, and playground. |
 | [`mcp.md`](mcp.md) | The MCP stdio server (`ddd-mcp`) + the transport-neutral `loom_*` agent-tool catalog — the three-layer tools/api/mcp stack and how to wire it into an MCP host. |
-| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the nine dimensions, strict vs report-only mode (the **structural** wire contract). |
+| [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the parity dimensions, strict vs report-only mode (the **structural** wire contract). |
 | [`conformance-semantics.md`](conformance-semantics.md) | The **runtime-value** contract the spec-diff is blind to — named RS-rules (camelCase keys, enum casing, no leaked timestamps, association round-trip) seeded from the #1620–#1660 wire-parity sweep. |
 | [`agent-runbook.md`](agent-runbook.md) | How a work session picks up, claims and lands one GitHub issue (also the train protocol for fleets). |
 
