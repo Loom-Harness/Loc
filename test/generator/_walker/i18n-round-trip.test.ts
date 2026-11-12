@@ -856,3 +856,100 @@ describe("i18n round trip — backend rule-key codes", () => {
     });
   }
 });
+
+// --- untitled page names + the ProvenanceInfo disclosure ----------------------
+//
+// Two strings the model never authors as a literal, so no fixture slot covers
+// them: an UNTITLED page's name (Feliz's navbar link, Flutter's app-bar title)
+// and the `ProvenanceInfo` disclosure's accessible name and row labels.  Each
+// is catalogued, consumed through its key, and a translated locale value lands
+// in the catalog the app compiles in beside the source one.
+
+/** A scaffolded aggregate with a `provenanced` field — its detail page renders
+ *  `ProvenanceInfo` — plus one untitled hand-written page, so the nav has two
+ *  top-level pages. */
+const provSystem = (platform: string): string => `
+  system ProvDemo {
+    subdomain Ordering {
+      context Ordering {
+        aggregate Order with crudish {
+          reference: string
+          total: int provenanced
+          derived display: string = reference
+        }
+        repository Orders for Order { }
+      }
+    }
+    ui Web with scaffold(subdomains: [Ordering]) {
+      page Notes { route: "/notes" body: Text { "Some notes" } }
+    }
+    storage primary { type: postgres }
+    resource orderingState { for: Ordering, kind: state, use: primary }
+    deployable api { platform: node, contexts: [Ordering], dataSources: [orderingState], port: 3000 }
+    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+  }`;
+
+const PROV_KEYS = {
+  "chrome.provenanceHowComputed": ["How this value was computed", "Wie der Wert berechnet wurde"],
+  "chrome.provenanceRule": ["Rule", "Regel"],
+  "chrome.provenanceValue": ["Value", "Wert"],
+} as const;
+
+const DE_PROV = Object.fromEntries(Object.entries(PROV_KEYS).map(([k, [, de]]) => [k, de]));
+
+/** Every file of the frontend deployable that consumes keys (not a catalog). */
+function appSource(files: ReadonlyMap<string, string>): string {
+  return [...files]
+    .filter(([p]) => p.startsWith("web/") && !/\.json$|lib\/i18n\.dart$|\/(e2e|test)\//.test(p))
+    .map(([p, s]) => (p.endsWith("App.fs") ? stripFelizCatalog(s) : s))
+    .join("\n");
+}
+
+const json = (files: ReadonlyMap<string, string>, path: string): Record<string, string> =>
+  JSON.parse(files.get(path)!) as Record<string, string>;
+
+describe("i18n round trip — ProvenanceInfo chrome", () => {
+  // Per target: the file the translated `de` catalog lands in, and how one of
+  // its rows reads there.
+  const jsRow = (k: string, v: string): string => `"${k}": "${v}"`;
+  const TARGETS = [
+    { platform: "react", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "vue", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "svelte", de: /locales\/de\.json$/, row: jsRow },
+    { platform: "angular", de: /locales\/de\.json$/, row: jsRow },
+    {
+      platform: "feliz",
+      de: /App\.fs$/,
+      row: (k: string, v: string) => `"${k}", "${v}"`,
+    },
+    {
+      platform: "flutter",
+      de: /lib\/i18n\.dart$/,
+      row: (k: string, v: string) => `'${k}': '${v}'`,
+    },
+  ] as const;
+
+  for (const t of TARGETS) {
+    it(`${t.platform}: catalogued, read through its key, and the translated value ships`, async () => {
+      const files = await generateSystemFiles(provSystem(t.platform), {
+        translations: new Map([["de", DE_PROV]]),
+      });
+      const system = json(files, ".loom/messages.en.json");
+      const source = appSource(files);
+      const deFile = [...files].find(([p]) => p.startsWith("web/") && t.de.test(p))![1];
+      for (const [key, [english, german]] of Object.entries(PROV_KEYS)) {
+        expect(system[key], `${key} catalogued`).toBe(english);
+        expect(source, `${key} consumed`).toMatch(quoted(key));
+        expect(deFile, `${key} translated`).toContain(t.row(key, german));
+      }
+    });
+  }
+
+  it("a UI with no ProvenanceInfo carries none of the keys", async () => {
+    const files = await generateSystemFiles(
+      provSystem("react").replace("total: int provenanced", "total: int"),
+    );
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => k.startsWith("chrome.provenance"))).toEqual([]);
+  });
+});

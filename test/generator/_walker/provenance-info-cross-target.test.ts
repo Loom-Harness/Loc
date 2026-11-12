@@ -289,7 +289,9 @@ describe("ProvenanceInfo — Flutter renders an ExpansionTile disclosure over th
     // A null-BINDING switch pattern (a property read off a model class is not
     // type-promotable in Dart) into the Material disclosure.
     expect(out).toMatch(/\(switch \([\w.]*\.total\.lineage\) \{ final __p\? => ExpansionTile\(/);
-    expect(out).toContain("Semantics(label: 'How this value was computed'");
+    expect(out).toContain(
+      "Semantics(label: t('chrome.provenanceHowComputed', 'How this value was computed')",
+    );
     // Rule id + computed value + the input list, same three rows as every other
     // frontend's disclosure.
     expect(out).toContain("Text(__p.snapshotId)");

@@ -155,6 +155,7 @@ export function opDialogChrome(submitLabel: string): OpDialogChrome {
 export function chromeMessage(name: string): string {
   const message =
     CHROME_MESSAGES[chromeKey(name)] ??
+    PROVENANCE_CHROME[chromeKey(name)] ??
     FALLBACK_LABEL_CHROME[chromeKey(name)] ??
     sentenceChromeMessage(name);
   if (message === undefined) throw new Error(`i18n-chrome: unknown chrome string "${name}"`);
@@ -698,6 +699,32 @@ export const TABLE_CONTROLS_CHROME: Record<string, string> = {
   [chromeKey("pageOf")]: "Page {page} of {pages}",
 };
 
+/** Chrome a `ProvenanceInfo` disclosure renders: the summary's accessible name
+ *  and the two fixed row labels above the lineage's input list.  The input rows
+ *  are model data (`path = value`) and carry no chrome.
+ *
+ *  Merged-when-already-enabled and only for a UI that calls `ProvenanceInfo`
+ *  (`uiUsesProvenanceInfo`) — the call is the exact condition under which the
+ *  disclosure renders, and, like the form chrome, it must not be the reason a
+ *  UI turns translatable. */
+export const PROVENANCE_CHROME: Record<string, string> = {
+  [chromeKey("provenanceHowComputed")]: "How this value was computed",
+  [chromeKey("provenanceRule")]: "Rule",
+  [chromeKey("provenanceValue")]: "Value",
+};
+
+/** True when a page or component body of `ui` calls `ProvenanceInfo`. */
+function uiUsesProvenanceInfo(ui: UiIR): boolean {
+  let found = false;
+  const visit = (body: ExprIR | undefined) =>
+    walkExprDeep(body, (e) => {
+      if (e.kind === "call" && e.name === "ProvenanceInfo") found = true;
+    });
+  for (const page of ui.pages) visit(page.body);
+  for (const component of ui.components) visit(component.body);
+  return found;
+}
+
 /** Every chrome table merged into a catalog ONLY when the UI is already
  *  i18n-enabled — never flipping the runtime on by itself.
  *
@@ -720,6 +747,7 @@ export function chromeMergedWhenEnabled(
   };
   if (scope?.authGate) Object.assign(out, AUTH_GATE_CHROME);
   if (scope?.sessionView) Object.assign(out, SESSION_VIEW_CHROME);
+  if (ui && uiUsesProvenanceInfo(ui)) Object.assign(out, PROVENANCE_CHROME);
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
