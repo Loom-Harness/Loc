@@ -415,7 +415,10 @@ const REGISTERED: Ratchet[] = [
     // 20 → 21: `shareable`, a request-header / real-registry-id row like
     // `org-context`: a grantee is a registry org id the `test e2e` vocabulary
     // cannot name; the booted `assertShareable` leg of tenancy-e2e gates it.
-    max: 21,
+    // 21 → 22: `domain-symbol-collisions`, a compile-tier row (domain names
+    // colliding with a symbol the target binds: TS2304, CS0104, a python
+    // decorator rebound); every fix is a host spelling the wire cannot see.
+    max: 22,
   },
 ];
 
