@@ -13,6 +13,7 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
+  withoutGaps,
 } from "./operations.js";
 import { backendEnvContract } from "./operations-env.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
@@ -101,9 +102,10 @@ const elixirPlatform: PlatformSurface = {
       ),
     listen: "dual-stack",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-    broker: BROKER_BASELINE,
+    // The Phoenix relay halts its pass and backs off on an unreachable broker.
+    broker: { ...BROKER_BASELINE, outboxRidesOutOutage: true },
     migrations: MIGRATIONS_BASELINE,
-    gaps: BROKER_BASELINE_GAPS,
+    gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.outboxRidesOutOutage"),
   },
   composeService({ slug, sys, deployable }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;

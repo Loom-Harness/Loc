@@ -387,9 +387,17 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
           async () => {
             const after = await placeOrder("c-after-outage");
             await shipped(after.orderId, 90_000);
-            if (duringOutage) await shipped(duringOutage, 30_000);
           },
         );
+        if (duringOutage) {
+          await claim(
+            ops,
+            "broker.outboxRidesOutOutage",
+            broker.outboxRidesOutOutage && resumed === "held",
+            "an event committed during the outage is delivered after it",
+            async () => shipped(duringOutage, 60_000),
+          );
+        }
         if (resumed === "expected-failure") {
           // Recover a clean consumer for the DB phase: the reboot path is what
           // the fact being unmet costs an operator today.
