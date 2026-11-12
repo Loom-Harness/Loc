@@ -50,9 +50,9 @@ describe("vue operation action-button gate", () => {
     );
     // confirm() gated — single-quoted v-if so the inner `"manager"` is valid.
     expect(c).toContain(`<template v-if='(currentUser.role === "manager")'>`);
-    expect(c).toContain(">Confirm</v-btn>");
+    expect(c).toContain('"Confirm")'); // the translated label's English default
     // cancel() ungated.
-    expect(c).toContain(">Cancel</v-btn>");
+    expect(c).toContain('"Cancel")'); // the translated label's English default
     expect(c.match(/v-if='\(currentUser/g)?.length ?? 0).toBe(1);
     // The gate's else arm is the render-nothing sentinel — it must NOT emit a
     // `<template v-else>` (Vue would render the bare `null` token as literal

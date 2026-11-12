@@ -48,9 +48,9 @@ describe("svelte operation action-button gate", () => {
     // confirm() has a currentUser-only `requires` → gated.
     expect(c).toContain('{#if (currentUser.role === "manager")}');
     expect(c).toContain("{/if}");
-    expect(c).toContain(">Confirm</button>");
+    expect(c).toContain('"Confirm")'); // the translated label's English default
     // cancel() has no `requires` → its button is NOT inside an {#if}.
-    expect(c).toContain(">Cancel</button>");
+    expect(c).toContain('"Cancel")'); // the translated label's English default
     expect(c.match(/\{#if /g)?.length ?? 0).toBe(1);
     // The gate's else arm is the render-nothing sentinel — it must NOT emit a
     // `{:else}` (Svelte would render the bare `null` token between `{:else}`
