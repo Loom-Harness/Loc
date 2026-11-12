@@ -423,6 +423,22 @@ export function chainLink(step: Exclude<PipelineStep, { kind: "effect" }>): stri
   }
 }
 
+/** Does `assembleChain` render these steps as a `with` chain?  Only when a
+ *  fallible link precedes the body's end; otherwise its bindings render as
+ *  plain sequential `pattern = expr` lines. */
+export function isChained(steps: readonly PipelineStep[]): boolean {
+  const body = steps.at(-1)?.kind === "fail" ? steps.slice(0, -1) : steps;
+  return body.some((step) => step.kind === "clause" || step.kind === "fail");
+}
+
+/** The text one step renders to inside `assembleChain`'s output for `steps`
+ *  — the anchor a source map looks up. */
+export function assembledStepText(steps: readonly PipelineStep[], step: PipelineStep): string {
+  if (step.kind === "effect") return step.text;
+  if (step.kind === "let" && !isChained(steps)) return `${step.pattern} = ${step.expr}`;
+  return chainLink(step);
+}
+
 /** A nested body (a loop iteration, an `if let` branch, a `match` arm) as
  *  the lines of one block.  The block answers `ok` when every step succeeds;
  *  the first failing link's error, passed through `wrapErr`, otherwise.  A
@@ -451,9 +467,7 @@ export function assembleChain(
   // One entry per physical line, so the caller's indent nests a multi-line
   // link (a nested loop or branch) under the block it sits in.
   const physical = (lines: string[]): string[] => lines.flatMap((l) => l.split("\n"));
-  if (!body.some((step) => step.kind === "clause" || step.kind === "fail")) {
-    return physical([...flat, result]);
-  }
+  if (!isChained(steps)) return physical([...flat, result]);
   return physical([
     `with ${links.join(",\n     ")} do`,
     ...effects.map((l) => `  ${l}`),

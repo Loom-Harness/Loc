@@ -43,7 +43,7 @@ import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import {
   assembleChain,
-  chainLink,
+  assembledStepText,
   elixirWorkflowTarget,
   tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
@@ -982,14 +982,15 @@ function renderBody(
     statements,
     reactorTarget(ctx, renderCtx, contextModule, channels),
   );
+  const all = chunks.flat();
   const regions = chunks.flatMap((steps, i) =>
     steps.map((step) => ({
-      text: step.kind === "effect" ? step.text : chainLink(step),
+      text: assembledStepText(all, step),
       origin: statements[i]!.origin,
     })),
   );
   return {
-    lines: assembleChain(chunks.flat(), ":ok", (err) => `throw(${err})`),
+    lines: assembleChain(all, ":ok", (err) => `throw(${err})`),
     regions,
   };
 }
