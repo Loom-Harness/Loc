@@ -215,6 +215,7 @@ function fieldInputText(
  *  (`price-amount`) — matching the `fillBlock` recursion in
  *  `_frontend/page-objects-builder.ts` (`${testId}-${vf.name}`). */
 function fieldTestid(base: string, fld: FelizFormField): string {
+  if (fld.presenceOf) return `${base}-input-${fld.presenceOf}-present`;
   return fld.objectKey
     ? `${base}-input-${fld.objectKey}-${fld.jsonKey}`
     : `${base}-input-${fld.jsonKey}`;
@@ -239,6 +240,20 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
 function renderFormInput(
+  formField: string,
+  fld: FelizFormField,
+  base: string,
+  text?: FelizInputText,
+): string {
+  const input = renderFormInputBody(formField, fld, base, text);
+  // A sub-input of an optional value object mounts only while its presence
+  // checkbox is checked.
+  return fld.presentCell
+    ? `(if model.${formField}.${fld.presentCell} = "true" then ${input} else Html.none)`
+    : input;
+}
+
+function renderFormInputBody(
   formField: string,
   fld: FelizFormField,
   base: string,

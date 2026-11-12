@@ -31,11 +31,21 @@ export function nullableTextFields(spec: FormSpec): string[] {
 
 /** The submit payload expression: the form's raw value, with each cleared
  *  optional text-like control mapped from `""` to `null`. */
-export function submitInputExpr(formVar: string, nullable: readonly string[] | undefined): string {
+export function submitInputExpr(
+  formVar: string,
+  nullable: readonly string[] | undefined,
+  optionalGroups: readonly string[] = [],
+): string {
   const raw = `this.${formVar}.getRawValue()`;
-  if (!nullable || nullable.length === 0) return raw;
-  const nulls = nullable.map((n) => `${n}: this.${formVar}.controls.${n}.value || null`);
-  return `{ ...${raw}, ${nulls.join(", ")} }`;
+  // `getRawValue()` includes a disabled (absent) group, so it maps to `null`.
+  const overrides = [
+    ...(nullable ?? []).map((n) => `${n}: this.${formVar}.controls.${n}.value || null`),
+    ...optionalGroups.map(
+      (g) => `${g}: this.${formVar}.controls.${g}.enabled ? ${raw}.${g} : null`,
+    ),
+  ];
+  if (overrides.length === 0) return raw;
+  return `{ ...${raw}, ${overrides.join(", ")} }`;
 }
 
 /** The `seed<Op><Agg>(record)` class member writing the record's values into the
@@ -52,11 +62,21 @@ export function seedMethodLines(input: {
   const fromRecord = spec.fields.filter((f) => f.prefill.from === "record");
   if (fromRecord.length === 0) return undefined;
   const rows = fromRecord.filter((f) => f.kind === "objectArray");
-  const scalars = fromRecord.filter((f) => f.kind !== "objectArray");
+  const optionalGroups = fromRecord.filter((f) => f.kind === "optionalValueObject");
+  const scalars = fromRecord.filter(
+    (f) => f.kind !== "objectArray" && f.kind !== "optionalValueObject",
+  );
   const body: string[] = [];
   if (scalars.length > 0) {
     const literal = formSeedTs({ ...spec, fields: scalars }, input.bc, { recordVar: "record" });
     body.push(`    this.${formVar}.patchValue(${literal} as never);`);
+  }
+  // A record without the value object opens with the presence box clear.
+  for (const f of optionalGroups) {
+    const group = `this.${formVar}.controls.${f.name}`;
+    body.push(
+      `    if (record.${f.name} != null) { ${group}.enable(); ${group}.patchValue(record.${f.name} as never); } else { ${group}.disable(); }`,
+    );
   }
   for (const f of rows) {
     const arr = input.fieldArrays.find((a) => a.fieldName === f.name);

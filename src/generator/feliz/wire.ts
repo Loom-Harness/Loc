@@ -614,6 +614,14 @@ export interface FelizFormField {
    *  pre-encode check submit raised an unhandled Elmish exception instead of
    *  showing a form error.  Drives the numeric guard in `renderValidation`. */
   numeric?: "integral" | "fractional";
+  /** Set on the PRESENCE checkbox cell of an optional value object
+   *  (`vehiclePresent`): the wire object key it governs.  The cell is a bool
+   *  string (`"true"` = the object is present); it is never encoded itself —
+   *  the group's encoder emits the object when checked and `null` otherwise. */
+  presenceOf?: string;
+  /** Set on a flattened sub-field of an OPTIONAL value object: the record cell
+   *  (`vehiclePresent`) whose `"true"` mounts this input. */
+  presentCell?: string;
 }
 
 /** One scalar sub-field of a dynamic-row group (`sku` / `qty` of a `LineItem`
@@ -1096,11 +1104,12 @@ function formFieldsFrom(
       // field's own optionality relaxes every sub-field (an absent VO → absent
       // sub-values); nested VO / collection sub-fields are skipped (one level).
       const voOptional = f.optional === true || f.type.kind === "optional";
-      return voFields
+      const presentCell = `${f.name}Present`;
+      const subs = voFields
         .filter((sub) => isScalarInput(sub.type))
         .map((sub) => {
           const subOptional = voOptional || sub.optional === true || sub.type.kind === "optional";
-          return buildField(
+          const cell = buildField(
             formType,
             `${f.name}${upperFirst(sub.name)}`,
             sub.name,
@@ -1111,7 +1120,26 @@ function formFieldsFrom(
             sub.default,
             f.name,
           );
+          return voOptional ? { ...cell, presentCell: fsIdent(presentCell) } : cell;
         });
+      if (!voOptional) return subs;
+      // An optional VO is opt-in: a presence checkbox leads its sub-fields; the
+      // sub-inputs mount (and the object is submitted) only while it is checked.
+      const presence: FelizFormField = {
+        ...buildField(
+          formType,
+          presentCell,
+          f.name,
+          { kind: "primitive", name: "bool" },
+          true,
+          enumsByName,
+          idLabels,
+        ),
+        presenceOf: f.name,
+        encodeExpr: `Encode.bool (form.${fsIdent(presentCell)} = "true")`,
+        required: false,
+      };
+      return [presence, ...subs];
     }
     const optional = f.optional === true || f.type.kind === "optional";
     return [
@@ -3559,7 +3587,22 @@ function encoderEntries(fields: FelizFormField[]): string[] {
   let i = 0;
   while (i < fields.length) {
     const fld = fields[i]!;
-    if (fld.objectKey) {
+    if (fld.presenceOf) {
+      // The presence cell is not a wire field; it gates its group below.
+      i++;
+    } else if (fld.objectKey && fld.presentCell) {
+      // An optional value object: the object when present, `null` otherwise.
+      // One line keeps the `if` offside-safe inside the list.
+      const key = fld.objectKey;
+      const entries: string[] = [];
+      while (i < fields.length && fields[i]!.objectKey === key) {
+        entries.push(`"${fields[i]!.jsonKey}", ${fields[i]!.encodeExpr}`);
+        i++;
+      }
+      out.push(
+        `      "${key}", (if form.${fld.presentCell} = "true" then Encode.object [ ${entries.join("; ")} ] else Encode.nil)`,
+      );
+    } else if (fld.objectKey) {
       const key = fld.objectKey;
       out.push(`      "${key}", Encode.object [`);
       while (i < fields.length && fields[i]!.objectKey === key) {
@@ -3720,7 +3763,7 @@ export function renderValidation(forms: FormRecord[]): string {
               `${NUMERIC_CHECK_FN[rf.numeric as "integral" | "fractional"]} row.${rf.wireName}`,
           )
           .join(" && ");
-        return [`List.forall (fun row -> ${inner}) form.${fa.fieldName}`];
+        return [`List.forall (fun (row: ${fa.rowType}) -> ${inner}) form.${fa.fieldName}`];
       });
       const allTerms = [...terms, ...rowTerms];
       const body = allTerms.length > 0 ? allTerms.join(" && ") : "true";

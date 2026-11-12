@@ -5,7 +5,10 @@
 //
 //   update prefill   the Update dialog opens on the record: changing one field
 //                    keeps every other field (a zero-seeded form reset them).
-//   absence          clearing an optional text input submits `null`, not `""`.
+//   absence          clearing an optional text input submits `null`, not `""`;
+//                    an optional value object left out submits `null`.
+//   optional group   checking an optional value object's presence box and
+//                    filling it saves the object.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -64,6 +67,8 @@ export const KEPT_FIELDS = [
   "tags",
   "perils",
   "riders",
+  // Absent on the record and untouched: a zero object would fail its invariant.
+  "vehicle",
 ];
 
 /** Judge the record after the update: `[]` when it holds, else the problems. */
@@ -109,4 +114,23 @@ export async function driveUpdate(page, origin, id) {
   const region = await inputOf(page, "policies-op-update-input-region");
   await region.fill("");
   await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+}
+
+/** Add the optional value object through the Update dialog's opt-in group. */
+export async function driveAddVehicle(page, origin, id) {
+  await page.goto(`${origin}/policies/${id}`);
+  await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
+  await (await inputOf(page, "policies-op-update-input-vehicle-present")).check();
+  await (await inputOf(page, "policies-op-update-input-vehicle-vin")).fill("1HGCM82633A004352");
+  await (await inputOf(page, "policies-op-update-input-vehicle-year")).fill("2019");
+  await page.locator('[data-testid="policies-op-update-submit"]').first().click();
+}
+
+/** Judge the record after the vehicle was added. */
+export function judgeVehicleAdded(after) {
+  const v = after.vehicle;
+  if (!v || v.vin !== "1HGCM82633A004352" || v.year !== 2019) {
+    return [`vehicle: the opt-in group did not save it, got ${JSON.stringify(v)}`];
+  }
+  return [];
 }

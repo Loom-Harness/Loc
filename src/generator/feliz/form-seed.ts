@@ -87,13 +87,26 @@ function fieldCells(f: FormFieldSpec, acc: string): Cell[] {
       // A flattened VO cell is `<field><Sub>`; an absent optional VO leaves every
       // sub-cell empty.
       const optional = f.kind === "optionalValueObject";
-      return (f.children ?? []).flatMap((c) => {
-        const sub = fieldCells(c, `${optional ? "__vo" : acc}.${fsIdent(c.name)}`);
-        return sub.map((s) => ({
-          name: `${f.name}${upperFirst(s.name)}`,
-          value: optional ? `(match ${acc} with | Some __vo -> ${s.value} | None -> "")` : s.value,
-        }));
-      });
+      const presence: Cell[] = optional
+        ? [
+            {
+              name: `${f.name}Present`,
+              value: `(match ${acc} with | Some _ -> "true" | None -> "false")`,
+            },
+          ]
+        : [];
+      return [
+        ...presence,
+        ...(f.children ?? []).flatMap((c) => {
+          const sub = fieldCells(c, `${optional ? "__vo" : acc}.${fsIdent(c.name)}`);
+          return sub.map((s) => ({
+            name: `${f.name}${upperFirst(s.name)}`,
+            value: optional
+              ? `(match ${acc} with | Some __vo -> ${s.value} | None -> "")`
+              : s.value,
+          }));
+        }),
+      ];
     }
     case "file":
       return [{ name: f.name, value: f.optional ? acc : `(Some ${acc})` }];

@@ -42,7 +42,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { copyLocales, localesBeside } from "./case-source.mjs";
-import { driveUpdate, judgeFormSpec, readPolicy, seedFormSpec } from "./form-spec-ui.mjs";
+import {
+  driveAddVehicle,
+  driveUpdate,
+  judgeFormSpec,
+  judgeVehicleAdded,
+  readPolicy,
+  seedFormSpec,
+} from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import {
@@ -250,7 +257,8 @@ async function moneyCompareProbe(origin) {
  * cleared one must be `null`.
  */
 async function formSpecProbe(origin) {
-  const name = "form-spec probe: the update form opens on the record and a cleared optional submits null";
+  const name =
+    "form-spec probe: the update form opens on the record, a cleared optional submits null, and an optional value object is opt-in";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -271,6 +279,15 @@ async function formSpecProbe(origin) {
       await page.waitForTimeout(500);
     }
     why.push(...judgeFormSpec(before, after));
+    if (why.length === 0) {
+      await driveAddVehicle(page, origin, before.id);
+      for (let i = 0; i < 30; i++) {
+        after = await readPolicy(origin, before.id);
+        if (after.vehicle) break;
+        await page.waitForTimeout(500);
+      }
+      why.push(...judgeVehicleAdded(after));
+    }
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);

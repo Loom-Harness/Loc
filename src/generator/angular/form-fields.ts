@@ -1023,6 +1023,10 @@ export interface AngularFieldGroupSpec {
   subGroups: AngularFieldGroupSpec[];
   /** The array-of-value-object sub-fields, each a `FormArray` inside this one. */
   subArrays: AngularFieldArraySpec[];
+  /** A top-level optional value object: the group starts disabled (absent) and
+   *  a presence checkbox enables it, so its validators never block a submit
+   *  while absent and the submitted value is `null`. */
+  optional?: boolean;
 }
 
 /** The renderable sub-fields of a single `X: <VO>` input, or null when the
@@ -1077,12 +1081,23 @@ function splitSubFields(
       const tsType = controlTsType(unwrapOpt(f.type));
       controls.push({
         name: f.name,
-        init: controlInit(f.type),
+        init: subControlInit(f.type, bc),
         ...(tsType ? { nonNullableTsType: tsType } : {}),
       });
     }
   }
   return { controls, groups, arrays };
+}
+
+/** A value-object sub-control's initial value: an enum starts on its first
+ *  value, so the zero object a freshly enabled optional group holds is valid. */
+function subControlInit(t: TypeIR, bc: BoundedContextIR): string {
+  const inner = unwrapOpt(t);
+  if (t.kind !== "optional" && inner.kind === "enum") {
+    const first = bc.enums.find((e) => e.name === inner.name)?.values[0];
+    if (first !== undefined) return JSON.stringify(first);
+  }
+  return controlInit(t);
 }
 
 /** The control declarations inside a group / row: one `FormControl` per scalar
@@ -1109,6 +1124,7 @@ function fieldGroupSpec(
   voFields: FieldIR[],
   bc: BoundedContextIR,
   parentPath = "",
+  optional = false,
 ): AngularFieldGroupSpec {
   const parts = splitSubFields(voFields, bc, `${parentPath}${upperFirst(name)}`);
   return {
@@ -1116,6 +1132,7 @@ function fieldGroupSpec(
     subControls: parts.controls,
     subGroups: parts.groups,
     subArrays: parts.arrays,
+    ...(optional ? { optional } : {}),
   };
 }
 
@@ -1123,7 +1140,19 @@ function fieldGroupSpec(
  *  FormGroup({ amount: new FormControl(0, …), currency: new FormControl("", …) })`).
  *  The `FormGroup` import is registered by the form builder (walk time). */
 export function fieldGroupControlDecl(spec: AngularFieldGroupSpec): string {
-  return `${spec.fieldName}: new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups, spec.subArrays)} })`;
+  const group = `new FormGroup({ ${groupInnerDecl(spec.subControls, spec.subGroups, spec.subArrays)} })`;
+  // An optional group starts disabled: absent, and exempt from validation.
+  if (spec.optional) {
+    return `${spec.fieldName}: (() => { const g = ${group}; g.disable(); return g; })()`;
+  }
+  return `${spec.fieldName}: ${group}`;
+}
+
+/** The names of a form's optional value-object groups. */
+export function optionalGroupNames(form: {
+  fieldGroups?: readonly AngularFieldGroupSpec[];
+}): string[] {
+  return (form.fieldGroups ?? []).filter((g) => g.optional).map((g) => g.fieldName);
 }
 
 /** One value-object sub-field's markup: a control through `fieldInput`, or —
@@ -1197,7 +1226,12 @@ export function fieldGroupInput(
       subFieldMarkup(f, bc, ns, ctx, `${containerTid}-${f.name}`, voName, scope, container),
     )
     .join("");
-  return `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
+  const fieldset = `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
+  if (!spec.optional) return fieldset;
+  // The opt-in presence checkbox enables / disables the group; its inputs mount
+  // only while the group is enabled.
+  const control = `${scope.base}.controls.${spec.fieldName}`;
+  return `<label class="loom-optional-toggle"><input type="checkbox" data-testid="${containerTid}-present" [checked]="${control}.enabled" (change)="$any($event.target).checked ? ${control}.enable() : ${control}.disable()" /> ${label}</label>@if (${control}.enabled) {${fieldset}}`;
 }
 
 /** Split a form's input fields into the flat `FormControl` fields (rendered +
@@ -1208,7 +1242,7 @@ export function fieldGroupInput(
  *  and no value object, `flatMarkup`/`flatControls` are byte-identical to the
  *  previous all-flat output. */
 export function partitionAngularFields(
-  fields: readonly { name: string; type: TypeIR; default?: ExprIR }[],
+  fields: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
   bc: BoundedContextIR,
   ns: string,
   ctx: WalkContext,
@@ -1266,7 +1300,13 @@ export function partitionAngularFields(
   const groupIdFields: FieldIR[] = [];
   for (const f of groups) {
     const voFields = voScalarFields(f.type, bc)!;
-    const spec = fieldGroupSpec(f.name, voFields, bc);
+    const spec = fieldGroupSpec(
+      f.name,
+      voFields,
+      bc,
+      "",
+      f.optional === true || f.type.kind === "optional",
+    );
     fieldGroups.push(spec);
     const groupType = unwrapOpt(f.type);
     groupMarkup.push(
