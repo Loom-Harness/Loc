@@ -780,11 +780,14 @@ Not raised for a widening (members only added), a module's first generation,
 or a table created this generation. The check is matched by name, so a
 narrowing that lands in the same generation as a rename of its table or column
 is not compared. Turning a plain `string` column into an enum adds a check with
-no baseline value set to compare against, so it is not refused either. The
-detection reads the baseline's `CHECK`s, so it covers exactly the columns that
-carry one ([covered shapes](#how-ir-maps-to-tables)); an enum **array** and the
-projection / workflow-state tables carry no value-set check, so a removal that
-only they store is not detected — a declared rename still updates them.
+no baseline value set to compare against, so it is not refused either. A
+column no value-set `CHECK` constrains — an enum **array** and the projection /
+workflow-state columns — is compared on the member list the snapshot records for
+it (`enumMembers`), and refused the same way. Such a column needs no DDL when its
+enum gains or loses a member, so the generation records a comment step instead,
+and the chain's baseline moves with the model. A baseline recorded before member
+lists were kept has nothing to compare against, so its first generation is not
+checked on those columns.
 
 ### Enum value renames — `Enum.Old -> New`
 
