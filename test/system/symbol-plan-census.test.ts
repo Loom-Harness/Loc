@@ -52,8 +52,7 @@ const RAW_FUNNEL =
   /\b(escapeTsIdent|escapeTargetMember|escapeTargetFieldMember|escapeTargetIdent|escapeCsharpIdent|escapeJavaIdent|jid|escapePythonIdent|escapePythonBuiltin|pythonIdent|pythonModuleFn|escapeElixirIdent|elixirLocal)\(/g;
 
 /** The plan's reader surface. */
-const PLAN_READ =
-  /\b(DOMAIN_NAMES|tsServiceOpFn|tsServiceSiblingScope|pythonModuleFnName)\b/;
+const PLAN_READ = /\b(DOMAIN_NAMES|tsServiceOpFn|tsServiceSiblingScope|pythonModuleFnName)\b/;
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
