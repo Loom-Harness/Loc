@@ -1,10 +1,10 @@
 import type { BoundedContextIR, EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { pythonIdent, pythonWireIdent } from "../../../util/naming.js";
+import { pythonWireIdent } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
-import { pythonAnnotationIn } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, pythonAnnotationIn } from "../../_symbols/plan.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
@@ -56,7 +56,9 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
   // the declaration-order positional/keyword signature the hand-rolled ctor
   // had, so every construction site is unchanged; invariants move to
   // `__post_init__` (the events emitter's pattern).
-  const fields = v.fields.map((f) => `    ${pythonIdent(f.name)}: ${renderPyType(f.type)}`);
+  const fields = v.fields.map(
+    (f) => `    ${DOMAIN_NAMES.python.binding(f.name)}: ${renderPyType(f.type)}`,
+  );
   const invariants = v.invariants.flatMap((inv) => {
     const cond = inv.guard
       ? `(${renderPyExpr(inv.guard, VO_CTX)}) and ${renderPyNegatedGuard(inv.expr, VO_CTX)}`
@@ -79,12 +81,15 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
   const derived = v.derived.flatMap((d) => [
     "",
     "    @property",
-    `    def ${pythonIdent(d.name)}(self) -> ${ann(d.type)}:`,
+    `    def ${DOMAIN_NAMES.python.method(d.name)}(self) -> ${ann(d.type)}:`,
     `        return ${renderPyExpr(d.expr, VO_CTX)}`,
   ]);
   const fns = v.functions.flatMap((fn) => {
-    const fnParams = ["self", ...fn.params.map((p) => `${pythonIdent(p.name)}: ${ann(p.type)}`)];
-    const head = `    def ${pythonIdent(fn.name)}(${fnParams.join(", ")}) -> ${ann(fn.returnType)}:`;
+    const fnParams = [
+      "self",
+      ...fn.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${ann(p.type)}`),
+    ];
+    const head = `    def ${DOMAIN_NAMES.python.method(fn.name)}(${fnParams.join(", ")}) -> ${ann(fn.returnType)}:`;
     const body =
       "expr" in fn.body
         ? `        return ${renderPyExpr(fn.body.expr, VO_CTX)}`
