@@ -574,7 +574,7 @@ function workflowRoute(
     // an `IndentationError` inside the route's `try:` — the scratch never
     // parsed (F58 bycatch).
     const initKwargs = (wf.stateFields ?? [])
-      .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f)}`)
+      .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f, ctx)}`)
       .join(", ");
     out.push(`        self = ${SIMPLE_NAMESPACE}(${initKwargs})`);
   }

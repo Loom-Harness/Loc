@@ -5,6 +5,8 @@ import {
   eventSourcedWorkflows,
   foldedEventNames,
   reposNeeded,
+  requiredStateFields,
+  stateZero,
   subscriptionHandler,
 } from "../../ir/plan/index.js";
 import type {
@@ -48,6 +50,7 @@ import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { pySaveRenderer } from "./stamp-call.js";
+import { pyStateZero } from "./state-zero.js";
 import { esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
 import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
@@ -644,8 +647,7 @@ function accumulatePy(path: string, op: "+" | "-", value: string): string {
 export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const corr = wf.correlationField as string;
   const parts = [`${snake(corr)}=__key`];
-  for (const f of wf.stateFields ?? []) {
-    if (f.name === corr || f.optional) continue;
+  for (const f of requiredStateFields(wf)) {
     if (f.type.kind === "valueobject") {
       const leaves = voLeafZeros(f.type.name, f.name, ctx);
       if (leaves) {
@@ -653,7 +655,7 @@ export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): s
         continue;
       }
     }
-    parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
+    parts.push(`${pythonIdent(f.name)}=${zeroFor(f, ctx)}`);
   }
   return parts.join(", ");
 }
@@ -684,7 +686,7 @@ function voLeafZeros(
     const zero =
       vf.type.kind === "primitive" && vf.type.name === "decimal"
         ? `${PY.Decimal}("0")`
-        : zeroFor(vf);
+        : zeroFor(vf, ctx);
     return [`${snake(path)}=${zero}`];
   });
 }
@@ -695,29 +697,9 @@ function voLeafZeros(
  *  namespace `workflowRoute` builds instead (M-T6.50, workflows-builder.ts). */
 export function zeroFor(
   f: WorkflowIR["stateFields"] extends (infer T)[] | undefined ? T : never,
+  ctx: EnrichedBoundedContextIR,
 ): string {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-        return "0.0";
-      case "money":
-        return `${PY.Decimal}("0")`;
-      case "bool":
-        return "False";
-      case "datetime":
-        return `${PY.datetime}.now(${PY.UTC})`;
-      case "date":
-        return `${PY.datetime}.now(${PY.UTC}).date()`;
-      default:
-        return '""';
-    }
-  }
-  if (t.kind === "array") return "[]";
-  return '""';
+  return pyStateZero(stateZero(f.type, ctx));
 }
 
 /** A reactor has no request principal: it runs as the SYSTEM principal

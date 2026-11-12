@@ -1,6 +1,11 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import { foldTenancyFor, foldTenantColumns } from "../../ir/enrich/fold-tenancy.js";
-import { hasStateRow, lookupOp, subscriptionHandler } from "../../ir/plan/index.js";
+import {
+  hasStateRow,
+  lookupOp,
+  requiredStateFields,
+  subscriptionHandler,
+} from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
@@ -661,8 +666,7 @@ function renderPersistedBody(
   if (sub.trigger === "create") {
     // Load-or-allocate: a fresh key seeds the instance row (typed defaults).
     const allocFields = [`${snake(corr)}: key`];
-    for (const f of wf.stateFields ?? []) {
-      if (f.name === corr || f.optional) continue;
+    for (const f of requiredStateFields(wf)) {
       allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, decls)}`);
     }
     const load = [

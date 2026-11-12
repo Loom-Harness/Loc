@@ -63,6 +63,15 @@ system ClaimReview {
         claimState: ClaimState
         create(e: ClaimFiled) by e.claim { claimState := Filed }
       }
+
+      // The same enum state, never assigned: a fresh instance seeds it with the
+      // enum's FIRST member, the zero every backend allocates a required enum
+      // state field with.
+      workflow Triage {
+        claim: Claim id
+        claimState: ClaimState
+        create(e: ClaimFiled) by e.claim { }
+      }
     }
   }
   api ReviewApi from Claims
@@ -83,6 +92,9 @@ system ClaimReview {
     api.claims.file(rec)
     let review = api.review.instance(rec)
     expect(review.claimState).toBe("Filed")
+    let triage = api.triage.instance(rec)
+    expect(triage.claimState).toBe("UnderReview")
+    expect(api.triage.instances().count()).toBe(1)
     expect(api.review.instances().count()).toBe(1)
     expect(api.claims.getById(rec).reference).toBe("CLM-1")
     api.claims.update(rec, { reference: "CLM-2" })
