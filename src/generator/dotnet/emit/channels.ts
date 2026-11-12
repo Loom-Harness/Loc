@@ -1124,7 +1124,20 @@ public sealed class ChannelPublishTeeDispatcher : IDomainEventDispatcher
             return;
         }
         var envelope = ChannelEnvelopes.For(ev, type, address);
-        await _transports.ForAddress(address).PublishAsync(address, envelope);
+        // An ephemeral channel is at-most-once and publishes after the command
+        // committed: a broker that is down loses the envelope, never the
+        // command's answer.
+#pragma warning disable CA1031 // any transport failure is logged, never rethrown
+        try
+        {
+            await _transports.ForAddress(address).PublishAsync(address, envelope);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning("{Event} {Address} {Type} {Id} {Error}", "channel_publish_failed", address, type, envelope.Id, ex.Message);
+            return;
+        }
+#pragma warning restore CA1031
         _log.LogInformation("{Event} {Address} {Type} {Id}", "channel_published", address, type, envelope.Id);
     }
 

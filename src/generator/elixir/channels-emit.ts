@@ -687,6 +687,12 @@ export function emitElixirChannelFiles(
     return `  def decode(${JSON.stringify(ev.name)}, data) do\n    %${ctxModule}.Events.${upperFirst(ev.name)}{\n${pairs.join(",\n")}\n    }\n  end`;
   });
 
+  const publishFailedLog = renderPhoenixLogCall("channelPublishFailed", [
+    { name: "address", valueExpr: "address" },
+    { name: "type", valueExpr: "type" },
+    { name: "id", valueExpr: "id" },
+    { name: "error", valueExpr: "Exception.message(error)" },
+  ]);
   const publishedLog = renderPhoenixLogCall("channelPublished", [
     { name: "address", valueExpr: "address" },
     { name: "type", valueExpr: "type" },
@@ -827,8 +833,18 @@ ${
         "-" <> Integer.to_string(:erlang.unique_integer([:positive]), 16)
 
     envelope = envelope_for(address, context, type, id, encode_data(ev))${carriesOrigin ? " |> put_origin()" : ""}
-    ${transmitCall("id")}
-    ${publishedLog}
+
+    # An ephemeral channel is at-most-once and publishes after the command
+    # committed: a broker that is down loses the envelope, never the
+    # command's answer.
+    try do
+      ${transmitCall("id")}
+      ${publishedLog}
+    rescue
+      error in ${appModule}.BrokerUnavailable ->
+        ${publishFailedLog}
+    end
+
     :ok
   end
 

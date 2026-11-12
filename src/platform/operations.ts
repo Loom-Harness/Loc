@@ -153,13 +153,12 @@ export const BROKER_BASELINE: BrokerResilience = {
   reconnects: true,
   outboxRidesOutOutage: false,
   publishFailureKeepsCommit: true,
-  deadLettersUnderAcl: false,
+  deadLettersUnderAcl: true,
   propagatesTrace: false,
   exportsMetrics: false,
 };
 export const BROKER_BASELINE_GAPS: Readonly<Record<string, string>> = {
   "broker.outboxRidesOutOutage": "#4741",
-  "broker.deadLettersUnderAcl": "#3565",
   "broker.propagatesTrace": "#3582",
   "broker.exportsMetrics": "#3583",
 };

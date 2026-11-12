@@ -18,7 +18,6 @@ import {
   BROKER_BASELINE_GAPS,
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
-  withoutGaps,
 } from "../../operations.js";
 import { backendEnvContract } from "../../operations-env.js";
 import {
@@ -84,9 +83,9 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         ),
       listen: "dual-stack",
       log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
-      broker: { ...BROKER_BASELINE, deadLettersUnderAcl: true },
+      broker: BROKER_BASELINE,
       migrations: MIGRATIONS_BASELINE,
-      gaps: withoutGaps(BROKER_BASELINE_GAPS, "broker.deadLettersUnderAcl"),
+      gaps: BROKER_BASELINE_GAPS,
     },
     composeService({ slug, deployable, sys }): ComposeServiceShape {
       const database = databaseOf(sys, deployable)?.name ?? slug;
