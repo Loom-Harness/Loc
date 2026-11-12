@@ -1,4 +1,4 @@
-import { foldedEventNames, workflowStreamType } from "../../ir/plan/index.js";
+import { foldedEventNames, stateZero, workflowStreamType } from "../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
@@ -6,15 +6,15 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, pythonWireIdent, snake, upperFirst } from "../../util/naming.js";
+import { pythonIdent, snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
 import { fromData, toData } from "./repository-eventsourced-builder.js";
+import { pyStateZero } from "./state-zero.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Python/FastAPI (workflow-and-applier.md A2-S5b) —
@@ -114,34 +114,6 @@ function pyStateType(t: TypeIR): string {
     }
   }
   return "str";
-}
-
-/** A typed zero for a required saga-state field at fold-from-zero.  Enums are
- *  resolved separately via `esZeroFor` (which has the enum table); this handles
- *  the type-only cases. */
-function esZero(t: TypeIR): string {
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive") {
-    switch (inner.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-        return "0.0";
-      case "money":
-        return `${PY.Decimal}("0")`;
-      case "bool":
-        return "False";
-      case "datetime":
-        return `${PY.datetime}.now(${PY.UTC})`;
-      case "date":
-        return `${PY.datetime}.now(${PY.UTC}).date()`;
-      default:
-        return '""';
-    }
-  }
-  if (inner.kind === "array") return "[]";
-  return '""';
 }
 
 /** Render one applier statement against the public `state` object — the
@@ -359,17 +331,7 @@ export function esWorkflowFoldBlock(
   );
 }
 
-/** A typed zero, resolving enum to its first declared value (needs ctx). */
+/** A typed zero for a required saga-state field at fold-from-zero. */
 function esZeroFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "enum") {
-    // `enumPool`, not `ctx.enums`: a state field typed by a SIBLING context's
-    // enum otherwise misses and zeroes to `cast(Kind, "")` (claims D1).
-    const e = enumPool(ctx).find((x) => x.name === inner.name);
-    const first = e?.values[0];
-    return first
-      ? `${pyVoOrEnum(inner.name)}.${pythonWireIdent(first)}`
-      : `${PY.cast}(${pyVoOrEnum(inner.name)}, "")`;
-  }
-  return esZero(t);
+  return pyStateZero(stateZero(t, ctx));
 }
