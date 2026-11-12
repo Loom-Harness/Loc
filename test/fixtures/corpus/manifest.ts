@@ -1055,6 +1055,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T5.1 (VO→422 + A4).  Every other VO invariant in the corpus is exercised at the WIRE, where the request schema carries the rule; a value object constructed from a scalar parameter inside an operation reaches the constructor instead.  Before M-T5.1 that answered the domain-floor 422 with no `errors[]` on node/.NET/java/python — and on elixir the in-body construction was not checked at all (`resize(0)` persisted `{\"value\": 0}` and answered 204).  Carries a named and an unnamed rule, and both body routers (aggregate operation, workflow step).",
   },
   {
+    id: "service-decimal-chain",
+    title:
+      "a `decimal` chain in a domain service ending in a SIBLING service-operation call (`base * usage * loadFactor(level)`) stays exact to its root",
+    doc: "domain-services",
+    backends: ALL,
+    note: "the sibling call typed as unknown, so node and python narrowed the chain to a double at the call (0.006999999999999999 for 0.007).  node is a tracked expected failure (BEHAVIOURAL_XFAIL) until its sibling-call naming is fixed — it calls the bare `loadFactor` while the module defines `rating_loadFactor`.",
+  },
+  {
     id: "domain-floor-messages",
     title:
       "M-T1.11 (c) — a named invariant / precondition tripped at the DOMAIN FLOOR answers 422 with an `errors[]` entry carrying the rule's `<Ctx>.<Owner>.rule.<name>` code",

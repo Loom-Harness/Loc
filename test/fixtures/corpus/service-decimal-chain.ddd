@@ -1,0 +1,54 @@
+// shape: a `decimal` arithmetic chain inside a domain service whose last
+// operand is a call to a SIBLING service operation — the witness that the
+// call types as its declared `decimal` return, so the whole chain stays exact
+// until its root (RS-37).
+//
+// The sibling call typed as unknown, so the outer `*` was not decimal
+// arithmetic: node computed `new Decimal(base).times(usage).toNumber() *
+// loadFactor(level)` and python `float(Decimal(...) * Decimal(...)) *
+// load_factor(level)` — exact up to the call, IEEE-754 after it.  The values
+// are picked so that matters: 0.1 * 0.1 * 0.7 is 0.007 exactly, and
+// 0.006999999999999999 when the last multiply is a double one.
+system ServiceDecimalChain {
+  subdomain Insurance {
+    context Underwriting {
+      domainService Rating {
+        operation loadFactor(level: int): decimal {
+          return 0.7
+        }
+        operation premium(base: decimal, usage: decimal, level: int): decimal {
+          return base * usage * loadFactor(level)
+        }
+      }
+
+      aggregate Policy with crudish {
+        base: decimal
+        usage: decimal
+        premium: decimal = 0
+
+        operation rate(level: int) {
+          premium := Rating.premium(base, usage, level)
+        }
+      }
+      repository Policies for Policy { }
+    }
+  }
+
+  api InsuranceApi from Insurance
+  storage primary { type: postgres }
+  resource underwritingState { for: Underwriting, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Underwriting]
+    dataSources: [underwritingState]
+    serves: InsuranceApi
+    port: 4000
+  }
+
+  test e2e "a decimal chain ending in a sibling service call stays exact" against d {
+    let p = api.policies.create({ base: 0.1, usage: 0.1 })
+    api.policies.rate(p, { level: 1 })
+    let read = api.policies.getById(p)
+    expect(read.premium).toBe(0.007)
+  }
+}
