@@ -41,6 +41,7 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
+import { OUTBOX_PENDING_PREDICATE } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
@@ -849,6 +850,30 @@ export function mikroForeignKeyDdl(
   return out;
 }
 
+/** The relay's pending-row partial index — the index the migration chain gives
+ *  `__loom_outbox` on every other adapter.  Entity metadata cannot declare a
+ *  partial index, so it rides the same post-`schema.update()` DDL as the
+ *  foreign keys; `IF NOT EXISTS` keeps every later boot a no-op. */
+const MIKRO_OUTBOX_PENDING_INDEX_DDL =
+  `CREATE INDEX IF NOT EXISTS "__loom_outbox_pending_idx" ON "__loom_outbox" ("occurred_at") ` +
+  `WHERE ${OUTBOX_PENDING_PREDICATE}`;
+
+/** Every statement boot runs after `schema.update()`: the foreign keys
+ *  ({@link mikroForeignKeyDdl}) and, when the deployable carries an outbox,
+ *  its pending index. */
+export function mikroPostUpdateDdl(
+  aggs: readonly EnrichedAggregateIR[],
+  ctx: EnrichedBoundedContextIR,
+  shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document",
+  contextOf: ((aggName: string) => string | undefined) | undefined,
+  outbox: boolean,
+): string[] {
+  return [
+    ...mikroForeignKeyDdl(aggs, ctx, shapeOf, contextOf),
+    ...(outbox ? [MIKRO_OUTBOX_PENDING_INDEX_DDL] : []),
+  ];
+}
+
 export function renderMikroEntities(
   aggs: readonly EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
@@ -871,7 +896,13 @@ export function renderMikroEntities(
 ): string {
   const blocks: string[] = [];
   const schemaNames: string[] = [];
-  const foreignKeyDdl = mikroForeignKeyDdl(aggs, ctx, shapeOf, opts.resolveStreamContext);
+  const foreignKeyDdl = mikroPostUpdateDdl(
+    aggs,
+    ctx,
+    shapeOf,
+    opts.resolveStreamContext,
+    opts.outbox === true,
+  );
   // Event-sourced (`persistedAs: eventLog`) aggregates share a SINGLE
   // per-context `<ctx>_events` stream row (event-log-architecture.md),
   // discriminated by `stream_type`, rather than one table each.  Emitted once
@@ -1174,8 +1205,9 @@ export function renderMikroEntities(
       ...(foreignKeyDdl.length > 0
         ? [
             "",
-            "// Foreign keys the entity metadata cannot declare (scalar `X id` columns);",
-            "// index.ts applies them after `schema.update()`.",
+            "// DDL the entity metadata cannot declare (foreign keys of scalar `X id`",
+            "// columns, the outbox's partial index); index.ts applies it after",
+            "// `schema.update()`.",
             "export const foreignKeyDdl: readonly string[] = [",
             ...foreignKeyDdl.map((d) => `  ${JSON.stringify(d)},`),
             "];",
