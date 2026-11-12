@@ -118,8 +118,13 @@ describe("feliz multi-page routing", () => {
     );
     expect(app).toContain('Html.ul [ prop.className "menu menu-horizontal px-1"');
     // One menu item per top-level (static-route) page — the brand + both pages.
-    expect(app).toContain('prop.href "/"; prop.text "Home"');
-    expect(app).toContain('prop.href "/products"; prop.text "Products"');
+    // An untitled page's link reads its catalog `name` entry.
+    expect(app).toMatch(
+      /prop\.href "\/"; prop\.text \(I18n\.t "[\w.]+\.page\.Home\.name\.\w+" "Home"\)/,
+    );
+    expect(app).toMatch(
+      /prop\.href "\/products"; prop\.text \(I18n\.t "[\w.]+\.page\.Products\.name\.\w+" "Products"\)/,
+    );
     // The brand is the humanised ui name.
     expect(app).toContain(
       'prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text "Web App"',

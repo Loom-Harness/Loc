@@ -36,7 +36,6 @@ const primitivesDir = path.resolve(here, "../../../src/generator/_walker/primiti
 const NO_SLOT_YET: Readonly<Record<string, string>> = {
   "chart.ts":
     'the derived accessible name ("Line chart of <projection>: <y> by <x>", a11y `role="img"` + needsName) is EMITTER-built from model identifiers, so it belongs with the `chrome.*` sentence-frame keys rather than a per-call catalog slot',
-  "provenance-info.ts": "the disclosure's summary text (pack chrome, not authored)",
 };
 
 /** Entries in `NO_SLOT_YET` whose module DOES route some other text through an
