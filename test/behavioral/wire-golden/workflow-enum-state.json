@@ -47,6 +47,28 @@
     {
       "seq": 5,
       "method": "GET",
+      "path": "/api/workflows/triage/instances/{id}",
+      "status": 200,
+      "body": {
+        "claim": "<uuid>",
+        "claimState": "UnderReview"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/workflows/triage/instances",
+      "status": 200,
+      "body": [
+        {
+          "claim": "<uuid>",
+          "claimState": "UnderReview"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "GET",
       "path": "/api/workflows/review/instances",
       "status": 200,
       "body": [
@@ -57,7 +79,7 @@
       ]
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "GET",
       "path": "/api/claims/{id}",
       "status": 200,
@@ -68,14 +90,14 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "POST",
       "path": "/api/claims/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "GET",
       "path": "/api/claims",
       "status": 200,
@@ -94,7 +116,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/api/agencies/{id}",
       "status": 200,
@@ -105,14 +127,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/agencies/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "GET",
       "path": "/api/agencies",
       "status": 200,
@@ -131,21 +153,21 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "DELETE",
       "path": "/api/agencies/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "DELETE",
       "path": "/api/claims/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/claims/{id}",
       "status": 404,
@@ -162,7 +184,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "PATCH",
       "path": "/api/agencies",
       "status": 405,
@@ -176,7 +198,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -190,7 +212,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/agencies",
       "status": 400,
@@ -204,7 +226,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/workflows/review/instances/{id}",
       "status": 404,
@@ -218,41 +240,55 @@
       }
     },
     {
-      "seq": 19,
-      "method": "POST",
-      "path": "/api/claims/{id}/file",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Claim {id} not found",
-        "instance": "/api/claims/{id}/file",
-        "params": {
-          "type": "Review.Claim"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 20,
-      "method": "POST",
-      "path": "/api/claims/{id}/file",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Claim {id} not found",
-        "instance": "/api/claims/{id}/file",
-        "params": {
-          "type": "Review.Claim"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 21,
+      "method": "GET",
+      "path": "/api/workflows/triage/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Triage {id} not found",
+        "instance": "/api/workflows/triage/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Claim {id} not found",
+        "instance": "/api/claims/{id}/file",
+        "params": {
+          "type": "Review.Claim"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Claim {id} not found",
+        "instance": "/api/claims/{id}/file",
+        "params": {
+          "type": "Review.Claim"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
       "method": "POST",
       "path": "/api/claims/{id}/file",
       "status": 415,
@@ -266,7 +302,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "POST",
       "path": "/api/claims/{id}/update",
       "status": 404,

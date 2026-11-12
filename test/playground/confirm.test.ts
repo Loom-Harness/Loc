@@ -6,6 +6,7 @@ import {
   CONFIRM_IDLE,
   type ConfirmState,
   canConfirm,
+  confirmIds,
   confirmReduce,
   confirmSites,
 } from "../../web/src/util/confirm-state.js";
@@ -184,5 +185,45 @@ describe("ratchet — no native dialogs under web/src", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("confirm test ids name exactly one element", () => {
+  it("derives root / yes / cancel from the base", () => {
+    expect(confirmIds({ base: "x" })).toEqual({
+      root: "x-confirm",
+      yes: "x-yes",
+      cancel: "x-cancel",
+      type: "x-type",
+    });
+  });
+  it("moves the root aside when a yes override takes the root's spelling", () => {
+    const t = confirmIds({ base: "btn-wipe", yes: "btn-wipe-confirm" });
+    expect(t.yes).toBe("btn-wipe-confirm");
+    expect(t.root).not.toBe(t.yes);
+  });
+  it("every call site's ids are pairwise distinct", () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/src");
+    const sites: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name)) {
+          for (const m of fs.readFileSync(p, "utf8").matchAll(/testids=\{\{([^}]*)\}\}/g))
+            sites.push(m[1]);
+        }
+      }
+    };
+    walk(root);
+    expect(sites.length).toBeGreaterThan(0);
+    for (const body of sites) {
+      const pick = (k: string): string | undefined =>
+        body.match(new RegExp(`${k}:\\s*"([^"]+)"`))?.[1];
+      const base = pick("base");
+      if (!base) continue;
+      const t = confirmIds({ base, root: pick("root"), yes: pick("yes"), cancel: pick("cancel") });
+      expect(new Set([t.root, t.yes, t.cancel, t.type]).size, body).toBe(4);
+    }
   });
 });

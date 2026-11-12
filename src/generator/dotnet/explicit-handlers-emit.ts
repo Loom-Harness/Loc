@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { handlerNeedsCurrentUser, reposNeeded } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -48,7 +49,6 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
-import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -145,29 +145,7 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
  *  bodies" fact `walk.ts` already owns exhaustively, so a nested body of any
  *  kind (`for-each` / `if-let` / `match` arm) is reached. */
 function collectRepos(h: Handler): Map<string, string> {
-  const repos = new Map<string, string>();
-  for (const s of h.statements) {
-    walkWorkflowStmtsDeep(s, (st) => {
-      if (st.kind === "repo-let" || st.kind === "repo-delete") repos.set(st.repoName, st.aggName);
-      // A `Repo.run(<Criterion>(…))` read injects the same repository.
-      if (st.kind === "repo-run") repos.set(st.repoName, st.aggName);
-    });
-  }
-  // An `if let` source reads through its repository too, and its then-branch
-  // saves through it.
-  for (const s of h.statements) {
-    walkWorkflowStmtsDeep(s, (st) => {
-      if (st.kind === "if-let" && st.repoName) repos.set(st.repoName, st.aggName);
-      // A `match` arm saves what it dirtied through that aggregate's repo.
-      if (st.kind === "variant-match") {
-        for (const arm of st.arms)
-          for (const sv of arm.savesInArm) repos.set(sv.repoName, sv.aggName);
-        for (const sv of st.savesInElse) repos.set(sv.repoName, sv.aggName);
-      }
-    });
-  }
-  for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);
-  return repos;
+  return new Map(reposNeeded([h.statements], h.savesAtExit).map((r) => [r.repoName, r.aggName]));
 }
 
 /** The aggregate a handler is filed under (namespace + `using`).  The exit-save
@@ -328,7 +306,7 @@ function renderHandlerClass(
   // A body that reads `currentUser` (a `requires` gate or an expression)
   // resolves the actor through the injected accessor, as the workflow and
   // paged-run handlers do.
-  const usesUser = handlerUsesCurrentUser(h);
+  const usesUser = handlerNeedsCurrentUser(h, ctx);
   // An `emit` collects onto `_workflowEvents`, dispatched through the injected
   // dispatcher once the body (and any transaction) has succeeded — the
   // workflow handler's event sink.

@@ -24,12 +24,12 @@ import {
   esStarterSharesEvent,
   eventSourcedWorkflows,
   foldedEventNames,
+  requiredStateFields,
   workflowStreamType,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   EventIR,
-  TypeIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
@@ -41,37 +41,13 @@ import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { stateDefault } from "../state-default.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import { workflowDenialTerm } from "./denial.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 
 const wfModule = (contextModule: string, wf: WorkflowIR): string =>
   `${contextModule}.Workflows.${upperFirst(wf.name)}`;
-
-/** A backend-zero Elixir literal for a required folded-state field at seed time
- *  (the correlation field is seeded from the routing key, never this). */
-function stateDefault(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-      case "money":
-        return "Decimal.new(0)";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "DateTime.utc_now()";
-      case "date":
-        return "Date.utc_today()";
-      default:
-        return '""';
-    }
-  }
-  if (t.kind === "array") return "[]";
-  return "nil";
-}
 
 // --- `<Wf>State` plain struct (the folded snapshot) -------------------------
 
@@ -132,9 +108,7 @@ function renderFoldModule(contextModule: string, wf: WorkflowIR): string {
 
   const seeds = [
     `${snake(corr)}: key`,
-    ...(wf.stateFields ?? [])
-      .filter((f) => f.name !== corr && !(f.optional || f.type.kind === "optional"))
-      .map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+    ...requiredStateFields(wf).map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
   ];
 
   const clauses = (wf.appliers ?? []).map((ap) => {

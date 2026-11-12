@@ -335,3 +335,25 @@ test("an index on an existing table is built CONCURRENTLY; a model the validator
   );
   await expect(page.getByTestId("migration-record")).toHaveCount(0);
 });
+
+test("the strip's migration badge plans against the project entry while a non-entry file is open", async ({
+  page,
+}) => {
+  await wipeStorage(page);
+  await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded", { timeout: 60_000 });
+  await expect(badge(page)).toHaveAttribute("data-initial", "true");
+
+  // A new file opens in the editor; it declares no `system`, so the check
+  // must keep planning against main.ddd rather than the open file.
+  await page.getByTestId("explorer-mode").getByText("User code").click();
+  await page.getByTestId("source-files-add").click();
+  await page.getByTestId("source-files-new-file").click();
+  await page.getByTestId("source-files-name").fill("grade.ddd");
+  await page.getByTestId("source-files-submit").click();
+  await expect(page.getByTestId("source-files-tree").getByText("grade.ddd", { exact: true })).toBeVisible();
+
+  // Past the check's debounce: the badge still reports main.ddd's plan.
+  await page.waitForTimeout(3_000);
+  await expect(badge(page)).toHaveAttribute("data-kind", "unrecorded");
+  await expect(page.getByTestId("migration-pending-badge")).toHaveText("migration required · initial schema");
+});

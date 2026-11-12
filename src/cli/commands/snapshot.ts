@@ -5,7 +5,7 @@ import type { Command } from "commander";
 import { validateLoomModel } from "../../ir/validate/validate.js";
 import { captureSnapshots } from "../../system/loomsnap.js";
 import { hostValidateOptions, parseProject } from "../project.js";
-import { printAstDiagnostics, printLoomWarnings, printSummary } from "../report.js";
+import { printAstDiagnostics, printIrDiagnostics, printSummary } from "../report.js";
 import type { RunResult } from "./generate.js";
 
 /** Resolve the current git commit (short) for the snapshot envelope, or
@@ -41,23 +41,23 @@ async function runSnapshot(
   options: { dryRun?: boolean } = {},
 ): Promise<RunResult> {
   const result = await parseProject(file);
+  const ast = printAstDiagnostics(result);
   if (result.errorCount > 0) {
-    printSummary(printAstDiagnostics(result));
+    printSummary(ast);
     process.exit(1);
   }
   const loom = result.loom;
+  // The same phase-⑦ printer and single footer `parse` uses, printed on the
+  // clean path too: a provenance capture is exactly where a "validation
+  // accepts this but it is a no-op" warning matters — the snapshot is what a
+  // runtime trace is later explained against.  Only errors exit non-zero.
   const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
-  const loomErrors = loomDiags.filter((d) => d.severity === "error");
-  if (loomErrors.length > 0) {
-    for (const d of loomDiags) console.error(`${d.source} ${d.severity}: ${d.message}`);
-    process.exit(1);
-  }
-  // The residue #2668 left behind: this print sat INSIDE the branch above, so a
-  // snapshot of a clean-but-warned model reported its warnings nowhere.  A
-  // provenance capture is exactly where a "validation accepts this but it is a
-  // no-op" warning matters — the snapshot is what a runtime trace is later
-  // explained against.  Exit code unchanged (0).
-  printLoomWarnings(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(
+    loomDiags,
+    result.sourceTexts,
+  );
+  printSummary(ast, { errors: loomErrors.length, warnings: loomWarnings.length });
+  if (loomErrors.length > 0) process.exit(1);
 
   // The capture envelope's commit label: the checkout's HEAD, else an explicit
   // `LOOM_COMMIT_HASH` (a CI that builds from an export with no `.git`).
