@@ -92,6 +92,20 @@ system WorkflowLoopCarried {
 
     // The rest of the derived surface, so every route the fixture serves has
     // a caller.
+    let first = buckets.items.first()
+    api.buckets.visit(first.id, {})
+    let visited = api.buckets.getById(first.id)
+    expect(visited.visits).toBe(3)
+    api.buckets.update(first.id, { name: first.name, visits: 0 })
+    let item = items.items.first()
+    api.items.see(item.id, {})
+    let seen = api.items.getById(item.id)
+    expect(seen.seen).toBe(3)
+    api.items.update(item.id, { bucket: "c", seen: 0 })
+    let extraBucket = api.buckets.create({ name: "z", visits: 0 })
+    api.buckets.destroy(extraBucket.id)
+    let extraItem = api.items.create({ bucket: "z", seen: 0 })
+    api.items.destroy(extraItem.id)
     api.tallies.bump(t.id)
     let bumped = api.tallies.getById(t.id)
     expect(bumped.count).toBe(7)

@@ -155,12 +155,96 @@
     {
       "seq": 12,
       "method": "POST",
-      "path": "/api/tallies/{id}/bump",
+      "path": "/api/buckets/{id}/visit",
       "status": 204,
       "body": ""
     },
     {
       "seq": 13,
+      "method": "GET",
+      "path": "/api/buckets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "a",
+        "rowVersion": 4,
+        "visits": 3
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/buckets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/items/{id}/see",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bucket": "a",
+        "id": "<volatile:key>",
+        "rowVersion": 4,
+        "seen": 3
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/items/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/buckets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/buckets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "DELETE",
+      "path": "/api/items/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/tallies/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 23,
       "method": "GET",
       "path": "/api/tallies/{id}",
       "status": 200,
@@ -172,14 +256,14 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 24,
       "method": "POST",
       "path": "/api/tallies/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 25,
       "method": "POST",
       "path": "/api/tallies",
       "status": 201,
@@ -188,14 +272,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 26,
       "method": "DELETE",
       "path": "/api/tallies/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 27,
       "method": "GET",
       "path": "/api/tallies",
       "status": 200,
@@ -215,7 +299,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 28,
       "method": "PATCH",
       "path": "/api/tallies",
       "status": 405,
@@ -229,7 +313,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 29,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -243,7 +327,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 30,
       "method": "POST",
       "path": "/api/tallies",
       "status": 400,
@@ -257,16 +341,16 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 31,
       "method": "POST",
-      "path": "/api/tallies/{id}/bump",
+      "path": "/api/buckets/{id}/visit",
       "status": 404,
       "body": {
         "code": "problem.not-found",
-        "detail": "Tally {id} not found",
-        "instance": "/api/tallies/{id}/bump",
+        "detail": "Bucket {id} not found",
+        "instance": "/api/buckets/{id}/visit",
         "params": {
-          "type": "Counting.Tally"
+          "type": "Counting.Bucket"
         },
         "status": 404,
         "title": "Not Found",
@@ -274,16 +358,16 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 32,
       "method": "POST",
-      "path": "/api/tallies/{id}/bump",
+      "path": "/api/buckets/{id}/visit",
       "status": 404,
       "body": {
         "code": "problem.not-found",
-        "detail": "Tally {id} not found",
-        "instance": "/api/tallies/{id}/bump",
+        "detail": "Bucket {id} not found",
+        "instance": "/api/buckets/{id}/visit",
         "params": {
-          "type": "Counting.Tally"
+          "type": "Counting.Bucket"
         },
         "status": 404,
         "title": "Not Found",
@@ -291,14 +375,14 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 33,
       "method": "POST",
-      "path": "/api/tallies/{id}/bump",
+      "path": "/api/buckets/{id}/visit",
       "status": 415,
       "body": {
         "code": "problem.unsupported-media-type",
         "detail": "Content-Type must be application/json",
-        "instance": "/api/tallies/{id}/bump",
+        "instance": "/api/buckets/{id}/visit",
         "status": 415,
         "title": "Unsupported Media Type",
         "type": "about:blank"
