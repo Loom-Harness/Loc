@@ -288,6 +288,7 @@ promises whatever runs it — compose, the k8s manifests, the Helm chart:
 | Field | Meaning |
 |---|---|
 | `health` | `liveness` (dependency-free), `readiness` (DB-aware) and the `compose` healthcheck endpoint.  The k8s probes and the compose healthcheck read these; nothing in `src/system/` names a path. |
+| `env({ deployable, sys })` | Every variable the deployable's code reads, as `boot` (refuses to start without it), `deploy` (its fallback is right only in the dev compose network) or `optional`.  Compose and the k8s manifests must both wire every `boot` / `deploy` one — `test/platform/env-contract-conformance.test.ts`; the chart's `wiring` block is built from the `deploy` tier. |
 | `healthcheck(port, path)` / `healthcheckBinaries` | The compose `test:` command and the binaries it needs in the runtime image. |
 | `listen` | Address families the listener accepts — `ipv4`, `dual-stack`, or the defect `ipv6-only` (k8s probes dial IPv4). |
 | `log` | `loom-json` (the shared envelope, `docs/observability.md`), `framework-json` or `text`, plus the log-level env var. |

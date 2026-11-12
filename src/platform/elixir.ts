@@ -5,6 +5,7 @@ import { layeredStyleAdapter } from "../generator/elixir/adapters/layered-style.
 import { generateElixirProject } from "../generator/elixir/index.js";
 import { databaseOf } from "../ir/util/databases.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
+import { serviceSlug } from "../util/service-slug.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   BACKEND_HEALTH,
@@ -13,6 +14,7 @@ import {
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
 } from "./operations.js";
+import { backendEnvContract } from "./operations-env.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
 
@@ -89,6 +91,11 @@ const elixirPlatform: PlatformSurface = {
     health: { ...BACKEND_HEALTH, compose: "/health" },
     healthcheck: wgetHealthcheck,
     healthcheckBinaries: ["wget"],
+    env: (args) =>
+      backendEnvContract(
+        args,
+        elixirPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+      ),
     listen: "ipv6-only",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
     broker: BROKER_BASELINE,

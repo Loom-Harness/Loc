@@ -15,6 +15,8 @@
 // bug flips the fact and deletes its gap in the same change.
 // ---------------------------------------------------------------------------
 
+import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
+
 /** The HTTP endpoints the service serves for its orchestrator. */
 export interface HealthEndpoints {
   /** Cheap, dependency-free liveness — a failing DB must not restart the pod. */
@@ -70,6 +72,27 @@ export interface MigrationRunnerFacts {
   readonly multiModule: boolean;
 }
 
+/** How badly a service needs one environment variable.
+ *  - `boot`: the service refuses to start without it (the DB connection, a
+ *    session-signing key, a bound channel's broker URL).
+ *  - `deploy`: the code has a fallback, but the fallback is right only inside
+ *    the dev compose network (an IdP issuer, a sibling api's URL, an SMTP
+ *    host) — every deployment target must wire it.
+ *  - `optional`: a knob with a default that is right everywhere. */
+export type EnvNeed = "boot" | "deploy" | "optional";
+
+/** One environment variable the generated service reads. */
+export interface EnvRequirement {
+  readonly name: string;
+  readonly need: EnvNeed;
+}
+
+/** The deployable an env contract is asked about. */
+export interface EnvContractArgs {
+  readonly deployable: DeployableIR;
+  readonly sys: SystemIR;
+}
+
 /** One platform's operational contract. */
 export interface PlatformOperations {
   readonly health: HealthEndpoints;
@@ -80,6 +103,10 @@ export interface PlatformOperations {
   readonly healthcheckBinaries: readonly string[];
   readonly listen: ListenFamilies;
   readonly log: LogContract;
+  /** Every environment variable the deployable's generated code reads.  The
+   *  conformance test checks compose and the k8s manifests against it: each
+   *  `boot` / `deploy` variable must be wired by both. */
+  env(args: EnvContractArgs): readonly EnvRequirement[];
   /** Present on a backend that emits a broker client. */
   readonly broker?: BrokerResilience;
   /** Present on a backend that migrates a database at boot. */
@@ -110,6 +137,8 @@ export const FRONTEND_OPERATIONS: PlatformOperations = {
   healthcheckBinaries: ["wget"],
   listen: "ipv4",
   log: { format: "text" },
+  // A static bundle reads no runtime env: its api base is baked at build time.
+  env: () => [],
 };
 
 /** The broker facts every backend shares today, and the issues behind the

@@ -1759,7 +1759,10 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   const ops = platform.operations;
   lines.push(`  healthcheck:`);
   lines.push(
-    `    test: [${ops.healthcheck(shape.internalPort, ops.health.compose).map((c) => JSON.stringify(c)).join(", ")}]`,
+    `    test: [${ops
+      .healthcheck(shape.internalPort, ops.health.compose)
+      .map((c) => JSON.stringify(c))
+      .join(", ")}]`,
   );
   lines.push(`    interval: 5s`);
   lines.push(`    timeout: 3s`);

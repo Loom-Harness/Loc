@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // Opt-in k8s/helm deployment artifacts (D-K8S-*; docs/kubernetes.md).
 // `generate system --k8s` emits a Helm chart (helm/) + raw manifests (k8s/)
 // ALONGSIDE the always-present docker-compose.yml.  These tests pin the
@@ -293,5 +294,40 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
       expect(path).not.toContain("-broker.yaml");
     }
     expect(files.get("helm/values.yaml")).not.toContain("brokers:");
+  });
+});
+
+// Deploy-tier env from the operations contract (wiring only — a chart's values
+// and `required` guards are invisible to every compile and boot tier short of a
+// cluster install).  A `use: <Api>` binding is wired to the server's Service; a
+// mailer on a dev sidecar has no in-cluster answer, so the chart refuses to
+// install until the operator sets it.
+function corpusOnNode(name: string): string {
+  return readFileSync(
+    new URL(`../fixtures/corpus/${name}.ddd`, import.meta.url),
+    "utf8",
+  ).replaceAll("__PLATFORM__", "node");
+}
+
+describe("kubernetes / helm — deploy-tier wiring", () => {
+  it("wires a use: <Api> binding to the server's Service", async () => {
+    const files = await filesFor(corpusOnNode("api-call"), true);
+    expect(files.get("k8s/shipping-svc-config.yaml")).toContain(
+      'ORDERS_URL: "http://orders-svc:4000"',
+    );
+    expect(files.get("helm/templates/shipping-svc-config.yaml")).toContain(
+      "ORDERS_URL: {{ .Values.shippingSvc.wiring.ORDERS_URL | quote }}",
+    );
+    expect(files.get("helm/values.yaml")).toMatch(
+      /shippingSvc:[\s\S]*?wiring:[\s\S]*?ORDERS_URL: "http:\/\/orders-svc:4000"/,
+    );
+  });
+
+  it("refuses the install until a sidecar-only endpoint is set", async () => {
+    const files = await filesFor(corpusOnNode("resources"), true);
+    expect(files.get("k8s/d-config.yaml")).toContain('MAIL_URL: ""');
+    expect(files.get("helm/templates/d-config.yaml")).toContain(
+      'MAIL_URL: {{ required "set d.wiring.MAIL_URL" .Values.d.wiring.MAIL_URL | quote }}',
+    );
   });
 });
