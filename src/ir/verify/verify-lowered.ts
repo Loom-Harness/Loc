@@ -846,11 +846,68 @@ function verifyWorkflowBody(
   const report = (kind: LoweringViolationKind, detail: string, origin?: OriginRef) =>
     out.push({ kind, where: scope.where, detail, origin: origin ?? scope.origin });
   const checkExpr = (e: ExprIR) => verifyExpr(e, scope, bindings, report);
+  checkWorkflowBlocks(stmts, report);
   for (const st of all) {
     // A violation inside a statement with no origin of its own points at the statement.
     const at: Report = (kind, detail, origin) => report(kind, detail, origin ?? st.origin);
+    if (st.kind === "expr-let" && st.name === UNLOWERED) {
+      at("unlowered-statement", "a statement lowering has no form for");
+      continue;
+    }
     verifyWorkflowStmt(st, scope, bindings, at);
     walkWorkflowStmtOwnExprsDeep(st, (e) => verifyExpr(e, scope, bindings, at));
   }
   for (const e of exprs) if (e) walkExprDeep(e, checkExpr);
+}
+
+/** The placeholder `let` lowering leaves where a workflow / handler statement
+ *  has no form (`src/ir/lower/lower-workflow.ts`); the IR validator refuses it
+ *  by name, so it must never reach codegen. */
+const UNLOWERED = "__bad__";
+
+/** The statement blocks a workflow statement nests — each its own scope. */
+function workflowChildBlocks(s: WorkflowStmtIR): (readonly WorkflowStmtIR[])[] {
+  switch (s.kind) {
+    case "for-each":
+      return [s.body];
+    case "if-let":
+      return [s.thenBody, s.elseBody ?? []];
+    case "variant-match":
+      return [...s.arms.map((a) => a.body), s.elseBody ?? []];
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "factory-let":
+    case "repo-let":
+    case "expr-let":
+    case "repo-run":
+    case "op-call":
+    case "repo-delete":
+    case "resource-call":
+    case "domain-service-call":
+    case "not-found":
+    case "assign":
+      return [];
+    default: {
+      const _exhaustive: never = s;
+      void _exhaustive;
+      return [];
+    }
+  }
+}
+
+/** No workflow statement block binds one name twice. */
+function checkWorkflowBlocks(block: readonly WorkflowStmtIR[], report: Report): void {
+  const seen = new Set<string>();
+  for (const st of block) {
+    const bound = st.kind === "expr-let" && st.name === UNLOWERED ? undefined : workflowBinding(st);
+    // A `for` / `if let` variable scopes to the nested block, not this one.
+    const blockScoped = st.kind === "for-each" || st.kind === "if-let";
+    if (bound && !blockScoped) {
+      if (seen.has(bound))
+        report("duplicate-let", `\`let ${bound}\` is bound twice in one block`, st.origin);
+      seen.add(bound);
+    }
+    for (const child of workflowChildBlocks(st)) checkWorkflowBlocks(child, report);
+  }
 }
