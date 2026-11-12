@@ -1929,17 +1929,18 @@ if config_env() == :prod do
   # pod's IPv4 address) — but only a kernel with IPv6 can open it: on a host
   # booted without IPv6 the listener fails with eafnosupport, so bind the IPv4
   # wildcard there.
-  bind_ip =
+  # (ipv6_v6only is an IPv6-socket option: on the IPv4 bind it is einval.)
+  {bind_ip, bind_opts} =
     if File.exists?("/proc/net/if_inet6"),
-      do: {0, 0, 0, 0, 0, 0, 0, 0},
-      else: {0, 0, 0, 0}
+      do: {{0, 0, 0, 0, 0, 0, 0, 0}, [ipv6_v6only: false]},
+      else: {{0, 0, 0, 0}, []}
 
   config :${appName}, ${appModule}Web.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       ip: bind_ip,
       port: port,
-      thousand_island_options: [transport_options: [ipv6_v6only: false]]
+      thousand_island_options: [transport_options: bind_opts]
     ],
     secret_key_base: secret_key_base
 
