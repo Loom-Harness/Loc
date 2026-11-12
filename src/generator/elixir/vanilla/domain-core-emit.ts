@@ -14,13 +14,8 @@ import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
 import { walkTestStmtExprsDeep } from "../../../ir/util/walk.js";
-import {
-  elixirLocal,
-  elixirString,
-  escapeElixirIdent,
-  snake,
-  upperFirst,
-} from "../../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -199,7 +194,7 @@ export function renderAggregatePureCore(
           .filter((p) =>
             createBodyStatements(agg).some((st) => st.kind !== "emit" && stmtUsesParam(st, p.name)),
           )
-          .map((p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`),
+          .map((p) => `${DOMAIN_NAMES.elixir.binding(p.name)} = record.${snake(p.name)}`),
         ...createBodyStatements(agg).flatMap((st) => {
           if (st.kind === "precondition") {
             return [
@@ -207,7 +202,7 @@ export function renderAggregatePureCore(
             ];
           }
           if (st.kind === "let")
-            return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+            return [`${DOMAIN_NAMES.elixir.binding(st.name)} = ${renderExpr(st.expr, bodyRc)}`];
           return [];
         }),
       ]
@@ -410,7 +405,7 @@ function renderPureFunction(
     ...(struct.docStruct ? { docStruct: true } : {}),
   };
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? DOMAIN_NAMES.elixir.binding(p.name) : `_${snake(p.name)}`,
   );
   // Same rule the facade copy applies to its receiver: a body that never reads
   // the struct (`function inList(q: int): int { let xs = [q, 2, 3] … }`) must
@@ -459,7 +454,8 @@ function renderPureOp(
   const paramsArg = usedParams.length > 0 ? "params" : "_params";
   const guard = usedParams.length > 0 ? " when is_map(params)" : "";
   const paramBinds = usedParams.map(
-    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) =>
+      `    ${DOMAIN_NAMES.elixir.binding(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   // The `when` STATE GATE, ahead of the body exactly as the persisting
   // `<op>_<agg>` checks it first (`ensure(<when>, {:disallowed, …})`).  The
@@ -618,7 +614,7 @@ function renderEsPureSteps(
 ): string[] {
   const out: string[] = [];
   forEachEsCoreStmt(stmts, {
-    let: (s) => out.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+    let: (s) => out.push(`    ${DOMAIN_NAMES.elixir.binding(s.name)} = ${renderExpr(s.expr, rc)}`),
     guard: (s) => {
       const line = guard(s);
       if (line) out.push(line);
@@ -656,7 +652,7 @@ function renderEsPureCreate(
     .filter((p) => create.statements.some((s) => stmtUsesParam(s, p.name)))
     .map(
       (p) =>
-        `    ${escapeElixirIdent(snake(p.name))} = Map.get(attrs, :${snake(p.name)}, Map.get(attrs, ${JSON.stringify(p.name)}))`,
+        `    ${DOMAIN_NAMES.elixir.binding(p.name)} = Map.get(attrs, :${snake(p.name)}, Map.get(attrs, ${JSON.stringify(p.name)}))`,
     );
   const lets: string[] = [];
   const guards: string[] = [];
@@ -679,7 +675,8 @@ function renderEsPureCreate(
     }
   } else {
     forEachEsCoreStmt(create.statements, {
-      let: (s) => lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+      let: (s) =>
+        lets.push(`    ${DOMAIN_NAMES.elixir.binding(s.name)} = ${renderExpr(s.expr, rc)}`),
       guard: (s) => guards.push(guardClause(s)),
       emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
       if: () => {},
@@ -732,7 +729,8 @@ function renderEsPureOp(
   const rc: RenderCtx = { thisName: "state", contextModule: facadeMod };
   const used = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
   const reads = used.map(
-    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) =>
+      `    ${DOMAIN_NAMES.elixir.binding(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   const body: string[] = [];
   const events: string[] = [];
@@ -746,7 +744,8 @@ function renderEsPureOp(
     );
   } else {
     forEachEsCoreStmt(op.statements, {
-      let: (s) => body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+      let: (s) =>
+        body.push(`    ${DOMAIN_NAMES.elixir.binding(s.name)} = ${renderExpr(s.expr, rc)}`),
       guard: (s) => body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule)),
       emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
       if: () => {},
