@@ -95,6 +95,9 @@ const elixirPlatform: PlatformSurface = {
       backendEnvContract(
         args,
         elixirPlatform.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+        // Ecto's pool size; MIX_ENV / MIX_TEST_PARTITION are Mix's own (the
+        // release runs `prod`; the partition only shards `mix test`).
+        ["POOL_SIZE", "MIX_ENV", "MIX_TEST_PARTITION"],
       ),
     listen: "ipv6-only",
     log: { format: "loom-json", levelEnv: "LOG_LEVEL" },

@@ -14,7 +14,7 @@ import {
 } from "../generator/_channels/bindings.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
-import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
+import { resourceEnvBase, resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import type { EnvContractArgs, EnvRequirement } from "./operations.js";
 import type { ComposeServiceShape } from "./surface.js";
@@ -64,6 +64,28 @@ function resourceEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
   return out;
 }
 
+/** The per-resource overrides a resource client reads beside its URL, each
+ *  with the model's value as its default: an object store's bucket / region,
+ *  a mailer's sender, a REST api's base URL. */
+function resourceKnobs({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
+  const out: EnvRequirement[] = [];
+  for (const name of deployable.dataSourceNames) {
+    const r = sys.dataSources.find((x) => x.name === name);
+    if (!r) continue;
+    const base = resourceEnvBase(r.name);
+    const names =
+      r.kind === "objectStore"
+        ? [`${base}_URL_BUCKET`, `${base}_URL_REGION`]
+        : r.kind === "mailer"
+          ? [`${base}_URL`, `${base}_FROM`]
+          : r.kind === "api" || r.kind === "queue"
+            ? [`${base}_URL`]
+            : [];
+    for (const n of names) out.push({ name: n, need: "optional" });
+  }
+  return out;
+}
+
 /** The env contract of a backend deployable: the platform's own variables
  *  (its `composeService` env — the DB connection and the backend-declared
  *  secrets are `boot`, the rest optional knobs) plus the feature variables
@@ -71,6 +93,7 @@ function resourceEnv({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
 export function backendEnvContract(
   args: EnvContractArgs,
   shape: ComposeServiceShape,
+  platformKnobs: readonly string[] = [],
 ): EnvRequirement[] {
   const secrets = new Set(shape.secretEnvKeys ?? []);
   const own: EnvRequirement[] = shape.env.map(([name, value]) => ({
@@ -86,12 +109,25 @@ export function backendEnvContract(
     "PORT",
     "CORS_ORIGIN",
     "LOOM_SEED",
+    "LOOM_OPENAPI_UI",
+    "LOOM_OUTBOX_RETENTION_DAYS",
+    // The test-reset hook: off unless LOOM_TEST_RESET=1, then token-gated.
+    "LOOM_TEST_RESET",
+    "LOOM_TEST_RESET_TOKEN",
     SECURE_TRANSPORT_ENV,
     OTEL_SERVICE_NAME_ENV,
     OTEL_ENDPOINT_ENV,
+    ...platformKnobs,
   ].map((name) => ({ name, need: "optional" }));
   const byName = new Map<string, EnvRequirement>();
-  for (const e of [...own, ...channels, ...oidcEnv(args), ...resourceEnv(args), ...knobs]) {
+  for (const e of [
+    ...own,
+    ...channels,
+    ...oidcEnv(args),
+    ...resourceEnv(args),
+    ...resourceKnobs(args),
+    ...knobs,
+  ]) {
     if (!byName.has(e.name)) byName.set(e.name, e);
   }
   return [...byName.values()];

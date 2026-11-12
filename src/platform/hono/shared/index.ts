@@ -79,6 +79,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         backendEnvContract(
           args,
           surface.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+          ["NODE_ENV"],
         ),
       listen: "dual-stack",
       log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
