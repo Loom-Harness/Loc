@@ -447,17 +447,20 @@ function assembleChain(
       if (step.kind === "let") flat.push(`${step.pattern} = ${step.expr}`);
     }
   }
+  // One entry per physical line, so the caller's indent nests a multi-line
+  // link (a nested loop or branch) under the block it sits in.
+  const physical = (lines: string[]): string[] => lines.flatMap((l) => l.split("\n"));
   if (!body.some((step) => step.kind === "clause" || step.kind === "fail")) {
-    return [...flat, result];
+    return physical([...flat, result]);
   }
-  return [
+  return physical([
     `with ${links.join(",\n     ")} do`,
     ...effects.map((l) => `  ${l}`),
     `  ${result}`,
     `else`,
     `  err -> ${wrapErr("err")}`,
     `end`,
-  ];
+  ]);
 }
 
 /** `:ok <- (if <cond>, do: :ok, else: {:error, <denial>})` — a guard whose
@@ -511,12 +514,16 @@ function elixirWorkflowTarget(
     // op's handle is rebound to the saved record it returns when a later read
     // needs it: that record carries the version the write moved it to, and a
     // second op on the stale handle would be a self-inflicted conflict.  A
-    // returning op's `{:ok, value}` is its result, so its handle stays.
+    // handle a loop body carries is read again by the next iteration, so it is
+    // rebound too, and the loop threads it out (`forEach`).  A returning op's
+    // `{:ok, value}` is its result, so its handle stays.
     opCall: (st, scope) => {
       const call = opCallSource(st, renderCtx, contextModule, ctx);
       const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
       const rebind =
-        op !== undefined && !op.returnType && bindUsedLater(st.target, scope.rest, scope.trailing);
+        op !== undefined &&
+        !op.returnType &&
+        (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing));
       const handle = escapeElixirIdent(snake(st.target));
       return [
         {
@@ -671,19 +678,47 @@ function elixirWorkflowTarget(
 
     // `for x in xs { … }` → `Enum.reduce_while`: each iteration continues on
     // success and halts with the first failure, which threads up the chain.
-    forEach: (st, _scope, body) => {
+    // A handle bound outside the loop that the body rebinds (an op on it
+    // persists and returns the saved record) rides the accumulator, so the
+    // next iteration — and the statements after the loop — see the record as
+    // the last iteration saved it, not as it was loaded.
+    forEach: (st, outer, body) => {
       const loopVar = bindUsedLater(st.var, body.stmts)
         ? escapeElixirIdent(snake(st.var))
         : `_${snake(st.var)}`;
-      const lines = assembleChain(body.steps, "{:cont, {:ok, nil}}", (err) => `{:halt, ${err}}`);
+      const rebound = new Set(
+        body.steps.flatMap((s) => [
+          ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
+          ...(s.kind === "clause" ? (s.rebinds ?? []) : []),
+        ]),
+      );
+      const threaded = [...body.carried]
+        .map((name) => ({ name, ident: escapeElixirIdent(snake(name)) }))
+        .filter((t) => rebound.has(t.ident));
+      const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
+      const lines = assembleChain(
+        body.steps,
+        threaded.length > 0 ? `{:cont, {:ok, ${acc}}}` : "{:cont, {:ok, nil}}",
+        (err) => `{:halt, ${err}}`,
+      );
+      // After the loop a threaded handle stays bound when something reads it
+      // again — a later statement, or the next iteration of an enclosing loop
+      // — and is discarded otherwise.
+      const kept = threaded.filter(
+        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
+      );
+      const outAcc = `{${threaded
+        .map((t) => (kept.includes(t) ? t.ident : `_${snake(t.name)}`))
+        .join(", ")}}`;
+      const head =
+        threaded.length > 0
+          ? `{:ok, ${outAcc}} <- Enum.reduce_while(${expr(st.iterable)}, {:ok, ${acc}}, fn ${loopVar}, {:ok, ${acc}} ->`
+          : `{:ok, _} <- Enum.reduce_while(${expr(st.iterable)}, {:ok, nil}, fn ${loopVar}, _acc ->`;
       return [
         {
           kind: "clause",
-          text: [
-            `{:ok, _} <- Enum.reduce_while(${expr(st.iterable)}, {:ok, nil}, fn ${loopVar}, _acc ->`,
-            ...lines.map((l) => `           ${l}`),
-            `         end)`,
-          ].join("\n"),
+          text: [head, ...lines.map((l) => `           ${l}`), `         end)`].join("\n"),
+          ...(kept.length > 0 ? { rebinds: kept.map((t) => t.ident) } : {}),
         },
       ];
     },

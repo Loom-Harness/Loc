@@ -1,4 +1,5 @@
 import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
+import { namesBound, namesUsed } from "../../ir/plan/index.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
   type WriteScopeContext,
@@ -325,8 +326,10 @@ function renderWorkflowStmtOwn(
 /** One lowered statement fragment in a binding chain. */
 export type PipelineStep =
   /** A fallible link: its failure short-circuits the chain.  `bindName` is the
-   *  name it binds, when the chain may answer it as its result. */
-  | { kind: "clause"; text: string; bindName?: string }
+   *  name it binds, when the chain may answer it as its result; `rebinds` are
+   *  names already in scope that it binds again (a loop threading the handles
+   *  its body updated back out). */
+  | { kind: "clause"; text: string; bindName?: string; rebinds?: readonly string[] }
   /** An infallible binding.  Inside a chain it is a link that always matches;
    *  in a body with no fallible link it is a plain sequential binding. */
   | { kind: "let"; pattern: string; expr: string; bindName?: string }
@@ -347,12 +350,21 @@ export interface PipelineScope {
   /** True when this statement's binding is not the chain's result slot, so an
    *  unread binding may be discarded. */
   readonly discardableBind: boolean;
+  /** Inside a loop body: the names the body reads that are bound outside it
+   *  (not the loop variable, not a binding of the body).  A value such a name
+   *  holds must outlive the iteration — a mutation of it is read again by the
+   *  next one — so a target that rebinds rather than mutates threads it
+   *  through the loop.  Empty outside a loop body. */
+  readonly carried: ReadonlySet<string>;
 }
 
-/** A nested body: its statements and the steps the spine lowered them to. */
+/** A nested body: its statements, the steps the spine lowered them to, and
+ *  the names they carry across iterations (`PipelineScope.carried`; empty for
+ *  a body that is not a loop body). */
 export interface PipelineBody {
   readonly stmts: readonly WorkflowStmtIR[];
   readonly steps: PipelineStep[];
+  readonly carried: ReadonlySet<string>;
 }
 
 export interface WorkflowPipelineTarget {
@@ -448,24 +460,36 @@ export function lowerWorkflowPipeline(
       rest: stmts.slice(i + 1),
       trailing,
       discardableBind: i !== opts.resultSlot,
+      carried: NONE_CARRIED,
     }),
   );
 }
 
+const NONE_CARRIED: ReadonlySet<string> = new Set();
+
 function lowerPipelineBody(
   stmts: readonly WorkflowStmtIR[],
   target: WorkflowPipelineTarget,
+  carried: ReadonlySet<string> = NONE_CARRIED,
 ): PipelineBody {
   return {
     stmts,
+    carried,
     steps: stmts.flatMap((st, i) =>
       lowerPipelineStmt(st, target, {
         rest: stmts.slice(i + 1),
         trailing: [],
         discardableBind: true,
+        carried,
       }),
     ),
   };
+}
+
+/** The names a loop body reads that are bound outside it. */
+function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
+  const local = new Set([st.var, ...namesBound([st.body])]);
+  return new Set([...namesUsed(st.body)].filter((n) => !local.has(n)));
 }
 
 function lowerPipelineStmt(
@@ -501,7 +525,7 @@ function lowerPipelineStmt(
     case "not-found":
       return target.notFound(st, scope);
     case "for-each":
-      return target.forEach(st, scope, lowerPipelineBody(st.body, target));
+      return target.forEach(st, scope, lowerPipelineBody(st.body, target, loopCarried(st)));
     case "if-let":
       return target.ifLet(
         st,

@@ -1,0 +1,104 @@
+// shape: a workflow loop whose body mutates an aggregate loaded OUTSIDE the
+// loop, once per iteration, inside a nested loop.
+//
+// `tallyAll` walks every bucket, and for each bucket every item, and bumps the
+// one `Tally` it loaded before the loops.  Each bump must see the previous
+// one: the tally ends at the number of items visited, not at 1.
+//
+// Two hazards, both on a backend that rebinds instead of mutating in place:
+//   - the per-iteration bump persists and returns the saved record; an
+//     iteration that keeps the record as it was LOADED saves over the previous
+//     iteration's write (a lost update, or a version conflict on a versioned
+//     aggregate), so the handle must ride the loop's accumulator;
+//   - a nested loop body whose op result nothing reads must not bind a name
+//     (`mix compile --warnings-as-errors` fails on an unused variable).
+system WorkflowLoopCarried {
+  subdomain Counting {
+    context Counting {
+      aggregate Tally with crudish {
+        label: string
+        count: int
+        operation bump() { count := count + 1 }
+      }
+      aggregate Bucket with crudish {
+        name: string
+        visits: int
+        operation visit() { visits := visits + 1 }
+      }
+      aggregate Item with crudish {
+        bucket: string
+        seen: int
+        operation see() { seen := seen + 1 }
+      }
+      repository Tallies for Tally { }
+      repository Buckets for Bucket { }
+      repository Items for Item { }
+      criterion AnyBucket of Bucket = visits >= 0
+      criterion InBucket(b: string) of Item = bucket == b
+
+      workflow tallyAll {
+        create(tally: Tally id) {
+          let t = Tallies.get(tally)
+          let rows = Buckets.all(AnyBucket, sort: [name asc], page: { offset: 0, limit: 100 })
+          for b in rows {
+            b.visit()
+            let members = Items.all(InBucket(b.name), page: { offset: 0, limit: 100 })
+            for i in members {
+              i.see()
+              t.bump()
+            }
+          }
+        }
+      }
+    }
+  }
+
+  api CountingApi from Counting
+  storage primary { type: postgres }
+  resource countingState { for: Counting, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Counting]
+    dataSources: [countingState]
+    serves: CountingApi
+    port: 4000
+  }
+
+  test e2e "a loop body's mutation of an outer aggregate carries across iterations" against d {
+    let t = api.tallies.create({ label: "all", count: 0 })
+    api.buckets.create({ name: "a", visits: 0 })
+    api.buckets.create({ name: "b", visits: 0 })
+    api.items.create({ bucket: "a", seen: 0 })
+    api.items.create({ bucket: "a", seen: 0 })
+    api.items.create({ bucket: "b", seen: 0 })
+
+    api.tallyAll.run({ tally: t.id })
+
+    // Three items visited: the tally saw every bump, not just the last one.
+    let tallied = api.tallies.getById(t.id)
+    expect(tallied.count).toBe(3)
+    // Each loop variable's own mutation persisted once.
+    let buckets = api.buckets.all()
+    expect(buckets.items.length).toBe(2)
+    expect(buckets.items.first().visits).toBe(1)
+    let items = api.items.all()
+    expect(items.items.length).toBe(3)
+    expect(items.items.first().seen).toBe(1)
+
+    // A second run keeps counting from the saved value.
+    api.tallyAll.run({ tally: t.id })
+    let again = api.tallies.getById(t.id)
+    expect(again.count).toBe(6)
+
+    // The rest of the derived surface, so every route the fixture serves has
+    // a caller.
+    api.tallies.bump(t.id)
+    let bumped = api.tallies.getById(t.id)
+    expect(bumped.count).toBe(7)
+    api.tallies.update(t.id, { label: "renamed", count: 7 })
+    let spare = api.tallies.create({ label: "spare", count: 0 })
+    api.tallies.destroy(spare.id)
+    let tallies = api.tallies.all()
+    expect(tallies.total).toBe(1)
+  }
+}

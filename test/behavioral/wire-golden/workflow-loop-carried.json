@@ -1,0 +1,308 @@
+{
+  "case": "workflow-loop-carried",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/tallies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/buckets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/buckets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/workflows/tally_all",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "count": 3,
+        "id": "<volatile:key>",
+        "label": "all",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/buckets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rowVersion": 2,
+            "visits": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rowVersion": 2,
+            "visits": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/items",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "bucket": "a",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "seen": 1
+          },
+          {
+            "bucket": "a",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "seen": 1
+          },
+          {
+            "bucket": "b",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "seen": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/workflows/tally_all",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "count": 6,
+        "id": "<volatile:key>",
+        "label": "all",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/tallies/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "count": 7,
+        "id": "<volatile:key>",
+        "label": "all",
+        "rowVersion": 4
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/tallies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/tallies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "DELETE",
+      "path": "/api/tallies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/tallies",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "count": 7,
+            "id": "<volatile:key>",
+            "label": "renamed",
+            "rowVersion": 5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 18,
+      "method": "PATCH",
+      "path": "/api/tallies",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/tallies",
+        "instance": "/api/tallies",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/tallies",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/tallies",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/tallies/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Tally {id} not found",
+        "instance": "/api/tallies/{id}/bump",
+        "params": {
+          "type": "Counting.Tally"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/tallies/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Tally {id} not found",
+        "instance": "/api/tallies/{id}/bump",
+        "params": {
+          "type": "Counting.Tally"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/tallies/{id}/bump",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/tallies/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
