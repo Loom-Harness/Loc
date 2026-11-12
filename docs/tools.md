@@ -1622,8 +1622,21 @@ LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 (and the censuses); gat
 LOOM_SKIP_PUSH_CENSUS=1 git push …      # skips only the censuses
 ```
 
+**Docs-only branches skip the code gates.** When every file the branch changes
+against its merge base with `origin/main` is prose (`docs/`, a `*.md` file,
+`LICENSE*`), the typecheck and the code censuses cannot fail, so the hook runs
+only the two censuses that scan every tracked text file
+(`conflict-marker-census`, `nul-byte-census`). Any other path counts as code.
+`LOOM_PREFLIGHT_TRACE=1` prints which gate set a push gets. Census tests run
+with a 120 s per-test timeout, since a whole-tree scan can outlast vitest's
+30 s default on a loaded machine.
+
+**A deny skips the whole Bash call.** Every step chained before the push
+(`edit && commit && push`) did not run either, and the deny reason says so.
+
 **Cost, measured:** ~51 s for the typecheck gates on a warm `node_modules`,
-plus ~85–100 s for the censuses on 4 cores; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
+plus ~85–100 s for the censuses on 4 cores (~130 s in all on a code branch);
+~4 s on a docs-only branch; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
 `EXIT` trap — top-level rather than function-scoped `RETURN`, because the deny
 path `exit`s the script and an `exit` from inside a function never runs that
 function's `RETURN` trap.
