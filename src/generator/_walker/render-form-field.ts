@@ -4,6 +4,7 @@
 // core: the function is pack-driven (each design pack supplies the
 // `field-input-*` templates), so it carries no framework specifics.
 
+import type { ArrayInputRenderer } from "../_frontend/form-array-input.js";
 import type { OptionalGroupRenderer } from "../_frontend/form-optional-group.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 import type { LoadedPack } from "../_packs/loader.js";
@@ -41,6 +42,26 @@ export function renderFormField(
           )
         : childrenHtml;
     return pack.render(vm.template, { ...vm, ...chrome, ...tokens, innerHtml });
+  }
+  if (vm.arrayInput && chrome.arrayInput) {
+    const a = vm.arrayInput;
+    const enumLabel = tokens.enumLabelFn;
+    const optionsTs =
+      a.kind === "enum"
+        ? `(${a.valuesJson} as const).map((v) => ({ value: v, label: ${enumLabel ? `(${enumLabel})(v)` : "v"} }))`
+        : a.kind === "ref"
+          ? `(${a.optionsExpr}).map((o) => ({ value: o.id, label: ${a.hasDisplay ? "o.display" : "o.id"} }))`
+          : undefined;
+    return chrome.arrayInput({
+      path: vm.path,
+      testId: vm.testId,
+      label: vm.label,
+      ...(tokens.labelExpr ? { labelExpr: tokens.labelExpr } : {}),
+      input:
+        optionsTs !== undefined
+          ? { kind: "choice", optionsTs }
+          : { kind: "scalar", element: a.kind === "scalar" ? a.element : "string" },
+    });
   }
   if (vm.elementName !== undefined) {
     const addItemLabel =
@@ -80,4 +101,7 @@ export interface FormFieldChrome {
   fieldTokens?: (vm: FormFieldVM) => Record<string, string>;
   /** The active framework's opt-in group for an optional value object. */
   optionalGroup?: OptionalGroupRenderer;
+  /** The active framework's collection input for a scalar / enum / reference
+   *  collection. */
+  arrayInput?: ArrayInputRenderer;
 }

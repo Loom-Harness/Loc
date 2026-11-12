@@ -190,9 +190,32 @@ export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
     ...valueObjectVM(f, c),
     optionalGroup: { zeroTs: initialValueTs(unwrapOpt(f.type), c.ctx, false) },
   }),
-  scalarArray: arrayStubVM,
-  enumArray: arrayStubVM,
-  refArray: arrayStubVM,
+  scalarArray: (f, c) => ({
+    ...base(c),
+    template: "field-input-array",
+    arrayInput: { kind: "scalar", element: f.elementKind ?? "string" },
+  }),
+  enumArray: (f, c) =>
+    f.enumValues
+      ? {
+          ...base(c),
+          template: "field-input-array",
+          arrayInput: { kind: "enum", valuesJson: JSON.stringify(f.enumValues) },
+        }
+      : arrayStubVM(f, c),
+  refArray: (f, c) => {
+    const target = f.picker ? c.aggregatesByName.get(f.picker.target) : undefined;
+    if (!target) return arrayStubVM(f, c);
+    return {
+      ...base(c),
+      template: "field-input-array",
+      arrayInput: {
+        kind: "ref",
+        optionsExpr: idSelectOptionsExpr(idTargetHookVar(target), target.name, c.bcByAggregate),
+        hasDisplay: !!target.displayDerived,
+      },
+    };
+  },
   objectArray: (f, c) => objectArrayVM(f, c),
 };
 
