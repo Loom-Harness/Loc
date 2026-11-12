@@ -21,6 +21,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
+import { csCalendarDateTryParseExact } from "./codec-spelling.js";
 import { CS, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -174,6 +175,7 @@ function buildFluentRules(
   for (const inv of remaining) {
     collectCsExprUsings(inv.expr, usings, ns);
     if (inv.guard) collectCsExprUsings(inv.guard, usings, ns);
+    dateLocal = 0;
     const predicate = renderFluentPredicate(inv.expr);
     const ruled = inv.guard
       ? `!(${renderFluentPredicate(inv.guard)}) || (${predicate})`
@@ -561,7 +563,7 @@ function renderFluentPredicate(e: ExprIR): string {
     case "binary": {
       const left = renderFluentPredicate(e.left);
       const right = renderFluentPredicate(e.right);
-      if (isWireDateOrdering(e)) return `string.CompareOrdinal(${left}, ${right}) ${e.op} 0`;
+      if (isWireDateOrdering(e)) return wireDateOrdering(left, e.op, right);
       return `${left} ${e.op} ${right}`;
     }
     case "ternary":
@@ -609,14 +611,27 @@ type Lit = ExprIR & { kind: "literal" };
 
 const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
 
+/** Locals the current predicate's date parses bind; reset per rule so the
+ *  emitted names are stable. */
+let dateLocal = 0;
+
+/** Both wire dates parsed through the calendar-date codec, then compared with
+ *  the native `DateOnly` operator.  `TryParse`, not `ParseExact`: the rule runs
+ *  BEFORE the request mapping's parse guard, so a malformed value must not
+ *  throw here (a 500) — the rule does not judge it, and the guard answers the
+ *  typed 422. */
+function wireDateOrdering(left: string, op: string, right: string): string {
+  const l = `__d${dateLocal++}`;
+  const r = `__d${dateLocal++}`;
+  return `(!(${csCalendarDateTryParseExact(left, l)} & ${csCalendarDateTryParseExact(right, r)}) || ${l} ${op} ${r})`;
+}
+
 /** True for an ordering comparison of `date` operands that reads a
  *  value-object field.  A VO invariant is judged on the `<VO>Request` record,
  *  whose `date` members are the wire STRING (parsed to `DateOnly` only after
- *  validation), and C# has no `>` over strings (CS0019).  A wire date is
- *  exactly `yyyy-MM-dd`, so ordinal order IS calendar order — the same
- *  comparison node makes on its ISO strings; a malformed value is refused by
- *  the request mapping's own parse guard.  A command's `date` members are
- *  already `DateOnly`, so its comparisons keep the native operator. */
+ *  validation), and C# has no `>` over strings (CS0019).  A command's `date`
+ *  members are already `DateOnly`, so its comparisons keep the native
+ *  operator. */
 function isWireDateOrdering(e: Extract<ExprIR, { kind: "binary" }>): boolean {
   if (!ORDERING_OPS.has(e.op)) return false;
   const isDate = (t: TypeIR | undefined): boolean => {
