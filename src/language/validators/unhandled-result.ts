@@ -31,6 +31,7 @@ import {
 import { typeToString } from "../type-system.js";
 import { typingFor } from "../typing/shared.js";
 import type { Ty } from "../typing/ty.js";
+import { modelContents } from "./model-contents.js";
 
 function exempt(node: AstNode): boolean {
   return (
@@ -75,7 +76,7 @@ function isRead(let_: LetStmt): boolean {
 }
 
 export function checkUnhandledResults(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isAssignOrCallStmt(node) && !node.op && node.target.call) {
       if (exempt(node)) continue;
       const result = typingFor(node).lvalueCallResultAt(node.target);

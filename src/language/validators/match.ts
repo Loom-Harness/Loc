@@ -23,9 +23,10 @@ import {
   type StringLit,
   type TestE2E,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkMatchExpressions(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "MatchExpr") continue;
     const m = node as MatchExpr;
     const isVariant = !!m.subject;
@@ -84,7 +85,7 @@ function subjectIsCall(subject: Expression): boolean {
  *  Walks every MemberSuffix in the model (post-grammar-flatten, calls
  *  on a receiver are MemberSuffix nodes with `call: true`). */
 export function checkMatcherArity(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (!ms.call) continue;
@@ -137,7 +138,7 @@ function isNegated(expr: Expression): boolean {
  *  is therefore valid only in a `test e2e` block and must be an integer
  *  literal so the e2e renderer can translate it into a `/→ N\b/` matcher. */
 export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isExpectStmt(node)) continue;
     const stmt = node as ExpectStmt;
     const matcher = trailingMatcher(stmt.expr);
@@ -298,7 +299,7 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
  *  it.  That is the "validates clean, then means something else" shape this
  *  repo refuses; name it at the author's own source span instead. */
 export function checkThrowKindPlacement(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (!ms.throwKind || ms.member === "toThrow") continue;
@@ -351,7 +352,7 @@ function lowersToUiSpec(block: TestE2E): boolean {
 }
 
 export function checkMatchesCalls(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isMemberSuffix(node)) continue;
     const ms = node as MemberSuffix;
     if (ms.member !== "matches" || !ms.call) continue;

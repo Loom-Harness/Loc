@@ -35,6 +35,7 @@ import {
   type Model,
   type System,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkTenancyDecls(system: System, accept: ValidationAcceptor): void {
   const decls = system.members.filter(isTenancyDecl);
@@ -74,7 +75,7 @@ export function checkTenancyDecls(system: System, accept: ValidationAcceptor): v
 // ---------------------------------------------------------------------------
 
 export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isNameRef(node) || node.name !== ORG_CONTEXT_ACCESSOR) continue;
     const chain = node.$container;
     const first = isPostfixChain(chain) && chain.head === node ? chain.suffixes[0] : undefined;
@@ -129,7 +130,7 @@ export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor)
 // ---------------------------------------------------------------------------
 
 export function checkRemovedPolicyLevels(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPolicyReadRule(node) || node.effect !== "allow") continue;
     if (node.level === undefined || node.level === "local" || node.level === "own") continue;
     const verb = node.verb ? `${node.verb} ` : "";

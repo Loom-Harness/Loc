@@ -26,9 +26,10 @@ import {
   isTypeRef,
 } from "../generated/ast.js";
 import { admittedPositionsText, positionRule, typeRefPosition } from "../type-positions.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkUnions(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isTypeRef(node) && node.alternatives.length > 0) {
       // The anonymous `or` form: head atom + each alternative.
       checkVariants([node, ...node.alternatives], accept);
@@ -81,7 +82,7 @@ function isErrorAtom(a: TypeRef | TypeAtom): boolean {
   if (ref?.ref) return isPayloadDecl(ref.ref) && ref.ref.kind === "error";
   const name = ref?.$refText;
   if (!name) return false;
-  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(a))) {
+  for (const n of modelContents(AstUtils.findRootNode(a))) {
     if (isPayloadDecl(n) && n.kind === "error" && n.name === name) return true;
   }
   return false;

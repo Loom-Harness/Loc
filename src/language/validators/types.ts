@@ -88,6 +88,7 @@ import {
   envForPart,
   isInfallibleConversion,
 } from "./_shared.js";
+import { modelContents } from "./model-contents.js";
 import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 
 // ---------------------------------------------------------------------------
@@ -145,7 +146,7 @@ function inFrontendDecl(node: AstNode): boolean {
 }
 
 export function checkBinaryOperands(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isBinaryChain(node)) continue;
     checkSingleBinaryOperands(node, accept);
   }
@@ -160,7 +161,7 @@ export function checkBinaryOperands(model: Model, accept: ValidationAcceptor): v
  *  diagnostic at the member position pointing the author at the
  *  type mistake. */
 export function checkSlotMemberAccess(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
     const env = envForNode(chain);
@@ -230,7 +231,7 @@ function enumValuesByName(root: AstNode): Map<string, Set<string>> {
   let index = ENUM_VALUES_BY_ROOT.get(root);
   if (!index) {
     index = new Map();
-    for (const n of AstUtils.streamAllContents(root)) {
+    for (const n of modelContents(root)) {
       if (!isEnumDecl(n)) continue;
       const values = index.get(n.name) ?? new Set<string>();
       for (const v of n.values) values.add(v.name);
@@ -242,7 +243,7 @@ function enumValuesByName(root: AstNode): Map<string, Set<string>> {
 }
 
 export function checkUnknownMemberAccess(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
     // `organizationContext.<m>` — the operating-scope accessor's surface is
@@ -483,7 +484,7 @@ const AVG_NUMERIC_PRIMITIVES: ReadonlySet<string> = new Set(["int", "long", "dec
  *     (`min`/`max`/`sortBy`/…), `avg` has no renderable page-body form.
  *  Fail-open on an `unknown` λ-body (an upstream checker already reported it). */
 export function checkAvgProjection(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
     const env = envForNode(chain);
@@ -596,7 +597,7 @@ function checkValueObjectEquals(
  *  rule for every member); its arity and arguments are not judged here too,
  *  so the site carries one diagnostic. */
 export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const chain = node as PostfixChain;
     const env = envForNode(chain);
@@ -752,7 +753,7 @@ function isRegistryIdTy(t: Ty, from: AstNode): boolean {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind !== "id") return false;
   const root = AstUtils.findRootNode(from);
-  for (const node of AstUtils.streamAllContents(root)) {
+  for (const node of modelContents(root)) {
     if (isTenancyDecl(node)) return node.registry?.$refText === inner.name;
   }
   return false;
@@ -788,7 +789,7 @@ function shadowedEnumCase(
 function shadowingDeclKind(node: AstNode, name: string): string {
   const root = AstUtils.getContainerOfType(node, isBoundedContext) ?? AstUtils.findRootNode(node);
   if (!root) return "declaration";
-  for (const n of AstUtils.streamAllContents(root)) {
+  for (const n of modelContents(root)) {
     if (isCriterion(n) && n.name === name) return "criterion";
     if (isPolicyDecl(n) && n.name === name) return "policy function";
     if (isFunctionDecl(n) && n.name === name) return "function";
@@ -926,7 +927,7 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
 // checker (unknown name / member) has already reported those.
 // ---------------------------------------------------------------------------
 export function checkTernaryExprs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isTernaryExpr(node)) continue;
     checkSingleTernary(node as TernaryExpr, accept);
   }
@@ -979,7 +980,7 @@ export function checkSingleTernary(node: TernaryExpr, accept: ValidationAcceptor
 // annotation when reading code.
 // ---------------------------------------------------------------------------
 export function checkPrimitiveConversions(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "PrimitiveConversion") continue;
     checkSinglePrimitiveConversion(node as PrimitiveConversion, accept);
   }
@@ -1267,7 +1268,7 @@ function unaddressableIndex(root: AstNode): ReadonlyMap<string, string> {
     if (typeof name === "string" && !index.has(name)) index.set(name, kind);
   };
   add(root);
-  for (const node of AstUtils.streamAllContents(root)) add(node);
+  for (const node of modelContents(root)) add(node);
   unaddressableIndexCache.set(root, index);
   return index;
 }

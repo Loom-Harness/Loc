@@ -25,6 +25,7 @@ import {
   isObjectLit,
   isSeed,
 } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 /** The `tenantOwned` prelude capability (src/macros/prelude.ts).  Spelled here
  *  rather than imported from `src/ir/util/tenant-stance.ts`: `language/` knows
@@ -40,7 +41,7 @@ function capabilitiesOf(agg: Aggregate): readonly string[] {
 }
 
 export function checkSeeds(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isSeed(node)) checkSeed(node, accept);
     if (isBoundedContext(node)) checkDatasetNameCollisions(node, accept);
   }

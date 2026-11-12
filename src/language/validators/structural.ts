@@ -58,6 +58,7 @@ import {
   typeToString,
 } from "../type-system.js";
 import { canPromoteLiteralTo, envForAggregate, envForPart, envForValueObject } from "./_shared.js";
+import { modelContents } from "./model-contents.js";
 import {
   checkConstructionArgTypes,
   checkCreate,
@@ -85,7 +86,7 @@ import {
  *  emitters throw on it.  Flag the misuse at parse time with the
  *  same precision as `checkTypeReferences`. */
 export function checkSlotTypePosition(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "SlotType") continue;
     // SlotType lives inside a TypeRef which lives inside the
     // declaring node (Parameter / Property / etc.).  Walk one level
@@ -110,7 +111,7 @@ export function checkSlotTypePosition(model: Model, accept: ValidationAcceptor):
  *  callback's argument type (`action(Order)`) additionally may not
  *  itself be a `slot` / `action` (no higher-order nesting in v1). */
 export function checkActionTypePosition(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "ActionType") continue;
     const a = node as import("../generated/ast.js").ActionType;
     const typeRef = a.$container;
@@ -138,7 +139,7 @@ export function checkActionTypePosition(model: Model, accept: ValidationAcceptor
 }
 
 export function checkTypeReferences(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (node.$type !== "NamedType") continue;
     // Only fire on storage/wire-data positions — Property fields,
     // event/storage UserFields, and operation/function/page Parameters.
@@ -228,7 +229,7 @@ export function checkTypeReferences(model: Model, accept: ValidationAcceptor): v
 export function checkAmbiguousPartRefs(model: Model, accept: ValidationAcceptor): void {
   // Index every entity part by bare name → the aggregates that own one.
   const ownersByName = new Map<string, Set<string>>();
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isEntityPart(node)) continue;
     const owner = AstUtils.getContainerOfType(node, isAggregate);
     const bucket = ownersByName.get(node.name) ?? new Set<string>();
@@ -236,7 +237,7 @@ export function checkAmbiguousPartRefs(model: Model, accept: ValidationAcceptor)
     ownersByName.set(node.name, bucket);
   }
 
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isIdType(node)) continue;
     const target = node.target?.ref;
     if (!target || !isEntityPart(target)) continue;
@@ -266,7 +267,7 @@ export function checkAmbiguousPartRefs(model: Model, accept: ValidationAcceptor)
 // the error names the kind the user actually wrote rather than reporting an
 // unresolved reference.
 export function checkIdTargets(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isIdType(node)) continue;
     const target = node.target?.ref;
     // Unresolved: the linker already reports it.

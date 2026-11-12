@@ -4,7 +4,7 @@
 // A repository declares no reads of its own (D-FINDDECL-REMOVED): a leftover
 // `find` in a repository body is a parse error (`parse-errors.ts`).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type Expression,
@@ -15,6 +15,7 @@ import {
   type Projection,
 } from "../generated/ast.js";
 import { envForNode, typeOf, typeToString } from "../type-system.js";
+import { modelContents } from "./model-contents.js";
 
 /** A read-path `requires <expr>` authorization gate must type to bool, exactly
  *  like the operation / workflow `requires` clause (`statements.ts` /
@@ -42,7 +43,7 @@ function checkGateIsBool(
 const POLICY_RULE_HEADS: ReadonlySet<string> = new Set(["allow", "deny", "read"]);
 
 export function checkReadGates(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     // Read-path `requires` gate bool check — the policy read gate
     // (`policy { read X requires … }`) and the query-time projection gate,
     // the read-side twins of the operation gate.

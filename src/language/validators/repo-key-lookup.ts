@@ -29,6 +29,7 @@ import {
   type Repository,
 } from "../generated/ast.js";
 import { declaredKeyTuples } from "../repo-key-tuples.js";
+import { modelContents } from "./model-contents.js";
 
 /** The tuple to suggest for a call naming `names`: the one sharing the most
  *  columns, else the one whose spelling is closest. */
@@ -53,7 +54,7 @@ function argSpelling(cols: readonly string[]): string {
 }
 
 export function checkRepoKeyLookups(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPostfixChain(node) || !isNameRef(node.head) || node.suffixes.length !== 1) continue;
     const s = node.suffixes[0]!;
     if (!isMemberSuffix(s) || !s.call) continue;

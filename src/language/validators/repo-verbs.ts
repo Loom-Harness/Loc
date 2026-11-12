@@ -60,6 +60,7 @@ import {
 } from "../generated/ast.js";
 import { classifyRepoArg, queryNamesOf, queryRefOf } from "../repo-query-arg.js";
 import { typingFor } from "../typing/shared.js";
+import { modelContents } from "./model-contents.js";
 
 /** The bounded context whose repositories (and, in a context `test`, whose
  *  aggregates) a receiver name resolves against. */
@@ -210,7 +211,7 @@ function checkCall(
 }
 
 export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (isPostfixChain(node)) {
       const s = node.suffixes[0];
       if (!isNameRef(node.head) || !s || !isMemberSuffix(s) || !s.call) {

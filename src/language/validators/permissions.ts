@@ -13,12 +13,13 @@
 // rejected: it simply means the two grant each other, and the closure
 // computation (`src/ir/util/permission-closure.ts`) is cycle-safe.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isSubdomain, type Model } from "../generated/ast.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkPermissionImplies(model: Model, accept: ValidationAcceptor): void {
-  for (const sub of AstUtils.streamAllContents(model)) {
+  for (const sub of modelContents(model)) {
     if (!isSubdomain(sub)) continue;
     // The subdomain's full permission catalogue (across all its blocks).
     const declared = new Set<string>();

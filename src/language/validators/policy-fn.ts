@@ -48,6 +48,7 @@ import {
   qualifiedOutOfScopePolicyCall,
 } from "../typing/qualified-policy.js";
 import { typingFor } from "../typing/shared.js";
+import { modelContents } from "./model-contents.js";
 
 /** A function-form policy declaration is the one with a `returnType`; a
  *  block-form `policy {}` (read ladder) has none. */
@@ -64,7 +65,7 @@ function returnsBool(fn: PolicyDecl): boolean {
 }
 
 export function checkPolicyFns(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isPolicyFn(node)) continue;
     checkOnePolicyFn(node, accept);
   }
@@ -133,7 +134,7 @@ function participatesInCycle(start: PolicyDecl, byName: Map<string, PolicyDecl>)
  *  resolves to a policy function (a parameterised one referenced bare is an
  *  arity error — it must be called). */
 function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     // Call form: `X(args)` — head NameRef + leading CallSuffix.
     if (isPostfixChain(node)) {
       const head = node.head;
