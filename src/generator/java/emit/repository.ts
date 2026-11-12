@@ -2,6 +2,7 @@ import { readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -552,9 +553,13 @@ export function renderJavaSpringDataRepository(
     // A first-match read may match many rows, which a single-entity @Query
     // answers with IncorrectResultSizeDataAccessException; it pages one row
     // in id order instead and the impl takes the head.
-    if (f.takeFirst) {
+    const firstMatch = singleReadOrder(f);
+    if (firstMatch) {
+      const order = firstMatch
+        .map((t) => (t.direction === "asc" ? `e.${t.field}` : `e.${t.field} desc`))
+        .join(", ");
       return [
-        `    @${QUERY}("select e from ${agg.name} e${where} order by e.id")`,
+        `    @${QUERY}("select e from ${agg.name} e${where} order by ${order}")`,
         `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
@@ -825,7 +830,7 @@ export function renderJavaRepositoryImpl(
       `    @Override`,
       `    public ${sig} {`,
       ...wrapBypass(findBypass, [
-        f.takeFirst
+        singleReadOrder(f)
           ? `        var result = jpa.${f.name}(${[args, `${PAGE_REQUEST}.of(0, 1)`].filter(Boolean).join(", ")}).stream().findFirst().orElse(null);`
           : `        var result = jpa.${f.name}(${args});`,
         findExecutedLog(f, rowsExpr),

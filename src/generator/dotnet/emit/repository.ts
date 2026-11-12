@@ -25,7 +25,7 @@ import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
-import { domainFindShape, inMemoryOrderByClauseFor } from "../find-emit.js";
+import { domainFindShape, inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
@@ -177,6 +177,7 @@ export function renderRepositoryImpl(
     name: string;
     ignoreClause: string;
     filterClause: string;
+    orderClause?: string;
     projectionClause: string;
   }>,
   options?: {
@@ -328,7 +329,7 @@ export function renderRepositoryImpl(
     // capability filter(s) never compose into this read.
     const ignore = body?.ignoreClause ?? "";
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
-    const projection = body?.projectionClause ?? `.ToListAsync(${ct})`;
+    const projection = `${body?.orderClause ?? ""}${body?.projectionClause ?? `.ToListAsync(${ct})`}`;
     const usesUser = findUsesCurrentUser(f);
     // The method's own locals yield (`__`-prefixed) to a same-named find param
     // (CS0136) — only on a collision, so every other model is byte-identical.
@@ -348,12 +349,8 @@ export function renderRepositoryImpl(
         .filter((wf) => wf !== "id")
         .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
         .join(", ");
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map(
-          (t, i) =>
-            `.${i === 0 ? (t.direction === "desc" ? "OrderByDescending" : "OrderBy") : t.direction === "desc" ? "ThenByDescending" : "ThenBy"}(e => e.${upperFirst(t.field)})`,
-        )
-        .join("");
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms ? renderCsOrderTerms(declaredTerms, "e") : undefined;
       const orderExpr = (asc: boolean): string =>
         `_db.${readSet}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [

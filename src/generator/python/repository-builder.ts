@@ -1,10 +1,16 @@
-import { readFilterRestrictions, readScopeFor, readSortFor } from "../../ir/enrich/read-scope.js";
+import {
+  type ReadOrderTerm,
+  readFilterRestrictions,
+  readScopeFor,
+  readSortFor,
+} from "../../ir/enrich/read-scope.js";
 import {
   forApiRead,
   type WireMaskPlan,
   wireFieldsFor,
   wireMaskPlan,
 } from "../../ir/enrich/wire-projection.js";
+import { singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
   type AssociationIR,
@@ -439,6 +445,11 @@ export function buildPyRepositoryFile(
 
 // --- finds -------------------------------------------------------------------
 
+/** `Row.col.asc(), …` — a list of order terms over the row class's columns. */
+function pyOrderTerms(root: string, terms: readonly ReadOrderTerm[]): string {
+  return terms.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`).join(", ");
+}
+
 /** The method behind a widened single-row read (`find(C) ignoring …` /
  *  `find(id) ignoring …` / `findBy(…) ignoring …`) — derived in enrichment,
  *  never route-exposed, called from workflow / handler / service bodies. */
@@ -492,9 +503,8 @@ export function relationalFindMethod(
     const sortMap = sortableFields(agg)
       .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
-    const declaredOrder = defaultSortOrder(find.defaultSort)
-      ?.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`)
-      .join(", ");
+    const declaredTerms = defaultSortOrder(find.defaultSort);
+    const declaredOrder = declaredTerms ? pyOrderTerms(root, declaredTerms) : undefined;
     return lines(
       `    async def ${pythonIdent(find.name)}(${sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
       "        offset = (page - 1) * page_size",
@@ -534,9 +544,11 @@ export function relationalFindMethod(
   }
   // A natural-key `getBy` answers the find-absence 404, never a `None`.
   const raises = findRaisesNotFound(find);
+  const firstMatch = singleReadOrder(find);
+  const orderBy = firstMatch ? `.order_by(${pyOrderTerms(root, firstMatch)})` : "";
   return lines(
     `    async def ${pythonIdent(find.name)}(${sig}) -> ${aggRef(agg)}${raises ? "" : " | None"}:`,
-    `        row = (await self._session.execute(${R.select}(${root})${where})).scalars().first()`,
+    `        row = (await self._session.execute(${R.select}(${root})${where}${orderBy})).scalars().first()`,
     findExecutedLine(agg, find.name, "0 if row is None else 1"),
     "        if row is None:",
     raises

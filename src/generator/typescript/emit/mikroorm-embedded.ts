@@ -55,7 +55,12 @@ import { rowClassOf } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
-import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
+import {
+  maskUserImport,
+  mikroFindOneOptions,
+  tsParamType,
+  usesRawFragment,
+} from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
 // Embedded-shape (`shape: embedded`) MikroORM repository.  The queryable
@@ -279,7 +284,7 @@ export function renderMikroEmbeddedRepository(
     return lines(
       `  async ${name}(${params}): Promise<${optional ? `${agg.name} | null` : agg.name}> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, mikroFindOneOptions(f, ignoring))});`,
       optional
         ? `    if (row === null) return null;`
         : `    if (row === null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
