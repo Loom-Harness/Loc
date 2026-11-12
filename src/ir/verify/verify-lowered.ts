@@ -234,6 +234,18 @@ function collectBindings(
   return b;
 }
 
+/** True when the body binds `name` — a parameter, a `let`, a lambda parameter,
+ *  a match-arm binding or an `exists` row. */
+function isBound(name: string, scope: BodyScope, b: Bindings): boolean {
+  return (
+    scope.params.has(name) ||
+    b.lets.has(name) ||
+    b.lambdas.has(name) ||
+    b.matchBindings.has(name) ||
+    b.rows.has(name)
+  );
+}
+
 /** Every expression reachable from `s`, nested blocks and lambda bodies included. */
 function walkStmtExprs(s: StmtIR, visit: (e: ExprIR) => void): void {
   walkStmtsDeep(s, (st) => walkStmtChildren(st, (e) => walkExprShallowDeep(e, visit)));
@@ -262,8 +274,14 @@ function verifyBody(
     out.push({ kind, where: scope.where, detail, origin: origin ?? scope.origin });
   const checkExpr = (e: ExprIR) => verifyExpr(e, scope, bindings, report);
   for (const s of stmts) {
-    walkStmtsDeep(s, (st) => verifyStmt(st, scope, report));
-    walkStmtExprs(s, checkExpr);
+    walkStmtsDeep(s, (st) => {
+      // A violation inside a statement with no origin of its own points at the statement.
+      const at: Report = (kind, detail, origin) => report(kind, detail, origin ?? st.origin);
+      verifyStmt(st, scope, at);
+      walkStmtChildren(st, (e) =>
+        walkExprShallowDeep(e, (x) => verifyExpr(x, scope, bindings, at)),
+      );
+    });
   }
   checkDuplicateLets(stmts, report);
   for (const e of exprs) if (e) walkExprDeep(e, checkExpr);
@@ -730,6 +748,42 @@ function verifyWorkflow(wf: WorkflowIR, index: ContextIndex, out: LoweringViolat
   }
 }
 
+function verifyWorkflowStmt(
+  st: WorkflowStmtIR,
+  scope: BodyScope,
+  b: Bindings,
+  report: Report,
+): void {
+  switch (st.kind) {
+    case "assign":
+      verifyAssignTarget(st.target.segments, scope, report, st.origin);
+      return;
+    case "op-call":
+      if (!isBound(st.target, scope, b))
+        report("ref-unresolved", `\`${st.target}.${st.op}(…)\` targets no binding`, st.origin);
+      return;
+    case "precondition":
+    case "requires":
+    case "emit":
+    case "factory-let":
+    case "repo-let":
+    case "expr-let":
+    case "repo-run":
+    case "repo-delete":
+    case "for-each":
+    case "resource-call":
+    case "domain-service-call":
+    case "if-let":
+    case "not-found":
+    case "variant-match":
+      return;
+    default: {
+      const _exhaustive: never = st;
+      void _exhaustive;
+    }
+  }
+}
+
 /** The name a workflow statement binds for the statements after it, if any. */
 function workflowBinding(s: WorkflowStmtIR): string | undefined {
   switch (s.kind) {
@@ -793,10 +847,10 @@ function verifyWorkflowBody(
     out.push({ kind, where: scope.where, detail, origin: origin ?? scope.origin });
   const checkExpr = (e: ExprIR) => verifyExpr(e, scope, bindings, report);
   for (const st of all) {
-    if (st.kind === "assign") verifyAssignTarget(st.target.segments, scope, report, st.origin);
-    if (st.kind === "op-call" && !bindings.lets.has(st.target) && !scope.params.has(st.target))
-      report("ref-unresolved", `\`${st.target}.${st.op}(…)\` targets no binding`, st.origin);
-    walkWorkflowStmtOwnExprsDeep(st, checkExpr);
+    // A violation inside a statement with no origin of its own points at the statement.
+    const at: Report = (kind, detail, origin) => report(kind, detail, origin ?? st.origin);
+    verifyWorkflowStmt(st, scope, bindings, at);
+    walkWorkflowStmtOwnExprsDeep(st, (e) => verifyExpr(e, scope, bindings, at));
   }
   for (const e of exprs) if (e) walkExprDeep(e, checkExpr);
 }

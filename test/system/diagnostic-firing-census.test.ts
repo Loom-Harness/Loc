@@ -2662,6 +2662,9 @@ system S {
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
   "loom.precondition-not-bool": orderOps("operation p() { precondition name }"),
   "loom.assign-to-derived": orderOps('operation p() { label := "x" }'),
+  // A write whose head is a parameter lowers to a path rooted at a member that
+  // does not exist; the post-lowering verifier refuses it.
+  "loom.ir-ill-formed": orderOps("operation p(n: int) { n := 2 }"),
   "loom.assign-type-mismatch": orderOps("operation p() { name := 1 }"),
   "loom.collection-mutation-non-collection": orderOps('operation p() { name += "x" }'),
   "loom.collection-mutation-element-type": orderOps("operation p() { tags += 1 }"),
