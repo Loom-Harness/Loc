@@ -10,7 +10,7 @@ import {
   wireFieldsFor,
   wireMaskPlan,
 } from "../../ir/enrich/wire-projection.js";
-import { singleReadOrder } from "../../ir/plan/index.js";
+import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
   type AssociationIR,
@@ -368,13 +368,13 @@ export function buildPyRepositoryFile(
         "        offset = (page - 1) * page_size",
         `        _sort_columns = {${allSortMap}}`,
         `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-        '        _order = _sort_attr.desc() if dir == "desc" else _sort_attr.asc()',
+        `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
         "        total = (",
         `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${allWhere})`,
         "        ).scalar_one()",
         "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
         "        rows = (",
-        `            await self._session.execute(${R.select}(${root})${allWhere}.order_by(_order).limit(page_size).offset(offset))`,
+        `            await self._session.execute(${R.select}(${root})${allWhere}.order_by(*_order).limit(page_size).offset(offset))`,
         "        ).scalars().all()",
         `        items = ${hydrateListExpr(agg)}`,
         findExecutedLine(agg, "all", "total"),
@@ -514,11 +514,11 @@ export function relationalFindMethod(
             // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
             "        _sort_key = _sort_columns.get(sort)",
-            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(),) if _sort_key is not None else (${declaredOrder},)`,
+            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
           ]
         : [
             `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-            '        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(),)',
+            `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
           ]),
       `        total = (`,
       `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${where})`,

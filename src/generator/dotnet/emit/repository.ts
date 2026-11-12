@@ -1,6 +1,6 @@
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
-import { foldedEventNames } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, foldedEventNames } from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -352,7 +352,7 @@ export function renderRepositoryImpl(
       const declaredTerms = defaultSortOrder(f.defaultSort);
       const declaredOrder = declaredTerms ? renderCsOrderTerms(declaredTerms, "e") : undefined;
       const orderExpr = (asc: boolean): string =>
-        `_db.${readSet}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
+        `_db.${readSet}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))${renderCsOrderTerms(clientSortTieBreak(), "e", true)}`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",

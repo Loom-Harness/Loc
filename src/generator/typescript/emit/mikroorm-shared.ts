@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------
 
 import type { ReadOrderTerm } from "../../../ir/enrich/read-scope.js";
-import { singleReadOrder } from "../../../ir/plan/index.js";
+import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -93,4 +93,13 @@ export function mikroFindOneOptions(f: FindIR, ignoring: string | null): string 
   const order = singleReadOrder(f);
   const opts = [order ? mikroOrderBy(order) : null, ignoring].filter((o) => o);
   return opts.length > 0 ? `{ ${opts.join(", ")} }` : null;
+}
+
+/** The `orderBy` array entries a page sorted by the caller's `?sort=` key
+ *  takes after that key (`clientSortTieBreak`), one single-key map per term so
+ *  the terms keep their order. */
+export function mikroClientSortTieBreak(): string {
+  return clientSortTieBreak()
+    .map((t) => `{ ${t.field}: "${t.direction}" }`)
+    .join(", ");
 }

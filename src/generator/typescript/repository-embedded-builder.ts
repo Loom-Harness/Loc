@@ -38,6 +38,7 @@ import {
 import {
   combinePredicate,
   contextFilterPredicate,
+  drizzleClientSortTieBreak,
   drizzleOrderBy,
   scopeImportLine,
   writeScopeGuardLines,
@@ -454,7 +455,7 @@ function embeddedFindMethod(
       `    const ${L.countRows} = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
       `    const ${L.total} = Number(${L.countRows}[0]?.value ?? 0);`,
       `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-      `    const rows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${L.orderBy}).limit(pageSize).offset(${L.offset});`,
+      `    const rows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${L.orderBy}, ${drizzleClientSortTieBreak(tableName)}).limit(pageSize).offset(${L.offset});`,
       `    const ${L.items} = rows.map(${mapRow});`,
       `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${L.total}`)}`,
       `    return ${pagedEnvelopeLiteral(L)};`,

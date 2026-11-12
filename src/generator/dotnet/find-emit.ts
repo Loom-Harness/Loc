@@ -189,13 +189,18 @@ function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
 }
 
 /** `.OrderBy(x => x.Col)[.ThenBy…]` for a list of order terms over the
- *  candidate's own columns.  `x` is the lambda parameter. */
-export function renderCsOrderTerms(terms: readonly ReadOrderTerm[], x: string): string {
+ *  candidate's own columns.  `x` is the lambda parameter; `continued` renders
+ *  every term as a `ThenBy`, after an order the query already has. */
+export function renderCsOrderTerms(
+  terms: readonly ReadOrderTerm[],
+  x: string,
+  continued = false,
+): string {
   return terms
     .map((s, i) => {
       const col = upperFirst(s.field);
       const method =
-        i === 0
+        i === 0 && !continued
           ? s.direction === "desc"
             ? "OrderByDescending"
             : "OrderBy"
