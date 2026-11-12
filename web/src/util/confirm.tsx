@@ -23,33 +23,16 @@ import { Box, Button, Group, List, Modal, Stack, Text, TextInput } from "@mantin
 import {
   CONFIRM_IDLE,
   canConfirm,
+  confirmIds,
   confirmReduce,
   type ConfirmSpec,
   type ConfirmState,
+  type ConfirmTestIds,
 } from "./confirm-state";
 
 export type { ConfirmSpec } from "./confirm-state";
 export { confirmSites } from "./confirm-state";
-
-/** Test-id triple for a confirm surface.  `base` alone derives
- *  `${base}-confirm` (the row / modal), `${base}-yes` and `${base}-cancel`;
- *  the overrides exist for the two pre-existing ids specs already use
- *  (`btn-wipe-confirm`, `history-restore-do`). */
-export interface ConfirmTestIds {
-  base: string;
-  root?: string;
-  yes?: string;
-  cancel?: string;
-}
-
-function ids(t: ConfirmTestIds): { root: string; yes: string; cancel: string; type: string } {
-  return {
-    root: t.root ?? `${t.base}-confirm`,
-    yes: t.yes ?? `${t.base}-yes`,
-    cancel: t.cancel ?? `${t.base}-cancel`,
-    type: `${t.base}-type`,
-  };
-}
+export type { ConfirmTestIds } from "./confirm-state";
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -114,7 +97,7 @@ export function InlineConfirm({
   stacked = false,
   size = "xs",
 }: InlineConfirmProps): JSX.Element {
-  const t = ids(testids);
+  const t = confirmIds(testids);
   // Escape anywhere inside the row cancels — the same key that closes the
   // modal shape, so both shapes answer the same reflex.
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -196,7 +179,7 @@ export interface ConfirmModalProps {
 /** The modal shape.  Owns its type-to-confirm draft (reset on every open) so
  *  callers only hold `opened`. */
 export function ConfirmModal({ opened, spec, onConfirm, onCancel, testids, loading = false }: ConfirmModalProps): JSX.Element {
-  const t = ids(testids);
+  const t = confirmIds(testids);
   const [typed, setTyped] = useState("");
   useEffect(() => {
     if (opened) setTyped("");

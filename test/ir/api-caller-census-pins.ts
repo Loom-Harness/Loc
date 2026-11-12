@@ -770,6 +770,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/workflow-enum-state": [
     "api.review.instance (no such aggregate)",
     "api.review.instances (no such aggregate)",
+    "api.triage.instance (no such aggregate)",
+    "api.triage.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
   // The two `transactional` workflows the domain-service tiers orchestrate —

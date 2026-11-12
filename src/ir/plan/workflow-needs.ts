@@ -6,11 +6,18 @@
 // statements (or `for-each` bodies only) emitted a nested gate that names an
 // unbound `currentUser`, or skipped the audit row of a nested audited call.
 
-import type { BoundedContextIR, WorkflowStmtIR } from "../types/loom-ir.js";
+import {
+  type BoundedContextIR,
+  type CommandHandlerIR,
+  handlerUsesCurrentUser,
+  type QueryHandlerIR,
+  type WorkflowStmtIR,
+} from "../types/loom-ir.js";
+import { workflowNeedsCurrentUser } from "../util/op-gates.js";
 import { walkWorkflowStmtsDeep } from "../util/walk.js";
 import { lookupOp } from "./operation-lookup.js";
 
-export { workflowNeedsCurrentUser } from "../util/op-gates.js";
+export { workflowNeedsCurrentUser };
 
 /** The aggregates whose `audited` (non-extern) operations the body calls
  *  inline, in first-call order.  Non-empty means the body stages
@@ -36,4 +43,16 @@ export function callsAuditedOp(
   statements: readonly WorkflowStmtIR[],
 ): boolean {
   return auditedOpCallAggregates(ctx, statements).size > 0;
+}
+
+/** True when a routed `commandHandler` / `queryHandler` must bind the
+ *  principal: its body or `return` reads `currentUser`, or it calls an
+ *  operation whose hoisted gate or remaining body does (the same reasons a
+ *  workflow does — `workflowNeedsCurrentUser`).  An extern handler has no
+ *  body. */
+export function handlerNeedsCurrentUser(
+  h: CommandHandlerIR | QueryHandlerIR,
+  ctx: Pick<BoundedContextIR, "aggregates">,
+): boolean {
+  return !h.extern && (handlerUsesCurrentUser(h) || workflowNeedsCurrentUser(h, ctx));
 }
