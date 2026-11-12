@@ -2,9 +2,9 @@
 
 How an aggregate changes state: the four action members — `operation` (a mutating method), `create` / `destroy` (lifecycle factory / terminator), and the event-sourcing `apply` fold — plus the statement vocabulary their bodies share (`precondition`, `requires`, `let`, `emit`, `return`, the assignment family `:=` / `+=` / `-=`, and the effect-form `match`). The same statements also fill a page `action` and an application-layer `commandHandler` / `queryHandler`. Reach for it when you need a domain method that validates, mutates, raises an event, or returns a typed outcome.
 
-> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-param-not-a-field` / `loom.create-param-required-omitted` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.target-unsupported#lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-references-op-param` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
+> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`, `IfStmt`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-param-not-a-field` / `loom.create-param-required-omitted` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.target-unsupported#lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-references-op-param` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id` / `loom.if-stmt-page-body-unsupported`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
 
-Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **11 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
+Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **12 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `if`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
 
 ## `operation` — a mutating method
 
@@ -1160,6 +1160,98 @@ end
 ::: end
 
 An `extern` handler keeps the routed dispatch but calls a scaffold-once, user-owned implementation file — see [Externs](21-externs.md) and [`../extern.md`](../extern.md#extern-application-layer-handlers-commandhandler--queryhandler). The scaffold macros `scaffoldApi` / `scaffoldHandlers` unfold this layer for you ([Macros](22-macros.md)).
+
+## `if` — the boolean branch
+
+`if cond { … } [else if cond { … }]* [else { … }]` branches on a boolean expression inside any domain body (an `operation`, `create`, `destroy`, applier, or domain-service body). `else` is optional and `else if` chains. The condition is a full boolean expression except that a form opening its own `{` (a part / value-object construction, an object literal, a `match`) must be parenthesised, or it would claim the `if`'s body block. A `return` inside a branch is an early exit: lowering moves the statements after the `if` into the branch that does not return, so every backend receives each `return` as the last statement of its block. A `ui` body refuses it with `loom.if-stmt-page-body-unsupported` — a page expresses a condition as a value (`cond ? a : b` or `match`).
+
+```ddd
+context Tasks {
+  enum Status { Open, Done, Failed }
+
+  aggregate Task {
+    status: Status
+    attempts: int
+
+    operation finish() {
+      if status == Status.Open {
+        status := Status.Done
+      } else if attempts > 3 {
+        status := Status.Failed
+      } else {
+        attempts := attempts + 1
+      }
+    }
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+if (this._status === Status.Open) {
+  this._status = Status.Done;
+} else {
+  if (this._attempts > 3) {
+    this._status = Status.Failed;
+  } else {
+    this._attempts = ((__v: number): number => { if (__v < -2147483648 || __v > 2147483647) throw DomainError.arithmeticOverflow(); return __v; })(this._attempts + 1);
+  }
+}
+```
+== dotnet
+```csharp
+if (this.Status == Status.Open) {
+    Status = Status.Done;
+} else {
+    if (this.Attempts > 3) {
+        Status = Status.Failed;
+    } else {
+        Attempts = checked(this.Attempts + 1);
+    }
+}
+```
+== java
+```java
+if (this.status == Status.Open) {
+    this.status = Status.Done;
+} else {
+    if (this.attempts > 3) {
+        this.status = Status.Failed;
+    } else {
+        this.attempts = Math.addExact(this.attempts, 1);
+    }
+}
+```
+== python
+```python
+if self._status == Status.Open:
+    self._status = Status.Done
+else:
+    if self._attempts > 3:
+        self._status = Status.Failed
+    else:
+        self._attempts = check_int(self._attempts + 1, -2147483648, 2147483647)
+```
+== elixir
+```elixir
+record = if record.status == :Open do
+  record = %{record | status: :Done}
+  record
+else
+  record = if record.attempts > 3 do
+    record = %{record | status: :Failed}
+    record
+  else
+    record = %{record | attempts: (case record.attempts + 1 do v when v >= -2147483648 and v <= 2147483647 -> v; _ -> raise(E.GuardError, kind: :overflow, message: "Value out of range") end)}
+    record
+  end
+  record
+end
+```
+:::
+
+Each `else if` renders as an `else` wrapping a nested `if` on every target; the elixir tab shows the statement as a rebinding expression because the record is immutable.
 
 ## `for` & `if let` — workflow bodies only
 
