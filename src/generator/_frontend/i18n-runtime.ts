@@ -371,7 +371,13 @@ function formatterFor(locale: string, message: string): IntlMessageFormat {
   return format;
 }
 
-type Values = Record<string, string | number | boolean | Date>;
+/** A decimal.js \`Decimal\` (a \`money\` / \`decimal\` wire value), typed structurally so
+ *  the runtime needs no decimal.js import. */
+interface NumberLike {
+  toNumber(): number;
+}
+
+type Values = Record<string, string | number | boolean | Date | NumberLike>;
 
 /** A \`{x, date}\` / \`{x, time}\` hole formats a \`Date\`, but a wire date or
  *  datetime arrives as its ISO text.  A calendar date (\`YYYY-MM-DD\`) becomes
@@ -381,6 +387,13 @@ type Values = Record<string, string | number | boolean | Date>;
 function formatValues(message: string, values: Values): Values {
   const out: Values = { ...values };
   for (const [k, v] of Object.entries(values)) {
+    if (typeof v === "object" && !(v instanceof Date)) {
+      // A \`money\` / \`decimal\` value is a \`Decimal\`; the numeric holes format a
+      // number, while a plain \`{x}\` hole keeps the Decimal's exact text.
+      const numeric = new RegExp("\\\\{\\\\s*" + k + "\\\\s*,\\\\s*(number|plural|selectordinal)\\\\b").test(message);
+      out[k] = numeric ? v.toNumber() : String(v);
+      continue;
+    }
     if (typeof v !== "string") continue;
     if (!new RegExp("\\\\{\\\\s*" + k + "\\\\s*,\\\\s*(date|time)\\\\b").test(message)) continue;
     const day = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(v);
