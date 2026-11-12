@@ -855,6 +855,9 @@ describe("i18n round trip — the page-level `requires` forbidden view", () => {
       expect(page, `${t.id}: no gated page emitted`).toBeDefined();
       expect(page![1]).toContain("Forbidden");
       expect(page![1]).not.toContain("chrome.forbidden");
+    });
+  }
+});
 
 // --- chrome slots on the JS frontends ----------------------------------------
 
