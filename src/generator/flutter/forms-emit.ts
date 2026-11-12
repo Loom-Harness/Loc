@@ -132,6 +132,7 @@ export type FlutterInputKind =
   | "datetime"
   | "file"
   | "fk-select"
+  | "fk-multi"
   | "scalar-array"
   | "bool-array"
   | "enum-array"
@@ -650,6 +651,21 @@ function flutterScalarArrayArm(_f: FormFieldSpec, c: FlutterArmCtx): FlutterPrep
           kind: "scalar-array",
           elementKind: elemKind,
           elementMoney: isMoney(base.element) || undefined,
+          objectPath: c.objectPath,
+        },
+      ],
+      dropped: [],
+    };
+  }
+  if (elemKind === "fk-select" && base.element.kind === "id") {
+    // A multi-select over the target's runtime-loaded options, loaded exactly
+    // like the single fk-select; the selected ids submit as a `List<String>`.
+    return {
+      fields: [
+        {
+          ...common,
+          kind: "fk-multi",
+          fkCollection: routeSegmentFor(base.element.targetName),
           objectPath: c.objectPath,
         },
       ],
@@ -1344,6 +1360,9 @@ function stateDecls(fields: readonly FlutterFormField[]): string[] {
     } else if (f.kind === "fk-select") {
       out.push(`  String? ${stateId(f.wireName)};`);
       out.push(`  List<Map<String, dynamic>> ${optionsId(f.wireName)} = const [];`);
+    } else if (f.kind === "fk-multi") {
+      out.push(`  final List<String> ${arrayValuesId(f.wireName)} = [];`);
+      out.push(`  List<Map<String, dynamic>> ${optionsId(f.wireName)} = const [];`);
     } else if (f.kind === "scalar-array") {
       out.push(`  final List<TextEditingController> ${arrayCtrlsId(f.wireName)} = [];`);
     } else if (f.kind === "bool-array") {
@@ -1427,6 +1446,11 @@ function recordSeeds(fields: readonly FlutterFormField[]): string[] {
       case "fk-select":
         out.push(`      ${st} = ${v} as String?;`);
         break;
+      case "fk-multi":
+        out.push(
+          `      ${arrayValuesId(f.wireName)}.addAll((${v} as List? ?? const []).map((e) => e.toString()));`,
+        );
+        break;
       case "datetime":
         out.push(`      ${st} = DateTime.tryParse(${v}?.toString() ?? '');`);
         break;
@@ -1470,7 +1494,7 @@ function recordSeeds(fields: readonly FlutterFormField[]): string[] {
  *  loader walks every page of `/<collection>` (`?page=N&pageSize=500` until
  *  `totalPages`; a bare-array read is complete in one request) and stores the rows as the dropdown options. */
 function fkLoaders(fields: readonly FlutterFormField[]): string[] {
-  const fks = fields.filter((f) => f.kind === "fk-select");
+  const fks = fields.filter((f) => f.kind === "fk-select" || f.kind === "fk-multi");
   const seeds = recordSeeds(fields);
   if (fks.length === 0 && seeds.length === 0) return [];
   const out: string[] = [
@@ -1640,6 +1664,7 @@ function fieldValueExpr(f: FlutterFormField): string {
       // live row state.
       return `${arrayValuesId(f.wireName)}.toList()`;
     case "enum-array":
+    case "fk-multi":
       return `${arrayValuesId(f.wireName)}.toList()`;
     case "object-array": {
       const rows = rowsId(f.wireName);
@@ -1910,6 +1935,20 @@ function fieldWidget(f: FlutterFormField): string {
         `${vals}.add(${seed})`,
         `${vals}.removeAt(entry.key)`,
         sentenceText(f.translateMessages === true, sentenceChromeName("addValue", f.jsonKey)),
+      );
+    }
+    case "fk-multi": {
+      const vals = arrayValuesId(f.wireName);
+      const opts = optionsId(f.wireName);
+      const tile =
+        `CheckboxListTile(key: ValueKey('${dartStr(f.jsonKey)}-option-\${o['id']}'), dense: true, controlAffinity: ListTileControlAffinity.leading, ` +
+        `title: Text((o['display'] ?? o['id'] ?? '').toString()), value: ${vals}.contains(o['id']), ` +
+        `onChanged: (v) => setState(() { if (v == true) { if (!${vals}.contains(o['id'])) ${vals}.add(o['id'] as String); } else { ${vals}.remove(o['id']); } }))`;
+      return (
+        `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
+        `Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text(${label}, style: Theme.of(context).textTheme.labelLarge)), ` +
+        `...${opts}.map((o) => ${tile}), ` +
+        `])`
       );
     }
     case "object-array": {

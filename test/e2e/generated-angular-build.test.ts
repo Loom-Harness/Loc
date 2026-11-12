@@ -93,10 +93,9 @@ const SCAFFOLD: Case = {
     'price: new FormControl("0"',
     'inputmode="decimal"',
     // The scalar-array control seeds [] (not null) so `getRawValue()` stays
-    // assignable to `string[]`, and renders the same DISABLED honest-degradation
-    // input the three JSX frontends do rather than an editable box bound to an
-    // array.  Pinning both halves keeps a green `ng build` from hiding the
-    // second one.
+    // assignable to `string[]`, and renders the comma-separated list input that
+    // writes the parsed array back (never a string-writing value accessor).
+    // Pinning both halves keeps a green `ng build` from hiding the second one.
     //
     // Pinned WITH the explicit generic, which is the part that carries the
     // guarantee: `nonNullableTsType` names the element type, so a regression to
@@ -105,7 +104,7 @@ const SCAFFOLD: Case = {
     // spelling — it matched a fix that was superseded, and then matched nothing
     // at all, which this gate only discovered in the merge queue.
     "tags: new FormControl<string[]>([]",
-    "(arrays not yet supported in forms)",
+    "setListItems(",
   ],
   source: `
     system Shop {

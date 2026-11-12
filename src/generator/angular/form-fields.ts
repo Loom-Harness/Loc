@@ -85,7 +85,9 @@ export function idTargetForField(
   bc: BoundedContextIR,
   ctx: WalkContext,
 ): AngularIdTargetSpec | undefined {
-  const inner = unwrapOpt(t);
+  // A reference collection (`Tag id[]`) reads its options from the same query.
+  const unwrapped = unwrapOpt(t);
+  const inner = unwrapped.kind === "array" ? unwrapOpt(unwrapped.element) : unwrapped;
   if (inner.kind !== "id") return undefined;
   const target = resolveIdTarget(inner.targetName, bc, ctx);
   if (!target?.displayDerived) return undefined;
@@ -634,6 +636,57 @@ function angularArrayStub(_f: FormFieldSpec, c: AngularArmCtx): string {
   return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
 }
 
+/** Members the collection inputs call: `setListItems` parses the comma-separated
+ *  text into the control's array; `toggleListItem` adds/removes one choice. */
+export function listInputMethodLines(): string[] {
+  return [
+    '  setListItems(control: AbstractControl | null, text: string, kind: "string" | "number" | "boolean"): void {',
+    "    if (!control) return;",
+    '    const items = text.split(",").map((s) => s.trim()).filter((s) => s !== "");',
+    '    if (kind === "number") control.setValue(items.map(Number).filter((n) => !Number.isNaN(n)));',
+    '    else if (kind === "boolean") control.setValue(items.map((s) => s === "true"));',
+    "    else control.setValue(items);",
+    "  }",
+    "  toggleListItem(control: AbstractControl | null, value: string, event: Event): void {",
+    "    if (!control) return;",
+    "    const current = ((control.value ?? []) as string[]);",
+    "    const on = (event.target as HTMLInputElement).checked;",
+    "    control.setValue(on ? [...current.filter((v) => v !== value), value] : current.filter((v) => v !== value));",
+    "  }",
+  ];
+}
+
+/** A collection field: a CHOICE collection (enum values, references labelled by
+ *  `display`) is a checkbox group, a SCALAR collection one comma-separated text
+ *  input.  Both write the array into the (unbound) control.  Inside a nested
+ *  group (`formVar` unknown) the disabled stub remains. */
+function angularListInput(f: FormFieldSpec, c: AngularArmCtx): string {
+  const { name, t, bc, ctx, testidBase, formVar, label, testid } = c;
+  if (!formVar) return angularArrayStub(f, c);
+  addNg(ctx, "@angular/forms", "AbstractControl");
+  const control = `${formVar}.controls.${name}`;
+  const box = (value: string, text: string): string =>
+    `<label><input type="checkbox" data-testid="${testidBase}-option-${value}" [checked]="(${control}.value ?? []).includes(${JSON.stringify(value).replaceAll('"', "'")})" (change)="toggleListItem(${control}, ${JSON.stringify(value).replaceAll('"', "'")}, $event)" /> ${text}</label>`;
+  if (f.kind === "enumArray" && f.enumValues) {
+    const optionLabels = f.enumName
+      ? enumOptionLabels(ctx, bc, f.enumName, f.enumValues)
+      : undefined;
+    const boxes = f.enumValues
+      .map((v) =>
+        box(v, optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v),
+      )
+      .join("");
+    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>${boxes}</fieldset>`;
+  }
+  const idTarget = f.kind === "refArray" ? idTargetForField(t, bc, ctx) : undefined;
+  if (idTarget) {
+    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>@for (__o of ${idTarget.optionsExpr}; track __o.id) {<label><input type="checkbox" [attr.data-testid]="'${testidBase}-option-' + __o.id" [checked]="(${control}.value ?? []).includes(__o.id)" (change)="toggleListItem(${control}, __o.id, $event)" /> {{ __o.display }}</label>}</fieldset>`;
+  }
+  const el = f.elementKind;
+  const kind = el === "int" || el === "decimal" ? "number" : el === "bool" ? "boolean" : "string";
+  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${testid} [value]="(${control}.value ?? []).join(', ')" (change)="setListItems(${control}, $any($event.target).value, '${kind}')" /></label>`;
+}
+
 function angularEnumInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   const { bc, ctx, label, testid, cn, style, inner } = c;
   if (inner.kind !== "enum") return angularTextInput(_f, c);
@@ -771,9 +824,9 @@ export const ANGULAR_FORM_FIELD_ARMS: FormFieldArms<string, AngularArmCtx> = {
   optionalRef: angularRefInput,
   valueObject: angularTextInput,
   optionalValueObject: angularTextInput,
-  scalarArray: angularArrayStub,
-  enumArray: angularArrayStub,
-  refArray: angularArrayStub,
+  scalarArray: angularListInput,
+  enumArray: angularListInput,
+  refArray: angularListInput,
   objectArray: angularArrayStub,
 };
 
@@ -1261,6 +1314,8 @@ export function partitionAngularFields(
   /** True when any flat field is a `File` — the page-shell emits the shared
    *  `onFileUpload` method once for the component. */
   hasFileField: boolean;
+  /** A flat collection field (the `setListItems` / `toggleListItem` members). */
+  hasListField: boolean;
 } {
   const isArray = (f: { type: TypeIR }) => arrayVoFields(f.type, bc) !== null;
   const isGroup = (f: { type: TypeIR }) => !isArray(f) && voScalarFields(f.type, bc) !== null;
@@ -1401,6 +1456,10 @@ export function partitionAngularFields(
     arrayMarkup,
     fieldGroups,
     groupMarkup,
+    hasListField: flat.some((f) => {
+      const u = unwrapOpt(f.type);
+      return u.kind === "array" && unwrapOpt(u.element).kind !== "valueobject";
+    }),
     hasFileField: flat.some((f) => {
       const u = unwrapOpt(f.type);
       return u.kind === "primitive" && u.name === "File";
