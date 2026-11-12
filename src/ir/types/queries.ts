@@ -87,10 +87,17 @@ export function operationIsGuarded(op: OperationIR): boolean {
   return op.statements.some((s) => s.kind === "requires");
 }
 
-/** True when the workflow has at least one `requires` guard — same 403
- *  contract as a guarded operation. */
+/** True when the workflow has a `requires` guard anywhere in its body — an
+ *  `if let` branch or a `match` arm included — so its route can answer 403,
+ *  the same contract as a guarded operation. */
 export function workflowIsGuarded(wf: WorkflowIR): boolean {
-  return wf.statements.some((s) => s.kind === "requires");
+  let guarded = false;
+  for (const top of wf.statements) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (s.kind === "requires") guarded = true;
+    });
+  }
+  return guarded;
 }
 
 /** True when the workflow's command route can answer the DOMAIN NOT-FOUND rung
