@@ -5,6 +5,9 @@ import {
   namesUsed,
   observableWorkflows,
   refsRead,
+  serviceOpReadPorts,
+  serviceReadPorts,
+  withReadPortRepos,
   workflowIsolation,
   workflowNeedsCurrentUser,
 } from "../../ir/plan/index.js";
@@ -20,7 +23,6 @@ import {
   workflowCanAnswerNotFound,
   workflowIsGuarded,
 } from "../../ir/types/loom-ir.js";
-import { type ReadPort, readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
 import {
   camelId,
@@ -30,7 +32,6 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import {
   walkWorkflowStmtChildren,
-  walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
@@ -317,14 +318,14 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 // parameter per repo it reads; the orchestrating caller constructs each repo
 // handle and passes it ahead of the user args.  Both the call-site prepend
 // (`pyReadPortResolver`) and the repo construction (`mergeReadPortRepos`, over
-// `collectServiceReadPorts`) consume the SAME shared `readPortsForOperation`
+// `serviceReadPorts`) consume the SAME shared `readPortsForOperation`
 // derivation, so they stay in lockstep.  A PURE service call has zero ports →
 // no handle, no `await` → byte-identical.
 //
-// All three are exported: a `workflow` is not the only orchestrator that can
-// call a reading service — an explicit `commandHandler`/`queryHandler` can too,
-// and `explicit-handlers-emit.ts` reads the same three rather than growing a
-// second derivation (M-T5.14's python arm).
+// A `workflow` is not the only orchestrator that can call a reading service —
+// an explicit `commandHandler`/`queryHandler` can too, and
+// `explicit-handlers-emit.ts` reads the same resolver and `serviceReadPorts`
+// rather than growing a second derivation.
 
 /** Build the read-port resolver for a `reading`-tier domain-service call.
  *  Given a `<service>.<op>` call, returns the repository handle var names
@@ -340,44 +341,7 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 export function pyReadPortResolver(
   ctx: EnrichedBoundedContextIR,
 ): (service: string, op: string) => string[] {
-  return (service, op) => {
-    const svc = ctx.domainServices.find((s) => s.name === service);
-    const operation = svc?.operations.find((o) => o.name === op);
-    if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => pythonIdent(p.repo));
-  };
-}
-
-/** Every read-port a workflow's domain-service calls require — the
- *  repositories those services read, so the workflow constructs them even when
- *  its own body never reads that repository directly.  De-duplicated by
- *  repository name across all service calls in the body.
- *
- *  On the SHARED, `never`-checked walker (`ir/util/walk.ts`), like
- *  `refsRead` (`src/ir/plan/`).  The hand-enumerated `switch` it replaced had
- *  no `domain-service-call` arm — the statement form a BARE `Audit.record(s, c)`
- *  lowers to — so a service invoked as a statement (rather than
- *  `let x = Svc.op(…)`) contributed no port.  The call site still rendered the
- *  handle argument (`await record(ledgers, s, code)`), so the route referenced
- *  a repository local it never constructed: ruff F821 → runtime `NameError`.
- *  Only invisible when the service happens to read a repository the workflow
- *  also reads itself. */
-export function collectServiceReadPorts(
-  stmts: readonly WorkflowStmtIR[],
-  ctx: EnrichedBoundedContextIR,
-): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  for (const st of stmts)
-    walkWorkflowStmtExprsDeep(st, (n) => {
-      if (n.kind !== "call" || n.callKind !== "domain-service" || !n.serviceRef) return;
-      const svc = ctx.domainServices.find((s) => s.name === n.serviceRef?.service);
-      const operation = svc?.operations.find((o) => o.name === n.serviceRef?.op);
-      if (!operation) return;
-      for (const p of readPortsForOperation(operation)) {
-        if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-      }
-    });
-  return [...byRepo.values()];
+  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => pythonIdent(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
@@ -390,14 +354,7 @@ function mergeReadPortRepos(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
 ): RepoNeed[] {
-  const seen = new Set(own.map((r) => r.repoName));
-  const out = [...own];
-  for (const port of collectServiceReadPorts(wf.statements, ctx)) {
-    if (seen.has(port.repo)) continue;
-    seen.add(port.repo);
-    out.push({ repoName: port.repo, aggName: port.aggregate });
-  }
-  return out;
+  return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
 /** Names of `let` bindings the emitted body still needs — every `let`

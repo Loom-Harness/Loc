@@ -39,6 +39,7 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
+import { serviceReadPorts } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -111,7 +112,6 @@ import { pySaveRenderer } from "./stamp-call.js";
 import { pyProblemResponseEntry } from "./wire-policy-py.js";
 import {
   collectLiveLetNames,
-  collectServiceReadPorts,
   pyReadPortResolver,
   pyWorkflowStmtTarget,
 } from "./workflows-builder.js";
@@ -429,7 +429,7 @@ function renderHandlerModule(
   // touches, read only through a service port, still needs constructing here.
   // Appended after the handler's own repos, de-duplicated by repo name, so a
   // port-less handler stays byte-identical.
-  for (const port of collectServiceReadPorts(h.statements, ctx)) {
+  for (const port of serviceReadPorts(h.statements, [], ctx)) {
     if (!repos.has(port.repo)) repos.set(port.repo, port.aggregate);
   }
   const dispatcherExpr = dispatcherFor(hasDispatch);

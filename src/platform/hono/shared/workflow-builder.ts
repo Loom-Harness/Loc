@@ -67,7 +67,10 @@ import {
   hasStateRow,
   lookupOp,
   resourceCalls,
+  serviceOpReadPorts,
+  serviceReadPorts,
   subscriptionHandler,
+  withReadPortRepos,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -93,10 +96,6 @@ import {
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
-  type ReadPort,
-  readPortsForOperation,
-} from "../../../ir/util/domain-service-read-ports.js";
-import {
   type EntryResult,
   type EntryResultLeaf,
   entryErrorTags,
@@ -117,12 +116,7 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
-import {
-  walkExprDeep,
-  walkWorkflowStmtExprsDeep,
-  walkWorkflowStmtsDeep,
-  workflowEmits,
-} from "../../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../../ir/util/walk.js";
 import {
   commandCreateEntryResult,
   commandCreateResult,
@@ -3145,60 +3139,7 @@ export function renderExprWithParams(
  *  A pure service op has no ports, so the resolver returns `[]` and the call
  *  renders byte-identically. */
 export function readPortResolver(ctx: BoundedContextIR): (service: string, op: string) => string[] {
-  return (service, op) => {
-    const svc = ctx.domainServices.find((s) => s.name === service);
-    const operation = svc?.operations.find((o) => o.name === op);
-    if (!operation) return [];
-    return readPortsForOperation(operation).map((p) => lowerFirst(p.repo));
-  };
-}
-
-/** Every read-port a workflow's `reading`-tier domain-service calls require —
- *  the repository handles those services read, so the workflow constructs them
- *  (`new <Aggregate>Repository(tx, events)`) even when its own body never reads
- *  that repository directly.  De-duplicated by repository name across all
- *  service calls in the body. */
-function collectServiceReadPorts(wf: WorkflowIR, ctx: BoundedContextIR): ReadPort[] {
-  return serviceReadPorts(wf.statements, [], ctx);
-}
-
-/** The read ports every `reading`-tier domain-service call inside `statements`
- *  (plus any loose `extraExprs`, e.g. a handler's `return` expression) needs.
- *  De-duplicated by repository name.
- *
- *  Split out of `collectServiceReadPorts` so the EXPLICIT-HANDLER route builder
- *  can reuse it: a `commandHandler` / `queryHandler` orchestrates services
- *  exactly as a workflow does, but constructed none of their ports and rendered
- *  its `return` expression without the resolver — so
- *  `return Registration.isHolderFree(holder)` emitted a call that was both
- *  arity-short and un-awaited against an `async isHolderFree(accounts, holder)`
- *  (M-T5.14). */
-function serviceReadPorts(
-  statements: WorkflowStmtIR[],
-  extraExprs: readonly ExprIR[],
-  ctx: BoundedContextIR,
-): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  const visit = (e: ExprIR): void => {
-    if (e.kind !== "call" || e.callKind !== "domain-service" || !e.serviceRef) return;
-    const svc = ctx.domainServices.find((s) => s.name === e.serviceRef?.service);
-    const operation = svc?.operations.find((o) => o.name === e.serviceRef?.op);
-    if (!operation) return;
-    for (const p of readPortsForOperation(operation)) {
-      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-    }
-  };
-  // Ride the sanctioned walkers for BOTH levels (CLAUDE.md "no hand-rolled IR
-  // walks").  The two hand-rolled enumerations this replaced each had holes of
-  // the #2720/M-T6.50 class: the statement-level one carried no arm for
-  // `domain-service-call` / `assign` / `repo-delete` / `repo-run`, and the
-  // expression-level one none for `match` / `list` / `convert` / `duration` /
-  // `i18nFormat` / `authz-filter` / a block-bodied lambda's statements — so a
-  // `reading`-tier service call in any of those slots derived NO read port and
-  // the emitted handler was missing the repository it needs.
-  for (const st of statements) walkWorkflowStmtExprsDeep(st, visit);
-  for (const e of extraExprs) walkExprDeep(e, visit);
-  return [...byRepo.values()];
+  return (service, op) => serviceOpReadPorts(ctx, service, op).map((p) => lowerFirst(p.repo));
 }
 
 /** Merge a workflow's directly-used repos with the read-port repos its
@@ -3211,7 +3152,7 @@ function mergeReadPortRepos(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
 ): { repoName: string; aggName: string }[] {
-  return mergeServiceReadPortRepos(own, collectServiceReadPorts(wf, ctx));
+  return withReadPortRepos(own, serviceReadPorts(wf.statements, [], ctx));
 }
 
 /** The statements-and-expressions form of {@link mergeReadPortRepos}, for the
@@ -3222,21 +3163,7 @@ export function mergeHandlerReadPortRepos(
   extraExprs: readonly ExprIR[],
   ctx: BoundedContextIR,
 ): { repoName: string; aggName: string }[] {
-  return mergeServiceReadPortRepos(own, serviceReadPorts(statements, extraExprs, ctx));
-}
-
-function mergeServiceReadPortRepos(
-  own: { repoName: string; aggName: string }[],
-  ports: readonly ReadPort[],
-): { repoName: string; aggName: string }[] {
-  const seen = new Set(own.map((r) => r.repoName));
-  const out = [...own];
-  for (const port of ports) {
-    if (seen.has(port.repo)) continue;
-    seen.add(port.repo);
-    out.push({ repoName: port.repo, aggName: port.aggregate });
-  }
-  return out;
+  return withReadPortRepos(own, serviceReadPorts(statements, extraExprs, ctx));
 }
 
 export function collectReposForWorkflow(wf: {

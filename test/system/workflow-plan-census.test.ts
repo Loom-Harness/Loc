@@ -80,6 +80,12 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               read" scan.  A diagnostic scan that also pushes a finding is
 //               not a name set and is not flagged.
 //               → use `refsRead` / `namesUsed`.
+//   read-ports  a function or callback that both looks a service operation up
+//               (`.operations.find(…)`) and asks `readPortsForOperation` — the
+//               hand-rolled "which repositories does this service call need"
+//               resolver.
+//               → use `serviceOpReadPorts` / `serviceReadPorts` /
+//               `servicesCalled` / `domainServiceReadPorts`.
 //   guarded     a `wf.statements.some(…)` whose callback is just
 //               `s.kind === "requires"` — the hand-spelled, top-level-only
 //               "can this workflow route answer 403" test.
@@ -178,6 +184,7 @@ interface Violation {
     | "folded-events"
     | "event-log"
     | "refs-read"
+    | "read-ports"
     | "guarded"
     | "sub-handler"
     | "es-shared";
@@ -425,6 +432,37 @@ function scan(file: string): Violation[] {
       out.push({ rule: "durable", where: at(n), text: n.getText(sf) });
     }
     if (
+      (ts.isFunctionDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n)) &&
+      n.body
+    ) {
+      // Only the innermost function that does both: an enclosing function is
+      // not flagged again for its nested resolver.
+      let lookup = false;
+      let ports = false;
+      const look = (m: ts.Node): void => {
+        if (m !== n && (ts.isFunctionLike(m) || ts.isArrowFunction(m))) return;
+        if (
+          ts.isCallExpression(m) &&
+          ts.isPropertyAccessExpression(m.expression) &&
+          m.expression.name.text === "find" &&
+          /\boperations\??$/.test(m.expression.expression.getText(sf))
+        ) {
+          lookup = true;
+        }
+        if (
+          ts.isCallExpression(m) &&
+          ts.isIdentifier(m.expression) &&
+          m.expression.text === "readPortsForOperation"
+        ) {
+          ports = true;
+        }
+        ts.forEachChild(m, look);
+      };
+      ts.forEachChild(n.body, look);
+      if (lookup && ports)
+        out.push({ rule: "read-ports", where: at(n), text: "service-op port lookup" });
+    }
+    if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       n.expression.text === "resolveWorkflowIsolation"
@@ -611,6 +649,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-scans a body for the names it reads (use refsRead / namesUsed)", () => {
     const hits = violations.filter((v) => v.rule === "refs-read");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-resolves a service call's read ports (use serviceOpReadPorts / serviceReadPorts / servicesCalled)", () => {
+    const hits = violations.filter((v) => v.rule === "read-ports");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
