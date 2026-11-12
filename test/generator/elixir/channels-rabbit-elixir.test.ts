@@ -113,6 +113,15 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     expect(consumer).toContain('List.keyfind(headers, "x-loom-attempts", 0)');
     expect(consumer).toContain("AMQP.Basic.reject(chan, meta.delivery_tag, requeue: false)");
     expect(consumer).toContain('"channel_dead_lettered"');
+    // String-tier wiring claim (the booted broker leg proves the behaviour): the
+    // retry republishes through `loom.dlx` under the queue's retry key, which the
+    // generated ACL grants, and the group queue is bound to that key.
+    expect(consumer).toContain(
+      ':ok = AMQP.Queue.bind(chan, queue, "loom.dlx", routing_key: "loom.retry." <> queue)',
+    );
+    expect(consumer).toContain(
+      'AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,',
+    );
     // The consumer does NOT host the durable channel's context: no outbox
     // tier — broker ack semantics carry the redelivery contract (the
     // slice-3 stance; elixir saga last_event_id dedup is the documented

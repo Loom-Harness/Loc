@@ -1357,6 +1357,10 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
       )
 
     :ok = AMQP.Queue.bind(chan, queue, address)
+    # The retry route: \`loom.dlx\` hands a message published under
+    # \`loom.retry.<queue>\` back to this queue (the broker ACL grants
+    # \`loom.dlx\`, not the default exchange).
+    :ok = AMQP.Queue.bind(chan, queue, "loom.dlx", routing_key: "loom.retry." <> queue)
     {:ok, tag} = AMQP.Basic.consume(chan, queue)
     %{tag => {address, queue, chan}}
   end
@@ -1401,7 +1405,7 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
         # Bounded retry: republish with the attempt header and ack the
         # original (immediate nack-requeue would hot-loop).
         :ok =
-          AMQP.Basic.publish(chan, "", queue, payload,
+          AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,
             persistent: true,
             content_type: "application/json",
             headers: retry_headers(meta.headers, attempts)
