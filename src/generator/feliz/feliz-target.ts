@@ -14,6 +14,7 @@ import { enumPool } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { apiReadMemberType } from "../_frontend/optional-member.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -1263,7 +1264,23 @@ export const felizTarget: WalkerTarget = {
    *  falls through `undefined` and is emitted unchanged.  F-022. */
   escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
 
-  renderMemberRead: ({ receiver, member }) => {
+  renderMemberRead: ({ receiver, member, receiverType, receiverExpr, ctx }) => {
+    // An OPTIONAL value-object receiver (`vehicle: Vehicle?` is an F# `option`)
+    // has no fields: read through the option and fall back to the field type's
+    // zero value, so the cell renders empty rather than failing to compile.
+    const optional =
+      receiverType?.kind === "optional"
+        ? receiverType
+        : receiverExpr && ctx
+          ? apiReadMemberType(receiverExpr, ctx)
+          : undefined;
+    if (optional?.kind === "optional") {
+      const fieldType =
+        optional.inner.kind === "valueobject" && ctx
+          ? optionalVoFieldType(optional.inner.name, member, ctx)
+          : undefined;
+      return `(match ${receiver} with Some __o -> __o.${fsIdent(member)} | None -> ${fieldType ? fsZeroValue(fieldType) : '""'})`;
+    }
     switch (member) {
       case "length":
         return `(${receiver}.Length)`;
@@ -1550,4 +1567,14 @@ function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   return found
     ? opGateFor(ctx, found.agg, found.op, canProbeFieldName(found.agg.name, found.op.name))
     : undefined;
+}
+
+/** The declared type of `<voName>.<member>`, looked up across the bounded
+ *  contexts the walk carries; undefined when the value object is unknown. */
+function optionalVoFieldType(voName: string, member: string, ctx: WalkContext): TypeIR | undefined {
+  for (const bc of ctx.bcByAggregate.values()) {
+    const vo = bc.valueObjects?.find((v) => v.name === voName);
+    if (vo) return vo.fields.find((f) => f.name === member)?.type;
+  }
+  return undefined;
 }
