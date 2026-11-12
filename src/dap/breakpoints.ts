@@ -48,6 +48,13 @@ export interface BreakpointTarget {
   region: WireRegion;
 }
 
+export interface TranslateBreakpointOptions {
+  /** Drop regions that merely ENCLOSE the requested line even when nothing
+   *  finer maps it — the line then resolves to `[]`. Default `false`: the
+   *  enclosing declaration is returned as the coarse answer. */
+  lineLocalOnly?: boolean;
+}
+
 /** Standard half-open interval overlap: `[aStart, aEnd)` intersects
  *  `[bStart, bEnd)`. */
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
@@ -104,6 +111,7 @@ export function translateBreakpoint(
   dddPath: string,
   dddLine: number,
   readSource: (path: string) => string | undefined,
+  options: TranslateBreakpointOptions = {},
 ): BreakpointTarget[] {
   const text = readSource(dddPath);
   if (text === undefined) return [];
@@ -159,8 +167,13 @@ export function translateBreakpoint(
   // to the question asked.  A line that carries no fine region of its own —
   // an `aggregate Order {` header, a plain property — keeps every match, so
   // the coarse mapping is still reachable where it IS the answer.
+  //
+  // `options.lineLocalOnly` turns the fallback off: a caller that ARMS the
+  // result (the DAP adapter) must not bind a breakpoint to an enclosing
+  // declaration's file header, so a line with no region of its own resolves
+  // to nothing there.
   const lineLocal = candidates.filter((c) => !c.enclosing);
-  const kept = lineLocal.length > 0 ? lineLocal : candidates;
+  const kept = lineLocal.length > 0 || options.lineLocalOnly ? lineLocal : candidates;
 
   kept.sort((a, b) => a.spanWidth - b.spanWidth || a.order - b.order);
 
