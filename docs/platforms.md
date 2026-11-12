@@ -18,13 +18,14 @@ versioning works.
 |---|---|---|---|---|
 | `node` (default and only version `node@v5`; Hono web framework) | `src/platform/hono/v5/index.ts` (shared surface factory: `src/platform/hono/shared/index.ts`) | 3000 | ✓ | ✗ |
 | `dotnet` (default `dotnet@v10`) | `src/platform/dotnet.ts` | 8080 | ✓ | ✓ (when `ui:` is declared) |
-| `elixir` (default `elixir@v1`; legacy aliases `phoenix` / `phoenixLiveView` desugar to it) | `src/platform/elixir.ts` | 4000 | ✓ | ✓ (fullstack) |
+| `elixir` (default `elixir@v1`; the only spelling: `phoenix` / `phoenixLiveView` are not platform names, though `phoenixLiveView` remains a valid ui `framework:` value) | `src/platform/elixir.ts` | 4000 | ✓ | ✓ (fullstack) |
 | `python` (default `python@v1`) | `src/platform/python.ts` | 8000 | ✓ | ✓ (when `ui:` is declared — dotnet-style dual mode) |
 | `java` (default `java@v1`) | `src/platform/java.ts` | 8081 | ✓ | ✓ (`ui:` embedded-SPA mount; `hosts:` gated) |
 | `react` | `src/platform/react.ts` | 3001 | ✗ | ✓ |
 | `vue` | `src/platform/vue.ts` | 3003 | ✗ | ✓ |
 | `svelte` | `src/platform/svelte.ts` | 3002 | ✗ | ✓ |
 | `angular` | `src/platform/angular.ts` | 3004 | ✗ | ✓ |
+| `feliz` (Fable/F#/Elmish SPA — `dotnet fable` + vite, self-hosting) | `src/platform/feliz.ts` | 3005 | ✗ | ✓ (hosts only `framework: feliz`) |
 | `flutter` (mobile axis — Dart/Flutter + Riverpod, self-hosting `flutter build web`) | `src/platform/flutter.ts` | 3006 | ✗ | ✓ (hosts only `framework: flutter`) |
 | `static` | aliased to `react.ts` | 3001 | ✗ | ✓ |
 
@@ -35,7 +36,7 @@ versioning works.
   (`service_completed_successfully`) in `docker-compose.yml`.
 - **Mounts UI** — whether the deployable validator allows a `ui:`
   binding on this platform.  `react` / `vue` / `svelte` / `angular` /
-  `flutter` / `static` always mount; `dotnet`, `java` and `python` are
+  `feliz` / `flutter` / `static` always mount; `dotnet`, `java` and `python` are
   dual-mode (mount when `ui:` is declared, otherwise backend-only);
   `elixir` always mounts (fullstack LiveView); `node` never does.
 
@@ -74,7 +75,7 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
    `RETIRED_BACKEND_VERSIONS` with its successor: `node@v4` (zod 3 /
    TS 5) was retired, and pinning it is a `loom.platform-version-unknown`
    validation error naming `node@v5`.
-   Frontend platforms (`react`, `vue`, `svelte`, `angular`, `static`)
+   Frontend platforms (`react`, `vue`, `svelte`, `angular`, `feliz`, `flutter`, `static`)
    intentionally aren't versioned at the platform layer — their
    version lives on the design pack / stack axis (see
    [`design-packs.md`](design-packs.md)).
@@ -121,32 +122,31 @@ available. The matured axis today is **`persistence:`**:
 | `dotnet` | `efcore`, `dapper` | `efcore` |
 | `node` | `drizzle`, `mikroorm` | `drizzle` |
 | `elixir` | `ecto` | `ecto` |
+| `java` | `jpa` | `jpa` |
+
+`python` has no adapter menu. `directoryLayout:` offers `byLayer \| byFeature` on dotnet, node and java; elixir's only layout is `byFeature`.
 
 - **The default (`efcore` / `drizzle`) is the full-surface adapter** — every
   aggregate shape, inheritance, associations, audit/provenance, etc.
-- **The alternates (`dapper`, `mikroorm`) are now at FULL PARITY** with their
-  default (M-T6.9, drained across 7 waves): every relational / document /
-  embedded / event-sourced / inheritance (TPH+TPC) shape, containment (incl.
-  recursive part-in-part), associations, filters, audit / provenance / managed
-  fields, retrievals, seeds, and the workflow outbox all emit. `dapper` ≡ EF
-  Core; `mikroorm` ≡ Drizzle. Neither adapter rejects a SHAPE any more:
-  `loom.mikroorm-unsupported` now fires only for declared migration steps
-  (`orm.schema.update()` has no rename intent to consult), and its last
-  shape reject — an abstract inheritance base owning its own `contains` — turned
-  out to be impossible on every target and became the target-neutral
-  `loom.abstract-aggregate-contains` (see [`inheritance.md`](inheritance.md)).
-  There is **no adapter-specific find-predicate narrowing left either**: the
-  last one was measured in wave C2 packet 2n and turned out to be the same
-  mistake — `firstNonQueryableNode` was position-blind, so a predicate with no
-  COLUMN in it (`where true`, a bool parameter, a `currentUser` claim standing
-  alone) was admitted and then crashed drizzle codegen, was refused on MikroORM,
-  and emitted a host-language boolean into a `WHERE` on the other three. It is
-  now the target-neutral `firstNonQueryablePredicate`, and
-  `loom.find-predicate-unsupported` and its per-adapter descriptor table are
-  deleted. The alternates share the generated **domain layer**
-  with the default and only swap the persistence layer (Dapper SQL
-  repositories / MikroORM `EntitySchema` + `EntityManager`), so a project
-  can switch persistence without touching its domain code.
+- **The alternates (`dapper`, `mikroorm`) match their default on aggregate
+  shape**: every relational / document / embedded / event-sourced / inheritance
+  (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
+  filters, audit / provenance / managed fields, retrievals, seeds, and the
+  workflow outbox all emit. `dapper` ≡ EF Core; `mikroorm` ≡ Drizzle. The
+  alternates share the generated **domain layer** with the default and only
+  swap the persistence layer (Dapper SQL repositories / MikroORM
+  `EntitySchema` + `EntityManager`), so a project can switch persistence
+  without touching its domain code. What they refuse is *placement and
+  evolution*, never a shape:
+
+  | Refusal | Code | `dapper` | `mikroorm` |
+  |---|---|---|---|
+  | declared `migration` steps (`orm.schema.update()` has no rename intent to consult) | `loom.mikroorm-unsupported` | applies the migration chain | refused |
+  | an explicit `schema:` / `tablePrefix:` on the deployable's dataSource binding (tables would silently land unqualified in `public`) | `loom.dapper-unsupported` / `loom.mikroorm-unsupported` | refused for `tablePrefix:` only; `schema:` is honoured | refused for both |
+  | a context another deployable's adapter schema-qualifies | `loom.mikroorm-unsupported` | shares the table through the same chain | refused |
+
+  Use `persistence: efcore` / `drizzle` on a deployable that needs one of the
+  refused placements.
 
 **Event-sourcing** (`persistedAs: eventLog` + `apply(...)`) emits on **node,
 .NET, Python, Java and Elixir** (append-only per-aggregate `<agg>_events`
@@ -268,9 +268,13 @@ Every surface implements:
 | `defaultPort` | Used when the deployable doesn't specify one. |
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
+| `isFrontend` | True for the frontend platforms (`react` / `vue` / `svelte` / `angular` / `feliz` / `flutter` / `static`). |
+| `hostableFrameworks` | The ui `framework:` values this platform can serve. |
 | `capabilities` | What the target renders, per construct × position — `src/util/target-capabilities.ts`. |
 | `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects, and the frontend `axes` — `stateHome` × `handlerTopology` and the `dataAccess` that follows, from `src/util/frontend-axes.ts`; see D-LIVEVIEW-REFERENCE) live in the same file, read through `frameworkFacts(framework)`. |
-| `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
+| `adapters?()` / `adapterDefaults?()` | The live persistence / style / layout adapter menu and its defaults (backends that have one); `src/platform/resolve-adapters.ts` reads them, `adapter-metadata.ts` mirrors them as client-safe data. |
+| `debugLaunch?({ deployable, slug, contexts })` | The editor launch configuration for debugging the generated project, or `undefined`. |
+| `emitProject({ contexts, deployable, sys, migrations, … })` | Returns `Map<path, content>` for the deployable's project tree. |
 | `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
 
 `emitProject` is the platform's entire output surface.  It MUST be

@@ -137,11 +137,11 @@ the conforming backends, and the fix that established it.
   across backends.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** #1631 (S2: absence match → nullable-subject ternary +
-  per-backend `absenceCheck` leaf). Tier: **T0** — already gated per-PR by the
-  pre-existing
-  `test/conformance/union-find-absence-parity.test.ts`,
-  which anchors each backend's absence-check leaf (`result == null`, `is None`,
-  …) and the 404 ProblemDetails mapping across all five.
+  per-backend `absenceCheck` leaf). Tier: **T0** — gated per-PR by the absence-shape
+  describe in `test/generator/variant-match-render.test.ts`, which pins each
+  backend's presence-check rendering (`result == null`, `is None`, …) and
+  forbids a discriminator probe or native type switch; the
+  `union-find-absence` corpus fixture exercises it behaviorally.
 
 ### RS-6 · Boolean create defaults materialize at the wire boundary
 - **Guarantee.** A field declared `active: bool = true`, **omitted** on create,
@@ -1272,8 +1272,8 @@ nothing and the test passes vacuously.
 
 - **v1 (this doc):** the registry + well-formedness gate + the T0-tier rules
   gated statically across all five backends — **RS-2** (`enum-casing-parity`),
-  **RS-3** (`wire-no-leak-parity`), and **RS-5** (the pre-existing
-  `union-find-absence-parity`). *(here)* Every rule assertable from emitted
+  **RS-3** (`wire-no-leak-parity`), and **RS-5** (the absence-shape
+  describe in `variant-match-render.test.ts`). *(here)* Every rule assertable from emitted
   source is now gated per-PR; the remainder (RS-1/4/6/7/8/9) are behavioral and
   wait on A6.2.
 - **A6.2 (Python api tier LANDED):** `run-python.mjs` + `behavioral-e2e-python.yml`
@@ -1922,9 +1922,8 @@ nothing and the test passes vacuously.
   The owner ruling (#3881) fixes it as `"<field> is required"`, the field being
   the pointer's last key: `missingFieldMessage` in the `wirePolicy` fact
   (`src/ir/enrich/wire-policy.ts`), create and update included. Node renders
-  it; .NET, java, python and elixir still send the one word `"Required"`
-  (`MISSING_FIELD_MESSAGE`), waived per golden in `test/_helpers/wire-waivers.ts`
-  until each renders the fact. A `create` with no input fields publishes an
+  it, and so do .NET, java, python and elixir: no backend sends the bare word
+  `"Required"` and no golden carries a waiver for it. A `create` with no input fields publishes an
   optional `requestBody` like a parameterless command does.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden
