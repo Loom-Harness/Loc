@@ -19,7 +19,7 @@ import type {
   TimerSourceIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
-import { walkStmtChildren, walkWorkflowStmtChildren } from "../../util/walk.js";
+import { walkStmtChildren, workflowEmits } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** Every event name that appears as an `emit` operand anywhere in a context —
@@ -35,18 +35,17 @@ function collectEmittedEvents(ctx: BoundedContextIR): Set<string> {
       (child) => scanStmt(child),
     );
   };
-  const scanWfStmt = (s: WorkflowStmtIR): void => {
-    if (s.kind === "emit") out.add(s.eventName);
-    walkWorkflowStmtChildren(s, { workflowStmt: (child) => scanWfStmt(child) });
+  const scanWf = (stmts: readonly WorkflowStmtIR[]): void => {
+    for (const e of workflowEmits(stmts)) out.add(e.eventName);
   };
   for (const agg of ctx.aggregates) {
     const ops = [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])];
     for (const op of ops) for (const s of op.statements) scanStmt(s);
   }
   for (const wf of ctx.workflows ?? []) {
-    for (const c of wf.creates) for (const s of c.statements) scanWfStmt(s);
-    for (const on of wf.subscriptions ?? []) for (const s of on.statements) scanWfStmt(s);
-    for (const s of wf.statements) scanWfStmt(s);
+    for (const c of wf.creates) scanWf(c.statements);
+    for (const on of wf.subscriptions ?? []) scanWf(on.statements);
+    scanWf(wf.statements);
   }
   return out;
 }

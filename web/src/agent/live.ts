@@ -83,15 +83,34 @@ function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
+/** Tools whose `source` argument only names the model the agent expects the
+ *  workspace to hold (the host refuses a mismatch), so it is never a model
+ *  the agent proposes. */
+const WORKSPACE_SOURCE_TOOLS: ReadonlySet<string> = new Set([
+  "loom_migration_status",
+  "loom_migration_record",
+  "loom_migration_apply",
+]);
+
 /** The latest `.ddd` source the agent has produced anywhere in the transcript,
  *  or null.  A `loom_apply_patch` RESULT (`.text`) is the newest state; a
  *  `loom_validate`/`loom_generate`/… CALL carries the source the agent is
- *  working on.  Both are scanned in order, so the last one seen wins. */
+ *  working on.  Both are scanned in order, so the last one seen wins.  A call
+ *  counts only once its result is in and is not an error: a refused or failed
+ *  call proposes nothing, and neither does a call whose `source` only asserts
+ *  the workspace model (`WORKSPACE_SOURCE_TOOLS`). */
 export function latestSourceFrom(messages: Message[]): string | null {
+  const okResult = new Set<string>();
+  for (const m of messages) {
+    for (const block of m.content) {
+      if (block.type === "tool_result" && !block.is_error) okResult.add(block.tool_use_id);
+    }
+  }
   let latest: string | null = null;
   for (const m of messages) {
     for (const block of m.content) {
       if (block.type === "tool_use") {
+        if (WORKSPACE_SOURCE_TOOLS.has(block.name) || !okResult.has(block.id)) continue;
         const src = (block.input as { source?: unknown }).source;
         if (typeof src === "string" && src.trim()) latest = src;
       } else if (block.type === "tool_result" && !block.is_error) {

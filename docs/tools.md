@@ -212,6 +212,28 @@ advisory `loom.index-suggestion` lint before printing `OK`.  A model
 (`experience_gathered.md` §62).  Index suggestions remain advisory and
 never fail the parse.
 
+**Advisory diagnostics — the `Suggestions (N):` channel.**  A few phase-⑦
+codes are advice rather than a verdict: the model is legal and the author
+decides.  The set lives in `src/diagnostics/advisory.ts`:
+
+| Code | Advises on |
+|---|---|
+| `loom.index-suggestion` | a query-filtered column with no covering leading-column index |
+| `loom.crudish-hard-delete` | a `softDeletable` aggregate whose `crudish` destroy is a hard `DELETE` |
+| `loom.aggregate-not-constructible` | an aggregate no code path can construct |
+| `loom.loop-gate-not-implied` | a loop over a list read calling a `when`-gated operation whose gate the read's predicate does not carry |
+
+Every command that validates — `parse`, `generate system`, `verify`,
+`snapshot` — prints these through one printer, under `Suggestions (N):` with
+their `file:line:col` locator, and leaves them out of the
+`N error(s), N warning(s).` footer.  They never change an exit code.  In
+`--json` output an advisory diagnostic keeps `severity: "warning"` (so LSP
+clients and the playground still surface it) but carries `advisory: true` and
+is counted in `summary.suggestions`, never `summary.warnings` — the same
+numbers the human footer prints.  `loom.update-gate-suggestion` is not
+advisory: an operation that can rewrite a gated field is a security finding,
+and it counts as a warning.
+
 For the last mile a `tsc` / compiler run on the emitted target is still
 the stronger gate — it catches emitter bugs no model-level check can.
 See the pipeline phases in [`technical.md`](technical.md).

@@ -22,6 +22,7 @@
 // (`Pricing.Quote(cart, customer)`) is rendered by `CS_TARGET.domainServiceCall`
 // (render-expr.ts).
 
+import { domainServiceReadPorts } from "../../../ir/plan/index.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -54,13 +55,7 @@ function portFieldName(repo: string): string {
  *  (a DI'd `sealed class`) exactly when this is non-empty; a `pure` service has
  *  no ports and stays a `public static class` (byte-identical). */
 function serviceReadPorts(svc: DomainServiceIR): ReadPort[] {
-  const byRepo = new Map<string, ReadPort>();
-  for (const op of svc.operations) {
-    for (const p of readPortsForOperation(op)) {
-      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-    }
-  }
-  return [...byRepo.values()];
+  return domainServiceReadPorts(svc);
 }
 
 /** Render context for a domain-service operation body.  A `reading` op carries a

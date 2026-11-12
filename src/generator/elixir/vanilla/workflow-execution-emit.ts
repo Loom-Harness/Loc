@@ -74,6 +74,7 @@ import {
   lookupOp,
   namesUsed,
   refsRead,
+  requiredStateFields,
   workflowIsolation,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
@@ -1302,11 +1303,10 @@ function renderWorkflowModule(
   const allocFields = corrParam
     ? [
         `${snake(wf.correlationField as string)}: key`,
-        ...(wf.stateFields ?? [])
-          .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map(
-            (f) => `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : {})}`,
-          ),
+        ...requiredStateFields(wf).map(
+          (f) =>
+            `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : undefined)}`,
+        ),
       ]
     : [];
   const statePrelude = corrParam
