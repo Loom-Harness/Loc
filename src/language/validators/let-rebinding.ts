@@ -33,13 +33,15 @@ export function checkLetRebindings(model: Model, accept: ValidationAcceptor): vo
 /** The `let` or parameter the binding `stmt` would rebind, if any. */
 function priorBinding(stmt: LetStmt): AstNode | undefined {
   for (let node: AstNode = stmt; node.$container; node = node.$container) {
-    const owner = node.$container as unknown as Record<string, unknown>;
-    const list = node.$containerProperty ? owner[node.$containerProperty] : undefined;
+    const owner = node.$container;
+    const list: unknown = node.$containerProperty
+      ? Reflect.get(owner, node.$containerProperty)
+      : undefined;
     if (Array.isArray(list) && node.$containerIndex !== undefined) {
       for (const sib of list.slice(0, node.$containerIndex))
         if (isLetStmt(sib) && sib.name === stmt.name) return sib;
     }
-    const params = owner.params;
+    const params: unknown = Reflect.get(owner, "params");
     if (Array.isArray(params) && params.some(isParameter)) {
       return params.find((p) => isParameter(p) && p.name === stmt.name);
     }
