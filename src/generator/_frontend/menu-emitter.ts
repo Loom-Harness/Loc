@@ -122,11 +122,23 @@ const UNSECTIONED_LABEL = "Pages";
  *  parameterless route to navigate to, and must not have been mounted
  *  outside the app shell (`layout: none` — a login screen has no
  *  sidebar to appear in). */
-export function isNavigable(p: PageIR): boolean {
+function isNavigable(p: PageIR): boolean {
   const route = p.route;
   if (!route || route.includes(":")) return false;
   if (p.layout?.kind === "preset" && p.layout.name === "none") return false;
   return true;
+}
+
+/** A page a frontend's DEFAULT sidebar links: one with a parameterless route
+ *  inside the app shell (`isNavigable`), and not a create or detail
+ *  page of a scaffolded aggregate or workflow — those are reached from their
+ *  list, and a detail route's `:id` has no value to link to. */
+export function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
+  if (!isNavigable(p)) return false;
+  const kind = classifyPage(p, pageCtx).kind;
+  return (
+    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
+  );
 }
 
 /** Merge a caller's DEFAULT sidebar sections with the sections derived

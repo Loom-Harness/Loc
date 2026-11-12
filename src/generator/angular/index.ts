@@ -15,7 +15,7 @@ import { contextUsesMoney, sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
-import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -47,7 +47,11 @@ import {
 } from "../_frontend/i18n-runtime.js";
 import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
-import { deriveSidebarFromUi, isNavigable, type NavSectionVM } from "../_frontend/menu-emitter.js";
+import {
+  deriveSidebarFromUi,
+  isDefaultNavPage,
+  type NavSectionVM,
+} from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
@@ -976,18 +980,6 @@ function defaultAngularNavSection(
  *  `{}` and `currentUser.permissions.includes(…)` would throw. */
 function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
   return requiresJs === undefined ? undefined : `session.user() != null && (${requiresJs})`;
-}
-
-/** A page the default sidebar links: one with a parameterless route inside
- *  the app shell (the shared `isNavigable` rule), and not a create or detail
- *  page of a scaffolded aggregate or workflow — those are reached from their
- *  list, and a detail route's `:id` has no value to link to. */
-function isDefaultNavPage(p: PageIR, pageCtx: PageNameCtx): boolean {
-  if (!isNavigable(p)) return false;
-  const kind = classifyPage(p, pageCtx).kind;
-  return (
-    kind !== "aggregate-new" && kind !== "aggregate-detail" && kind !== "workflow-instance-detail"
-  );
 }
 
 /**
