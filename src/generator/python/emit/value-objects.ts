@@ -4,7 +4,7 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonWireIdent } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
-import { DOMAIN_NAMES, pythonAnnotationIn } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
@@ -74,22 +74,18 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
       `            raise ${PY.ValueObjectInvariantError}(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code})`,
     ];
   });
-  // An annotation inside the class body that names the class itself is a
-  // forward reference (the plan spells it; `_symbols/plan.ts`).
-  const ann = (t: Parameters<typeof renderPyType>[0]): string =>
-    pythonAnnotationIn(v.name, renderPyType(t));
   const derived = v.derived.flatMap((d) => [
     "",
     "    @property",
-    `    def ${DOMAIN_NAMES.python.method(d.name)}(self) -> ${ann(d.type)}:`,
+    `    def ${DOMAIN_NAMES.python.method(d.name)}(self) -> ${renderPyType(d.type)}:`,
     `        return ${renderPyExpr(d.expr, VO_CTX)}`,
   ]);
   const fns = v.functions.flatMap((fn) => {
     const fnParams = [
       "self",
-      ...fn.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${ann(p.type)}`),
+      ...fn.params.map((p) => `${DOMAIN_NAMES.python.binding(p.name)}: ${renderPyType(p.type)}`),
     ];
-    const head = `    def ${DOMAIN_NAMES.python.method(fn.name)}(${fnParams.join(", ")}) -> ${ann(fn.returnType)}:`;
+    const head = `    def ${DOMAIN_NAMES.python.method(fn.name)}(${fnParams.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
     const body =
       "expr" in fn.body
         ? `        return ${renderPyExpr(fn.body.expr, VO_CTX)}`

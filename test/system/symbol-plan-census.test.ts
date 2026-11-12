@@ -53,7 +53,7 @@ const RAW_FUNNEL =
 
 /** The plan's reader surface. */
 const PLAN_READ =
-  /\b(DOMAIN_NAMES|tsServiceOpFn|tsServiceSiblingScope|pythonAnnotationIn|pythonModuleFnName)\b/;
+  /\b(DOMAIN_NAMES|tsServiceOpFn|tsServiceSiblingScope|pythonModuleFnName)\b/;
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");

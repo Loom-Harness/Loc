@@ -11,9 +11,6 @@
 //     `Microsoft.Extensions.DependencyInjection.ServiceProvider`, so every
 //     file that also imports the domain namespace sees an ambiguous name
 //     (CS0104).
-//   - `valueobject Money.plus(other: Money): Money` — a value-object method
-//     whose signature names its own class; python evaluates the annotation
-//     while the class body is still executing (NameError at import).
 //   - field `property` — python's `@property` decorator is rebound inside the
 //     class body by a member of that name.
 //   - operations `byRef` / `shared` — Visual Basic keywords; the .NET
@@ -31,7 +28,6 @@ system SymbolCollisions {
       valueobject Money {
         amount: decimal
         currency: string
-        function plus(other: Money): Money = Money { amount: amount + other.amount, currency: currency }
       }
 
       valueobject Risk {

@@ -15,8 +15,6 @@
 //     only reader for domain constructs);
 //   - in-scope resolution — a bare call inside a domain-service body naming a
 //     sibling operation resolves to that operation's function;
-//   - type references — a python annotation that names a class still being
-//     defined is spelled as a forward reference;
 //   - ambient collisions — a domain type whose name a namespace the unit
 //     imports also exports (`.NET`: `TaskStatus`, `ServiceProvider`) is
 //     bound to the domain type by an alias in each unit that sees both.
@@ -98,22 +96,6 @@ export function tsServiceSiblingScope(
 ): (name: string) => string | undefined {
   const ops = new Map(service.operations.map((o) => [o.name, tsServiceOpFn(service.name, o.name)]));
   return (name) => ops.get(name);
-}
-
-// ---------------------------------------------------------------------------
-// Type references
-// ---------------------------------------------------------------------------
-
-/** A python annotation written inside the body of class `enclosing`.  The
- *  class name is not bound until its body finishes executing, and python
- *  evaluates annotations eagerly, so an annotation that names the enclosing
- *  class (`def plus(self, other: Money) -> Money`) raises `NameError` at
- *  import.  Such an annotation is spelled as a string forward reference; any
- *  other annotation is returned unchanged. */
-export function pythonAnnotationIn(enclosing: string, annotation: string): string {
-  return new RegExp(`(?<![\\w.])${enclosing}(?!\\w)`).test(annotation)
-    ? JSON.stringify(annotation)
-    : annotation;
 }
 
 // ---------------------------------------------------------------------------
