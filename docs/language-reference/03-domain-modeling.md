@@ -278,7 +278,7 @@ end
 ```
 ::: end
 
-> **Elixir honest gap.** The part-level `check qty > 0` is enforced on node / dotnet / java / python (a constructor guard); the Elixir `Line.changeset/2` only `cast`s `[:sku, :qty]` and emits no `validate_*` for it. Root-level checks and `invariant`s do reach the changeset — the gap is specific to `entity` parts.
+On Elixir the part's `Line.changeset/2` casts `[:sku, :qty]` and adds a `validate_change(:qty, …)` for the check (`field.min`, 1), so the part-level rule is enforced on every backend.
 
 The generated SQL makes the parent/child shape explicit (node migration shown; the same DDL is rendered for every backend):
 
@@ -797,7 +797,7 @@ A **performance** index (non-unique) is not a domain fact — it lives on the st
 
 ## `sensitive(...)`
 
-`sensitive(tag1, tag2, …)` tags a field with one or more data-category classifications. Tags are bare identifiers, opaque to the compiler — `pii`, `phi`, `cred`, `audited` are conventional but any identifier is accepted. The downstream effect today: the field is **redacted in the aggregate's `inspect` / `ToString()` debug form** (so it never lands in logs, exceptions, or debugger watches). It is orthogonal to access — combine `sensitive(...) secret` for a field that is both write-only and log-redacted.
+`sensitive(tag1, tag2, …)` tags a field with one or more data-category classifications. Tags are bare identifiers, opaque to the compiler — `pii`, `phi`, `cred`, `audit` are conventional but any identifier that is not a Loom keyword is accepted (`audited` is a keyword, so `sensitive(audited)` is refused). The downstream effect today: the field is **redacted in the aggregate's `inspect` / `ToString()` debug form** (so it never lands in logs, exceptions, or debugger watches). It is orthogonal to access — combine `sensitive(...) secret` for a field that is both write-only and log-redacted.
 
 ```ddd
 context Orders {

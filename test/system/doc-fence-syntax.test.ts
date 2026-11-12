@@ -72,7 +72,6 @@ const WAIVERS: readonly Waiver[] = [
   // Stale syntax, tracked per doc.
   { doc: "docs/architecture.md", marker: "api Mktg:  MarketingApi", why: "#3629" },
   { doc: "docs/architecture.md", marker: "Mktg:  marketingApi", why: "#3629" },
-  { doc: "docs/language.md", marker: "ssn: string sensitive(pii, audited)", why: "#3642" },
   { doc: "docs/workflow.md", marker: "workflow transferCredit(...)", why: "#3631" },
 ];
 

@@ -128,7 +128,7 @@ money ÷ {int|long|decimal}   → money
 anything else involving money → rejected
 ```
 
-A bare numeric **literal** beside a money operand is promoted to `money` first, so `price * 2` is rejected today as `money × money` — write `price * decimal(2)` or bind the scalar to a typed field/parameter. (`money × money`, `money ÷ money` and `money % x` are all rejected — `Operator '/' has incompatible operand types: left is 'money', right is 'money'`; plain `decimal ÷ decimal` is ordinary arithmetic and stays admitted.)
+A money operand beside a numeric literal (`price * 2`) is admitted as money × scalar. (`money × money`, `money ÷ money` and `money % x` are all rejected — `Operator '/' has incompatible operand types: left is 'money', right is 'money'`; plain `decimal ÷ decimal` is ordinary arithmetic and stays admitted.)
 
 Each backend keeps **one representation rule** for the two types, and the rendered arithmetic follows from it:
 
@@ -263,7 +263,7 @@ The leaf differences here: TS rewrites `==`→`===`, Python/Elixir spell `&&`→
 
 ## Ternary & `match`
 
-`cond ? a : b` is the inline conditional. The condition must be `bool` (`loom.ternary-condition`) and the branches must **join** — one assignable to the other, both numeric, an optional and its inner, or a `null` literal against an optional (`loom.ternary-branches`: `qty > 0 ? "a" : 1` has no join). A ternary whose condition is a null test **narrows** the tested name in the then-branch, which is how the validator admits an intrinsic call on a `T?` receiver — `note2 != null ? note2.toUpper() : "none"` passes where a bare `note2.toUpper()` is `loom.nullable-receiver`. **The narrowed call does not lower, though** (see [Scalar intrinsics](#scalar-intrinsics)).
+`cond ? a : b` is the inline conditional. The condition must be `bool` (`loom.ternary-condition`) and the branches must **join** — one assignable to the other, both numeric, an optional and its inner, or a `null` literal against an optional (`loom.ternary-branches`: `qty > 0 ? "a" : 1` has no join). A ternary whose condition is a null test **narrows** the tested name in the then-branch, which is how the validator admits an intrinsic call on a `T?` receiver — `note2 != null ? note2.toUpper() : "none"` passes where a bare `note2.toUpper()` is `loom.nullable-receiver`. The narrowed call lowers through the host idiom like any other intrinsic (see [Scalar intrinsics](#scalar-intrinsics)).
 
 `match { c1 => v1, c2 => v2, else => f }` is the predicate-arm form — the first arm whose `cond` is `true` wins; the optional `else` is the fallthrough. `match subject { Variant b => v, … }` is the **variant-match** form over an `or`-union value: each arm names a variant type and optionally binds it (narrowed); the subject must be a simple name or member read, not a call (`loom.match-subject-not-simple` — bind it with `let` first), must be a union (`loom.match-non-union-subject` — an enum value written as an arm, `match p { Urgent => … }`, is reported as "a value of enum 'Priority', not a type" with the predicate-form rewrite `match { p == Urgent => … }`), and must cover every variant or carry `else` (`loom.match-non-exhaustive`, `loom.match-unknown-variant`, `loom.match-duplicate-variant`). See [Payloads & unions](09-payloads-and-unions.md) for unions and [UI primitives](16-ui-walker-primitives.md#match-in-markup--the-ternaryblock-split) for `match` in markup.
 
@@ -419,13 +419,13 @@ def is_code(self) -> bool:
 ```
 ::: end
 
-**Known gap — a narrowed optional receiver loses the intrinsic mapping.** `loom.nullable-receiver` tells you to guard the call with a null-narrowing ternary, and the guarded form passes validation — but the guarded call is then emitted **verbatim**, not through the host idiom:
+**A narrowed optional receiver keeps its intrinsic mapping.** `loom.nullable-receiver` tells you to guard the call with a null-narrowing ternary, and the guarded call lowers through the same host idiom as an unguarded one:
 
 ```ddd
 derived safeNote: string = note2 != null ? note2.toUpper() : "none"   // note2: string?
 ```
 
-emits `this._note2.toUpper()` (node), `this.note2.toUpper()` (java), `self._note2.to_upper()` (python), `record.note2.to_upper()` (elixir) — none of which compile (.NET is the accidental exception: `this.Note2.ToUpper()` compiles — as the culture-sensitive `ToUpper()`, not the `ToUpperInvariant()` an unguarded receiver emits). Until that is fixed, compute the value on a non-optional receiver instead — bind it through a non-nullable field, or a `derived` that supplies a default first.
+renders `this._note2.toUpperCase()` (node), `this.Note2.ToUpperInvariant()` (.NET), `this.note2.toUpperCase(java.util.Locale.ROOT)` (java), `self._note2.upper()` (python) and `String.upcase(record.note2)` (elixir).
 
 `string.length` counts **Unicode code points** on every backend (`[...s].length` / `EnumerateRunes().Count()` / `codePoints().count()` / `len(s)` / a charlist length) — see [Invariants](07-invariants-derived-functions.md#length-counts-code-points).
 
@@ -433,7 +433,7 @@ emits `this._note2.toUpper()` (node), `this.note2.toUpper()` (java), `self._note
 
 The closed set over a list-typed receiver: `.count`, `.first`, `.firstOrNull`, `.distinct` (members, no parens), `.sum(λ)`, `.all(λ)`, `.any(λ)`, `.where(λ)`, `.map(λ)`, `.sortBy(λ, desc?)`, `.min(λ)`, `.max(λ)`, `.avg(λ)`, `.take(n)`, `.skip(n)`, `.join(sep)`, `.contains(x)`. Typing: `count` → `int`; `sum`/`map` → the lambda's body type; `min`/`max`/`firstOrNull` → optional; `avg` → `money?` for a money projection else `decimal?`. Gates: `.sum` without a lambda is `loom.bare-collection-accessor`; `.distinct` over entities / id references is `loom.distinct-non-scalar`; `.join` over a non-string list is `loom.join-non-string`; `.min`/`.max` over a non-comparable projection is `loom.reduction-non-comparable`; `.avg` over a non-numeric one is `loom.avg-non-numeric`. Each is flagged `isCollectionOp` at lowering and lowered to the host's idiom — there is no shared runtime.
 
-**Backend-only.** The collection vocabulary is a backend one: `.map` is the *only* op with a real frontend renderer (`Array.prototype.map` on the JS frontends, `Enum.map/2` on HEEx, `Iterable.map` on Dart — and even it is gated on Feliz, which has no lambda seam yet). Every other op in a page / component / store body emits verbatim and breaks the generated project's own compiler, so it is gated: `loom.frontend-collection-op-unsupported` (`src/ir/validate/checks/ui-checks.ts`, the whole catalogue) plus the narrower AST-level `loom.collection-op-in-ui` for `sortBy` / `distinct` / `take` / `skip` / `min` / `max` / `avg`. Compute the value in a `derived`, a repository `find`, or a `projection` and bind the result.
+**Page bodies take the reshaping ops only.** The ops that RESHAPE a collection — `count`, `where`, `any`, `all`, `map`, `sortBy`, `take`, `skip`, `join` — have a real renderer on every frontend (React / Vue / Svelte / Angular / Feliz / Flutter, and the Phoenix LiveView walker), so `rows.where(o => o.open).count` is an ordinary page expression. The other eight (`sum`, `min`, `max`, `avg`, `first`, `firstOrNull`, `distinct`, `contains`) are refused in a page / component / store body with `loom.frontend-collection-op-unsupported` (`src/ir/validate/checks/ui-checks.ts`), because the frontends disagree on how the RESULT is represented (`money` is a `Decimal` object on the JS frontends and Phoenix but a native scalar on Feliz and Flutter; emptiness and value equality differ). Compute the value in a repository `find`, an aggregate `derived` or a `projection`, and bind the result in the page. The filter op is spelled `where`; `filter` is not a Loom op ([`stdlib.md`](../stdlib.md)).
 
 ```ddd
 aggregate Order {

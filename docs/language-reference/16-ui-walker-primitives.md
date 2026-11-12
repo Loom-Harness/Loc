@@ -468,7 +468,7 @@ Icon(Icons.circle, size: 20.0, semanticLabel: t('page.Display.iconLabel.jnn2zp',
 Image.network("/logo.png", semanticLabel: "Acme logo"),
 ```
 
-`Anchor { to: }` is a **router link** on every frontend (`RouterLink` / `router-link` / `[routerLink]` / `pushNamed`) — give it an in-app path; an external URL belongs in a `menu` link (`link "Docs" -> "https://…"`, [15](15-ui-pages-structure.md)). `Icon` is decorative (`aria-hidden`) unless `label:` names it, which turns it into a `role="img"` and makes the label a translated slot. On Phoenix `Image { "/logo.png", alt: … }` and `Icon { name: … }` render `<img alt="…" />` with no `src` and an empty `<span class="loom-icon">` — the HEEx renderers read only a named `src:` and only an `svg:` literal (`heex-primitives.ts` `renderImage` / `renderIcon`); spell `Image { src: "…", alt: "…" }` and pass `svg:` there.
+`Anchor { to: }` is a **router link** on every frontend (`RouterLink` / `router-link` / `[routerLink]` / `pushNamed`) — give it an in-app path; an external URL belongs in a `menu` link (`link "Docs" -> "https://…"`, [15](15-ui-pages-structure.md)). `Icon` is decorative (`aria-hidden`) unless `label:` names it, which turns it into a `role="img"` and makes the label a translated slot.
 
 ### A text slot renders a scalar, not a value object
 
@@ -1317,7 +1317,7 @@ match {
 switch (0) { _ when (state.showArchived == true) => Chip(label: Text(t('page.Lists.badge.nr1x3e', 'showing archived')), visualDensity: VisualDensity.compact), _ => Text(t('page.Lists.text.2ovjgv', 'active only')) },
 ```
 
-Feliz renders `if … then … else …` over the Model. Nest a `match` inside a container: a page whose `body:` **is** a bare `match` is currently dropped from the build with no diagnostic (no page file, no route) — wrap it (`body: Stack { match { … } }`) until that gap closes.
+Feliz renders `if … then … else …` over the Model. A page whose `body:` is a bare `match` renders its arms like any other body.
 
 ## `Button` and `Action`
 
