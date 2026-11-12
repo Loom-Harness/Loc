@@ -1305,6 +1305,10 @@ ${elixirOutboxRelayModule(
     const redisClauses = hasRedisConsumer
       ? `  def handle_info({:redix_pubsub, _pid, _ref, :subscribed, _meta}, state), do: {:noreply, state}
 
+  # Redix.PubSub redials and resubscribes on its own after the server drops
+  # (it reports :subscribed again); the consumer only has to outlive the gap.
+  def handle_info({:redix_pubsub, _pid, _ref, :disconnected, _meta}, state), do: {:noreply, state}
+
   def handle_info(
         {:redix_pubsub, _pid, _ref, :message, %{channel: address, payload: payload}},
         state
