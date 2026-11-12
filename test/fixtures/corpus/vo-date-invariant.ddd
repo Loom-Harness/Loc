@@ -47,5 +47,11 @@ system VoDateInvariant {
     expect(api.bookings.create({ guest: "Cy", stay: { checkIn: "2026-03-01", checkOut: "2026-03-01" } })).toThrow(422)
     let all = api.bookings.all()
     expect(all.total).toBe(1)
+
+    api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-05" } })
+    expect(api.bookings.getById(b).stay.checkOut).toBe("2026-02-05")
+    expect(api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-02-05", checkOut: "2026-01-30" } })).toThrow(422)
+    api.bookings.destroy(b)
+    expect(api.bookings.getById(b)).toThrow(404)
   }
 }
