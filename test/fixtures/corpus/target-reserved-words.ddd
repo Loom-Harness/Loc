@@ -1,7 +1,7 @@
 system TargetReservedWords {
   subdomain Words {
     context Lexicon {
-      enum Keyword { after, alias, and, any, arguments, assert, async, atomic, base, begin, boolean, break, byte, bytes, case, catch, char, checked, class, cls, cond, const, constraint, constructor, continue, copy, covariant, data, debugger, declare, def, default, deferred, defmodule, defp, del, delegate, delete, dict, do, done, double, downcast, downto, dynamic, eager, elif, end, eval, except, exception, exec, explicit, export, extension, external, factory, final, finally, fixed, float, fn, foreach, fun, functor, get, goto, hide, implicit, include, infer, inherit, init, inline, input, instanceof, interface, is, keyof, lambda, late, lazy, len, library, list, lock, map, member, method, mixin, module, mutable, namespace, native, never, new, nil, nonlocal, not, object, open, operator, out, override, package, parallel, params, part, pass, permits, print, process, protected, public, pure, quote, raise, rec, receive, record, ref, require, rescue, rethrow, sbyte, sealed, self, set, short, show, sizeof, stackalloc, str, strictfp, struct, super, switch, synchronized, tailcall, then, throw, throws, to, trait, transient, try, typedef, typeof, uint, ulong, unchecked, unknown, unquote, unsafe, upcast, ushort, using, val, value, var, virtual, void, volatile, while, yield }
+      enum Keyword { after, alias, and, any, arguments, assert, async, atomic, base, begin, boolean, break, byte, bytes, case, catch, char, checked, class, classmethod, cls, cond, const, constraint, constructor, continue, copy, covariant, data, debugger, declare, def, default, deferred, defmodule, defp, del, delegate, delete, dict, do, done, double, downcast, downto, dynamic, eager, elif, end, eval, except, exception, exec, explicit, export, extension, external, factory, final, finally, fixed, float, fn, foreach, fun, functor, get, goto, hide, implicit, include, infer, inherit, init, inline, input, instanceof, interface, is, keyof, lambda, late, lazy, len, library, list, lock, map, member, method, mixin, module, mutable, namespace, native, never, new, nil, nonlocal, not, object, open, operator, out, override, package, parallel, params, part, pass, permits, print, process, property, protected, public, pure, quote, raise, rec, receive, record, ref, require, rescue, rethrow, sbyte, sealed, self, set, short, show, sizeof, stackalloc, staticmethod, str, strictfp, struct, super, switch, synchronized, tailcall, then, throw, throws, to, trait, transient, try, typedef, typeof, uint, ulong, unchecked, unknown, unquote, unsafe, upcast, ushort, using, val, value, var, virtual, void, volatile, while, yield }
 
       aggregate Keywords with crudish {
         abstract: string
@@ -152,6 +152,9 @@ system TargetReservedWords {
         stackalloc: string
         state: string
         str: string
+        property: string
+        classmethod: string
+        staticmethod: string
         strictfp: string
         struct: string
         super: string
@@ -328,6 +331,9 @@ system TargetReservedWords {
         operation sizeof(sizeof: int) { tally := sizeof }
         operation stackalloc(stackalloc: int) { tally := stackalloc }
         operation str(str: int) { tally := str }
+        operation property(property: int) { tally := property }
+        operation classmethod(classmethod: int) { tally := classmethod }
+        operation staticmethod(staticmethod: int) { tally := staticmethod }
         operation strictfp(strictfp: int) { tally := strictfp }
         operation struct(struct: int) { tally := struct }
         operation super(super: int) { tally := super }
