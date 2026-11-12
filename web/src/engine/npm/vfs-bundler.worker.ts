@@ -13,7 +13,7 @@
 
 import * as esbuild from "esbuild-wasm";
 import wasmURL from "esbuild-wasm/esbuild.wasm?url";
-import { makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
+import { BACKEND_LOWERED_SYNTAX, makeVfsNpmPlugin } from "./esbuild-vfs-plugin.js";
 import { harvestTsconfigPaths } from "../../bundle/plugin.js";
 import { install } from "./install.js";
 import { IdbInstallCache } from "./install-cache-idb.js";
@@ -411,6 +411,7 @@ self.onmessage = async (ev: MessageEvent<VfsBundleRequest>): Promise<void> => {
         options: stdinContents
           ? {
               ...BUILD_COMMON,
+              supported: BACKEND_LOWERED_SYNTAX,
               sourcemap: sourcemapOption,
               plugins: [
                 makeVfsNpmPlugin(files, "/node_modules", !!externalReactRuntime, aliases),
