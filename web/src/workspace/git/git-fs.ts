@@ -119,6 +119,21 @@ async function deactivateGitFs(gfs: GitFs): Promise<void> {
   }
 }
 
+/** Write the LightningFS superblock — the record of which files exist —
+ *  NOW, instead of on its debounced save.  A new file (or a write's new size)
+ *  is not durable until that save lands, and under load it lands seconds
+ *  after the write, so a tab that closes in between loses the file.  Called
+ *  when the page is hidden or unloaded.  Best-effort: a build without
+ *  `flush` no-ops. */
+export async function flushGitFs(gfs: GitFs): Promise<void> {
+  const p = gfs.fs.promises as unknown as { flush?: () => Promise<void> };
+  try {
+    await p.flush?.();
+  } catch {
+    /* best-effort: the debounced save still runs if the page survives */
+  }
+}
+
 /** Outcome of a `deleteGitDb` attempt.  `blocked` means another
  *  connection (typically a second tab) still holds the database — the
  *  delete stays pending in the browser and completes once that closes. */
