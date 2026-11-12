@@ -31,8 +31,10 @@ export interface HealthEndpoints {
 
 /** Which address families the HTTP listener accepts.  k8s probes and most
  *  in-cluster clients dial the pod's IPv4 address, so a service must accept
- *  IPv4 (`ipv4` or `dual-stack`); `ipv6-only` is a defect. */
-export type ListenFamilies = "ipv4" | "dual-stack" | "ipv6-only";
+ *  IPv4 (`ipv4` or `dual-stack`, falling back to IPv4 where the kernel has no
+ *  IPv6); `ipv6-required` — a listener that cannot open on an IPv6-less host —
+ *  is a defect. */
+export type ListenFamilies = "ipv4" | "dual-stack" | "ipv6-required";
 
 /** How the service logs. */
 export interface LogContract {
