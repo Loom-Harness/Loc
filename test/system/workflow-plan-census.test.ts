@@ -80,6 +80,10 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               read" scan.  A diagnostic scan that also pushes a finding is
 //               not a name set and is not flagged.
 //               → use `refsRead` / `namesUsed`.
+//   guarded     a `wf.statements.some(…)` whose callback is just
+//               `s.kind === "requires"` — the hand-spelled, top-level-only
+//               "can this workflow route answer 403" test.
+//               → use `workflowIsGuarded`.
 //   sub-handler a `.find(…)` whose callback matches a `create`'s
 //               `.eventBinding` against a subscription's `.param` — the
 //               hand-rolled "which body does this subscription run" lookup.
@@ -174,6 +178,7 @@ interface Violation {
     | "folded-events"
     | "event-log"
     | "refs-read"
+    | "guarded"
     | "sub-handler"
     | "es-shared";
   where: string;
@@ -492,6 +497,20 @@ function scan(file: string): Violation[] {
         ts.forEachChild(m, look);
       };
       look(n.arguments[0]!.body);
+      const cb = n.arguments[0]!;
+      const cbBody = ts.isExpression(cb.body) ? peel(cb.body).inner : undefined;
+      if (
+        method === "some" &&
+        /^(wf|workflow)\.statements$/.test(receiver) &&
+        cbBody &&
+        ts.isBinaryExpression(cbBody) &&
+        cbBody.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        propName(cbBody.left) === "kind" &&
+        ts.isStringLiteral(cbBody.right) &&
+        cbBody.right.text === "requires"
+      ) {
+        out.push({ rule: "guarded", where: at(n), text: n.getText(sf) });
+      }
       if (method === "find" && bindingVsParam) {
         out.push({ rule: "sub-handler", where: at(n), text: n.getText(sf) });
       }
@@ -592,6 +611,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-scans a body for the names it reads (use refsRead / namesUsed)", () => {
     const hits = violations.filter((v) => v.rule === "refs-read");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend re-spells the workflow guarded test (use workflowIsGuarded)", () => {
+    const hits = violations.filter((v) => v.rule === "guarded");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
