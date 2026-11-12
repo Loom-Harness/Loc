@@ -13,7 +13,7 @@ three-tier capability ladder (`mutating` ⊇ `reading` ⊇ `pure`):
 
 | Tier | The body may… | Callable from |
 |---|---|---|
-| **pure** | params only; branch, `let`, `match`, `throw`, call other pure services | **anywhere** (aggregate ops, views, workflows, services) |
+| **pure** | params only; branch, `let`, `match`, call other pure services | **anywhere** (aggregate ops, views, workflows, services) |
 | **reading** | the above **+ read-only repository queries** (`Repo.get/find/getBy/findBy/all`) | application orchestrators only |
 | **mutating** | the above **+ call mutating operations on the aggregates passed in** (`src.withdraw(amount)`) | application orchestrators only |
 
@@ -34,8 +34,8 @@ infrastructure a service touches, and only in the upper two tiers.
 ## Surface
 
 ```ddd
-module Sales {
-  domainService Pricing {
+context Pricing {
+  domainService Quoting {
     // pure — params only
     operation quote(cart: Cart, customer: Customer): Money {
       return cart.subtotal - customer.tier.discount(cart.subtotal)
@@ -45,21 +45,21 @@ module Sales {
   domainService Registration {
     // reading — a read-only repository query
     operation isHolderFree(holder: string): bool {
-      return Accounts.byHolder(holder) == null
+      return Accounts.findBy(holder: holder) == null
     }
   }
 }
 
-module Banking {
+context Banking {
   domainService Transfer {
     // mutating — mutates the PASSED-IN aggregates via their own ops
-    operation run(src: Account, dst: Account, amount: Money)
-      : Transferred or InsufficientFunds {
-      if (src.balance.amount < amount.amount)
+    operation run(src: Account, dst: Account, amount: Money): Money or InsufficientFunds {
+      if (src.balance.amount < amount.amount) {
         return InsufficientFunds { account: src.id, shortfall: amount }
+      }
       src.withdraw(amount)
       dst.deposit(amount)
-      return Transferred { src: src.id, dst: dst.id, amount: amount }
+      return amount
     }
   }
 }
@@ -90,17 +90,15 @@ aggregate Order {
 
 A **reading**/**mutating** service is **application-orchestrator-only**.
 The protocol is uniform — *orchestrator loads → service reads/mutates the
-passed-in aggregates → orchestrator persists*. The `or`-union result is
-consumed by **`return`-in-tail-position** (the edge maps the error
-variant → RFC-7807 ProblemDetails); persistence is the workflow's
+passed-in aggregates → orchestrator persists*. Persistence is the workflow's
 **auto-save-at-exit** of the mutated args:
 
 ```ddd
 workflow MoveMoney transactional {
-  create(source: Account id, dest: Account id, amount: Money): Transferred or InsufficientFunds {
+  create(source: Account id, dest: Account id, amount: Money) {
     let src = Accounts.get(source)            // orchestrator LOADS
     let dst = Accounts.get(dest)
-    return Transfer.run(src, dst, amount)         // service MUTATES src,dst; they auto-save at exit
+    Transfer.run(src, dst, amount)            // service MUTATES src,dst; they auto-save at exit
   }
 }
 ```
@@ -225,21 +223,26 @@ the shared `src/ir/util/domain-service-{tier,read-ports}.ts`, and the
 
 ## Companion: `function` block body
 
-A `function` may now take a **pure block body** (statements) instead of
+A `function` takes a **pure block body** (statements) instead of
 only a single `= Expression`:
 
 ```ddd
-function lineTotal(l: Line): Money = l.qty * l.price        // expression form (SQL-inlinable)
-function shippingFor(cart: Cart, dest: Region): Money {     // block form
-  let weight = cart.lines.sum(l => l.item.weight)
-  if (dest.isDomestic) return weight * Rates.domestic
-  return weight * Rates.international + cart.customsSurcharge
+aggregate Cart {
+  weight: int
+  customsSurcharge: int
+  function lineTotal(qty: int, price: int): int = qty * price      // expression form (SQL-inlinable)
+  function shippingFor(domestic: bool, rates: Rates): int {        // block form
+    let w = this.weight
+    if (domestic) {
+      return w * rates.domestic
+    }
+    return w * rates.international + this.customsSurcharge
+  }
 }
 ```
 
 A block-body `function` stays **pure** — params only, no repository
-(not even a read), no mutation/`emit` (`loom.function-block-impure`);
-`throw`/`require` for the bug regime are allowed. The expression form
+(not even a read), no mutation/`emit` (`loom.function-block-impure`). The expression form
 stays **SQL-inlinable** (queryable like a `criterion`); the **block form
 is not queryable** (a block-function call is rejected in a `where` /
 `criterion` / view-filter position, the same as any call). This keeps the

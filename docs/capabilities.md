@@ -363,25 +363,25 @@ is the same `AssignOrCallStmt*` shape as an `operation` body, with
 
 ```ddd
 aggregate Order {
+  subject: string
   createdAt: datetime
   updatedAt: datetime
-  createdBy: User id
-  updatedBy: User id
 
   stamp onCreate {
     createdAt := now()
-    createdBy := currentUser
   }
   stamp onUpdate {
     updatedAt := now()
-    updatedBy := currentUser
   }
 }
 ```
 
 To apply stamps to some aggregates and not others, bundle them in a
 `capability` (the built-in `auditable` is exactly this) and opt in per
-aggregate with `with auditable`.
+aggregate with `with auditable`, which contributes the four audit fields
+(`createdAt`, `updatedAt`, `createdBy`, `updatedBy`) and both stamps — nothing
+is declared by hand. The principal-typed `createdBy` / `updatedBy` come only
+from `auditable`: a hand-written `createdBy: User id` does not resolve.
 
 ### Stamp targets are server-owned wire fields
 
@@ -554,8 +554,8 @@ wins.
 - A capability with no implementors is allowed (declared but unused).
 - Field references inside a capability's `filter` / `stamp` body
   type-check against each implementing aggregate, so a capability whose
-  `stamp onCreate { createdBy := currentUser }` assigns `createdBy`
-  requires every implementor to have a `createdBy: User id` field — a
+  `stamp onCreate { createdAt := now() }` assigns `createdAt`
+  requires every implementor to have a `createdAt: datetime` field — a
   missing field is an IR-validation error.
 
 ## Feature compositions

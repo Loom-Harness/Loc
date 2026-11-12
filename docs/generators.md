@@ -1303,9 +1303,10 @@ world sees are pinned back on:
 ```ddd
 aggregate Thing with crudish {
   def: string
-  operation class(except: int) { … }
+  unique (def)
+  operation class(except: int) { this.def := "x" }
 }
-repository Things for Thing { find byDef(def: string): Thing? where this.def == def }
+repository Things for Thing { }
 ```
 
 | position | what is emitted |

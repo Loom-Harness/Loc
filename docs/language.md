@@ -1174,7 +1174,7 @@ call inside a `find … where` stays queryable.
 
 ```ddd
 function isBlank(s: string): bool = s.trim().length == 0
-function withTax(amount: int, pct: int): int = amount + amount * pct / 100
+function withTax(amount: int, pct: int): int = amount + (amount * pct).divTrunc(100)
 
 context Sales {
   aggregate Invoice {
@@ -1188,8 +1188,8 @@ context Sales {
 
 ```csharp
 // .NET — inlined, no helper function/class emitted
-if (!(!(CustomerName.Trim().Length == 0))) throw new DomainInvariantException(...);
-public int Gross => (Net + Net * 20 / 100);
+if (!(!(this.CustomerName.Trim().EnumerateRunes().Count() == 0))) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+public int Gross => (checked(this.Net + (checked(this.Net * 20)) / 100));
 ```
 
 Rules:
@@ -1360,7 +1360,7 @@ When the receiver type is `T[]`:
 | `xs.distinct` | `T[]` | De-duplication (scalar elements — `loom.distinct-non-scalar`). |
 | `xs.take(n)` / `xs.skip(n)` | `T[]` | Slicing. |
 | `xs.join(sep)` | `string` | Concatenate string elements (`loom.join-non-string`). |
-| `xs.min(x => expr)` / `xs.max(x => expr)` | `T?` | Reductions over comparable elements (`loom.reduction-non-comparable`); `null` on empty. |
+| `xs.min(x => expr)` / `xs.max(x => expr)` | `U?` (`U` = the selector's type) | Reductions over the selector's values, which must be comparable (`loom.reduction-non-comparable`); they return the smallest / largest *value* of `expr`, not the element it came from; `null` on empty. |
 | `xs.avg(x => expr)` | `decimal?` | Mean (`loom.avg-non-numeric`); `null` on empty. |
 
 A reduction spelled without its lambda (`xs.sum`, `xs.any`) is rejected
