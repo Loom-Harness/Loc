@@ -701,7 +701,7 @@ Roughly 90 seconds end-to-end with cached base images.  Stays out of
 the default `npm test` so the unit / generator suite remains fast:
 
 ```bash
-npm test         # unit + parser + generator + CLI tests, ~5s
+npm test         # unit + parser + generator + CLI tests, ~6 min on 4 cores
 npm run test:e2e # the full Docker smoke, ~90s
 ```
 
