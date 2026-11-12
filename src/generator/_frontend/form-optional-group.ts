@@ -43,11 +43,17 @@ const react: OptionalGroupRenderer = (f, inner) =>
 /** Vue and Svelte read the value through the form's reactive `values`. */
 const valuesRead = (path: string): string => `form.values.${path}`;
 
+/** The group's inputs mount only while the value is present, but a binding's
+ *  event-handler closure does not carry the template's narrowing — so inside the
+ *  group the children read the value non-null. */
+const presentReads = (path: string, inner: string): string =>
+  inner.replaceAll(`${valuesRead(path)}.`, `${valuesRead(path)}!.`);
+
 const vue: OptionalGroupRenderer = (f, inner) =>
   [
     `<label><input type="checkbox" data-testid="${f.testId}-present" :checked="${valuesRead(f.path)} != null" @change="${valuesRead(f.path)} = ($event.target as HTMLInputElement).checked ? ${f.zeroTs.replaceAll('"', "'")} : null" /> ${f.labelExpr ? `{{ ${f.labelExpr} }}` : f.label}</label>`,
     `<template v-if="${valuesRead(f.path)} != null">`,
-    inner,
+    presentReads(f.path, inner),
     "</template>",
   ].join("\n");
 
@@ -55,7 +61,7 @@ const svelte: OptionalGroupRenderer = (f, inner) =>
   [
     `<label><input type="checkbox" data-testid="${f.testId}-present" checked={${valuesRead(f.path)} != null} onchange={(e) => { ${valuesRead(f.path)} = e.currentTarget.checked ? ${f.zeroTs} : null; }} /> ${f.labelExpr ? `{${f.labelExpr}}` : f.label}</label>`,
     `{#if ${valuesRead(f.path)} != null}`,
-    inner,
+    presentReads(f.path, inner),
     "{/if}",
   ].join("\n");
 

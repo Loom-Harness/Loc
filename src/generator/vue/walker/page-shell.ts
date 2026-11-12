@@ -563,6 +563,10 @@ export function renderVuePage(input: VuePageShellInput): string {
     opFormLines.push(`const ${opCamel}Open = ref(false);`);
     vueImports.add("ref");
     const seeds1 = opFormSeeds(state, state.idExpr, `${opCamel}Form`);
+    if (seeds1.recordParam && state.recordType) {
+      names.add(state.recordType);
+      apiImports.set(from, names);
+    }
     opFormLines.push(
       `const ${openFn} = (_mut: unknown${seeds1.recordParam}) => { ${seeds1.onOpen}${opCamel}Open.value = true; };`,
     );
@@ -1427,6 +1431,10 @@ export function renderVueComponentFile(
     formLines.push(`const ${opCamel}Open = ref(false);`);
     vueImports.add("ref");
     const seeds2 = opFormSeeds(st, rewriteScript(st.idExpr), `${opCamel}Form`);
+    if (seeds2.recordParam && st.recordType) {
+      names.add(st.recordType);
+      apiImports.set(from, names);
+    }
     formLines.push(
       `const ${openFn} = (_mut: unknown${seeds2.recordParam}) => { ${seeds2.onOpen}${opCamel}Open.value = true; };`,
     );
