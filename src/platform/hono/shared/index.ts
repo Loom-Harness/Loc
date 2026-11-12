@@ -12,6 +12,13 @@ import type {
 } from "../../../generator/_adapters/index.js";
 import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
 import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+} from "../../operations.js";
+import {
   type ComposeServiceShape,
   type PlatformSurface,
   STATIC_BUNDLE_FRAMEWORKS,
@@ -62,6 +69,20 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         { emitTrace, sourcemap },
       );
     },
+    operations: {
+      health: BACKEND_HEALTH,
+      healthcheck: wgetHealthcheck,
+      healthcheckBinaries: ["wget"],
+      listen: "dual-stack",
+      log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+      broker: { ...BROKER_BASELINE, reconnects: false, publishFailureKeepsCommit: false },
+      migrations: MIGRATIONS_BASELINE,
+      gaps: {
+        ...BROKER_BASELINE_GAPS,
+        "broker.reconnects": "#3566",
+        "broker.publishFailureKeepsCommit": "#3568",
+      },
+    },
     composeService({ slug, deployable, sys }): ComposeServiceShape {
       const database = databaseOf(sys, deployable)?.name ?? slug;
       return {
@@ -75,7 +96,6 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
         // `healthy` only once the app can reach its DB, so dependent
         // services / smoke tests don't race the schema bootstrap.
         // /health stays for cheap liveness probing (k8s livenessProbe).
-        healthPath: "/ready",
         internalPort: 3000,
       };
     },

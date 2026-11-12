@@ -83,7 +83,6 @@ describe("python platform — registry resolution", () => {
         ["LOG_LEVEL", "info"],
       ],
       dependsOnDb: true,
-      healthPath: "/ready",
       internalPort: 8000,
     });
   });

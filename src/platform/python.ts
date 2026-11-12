@@ -2,6 +2,13 @@ import { generatePythonForContexts } from "../generator/python/index.js";
 import { databaseOf } from "../ir/util/databases.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+} from "./operations.js";
+import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
@@ -58,6 +65,16 @@ const pythonPlatform: PlatformSurface = {
       sourcemap,
     });
   },
+  operations: {
+    health: BACKEND_HEALTH,
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    listen: "ipv4",
+    log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
+    broker: BROKER_BASELINE,
+    migrations: MIGRATIONS_BASELINE,
+    gaps: BROKER_BASELINE_GAPS,
+  },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -69,7 +86,6 @@ const pythonPlatform: PlatformSurface = {
       dependsOnDb: true,
       // Compose healthcheck → /ready (DB-aware), /health stays for
       // cheap liveness probing — same split as dotnet/hono.
-      healthPath: "/ready",
       internalPort: 8000,
     };
   },

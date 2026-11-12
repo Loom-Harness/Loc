@@ -169,7 +169,7 @@ describe("kubernetes / helm — secret widening + probe alignment", () => {
     expect(files.get("helm/templates/api-config.yaml")!).toContain("LOOM_OPENAPI_UI");
   });
 
-  it("aligns probes to /health (liveness) + /ready (readiness) regardless of compose healthPath", async () => {
+  it("aligns probes to /health (liveness) + /ready (readiness) from the operations contract", async () => {
     const files = await filesFor(JAVA_SRC, true);
     const dep = files.get("k8s/api-deployment.yaml")!;
     // Both endpoints exist on every backend; liveness is the cheap one.

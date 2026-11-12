@@ -1,0 +1,135 @@
+// ---------------------------------------------------------------------------
+// The operational contract — what a platform's generated service promises to
+// the thing that RUNS it (docker compose, the k8s manifests, the Helm chart,
+// the lifecycle leg), as opposed to what it renders.
+//
+// Every surface states its contract here instead of the system orchestrator
+// hardcoding one healthcheck string or one probe path for every backend.  The
+// compose and k8s emitters read the health endpoints and the healthcheck
+// command from it; the conformance test (`test/platform/operations-contract.test.ts`)
+// checks the facts against the emitted tree; the `lifecycle-e2e` leg boots the
+// stack and asserts the runtime facts (reboot, broker outage, DB pause).
+//
+// A runtime fact a backend does not meet yet is stated as false, with the
+// open issue that tracks it in `gaps` — the register is honest, and fixing the
+// bug flips the fact and deletes its gap in the same change.
+// ---------------------------------------------------------------------------
+
+/** The HTTP endpoints the service serves for its orchestrator. */
+export interface HealthEndpoints {
+  /** Cheap, dependency-free liveness — a failing DB must not restart the pod. */
+  readonly liveness: string;
+  /** Dependency-aware readiness — reflects a DB outage. */
+  readonly readiness: string;
+  /** The endpoint the compose healthcheck polls.  `docker compose up --wait`
+   *  blocks on it, so it is the endpoint that says "this service can take a
+   *  request now". */
+  readonly compose: string;
+}
+
+/** Which address families the HTTP listener accepts.  k8s probes and most
+ *  in-cluster clients dial the pod's IPv4 address, so a service must accept
+ *  IPv4 (`ipv4` or `dual-stack`); `ipv6-only` is a defect. */
+export type ListenFamilies = "ipv4" | "dual-stack" | "ipv6-only";
+
+/** How the service logs. */
+export interface LogContract {
+  /** `loom-json` — one JSON object per line in the shared Loom envelope
+   *  (`docs/observability.md`); `framework-json` — the framework's own JSON
+   *  shape, which does not match the envelope; `text` — unstructured. */
+  readonly format: "loom-json" | "framework-json" | "text";
+  /** The env var that sets the runtime log level, when the service reads one. */
+  readonly levelEnv?: string;
+}
+
+/** What a backend's broker client does when the broker or the publish path
+ *  fails.  Meaningful only on a backend that emits channels. */
+export interface BrokerResilience {
+  /** Reconnects with backoff after the broker drops, without a restart. */
+  readonly reconnects: boolean;
+  /** A failure publishing to an ephemeral (non-outbox) channel after the
+   *  command committed is logged, never turned into an error response. */
+  readonly publishFailureKeepsCommit: boolean;
+  /** A consumer that keeps failing is retried a bounded number of times and
+   *  then dead-lettered — through an exchange the generated broker ACL allows. */
+  readonly deadLettersUnderAcl: boolean;
+  /** A channel message carries the W3C trace context across the broker. */
+  readonly propagatesTrace: boolean;
+  /** The messaging tier exports metrics (published / consumed / retried /
+   *  dead-lettered / outbox lag). */
+  readonly exportsMetrics: boolean;
+}
+
+/** What a backend's boot-time schema migrator guarantees. */
+export interface MigrationRunnerFacts {
+  /** A second boot against an already-migrated database applies nothing and
+   *  boots (no duplicate-object error, no checksum refusal). */
+  readonly idempotentReboot: boolean;
+  /** Regenerating with a changed model in a non-last module and rebooting
+   *  applies the new entry. */
+  readonly multiModule: boolean;
+}
+
+/** One platform's operational contract. */
+export interface PlatformOperations {
+  readonly health: HealthEndpoints;
+  /** The compose healthcheck's `test:` — runs INSIDE the container, so it
+   *  addresses `localhost:<internalPort>`. */
+  healthcheck(port: number, path: string): readonly string[];
+  /** Binaries the healthcheck needs in the runtime image. */
+  readonly healthcheckBinaries: readonly string[];
+  readonly listen: ListenFamilies;
+  readonly log: LogContract;
+  /** Present on a backend that emits a broker client. */
+  readonly broker?: BrokerResilience;
+  /** Present on a backend that migrates a database at boot. */
+  readonly migrations?: MigrationRunnerFacts;
+  /** The open issue behind every runtime fact above that is not met yet,
+   *  keyed by the fact's path (`listen`, `log.format`, `broker.reconnects`). */
+  readonly gaps?: Readonly<Record<string, string>>;
+}
+
+/** `wget` against the in-container listener — busybox (alpine) and the
+ *  debian runtime images that install it both understand `-qO-`. */
+export function wgetHealthcheck(port: number, path: string): readonly string[] {
+  return ["CMD-SHELL", `wget -qO- http://localhost:${port}${path} || exit 1`];
+}
+
+/** A backend's endpoints: `/health` for liveness, the DB-aware `/ready` for
+ *  readiness and compose. */
+export const BACKEND_HEALTH: HealthEndpoints = {
+  liveness: "/health",
+  readiness: "/ready",
+  compose: "/ready",
+};
+
+/** A static-bundle frontend (vite preview / nginx) — every probe hits its root. */
+export const FRONTEND_OPERATIONS: PlatformOperations = {
+  health: { liveness: "/", readiness: "/", compose: "/" },
+  healthcheck: wgetHealthcheck,
+  healthcheckBinaries: ["wget"],
+  listen: "ipv4",
+  log: { format: "text" },
+};
+
+/** The broker facts every backend shares today, and the issues behind the
+ *  ones not met yet.  A backend spreads these and overrides its own rows. */
+export const BROKER_BASELINE: BrokerResilience = {
+  reconnects: true,
+  publishFailureKeepsCommit: true,
+  deadLettersUnderAcl: false,
+  propagatesTrace: false,
+  exportsMetrics: false,
+};
+export const BROKER_BASELINE_GAPS: Readonly<Record<string, string>> = {
+  "broker.deadLettersUnderAcl": "#3565",
+  "broker.propagatesTrace": "#3582",
+  "broker.exportsMetrics": "#3583",
+};
+
+/** Every DB backend's boot migrator: the lifecycle leg's reboot and
+ *  regenerate-and-migrate phases prove both. */
+export const MIGRATIONS_BASELINE: MigrationRunnerFacts = {
+  idempotentReboot: true,
+  multiModule: true,
+};

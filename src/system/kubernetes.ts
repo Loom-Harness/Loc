@@ -212,16 +212,11 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       image: name,
       servicePort: d.port,
       containerPort: shape.internalPort,
-      // Uniform probe endpoints across every DB-backed backend: each emits
-      // BOTH a cheap `/health` (no DB) and a DB-aware `/ready` (verified for
-      // hono / .NET / python / java / phoenix).  Liveness uses /health so a
-      // transient DB outage gates traffic (readiness) instead of restarting
-      // the pod.  Frontends expose neither — probe their static root.  This
-      // is why we don't derive from `healthPath` here: that field reflects
-      // each backend's COMPOSE healthcheck choice (phoenix points it at
-      // /health), which would otherwise leak a non-DB-aware readiness probe.
-      livenessPath: shape.dependsOnDb ? "/health" : shape.healthPath,
-      readinessPath: shape.dependsOnDb ? "/ready" : shape.healthPath,
+      // The surface's operations contract owns both probes: liveness is the
+      // cheap dependency-free check (a DB blip must not restart the pod),
+      // readiness the DB-aware one (it gates traffic instead).
+      livenessPath: platform.operations.health.liveness,
+      readinessPath: platform.operations.health.readiness,
       dependsOnDb: shape.dependsOnDb,
       exposesUi: exposesUi(d),
       // Backends expose Prometheus metrics at /metrics (M-T7.1); pure static

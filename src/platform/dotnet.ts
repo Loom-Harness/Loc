@@ -10,6 +10,13 @@ import { generateDotnetForContexts } from "../generator/dotnet/index.js";
 import { databaseOf } from "../ir/util/databases.js";
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
+  BACKEND_HEALTH,
+  BROKER_BASELINE,
+  BROKER_BASELINE_GAPS,
+  MIGRATIONS_BASELINE,
+  wgetHealthcheck,
+} from "./operations.js";
+import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
   type PlatformSurface,
@@ -85,6 +92,16 @@ const dotnetPlatform: PlatformSurface = {
       { emitTrace, sourcemap, sourceTexts },
     );
   },
+  operations: {
+    health: BACKEND_HEALTH,
+    healthcheck: wgetHealthcheck,
+    healthcheckBinaries: ["wget"],
+    listen: "dual-stack",
+    log: { format: "framework-json", levelEnv: "LOG_LEVEL" },
+    broker: BROKER_BASELINE,
+    migrations: MIGRATIONS_BASELINE,
+    gaps: { ...BROKER_BASELINE_GAPS, "log.format": "#3579" },
+  },
   composeService({ slug, deployable, sys }): ComposeServiceShape {
     const database = databaseOf(sys, deployable)?.name ?? slug;
     return {
@@ -101,7 +118,6 @@ const dotnetPlatform: PlatformSurface = {
       // `healthy` only once the app can reach its DB, so dependent
       // services / smoke tests don't race the schema bootstrap.
       // /health stays for cheap liveness probing (k8s livenessProbe).
-      healthPath: "/ready",
       internalPort: 8080,
     };
   },
