@@ -10,7 +10,8 @@
 // is already typed `DateOnly`.
 //
 // The e2e pins the judgement as well as the build: a stay that ends after it
-// starts is created; one that ends before, or on, its start day is refused.
+// starts is created; one that ends before, or on, its start day is refused —
+// and a window whose close, read as an instant, precedes its open is refused.
 system VoDateInvariant {
   subdomain Lodging {
     context Stays {
@@ -19,9 +20,18 @@ system VoDateInvariant {
         checkOut: date
         invariant checkOut > checkIn
       }
+      // The same ordering over `datetime` fields.  The wire instant may
+      // carry an offset (`+02:00`) or a fraction, so it is compared as an
+      // instant, never as text: 09:00+02:00 is BEFORE 08:00Z.
+      valueobject Window {
+        opens: datetime
+        closes: datetime
+        invariant closes > opens
+      }
       aggregate Booking with crudish {
         guest: string
         stay: Stay
+        window: Window
       }
       repository Bookings for Booking { }
     }
@@ -39,18 +49,21 @@ system VoDateInvariant {
   }
 
   test e2e "a value-object date ordering invariant judges calendar order" against d {
-    let b = api.bookings.create({ guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-02" } })
+    let b = api.bookings.create({ guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-02" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T11:00:00+02:00" } })
     let read = api.bookings.getById(b)
     expect(read.stay.checkIn).toBe("2026-01-30")
     expect(read.stay.checkOut).toBe("2026-02-02")
-    expect(api.bookings.create({ guest: "Bob", stay: { checkIn: "2026-02-02", checkOut: "2026-01-30" } })).toThrow(422)
-    expect(api.bookings.create({ guest: "Cy", stay: { checkIn: "2026-03-01", checkOut: "2026-03-01" } })).toThrow(422)
+    expect(api.bookings.create({ guest: "Bob", stay: { checkIn: "2026-02-02", checkOut: "2026-01-30" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T11:00:00+02:00" } })).toThrow(422)
+    expect(api.bookings.create({ guest: "Cy", stay: { checkIn: "2026-03-01", checkOut: "2026-03-01" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T11:00:00+02:00" } })).toThrow(422)
     let all = api.bookings.all()
     expect(all.total).toBe(1)
 
-    api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-05" } })
+    // 09:00+02:00 is 07:00Z — BEFORE opens, though it sorts after it as text.
+    expect(api.bookings.create({ guest: "Di", stay: { checkIn: "2026-01-30", checkOut: "2026-02-02" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T09:00:00+02:00" } })).toThrow(422)
+
+    api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-01-30", checkOut: "2026-02-05" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T11:00:00+02:00" } })
     expect(api.bookings.getById(b).stay.checkOut).toBe("2026-02-05")
-    expect(api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-02-05", checkOut: "2026-01-30" } })).toThrow(422)
+    expect(api.bookings.update(b, { guest: "Ada", stay: { checkIn: "2026-02-05", checkOut: "2026-01-30" }, window: { opens: "2026-01-30T08:00:00Z", closes: "2026-01-30T11:00:00+02:00" } })).toThrow(422)
     api.bookings.destroy(b)
     expect(api.bookings.getById(b)).toThrow(404)
   }

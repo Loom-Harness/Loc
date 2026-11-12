@@ -21,7 +21,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
-import { csCalendarDateTryParseExact } from "./codec-spelling.js";
+import { csCalendarDateTryParseExact, csInstantTryParse } from "./codec-spelling.js";
 import { CS, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -563,7 +563,8 @@ function renderFluentPredicate(e: ExprIR): string {
     case "binary": {
       const left = renderFluentPredicate(e.left);
       const right = renderFluentPredicate(e.right);
-      if (isWireDateOrdering(e)) return wireDateOrdering(left, e.op, right);
+      const temporal = wireTemporalOrdering(e);
+      if (temporal) return wireTemporalCompare(temporal, left, e.op, right);
       return `${left} ${e.op} ${right}`;
     }
     case "ternary":
@@ -615,32 +616,44 @@ const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
  *  emitted names are stable. */
 let dateLocal = 0;
 
-/** Both wire dates parsed through the calendar-date codec, then compared with
- *  the native `DateOnly` operator.  `TryParse`, not `ParseExact`: the rule runs
- *  BEFORE the request mapping's parse guard, so a malformed value must not
- *  throw here (a 500) — the rule does not judge it, and the guard answers the
- *  typed 422. */
-function wireDateOrdering(left: string, op: string, right: string): string {
+/** Both wire values parsed through their codec (`DateOnly` for a date, a UTC
+ *  `DateTime` for an instant — whatever offset or fraction the text carries),
+ *  then compared with the native operator.  `TryParse`, not `Parse`: the rule
+ *  runs BEFORE the request mapping's parse guard, so a malformed value must
+ *  not throw here (a 500) — the rule does not judge it, and the guard answers
+ *  the typed 422. */
+function wireTemporalCompare(
+  kind: "date" | "datetime",
+  left: string,
+  op: string,
+  right: string,
+): string {
+  const parse = kind === "date" ? csCalendarDateTryParseExact : csInstantTryParse;
   const l = `__d${dateLocal++}`;
   const r = `__d${dateLocal++}`;
-  return `(!(${csCalendarDateTryParseExact(left, l)} & ${csCalendarDateTryParseExact(right, r)}) || ${l} ${op} ${r})`;
+  return `(!(${parse(left, l)} & ${parse(right, r)}) || ${l} ${op} ${r})`;
 }
 
-/** True for an ordering comparison of `date` operands that reads a
- *  value-object field.  A VO invariant is judged on the `<VO>Request` record,
- *  whose `date` members are the wire STRING (parsed to `DateOnly` only after
- *  validation), and C# has no `>` over strings (CS0019).  A command's `date`
- *  members are already `DateOnly`, so its comparisons keep the native
- *  operator. */
-function isWireDateOrdering(e: Extract<ExprIR, { kind: "binary" }>): boolean {
-  if (!ORDERING_OPS.has(e.op)) return false;
-  const isDate = (t: TypeIR | undefined): boolean => {
+/** The temporal kind of an ordering comparison of `date` / `datetime`
+ *  operands that reads a value-object field, else undefined.  A VO invariant
+ *  is judged on the `<VO>Request` record, whose temporal members are the wire
+ *  STRING (parsed only after validation), and C# has no `>` over strings
+ *  (CS0019).  A command's temporal members are already `DateOnly` /
+ *  `DateTime`, so its comparisons keep the native operator. */
+function wireTemporalOrdering(
+  e: Extract<ExprIR, { kind: "binary" }>,
+): "date" | "datetime" | undefined {
+  if (!ORDERING_OPS.has(e.op)) return undefined;
+  const temporal = (t: TypeIR | undefined): "date" | "datetime" | undefined => {
     const u = t?.kind === "optional" ? t.inner : t;
-    return u?.kind === "primitive" && u.name === "date";
+    return u?.kind === "primitive" && (u.name === "date" || u.name === "datetime")
+      ? u.name
+      : undefined;
   };
-  if (!isDate(e.leftType) && !isDate(e.rightType)) return false;
+  const kind = temporal(e.leftType) ?? temporal(e.rightType);
+  if (!kind) return undefined;
   const isVoField = (x: ExprIR): boolean => x.kind === "ref" && x.refKind === "this-vo-prop";
-  return isVoField(e.left) || isVoField(e.right);
+  return isVoField(e.left) || isVoField(e.right) ? kind : undefined;
 }
 
 function renderLit(lit: Lit["lit"], value: string): string {

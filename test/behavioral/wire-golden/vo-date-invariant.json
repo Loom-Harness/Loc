@@ -23,6 +23,10 @@
         "stay": {
           "checkIn": "2026-01-30",
           "checkOut": "2026-02-02"
+        },
+        "window": {
+          "closes": "<timestamp>",
+          "opens": "<timestamp>"
         }
       }
     },
@@ -82,6 +86,10 @@
             "stay": {
               "checkIn": "2026-01-30",
               "checkOut": "2026-02-02"
+            },
+            "window": {
+              "closes": "<timestamp>",
+              "opens": "<timestamp>"
             }
           }
         ],
@@ -94,12 +102,33 @@
     {
       "seq": 5,
       "method": "POST",
+      "path": "/api/bookings",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "problem.domain-floor",
+            "message": "Business rule violated",
+            "pointer": "/window/closes"
+          }
+        ],
+        "instance": "/api/bookings",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
       "path": "/api/bookings/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/bookings/{id}",
       "status": 200,
@@ -110,11 +139,15 @@
         "stay": {
           "checkIn": "2026-01-30",
           "checkOut": "2026-02-05"
+        },
+        "window": {
+          "closes": "<timestamp>",
+          "opens": "<timestamp>"
         }
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "POST",
       "path": "/api/bookings/{id}/update",
       "status": 422,
@@ -135,14 +168,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "DELETE",
       "path": "/api/bookings/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "GET",
       "path": "/api/bookings/{id}",
       "status": 404,
@@ -159,7 +192,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "PATCH",
       "path": "/api/bookings",
       "status": 405,
@@ -173,7 +206,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -187,7 +220,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "POST",
       "path": "/api/bookings",
       "status": 400,
