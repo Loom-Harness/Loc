@@ -134,8 +134,14 @@ const authored = (menu: MenuShape, t: FrontendTarget): string[] => [
     "SlotModalTrigger",
     "SlotModalTriggerTitle",
     "SlotAdminHeading",
+    ...(hasTitledPage(t) ? ["SlotNavTitle"] : []),
   ]),
 ];
+
+/** The titled page (a nav label derived from a page `title:`) is probed on the
+ *  JS/Feliz/Flutter shells; HEEx pages render `<title>` through `assign(:page_title, …)`,
+ *  which the inert-call scan reads as a text node. */
+const hasTitledPage = (t: FrontendTarget): boolean => t.platform !== "elixir";
 
 type MenuShape = "explicit" | "derived";
 
@@ -156,6 +162,7 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
         ? `menu {
       section "SlotMenuSection" {
         link Probe { label: "SlotMenuLink" }
+        ${hasTitledPage(t) ? "link Titled" : ""}
         link "SlotMenuExternal" -> "https://example.com/docs"
       }
     }`
@@ -176,10 +183,20 @@ function uiBlock(t: FrontendTarget, menu: MenuShape): string {
       }
       body: ${probeBody(t)}
     }
+    ${
+      hasTitledPage(t)
+        ? `page Titled {
+      route: "/titled"
+      title: "SlotNavTitle"
+      body: Text { "SlotTitledBody" }
+    }`
+        : ""
+    }
     page ProductAdmin(id: Product id) {
       route: "/products/:id/admin"
       body: Stack {
         Heading { "SlotAdminHeading" },
+        QueryView { of: Shop.Product.byId(id), single: true, data: p => Action { p.retire } },
         Modal {
           trigger: Button { "SlotModalTrigger", testid: "products-op-retire" },
           title: "SlotModalTriggerTitle",
@@ -838,6 +855,84 @@ describe("i18n round trip — the page-level `requires` forbidden view", () => {
       expect(page, `${t.id}: no gated page emitted`).toBeDefined();
       expect(page![1]).toContain("Forbidden");
       expect(page![1]).not.toContain("chrome.forbidden");
+
+// --- chrome slots on the JS frontends ----------------------------------------
+
+const JS_FRONTENDS = FRONTENDS.filter((t) =>
+  ["react", "vue", "svelte", "angular"].includes(t.platform),
+);
+
+const CHROME_SLOTS_SYSTEM = (t: FrontendTarget): string => `
+  system Clinic {
+    subdomain S { context C {
+      aggregate Appt {
+        status: string
+        qty: int
+        create(status: string, qty: int) { }
+        operation complete() { status := "Done" }
+        invariant qtyNonNegative: qty >= 0
+      }
+      repository Appts for Appt { }
+    } }
+    api A from S
+    storage db { type: postgres }
+    resource st { for: C, kind: state, use: db }
+    ui W {
+      api S: A
+      menu { section "Main" { link Console } }
+      page Console {
+        route: "/console"
+        title: "SlotConsoleTitle"
+        body: Stack {
+          QueryView { of: S.Appt.all, data: rows => Table { rows: rows,
+            Column { "Done", o => Action { o.complete } } } }
+        }
+      }
+      page New { route: "/new" body: CreateForm { of: Appt } }
+      page Detail(id: Appt id) {
+        route: "/detail/:id"
+        body: QueryView { of: S.Appt.byId(id), single: true, data: a => Stack { Action { a.complete } } }
+      }
+    }
+    deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
+    deployable web { platform: ${t.platform} design: "${t.pack}" targets: api ui: W { S: api } port: 3001 }
+  }`;
+
+describe("i18n chrome slots — nav label from a page title, Action label (JS frontends)", () => {
+  for (const t of JS_FRONTENDS) {
+    it(`${t.id}: the nav link reuses the page-title key; Action renders the op key`, async () => {
+      const files = await generateSystemFiles(CHROME_SLOTS_SYSTEM(t), { locales: ["ar"] } as never);
+      const catalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<string, string>;
+      const titleKeys = Object.keys(catalog).filter((k) => catalog[k] === "SlotConsoleTitle");
+      // One translator entry for the title, not one per surface.
+      expect(titleKeys).toHaveLength(1);
+      const opKey = Object.keys(catalog).find((k) => /\.Appt\.op\.complete$/.test(k));
+      expect(opKey, "the operation's identity key is catalogued").toBeDefined();
+
+      const tree = [...consumptionTree(files, t)].filter(([f]) => !/\.(css|svg)$/.test(f));
+      const readers = (key: string) =>
+        tree.filter(([, src]) => quoted(key).test(src)).map(([f]) => f);
+      // A `message`-bearing rule's client refine carries its catalog key as the
+      // `loomCode` the form localizes at render time (the English literal is only
+      // the fallback), so the rule is read through the catalog on every cell.
+      const ruleKey = Object.keys(catalog).find((k) => /\.Appt\.rule\.qtyNonNegative$/.test(k));
+      expect(ruleKey, "the named rule is catalogued").toBeDefined();
+      expect(readers(ruleKey!).length, "a client schema reads the rule key").toBeGreaterThan(0);
+      // The title key is read by the page AND by the app shell's nav link.
+      expect(readers(titleKeys[0]!).length, "page + shell read the title key").toBeGreaterThan(1);
+      // The detail and the row `Action` (the only readers of the op key here).
+      expect(readers(opKey!).length).toBeGreaterThan(0);
+      // Absence claim (string tier, labelled): no emitted line renders the bare
+      // English "Complete" button label or the bare title outside a `t()` call.
+      for (const [file, src] of tree) {
+        for (const line of src.split("\n")) {
+          if (/^\s*(\/\/|\*|<!--)/.test(line)) continue;
+          expect(line, `${file}: bare op label`).not.toMatch(/>\s*Complete\s*</);
+          if (line.includes("SlotConsoleTitle") && !file.endsWith("index.html")) {
+            expect(line, `${file}: title outside t()`).toMatch(/\bt\(|\bI18n/);
+          }
+        }
+      }
     });
   }
 });

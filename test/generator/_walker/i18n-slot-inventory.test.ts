@@ -223,4 +223,20 @@ describe("i18n slot inventory — untranslatable primitive text is listed, not s
     }
     expect(wrong, "PARTIALLY_LOCALIZED entries that no longer apply").toEqual([]);
   });
+
+  it("the identity-keyed Action label and the title-derived nav label stay routed (per SITE)", () => {
+    // Sites with no `USER_VISIBLE_SLOTS` role: an `Action` button reads the op's
+    // identity key (the scaffold form's), and a `link <Page>` nav label reads the
+    // page's `title` key.  Each emitter must still call its shared seam.
+    const root = path.resolve(here, "../../../src/generator");
+    const sites: Array<[string, RegExp]> = [
+      ["_walker/primitives/controls.ts", /label: actionButtonLabel\(/],
+      ["angular/action.ts", /label: actionButtonLabel\(/],
+      ["_frontend/menu-emitter.ts", /pageTitleLabelKey\(/],
+    ];
+    const unrouted = sites
+      .filter(([f, re]) => !re.test(fs.readFileSync(path.join(root, f), "utf8")))
+      .map(([f]) => f);
+    expect(unrouted, "emitters that stopped routing their label through the catalog").toEqual([]);
+  });
 });
