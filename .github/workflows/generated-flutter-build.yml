@@ -401,7 +401,11 @@ jobs:
             subdomain Sales {
               context Orders {
                 aggregate Product with crudish { name: string  price: money }
-                aggregate Customer with crudish { name: string  email: string }
+                // An OPTIONAL value object with an enum sub-field: the scaffolded
+                // Detail page reads `data.vehicle?.usage`, which must be null-safe.
+                enum Usage { Private Commercial }
+                valueobject Vehicle { vin: string  year: int  usage: Usage }
+                aggregate Customer with crudish { name: string  email: string  vehicle: Vehicle? }
                 repository Products for Product { }
                 repository Customers for Customer { }
               }
