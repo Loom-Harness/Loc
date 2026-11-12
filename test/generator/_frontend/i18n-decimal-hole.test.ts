@@ -127,14 +127,3 @@ describe("a Decimal reaches a numeric ICU hole as a number", () => {
     });
   }
 });
-
-describe("emitted runtime headers", () => {
-  // String tier (absence claim): no compile or boot tier observes header prose,
-  // and the claim is that stale hand-registration advice is gone.
-  it("does not instruct hand registration of a locale", async () => {
-    const files = await generateSystemFiles(system("static", "mantine"));
-    const runtime = [...files].find(([p]) => p === "web/src/i18n.ts")![1];
-    expect(runtime).not.toContain("drop a `src/locales/");
-    expect(runtime).not.toContain("register it in `catalogs`");
-  });
-});

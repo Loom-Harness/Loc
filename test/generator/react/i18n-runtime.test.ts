@@ -111,6 +111,9 @@ describe("React i18n runtime", () => {
       "type Values = Record<string, string | number | boolean | Date | NumberLike>;",
     );
     expect(i18n).toMatch(/values\?: Values/);
+    // String tier (absence claim): no compile or boot tier observes header prose; the
+    // stale advice to hand-register a locale must stay gone.
+    expect(i18n).not.toMatch(/drop a `src\/locales\/|register it in `catalogs`/);
     // No leftover regex shim.
     expect(i18n).not.toContain("message.replace(");
     // A plain 2-arg call (no values) still returns the message untouched (no parse cost).
