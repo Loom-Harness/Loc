@@ -158,6 +158,7 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
     sqlMigrationSteps: loom.sqlMigrationSteps,
     enumValueRenameIntents: loom.enumValueRenameIntents,
     ...(loom.unresolvedTypes ? { unresolvedTypes: loom.unresolvedTypes } : {}),
+    ...(loom.loweringViolations ? { loweringViolations: loom.loweringViolations } : {}),
     traceability: computeTraceability(loom),
   } as EnrichedLoomModel;
 }

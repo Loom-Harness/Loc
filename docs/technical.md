@@ -519,6 +519,26 @@ precondition | let | assign | add | remove | emit | call | expression
 `targetType` / `elementType` so backends can pick the right
 mutator without re-walking the env.
 
+### Post-lowering well-formedness verifier
+
+`lowerProject` ends by running `verifyLoweredModel`
+(`src/ir/verify/verify-lowered.ts`), which checks that the IR agrees with
+itself: every `ref` names a declaration of its `refKind` the body can see,
+every `assign` / `add` / `remove` path is rooted at a stored member, every
+`member` read on an aggregate / part / value-object receiver names a member
+of that type, every `call` names a target of its `callKind`, and no
+statement block binds one `let` twice.  It covers the domain-logic bodies —
+aggregates, parts, value objects, domain services, workflows, command /
+query handlers, repository finds and criteria — and walks them through
+`src/ir/util/walk.ts`.
+
+A violation is a lowering defect, never an author error: a construct
+lowering cannot express is refused by an AST validator before lowering.  The
+violations travel on the model (`loweringViolations`) and phase ⑦ refuses
+them as `loom.ir-ill-formed`, an internal error at the `.ddd` span, when no
+other diagnostic already refuses the model.  `test/ir/verify-lowered-corpus.test.ts`
+holds the corpus to zero violations and mutation-proves each check.
+
 ---
 
 ## Phase ⑥ — IR enrichment (wire-shape, auto-finds, associations, react inheritance, migrations ownership)

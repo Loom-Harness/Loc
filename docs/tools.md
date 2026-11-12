@@ -48,7 +48,10 @@ ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line t
 output, e.g. an `enum-value` ref that lost its `enumName`) before phase ⑦ and exits
 non-zero, listing each violation, if any invariant is broken. A violation is a
 compiler bug, never a model error; off by default. The same check is
-`GenerateSystemOptions.verifyIr` for in-process callers (throws).
+`GenerateSystemOptions.verifyIr` for in-process callers (throws). Its semantic
+twin, the post-lowering well-formedness verifier (`src/ir/verify/verify-lowered.ts`,
+see `docs/technical.md`), always runs and refuses an ill-formed lowering as
+`loom.ir-ill-formed`.
 
 `generate system` additionally accepts `--sourcemap`, which also emits
 `.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line

@@ -177,6 +177,7 @@ export {
 } from "./checks/diagnostic.js";
 export { firstNonQueryableNode } from "./checks/shared.js";
 
+import { validateLoweringViolations } from "./checks/lowering-checks.js";
 import { validateUnresolvedTypes } from "./checks/unresolved-type-checks.js";
 
 // ---------------------------------------------------------------------------
@@ -491,6 +492,7 @@ export function validateLoomModel(
   validateElixirEntryResults(loom, diags);
   // Last: it speaks only when no check above refused the model.
   validateUnresolvedTypes(loom, diags);
+  validateLoweringViolations(loom, diags);
   return dropCascadedWarnings(diags);
 }
 
