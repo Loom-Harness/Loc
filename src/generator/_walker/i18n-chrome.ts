@@ -32,6 +32,7 @@ import type {
   BoundedContextIR,
   ExprIR,
   LayoutIR,
+  PageIR,
   TypeIR,
   UiIR,
   WorkflowIR,
@@ -42,7 +43,7 @@ import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { humanize } from "../../util/naming.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES } from "../_i18n/wire-error-text.js";
-import type { MessageEntry } from "./i18n-extract.js";
+import { type MessageEntry, pageNameEntry } from "./i18n-extract.js";
 import { implicitModelTextEntries } from "./model-text-sites.js";
 import { gridHasFilterableColumn, gridHasSelection } from "./primitives/data-grid-shape.js";
 
@@ -372,6 +373,12 @@ export interface FormSentenceScope {
   readonly sessionView?: boolean;
   /** The rendering target emits {@link FALLBACK_LABEL_CHROME} placeholders. */
   readonly fallbackLabels?: boolean;
+  /** The rendering frontend labels an untitled page by its name, so that page's
+   *  `name` entry belongs in the catalog: `"all"` — every page's own bar names
+   *  it (Flutter's app bar); `"navbar"` — only the links of a derived navbar,
+   *  i.e. the top-level pages of a UI with no explicit `menu` and two or more
+   *  of them (Feliz). */
+  readonly pageNames?: "all" | "navbar";
 }
 
 /** What a hand-built form over some inputs renders sentences for: the value
@@ -725,6 +732,15 @@ function uiUsesProvenanceInfo(ui: UiIR): boolean {
   return found;
 }
 
+/** The pages whose name a frontend renders (see
+ *  {@link FormSentenceScope.pageNames}). */
+function pagesNamedBy(ui: UiIR, mode: "all" | "navbar"): readonly PageIR[] {
+  if (mode === "all") return ui.pages;
+  if (ui.menu) return [];
+  const topLevel = ui.pages.filter((p) => !(p.route ?? "/").includes(":"));
+  return topLevel.length >= 2 ? topLevel : [];
+}
+
 /** Every chrome table merged into a catalog ONLY when the UI is already
  *  i18n-enabled — never flipping the runtime on by itself.
  *
@@ -751,6 +767,12 @@ export function chromeMergedWhenEnabled(
   if (ui) {
     for (const name of sentenceChromeNamesForUi(ui, scope)) {
       out[chromeKey(name)] = chromeMessage(name);
+    }
+    if (scope?.pageNames) {
+      for (const page of pagesNamedBy(ui, scope.pageNames)) {
+        const entry = pageNameEntry(ui, page);
+        if (entry) out[entry.key] = entry.message;
+      }
     }
     if (scope?.fallbackLabels) {
       for (const name of fallbackLabelNamesForUi(ui, scope.contexts)) {

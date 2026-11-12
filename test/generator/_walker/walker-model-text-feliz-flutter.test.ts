@@ -136,7 +136,11 @@ describe("no page-scoped duplicate of a model fact", () => {
       const byText = new Map<string, string[]>();
       for (const [k, v] of Object.entries(catalog)) byText.set(v, [...(byText.get(v) ?? []), k]);
       for (const message of Object.values(IMPLICIT)) {
-        const keys = (byText.get(message) ?? []).filter((k) => /\.page\./.test(k));
+        // A page's own `name` entry (its nav / app-bar label) is a different fact
+        // from a model field that happens to read the same.
+        const keys = (byText.get(message) ?? []).filter(
+          (k) => /\.page\./.test(k) && !/\.page\.\w+\.name\./.test(k),
+        );
         expect(keys, message).toEqual([]);
       }
     });

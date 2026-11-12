@@ -953,3 +953,44 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
     expect(Object.keys(system).filter((k) => k.startsWith("chrome.provenance"))).toEqual([]);
   });
 });
+
+describe("i18n round trip — untitled page names", () => {
+  const NOTES = /^Web\.page\.Notes\.name\.\w+$/;
+
+  for (const platform of ["feliz", "flutter"] as const) {
+    it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
+      const probe = await generateSystemFiles(provSystem(platform));
+      const system = json(probe, ".loom/messages.en.json");
+      const key = Object.keys(system).find((k) => NOTES.test(k));
+      expect(key, "name entry for the untitled page").toBeDefined();
+      expect(system[key!]).toBe("Notes");
+      const files = await generateSystemFiles(provSystem(platform), {
+        translations: new Map([["de", { [key!]: "Notizen" }]]),
+      });
+      expect(appSource(files)).toMatch(quoted(key!));
+      // Flutter's catalog lives in `lib/i18n.dart` (not a consumer); Feliz's in `App.fs`.
+      const catalogPath = platform === "feliz" ? /App\.fs$/ : /lib\/i18n\.dart$/;
+      const catalogFile = [...files].find(([p]) => p.startsWith("web/") && catalogPath.test(p))![1];
+      expect(catalogFile).toContain(
+        platform === "feliz" ? `"${key}", "Notizen"` : `'${key}': 'Notizen'`,
+      );
+    });
+  }
+
+  it("a titled page contributes no name entry", async () => {
+    const files = await generateSystemFiles(
+      provSystem("flutter").replace(
+        'route: "/notes" body',
+        'route: "/notes" title: "My notes" body',
+      ),
+    );
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => NOTES.test(k))).toEqual([]);
+  });
+
+  it("the pack-rendered frontends catalog no page names", async () => {
+    const files = await generateSystemFiles(provSystem("react"));
+    const system = json(files, ".loom/messages.en.json");
+    expect(Object.keys(system).filter((k) => /\.page\.\w+\.name\./.test(k))).toEqual([]);
+  });
+});
