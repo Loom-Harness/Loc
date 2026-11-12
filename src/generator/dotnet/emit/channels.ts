@@ -415,6 +415,10 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                 ["x-dead-letter-routing-key"] = address,
             });
         await ch.QueueBindAsync(queue, address, "");
+        // The retry route: loom.dlx hands a message published under
+        // loom.retry.<queue> back to this queue (the broker ACL grants loom.dlx,
+        // not the default exchange).
+        await ch.QueueBindAsync(queue, "loom.dlx", $"loom.retry.{queue}");
         var consumer = new ${csRef("RabbitMQ.Client.Events", "AsyncEventingBasicConsumer")}(ch);
         consumer.ReceivedAsync += async (_, ea) =>
         {
@@ -465,7 +469,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                         DeliveryMode = DeliveryModes.Persistent,
                         Headers = new Dictionary<string, object?> { ["x-loom-attempts"] = attempts },
                     };
-                    await ch.BasicPublishAsync("", queue, mandatory: false, retry, ea.Body);
+                    await ch.BasicPublishAsync("loom.dlx", $"loom.retry.{queue}", mandatory: false, retry, ea.Body);
                     await ch.BasicAckAsync(ea.DeliveryTag, false);
                 }
             }
