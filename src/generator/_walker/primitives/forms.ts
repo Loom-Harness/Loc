@@ -526,7 +526,7 @@ function prepareFormFields(
     for (const n of imp.named) addImport(ctx, imp.from, n);
   }
   for (const t of idTargets) {
-    addImport(ctx, `../api/${lowerFirst(t.name)}`, `useAll${plural(t.name)}`);
+    addImport(ctx, `../api/${lowerFirst(t.name)}`, `use${plural(t.name)}Options`);
   }
   for (const vm of fieldVMs) registerFormFieldImports(ctx, vm);
   // Pack chrome the field templates share (M-T1.11): the id/enum picker's

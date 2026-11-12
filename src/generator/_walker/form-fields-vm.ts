@@ -12,7 +12,6 @@
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
@@ -135,7 +134,7 @@ function refVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
     template: "field-input-id-select",
     hookVar,
     displayField: "display",
-    optionsExpr: idSelectOptionsExpr(hookVar, target.name, c.bcByAggregate),
+    optionsExpr: idSelectOptionsExpr(hookVar),
   };
 }
 
@@ -211,7 +210,7 @@ export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
       template: "field-input-array",
       arrayInput: {
         kind: "ref",
-        optionsExpr: idSelectOptionsExpr(idTargetHookVar(target), target.name, c.bcByAggregate),
+        optionsExpr: idSelectOptionsExpr(idTargetHookVar(target)),
         hasDisplay: !!target.displayDerived,
       },
     };
@@ -294,21 +293,12 @@ function defaultRowValue(f: FormFieldVM): string {
 
 /** RHF errors live at `errors.foo.bar.baz?.message` — translate a dot-
  *  path into the matching access expression. */
-/** The id-select picker's option source, resolved against the shape the
- *  target's list route actually serves.
- *
- *  Every JSX/markup pack splices this verbatim, so the twelve
- *  `field-input-id-select.hbs` templates carry no opinion about the wire at
- *  all — pinned by `test/generator/_frontend/id-select-list-shape.test.ts`,
- *  which fails a thirteenth pack that copy-pastes `.items` back in. */
-function idSelectOptionsExpr(
-  hookVar: string,
-  targetAggregate: string,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
-): string {
-  return isPagedAllRead(targetAggregate, bcByAggregate)
-    ? `${hookVar}.data?.items ?? []`
-    : `${hookVar}.data ?? []`;
+/** The id-select picker's option source: the target's `use<Plural>Options()`
+ *  query, whose `data` is every row as a bare array (`_frontend/api-module.ts`
+ *  `pickerOptionsHook`).  Every JSX/markup pack splices this verbatim, so the
+ *  `field-input-id-select.hbs` templates carry no opinion about the wire. */
+function idSelectOptionsExpr(hookVar: string): string {
+  return `${hookVar}.data ?? []`;
 }
 
 /** The text a field's error renders: `fieldErrorText(errors.foo?.bar)`, which

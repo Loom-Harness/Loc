@@ -271,7 +271,7 @@ async function formSpecProbe(origin) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-    await driveUpdate(page, origin, before.id);
+    await driveUpdate(page, origin, before.id, before.lastProviderId);
     let after = before;
     for (let i = 0; i < 30; i++) {
       after = await readPolicy(origin, before.id);

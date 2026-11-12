@@ -41,6 +41,7 @@
 // Dart and counted by the parity lint, never silent.
 
 import { createInputFields, isConstructible } from "../../ir/enrich/wire-projection.js";
+import { PAGED_MAX_PAGE_SIZE } from "../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -1466,8 +1467,8 @@ function recordSeeds(fields: readonly FlutterFormField[]): string[] {
 
 /** The `initState` + per-field loader methods for a form's fk-select inputs
  *  (empty when the form hosts none and seeds nothing from a record).  Each
- *  loader GETs `/<collection>`, unwraps the paged `{items}` envelope, and
- *  stores the rows as the dropdown options. */
+ *  loader walks every page of `/<collection>` (`?page=N&pageSize=500` until
+ *  `totalPages`; a bare-array read is complete in one request) and stores the rows as the dropdown options. */
 function fkLoaders(fields: readonly FlutterFormField[]): string[] {
   const fks = fields.filter((f) => f.kind === "fk-select");
   const seeds = recordSeeds(fields);
@@ -1485,13 +1486,22 @@ function fkLoaders(fields: readonly FlutterFormField[]): string[] {
       "",
       `  Future<void> ${loaderId(f.wireName)}() async {`,
       "    try {",
-      `      final res = await http.get(apiUri('/${f.fkCollection}'));`,
-      "      if (res.statusCode < 200 || res.statusCode >= 300) return;",
-      "      final decoded = jsonDecode(res.body);",
-      "      final raw = decoded is Map<String, dynamic> ? decoded['items'] : decoded;",
-      "      if (raw is! List || !mounted) return;",
+      "      final rows = <Map<String, dynamic>>[];",
+      "      for (var page = 1; ; page++) {",
+      `        final res = await http.get(apiUri('/${f.fkCollection}?page=$page&pageSize=${PAGED_MAX_PAGE_SIZE}'));`,
+      "        if (res.statusCode < 200 || res.statusCode >= 300) break;",
+      "        final decoded = jsonDecode(res.body);",
+      "        final raw = decoded is Map<String, dynamic> ? decoded['items'] : decoded;",
+      "        if (raw is! List) break;",
+      "        rows.addAll(raw.whereType<Map<String, dynamic>>());",
+      "        // A bare-array read is complete in one request; a paged envelope",
+      "        // carries `totalPages`.",
+      "        final total = decoded is Map<String, dynamic> ? decoded['totalPages'] : null;",
+      "        if (total is! int || page >= total) break;",
+      "      }",
+      "      if (!mounted) return;",
       "      setState(() {",
-      `        ${optionsId(f.wireName)} = raw.whereType<Map<String, dynamic>>().toList();`,
+      `        ${optionsId(f.wireName)} = rows;`,
       "      });",
       "    } catch (_) {",
       "      // A failed option load leaves the dropdown empty — never crashes the form.",

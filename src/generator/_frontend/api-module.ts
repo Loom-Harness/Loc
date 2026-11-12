@@ -431,6 +431,8 @@ export function buildApiModule(
     lines.push(`}`);
   }
   lines.push("");
+  lines.push(...pickerOptionsHook(agg.name, tag, allPaged?.name));
+  lines.push("");
 
   // use<Agg>ById
   lines.push(`export function use${agg.name}ById(id: string | undefined) {`);
@@ -891,6 +893,38 @@ export function dualTypeAliases(name: string): string[] {
     `/** Post-parse payload shape (z.output) — money fields are Decimal. */`,
     `export type ${name}Payload = z.output<typeof ${name}Request>;`,
   ];
+}
+
+/** `use<Plural>Options()` — every row of the aggregate, for a form's reference
+ *  picker.  A paged list read is walked page by page at the largest page size
+ *  the list route accepts, so a picker offers row 21 and row 2,001 alike; a
+ *  bare-array read is already every row.  `data` is the bare array either way. */
+export function pickerOptionsHook(
+  aggName: string,
+  tag: string,
+  pagedName: string | undefined,
+  /** Svelte's `createQuery` takes an options thunk; react/vue-query an object. */
+  query: "useQuery" | "createQuery" = "useQuery",
+): string[] {
+  const [open, close] =
+    query === "useQuery" ? ["useQuery({", "});"] : ["createQuery(() => ({", "}));"];
+  const head = [
+    `export function use${plural(aggName)}Options() {`,
+    `  return ${open}`,
+    `    queryKey: ["${tag}", "options"],`,
+    `    queryFn: async () => {`,
+  ];
+  const body = pagedName
+    ? [
+        `      const rows: ${aggName}Response[] = [];`,
+        `      for (let page = 1; ; page++) {`,
+        `        const r = ${pagedName}.parse(await api.get(\`/${tag}?page=\${page}&pageSize=${PAGED_MAX_PAGE_SIZE}\`));`,
+        `        rows.push(...r.items);`,
+        `        if (page >= r.totalPages) return rows;`,
+        `      }`,
+      ]
+    : [`      return ${aggName}ListResponse.parse(await api.get(\`/${tag}\`));`];
+  return [...head, ...body, `    },`, `  ${close}`, `}`];
 }
 
 /** The `<Op><Agg>Request` zod members — one per op param.  A masked

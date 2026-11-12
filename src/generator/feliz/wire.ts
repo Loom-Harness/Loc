@@ -23,7 +23,7 @@ import {
   wireFieldsForPart,
   wireFieldsForValueObject,
 } from "../../ir/enrich/wire-projection.js";
-import { PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
+import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -94,6 +94,9 @@ export interface FelizRead {
   decoderExpr: string;
   /** Collection base fetch route (`/api/orders`).  A byId read appends `/%s`. */
   route: string;
+  /** Picker-option read: walks every page of the envelope (`?page=N&pageSize=500`
+   *  until `totalPages`) so no row is unpickable.  Holds the rows decoder. */
+  allPagesRows?: string;
   /** The match-arm binding the `data:` lambda param resolves to
    *  (`allOrders` / `orderById` — camelCase of `field`). */
   binding: string;
@@ -252,6 +255,8 @@ export function byIdFieldName(aggregate: string): string {
  *  envelope; `controls` the page/sort state its `of:` threads (only meaningful
  *  under `paged`). */
 export interface FelizAllReadOpts {
+  /** The read feeds a form picker: fetch every page, not the default first one. */
+  allPages?: boolean;
   paged?: boolean;
   controls?: FelizPageControls;
   /** Aggregate → owning context, so the decoder can ask `isPagedAllRead`
@@ -299,6 +304,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
     single: false,
     listShaped: true,
     paging,
+    allPagesRows: opts.allPages && envelope && !paging ? rows : undefined,
   };
 }
 
@@ -3195,6 +3201,24 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
       "      else",
       '        return Error (sprintf "HTTP %d" status)',
       "    }",
+    ];
+  }
+  if (r.allPagesRows) {
+    return [
+      `  let ${r.apiFn} () : Async<Result<${r.resultType}, string>> =`,
+      `    let rec loop (page: int) (acc: ${r.resultType}) : Async<Result<${r.resultType}, string>> =`,
+      "      async {",
+      `        let! (status, body) = Http.get (sprintf "${r.route}?page=%d&pageSize=${PAGED_MAX_PAGE_SIZE}" page)`,
+      "        if status = 200 then",
+      `          match Decode.fromString (Decode.map2 (fun __items __pages -> (__items, __pages)) (Decode.field "items" ${r.allPagesRows}) (Decode.field "totalPages" Decode.int)) body with`,
+      "          | Ok (items, totalPages) ->",
+      "            let acc = acc @ items",
+      "            if page >= totalPages then return Ok acc else return! loop (page + 1) acc",
+      "          | Error e -> return Error e",
+      "        else",
+      '          return Error (sprintf "HTTP %d" status)',
+      "      }",
+      "    loop 1 []",
     ];
   }
   // Paramless list read.  The return type must follow the DECODER, not the row

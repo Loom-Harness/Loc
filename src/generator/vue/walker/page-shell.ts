@@ -631,11 +631,11 @@ export function renderVuePage(input: VuePageShellInput): string {
       const hookVar = idTargetHookVar(t);
       if (seenVars.has(hookVar)) continue;
       seenVars.add(hookVar);
-      opFormLines.push(`const ${hookVar} = reactive(useAll${plural(t.name)}());`);
+      opFormLines.push(`const ${hookVar} = reactive(use${plural(t.name)}Options());`);
       vueImports.add("reactive");
       const from = `../api/${lowerFirst(t.name)}`;
       const names = apiImports.get(from) ?? new Set<string>();
-      names.add(`useAll${plural(t.name)}`);
+      names.add(`use${plural(t.name)}Options`);
       apiImports.set(from, names);
     }
   }
@@ -1492,11 +1492,11 @@ export function renderVueComponentFile(
       const hookVar = idTargetHookVar(t);
       if (seenVars.has(hookVar)) continue;
       seenVars.add(hookVar);
-      formLines.push(`const ${hookVar} = reactive(useAll${plural(t.name)}());`);
+      formLines.push(`const ${hookVar} = reactive(use${plural(t.name)}Options());`);
       vueImports.add("reactive");
       const from = `../api/${lowerFirst(t.name)}`;
       const names = apiImports.get(from) ?? new Set<string>();
-      names.add(`useAll${plural(t.name)}`);
+      names.add(`use${plural(t.name)}Options`);
       apiImports.set(from, names);
     }
   }

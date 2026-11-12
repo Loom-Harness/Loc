@@ -7,6 +7,10 @@
 //                    keeps every other field (a zero-seeded form reset them).
 //   absence          clearing an optional text input submits `null`, not `""`;
 //                    an optional value object left out submits `null`.
+//   collections      a scalar list is typed comma-separated and an enum list is
+//                    a checkbox group; both submit arrays.
+//   pickers          a reference collection offers every row of its target,
+//                    not one list page (the 25th provider is tickable).
 //   optional group   checking an optional value object's presence box and
 //                    filling it saves the object.
 //
@@ -25,6 +29,12 @@ export async function seedFormSpec(base) {
     return r.json();
   };
   const provider = await post("/providers", { name: "Acme Towing" });
+  // More providers than one default list page (20): a picker must offer the
+  // last one too.
+  let lastProvider = provider;
+  for (let i = 2; i <= 25; i++) {
+    lastProvider = await post("/providers", { name: `Provider ${String(i).padStart(2, "0")}` });
+  }
   const created = await post("/policies", {
     holder: "Ada",
     region: "North",
@@ -45,7 +55,7 @@ export async function seedFormSpec(base) {
     alternates: [],
     riders: [{ code: "R1", premium: 2.5 }],
   });
-  return readPolicy(base, created.id);
+  return { ...(await readPolicy(base, created.id)), lastProviderId: lastProvider.id };
 }
 
 export async function readPolicy(base, id) {
@@ -64,8 +74,6 @@ export const KEPT_FIELDS = [
   "usage",
   "provider",
   "limit",
-  "tags",
-  "perils",
   "riders",
   // Absent on the record and untouched: a zero object would fail its invariant.
   "vehicle",
@@ -77,6 +85,15 @@ export function judgeFormSpec(before, after) {
   if (after.priority !== 7) why.push(`priority: expected 7, got ${JSON.stringify(after.priority)}`);
   if (after.region !== null && after.region !== undefined) {
     why.push(`region: a cleared optional input must submit null, got ${JSON.stringify(after.region)}`);
+  }
+  if (JSON.stringify(after.tags) !== JSON.stringify(["x", "y"])) {
+    why.push(`tags: expected ["x","y"], got ${JSON.stringify(after.tags)}`);
+  }
+  if (JSON.stringify([...(after.perils ?? [])].sort()) !== JSON.stringify(["Fire", "Flood"])) {
+    why.push(`perils: expected Fire + Flood, got ${JSON.stringify(after.perils)}`);
+  }
+  if (!(after.alternates ?? []).includes(before.lastProviderId)) {
+    why.push(`alternates: the 25th provider was not pickable, got ${JSON.stringify(after.alternates)}`);
   }
   for (const k of KEPT_FIELDS) {
     const a = JSON.stringify(normalize(before[k]));
@@ -106,13 +123,18 @@ async function inputOf(page, testId) {
 }
 
 /** Drive the Update dialog on the record's detail page. */
-export async function driveUpdate(page, origin, id) {
+export async function driveUpdate(page, origin, id, lastProviderId) {
   await page.goto(`${origin}/policies/${id}`);
   await page.locator('[data-testid="policies-op-update"]').first().click({ timeout: 20000 });
   const priority = await inputOf(page, "policies-op-update-input-priority");
   await priority.fill("7");
   const region = await inputOf(page, "policies-op-update-input-region");
   await region.fill("");
+  const tags = await inputOf(page, "policies-op-update-input-tags");
+  await tags.fill("x, y");
+  await tags.press("Tab");
+  await (await inputOf(page, "policies-op-update-input-perils-option-Flood")).check();
+  await (await inputOf(page, `policies-op-update-input-alternates-option-${lastProviderId}`)).check();
   await page.locator('[data-testid="policies-op-update-submit"]').first().click();
 }
 
