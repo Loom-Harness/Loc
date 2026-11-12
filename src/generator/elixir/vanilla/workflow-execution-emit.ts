@@ -94,6 +94,7 @@ import {
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import {
@@ -151,6 +152,7 @@ import {
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+import { valueObjectCastCall } from "./value-object-type-emit.js";
 
 /** Does this read pass the request actor?  Only where the body binds
  *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
@@ -1399,6 +1401,34 @@ function renderWorkflowModule(
     );
     return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
   });
+  // A VALUE-OBJECT param arrives as string-keyed JSON with enum values as
+  // strings, while the body reads it as the value object the constructor
+  // builds (atom keys, enum atoms, `%Decimal{}`): `vehicle.usage == :Commercial`
+  // compared a string to an atom and never matched.  Each referenced one is
+  // cast through the codec its jsonb column uses (`Loom.ValueObject.cast/2`);
+  // a value that is not an object stays as given.
+  const voPools = ctx
+    ? {
+        vos: new Map(valueObjectPool(ctx).map((v) => [v.name, v])),
+        enums: new Map(enumPool(ctx).map((e) => [e.name, e])),
+      }
+    : undefined;
+  const voRebinds = params.flatMap((n) => {
+    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
+    const inner = t?.kind === "optional" ? t.inner : t;
+    if (!voPools || inner?.kind !== "valueobject") return [];
+    const v = escapeElixirIdent(snake(n));
+    const cast = valueObjectCastCall(inner.name, v, voPools.vos, voPools.enums);
+    if (!cast) return [];
+    return [
+      `    ${v} =
+      case ${cast} do
+        {:ok, cast} -> cast
+        :error -> ${v}
+      end
+`,
+    ];
+  });
   // A payload's MONEY fields are wire strings the body hands on unparsed, so a
   // malformed one ("1.2.3") reached the aggregate's changeset and came back
   // Ecto's "is invalid" at the AGGREGATE's field (`/amount`).  Every other
@@ -1455,7 +1485,7 @@ function renderWorkflowModule(
       : "";
   const paramDestructure =
     params.length > 0
-      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}`
+      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}${voRebinds.join("")}`
       : "";
   // That destructure is a BARE MATCH: a request missing one of these keys
   // raises `MatchError` rather than returning, so it never reaches the

@@ -458,6 +458,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Elixir's event-sourced handler rendered only guards, `let x = <expr>` and emits: a `let o = Orders.get(…)`, an operation call and a create were dropped with no diagnostic, so an emit reading `o` did not compile.  It also ran without a transaction, so nothing rolled back a failure after a write.",
   },
   {
+    id: "workflow-vo-param-enum",
+    title:
+      "a workflow value-object param is read as the value object — its enum field compares to an enum value, its int field takes arithmetic",
+    doc: "workflow",
+    backends: ALL,
+    note: "Insurance eval #5197: elixir handed a value-object workflow param to the body as raw string-keyed JSON, so `vehicle.usage == Usage.Commercial` compared a string to an atom and never matched — every commercial quote priced as private, with no error.",
+  },
+  {
     id: "reactor-failure-order",
     title:
       "a reactor that fails AFTER writing — a guard reading an earlier binding, or an operation's own precondition — leaves none of its effects",

@@ -1,0 +1,158 @@
+{
+  "case": "workflow-vo-param-enum",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/quote_motor",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/quotes/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "commercial",
+        "premium": 200,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/quote_motor",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/quotes/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "private",
+        "premium": 100,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/quotes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/quotes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/quotes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "commercial",
+            "premium": 200,
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "private",
+            "premium": 100,
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "edited",
+            "premium": 2,
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/quotes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/quotes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Quote {id} not found",
+        "instance": "/api/quotes/{id}",
+        "params": {
+          "type": "Policies.Quote"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/quotes",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/quotes",
+        "instance": "/api/quotes",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/quotes",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/quotes",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

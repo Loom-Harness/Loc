@@ -72,6 +72,20 @@ export function valueObjectColumnType(
   return spec === null ? null : `${LOOM_VALUE_OBJECT_MODULE}, fields: ${spec}`;
 }
 
+/** `Loom.ValueObject.cast(<expr>, [...])` — a request value (string-keyed
+ *  JSON) cast to the canonical value-object term the constructor builds, as
+ *  `{:ok, value}` or `:error` — or `null` when the value object is not in
+ *  `vos`. */
+export function valueObjectCastCall(
+  voName: string,
+  expr: string,
+  vos: ReadonlyMap<string, ValueObjectIR>,
+  enums: ReadonlyMap<string, EnumIR>,
+): string | null {
+  const spec = voFieldsSpec(voName, vos, enums, new Set());
+  return spec === null ? null : `${LOOM_VALUE_OBJECT_MODULE}.cast(${expr}, ${spec})`;
+}
+
 /** The `[{:key, "wireKey", type}, …]` spec for one value object, nested value
  *  objects inlined as `{:value_object, [...]}`.  `null` for an unknown name or
  *  a (validator-rejected) self-containing cycle. */
