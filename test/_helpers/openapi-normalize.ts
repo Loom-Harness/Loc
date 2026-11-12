@@ -338,10 +338,10 @@ function schemaRefName(
   if (Array.isArray(schema.oneOf) && schema.oneOf.length > 1 && schema.oneOf.every((m) => m.$ref)) {
     return unionSignature(schema) || null;
   }
-  // A union of named components: the error-arm status of an operation
-  // returning `T or <Error>` declares `anyOf: [ProblemDetails, <Tag>Problem]`
-  // (M-FT.24).  Compared as the sorted `A|B` set, so the error dimension still
-  // sees which problem bodies each backend offers instead of `(none)`.
+  // A union of named components that canonicalization left standing (an
+  // `anyOf` over ProblemDetails and its extensions has already become plain
+  // ProblemDetails).  Compared as the sorted `A|B` set, so the error dimension
+  // still sees which bodies each backend offers instead of `(none)`.
   if (Array.isArray(schema.anyOf) && schema.anyOf.every((m) => m.$ref)) {
     const names = schema.anyOf.map((m) => schemaRefName(m));
     if (names.every((n) => n !== null)) return [...names].sort().join("|");
@@ -663,6 +663,18 @@ export function queryParamSignatures(spec: OpenApiSpec): Map<string, string> {
 //     document omits is inferred from members that all pin the same property
 //     to one value.  A polymorphic base (`discriminator` on the base, subtypes
 //     `allOf` it) is the same union as `oneOf` over the subtypes.
+//   - A discriminator mapping pins each arm's tag property: an arm the mapping
+//     tags `Circle` reads as `type: {enum: [Circle]}` when it does not already
+//     pin a value (Swashbuckle publishes the tag only in the mapping).
+//   - A named component referenced ONLY as a union arm is inlined at that
+//     arm, and its mapping entry keeps the tag but not the name: whether a
+//     framework names an arm is spelling, its structure and tag are contract.
+//   - At an error status, `anyOf: [ProblemDetails, <X>]` where every `<X>` is
+//     `allOf` ProblemDetails is plain ProblemDetails.  ProblemDetails is an
+//     open object, so the union accepts exactly the bodies ProblemDetails
+//     accepts; a framework that cannot spell `anyOf` (Swashbuckle) publishes
+//     the plain body.  A `<X>Problem` component nothing else references then
+//     drops out.
 //   - An inline object or union schema structurally identical to exactly one
 //     named component (in either document) becomes a `$ref` to it, so `$ref`
 //     vs an inlined identical schema compares equal.
@@ -857,7 +869,13 @@ function canonicalDiscriminator(
   const mapped = new Set(Object.values(mapping));
   for (const member of members) {
     const name = memberName(member);
-    if (!name || mapped.has(name)) continue;
+    if (name === undefined) {
+      // An inline arm has no name to map to: it is tagged by the value it pins.
+      const tag = pinnedValue(member, propertyName, spec);
+      if (tag !== undefined && mapping[tag] === undefined) mapping[tag] = INLINE_ARM;
+      continue;
+    }
+    if (mapped.has(name)) continue;
     // An unmapped member is tagged by the value it pins, else by its name.
     mapping[pinnedValue(member, propertyName, spec) ?? name] = name;
   }
@@ -866,11 +884,138 @@ function canonicalDiscriminator(
   return { propertyName, mapping: sorted };
 }
 
-/** Rewrite every union (and every polymorphic base) into one canonical shape. */
-function canonicalizeUnions(spec: OpenApiSpec, bases: Map<string, Set<string>>): OpenApiSpec {
+/** Mapping target of an arm that is inline (or was inlined): the tag is
+ *  contract, the name is not. */
+const INLINE_ARM = "(inline)";
+
+/** A polymorphic base (`discriminator` on a component with no union of its
+ *  own, subtypes `allOf` it) is the union `oneOf` over its subtypes. */
+function polymorphicBasesAsUnions(spec: OpenApiSpec, bases: Map<string, Set<string>>): OpenApiSpec {
+  const out = structuredClone(spec);
+  const schemas = (out.components?.schemas ?? {}) as Record<string, unknown>;
+  for (const [name, schema] of Object.entries(schemas)) {
+    if (!isObj(schema) || !isObj(schema.discriminator) || schema.oneOf || schema.anyOf) continue;
+    const subtypes = new Set<string>(bases.get(name) ?? []);
+    const explicit = isObj(schema.discriminator.mapping) ? schema.discriminator.mapping : {};
+    for (const ref of Object.values(explicit)) {
+      const t = refTarget(ref);
+      if (t && t !== name) subtypes.add(t);
+    }
+    if (subtypes.size === 0) continue;
+    const members = [...subtypes].sort().map((t) => ({ $ref: `#/components/schemas/${t}` }));
+    schemas[name] = {
+      oneOf: members,
+      discriminator: { ...schema.discriminator },
+    } as OpenApiSchema;
+  }
+  return out;
+}
+
+/** Write each explicit discriminator-mapping tag into the arm it targets, as
+ *  a one-value `enum` on the tag property, unless the arm already pins one. */
+function pinDiscriminatorTags(spec: OpenApiSpec): OpenApiSpec {
+  const out = structuredClone(spec);
+  const schemas = (out.components?.schemas ?? {}) as Record<string, unknown>;
+  const pin = (s: Json): Json => {
+    const d = s.discriminator;
+    if (!Array.isArray(s.oneOf) || !isObj(d) || typeof d.propertyName !== "string") return s;
+    if (!isObj(d.mapping)) return s;
+    for (const [tag, ref] of Object.entries(d.mapping)) {
+      const arm = schemas[refTarget(ref) ?? ""];
+      if (!isObj(arm) || !isObj(arm.properties)) continue;
+      const prop = arm.properties[d.propertyName];
+      if (!isObj(prop) || prop.enum !== undefined || prop.const !== undefined) continue;
+      arm.properties[d.propertyName] = { ...prop, enum: [tag] };
+    }
+    return s;
+  };
+  mapDocumentSchemas(out, pin);
+  return out;
+}
+
+/** Every `$ref` target in the document, split by whether the reference is a
+ *  union arm (`oneOf` / `anyOf` member) or anything else (a property, an
+ *  item, a body, an `allOf` part). */
+function refUses(spec: OpenApiSpec): { arms: Set<string>; other: Set<string> } {
+  const arms = new Set<string>();
+  const other = new Set<string>();
+  const walk = (node: unknown, asArm: boolean): void => {
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n, asArm);
+      return;
+    }
+    if (!isObj(node)) return;
+    const t = refTarget(node.$ref);
+    if (t) (asArm ? arms : other).add(t);
+    for (const [k, v] of Object.entries(node)) {
+      if (k === "$ref" || k === "discriminator") continue;
+      walk(v, k === "oneOf" || k === "anyOf");
+    }
+  };
+  walk(spec.components?.schemas ?? {}, false);
+  walk(spec.paths ?? {}, false);
+  return { arms, other };
+}
+
+/** Inline every component referenced only as a union arm, keeping its tag in
+ *  the discriminator mapping but not its name. */
+function inlineArmOnlyComponents(spec: OpenApiSpec): OpenApiSpec {
+  const { arms, other } = refUses(spec);
+  const armOnly = new Set([...arms].filter((n) => !other.has(n)));
+  if (armOnly.size === 0) return spec;
+  const schemas = (spec.components?.schemas ?? {}) as Record<string, unknown>;
+  const out = mapDocumentSchemas(spec, (s) => {
+    const key = Array.isArray(s.oneOf) ? "oneOf" : Array.isArray(s.anyOf) ? "anyOf" : undefined;
+    if (!key) return s;
+    const members = (s[key] as unknown[]).map((m) => {
+      const t = isObj(m) ? refTarget(m.$ref) : undefined;
+      return t && armOnly.has(t) ? structuredClone(schemas[t]) : m;
+    });
+    const res: Json = { ...s, [key]: members };
+    const d = s.discriminator;
+    if (isObj(d) && isObj(d.mapping)) {
+      const mapping: Json = {};
+      for (const [tag, ref] of Object.entries(d.mapping)) {
+        const t = refTarget(ref) ?? String(ref);
+        mapping[tag] = armOnly.has(t) ? INLINE_ARM : ref;
+      }
+      res.discriminator = { ...d, mapping };
+    }
+    return res;
+  });
+  for (const name of armOnly) delete out.components!.schemas![name];
+  return out;
+}
+
+/** The shared RFC 7807 error body every backend publishes. */
+const PROBLEM_SCHEMA = "ProblemDetails";
+
+/** `anyOf: [ProblemDetails, <X>…]` where every `<X>` extends ProblemDetails
+ *  (`allOf` it) is plain ProblemDetails; an extension nothing else references
+ *  then drops out of the document. */
+function collapseProblemUnions(spec: OpenApiSpec, bases: Map<string, Set<string>>): OpenApiSpec {
+  const extensions = bases.get(PROBLEM_SCHEMA) ?? new Set<string>();
+  if (extensions.size === 0) return spec;
+  const out = mapDocumentSchemas(spec, (s) => {
+    if (!Array.isArray(s.anyOf)) return s;
+    const names = s.anyOf.map((m) => (isObj(m) ? refTarget(m.$ref) : undefined));
+    if (!names.includes(PROBLEM_SCHEMA)) return s;
+    if (!names.every((n) => n === PROBLEM_SCHEMA || (n !== undefined && extensions.has(n))))
+      return s;
+    return { $ref: `#/components/schemas/${PROBLEM_SCHEMA}` };
+  });
+  const { arms, other } = refUses(out);
+  for (const name of extensions) {
+    if (!arms.has(name) && !other.has(name)) delete out.components?.schemas?.[name];
+  }
+  return out;
+}
+
+/** Rewrite every union into one canonical shape. */
+function canonicalizeUnions(spec: OpenApiSpec): OpenApiSpec {
   const sortMembers = (ms: unknown[]): unknown[] =>
     [...ms].sort((a, b) => stableKey(a).localeCompare(stableKey(b)));
-  let out = mapDocumentSchemas(spec, (s) => {
+  return mapDocumentSchemas(spec, (s) => {
     const key = Array.isArray(s.oneOf) ? "oneOf" : Array.isArray(s.anyOf) ? "anyOf" : undefined;
     if (!key) return s;
     const all = s[key] as unknown[];
@@ -886,23 +1031,6 @@ function canonicalizeUnions(spec: OpenApiSpec, bases: Map<string, Set<string>>):
     if (disc) res.discriminator = disc;
     return res;
   });
-  // Polymorphic base: `discriminator` on a component with no union of its own.
-  const schemas = (out.components?.schemas ?? {}) as Record<string, unknown>;
-  for (const [name, schema] of Object.entries(schemas)) {
-    if (!isObj(schema) || !isObj(schema.discriminator) || schema.oneOf || schema.anyOf) continue;
-    const subtypes = new Set<string>(bases.get(name) ?? []);
-    const explicit = isObj(schema.discriminator.mapping) ? schema.discriminator.mapping : {};
-    for (const ref of Object.values(explicit)) {
-      const t = refTarget(ref);
-      if (t && t !== name) subtypes.add(t);
-    }
-    if (subtypes.size === 0) continue;
-    const members = [...subtypes].sort().map((t) => ({ $ref: `#/components/schemas/${t}` }));
-    const disc = canonicalDiscriminator(schema.discriminator, members, out);
-    schemas[name] = { oneOf: members, ...(disc ? { discriminator: disc } : {}) } as OpenApiSchema;
-  }
-  out = { ...out };
-  return out;
 }
 
 /** Order-independent JSON for structural comparison. */
@@ -1027,7 +1155,12 @@ function foldInlineIntoComponents(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec,
 export function canonicalizePair(a: OpenApiSpec, b: OpenApiSpec): [OpenApiSpec, OpenApiSpec] {
   const one = (spec: OpenApiSpec): OpenApiSpec => {
     const flat = flattenAllOf(spec);
-    return canonicalizeUnions(inlineArrayAliases(flat.spec), flat.bases);
+    let s = inlineArrayAliases(flat.spec);
+    s = polymorphicBasesAsUnions(s, flat.bases);
+    s = pinDiscriminatorTags(s);
+    s = collapseProblemUnions(s, flat.bases);
+    s = inlineArmOnlyComponents(s);
+    return canonicalizeUnions(s);
   };
   // Folding runs bottom-up, so an inner inline schema becomes a `$ref` before
   // its parent is compared; two passes let a parent match a component whose
