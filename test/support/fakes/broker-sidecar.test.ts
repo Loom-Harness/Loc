@@ -5,6 +5,7 @@
 // `LOOM_FAKES_DOCKER=1` (`npm run test:fakes-docker`), which needs docker.
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import net from "node:net";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { channelSourceEnvVar } from "../../../src/util/channels.js";
@@ -23,6 +24,7 @@ import {
   rehost,
   start,
   summarise,
+  tcpGate,
 } from "./broker-sidecar.mjs";
 
 describe("broker sidecar — pure helpers", () => {
@@ -160,6 +162,54 @@ describe("broker sidecar — pure helpers", () => {
 
   it("refuses a broker type it has no sidecar for", async () => {
     await expect(start({ storage: { name: "k", type: "nats" as never } })).rejects.toThrow(/nats/);
+  });
+});
+
+describe("broker sidecar — the boot gate", () => {
+  /** Connect, send `ping`, resolve with what came back, or "refused". */
+  const talk = (port: number) =>
+    new Promise<string>((resolve) => {
+      const s = net.connect({ host: "127.0.0.1", port });
+      let got = "";
+      s.on("connect", () => s.write("ping"));
+      s.on("data", (d) => {
+        got += d.toString();
+        s.end();
+      });
+      s.on("close", () => resolve(got || "refused"));
+      s.on("error", () => resolve("refused"));
+    });
+
+  it("refuses until a grace period after its first refusal, then proxies", async () => {
+    const echo = net.createServer((c) => c.on("data", (d) => c.write(`echo:${d}`)));
+    await new Promise<void>((r) => echo.listen(0, "127.0.0.1", () => r()));
+    const gate = await tcpGate({ graceMs: 150, maxClosedMs: 10_000 });
+    gate.setTarget("127.0.0.1", (echo.address() as net.AddressInfo).port);
+    try {
+      gate.backendStarting();
+      expect(await talk(gate.port)).toBe("refused");
+      expect(await talk(gate.port)).toBe("refused");
+      expect(gate.refused).toBe(2);
+      expect(gate.open).toBe(false);
+      await new Promise((r) => setTimeout(r, 250));
+      expect(gate.open).toBe(true);
+      expect(await talk(gate.port)).toBe("echo:ping");
+    } finally {
+      await gate.close();
+      echo.close();
+    }
+  });
+
+  it("opens by itself once the backend has had maxClosedMs, refusal or not", async () => {
+    const gate = await tcpGate({ graceMs: 10_000, maxClosedMs: 100 });
+    try {
+      gate.backendStarting();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(gate.open).toBe(true);
+      expect(gate.refused).toBe(0);
+    } finally {
+      await gate.close();
+    }
   });
 });
 

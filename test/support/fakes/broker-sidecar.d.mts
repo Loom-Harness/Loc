@@ -12,6 +12,8 @@ export interface BrokerEffect {
 export interface BrokerStartOptions {
   storage: { name: string; type: "rabbitmq" | "redis" | "kafka" };
   /** rabbitmq: the case's generated `broker-init/<storage>-definitions.json`. */
+  /** "after-boot": the broker is down while the backend boots (the boot gate). */
+  gate?: "after-boot";
   /** The case's generated tree: definitions, channel URLs and the broker env
    *  are read from it when not given explicitly. */
   genDir?: string;
@@ -34,6 +36,8 @@ export interface BrokerFake {
   managementUrl?: string;
   /** Every publish observed since the last reset, unsummarised. */
   captured: Array<{ exchange: string; routingKey: string; type: string | null }>;
+  /** The backend is about to boot (arms a gated broker's backstop). */
+  backendStarting(): void;
   /** Drain the tap and return the order-stable golden rows. */
   observe(): Promise<BrokerEffect[]>;
   /** Swap in another case's definitions and wipe the broker. */
@@ -85,3 +89,14 @@ export function kafkaContainerEnv(
 ): { env: Record<string, string>; client: string };
 /** `kafka-get-offsets.sh` output → records per user topic. */
 export function parseKafkaOffsets(text: string): Map<string, number>;
+
+/** A loopback proxy that refuses connections until it opens (the boot gate). */
+export interface TcpGate {
+  readonly port: number;
+  readonly refused: number;
+  readonly open: boolean;
+  setTarget(host: string, port: number): void;
+  backendStarting(): void;
+  close(): Promise<void>;
+}
+export function tcpGate(opts?: { graceMs?: number; maxClosedMs?: number }): Promise<TcpGate>;

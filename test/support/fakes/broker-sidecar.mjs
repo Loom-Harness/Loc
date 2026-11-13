@@ -211,6 +211,90 @@ export function cloudEventType(body) {
 }
 
 // ---------------------------------------------------------------------------
+// The boot gate — a broker that is down while the backend boots
+// ---------------------------------------------------------------------------
+
+/**
+ * A loopback TCP proxy in front of a broker's client port that REFUSES every
+ * connection until it opens.  It opens `graceMs` after the first connection
+ * it refused — so every backend's first connect at boot meets a broker that
+ * is down, and a backend that retries meets one that is up — or `maxClosedMs`
+ * after the backend started, whichever is first.  The harness's own admin and
+ * tap connections dial the broker directly, never through the gate.
+ */
+export async function tcpGate({ graceMs = 3000, maxClosedMs = 60_000 } = {}) {
+  let target = null;
+  let open = false;
+  let refused = 0;
+  let timer = null;
+  const sockets = new Set();
+  const openNow = () => {
+    open = true;
+    if (timer) clearTimeout(timer);
+  };
+  const server = net.createServer((sock) => {
+    sockets.add(sock);
+    sock.on("close", () => sockets.delete(sock));
+    sock.on("error", () => {});
+    if (!open || !target) {
+      refused++;
+      if (!timer) timer = setTimeout(openNow, graceMs);
+      sock.destroy();
+      return;
+    }
+    const up = net.connect(target);
+    sockets.add(up);
+    up.on("close", () => sockets.delete(up));
+    up.on("error", () => sock.destroy());
+    sock.on("error", () => up.destroy());
+    sock.pipe(up).pipe(sock);
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return {
+    port: server.address().port,
+    get refused() {
+      return refused;
+    },
+    get open() {
+      return open;
+    },
+    setTarget(host, port) {
+      target = { host, port };
+    },
+    /** The backend is starting: the gate opens at the latest this long from now. */
+    backendStarting() {
+      setTimeout(openNow, maxClosedMs).unref?.();
+    },
+    close() {
+      if (timer) clearTimeout(timer);
+      for (const x of sockets) x.destroy();
+      return new Promise((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+/** The fake members a gated sidecar adds: the runner's boot signal, a guard
+ *  that the gate really met the backend's boot (a gate that refused nothing
+ *  proved nothing), and its teardown. */
+function gateMembers(gate) {
+  if (!gate) return { backendStarting() {}, assertGateMet() {}, closeGate: async () => {} };
+  return {
+    backendStarting: () => gate.backendStarting(),
+    assertGateMet() {
+      if (gate.refused === 0) {
+        throw new Error(
+          "broker fake: the boot gate refused no connection — the backend never dialled the broker while it was down, so this case proves nothing about boot",
+        );
+      }
+    },
+    closeGate: () => gate.close(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // RabbitMQ
 // ---------------------------------------------------------------------------
 
@@ -305,27 +389,34 @@ async function startRabbit(opts) {
   await wipe();
   await arm();
 
+  const gate = opts.gate === "after-boot" ? await tcpGate() : null;
+  gate?.setTarget(host, amqpPort);
+  const clientHost = gate ? "127.0.0.1" : host;
+  const clientPort = gate ? gate.port : amqpPort;
+  const gm = gateMembers(gate);
   const names = await envNames();
   const env = {};
   for (const c of opts.channelSources ?? []) {
     env[names.channelUrlVar(c.name)] = c.url
-      ? rehost(c.url, host, amqpPort)
-      : `amqp://${ADMIN.user}:${ADMIN.pass}@${host}:${amqpPort}`;
+      ? rehost(c.url, clientHost, clientPort)
+      : `amqp://${ADMIN.user}:${ADMIN.pass}@${clientHost}:${clientPort}`;
   }
   // A queue resource's URL is the one compose hands it (and the client bakes
   // as its fallback), re-hosted onto the sidecar.
   for (const r of opts.resources ?? []) {
     const url = r.url ?? names.resourceSidecarUrl("rabbitmq", opts.storage.name);
-    env[names.resourceUrlVar(r.name)] = rehost(url, host, amqpPort);
+    env[names.resourceUrlVar(r.name)] = rehost(url, clientHost, clientPort);
   }
 
   return {
     kind: "broker",
+    backendStarting: gm.backendStarting,
     env,
     url: `amqp://${ADMIN.user}:${ADMIN.pass}@${host}:${amqpPort}`,
     managementUrl: mgmt,
     captured,
     async observe() {
+      gm.assertGateMet();
       await drain();
       return summarise(captured);
     },
@@ -340,6 +431,7 @@ async function startRabbit(opts) {
       await arm();
     },
     async stop() {
+      await gm.closeGate();
       if (container) {
         try {
           docker(["rm", "-f", container.id]);
@@ -496,13 +588,20 @@ async function startRedis(opts) {
 
   const auth = password ? `:${encodeURIComponent(password)}@` : "";
   const base = `redis://${auth}${host}:${port}`;
+  const gate = opts.gate === "after-boot" ? await tcpGate() : null;
+  gate?.setTarget(host, port);
+  const gm = gateMembers(gate);
+  const clientBase = gate ? `redis://${auth}127.0.0.1:${gate.port}` : base;
   const names = await envNames();
   const env = {};
   for (const c of opts.channelSources ?? []) {
-    env[names.channelUrlVar(c.name)] = c.url ? rehost(c.url, host, port) : base;
+    env[names.channelUrlVar(c.name)] = c.url
+      ? rehost(c.url, gate ? "127.0.0.1" : host, gate ? gate.port : port)
+      : clientBase;
   }
 
   return {
+    backendStarting: gm.backendStarting,
     kind: "broker",
     env,
     url: base,
@@ -512,6 +611,7 @@ async function startRedis(opts) {
      *  before it — the backend's included.  Without the barrier a read that
      *  lands between a publish and its delivery reports it missing. */
     async observe() {
+      gm.assertGateMet();
       const nonce = `${Date.now()}-${Math.random()}`;
       const seen = new Promise((resolve) => barriers.set(nonce, resolve));
       const pub = net.connect({ host, port });
@@ -538,6 +638,7 @@ async function startRedis(opts) {
       captured.length = 0;
     },
     async stop() {
+      await gm.closeGate();
       sock?.destroy();
       if (container) {
         try {
@@ -643,7 +744,13 @@ async function startKafka(opts) {
     ? Number(new URL(opts.channelSources.find((c) => c.url).url).port || 9092)
     : 9092;
   const hostPort = await freePort();
-  const { env } = kafkaContainerEnv(opts.containerEnv ?? KAFKA_DEFAULT_ENV, clientPort, hostPort);
+  // A gated broker advertises the gate, so every connection a client makes
+  // after its bootstrap (kafka hands out the advertised address) is gated too.
+  const gate = opts.gate === "after-boot" ? await tcpGate() : null;
+  gate?.setTarget("127.0.0.1", hostPort);
+  const advertisedPort = gate ? gate.port : hostPort;
+  const gm = gateMembers(gate);
+  const { env } = kafkaContainerEnv(opts.containerEnv ?? KAFKA_DEFAULT_ENV, clientPort, advertisedPort);
   const args = ["run", "-d", "--rm", "--label", "loom.fake=kafka", "-p", `127.0.0.1:${hostPort}:${clientPort}`];
   for (const [k, v] of Object.entries(env)) args.push("-e", `${k}=${v}`);
   const id = docker([...args, BROKER_IMAGES.kafka]);
@@ -669,8 +776,8 @@ async function startKafka(opts) {
   const outEnv = {};
   for (const c of opts.channelSources ?? []) {
     outEnv[names.channelUrlVar(c.name)] = c.url
-      ? rehost(c.url, "127.0.0.1", hostPort)
-      : `kafka://127.0.0.1:${hostPort}`;
+      ? rehost(c.url, "127.0.0.1", advertisedPort)
+      : `kafka://127.0.0.1:${advertisedPort}`;
   }
 
   const userTopics = () =>
@@ -681,6 +788,7 @@ async function startKafka(opts) {
 
   return {
     kind: "broker",
+    backendStarting: gm.backendStarting,
     env: outEnv,
     url: `kafka://127.0.0.1:${hostPort}`,
     containerId: id,
@@ -688,6 +796,7 @@ async function startKafka(opts) {
     /** Every record retained on every user topic, read from the beginning by
      *  a throwaway consumer (no group, so nothing is committed). */
     async observe() {
+      gm.assertGateMet();
       const publishes = [];
       let offsets;
       try {
@@ -728,6 +837,7 @@ async function startKafka(opts) {
       }
     },
     async stop() {
+      await gm.closeGate();
       try {
         docker(["rm", "-f", id]);
       } catch {

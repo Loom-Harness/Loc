@@ -193,6 +193,11 @@ export interface CorpusFeature {
    * list against the dirs actually emitted, so the two cannot drift.
    */
   readonly deployables?: readonly string[];
+  /** How the behavioural legs' fake services behave for this case.
+   *  `broker: "after-boot"`: the case's broker refuses connections while the
+   *  backend boots and comes up once the backend has tried it — the boot
+   *  gate (`test/support/fakes/broker-sidecar.mjs`). */
+  readonly fakes?: { readonly broker?: "after-boot" };
 }
 
 /** The named backend sets a sidecar's `backends` may cite instead of a list. */
@@ -210,7 +215,7 @@ export const BACKEND_SETS: Readonly<Record<string, readonly Backend[]>> = {
 };
 
 const SIDECAR_SUFFIX = ".corpus.json";
-const SIDECAR_KEYS = new Set(["//", "title", "doc", "backends", "note", "deployables"]);
+const SIDECAR_KEYS = new Set(["//", "title", "doc", "backends", "note", "deployables", "fakes"]);
 
 /** Parse one sidecar's JSON into a row, or the reasons it is malformed. */
 export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; errors: string[] } {
@@ -241,6 +246,17 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
     !(Array.isArray(deployables) && deployables.every((d) => typeof d === "string"))
   )
     errors.push(`${id}${SIDECAR_SUFFIX}: \`deployables\` must be a list of strings`);
+  const fakes = o.fakes;
+  if (
+    fakes !== undefined &&
+    !(
+      fakes !== null &&
+      typeof fakes === "object" &&
+      !Array.isArray(fakes) &&
+      Object.entries(fakes).every(([k, v]) => k === "broker" && v === "after-boot")
+    )
+  )
+    errors.push(`${id}${SIDECAR_SUFFIX}: \`fakes\` may only be { "broker": "after-boot" }`);
   if (errors.length > 0 || !backends) return { errors };
   return {
     errors,
@@ -251,6 +267,7 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
       backends,
       ...(o.note !== undefined ? { note: o.note as string } : {}),
       ...(deployables !== undefined ? { deployables: deployables as string[] } : {}),
+      ...(fakes !== undefined ? { fakes: fakes as { broker?: "after-boot" } } : {}),
     },
   };
 }

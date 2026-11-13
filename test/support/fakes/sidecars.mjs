@@ -11,6 +11,7 @@
 // to its baked-in default address), which is exactly what happened before the
 // kit existed.
 
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { quiesce } from "./quiesce.mjs";
@@ -86,6 +87,17 @@ export function plannedFakes(loom, storageFakes = STORAGE_FAKES, systemFakes = S
   return out;
 }
 
+/** The storage types whose sidecar is a message broker. */
+const BROKER_TYPES = new Set(["rabbitmq", "redis", "kafka"]);
+
+/** A corpus fixture's `fakes` block (its `<id>.corpus.json`), or none. */
+function caseFakes(caseName) {
+  if (!caseName) return {};
+  const p = join(REPO, "test", "fixtures", "corpus", `${caseName}.corpus.json`);
+  if (!existsSync(p)) return {};
+  return JSON.parse(readFileSync(p, "utf8")).fakes ?? {};
+}
+
 /** Merge `NO_PROXY` so a loopback fake is never routed through the ambient
  *  HTTP(S)_PROXY (httpx and .NET's HttpClient both honour it). */
 function withNoProxy(env, base) {
@@ -98,6 +110,7 @@ function withNoProxy(env, base) {
 const NONE = Object.freeze({
   env: {},
   kinds: [],
+  backendStarting() {},
   effects: async () => ({}),
   async reset() {},
   stop: async () => {},
@@ -117,14 +130,21 @@ export function mayNeedSidecars(source) {
  * @param {string} srcPath  the case's `.ddd` on disk (platform-swapped)
  * @param {string} [source] its text — when given, a case with nothing to fake
  *   returns at once without lowering the model
- * @param {{ genDir?: string }} [opts] `genDir` — the case's generated tree,
- *   handed to every fake's `start` (a broker sidecar imports its
- *   `broker-init` definitions from it)
+ * @param {{ genDir?: string, caseName?: string }} [opts] `genDir` — the case's
+ *   generated tree, handed to every fake's `start` (a broker sidecar imports
+ *   its `broker-init` definitions from it); `caseName` — the corpus fixture
+ *   id, whose `<id>.corpus.json` `fakes` block can ask for a broker that is
+ *   down while the backend boots (`{ "broker": "after-boot" }`)
  * @returns {Promise<{ env: Record<string,string>, effects(): Promise<Record<string, unknown[]>>, reset(): void, stop(): Promise<void>, kinds: string[] }>}
  */
 export async function startSidecars(srcPath, source, opts = {}) {
   if (source !== undefined && !mayNeedSidecars(source)) return NONE;
-  const plan = plannedFakes(await loadModel(srcPath)).map((p) => ({ ...p, genDir: opts.genDir }));
+  const brokerGate = caseFakes(opts.caseName).broker;
+  const plan = plannedFakes(await loadModel(srcPath)).map((p) => ({
+    ...p,
+    genDir: opts.genDir,
+    ...(brokerGate && BROKER_TYPES.has(p.type) ? { gate: brokerGate } : {}),
+  }));
   if (!plan.length) return NONE;
   const running = [];
   try {
@@ -164,6 +184,11 @@ export async function startSidecars(srcPath, source, opts = {}) {
   return {
     env,
     kinds: [...new Set(running.map((r) => r.fake.kind))].sort(),
+    /** The runner is about to boot the backend (a gated broker counts its
+     *  boot from here).  Call it immediately before the server starts. */
+    backendStarting() {
+      for (const r of running) r.fake.backendStarting?.();
+    },
     /** The case's effects, read once two consecutive snapshots agree. */
     async effects(opts) {
       if (!running.length) return {};
