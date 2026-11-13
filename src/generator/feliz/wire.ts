@@ -61,6 +61,7 @@ import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { type FormFieldArms, formFieldSpec, renderFormField } from "../_frontend/form-spec.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
@@ -1514,6 +1515,9 @@ export interface FelizWorkflowForm extends FormRecord {
   route: string;
   /** `Router.navigate` segments after success (`[""]` → home). */
   navigateSegs: string[];
+  /** The route segment of the record a successful run created, when the start
+   *  route answers with its id: the run then opens that record instead. */
+  resultSegment?: string;
 }
 
 /** Build the `FelizWorkflowForm` for a `WorkflowForm(runs: wf)`.  Fields are the
@@ -1545,6 +1549,7 @@ export function felizWorkflowForm(
     doneMsg: `${wfCap}Done`,
     route: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
     navigateSegs: [""], // home
+    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
     fields,
     fieldArrays: buildFieldArrays(formType, wf.params, vosByName, enumsByName, idLabels),
   };
@@ -3522,8 +3527,16 @@ export function wfHasForm(f: FelizWorkflowForm): boolean {
  *  PARAM-LESS workflow takes `()` and posts an empty `{}` body (no form). */
 function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
   const hasForm = wfHasForm(f);
+  // A run that answers with the created record's id decodes it from the body.
+  const ok = f.resultSegment
+    ? [
+        "        match Decode.fromString Decode.string response.responseText with",
+        "        | Ok id -> return Ok id",
+        "        | Error e -> return Error (ServerErrors.formLevel e)",
+      ]
+    : ["        return Ok ()"];
   return [
-    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
+    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<${workflowResultType(f)}, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3535,11 +3548,16 @@ function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
     '        |> Http.header (Headers.contentType "application/json")',
     "        |> Http.send",
     "      if response.statusCode = 200 || response.statusCode = 204 then",
-    "        return Ok ()",
+    ...ok,
     "      else",
     "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
+}
+
+/** The success payload of a workflow run: the created record's id, or `unit`. */
+export function workflowResultType(f: FelizWorkflowForm): string {
+  return f.resultSegment ? "string" : "unit";
 }
 
 /** One async action function — a fieldless operation.  POSTs an empty JSON body
