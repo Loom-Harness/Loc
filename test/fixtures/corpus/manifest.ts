@@ -442,6 +442,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  M-T5.36 P9 (F5) added the BEHAVIOURAL half: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and the `test e2e` DSL had no verb for that — `api.fulfillment.run(…)` was refused as an unknown AGGREGATE — so the note here used to defer it.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that verb set, and this fixture is their runtime proof: the folded `status` / `attempts` scalars are asserted on the very row the command create must have persisted, which is the half of F58 no compile gate can see",
   },
   {
+    id: "workflow-failed-start",
+    title:
+      "a correlated workflow whose start fails leaves no instance; a later successful start creates it",
+    doc: "workflow",
+    backends: ALL,
+    note: "Elixir inserted the instance row before the body ran, so a failing non-transactional start left a default-valued instance that the instance read answered with 200; node, .NET, java and python write the row only after the body succeeds.",
+  },
+  {
     id: "workflow-create-result",
     title:
       "command-triggered `create(…): T { … return <expr> }` — the workflow route answers 200 with the declared value (an `X id`, a scalar read after a transactional body); a result-less create keeps 204",
