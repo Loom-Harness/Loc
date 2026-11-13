@@ -2642,7 +2642,8 @@ function buildProducerOutboxFile(
     `import type * as Events from "../domain/events";`,
     ...(usingMikro
       ? [
-          `import { EntityManager } from "@mikro-orm/postgresql";`,
+          // The relay claims its batch with LockMode (the shared claim policy).
+          `import { EntityManager, LockMode } from "@mikro-orm/postgresql";`,
           `import { randomUUID } from "node:crypto";`,
           `import { ${MIKRO_OUTBOX_ROW_CLASS} } from "../db/entities";`,
         ]
