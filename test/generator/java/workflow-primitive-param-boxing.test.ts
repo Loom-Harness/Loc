@@ -11,7 +11,7 @@
 // Emitted before:
 //
 //     public record TopUpRequest(int qty, boolean flag, @NotNull String note) {}
-//     new RequiredSet("TopUpRequest", List.of("flag", "note", "qty"))
+//     @Schema(requiredProperties = {"flag", "note", "qty"})
 //
 // The published contract claimed all three required; the DTO could enforce one.
 // An omitted `qty` ran the workflow with `0`, and an explicit `null` failed

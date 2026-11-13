@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { defaultBuiltInBackends } from "../../src/platform/registry.js";
 import { snake } from "../../src/util/naming.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
 const FAMILIES = [...new Set(defaultBuiltInBackends().map((b) => b.manifest.family))].sort();
 
@@ -140,17 +141,11 @@ const errorStatuses: Record<string, (s: Subject) => Promise<number[]>> = {
       src.slice(from, at).matchAll(/ProducesResponseType\(typeof\(ProblemDetails\), (\d{3})\)/g),
     );
   },
-  /** springdoc: the `new Route("<method>", "<path>", …, new int[] {…}, …)` row. */
+  /** springdoc: the `@ApiResponse` annotations above the controller method. */
   async java({ method, path }) {
-    const src = await fileMatching(/OpenApiContractCustomizer\.java$/);
-    const line = src.split("\n").find((l) => l.includes(`new Route("${method}", "/api${path}"`));
-    expect(line, `java: no contract row for ${method} ${path}`).toBeDefined();
-    const set = /new int\[\] \{([^}]*)\}/.exec(line!);
-    return (set?.[1] ?? "")
-      .split(",")
-      .map((n) => Number(n.trim()))
-      .filter((n) => !Number.isNaN(n))
-      .sort((a, b) => a - b);
+    const route = javaDocumentedRoutes(await files()).get(`${method} /api${path}`);
+    expect(route, `java: no documented route for ${method} ${path}`).toBeDefined();
+    return route!.errors;
   },
   /** OpenApiSpex: the `<method>: %OpenApiSpex.Operation{…}` under the PathItem. */
   async elixir({ method, path }) {

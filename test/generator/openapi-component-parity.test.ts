@@ -34,8 +34,12 @@ function pick(files: Map<string, string>, re: RegExp): string {
 describe("value object publishes one component", () => {
   it("java: both records publish under the VO's own name", async () => {
     const files = await generateSystemFiles(sys("java"));
-    expect(pick(files, /DimsRequest\.java$/)).toContain('@Schema(name = "Dims")');
-    expect(pick(files, /DimsResponse\.java$/)).toContain('@Schema(name = "Dims")');
+    expect(pick(files, /DimsRequest\.java$/)).toMatch(
+      /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(name = "Dims"[,)]/,
+    );
+    expect(pick(files, /DimsResponse\.java$/)).toMatch(
+      /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(name = "Dims"[,)]/,
+    );
   });
 
   it("dotnet: a document filter folds DimsRequest + DimsResponse into Dims", async () => {

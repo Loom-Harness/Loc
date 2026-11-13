@@ -30,6 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { javaDocumentedRoutes, javaRequiredSets } from "../_helpers/java-openapi-annotations.js";
 
 const SOURCE = (platform: string): string => `
 system RU {
@@ -171,33 +172,44 @@ function fromPython(out: Map<string, string>): Published {
 }
 
 function fromJava(out: Map<string, string>): Published {
-  const src = fileEnding(out, "config/OpenApiContractCustomizer.java");
-  const javaString = (lit: string): string => JSON.parse(lit) as string;
-  const components = Object.fromEntries(
-    [...src.matchAll(/new UnionComponent\("(\w+)", ("(?:[^"\\]|\\.)*")\)/g)].map((m) => [
-      m[1]!,
-      JSON.parse(javaString(m[2]!)),
-    ]),
-  );
+  const routes = javaDocumentedRoutes(out);
+  // Class simple name -> published schema name + the @Schema argument text.
+  const schemas = new Map<string, { name: string; args: string }>();
+  for (const [path, src] of out) {
+    if (!path.endsWith(".java")) continue;
+    for (const m of src.matchAll(
+      /@io\.swagger\.v3\.oas\.annotations\.media\.Schema\(([^\n]*)\)\s*\n\s*public (?:sealed interface|record) (\w+)/g,
+    )) {
+      const name = m[1]!.match(/(?:^|, )name = "([^"]+)"/)?.[1] ?? m[2]!;
+      schemas.set(m[2]!, { name, args: m[1]! });
+    }
+  }
+  const published = (cls: string): string => {
+    const hit = schemas.get(cls);
+    if (!hit) throw new Error(`java: no @Schema on ${cls}`);
+    return hit.name;
+  };
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const route = src.match(new RegExp(`new Route\\("post", "[^"]*/${op}", "(\\w+)"`))!;
-    const success = route[1]!;
+    const route = [...routes].find(([k]) => k.startsWith("post ") && k.endsWith(`/${op}`))?.[1];
+    expect(route, `java: no documented route for ${op}`).toBeDefined();
+    const successClass = route!.successSchema!;
+    const oneOf = schemas.get(successClass)!.args.match(/oneOf = \{([^}]*)\}/)![1]!;
+    const successTags = [...oneOf.matchAll(/(\w+)\.class/g)].map(
+      (m) =>
+        schemas.get(m[1]!)!.args.match(/allowableValues = \{"([^"]+)"\}/)?.[1] ??
+        out
+          .get([...out.keys()].find((k) => k.endsWith(`/${m[1]}.java`))!)!
+          .match(/allowableValues = \{"([^"]+)"\}/)![1]!,
+    );
     const errors: Record<string, string[]> = {};
-    for (const m of src.matchAll(
-      new RegExp(
-        `new ErrorSchema\\("post", "[^"]*/${op}", (\\d{3}), ("(?:[^"\\\\]|\\\\.)*")\\)`,
-        "g",
-      ),
-    )) {
-      errors[m[1]!] = jsonAnyOfRefs(JSON.parse(javaString(m[2]!)));
+    for (const [status, ext] of route!.errorAnyOf) {
+      errors[String(status)] = sorted(["ProblemDetails", ...ext.map(published)]);
     }
-    ops[op] = { success, successTags: jsonTags(components[success]), errors };
+    ops[op] = { success: published(successClass), successTags, errors };
   }
   const problems = Object.fromEntries(
-    Object.entries(components)
-      .filter(([n]) => n.endsWith("Problem"))
-      .map(([n, sc]) => [n, jsonProblemRequired(sc)]),
+    [...javaRequiredSets(out)].filter(([n]) => n.endsWith("Problem")),
   );
   return { ops, problems };
 }

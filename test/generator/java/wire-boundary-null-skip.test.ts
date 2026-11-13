@@ -161,7 +161,7 @@ describe("java — F32: the workflow body is a wire boundary like every other", 
   // conclusion: the fix is not to drop the annotation but to BOX the component,
   // so the annotation has a null to test.  Left unboxed, a missing `qty` bound
   // to `0` and ran the workflow on a value the caller never sent, while the
-  // same project's `RequiredSet` published `qty` as required.  Full coverage of
+  // same record's `requiredProperties` published `qty` as required.  Full coverage of
   // the rule (every param kind, the optional carve-out, the create body's
   // inverse) is `workflow-primitive-param-boxing.test.ts`; this keeps the F32
   // fixture honest about which side of it the workflow record is on.
