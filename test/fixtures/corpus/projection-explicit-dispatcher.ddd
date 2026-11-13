@@ -51,7 +51,6 @@ system ExplicitDispatcherSys {
         order: Order id
         note: string
         on(e: OrderNoted) {
-          order := e.order
           note := e.note
         }
       }
