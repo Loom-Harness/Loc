@@ -749,6 +749,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // The saga instance read — the same not-lifted workflow-route class.
   "corpus/reactor-failure-order": ["api.askForRating.instance (no such aggregate)"],
   "corpus/eventsourced-workflow-body": ["api.billing.instance (no such aggregate)"],
+  "corpus/workflow-vo-param-enum": ["api.quoteMotor.run (no such aggregate)"],
   "corpus/workflow-create-result": [
     "api.openAccount.run (no such aggregate)",
     "api.topUp.run (no such aggregate)",
