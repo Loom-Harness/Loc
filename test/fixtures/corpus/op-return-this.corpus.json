@@ -1,0 +1,5 @@
+{
+  "title": "an operation answering its own aggregate (`return this`, and an `Agg or Error` arm)",
+  "doc": "payloads",
+  "backends": "ALL"
+}

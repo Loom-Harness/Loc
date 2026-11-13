@@ -1,0 +1,5 @@
+{
+  "title": "durable channel / transactional outbox + relay",
+  "doc": "workflow",
+  "backends": "ALL"
+}

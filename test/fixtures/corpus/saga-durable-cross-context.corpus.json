@@ -1,0 +1,5 @@
+{
+  "title": "saga consumer of a durable channel declared by another context — the migration must create the `last_event_id` marker the ORM maps",
+  "doc": "workflow",
+  "backends": "ALL"
+}

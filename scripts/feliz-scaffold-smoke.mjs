@@ -15,6 +15,15 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
 async function main() {
+  // The auth gate probes the session; with no backend the preview's /api proxy
+  // fails, so the probe is answered here.
+  await page.route("**/api/auth/me", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "u1", role: "admin" }),
+    }),
+  );
   // Home page mounts.
   await page.goto(URL, { waitUntil: "networkidle" });
   await page.getByText("Welcome").waitFor({ timeout: 10000 });

@@ -10,6 +10,7 @@ import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
 import { requestNamesForContexts } from "./request-names.js";
+import { workflowResultSegment } from "./workflow-result.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -121,7 +122,13 @@ export function buildWorkflowsApiModule(
     lines.push(`export function use${base}Workflow() {`);
     lines.push(`  return useMutation({`);
     lines.push(`    mutationFn: async (input: ${base}Request) => {`);
-    lines.push(`      await api.post(\`/workflows/${snake(wf.name)}\`, input);`);
+    // A start route that answers the created record's id hands it back, so
+    // the form can open that record.
+    lines.push(
+      workflowResultSegment(wf)
+        ? `      return String(await api.post(\`/workflows/${snake(wf.name)}\`, input));`
+        : `      await api.post(\`/workflows/${snake(wf.name)}\`, input);`,
+    );
     lines.push(`    },`);
     lines.push(`  });`);
     lines.push(`}`);

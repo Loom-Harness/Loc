@@ -1,0 +1,5 @@
+{
+  "title": "TPH concrete with a value-object array field — its child table FKs the shared base table",
+  "doc": "inheritance",
+  "backends": "ALL"
+}

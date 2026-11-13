@@ -350,6 +350,60 @@ Each backend runs it under the principal its auth middleware would bind
 `CurrentUserAccessor.actAs` / the threaded actor) — see the
 [testing reference](language-reference/18-testing.md#running-as-a-principal).
 
+## Reference admission
+
+A row that stores an `X id` stores it from a request: a create or update body,
+an operation parameter, a workflow or handler parameter.  When `X` is
+`tenantOwned`, the id must name a row the caller can read; an id naming another
+tenant's row is refused **exactly as an id naming no row at all** — same status,
+same problem body — so the refusal reveals nothing about other tenants' rows.
+
+```ddd
+aggregate Invoice with tenantOwned, crudish { number: string }
+aggregate Plan crossTenant with crudish { code: string }
+aggregate Payment with tenantOwned, crudish {
+  invoice: Invoice id      // probed: must be readable by the caller
+  plan: Plan id?           // crossTenant: any existing plan (the FK decides)
+  operation relink(to: Invoice id) { invoice := to }
+}
+```
+
+```
+POST /api/payments {"invoice": "<another tenant's invoice>", "amount": 1}
+422 {"title": "Unprocessable Entity", "code": "problem.dangling-reference",
+     "detail": "The request references a record that does not exist."}
+```
+
+The decision is one fact on the enriched IR (`src/ir/plan/ref-scope.ts`), read
+off the referenced aggregate:
+
+| Target | Scope | At write time |
+|---|---|---|
+| `tenantOwned`, table beside the row | `row-tenant` | probed under the target's read scope |
+| `crossTenant`, or no `tenancy by` | `global` | the foreign key alone |
+| the registry | `global` | the foreign key alone — a row may name another org (a share's grantee) |
+| `tenantOwned` in another context | `unresolvable` | stored unchecked; `loom.tenancy-ref-unresolvable` warns |
+
+Every backend renders the probe at the repository **save**, inside the write
+transaction and before the row is written, so it covers every path that
+persists the reference — the routes, workflows, handlers and reactors alike.
+It reads the target the way any read of it does, through the target's read
+scope (the `tenantOwned` floor on the operating org, plus any row rules,
+shares or `deny`), and a miss raises the backend's existing dangling-reference
+refusal:
+
+| Backend | Probe | Refusal |
+|---|---|---|
+| node (Drizzle / MikroORM) | `tx.select(…).where(and(inArray(t.id, ids), <target>Scope()))` / `em.count(<Target>Row, { id: { $in: ids } })` under the Row's schema filters | an error carrying SQLSTATE 23503, answered by the 23503 arm of every router |
+| .NET (EF Core / Dapper) | `_db.<Targets>.CountAsync(x => keys.Contains(x.Id))` under the named query filters / the target's `<Target>Scope.Where` | `Npgsql.PostgresException` 23503, answered by `DomainExceptionFilter` |
+| java (JPA) | JPQL `select count(e) from <Target> e where e.id in :ids` with the entity's auto-enabled `@Filter`s | `DataIntegrityViolationException` caused by 23503, answered by the integrity advice |
+| python (SQLAlchemy) | `select(<Target>Row.id).where(id.in_(…))`, narrowed by the read-scope hook | `IntegrityError` with SQLSTATE 23503, answered by the integrity handler |
+| elixir (Ecto) | `Repo.aggregate(where id in ^ids)` through `Repo.prepare_query/3` | the changeset's `foreign_key_constraint` error: 422 `problem.field-invalid`, its field entry `problem.dangling-reference` |
+
+A reference persisted by an event-sourced, `shape: document` or `shape:
+embedded` aggregate has no probe: the model
+is refused with `loom.target-unsupported#reference-admission-unrealized`.
+
 ## Event-sourced aggregates — the tenant lives on the stream
 
 An event-sourced aggregate (`persistedAs: eventLog`) has no state row to carry

@@ -85,9 +85,11 @@ describe("feliz multi-page routing", () => {
     expect(app).toContain("| Inc");
     expect(app).toContain("| AllProductsLoaded of Result<Product list * PageMeta, string>");
     // init parses the URL; update re-parses on UrlChanged.
-    expect(app).toContain("CurrentPage = parseUrl (Router.currentPath ())");
+    expect(app).toContain("CurrentPage = page");
+    // The list loads when its page is entered, from `init` and every `UrlChanged`.
+    expect(app).toContain("  | Products -> Cmd.OfAsync.perform");
     expect(app).toContain(
-      "| UrlChanged segments -> { model with CurrentPage = parseUrl segments }, Cmd.none",
+      "  | UrlChanged segments ->\n      let page = parseUrl segments\n      if page = model.CurrentPage then model, Cmd.none\n      else\n        let __m = { model with CurrentPage = page }\n        __m, pageCmd __m page",
     );
   });
 

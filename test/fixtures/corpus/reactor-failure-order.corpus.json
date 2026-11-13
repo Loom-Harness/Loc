@@ -1,0 +1,6 @@
+{
+  "title": "a reactor that fails AFTER writing — a guard reading an earlier binding, or an operation's own precondition — leaves none of its effects",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "A reactor body runs in source order and is one transaction: a guard after a create (reading the created row) and an operation precondition after both refuse the reaction, and neither the Survey nor the saga row survives, while the triggering command keeps its 2xx.  Elixir hoisted a top-level reactor guard ahead of the chain (so a guard reading a let-bound row did not compile) and answered an op failure as a returned `{:error, _}`, which committed the transaction with the create in it."
+}

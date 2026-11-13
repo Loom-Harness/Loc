@@ -46,6 +46,7 @@ import {
 } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { admittedReferences } from "../../../ir/plan/ref-scope.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -100,6 +101,7 @@ import {
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
 import { documentFindCapFilter } from "./document-cap-filter.js";
 import { csClaimStampsFor } from "./entity.js";
+import { dapperRefAdmissionLines } from "./ref-admission.js";
 import {
   inMemoryFilter,
   inMemoryPagedFindLines,
@@ -1499,10 +1501,38 @@ export function renderDapperRepository(
   // Inside a `transactional` workflow the lease ENLISTS instead: `__tx` is the
   // unit of work's transaction and the commit is a no-op, so the save is only
   // durable once the whole workflow commits (dapper-session.ts).
+  // Reference admission (ref-admission.ts): each probed target is counted under
+  // its own `<Target>Scope` — the restrictions its reads carry.
+  const admissionScopes = new Map(
+    admittedReferences(agg, pool).map((ref) => {
+      const target = pool.find((a) => a.name === ref.target)!;
+      const targetTable = sqlIdent(aggregateTableName(target, pool));
+      return [
+        ref.target,
+        buildDapperScope(target, pool, (e) =>
+          whereToSql(e, { agg: target, table: targetTable, pool }),
+        ),
+      ] as const;
+    }),
+  );
+  const admissionLines = dapperRefAdmissionLines(agg, pool, (ref, target) => {
+    const targetScope = admissionScopes.get(ref.target)!;
+    const targetTable = sqlIdent(aggregateTableName(target, pool));
+    return {
+      sqlExpr: csSqlLiteral(
+        `SELECT COUNT(*) FROM ${targetTable} WHERE id = ANY(@ids)${targetScope.andScope(true)}`,
+      ),
+      fields: principalFields(
+        collectFilterPrincipalRefs(targetScope.keptExprs(), pool),
+        AMBIENT_CURRENT_USER,
+      ),
+    };
+  });
   const saveUpsertLines = versioned
     ? [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
+        ...admissionLines,
         `        var __expected = expectedVersion ?? aggregate.${ROW_VERSION_PASCAL};`,
         `        var __written = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""} RETURNING ${versionCol}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__written is null) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
@@ -1515,6 +1545,7 @@ export function renderDapperRepository(
     : [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
+        ...admissionLines,
         `        await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${insertValsTph}) ON CONFLICT (id) DO UPDATE SET ${upsertSet}${tph ? ` WHERE ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
       ];
 
@@ -1564,6 +1595,7 @@ export function renderDapperRepository(
       [
         ...capabilityFilters,
         ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
+        ...[...admissionScopes.values()].flatMap((s) => s.declaredExprs),
         ...(repo?.finds ?? []).flatMap((f) => (f.filter ? [f.filter] : [])),
         ...retrievals.flatMap((r) => (r.where ? [r.where] : [])),
       ],
