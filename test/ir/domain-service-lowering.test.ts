@@ -22,7 +22,7 @@ const SRC = `
     repository Carts for Cart { }
 
     domainService Pricing {
-      operation quote(cart: Cart, customer: Customer): money {
+      operation quote(cart: Cart, customer: Cart): money {
         return cart.subtotal
       }
     }
