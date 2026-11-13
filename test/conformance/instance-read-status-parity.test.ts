@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 import { errorStatuses } from "../../src/ir/util/openapi-errors.js";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
@@ -120,17 +121,11 @@ const DECLARED: Record<Platform, (files: Map<string, string>) => number[]> = {
     ].map((m) => Number(m[1]));
   },
   elixir: (files) => {
-    const src = pick(files, /\/api\/.*_spec\.ex$/);
-    const marker = '"/api/workflows/tracker/instances/{id}" => %OpenApiSpex.PathItem{';
-    const at = src.indexOf(marker);
-    expect(at, "elixir instance-by-id path item").toBeGreaterThan(-1);
-    // Start the next-path search PAST this path item's own opening token —
-    // searching from `at + 1` finds the `%OpenApiSpex.PathItem{` on this very
-    // line and slices an empty block, which is how this extractor first
-    // reported "elixir declares []" against a file that declares both.
-    const end = src.indexOf("%OpenApiSpex.PathItem{", at + marker.length);
-    const block = src.slice(at, end === -1 ? undefined : end);
-    return [...block.matchAll(/^\s+(\d{3}) => %OpenApiSpex\.Response\{/gm)]
+    const block = elixirDocumentedOperations(files).get(
+      "get /api/workflows/tracker/instances/{id}",
+    );
+    expect(block, "elixir instance-by-id operation").toBeDefined();
+    return [...block!.matchAll(/^\s+(\d{3}) => %OpenApiSpex\.Response\{/gm)]
       .map((m) => Number(m[1]))
       .filter((s) => s !== 200);
   },

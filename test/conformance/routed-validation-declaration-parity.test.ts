@@ -21,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultBuiltInBackends } from "../../src/platform/registry.js";
 import { snake } from "../../src/util/naming.js";
+import { elixirDocumentedOperations } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
@@ -151,16 +152,11 @@ const errorStatuses: Record<string, (s: Subject) => Promise<number[]>> = {
     expect(route, `java: no documented route for ${method} ${path}`).toBeDefined();
     return route!.errors;
   },
-  /** OpenApiSpex: the `<method>: %OpenApiSpex.Operation{…}` under the PathItem. */
+  /** OpenApiSpex: the routed action's `operation` spec. */
   async elixir({ method, path }) {
-    const src = await fileMatching(/r_api_spec\.ex$/);
-    const item = src.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
-    expect(item, `elixir: no PathItem for ${path}`).toBeGreaterThan(-1);
-    const at = src.indexOf(`${method}: %OpenApiSpex.Operation{`, item);
-    expect(at, `elixir: no ${method} operation for ${path}`).toBeGreaterThan(-1);
-    const next = src.indexOf("%OpenApiSpex.Operation{", at + 30);
-    const block = src.slice(at, next > 0 ? next : undefined);
-    return sorted(block.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)).filter((s) => s >= 400);
+    const block = elixirDocumentedOperations(await files()).get(`${method} /api${path}`);
+    expect(block, `elixir: no ${method} operation for ${path}`).toBeDefined();
+    return sorted(block!.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)).filter((s) => s >= 400);
   },
 };
 

@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoundedContextIR, LoomModel } from "../../../src/ir/types/loom-ir.js";
 import { deriveContextOperations } from "../../../src/ir/util/api-surface.js";
+import { elixirDocumentedOperations } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
@@ -80,27 +81,16 @@ function scrapeRouter(files: Map<string, string>): Route[] {
   return out;
 }
 
-/** The OpenApiSpex module's PathItems: `"<path>" => %OpenApiSpex.PathItem{`
- *  with the per-method `<m>: %OpenApiSpex.Operation{` entries and each
- *  operation's declared 4xx/5xx statuses (`<nnn> => %OpenApiSpex.Response`
- *  entries up to the operation's closing brace). */
+/** The documented operations (each controller action's `operation` spec,
+ *  joined to its `/api` route) and each one's declared 4xx/5xx statuses. */
 function scrapeSpec(files: Map<string, string>): Map<string, number[]> {
-  const src = [...files].find(([p]) => p.endsWith("_api_spec.ex"))?.[1] ?? "";
   const out = new Map<string, number[]>();
-  // Split on PathItem boundaries; each key path-embeds the `/api` base.
-  const items = src.split(/"((?:\/[^"]+))" => %OpenApiSpex\.PathItem\{/).slice(1);
-  for (let i = 0; i < items.length; i += 2) {
-    const rel = items[i]!;
-    const body = items[i + 1]!;
-    for (const m of body.matchAll(
-      /(get|post|put|patch|delete): %OpenApiSpex\.Operation\{([\s\S]*?)\n {8}\}/g,
-    )) {
-      const statuses = [...m[2]!.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)]
-        .map((c) => Number(c[1]))
-        .filter((c) => c >= 400)
-        .sort((a, b) => a - b);
-      out.set(key({ method: m[1]!, path: normalisePath(rel) }), statuses);
-    }
+  for (const [k, spec] of elixirDocumentedOperations(files)) {
+    const statuses = [...spec.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g)]
+      .map((c) => Number(c[1]))
+      .filter((c) => c >= 400)
+      .sort((a, b) => a - b);
+    out.set(k, statuses);
   }
   return out;
 }

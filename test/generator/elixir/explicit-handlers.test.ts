@@ -22,6 +22,7 @@
 //     routed handler's e2e arguments are its declared params only — and that
 //     the synthesized find gets no route of its own.
 import { describe, expect, it } from "vitest";
+import { elixirDocumentedOperations } from "../../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
@@ -367,10 +368,8 @@ describe("elixir — a routed handler matches its params by wire name", () => {
     const h = fileEndingWith(files, "handlers/get_build_by_sha.ex");
     const hAt = fileEndingWith(files, "handlers/get_build_by_sha_at.ex");
     const router = fileEndingWith(files, "lib/api_web/router.ex");
-    const spec = [...files].find(
-      ([p, c]) => /_spec\.ex$/.test(p) && c.includes("/builds/by_sha"),
-    )?.[1];
-    expect(spec, "the spec module publishes the routed path").toBeDefined();
+    const spec = elixirDocumentedOperations(files).get("get /api/builds/by_sha");
+    expect(spec, "the routed action declares its operation").toBeDefined();
     expect(spec).toContain("name: :commitSha, in: :query");
     expect(h).toContain('%{"commitSha" => commit_sha} = params');
     // The path segment and the handler agree on the key, too.

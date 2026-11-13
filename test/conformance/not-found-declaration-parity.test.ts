@@ -31,7 +31,7 @@
 // schemathesis' `status_code_conformance` reads with the same suspicion).
 
 import { describe, expect, it } from "vitest";
-
+import { elixirOperationsAt } from "../_helpers/elixir-openapi-ops.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { javaDocumentedRoutes } from "../_helpers/java-openapi-annotations.js";
 
@@ -152,13 +152,11 @@ const statuses = {
     expect(hit, `java: no documented route for ${path}`).toBeDefined();
     return hit![1].errors;
   },
-  /** OpenApiSpex: `NNN => %OpenApiSpex.Response{…}` inside the PathItem. */
+  /** OpenApiSpex: `NNN => %OpenApiSpex.Response{…}` in the routed action's
+   *  `operation` spec. */
   async elixir(path: string): Promise<number[]> {
-    const src = await fileMatching(/_spec\.ex$/);
-    const at = src.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
-    expect(at, `elixir: no PathItem for ${path}`).toBeGreaterThan(-1);
-    const next = src.indexOf("%OpenApiSpex.PathItem{", at + 40);
-    const block = src.slice(at, next > 0 ? next : undefined);
+    const block = elixirOperationsAt(await files(), `/api${path}`);
+    expect(block, `elixir: no operation for ${path}`).not.toBe("");
     return sorted(block.matchAll(/(\d{3}) => %OpenApiSpex\.Response\{/g));
   },
 };
