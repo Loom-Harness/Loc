@@ -1946,7 +1946,9 @@ credential**. When the callee declares `auth: required`, the request that made
 the call forwards its bearer token, so the callee authenticates the same
 principal. The token comes from the `Authorization` header, or else the HttpOnly
 `session` cookie. Under the dev stub, the `x-loom-dev-claims` override is
-forwarded too. A callee without `auth: required` gets no credential.
+forwarded too. An `x-org-context` org switch on the request is forwarded beside
+the credential, so the callee answers in the same operating org. A callee
+without `auth: required` gets no credential.
 
 ```ddd
 resource orgs { for: Sales, kind: api, use: NetApi }
@@ -1964,6 +1966,8 @@ export const forwardCallerCredential = createMiddleware(async (c, next) => {
   else if (session) headers.authorization = `Bearer ${session}`;
   const devClaims = c.req.header("x-loom-dev-claims");
   if (devClaims) headers["x-loom-dev-claims"] = devClaims;
+  const orgContext = c.req.header("x-org-context");
+  if (orgContext) headers["x-org-context"] = orgContext;
   await callerCredential.run(headers, next);
 });
 // …
