@@ -342,6 +342,19 @@ export const AUTHZ_LADDERS = {
         arms: { anonymous: null, unauthorized: 403, authorized: 404 },
       },
       {
+        label: "gate order — destroy on a missing id answers the caller's 403, not 404",
+        method: "DELETE",
+        path: "/api/notes/00000000-0000-4000-8000-0000000000ab",
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
+        label: "gate order — the generic update on a missing id answers the caller's 403, not 404",
+        method: "POST",
+        path: "/api/notes/00000000-0000-4000-8000-0000000000ac/update",
+        body: { text: "rewritten" },
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
         label: "gate order — a stale If-Match answers the caller's 403, not 409",
         seed: { path: "/api/memos", body: { body: "ladder stale" } },
         method: "POST",
