@@ -583,8 +583,6 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
   // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
   "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
-  // A workflow run — the `notLifted` class.
-  "corpus/criterion-match-all": ["api.bumpAll.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -621,6 +619,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitThenOverdraw.run (no such aggregate)",
   ],
   // A workflow run whose `if let` else answers `notFound` — same class.
+  // A workflow run — the `notLifted` class.
+  "corpus/criterion-match-all": ["api.bumpAll.run (no such aggregate)"],
   "corpus/not-found-statement": ["api.escalateFirst.run (no such aggregate)"],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
