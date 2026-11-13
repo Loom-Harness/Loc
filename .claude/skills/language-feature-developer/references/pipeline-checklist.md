@@ -53,7 +53,10 @@ tells you when it applies.
 ### ④ AST validate — almost always
 - `src/language/validators/<theme>.ts` — a new themed validator (new file for a
   new theme, or extend an existing one). Give every diagnostic a stable
-  `loom.<kebab-code>`.
+  `loom.<kebab-code>`. Visit every node of a document with
+  `modelContents(model)` (`validators/model-contents.ts`, one shared walk per
+  validation run), not `AstUtils.streamAllContents(model)` —
+  `model-contents.test.ts` fails on a direct whole-document walk.
 - `src/language/validators/index.ts` — re-export it.
 - `src/language/ddd-validator.ts` — register it in the check list.
 - `src/language/type-system.ts` — if the feature introduces new types or member
