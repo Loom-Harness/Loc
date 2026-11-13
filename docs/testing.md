@@ -229,7 +229,7 @@ fails the fast suite.
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
 | `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs` | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
-| `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` | — |
+| `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |
 | `behavioral-heex-ui-e2e.yml` | `npm run test:behavioral-heex-ui` (add `LOOM_HEX_MIRROR=1` behind a TLS-fingerprint proxy) | pg, mirror |
 | `conformance-parity.yml` | `LOOM_E2E_STRICT_PARITY=1 npx vitest run test/e2e/e2e.test.ts` (spec-level parity, no stack boot), then `npm run test:shared-storage` (boots a two-storage compose stack: a write through one deployable is a read through the other on the same storage) | — |
