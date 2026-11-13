@@ -8,7 +8,7 @@
 // that decides which, so the five emitters cannot disagree.
 
 import { maskedReadPredicates } from "../enrich/mask-taint.js";
-import type { AggregateIR, EntityPartIR, PayloadIR } from "../types/loom-ir.js";
+import type { AggregateIR, EntityPartIR, PayloadIR, TypeIR } from "../types/loom-ir.js";
 
 /** The declared `<Agg>Response` (or `<Part>Response`) record a response
  *  emitter reads for `agg`, or `undefined` when it must read the derived wire
@@ -37,4 +37,56 @@ export function declaredResponseFor(
       return pred ? { ...f, maskUnless: pred } : f;
     }),
   };
+}
+
+/** One response record a client receives: a root's or a contained part's read
+ *  wire, as name + fields. */
+export interface ContractResponse {
+  /** The record name a client sees — `<Entity>Response`. */
+  name: string;
+  /** The aggregate or part the record describes. */
+  entity: string;
+  fields: readonly ContractResponseField[];
+}
+
+export interface ContractResponseField {
+  name: string;
+  type: TypeIR;
+  optional: boolean;
+  /** The field is redacted to `null` for a caller who fails its `mask unless`
+   *  predicate.  The flag ships; the predicate never does. */
+  maskable?: true;
+}
+
+/** The declared response records of `agg` and of every part it contains, read
+ *  through `declaredResponseFor`, for the Frontend Contract.  `undefined` when
+ *  the context declares no `<Agg>Response` record: nothing exposes the
+ *  aggregate over a declared contract. */
+export function contractResponsesFor(
+  payloads: readonly PayloadIR[],
+  agg: AggregateIR,
+): ContractResponse[] | undefined {
+  const root = declaredResponseFor(payloads, agg);
+  if (!root) return undefined;
+  const out: ContractResponse[] = [contractResponse(root, agg.name)];
+  for (const part of agg.parts) {
+    const rec = declaredResponseFor(payloads, part);
+    if (rec) out.push(contractResponse(rec, part.name));
+  }
+  return out;
+}
+
+/** A declared response record leaves the identity implicit; every backend
+ *  serializes it first, so it is stated here. */
+function contractResponse(rec: PayloadIR, entity: string): ContractResponse {
+  const fields: ContractResponseField[] = rec.fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+    optional: f.optional,
+    ...(f.maskUnless !== undefined ? { maskable: true as const } : {}),
+  }));
+  if (!fields.some((f) => f.name === "id")) {
+    fields.unshift({ name: "id", type: { kind: "id", targetName: entity }, optional: false });
+  }
+  return { name: rec.name, entity, fields };
 }

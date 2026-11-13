@@ -217,9 +217,12 @@ function lowerProjectionQuery(p: Projection, env: Env): ProjectionQueryIR {
     };
   });
 
-  const query: ProjectionQueryIR = { joins, auxiliaries, ...resolveBypass(p) };
-  if (sourceIsWorkflow) query.sourceKind = "workflow";
-  else if (sourceIsProjection) query.sourceKind = "projection";
+  const query: ProjectionQueryIR = {
+    sourceKind: sourceIsWorkflow ? "workflow" : sourceIsProjection ? "projection" : "aggregate",
+    joins,
+    auxiliaries,
+    ...resolveBypass(p),
+  };
   // The `requires` gate lowers in the BARE context env (not `scope`), so
   // `currentUser` resolves but the source row's fields do not — it decides
   // endpoint access before any row exists, so it may reference only the
@@ -270,7 +273,7 @@ function wholeTableAggregation(expr: ExprIR): ProjectionAggregateIR | undefined 
     // `count` takes no column; the others need exactly one.
     if (expr.name === "count") return expr.args.length === 0 ? { op: "count" } : undefined;
     if (!arg || expr.args.length !== 1) return undefined;
-    return { op: expr.name as ProjectionAggregateOp, arg };
+    return { op: expr.name as Exclude<ProjectionAggregateOp, "count">, arg };
   }
   return undefined;
 }

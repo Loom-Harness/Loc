@@ -13,7 +13,9 @@
 import type { Lines, ResourceAdapter } from "../../../../generator/_adapters/index.js";
 import type { DataSourceIR, StorageIR } from "../../../../ir/types/loom-ir.js";
 import {
+  RESOURCE_HOST_ENV,
   resourceEnvBase,
+  resourceEnvDirVar,
   resourceEnvEndpointVar,
   resourceSidecarUrl,
 } from "../../../../util/resource-env.js";
@@ -192,7 +194,7 @@ export const localDiskResourceAdapter: ResourceAdapter = {
     for (const r of resources) {
       out.push(`// objectStore '${r.name}' — local-directory store (raw bytes + sidecar meta).`);
       out.push(
-        `export const ${r.name}Dir = process.env.${envVar(r.name)}_DIR ?? path.join(process.cwd(), "data", ${JSON.stringify(r.name)});`,
+        `export const ${r.name}Dir = process.env.${resourceEnvDirVar(r.name)} ?? path.join(process.cwd(), "data", ${JSON.stringify(r.name)});`,
       );
       out.push(``);
       out.push(`function ${r.name}$path(key: string): string {`);
@@ -399,7 +401,10 @@ export const sesResourceAdapter: ResourceAdapter = {
       out.push(`// mailer '${r.name}' — Amazon SES.`);
       out.push(mailFromLine(r, stores));
       out.push(
-        `export const ${r.name}Client = new SESClient({ region: process.env.${envBase(r.name)}_REGION ?? ${JSON.stringify(region)} });`,
+        `export const ${r.name}Client = new SESClient({`,
+        `  region: process.env.${envBase(r.name)}_REGION ?? ${JSON.stringify(region)},`,
+        `  endpoint: process.env.${RESOURCE_HOST_ENV.ses(r.name)} || undefined,`,
+        `});`,
       );
       out.push(``);
       out.push(
@@ -421,19 +426,31 @@ export const sesResourceAdapter: ResourceAdapter = {
 
 export const sendgridResourceAdapter: ResourceAdapter = {
   name: "sendgrid",
-  emitProjectDeps: () => ({ "@sendgrid/mail": "8.1.6" }),
+  emitProjectDeps: () => ({ "@sendgrid/client": "8.1.6", "@sendgrid/mail": "8.1.6" }),
   emitClientModule(resources, stores): Lines {
-    const out: string[] = [`import sgMail from "@sendgrid/mail";`, ``];
-    out.push(`sgMail.setApiKey(process.env.SENDGRID_API_KEY ?? "");`);
-    out.push(``);
+    const out: string[] = [
+      `import { Client } from "@sendgrid/client";`,
+      `import { MailService } from "@sendgrid/mail";`,
+      ``,
+    ];
     for (const r of resources) {
       out.push(`// mailer '${r.name}' — SendGrid.`);
       out.push(mailFromLine(r, stores));
+      // `setApiKey` resets the base URL to SendGrid's, so the endpoint
+      // override is applied after it.
+      out.push(`const ${r.name}Client = new Client();`);
+      out.push(`${r.name}Client.setApiKey(process.env.SENDGRID_API_KEY ?? "");`);
+      out.push(`const ${r.name}Endpoint = process.env.${RESOURCE_HOST_ENV.sendgrid(r.name)};`);
+      out.push(
+        `if (${r.name}Endpoint) ${r.name}Client.setDefaultRequest("baseUrl", ${r.name}Endpoint);`,
+      );
+      out.push(`const ${r.name}Mail = new MailService();`);
+      out.push(`${r.name}Mail.setClient(${r.name}Client);`);
       out.push(``);
       out.push(
         `export async function ${r.name}$send(to: string, subject: string, body: string): Promise<void> {`,
       );
-      out.push(`  await sgMail.send({ to, from: ${r.name}From, subject, text: body });`);
+      out.push(`  await ${r.name}Mail.send({ to, from: ${r.name}From, subject, text: body });`);
       out.push(`}`);
       out.push(``);
     }

@@ -18,7 +18,12 @@ import type { AggregateIR } from "./aggregate.js";
 import type { BoundedContextIR, FindIR, ValueObjectIR } from "./context.js";
 import type { ExprIR } from "./expr.js";
 import type { EntityPartIR, FunctionBodyIR, OperationIR, ParamIR } from "./members.js";
-import type { LoomModel } from "./model.js";
+import type {
+  EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
+  EnrichedLoomModel,
+  LoomModel,
+} from "./model.js";
 import type { ProjectionIR } from "./projection.js";
 import type { StmtIR } from "./stmt.js";
 import type { TypeIR } from "./types.js";
@@ -36,6 +41,8 @@ import type { WorkflowStmtIR } from "./workflow-stmt.js";
 // ---------------------------------------------------------------------------
 
 /** Every bounded context in the model — system-bundled + top-level. */
+export function allContexts(loom: EnrichedLoomModel): EnrichedBoundedContextIR[];
+export function allContexts(loom: LoomModel): BoundedContextIR[];
 export function allContexts(loom: LoomModel): BoundedContextIR[] {
   const out: BoundedContextIR[] = [];
   for (const sys of loom.systems) {
@@ -46,6 +53,8 @@ export function allContexts(loom: LoomModel): BoundedContextIR[] {
 }
 
 /** Every aggregate in the model, regardless of which context owns it. */
+export function allAggregates(loom: EnrichedLoomModel): EnrichedAggregateIR[];
+export function allAggregates(loom: LoomModel): AggregateIR[];
 export function allAggregates(loom: LoomModel): AggregateIR[] {
   return allContexts(loom).flatMap((c) => c.aggregates);
 }
@@ -258,8 +267,8 @@ export function queryProjectionUsesCurrentUser(proj: ProjectionIR): boolean {
  *  read methods (findById / findAll / each find), threaded from the route's
  *  `c.get("currentUser")`.  (DEBT-01; the Hono/Drizzle analogue of EF Core's
  *  closure-captured `HasQueryFilter`.) */
-export function aggregateUsesPrincipalContextFilter(agg: { contextFilters?: ExprIR[] }): boolean {
-  return (agg.contextFilters ?? []).some(exprUsesCurrentUser);
+export function aggregateUsesPrincipalContextFilter(agg: { contextFilters: ExprIR[] }): boolean {
+  return agg.contextFilters.some(exprUsesCurrentUser);
 }
 
 export function stmtUsesCurrentUser(s: StmtIR): boolean {

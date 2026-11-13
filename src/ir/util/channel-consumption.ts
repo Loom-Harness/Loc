@@ -30,7 +30,7 @@ export function contextsByName(sys: SystemIR): Map<string, BoundedContextIR> {
  *  event-triggered `create … by`, and projection folds: the same trigger set
  *  `deriveEventSubscriptions` wires for in-process dispatch. */
 export function consumedEventNames(
-  dep: DeployableIR,
+  dep: Pick<DeployableIR, "contextNames">,
   ctxByName: ReadonlyMap<string, BoundedContextIR>,
 ): Set<string> {
   const consumed = new Set<string>();
