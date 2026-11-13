@@ -9,6 +9,7 @@
 // recorded and the running database is behind.
 
 import type { PendingMigration } from "../pipeline/state";
+import type { MigrationPlan } from "../runtime/protocol";
 import { PENDING_MIGRATION } from "./vocabulary";
 
 export interface PendingMigrationView {
@@ -68,7 +69,20 @@ export function describePendingMigration(p: PendingMigration | null): PendingMig
 }
 
 /** Whether Boot waits for the initial migration: with nothing recorded the
- *  database cannot be created, so the strip asks for the record first. */
-export function bootAwaitsInitialMigration(p: PendingMigration | null): boolean {
-  return p !== null && p.kind === "unrecorded" && p.initial;
+ *  database cannot be created.  A session that can record does so as Boot
+ *  starts (`awaitsInitialRecord`); one that cannot (a view-only link, a
+ *  read-only tab) has nothing Boot could create. */
+export function bootAwaitsInitialMigration(p: PendingMigration | null, canRecord: boolean): boolean {
+  return !canRecord && p !== null && p.kind === "unrecorded" && p.initial;
+}
+
+/** The name Boot records a workspace's initial migration under. */
+export const AUTO_INITIAL_MIGRATION = "initial";
+
+/** The plan has no chain yet and the whole model is unrecorded: Boot records
+ *  the initial migration before it creates the database.  Never true once a
+ *  chain exists, so a later schema change still waits for an explicit
+ *  record. */
+export function awaitsInitialRecord(plan: MigrationPlan): boolean {
+  return plan.kind === "chain" && plan.units.length === 0 && plan.unrecorded?.initial === true;
 }

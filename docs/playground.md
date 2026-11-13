@@ -296,9 +296,12 @@ schema edits; a recorded change migrates it in place and keeps the rows.
 
 Boot never writes to the database while the model has **unrecorded** schema
 changes: it stops with *migration required* (`backend-status`), names the
-modules and steps, and leaves the database as it is. That includes a workspace
-with no chain, every built-in example among them — no migration is implied, so
-the database is created only once the initial migration is recorded. A database the chain cannot describe — one at a unit the chain
+modules and steps, and leaves the database as it is. The one exception is a
+workspace with no chain, every built-in example among them: Boot records its
+initial migration (named `initial`, the same entry **Record migration…** would
+write) into the workspace and creates the database from it, so an example runs
+on its first Boot. A session that cannot write the workspace (a view-only link,
+a read-only second tab) cannot record it, and its Boot stays blocked. A database the chain cannot describe — one at a unit the chain
 no longer has, or one an earlier playground built without migration tracking
 (a `ddl_hash` row) — is reported, not dropped. The only actions that drop the
 user schemas are the explicit ones: **Reset database** (Database sub-view —
@@ -315,8 +318,8 @@ tab. On every source change the build worker re-runs the check Boot runs
 (`migrate.plan`), and a badge beside Boot reads one of:
 
 - *migration required · initial schema* — nothing is recorded yet (every
-  built-in example on open). Boot is blocked until the initial migration is
-  recorded.
+  built-in example on open). Boot records the initial migration before it
+  creates the database; in a session that cannot record, Boot is blocked.
 - *migration required · N unrecorded changes* — what `ddd migrate status`
   lists, with a *destructive* flag when one of them needs
   `--allow-destructive`.

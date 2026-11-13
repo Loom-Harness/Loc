@@ -134,7 +134,7 @@ import { usePersistedState } from "./util/usePersistedState";
 // M-T8.18 — the palette, the shortcut sheet, app-level hotkeys, F8.
 import { CommandPalette, openPalette } from "./layout/CommandPalette";
 import { RecordMigrationDialog } from "./layout/RecordMigrationDialog";
-import { describePendingMigration } from "./layout/pending-migration";
+import { AUTO_INITIAL_MIGRATION, awaitsInitialRecord, describePendingMigration } from "./layout/pending-migration";
 import { ShortcutSheet } from "./layout/ShortcutSheet";
 import { hotkeyAction, isTextEntry } from "./util/hotkeys";
 import { inDocumentOrder, stepIndex, toEditorRange } from "./layout/problem-nav";
@@ -1451,6 +1451,11 @@ export default function App(): JSX.Element {
    *  migration can still be recorded and the database created. */
   const sessionChainRef = useRef<Map<string, string>>(new Map());
 
+  /** Whether this session may record migrations (Boot's own initial record
+   *  reads it): the workspace is writable, or there is no store and the chain
+   *  lives in `sessionChainRef`. */
+  const canRecordRef = useRef(false);
+
   /** The workspace's committed migration chain beside `entryPath`, read from
    *  the git store's working tree (the session's chain when there is no
    *  store); empty without a chain. */
@@ -1722,8 +1727,21 @@ export default function App(): JSX.Element {
       // rendered by the build worker, and the model's unrecorded changes.
       // Read fresh on every boot, so a migration recorded since the last
       // generate is applied without regenerating.
-      const current = await currentEvolutionTree();
-      const planned = await client.migrationPlan({ current });
+      let current = await currentEvolutionTree();
+      let planned = await client.migrationPlan({ current });
+      // A workspace with no chain yet (every built-in example on its first
+      // Boot) records its initial migration here, as the user would from the
+      // strip's badge: the initial migration is the whole model, so recording
+      // it decides nothing.  Any later unrecorded change still waits for an
+      // explicit record.  A session that cannot write the workspace leaves
+      // Boot to report the pending migration.
+      if (planned.ok && awaitsInitialRecord(planned.plan) && canRecordRef.current) {
+        const recorded = await recordMigration(AUTO_INITIAL_MIGRATION, false, { regenerate: false });
+        if (recorded?.ok && recorded.files.length > 0) {
+          current = await currentEvolutionTree();
+          planned = await client.migrationPlan({ current });
+        }
+      }
       // The boot's plan is the freshest check there is.
       if (planned.ok) publishMigrationCheck(planned.plan);
       if (!planned.ok) {
@@ -2414,6 +2432,7 @@ export default function App(): JSX.Element {
   async function recordMigration(
     name: string,
     allowDestructive: boolean,
+    opts: { regenerate?: boolean } = {},
   ): Promise<RecordMigrationResult | null> {
     const client = buildClientRef.current;
     const store = workspace.store;
@@ -2432,7 +2451,9 @@ export default function App(): JSX.Element {
       }
       void runEvolutionDiff(evolutionBaselineRef);
       scheduleMigrationCheck(0);
-      void runGenerate();
+      // Boot's own record does not regenerate: in Live mode the generate
+      // would cascade into a second bundle and boot.
+      if (opts.regenerate !== false) void runGenerate();
     }
     return result;
   }
@@ -3203,6 +3224,7 @@ export default function App(): JSX.Element {
   // the controller would otherwise report "ephemeral" (a storage failure),
   // which is a different thing and reads as a bug to the recipient.
   const sourcesWritable = !viewFlags.view && sources.writable;
+  canRecordRef.current = sourcesWritable;
   const sourcesReadOnlyReason = viewFlags.view ? "view" : sources.readOnlyReason;
   const sourceError = sources.lastError;
 

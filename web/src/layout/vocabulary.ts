@@ -116,10 +116,11 @@ export const BLOCKER = {
     `Fix the ${countOf(errors, "error")} in your source first (${PANE.output} → ${STREAM.problems}).`,
   bundle: `${STAGE.generate} first — ${STAGE.bundle} compiles the generated backend and frontend.`,
   boot: `${nextStep("boot", true)} — ${STAGE.boot} runs the bundled backend on an in-browser Postgres.`,
-  /** Boot while the workspace records no migration: the database is created
-   *  from the recorded chain, so there is nothing to boot yet. */
+  /** Boot in a session that cannot record, while the workspace records no
+   *  migration: the database is created from the recorded chain, so there is
+   *  nothing to boot. */
   bootInitial:
-    "Record the initial migration first, then apply it — the database is created from recorded migrations, and none are recorded yet. Use “Record migration…” beside Boot.",
+    "This session cannot record migrations (a view-only link or a read-only tab), and the database is created from recorded migrations — none are recorded yet. Open the workspace in an editable tab to boot it.",
 } as const;
 
 /** The boot segment's count when the last boot stopped on a migration. */
