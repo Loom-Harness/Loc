@@ -185,6 +185,9 @@ export interface FlutterFormField {
    *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
    *  value-object leaf reads through its `objectPath`. */
   fromRecord?: true;
+  /** The record field is `provenanced`: its value is the wire carrier's
+   *  `value`. */
+  recordCarrier?: true;
   /** Client-side rules derived from the aggregate's (or operation's)
    *  wire-translatable `invariant`s — M-T1.16 / ledger row
    *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
@@ -959,7 +962,16 @@ export function flutterOperationForm(
     const seeded = new Set(
       spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
     );
-    for (const f of fields) if (seeded.has(f.objectPath?.[0] ?? f.jsonKey)) f.fromRecord = true;
+    const carriers = new Set(
+      spec.fields
+        .filter((f) => f.prefill.from === "record" && f.prefill.carrier)
+        .map((f) => f.name),
+    );
+    for (const f of fields) {
+      const root = f.objectPath?.[0] ?? f.jsonKey;
+      if (seeded.has(root)) f.fromRecord = true;
+      if (carriers.has(root)) f.recordCarrier = true;
+    }
   }
   attachRules(
     fields,
@@ -1405,7 +1417,8 @@ function loaderId(wireName: string): string {
 function recordLeaf(f: FlutterFormField, rowKey = f.jsonKey): string {
   let e = "r";
   for (const k of f.objectPath ?? []) e = `(${e}['${dartStr(k)}'] as Map<String, dynamic>?)`;
-  return `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  const leaf = `${e}${(f.objectPath ?? []).length > 0 ? "?" : ""}['${dartStr(rowKey)}']`;
+  return f.recordCarrier ? `(${leaf} as Map<String, dynamic>?)?['value']` : leaf;
 }
 
 /** One object-array cell's initial slot value, read out of the row map `m`. */
