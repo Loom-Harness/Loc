@@ -214,8 +214,9 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       configEnv.push({ name: OTEL_SERVICE_NAME_ENV, value: slug });
       configEnv.push({ name: OTEL_ENDPOINT_ENV, value: "" });
     }
-    // The env contract's `deploy` tier, minus what the groups above already
-    // wire.  A `use: <Api>` binding has an in-cluster answer — the server's
+    // The env contract's `boot` and `deploy` tiers, minus what the groups
+    // above already wire (an env(…)-bound OIDC issuer is boot-tier and has no
+    // in-cluster answer, so it is the operator's like any deploy variable).  A `use: <Api>` binding has an in-cluster answer — the server's
     // Service — so it is wired outright; everything else is the operator's.
     const wired = new Set([...configEnv, ...dbEnv, ...secretEnv, ...channelEnv].map((e) => e.name));
     const inCluster = new Map(
@@ -226,7 +227,7 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
     );
     const deployEnv: WorkloadEnv[] = platform.operations
       .env({ deployable: d, sys })
-      .filter((e) => e.need === "deploy" && !wired.has(e.name))
+      .filter((e) => e.need !== "optional" && !wired.has(e.name))
       .map((e) => ({ name: e.name, value: inCluster.get(e.name) ?? "" }));
     return {
       deployableName: d.name,

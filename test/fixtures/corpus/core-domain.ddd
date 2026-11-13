@@ -10,8 +10,10 @@ system CoreShop {
         // A VO function naming its OWN type, inside that type's body.  Python
         // evaluated the annotation eagerly there (`def plus(self, other:
         // Money) -> Money` before `Money` is bound), so the domain module
-        // raised NameError at import and the app never booted.  Declared, not
-        // called: the import alone is the proof, on every python tier.
+        // raised NameError at import and the app never booted.  Called from
+        // an operation body (`addTip`) and from the unit test: elixir has no
+        // method on a value-object map, so the function is a module function
+        // on the value object's own module.
         function plus(other: Money): Money = Money { amount: amount + other.amount, currency: currency }
       }
       event OrderPlaced { code: string }
@@ -32,6 +34,7 @@ system CoreShop {
           status := Status.Placed
         }
         operation addLine(sku: string, qty: int) { lines += Line { sku: sku, qty: qty } }
+        operation addTip(tip: Money) { total := total.plus(tip) }
 
         // Pure-domain (unit) test — exercised on every backend's unit tier.
         // Stresses enum construction, a `Money` value-object literal (decimal),
@@ -48,6 +51,7 @@ system CoreShop {
           expect(o.isDraft).toBe(false)
           expect(o.lines.count).toBe(1)
           expect(o.total.amount).toBe(10.00)
+          expect(o.total.plus(o.total).amount).toBe(20.00)
         }
 
         // A value object written as an OBJECT LITERAL in a create position.
@@ -90,6 +94,9 @@ system CoreShop {
     api.orders.update(o, { code: "CD2", status: "Placed", total: { amount: 12.00, currency: "USD" } })
     let updated = api.orders.getById(o)
     expect(updated.code).toBe("CD2")
+    // A value-object function called from an operation body.
+    api.orders.addTip(o, { tip: { amount: 3.00, currency: "USD" } })
+    expect(api.orders.getById(o).total.amount).toBe(15.00)
 
     // The LIST and DELETE routes.  Both are derived on all five backends
     // (`GET /api/orders` at the bare collection root, `DELETE /api/orders/{id}`)

@@ -2,5 +2,16 @@
   "title": "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-40 409",
   "doc": "workflow",
   "backends": "WORKFLOW_DOC_ES_CONFLICT",
-  "note": "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out — see `WORKFLOW_DOC_ES_CONFLICT`."
+  "note": "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out — see `WORKFLOW_DOC_ES_CONFLICT`.",
+  "apiCaller": {
+    "//": "Workflow runs (M-T6.98) — not a lifted route class.",
+    "unattributed": [
+      "api.hitSameTwice.run (no such aggregate)",
+      "api.hitTwice.run (no such aggregate)",
+      "api.hitViaSecond.run (no such aggregate)",
+      "api.withdrawSameTwice.run (no such aggregate)",
+      "api.withdrawTwice.run (no such aggregate)",
+      "api.withdrawViaSecond.run (no such aggregate)"
+    ]
+  }
 }

@@ -18,6 +18,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.field-mask-on-part": "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.field-mask-on-value-object":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-on-payload":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.field-mask-unique-oracle":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
 

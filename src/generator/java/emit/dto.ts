@@ -27,6 +27,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
+import { wireSurfaceTypes } from "../../_payload/union-wire.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
@@ -152,6 +153,9 @@ export function renderDtoFiles(
       : o.kind === "operation"
         ? `${upperFirst(o.operation)}${o.aggregate}Request`
         : `${upperFirst(o.workflow)}Request`,
+  /** The aggregate's bounded context — resolves the value objects named only
+   *  inside an `or`-union operation return's variants. */
+  ctx?: EnrichedBoundedContextIR,
 ): DtoFile[] {
   const out: DtoFile[] = [];
   const entityImport = entityPkg !== pkg ? `import ${entityPkg}.${agg.name};` : undefined;
@@ -169,6 +173,9 @@ export function renderDtoFiles(
       op.params.map((p) => p.type),
       voNames,
     );
+    // A value object named only inside a union return's variant still needs
+    // its `<Vo>Response` for the controller's variant mapping.
+    if (ctx) referencedValueObjects([...wireSurfaceTypes(op.returnType, ctx)], voNames);
   }
   referencedValueObjects(
     wireFieldsForAggregate(agg).map((w) => w.type),
@@ -605,26 +612,49 @@ function wireRecord(
         `${jsonProp(idW.name, imports)}${wireJavaType(t, "Response")} ${jid(idW.name)}`,
       );
       args.push(domainToWire(t, `value.${accessor(idW)}`));
+      maskedArgs.push(domainToWire(t, `value.${accessor(idW)}`));
     }
     // A DECLARED record names DOMAIN types, so a field the aggregate declares
     // `provenanced` is wrapped in the wire carrier here — the same wrap
     // `wireTypeForField` applies on the wireShape path, so both paths emit the
     // identical component (M-T6.12).
     const provNames = new Set(entity.fields.filter((f) => f.provenanced).map((f) => f.name));
-    for (const f of declared.payload.fields) {
+    for (const declaredField of declared.payload.fields) {
+      // A masked field is redacted to null by `fromMasked`, so its component
+      // takes the nullable wire type, exactly as on the derived path.
+      const f = declaredField.maskUnless ? { ...declaredField, optional: true } : declaredField;
+      let projected: string;
       if (provNames.has(f.name)) {
         imports.add(`${basePkg}.domain.common.${JAVA_PROVENANCED_RECORD}`);
         imports.add(`${basePkg}.domain.common.ProvLineage`);
         components.push(
           `${jsonProp(f.name, imports)}${JAVA_PROVENANCED_RECORD}<${wireJavaType(f.type, "Response", true)}> ${jid(f.name)}`,
         );
-        args.push(
-          `new ${JAVA_PROVENANCED_RECORD}<>(${payloadFieldToWire(f)}, value.${javaProvSibling(f.name)}())`,
-        );
-        continue;
+        projected = `new ${JAVA_PROVENANCED_RECORD}<>(${payloadFieldToWire(f)}, value.${javaProvSibling(f.name)}())`;
+      } else {
+        components.push(`${jsonProp(f.name, imports)}${payloadFieldJavaType(f)} ${jid(f.name)}`);
+        projected = payloadFieldToWire(f);
       }
-      components.push(`${jsonProp(f.name, imports)}${payloadFieldJavaType(f)} ${jid(f.name)}`);
-      args.push(payloadFieldToWire(f));
+      args.push(projected);
+      const maskedContainment = declaredMaskedPart(f, parts);
+      if (f.maskUnless) {
+        maskedAny = true;
+        const pred = renderJavaExpr(f.maskUnless, {
+          thisName: "value",
+          currentUserExpr: "__maskUser",
+        });
+        maskedArgs.push(`(__maskUser != null && (${pred})) ? ${projected} : null`);
+      } else if (maskedContainment) {
+        maskedAny = true;
+        maskedArgs.push(
+          projected.replace(
+            new RegExp(`\\b${maskedContainment}Response(::|\\.)from\\b`, "g"),
+            `${maskedContainment}Response$1fromMasked`,
+          ),
+        );
+      } else {
+        maskedArgs.push(projected);
+      }
     }
   } else {
     const shape = forApiRead(wireFieldsFor(entity));
@@ -737,6 +767,22 @@ function maskedPart(
   const el = w.type.kind === "array" ? w.type.element : w.type;
   if (el.kind !== "entity") return undefined;
   const part = parts.find((p) => p.name === el.name && p.name !== entity.name);
+  return part && wireMaskPlan(part, parts) ? part.name : undefined;
+}
+
+/** The part a DECLARED record's containment field (`reviews: ReviewResponse[]`)
+ *  projects, when that part carries a mask on its wire (or below it) — the
+ *  declared-record twin of `maskedPart`. */
+function declaredMaskedPart(
+  f: FieldIR,
+  parts: readonly EnrichedEntityPartIR[],
+): string | undefined {
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  const el = t.kind === "array" ? t.element : t;
+  if (el.kind !== "entity" || el.declKind !== "response" || !el.name.endsWith("Response")) {
+    return undefined;
+  }
+  const part = parts.find((p) => `${p.name}Response` === el.name);
   return part && wireMaskPlan(part, parts) ? part.name : undefined;
 }
 

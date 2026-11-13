@@ -25,7 +25,7 @@
 import { describe, expect, it } from "vitest";
 import { FS_LEAVES } from "../../../src/generator/feliz/fs-expr.js";
 import { fsZeroValue, typeToFs } from "../../../src/generator/feliz/type-fs.js";
-import { decoderExprFor, wireFieldType } from "../../../src/generator/feliz/wire.js";
+import { decoderExprFor, wireFieldType } from "../../../src/generator/feliz/wire-codec.js";
 import type { TypeIR } from "../../../src/ir/types/loom-ir.js";
 import { parseString } from "../../_helpers/parse.js";
 

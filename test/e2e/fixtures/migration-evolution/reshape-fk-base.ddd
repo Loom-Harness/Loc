@@ -1,0 +1,22 @@
+// Reshape FK gate — BASE model (v1): `Cart` is relational, and `Order`
+// references it (`cart: Cart id`, a RESTRICT foreign key into `carts`).
+system ReshapeFk {
+  subdomain Sales {
+    context Ord {
+      aggregate Cart { label: string }
+      aggregate Order { code: string  cart: Cart id }
+      repository Carts for Cart { }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Sales
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

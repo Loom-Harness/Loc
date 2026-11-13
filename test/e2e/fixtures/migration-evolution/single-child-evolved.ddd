@@ -1,0 +1,24 @@
+// Single-child uniqueness gate — EVOLVED model (v2): the containment is now single,
+// so its parent FK index is rebuilt UNIQUE.
+system SingleChild {
+  subdomain Ordering {
+    context Ord {
+      aggregate Order {
+        code: string
+        contains shipment: Shipment
+        entity Shipment { carrier: string }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Ordering
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

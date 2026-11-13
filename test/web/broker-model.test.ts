@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BrokerModel } from "../../web/src/runtime/infra/broker-model.js";
-import type { BrokerDelivery, BrokerKind } from "../../web/src/runtime/infra/broker-protocol.js";
+import { BrokerModel } from "../../src/emulation/broker-model.js";
+import type { BrokerDelivery, BrokerKind } from "../../src/emulation/broker-protocol.js";
 
 // The playground's emulated broker (one state in the infra worker, shared by
 // every deployable).  These pin the per-broker semantics the generated

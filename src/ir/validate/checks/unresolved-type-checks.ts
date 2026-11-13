@@ -16,7 +16,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 export const UNRESOLVED_TYPE_CODE = "loom.unresolved-type";
 
 export function validateUnresolvedTypes(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
-  if (!loom.unresolvedTypes?.length) return;
   if (diags.some((d) => d.severity === "error")) return;
   for (const site of loom.unresolvedTypes) {
     diags.push({
