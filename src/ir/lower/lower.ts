@@ -264,11 +264,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
   // The well-formedness verifier runs on every lowering; what it finds travels
   // with the model for `validateLoomModel` to refuse (`loom.ir-ill-formed`).
   const violations = verifyLoweredModel(result);
-  return {
-    ...result,
-    ...(sites.length > 0 ? { unresolvedTypes: sites } : {}),
-    ...(violations.length > 0 ? { loweringViolations: violations } : {}),
-  };
+  return { ...result, unresolvedTypes: sites, loweringViolations: violations };
 }
 
 function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
@@ -592,6 +588,9 @@ function lowerProjectBody(models: ReadonlyArray<Model>): RawLoomModel {
     backfillIntents,
     sqlMigrationSteps,
     enumValueRenameIntents,
+    // Filled by `lowerProject` once the body is lowered and verified.
+    unresolvedTypes: [],
+    loweringViolations: [],
   };
 }
 
@@ -621,12 +620,8 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
     backfillIntents: models.flatMap((m) => m.backfillIntents),
     sqlMigrationSteps: models.flatMap((m) => m.sqlMigrationSteps),
     enumValueRenameIntents: models.flatMap((m) => m.enumValueRenameIntents),
-    unresolvedTypes: models.some((m) => m.unresolvedTypes)
-      ? models.flatMap((m) => m.unresolvedTypes ?? [])
-      : undefined,
-    loweringViolations: models.some((m) => m.loweringViolations)
-      ? models.flatMap((m) => m.loweringViolations ?? [])
-      : undefined,
+    unresolvedTypes: models.flatMap((m) => m.unresolvedTypes),
+    loweringViolations: models.flatMap((m) => m.loweringViolations),
   };
 }
 
