@@ -587,6 +587,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
   "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
+  // A workflow run — the `notLifted` class.
+  "corpus/ref-collection-service": ["api.matchProvider.run (no such aggregate)"],
   // Banking-eval B-04 — the committed and the rolled-back transactional
   // workflow are driven through their command routes (`notLifted`, as above).
   "corpus/transactional-workflow-event-rollback": [
