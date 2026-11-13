@@ -13,7 +13,7 @@ import {
   forApiRead,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
-import { gateReadsRow } from "../../ir/plan/gate-ladder.js";
+import { gateReadsParam, gateReadsRow } from "../../ir/plan/gate-ladder.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -1151,15 +1151,19 @@ function canOpRoute(
   const pred = renderPyExpr(op.when as ExprIR, { thisName: "found" });
   const readGate = readFind?.requires;
   const gates = operationGates(op);
-  // A probe carries no body: a gate that reads an operation parameter sees it
-  // absent.
+  // A gate that reads an operation parameter cannot be decided without a
+  // body: the probe answers `False` for it, after the load so a missing row is
+  // still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
+  const undecidable = gates.some(gateReadsParam);
+  const decided = gates.filter((g) => !gateReadsParam(g));
   const gateLines = (rowReading: boolean): string[] =>
-    gates
+    decided
       .filter((g) => gateReadsRow(g) === rowReading)
       .flatMap((g) => [
-        `    if ${renderPyNegatedGuard(g.expr, { thisName: "found", paramExpr: () => "None" })}:`,
+        `    if ${renderPyNegatedGuard(g.expr, { thisName: "found" })}:`,
         '        return {"allowed": False}',
       ]);
+  const bindsFound = !undecidable || decided.some(gateReadsRow);
   const needsUser =
     (readGate !== undefined && exprUsesCurrentUser(readGate)) || operationGatesUseCurrentUser(op);
   return lines(
@@ -1172,9 +1176,9 @@ function canOpRoute(
       : null,
     ...gateLines(false),
     "    repo = _repo(session)",
-    `    found = await repo.get_by_id(${pyIdType(agg.name)}(id))`,
+    `    ${bindsFound ? "found = " : ""}await repo.get_by_id(${pyIdType(agg.name)}(id))`,
     ...gateLines(true),
-    `    return {"allowed": ${pred}}`,
+    `    return {"allowed": ${undecidable ? "False" : pred}}`,
   );
 }
 

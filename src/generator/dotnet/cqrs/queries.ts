@@ -1,4 +1,4 @@
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -82,23 +82,14 @@ export function emitCanOpQueriesAndHandlers(
     const gates = operationGates(op);
     // A probe carries no body: a gate that reads an operation parameter cannot
     // be decided, so it answers `allowed: false`.
-    const readsParam = (g: (typeof gates)[number]): boolean => {
-      let hit = false;
-      renderCsExpr(g.expr, {
-        thisName: "aggregate",
-        paramExpr: (name) => {
-          if (op.params.some((q) => q.name === name)) hit = true;
-          return undefined;
-        },
-      });
-      return hit;
-    };
     const denies = (g: (typeof gates)[number]): string =>
-      readsParam(g)
-        ? `        return new CanResponse(false);\n`
-        : `        if (!(${renderCsExpr(g.expr, { thisName: "aggregate" })})) return new CanResponse(false);\n`;
-    const rowFree = gates.filter((g) => !gateReadsRow(g));
-    const rowReading = gates.filter(gateReadsRow);
+      `        if (!(${renderCsExpr(g.expr, { thisName: "aggregate" })})) return new CanResponse(false);\n`;
+    // A gate that reads an operation parameter cannot be decided without a
+    // body: the probe answers `false` for it, after the load so a missing row
+    // is still 404 (the gate ladder, `ir/plan/gate-ladder.ts`).
+    const undecidable = gates.some(gateReadsParam);
+    const rowFree = gates.filter((g) => !gateReadsParam(g) && !gateReadsRow(g));
+    const rowReading = gates.filter((g) => !gateReadsParam(g) && gateReadsRow(g));
     const readGate = byIdFind?.requires;
     const readGateUsesUser = readGate && byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
     const needsUser = readGateUsesUser || gates.some((g) => exprUsesCurrentUser(g.expr));
@@ -144,7 +135,7 @@ export function emitCanOpQueriesAndHandlers(
           `        var aggregate = await _repo.GetByIdAsync(query.Id, cancellationToken)\n` +
           `            ?? throw ${csNotFoundException(null, `${agg.name} {query.Id}`)};\n` +
           rowReading.map(denies).join("") +
-          `        return new CanResponse(${pred});\n`,
+          `        return new CanResponse(${undecidable ? "false" : pred});\n`,
       }),
     );
   }

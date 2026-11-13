@@ -10,7 +10,7 @@ import {
   emitsRestCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
-import { gateReadsRow } from "../../../ir/plan/gate-ladder.js";
+import { gateReadsParam, gateReadsRow } from "../../../ir/plan/gate-ladder.js";
 import { domainFindShape } from "../../../ir/plan/index.js";
 import type {
   EnrichedAggregateIR,
@@ -807,14 +807,17 @@ export function renderJavaService(
   // It runs the operation's gate ladder (ir/plan/gate-ladder.ts) without a
   // body: a gate that reads no row answers `false` before the load, the load is
   // 404 like `GET /{id}`, a row-reading gate answers `false`, then the `when`.
-  // A probe carries no body, so an operation parameter a gate reads is `null`.
+  // A gate that reads an operation parameter cannot be decided without a body:
+  // the probe answers `false` for it, after the load so a missing row is still
+  // 404.
   const canLines = gatedOps.flatMap((op) => {
+    const undecidable = operationGates(op).some(gateReadsParam);
     const gateLines = (which: "row-free" | "row-reading"): string[] =>
       operationGates(op)
-        .filter((g) => gateReadsRow(g) === (which === "row-reading"))
+        .filter((g) => !gateReadsParam(g) && gateReadsRow(g) === (which === "row-reading"))
         .map(
           (g) =>
-            `        if (!(${renderJavaExpr(g.expr, { thisName: "aggregate", accessorProps: true, paramExpr: () => "null" })})) return false;`,
+            `        if (!(${renderJavaExpr(g.expr, { thisName: "aggregate", accessorProps: true })})) return false;`,
         );
     const usesUser = !!ctx.authed && operationGatesUseCurrentUser(op);
     return [
@@ -823,7 +826,9 @@ export function renderJavaService(
       ...gateLines("row-free"),
       `        var aggregate = repository.getById(id);`,
       ...gateLines("row-reading"),
-      `        return ${renderJavaExpr(op.when!, { thisName: "aggregate", accessorProps: true })};`,
+      undecidable
+        ? `        return false;`
+        : `        return ${renderJavaExpr(op.when!, { thisName: "aggregate", accessorProps: true })};`,
       `    }`,
       ``,
     ].filter((l): l is string => l !== null);
