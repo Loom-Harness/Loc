@@ -123,8 +123,8 @@ origin. In live mode the preview refreshes in place as you type (debounced
 ~5 s).
 
 The runtime is **Hono + React only**. A system that declares only .NET,
-Phoenix LiveView, Java, or Python deployables — or a Vue/Svelte frontend —
-generates fully and is browsable in the Files pane, but the preview names
+Phoenix LiveView, Java, or Python deployables — or a Vue, Svelte, Angular,
+Feliz or Flutter frontend — generates fully and is browsable in the Files pane, but the preview names
 those as "run outside the playground" rather than booting them. The
 playground surfaces this explicitly instead of failing silently.
 

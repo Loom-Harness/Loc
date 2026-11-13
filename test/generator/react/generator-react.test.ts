@@ -613,8 +613,8 @@ describe("react generator", () => {
       expect(page).toMatch(
         /<NumberInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[\s\S]+?allowDecimal=\{false\}/,
       );
-      // useAllProducts pulled in for the Product id Select.
-      expect(page).toMatch(/import \{ useAllProducts \} from "\.\.\/\.\.\/api\/product"/);
+      // useProductsOptions pulled in for the Product id Select.
+      expect(page).toMatch(/import \{ useProductsOptions \} from "\.\.\/\.\.\/api\/product"/);
       // Submit button + success/error toast.
       expect(page).toMatch(/data-testid="workflow-place_order-submit"/);
       expect(page).toMatch(

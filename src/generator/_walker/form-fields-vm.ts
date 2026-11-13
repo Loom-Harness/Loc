@@ -12,11 +12,17 @@
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
-import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
-import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
+import { idTargetHookVar, initialValueTs, unwrapOpt } from "../_frontend/form-helpers.js";
+import {
+  type FormFieldArms,
+  type FormFieldSpec,
+  formFieldSpec,
+  formSpecEnvOf,
+  renderFormField,
+} from "../_frontend/form-spec.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
 
 export function prepareFormFieldVM(
@@ -66,192 +72,207 @@ function prepareFormFieldVMInner(
   aggregatesByName: Map<string, AggregateIR>,
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
 ): FormFieldVM {
-  const inner = unwrapOpt(t);
   // Label = humanised leaf segment so nested VO fields render as
   // "Amount" / "Currency" rather than "price.amount" / etc.
   const leaf = path.split(".").pop()!;
-  const label = humanize(leaf);
-  const errorExpr = errorAccess(path);
+  const spec = formFieldSpec(
+    { name: leaf, type: t },
+    formSpecEnvOf(ctx, aggregatesByName, bcByAggregate),
+    path,
+  );
+  return renderFormField(spec, JSX_FORM_FIELD_ARMS, {
+    path,
+    label: humanize(leaf),
+    testId,
+    errorExpr: errorAccess(path),
+    ctx,
+    aggregatesByName,
+    bcByAggregate,
+  });
+}
 
-  if (inner.kind === "primitive") {
-    if (inner.name === "int" || inner.name === "long") {
-      return { template: "field-input-int", path, label, testId, errorExpr };
-    }
-    if (inner.name === "decimal") {
-      return { template: "field-input-decimal", path, label, testId, errorExpr };
-    }
-    if (inner.name === "money") {
-      return { template: "field-input-money", path, label, testId, errorExpr };
-    }
-    if (inner.name === "bool") {
-      return { template: "field-input-bool", path, label, testId, errorExpr };
-    }
-    if (inner.name === "datetime") {
-      return { template: "field-input-datetime", path, label, testId, errorExpr };
-    }
-    // A calendar `date` gets a DATE picker (`<input type="date">`), whose value
-    // is already the wire's `YYYY-MM-DD` — no zone conversion on either side.
-    if (inner.name === "date") {
-      return { template: "field-input-date", path, label, testId, errorExpr };
-    }
-    if (inner.name === "File") {
-      // A `File`-typed field renders a file-upload input: the pack's
-      // `field-input-file` template wraps a `<Controller>` whose
-      // `onChange` receives the uploaded `FileRef` (via `api.upload`).
-      // Mirrors the `money` compound-value arm above.
-      return { template: "field-input-file", path, label, testId, errorExpr };
-    }
-    return { template: "field-input-string", path, label, testId, errorExpr };
-  }
+interface JsxArmCtx {
+  path: string;
+  label: string;
+  testId: string;
+  errorExpr: string;
+  ctx: BoundedContextIR;
+  aggregatesByName: Map<string, AggregateIR>;
+  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
+}
 
-  if (inner.kind === "id") {
-    const target = aggregatesByName.get(inner.targetName);
-    // The Select picker reads the option label off the wire `display`
-    // field — backends emit the `derived display: string = ...`
-    // expression as a JSON field on the response DTO, so the picker
-    // doesn't need to know the underlying source expression shape.
-    // Compound displays (`firstName + " " + lastName`), member-access
-    // displays (`address.city`), and conditional displays all work
-    // because the server evaluates them and ships the resolved string.
-    // Text-input fallback only when there's truly no display to read
-    // — target unresolved (cross-module ref to an aggregate the
-    // context doesn't see) or target has no `derived display` at all.
-    if (!target?.displayDerived) {
-      const reason = !target
-        ? `${inner.targetName} id: target aggregate not found`
-        : `Aggregate '${inner.targetName}' has no 'derived display' — declare 'derived display: string = <expr>' to enable a Select picker for ${inner.targetName} id.`;
-      return {
-        template: "field-input-id-text",
-        path,
-        label,
-        testId,
-        errorExpr,
-        placeholderJson: JSON.stringify(`<id> — ${reason}`),
-      };
-    }
-    const hookVar = idTargetHookVar(target);
+/** The VM fields every arm shares; each arm names its `template` literally
+ *  (`template: "field-input-…"`), which is what the pack-render reachability
+ *  scrape reads. */
+function base(c: JsxArmCtx): Omit<FormFieldVM, "template"> {
+  return { path: c.path, label: c.label, testId: c.testId, errorExpr: c.errorExpr };
+}
+
+function refVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
+  const targetName = f.picker!.target;
+  const target = c.aggregatesByName.get(targetName);
+  // The Select picker reads the option label off the wire `display`
+  // field — backends emit the `derived display: string = ...`
+  // expression as a JSON field on the response DTO, so the picker
+  // doesn't need to know the underlying source expression shape.
+  // Text-input fallback only when there's truly no display to read
+  // — target unresolved (cross-module ref to an aggregate the
+  // context doesn't see) or target has no `derived display` at all.
+  if (!target?.displayDerived) {
+    const reason = !target
+      ? `${targetName} id: target aggregate not found`
+      : `Aggregate '${targetName}' has no 'derived display' — declare 'derived display: string = <expr>' to enable a Select picker for ${targetName} id.`;
     return {
-      template: "field-input-id-select",
-      path,
-      label,
-      testId,
-      errorExpr,
-      hookVar,
-      displayField: "display",
-      optionsExpr: idSelectOptionsExpr(hookVar, target.name, bcByAggregate),
+      ...base(c),
+      template: "field-input-id-text",
+      placeholderJson: JSON.stringify(`<id> — ${reason}`),
     };
   }
+  const hookVar = idTargetHookVar(target);
+  return {
+    ...base(c),
+    template: "field-input-id-select",
+    hookVar,
+    displayField: "display",
+    optionsExpr: idSelectOptionsExpr(hookVar),
+  };
+}
 
-  if (inner.kind === "enum") {
-    const en = enumPool(ctx).find((e) => e.name === inner.name);
-    if (en) {
-      return {
-        template: "field-input-enum-select",
-        path,
-        label,
-        testId,
-        errorExpr,
-        enumValuesJson: JSON.stringify(en.values),
-        enumValueKeys: enumValueKeysOf(en.name, en.values, ctx, bcByAggregate),
-      };
-    }
-    return { template: "field-input-string", path, label, testId, errorExpr };
-  }
+function valueObjectVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
+  const vo = findValueObjectInScope(c.ctx, f.valueObject!)!;
+  const children = vo.fields.map((vf) =>
+    prepareFormFieldVM(
+      `${c.path}.${vf.name}`,
+      vf.type,
+      c.ctx,
+      `${c.testId}-${vf.name}`,
+      c.aggregatesByName,
+      c.bcByAggregate,
+      vo.name,
+    ),
+  );
+  return { ...base(c), template: "field-input-valueobject", children };
+}
 
-  if (inner.kind === "valueobject") {
-    const vo = findValueObjectInScope(ctx, inner.name);
-    if (vo) {
-      const children = vo.fields.map((vf) =>
-        prepareFormFieldVM(
-          `${path}.${vf.name}`,
-          vf.type,
-          ctx,
-          `${testId}-${vf.name}`,
-          aggregatesByName,
-          bcByAggregate,
-          vo.name,
-        ),
-      );
-      return {
-        template: "field-input-valueobject",
-        path,
-        label,
-        testId,
-        errorExpr,
-        children,
-      };
-    }
-    return { template: "field-input-string", path, label, testId, errorExpr };
-  }
+/** A scalar / enum / id array renders the pack's disabled stub: the
+ *  `field-input-array` template with no `rowFields`. */
+function arrayStubVM(_f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
+  return { ...base(c), template: "field-input-array" };
+}
 
-  if (inner.kind === "array") {
-    // An array of a value-object → a dynamic-row field-array: one repeatable
-    // group per element, each carrying the value-object's sub-fields.  The row
-    // sub-fields carry BARE sub-paths (`sku`) so a `useFieldArray`-style template
-    // splices the runtime index (`items.${index}.sku`).  A scalar array (or an
-    // element we can't resolve) leaves `rowFields` undefined → the pack's
-    // disabled stub, byte-identical to before.
-    const el = inner.element;
-    if (el.kind === "valueobject") {
-      const vo = findValueObjectInScope(ctx, el.name);
-      if (vo) {
-        // Row sub-fields carry a BARE sub-path (`sku`, not `items.sku`) so a
-        // dynamic-row template splices the runtime index; numeric sub-fields
-        // flag `valueAsNumber` so their register coerces the string input.
-        //
-        // `money` is deliberately NOT numeric here: a money value is a string
-        // (or a `Decimal`) in form state and on the wire — never a JS number.
-        // `valueAsNumber` would coerce the row input to a number, which fails
-        // the `moneySchema` union (`Decimal | string`) and, were it to pass,
-        // would put a JSON number on a wire the backends parse as a decimal
-        // string.  Same contract the flat money field already honours via
-        // `Controller` + `Decimal`.
-        const NUMERIC = new Set(["field-input-int", "field-input-decimal"]);
-        const rowFields = vo.fields.map((vf) => {
-          const vm = prepareFormFieldVM(
-            vf.name,
-            vf.type,
-            ctx,
-            `${testId}-${vf.name}`,
-            aggregatesByName,
-            bcByAggregate,
-            vo.name,
-          );
-          // The row's own error access: the sub-field VM's `errorExpr` was built
-          // from its BARE path (`errors.voyage?.message`) and points at nothing,
-          // because the errors object mirrors the form VALUES — where the
-          // sub-field sits under the array element.  `index` is the row
-          // template's loop variable.
-          const withRowError = { ...vm, rowErrorExpr: rowErrorAccess(path, vf.name) };
-          return NUMERIC.has(vm.template) ? { ...withRowError, valueAsNumber: true } : withRowError;
-        });
-        // A fresh-row default for `append(...)` — zero value per sub-field kind.
-        // Money seeds a real `new Decimal("0")`, not the string `"0"`: form
-        // state holds an already-constructed Decimal (the money input control
-        // converts on change — `moneySchema`'s own doc comment), and Vue's and
-        // Svelte's `FormValues<T>` are the schema's OUTPUT type, where that slot
-        // is `Decimal` and a string seed is `TS2322: Type 'string' is not
-        // assignable to type 'Decimal'` (2026-09-10 e-shop audit, P8).
-        const defaultRowJson = `{ ${rowFields
-          .map((f) => `${f.path}: ${defaultRowValue(f)}`)
-          .join(", ")} }`;
-        return {
+/** The JSX-family (React / Vue / Svelte) arm per form field kind.  Each arm
+ *  picks the pack's `field-input-*` template and assembles its view-model. */
+export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
+  string: (_f, c) => ({ ...base(c), template: "field-input-string" }),
+  int: (_f, c) => ({ ...base(c), template: "field-input-int" }),
+  decimal: (_f, c) => ({ ...base(c), template: "field-input-decimal" }),
+  money: (_f, c) => ({ ...base(c), template: "field-input-money" }),
+  bool: (_f, c) => ({ ...base(c), template: "field-input-bool" }),
+  // A calendar `date` gets a DATE picker (`<input type="date">`), whose value
+  // is already the wire's `YYYY-MM-DD` — no zone conversion on either side.
+  date: (_f, c) => ({ ...base(c), template: "field-input-date" }),
+  datetime: (_f, c) => ({ ...base(c), template: "field-input-datetime" }),
+  // A `File`-typed field renders a file-upload input: the pack's
+  // `field-input-file` template wraps a `<Controller>` whose `onChange`
+  // receives the uploaded `FileRef` (via `api.upload`).
+  file: (_f, c) => ({ ...base(c), template: "field-input-file" }),
+  enum: (f, c) => ({
+    ...base(c),
+    template: "field-input-enum-select",
+    enumValuesJson: JSON.stringify(f.enumValues),
+    enumValueKeys: enumValueKeysOf(f.enumName!, f.enumValues!, c.ctx, c.bcByAggregate),
+  }),
+  ref: refVM,
+  optionalRef: refVM,
+  valueObject: valueObjectVM,
+  optionalValueObject: (f, c) => ({
+    ...valueObjectVM(f, c),
+    optionalGroup: { zeroTs: initialValueTs(unwrapOpt(f.type), c.ctx, false) },
+  }),
+  scalarArray: (f, c) => ({
+    ...base(c),
+    template: "field-input-array",
+    arrayInput: { kind: "scalar", element: f.elementKind ?? "string" },
+  }),
+  enumArray: (f, c) =>
+    f.enumValues
+      ? {
+          ...base(c),
           template: "field-input-array",
-          path,
-          label,
-          testId,
-          errorExpr,
-          rowFields,
-          elementName: el.name,
-          arrayPascal: leaf.charAt(0).toUpperCase() + leaf.slice(1),
-          defaultRowJson,
-        };
-      }
-    }
-    return { template: "field-input-array", path, label, testId, errorExpr };
-  }
+          arrayInput: { kind: "enum", valuesJson: JSON.stringify(f.enumValues) },
+        }
+      : arrayStubVM(f, c),
+  refArray: (f, c) => {
+    const target = f.picker ? c.aggregatesByName.get(f.picker.target) : undefined;
+    if (!target) return arrayStubVM(f, c);
+    return {
+      ...base(c),
+      template: "field-input-array",
+      arrayInput: {
+        kind: "ref",
+        optionsExpr: idSelectOptionsExpr(idTargetHookVar(target)),
+        hasDisplay: !!target.displayDerived,
+      },
+    };
+  },
+  objectArray: (f, c) => objectArrayVM(f, c),
+};
 
-  return { template: "field-input-string", path, label, testId, errorExpr };
+/** An array of a value-object → a dynamic-row field-array: one repeatable
+ *  group per element, each carrying the value-object's sub-fields.  The row
+ *  sub-fields carry BARE sub-paths (`sku`) so a `useFieldArray`-style template
+ *  splices the runtime index (`items.${index}.sku`). */
+function objectArrayVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
+  const vo = findValueObjectInScope(c.ctx, f.valueObject!)!;
+  const leaf = c.path.split(".").pop()!;
+  // Row sub-fields carry a BARE sub-path (`sku`, not `items.sku`) so a
+  // dynamic-row template splices the runtime index; numeric sub-fields
+  // flag `valueAsNumber` so their register coerces the string input.
+  //
+  // `money` is deliberately NOT numeric here: a money value is a string
+  // (or a `Decimal`) in form state and on the wire — never a JS number.
+  // `valueAsNumber` would coerce the row input to a number, which fails
+  // the `moneySchema` union (`Decimal | string`) and, were it to pass,
+  // would put a JSON number on a wire the backends parse as a decimal
+  // string.  Same contract the flat money field already honours via
+  // `Controller` + `Decimal`.
+  const NUMERIC = new Set(["field-input-int", "field-input-decimal"]);
+  const rowFields = vo.fields.map((vf) => {
+    const vm = prepareFormFieldVM(
+      vf.name,
+      vf.type,
+      c.ctx,
+      `${c.testId}-${vf.name}`,
+      c.aggregatesByName,
+      c.bcByAggregate,
+      vo.name,
+    );
+    // The row's own error access: the sub-field VM's `errorExpr` was built
+    // from its BARE path (`errors.voyage?.message`) and points at nothing,
+    // because the errors object mirrors the form VALUES — where the
+    // sub-field sits under the array element.  `index` is the row
+    // template's loop variable.
+    const withRowError = { ...vm, rowErrorExpr: rowErrorAccess(c.path, vf.name) };
+    return NUMERIC.has(vm.template) ? { ...withRowError, valueAsNumber: true } : withRowError;
+  });
+  // A fresh-row default for `append(...)` — zero value per sub-field kind.
+  // Money seeds a real `new Decimal("0")`, not the string `"0"`: form
+  // state holds an already-constructed Decimal (the money input control
+  // converts on change — `moneySchema`'s own doc comment), and Vue's and
+  // Svelte's `FormValues<T>` are the schema's OUTPUT type, where that slot
+  // is `Decimal` and a string seed is `TS2322: Type 'string' is not
+  // assignable to type 'Decimal'`.
+  const defaultRowJson = `{ ${rowFields
+    .map((rf) => `${rf.path}: ${defaultRowValue(rf)}`)
+    .join(", ")} }`;
+  return {
+    ...base(c),
+    template: "field-input-array",
+    rowFields,
+    elementName: vo.name,
+    arrayPascal: leaf.charAt(0).toUpperCase() + leaf.slice(1),
+    defaultRowJson,
+  };
 }
 
 /** The zero value a freshly-appended dynamic row seeds one sub-field with.
@@ -272,21 +293,12 @@ function defaultRowValue(f: FormFieldVM): string {
 
 /** RHF errors live at `errors.foo.bar.baz?.message` — translate a dot-
  *  path into the matching access expression. */
-/** The id-select picker's option source, resolved against the shape the
- *  target's list route actually serves.
- *
- *  Every JSX/markup pack splices this verbatim, so the twelve
- *  `field-input-id-select.hbs` templates carry no opinion about the wire at
- *  all — pinned by `test/generator/_frontend/id-select-list-shape.test.ts`,
- *  which fails a thirteenth pack that copy-pastes `.items` back in. */
-function idSelectOptionsExpr(
-  hookVar: string,
-  targetAggregate: string,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
-): string {
-  return isPagedAllRead(targetAggregate, bcByAggregate)
-    ? `${hookVar}.data?.items ?? []`
-    : `${hookVar}.data ?? []`;
+/** The id-select picker's option source: the target's `use<Plural>Options()`
+ *  query, whose `data` is every row as a bare array (`_frontend/api-module.ts`
+ *  `pickerOptionsHook`).  Every JSX/markup pack splices this verbatim, so the
+ *  `field-input-id-select.hbs` templates carry no opinion about the wire. */
+function idSelectOptionsExpr(hookVar: string): string {
+  return `${hookVar}.data ?? []`;
 }
 
 /** The text a field's error renders: `fieldErrorText(errors.foo?.bar)`, which

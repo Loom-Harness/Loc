@@ -3,12 +3,12 @@
 // A .svelte file holds exactly ONE component, so every form on a page — each
 // `OperationForm`, the `CreateForm`, a `WorkflowForm` — shares a single
 // page-level `<script>`.  The pack's `form-op-decls` / `form-of-decls` /
-// `form-runs-decls` templates each emit a `const <hookVar> = useAll<X>()` line
+// `form-runs-decls` templates each emit a `const <hookVar> = use<X>Options()` line
 // for the `X id` params they render as pickers, so two forms referencing the
 // same target used to declare the same binding twice:
 //
-//   const __locations = useAllLocations();   // assignTo
-//   const __locations = useAllLocations();   // sightAt  ← redeclared
+//   const __locations = useLocationsOptions();   // assignTo
+//   const __locations = useLocationsOptions();   // sightAt  ← redeclared
 //
 // which is a hard `[PARSE_ERROR] Identifier '__locations' has already been
 // declared` — the generated app fails its own `npm run build`.  Two operations
@@ -93,13 +93,13 @@ describe.each([
   "shadcnSvelte@v1",
   "flowbite@v1",
 ])("svelte op-form picker declarations (%s)", (pack) => {
-  it("declares each useAll<X>() picker once per page, shared by both op forms", async () => {
+  it("declares each use<X>Options() picker once per page, shared by both op forms", async () => {
     const page = find(await generateSystemFiles(SYS(pack)), "cargos/[id]/+page.svelte");
     const script = scriptOf(page);
 
     // The defect, stated directly: one declaration per target, not one per form.
-    expect(script.match(/const __locations = useAllLocations\(\);/g)).toHaveLength(1);
-    expect(script.match(/const __voyages = useAllVoyages\(\);/g)).toHaveLength(1);
+    expect(script.match(/const __locations = useLocationsOptions\(\);/g)).toHaveLength(1);
+    expect(script.match(/const __voyages = useVoyagesOptions\(\);/g)).toHaveLength(1);
 
     // …and the general form — no top-level binding is declared twice, which is
     // what the Svelte compiler actually rejects.
@@ -118,14 +118,16 @@ describe.each([
     // has to hold ACROSS the two naming families (`form-op-decls` and
     // `form-of-decls`), not only within one.
     expect(page).toContain('data-testid="cargos-op-update-input-origin"');
-    expect(page.match(/__locations\.data\?\.items/g)).toHaveLength(3);
-    expect(page.match(/__voyages\.data\?\.items/g)).toHaveLength(2);
+    expect(page.match(/__locations\.data \?\? \[\]/g)).toHaveLength(3);
+    expect(page.match(/__voyages\.data \?\? \[\]/g)).toHaveLength(2);
 
     // The imports the surviving declarations bind are still there, once each.
-    expect(page.match(/import \{ useAllLocations \} from "\$lib\/api\/location";/g)).toHaveLength(
+    expect(
+      page.match(/import \{ useLocationsOptions \} from "\$lib\/api\/location";/g),
+    ).toHaveLength(1);
+    expect(page.match(/import \{ useVoyagesOptions \} from "\$lib\/api\/voyage";/g)).toHaveLength(
       1,
     );
-    expect(page.match(/import \{ useAllVoyages \} from "\$lib\/api\/voyage";/g)).toHaveLength(1);
   });
 
   it("still declares the picker on a page whose only form is the create form", async () => {

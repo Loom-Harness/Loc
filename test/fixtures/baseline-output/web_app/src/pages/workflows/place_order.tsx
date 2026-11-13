@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { useNavigate, Link as RouterLink } from "react-router";
-import { useAllProducts } from "../../api/product";
+import { useProductsOptions } from "../../api/product";
 import { PlaceOrderRequest, usePlaceOrderWorkflow } from "../../api/workflows";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
@@ -13,7 +13,7 @@ import { Controller, useForm } from "react-hook-form";
 export default function PlaceOrderWorkflow() {
   const navigate = useNavigate();
   const run = usePlaceOrderWorkflow();
-  const __products = useAllProducts();
+  const __products = useProductsOptions();
   const { register, handleSubmit, setError, control, formState: { errors } } = useForm<PlaceOrderRequest>({
     resolver: zodResolver(PlaceOrderRequest),
     defaultValues: { customerId: "", productId: "", quantity: 0 },
@@ -48,7 +48,7 @@ export default function PlaceOrderWorkflow() {
               control={control}
               name="productId"
               render={({ field, fieldState }) => (
-                <Select label={ t("Orders.placeOrder.field.productId", "Product Id") } data-testid="workflow-place_order-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data?.items ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`workflow-place_order-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
+                <Select label={ t("Orders.placeOrder.field.productId", "Product Id") } data-testid="workflow-place_order-input-productId" placeholder={t("chrome.selectPlaceholder", "Select…")} searchable data={(__products.data ?? []).map((__o) => ({ value: __o.id, label: __o.display }))} renderOption={({ option }) => <div data-testid={`workflow-place_order-input-productId-option-${option.value}`}>{option.label}</div>} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
               )}
             />
     
