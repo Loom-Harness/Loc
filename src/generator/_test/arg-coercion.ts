@@ -72,7 +72,7 @@ function isMoneyPosition(type: TypeIR | undefined): boolean {
  *  in a `money` position, else undefined.  For a call whose arguments render
  *  through the backend's ordinary expression renderer (a domain-service call):
  *  every renderer already spells a `money` literal exactly. */
-export function moneyLiteralFor(type: TypeIR | undefined, value: ExprIR): ExprIR | undefined {
+function moneyLiteralFor(type: TypeIR | undefined, value: ExprIR): ExprIR | undefined {
   if (value.kind === "literal" && value.lit === "money") return undefined;
   const c = decideLiteralCoercion(type, value);
   return c.kind === "money" ? { kind: "literal", lit: "money", value: c.digits } : undefined;
