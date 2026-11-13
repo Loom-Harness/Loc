@@ -1,4 +1,5 @@
 import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import type { MemberReadSpec } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -98,6 +99,8 @@ export type RowShape = { readonly name: string; readonly fields: readonly FieldI
  *  shape whose fields the row's cells read. */
 export function rowShapeByKey(key: string | undefined, ctx: WalkContext): RowShape | undefined {
   if (key === undefined) return undefined;
+  const hash = key.indexOf("#");
+  if (hash !== -1) return valueObjectRowShape(key.slice(0, hash), key.slice(hash + 1), ctx);
   const dot = key.indexOf(".");
   if (dot === -1) {
     const agg = ctx.aggregatesByName.get(key);
@@ -116,6 +119,37 @@ export function containmentRowKey(expr: ExprIR, ctx: WalkContext): string | unde
   const owner = recordAggregate(expr.receiver, ctx);
   const contained = owner?.contains.find((c) => c.name === expr.member);
   return owner && contained ? `${owner.name}.${contained.partName}` : undefined;
+}
+
+/** The row key a read of a VALUE-OBJECT ARRAY field yields rows of —
+ *  `policyById.data.riders` → `"Policy#riders"` — or undefined when the
+ *  receiver is not a record of a known aggregate or the member is not an array
+ *  of a value object.  Keyed by the owning field, not the value object's name,
+ *  because value objects are context-scoped and the owner's context is where
+ *  the name resolves. */
+export function valueObjectRowKey(expr: ExprIR, ctx: WalkContext): string | undefined {
+  if (expr.kind !== "member") return undefined;
+  const owner = recordAggregate(expr.receiver, ctx);
+  return owner && valueObjectRowShape(owner.name, expr.member, ctx)
+    ? `${owner.name}#${expr.member}`
+    : undefined;
+}
+
+/** The element value object of `<aggregate>.<field>: V[]`, as a row shape. */
+function valueObjectRowShape(
+  aggName: string,
+  field: string,
+  ctx: WalkContext,
+): RowShape | undefined {
+  const agg = ctx.aggregatesByName.get(aggName);
+  const t = agg?.fields.find((f) => f.name === field)?.type;
+  const arr = t?.kind === "optional" ? t.inner : t;
+  if (arr?.kind !== "array") return undefined;
+  const el = arr.element.kind === "optional" ? arr.element.inner : arr.element;
+  if (el.kind !== "valueobject") return undefined;
+  const bc = ctx.bcByAggregate.get(aggName);
+  const vo = bc ? findValueObjectInScope(bc, el.name) : undefined;
+  return vo ? { name: vo.name, fields: vo.fields } : undefined;
 }
 
 /** The shape an expression evaluates to ONE RECORD of, or undefined. */
