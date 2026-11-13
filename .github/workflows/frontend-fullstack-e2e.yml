@@ -66,11 +66,11 @@ jobs:
       matrix:
         include:
           - frontend: vue
-            case: sales-system-vue money-compare-ui-vue
+            case: sales-system-vue money-compare-ui-vue oidc-login-ui-vue
             runner: run-ui.mjs
             experimental: false
           - frontend: svelte
-            case: sales-system-svelte money-compare-ui-svelte
+            case: sales-system-svelte money-compare-ui-svelte oidc-login-ui-svelte
             runner: run-ui.mjs
             experimental: false
           # Angular: BLOCKING. The Angular-codegen cascade this gate first
@@ -85,7 +85,7 @@ jobs:
           # single flat input); (5) op REST paths are snake-cased (`add_line`,
           # matching the Hono route — was camelCase → 404).
           - frontend: angular
-            case: sales-system-angular money-compare-ui-angular
+            case: sales-system-angular money-compare-ui-angular oidc-login-ui-angular
             runner: run-ui.mjs
             experimental: false
           # Feliz (F#/Fable/Elmish): BLOCKING.  The frontend emits the full
@@ -100,7 +100,7 @@ jobs:
           # create decode, param-less op forms (`confirm()`), and the detail-field
           # testid on the value cell.
           - frontend: feliz
-            case: sales-system-feliz money-compare-ui-feliz
+            case: sales-system-feliz money-compare-ui-feliz oidc-login-ui-feliz
             runner: run-ui.mjs
             experimental: false
           # Flutter (Dart/Riverpod): BLOCKING.  The ONLY runtime tier flutter has

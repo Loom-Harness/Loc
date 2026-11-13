@@ -23,10 +23,10 @@ import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
 import {
-  E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_SVELTE,
   E2E_TSCONFIG_JSON,
-  PLAYWRIGHT_CONFIG_TS,
+  e2eHarnessFiles,
+  e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -51,7 +51,6 @@ import {
   jsxChromeAttr as shellChromeAttr,
   jsxChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
-import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import {
   DOM_TOAST_SOURCE,
@@ -317,9 +316,9 @@ export function generateSvelteForContexts(
   // Playwright e2e harness — same testid-keyed page-object surface
   // the react projects ship; the ui-e2e spec renderer (system layer)
   // adds the per-system `<sys>.ui.spec.ts` next to these.
-  out.set("e2e/smoke.spec.ts", smokeSpec(ui, pageCtx));
-  out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
-  out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS);
+  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
+    out.set(path, content);
+  }
   out.set("e2e/package.json", E2E_PACKAGE_JSON_SVELTE);
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 

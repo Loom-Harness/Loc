@@ -439,6 +439,14 @@ state check, or does not prove PKCE possession, fails that step by name.
 `test/harness/fake-oidc.test.ts` proves the driver against hand-written
 handshakes with each of those defects seeded.
 
+The UI tier signs in the same way a user does. A `corpus.json` case with
+`oidcLogin` (`oidc-login-ui.ddd`, one case per SPA frontend) boots the
+backend's OIDC verifier and handshake against the emulated provider with no
+auto-login (`startLoginIssuer`, user `demo`), and runs the frontend's emitted
+Playwright suite unchanged: its global setup fills the provider's login page,
+and every spec — the round-trip and each smoke case — runs on the saved
+session.
+
 A spec may declare **several** gated surfaces and a **multi-step** seed.
 Both exist for the read side: one system carries three distinct gated read
 surfaces (the gated list read, a folded projection, a query-time

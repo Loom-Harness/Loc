@@ -2063,6 +2063,40 @@ The handshake is hardened by default (no knobs):
 Emitted identically across all five backends (Hono, .NET, Java/Spring,
 Python/FastAPI, Phoenix).
 
+### The generated Playwright suite signs in
+
+A frontend with `auth: ui` whose system has an `auth { oidc }` block renders
+only its Sign in screen until a session exists, so its emitted `e2e/` suite
+signs in once before any test runs. `e2e/global-setup.ts` opens the app, reads
+the API origin off the app's own `/auth/me` probe, starts that backend's
+`/auth/login`, fills the IdP's login form (`#username`, `#password`,
+`#kc-login` — the generated dev Keycloak realm's form, which the playground's
+emulated provider serves too) and saves the session to `e2e/.auth/state.json`
+(git-ignored). Every test starts from that session (`use.storageState`), and
+each smoke case asserts the app's `/auth/me` probe answered a principal, so a
+smoke case cannot pass on the Sign in screen.
+
+```ddd
+deployable web { platform: react  targets: api  ui: Shop  port: 3001  auth: ui }
+test e2e "a signed-in user creates a customer" against web {
+  let c = ui.customers.create({ name: "Eve" })
+}
+```
+
+```ts
+// generated — web/e2e/playwright.config.ts (excerpt)
+  globalSetup: "./global-setup.ts",
+  use: {
+    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3001",
+    storageState: process.env.E2E_STORAGE_STATE ?? ".auth/state.json",
+```
+
+The user is `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` — the same variables the
+api suite's password grant reads — defaulting to the dev realm's `demo` /
+`demo`. `E2E_STORAGE_STATE` points the suite at a session saved elsewhere. A
+frontend without `auth: ui`, or a system without `auth { oidc }`, emits the
+suite unchanged.
+
 **Boundary (D-AUTH-OIDC):** Loom owns "validate a token + run the redirect
 handshake". **The IdP owns credentials, password reset, MFA, and consent** —
 there is deliberately no Loom-hosted login form or password-reset flow. Point

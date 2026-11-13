@@ -46,6 +46,7 @@ on:
       - 'web/src/runtime/ddl.ts'
       - 'web/src/examples/sales-system.ddd'
       - 'test/behavioral/**'
+      - 'test/support/**'
       - 'package.json'
       - '.github/workflows/behavioral-ui-e2e.yml'
       # This tier boots the node/Hono backend + the React/Mantine frontend.

@@ -45,10 +45,10 @@ import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import {
-  E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
-  PLAYWRIGHT_CONFIG_TS,
+  e2eHarnessFiles,
+  e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import {
@@ -57,7 +57,6 @@ import {
   type NavEntryVM,
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
-import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -2633,9 +2632,9 @@ export function generateFelizForContexts(
     aggregateNames: [...e2eAggregatesByName.keys()],
     workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
   };
-  out.set("e2e/smoke.spec.ts", smokeSpec(ui, e2ePageNameCtx));
-  out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
-  out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS);
+  for (const [path, content] of e2eHarnessFiles(ui, e2ePageNameCtx, e2eSignsIn(authUi, sys))) {
+    out.set(path, content);
+  }
   out.set("e2e/package.json", E2E_PACKAGE_JSON);
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 

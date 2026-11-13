@@ -29,10 +29,10 @@ import {
 } from "../_frontend/code-highlight.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
-  E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_ANGULAR,
   E2E_TSCONFIG_JSON,
-  PLAYWRIGHT_CONFIG_TS,
+  e2eHarnessFiles,
+  e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 import {
   buildExternFunctionShim,
@@ -57,7 +57,6 @@ import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.js";
-import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
@@ -843,9 +842,9 @@ export function generateAngularForContexts(
       false,
     );
     for (const [p, content] of pageObjects) out.set(p, content);
-    out.set("e2e/smoke.spec.ts", smokeSpec(ui, pageCtx));
-    out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
-    out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS);
+    for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
+      out.set(path, content);
+    }
     out.set("e2e/package.json", E2E_PACKAGE_JSON_ANGULAR);
     out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
   }

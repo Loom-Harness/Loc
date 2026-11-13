@@ -31,8 +31,24 @@ import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
  *  testid) to be gone — otherwise the check would run against the loader,
  *  before the page module had even executed.  On a target that renders no such
  *  fallback (vue-router and Angular resolve the chunk before rendering the
- *  route) the wait is a no-op. */
-export function smokeSpec(ui: UiIR, nameCtx: PageNameCtx): string {
+ *  route) the wait is a no-op.
+ *
+ *  A signed-in suite (`signIn`, see `e2eSignsIn`) renders every route behind
+ *  the session guard, whose Sign in screen is neither the error boundary nor a
+ *  loader — so without more, each case would pass on the Sign in screen.  Each
+ *  case then also asserts the app's own session probe (`…/auth/me`) answered a
+ *  principal, which holds only when the saved session reached the backend. */
+export function smokeSpec(ui: UiIR, nameCtx: PageNameCtx, signIn = false): string {
+  const session = signIn
+    ? {
+        before:
+          "  // The app's session probe answers a principal: the suite is signed in.\n" +
+          "  const me = page.waitForResponse((r) => /\\/auth\\/me(?:\\?.*)?$/.test(new URL(r.url()).pathname));\n",
+        after:
+          "  expect((await me).status()).toBe(200);\n" +
+          "  expect(await (await me).json()).not.toBeNull();\n",
+      }
+    : { before: "", after: "" };
   // Auto-generated minimal Playwright smoke: every param-less page this
   // ui declares navigates and loads.  Driven by route (not by importing
   // the page objects) so it stays correct regardless of how the ui's
@@ -57,7 +73,9 @@ export function smokeSpec(ui: UiIR, nameCtx: PageNameCtx): string {
       // Title uses the aggregate-qualified emit name (`OrderList`), not the
       // scaffold's role-scoped page name (`List`) — stable + unique.
       `test(${JSON.stringify(`${pageEmitName(page, nameCtx)} loads`)}, async ({ page }) => {\n` +
+        session.before +
         `  await page.goto(${JSON.stringify(route)});\n` +
+        session.after +
         `  await expect(page).toHaveURL(new RegExp(${JSON.stringify(routeRe)}));\n` +
         `  // The route's lazy page chunk has loaded (its Suspense fallback is gone).\n` +
         `  await expect(page.getByTestId("route-loading")).toHaveCount(0);\n` +
@@ -72,7 +90,9 @@ export function smokeSpec(ui: UiIR, nameCtx: PageNameCtx): string {
   if (cases.length === 0) {
     cases.push(
       `test("app root loads", async ({ page }) => {\n` +
+        session.before +
         `  await page.goto("/");\n` +
+        session.after +
         `  await expect(page.locator("body")).toBeVisible();\n` +
         `  await expect(page.getByTestId("route-loading")).toHaveCount(0);\n` +
         `  await expect(page.getByTestId("app-error")).toHaveCount(0);\n` +
