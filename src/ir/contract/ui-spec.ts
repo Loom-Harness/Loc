@@ -215,7 +215,7 @@ const PROVENANCE = "provenance capture is server-side";
 type StmtCase<K extends StmtIR["kind"]> = Extract<StmtIR, { kind: K }>;
 type VariantStmtArm = StmtCase<"variant-match">["arms"][number];
 
-export const stmtRule: Rule = union<StmtIR>("StmtIR", {
+const stmtRule: Rule = union<StmtIR>("StmtIR", {
   precondition: { expr, source: keep, message, origin: drop },
   requires: {
     expr,

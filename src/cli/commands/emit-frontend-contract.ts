@@ -10,7 +10,7 @@ import { hostValidateOptions, parseProject } from "../project.js";
 import { printAstDiagnostics, printIrDiagnostics, printSummary } from "../report.js";
 
 /** Where `-o <dir>` writes the contract, beside the rest of the `.loom/` bundle. */
-export const FRONTEND_CONTRACT_PATH = ".loom/frontend-contract.json";
+const FRONTEND_CONTRACT_PATH = ".loom/frontend-contract.json";
 
 /**
  * `ddd emit-frontend-contract` — validate the model, then write one system's

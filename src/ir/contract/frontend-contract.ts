@@ -53,7 +53,7 @@ import { drop, keep, list, type Rule, record } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, typeRule, uiRule } from "./ui-spec.js";
 
 /** Bumped on any change a consumer must react to. */
-export const FRONTEND_CONTRACT_VERSION = 1;
+const FRONTEND_CONTRACT_VERSION = 1;
 
 export interface FrontendContract {
   contractVersion: number;
