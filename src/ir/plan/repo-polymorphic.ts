@@ -3,6 +3,12 @@
 import { carriesFieldMask } from "../enrich/mask-taint.js";
 import { type PolymorphicRead, polymorphicReadFor } from "../enrich/read-scope.js";
 import type { AggregateIR, BoundedContextIR } from "../types/loom-ir.js";
+import {
+  type ApiOperationIR,
+  apiStatusContext,
+  deriveContextOperations,
+  derivePolymorphicReadOperations,
+} from "../util/api-surface.js";
 
 /** `base`'s polymorphic read when it is routed, else `undefined`.
  *
@@ -26,4 +32,25 @@ export function routedPolymorphicRead(
     return !!concrete && !!all && !all.requires && !carriesFieldMask(concrete);
   });
   return open ? read : undefined;
+}
+
+/** The HTTP reads `base` serves: none when its polymorphic read is unrouted,
+ *  else the list read and, under TPH, the by-id read.  The e2e route check,
+ *  the e2e renderer and the api clients read this instead of asking whether
+ *  the base is routed themselves. */
+export function polymorphicReadOperations(
+  base: AggregateIR,
+  ctx: BoundedContextIR,
+): ApiOperationIR[] {
+  const read = routedPolymorphicRead(base, ctx);
+  return read ? derivePolymorphicReadOperations(base, read.layout, apiStatusContext(ctx)) : [];
+}
+
+/** Every HTTP operation a context serves: each aggregate's own operations,
+ *  then each abstract base's routed polymorphic reads. */
+export function contextOperations(ctx: BoundedContextIR): ApiOperationIR[] {
+  return [
+    ...deriveContextOperations(ctx),
+    ...ctx.aggregates.filter((a) => a.isAbstract).flatMap((a) => polymorphicReadOperations(a, ctx)),
+  ];
 }

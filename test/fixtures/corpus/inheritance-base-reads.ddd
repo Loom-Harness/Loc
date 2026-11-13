@@ -124,6 +124,10 @@ system InheritanceBaseReads {
     expect(api.drivers.getById(d1)).toThrow(404)
     expect(api.drivers.all().length).toBe(0)
     expect(api.dispatchers.getById(disp).desk).toBe(3)
+    // The TPC base's list read merges every concrete's own scoped read, so the
+    // archived driver is gone from it too.
+    expect(api.crews.all().total).toBe(1)
+    expect(api.crews.all().items.length).toBe(1)
   }
 
   test e2e "TPH: the polymorphic base reads apply every subtype's restrictions" against d {
@@ -134,9 +138,12 @@ system InheritanceBaseReads {
     expect(api.equipment.getById(crane).tag).toBe("CR-1")
     expect(api.equipment.getById(lift).tag).toBe("FL-1")
     expect(api.equipmentCount.list().n).toBe(2)
+    expect(api.equipment.all().total).toBe(2)
     api.forklifts.archive(lift)
     expect(api.equipment.getById(lift)).toThrow(404)
     expect(api.equipmentCount.list().n).toBe(1)
+    expect(api.equipment.all().total).toBe(1)
+    expect(api.equipment.all().items.length).toBe(1)
   }
 
   // Every subtype's own routes, none of them reading a row the base

@@ -690,7 +690,6 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // no derived operation (the base owns no repository — nothing routes it on
   // node yet), and the projection read is the not-yet-lifted route class.
   "corpus/inheritance-base-reads": [
-    "api.equipment.getById (no derived operation)",
     "api.equipmentCount.list (no such aggregate)",
   ],
   "corpus/projection-tph-source": [
