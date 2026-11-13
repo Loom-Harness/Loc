@@ -1,9 +1,10 @@
 import { lazy, Suspense, useState } from "react";
-import { Box, Button, Drawer, Group, SegmentedControl, Stack, Tabs, Text, UnstyledButton } from "@mantine/core";
+import { Box, Button, Loader, Drawer, Group, SegmentedControl, Stack, Tabs, Text, UnstyledButton } from "@mantine/core";
 import { EditorPane } from "./EditorPane";
 import { FilesPane } from "./FilesPane";
 import { PreviewPane } from "./PreviewPane";
 import { AuthConfigPanel } from "./AuthConfigPanel";
+import { LazyInfraPanel } from "./lazy-panels";
 import { BackendBody, BackendHeader } from "./BackendPanel";
 import { TestsBody } from "./TestsPanel";
 import { HistoryBody } from "./HistoryPanel";
@@ -17,6 +18,7 @@ import { type LayoutCtx, type MobileCodeView, type MobileTab } from "./ctx";
 import {
   agentMark,
   authMark,
+  infraMark,
   type Mark,
   migrationsMark,
   runtimeMark,
@@ -48,6 +50,7 @@ const TAB_VALUES: readonly MobileTab[] = [
   "history",
   "agent",
   "auth",
+  "infra",
 ] as const;
 
 function isMobileTab(v: string | null): v is MobileTab {
@@ -62,6 +65,7 @@ const SECONDARY: readonly { id: MobileTab; label: string }[] = [
   { id: "history", label: PANE.history },
   { id: "agent", label: PANE.agent },
   { id: "auth", label: PANE.auth },
+  { id: "infra", label: PANE.infra },
 ];
 
 // Mobile layout — single fullscreen pane at a time, switched via a
@@ -91,6 +95,7 @@ function MobileShellView({ ctx }: Props): JSX.Element {
     history: null,
     agent: agentMark(ctx),
     auth: authMark(ctx),
+    infra: infraMark(ctx),
   };
   const secondaryActive = SECONDARY.find((s) => s.id === activeTab) ?? null;
   const moreMark = worstMark(SECONDARY.map((s) => marks[s.id]));
@@ -245,6 +250,14 @@ function MobileShellView({ ctx }: Props): JSX.Element {
       </Tabs.Panel>
       <Tabs.Panel value="auth">
         <AuthConfigPanel ctx={ctx} />
+      </Tabs.Panel>
+      <Tabs.Panel value="infra">
+        {/* Mounted only while open: the panel polls the infra worker. */}
+        {activeTab === "infra" && (
+          <Suspense fallback={<Loader size="xs" m="md" />}>
+            <LazyInfraPanel ctx={ctx} active />
+          </Suspense>
+        )}
       </Tabs.Panel>
       <Tabs.List grow>
         <Tabs.Tab value="code" data-testid="mobile-tab-code">{PANE.code}</Tabs.Tab>
