@@ -10,6 +10,7 @@ import type {
   PlatformAdapterDefaults,
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
+import { serviceSlug } from "../../../util/service-slug.js";
 import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
 import {
   BACKEND_HEALTH,
@@ -18,6 +19,7 @@ import {
   MIGRATIONS_BASELINE,
   wgetHealthcheck,
 } from "../../operations.js";
+import { backendEnvContract } from "../../operations-env.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
@@ -37,7 +39,7 @@ import { type BackendPins, generateTypeScriptForContexts } from "./emit.js";
  *  version passes its own `pins.ts` rather than copying the surface. */
 export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
   const drizzlePersistenceAdapter = drizzlePersistenceAdapterFor(pins);
-  return {
+  const surface: PlatformSurface = {
     name: "node",
     defaultPort: 3000,
     needsDb: true,
@@ -73,6 +75,12 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
       health: BACKEND_HEALTH,
       healthcheck: wgetHealthcheck,
       healthcheckBinaries: ["wget"],
+      env: (args) =>
+        backendEnvContract(
+          args,
+          surface.composeService({ ...args, slug: serviceSlug(args.deployable.name) }),
+          ["NODE_ENV"],
+        ),
       listen: "dual-stack",
       log: { format: "loom-json", levelEnv: "LOG_LEVEL" },
       broker: { ...BROKER_BASELINE, reconnects: false, publishFailureKeepsCommit: false },
@@ -154,4 +162,5 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
       };
     },
   };
+  return surface;
 }
