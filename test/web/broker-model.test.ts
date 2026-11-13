@@ -286,18 +286,13 @@ describe("broker model — lifecycle", () => {
   });
 });
 
-describe("broker model — the infra panel's browse / seek / re-drive", () => {
-  it("browses a kafka topic's retained records with bodies, and replays a group from an offset", () => {
+describe("broker model — the infra panel's bodies / seek / re-drive", () => {
+  it("lists a kafka topic's retained records with bodies, and replays a group from an offset", () => {
     const { model, received, publish, idOf, ackAll } = harness();
-    model.subscribe("shop", {
-      transport: "kafka",
-      address: "loom.T",
-      group: "g",
-      fromBeginning: true,
-    });
+    model.subscribe("shop", { transport: "kafka", address: "loom.T", group: "g", fromBeginning: true });
     const ids = [publish("kafka", "loom.T", "k"), publish("kafka", "loom.T", "k")];
     ackAll();
-    const records = model.browse({ transport: "kafka", name: "loom.T" });
+    const records = model.inspect().kafka.topics[0]?.records ?? [];
     expect(records.map((r) => [r.id, r.offset, r.key])).toEqual([
       [ids[0], 0, "k"],
       [ids[1], 1, "k"],
@@ -305,52 +300,53 @@ describe("broker model — the infra panel's browse / seek / re-drive", () => {
     expect(JSON.parse(records[0]?.body ?? "{}")).toMatchObject({ type: "Ctx.Happened" });
     const partition = records[0]?.partition as number;
     received.length = 0;
-    model.seek({ topic: "loom.T", group: "g", partition, offset: 0 });
+    expect(model.seek({ topic: "loom.T", group: "g", partition, offset: 0 })).toEqual({ partitions: [partition] });
     ackAll();
     expect(received.map(idOf)).toEqual(ids);
     expect(model.inspect().kafka.topics[0]?.groups[0]?.offsets[partition]).toBe(2);
-    model.seek({ topic: "loom.T", group: "g", offset: "earliest" });
-    expect(model.inspect().kafka.topics[0]?.groups[0]?.offsets).toEqual([0, 0, 0]);
-    expect(model.inspect().journal.some((j) => j.kind === "seeked")).toBe(true);
+    // Clamped to the retained range; every partition when none is named.
+    expect(model.seek({ topic: "loom.T", group: "g", offset: -5 }).partitions).toEqual([0, 1, 2]);
+    ackAll();
+    expect(model.inspect().journal.filter((j) => j.kind === "seeked")).toHaveLength(2);
     expect(() => model.seek({ topic: "loom.T", group: "nope", offset: 0 })).toThrow(/no group/);
   });
 
-  it("re-drives rabbitmq dead letters onto the address, draining the DLQ", () => {
+  it("refuses a seek while the partition has a record in flight", () => {
+    const { model, publish } = harness();
+    model.subscribe("shop", { transport: "kafka", address: "loom.T", group: "g", fromBeginning: true });
+    publish("kafka", "loom.T", "k");
+    expect(() => model.seek({ topic: "loom.T", group: "g", offset: 0 })).toThrow(/in flight/);
+  });
+
+  it("lists rabbitmq message bodies, and re-drives dead letters onto the address", () => {
     const { model, received, publish, idOf } = harness();
-    model.subscribe("shop", {
-      transport: "rabbitmq",
-      address: "loom.Q",
-      group: "q",
-      fromBeginning: false,
-    });
+    model.subscribe("shop", { transport: "rabbitmq", address: "loom.Q", group: "q", fromBeginning: false });
     const id = publish("rabbitmq", "loom.Q");
     for (let i = 0; i < 5; i++) {
       const last = received.at(-1) as Received;
       model.nack(last.delivery.deliveryId, "boom");
     }
-    const dlq = model.browse({ transport: "rabbitmq", name: "loom.dlq.loom.Q" });
-    expect(dlq.map((m) => [m.id, m.attempts])).toEqual([[id, 5]]);
+    const dlq = () => model.inspect().rabbitmq.queues.find((q) => q.name === "loom.dlq.loom.Q");
+    expect(dlq()?.messages.map((m) => [m.id, m.attempts])).toEqual([[id, 5]]);
+    expect(JSON.parse(dlq()?.messages[0]?.body ?? "{}")).toMatchObject({ id });
     received.length = 0;
-    expect(model.redrive({ transport: "rabbitmq", address: "loom.Q" })).toEqual({ moved: 1 });
-    expect(model.browse({ transport: "rabbitmq", name: "loom.dlq.loom.Q" })).toEqual([]);
+    expect(model.redrive({ transport: "rabbitmq", deadLetter: "loom.dlq.loom.Q" })).toEqual({ moved: 1 });
+    expect(dlq()?.ready).toBe(0);
     expect(received.map(idOf)).toEqual([id]);
     expect(received[0]?.delivery.attempts).toBe(1);
+    expect(() => model.redrive({ transport: "rabbitmq", deadLetter: "loom.Q" })).toThrow(/no dead-letter queue/);
   });
 
-  it("re-drives kafka dead letters by copying the dead-letter log onto the topic", () => {
+  it("re-drives kafka dead letters onto the topic and truncates the dead-letter topic", () => {
     const { model, received, publish, idOf } = harness();
-    model.subscribe("shop", {
-      transport: "kafka",
-      address: "loom.K",
-      group: "g",
-      fromBeginning: true,
-    });
+    model.subscribe("shop", { transport: "kafka", address: "loom.K", group: "g", fromBeginning: true });
     const id = publish("kafka", "loom.K");
     model.nack((received.at(-1) as Received).delivery.deliveryId, "boom");
-    expect(model.browse({ transport: "kafka", name: "loom.K.dlq" }).map((r) => r.id)).toEqual([id]);
+    const dlqTopic = () => model.inspect().kafka.topics.find((t) => t.name === "loom.K.dlq");
+    expect(dlqTopic()?.records.map((r) => r.id)).toEqual([id]);
     received.length = 0;
-    expect(model.redrive({ transport: "kafka", address: "loom.K" })).toEqual({ moved: 1 });
+    expect(model.redrive({ transport: "kafka", deadLetter: "loom.K.dlq" })).toEqual({ moved: 1 });
     expect(received.map(idOf)).toEqual([id]);
-    expect(model.browse({ transport: "kafka", name: "loom.K.dlq" })).toHaveLength(1);
+    expect(dlqTopic()?.records).toEqual([]);
   });
 });

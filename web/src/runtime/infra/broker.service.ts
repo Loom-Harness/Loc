@@ -11,7 +11,8 @@ export function createBrokerService(host: InfraServiceHost): InfraService<Broker
     handle(req, { client }) {
       switch (req.op) {
         case "publish":
-          model.publish(client, req.params);
+          // The main thread publishes from the infra panel.
+          model.publish(client ?? "panel", req.params);
           return { ok: true };
         case "subscribe":
           if (client === null) throw new Error("broker.subscribe needs a connected deployable");
@@ -26,11 +27,8 @@ export function createBrokerService(host: InfraServiceHost): InfraService<Broker
           return model.nack(req.params.deliveryId, req.params.error, req.params.poison === true);
         case "inspect":
           return model.inspect();
-        case "browse":
-          return model.browse(req.params);
         case "seek":
-          model.seek(req.params);
-          return { ok: true };
+          return model.seek(req.params);
         case "redrive":
           return model.redrive(req.params);
       }

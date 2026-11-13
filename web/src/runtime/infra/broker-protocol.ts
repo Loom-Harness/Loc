@@ -41,41 +41,29 @@ export type BrokerOp =
   /** The handler threw (or the body did not parse). */
   | { op: "nack"; params: { deliveryId: number; error: string; poison?: boolean } }
   | { op: "inspect"; params: Record<string, never> }
-  /** The messages a queue or topic holds, bodies included (the infra panel). */
-  | { op: "browse"; params: BrokerBrowseParams }
   /** Move a kafka group's committed offset (replay from an offset). */
   | { op: "seek"; params: BrokerSeekParams }
-  /** Re-drive an address's dead letters onto the address. */
-  | { op: "redrive"; params: { transport: "rabbitmq" | "kafka"; address: string } };
-
-export interface BrokerBrowseParams {
-  transport: "rabbitmq" | "kafka";
-  /** A rabbitmq queue or a kafka topic. */
-  name: string;
-  /** Kafka: the newest `limit` records per partition (default 50). */
-  limit?: number;
-}
-
-export interface BrokerBrowseMessage {
-  id: string;
-  type: string;
-  body: string;
-  attempts: number;
-  /** Kafka only. */
-  partition?: number;
-  offset?: number;
-  key?: string | null;
-  /** Rabbitmq only: delivered and awaiting an ack. */
-  unacked?: boolean;
-}
+  /** Put a dead-letter queue's / topic's messages back on its address. */
+  | { op: "redrive"; params: BrokerRedriveParams };
 
 export interface BrokerSeekParams {
   topic: string;
   group: string;
   /** Every partition when absent. */
   partition?: number;
-  /** An offset, or the earliest / latest retained one. */
-  offset: number | "earliest" | "latest";
+  /** Clamped to the retained range: 0 is the earliest retained record. */
+  offset: number;
+}
+
+export interface BrokerSeekResult {
+  /** The partitions moved. */
+  partitions: number[];
+}
+
+export interface BrokerRedriveParams {
+  transport: "rabbitmq" | "kafka";
+  /** `loom.dlq.<address>` (rabbitmq) or `<topic>.dlq` (kafka). */
+  deadLetter: string;
 }
 
 export interface BrokerRedriveResult {
@@ -117,6 +105,18 @@ export interface BrokerInspectMessage {
   id: string;
   type: string;
   attempts: number;
+  /** The envelope as it is on the wire. */
+  body: string;
+}
+
+/** A retained kafka record, as inspect lists it. */
+export interface BrokerInspectRecord {
+  partition: number;
+  offset: number;
+  key: string | null;
+  id: string;
+  type: string;
+  body: string;
 }
 
 export interface BrokerInspectQueue {
@@ -141,6 +141,8 @@ export interface BrokerInspectTopic {
   /** Records retained per partition (start offset … end offset). */
   partitions: { start: number; end: number }[];
   groups: BrokerInspectGroup[];
+  /** The newest retained records of each partition (`INSPECT_TAIL`). */
+  records: BrokerInspectRecord[];
 }
 
 export interface BrokerInspectChannel {

@@ -14,7 +14,6 @@ import {
 } from "@mantine/core";
 import { useState } from "react";
 import type {
-  BrokerBrowseMessage,
   BrokerInspectQueue,
   BrokerInspectResult,
   BrokerInspectTopic,
@@ -88,7 +87,7 @@ export default function BrokerTab({ active }: InfraTabProps): JSX.Element {
         {data && data.rabbitmq.queues.length > 0 && (
           <Section title="rabbitmq" subtitle="queues (one per consumer group) and dead-letter queues">
             {data.rabbitmq.queues.map((q) => (
-              <RabbitQueue key={q.name} q={q} active={active} onRedrive={(address) => void act("redrive", { transport: "rabbitmq", address })} />
+              <RabbitQueue key={q.name} q={q} onRedrive={() => void act("redrive", { transport: "rabbitmq", deadLetter: q.name })} />
             ))}
           </Section>
         )}
@@ -98,9 +97,8 @@ export default function BrokerTab({ active }: InfraTabProps): JSX.Element {
               <KafkaTopic
                 key={t.name}
                 topic={t}
-                active={active}
                 onSeek={(group, partition, offset) => void act("seek", { topic: t.name, group, partition, offset })}
-                onRedrive={(address) => void act("redrive", { transport: "kafka", address })}
+                onRedrive={() => void act("redrive", { transport: "kafka", deadLetter: t.name })}
               />
             ))}
           </Section>
@@ -250,10 +248,17 @@ function PublishForm({
   );
 }
 
-function Messages({ active, transport, name }: { active: boolean; transport: "rabbitmq" | "kafka"; name: string }) {
-  const { data } = useInfra<BrokerBrowseMessage[]>("broker", "browse", { transport, name }, { enabled: active, poll: 1000 });
-  if (!data) return null;
-  if (data.length === 0) {
+interface ShownMessage {
+  /** `ready` / `unacked` (rabbitmq) or `p<partition>@<offset>` (kafka). */
+  where: string;
+  id: string;
+  type: string;
+  attempts: number;
+  body: string;
+}
+
+function Messages({ name, messages }: { name: string; messages: readonly ShownMessage[] }) {
+  if (messages.length === 0) {
     return (
       <Text size="xs" c="dimmed" pl="md">
         Empty.
@@ -264,15 +269,9 @@ function Messages({ active, transport, name }: { active: boolean; transport: "ra
     <Table.ScrollContainer minWidth={420}>
       <Table withTableBorder fz="xs" verticalSpacing={1} data-testid="infra-broker-messages" data-name={name}>
         <Table.Tbody>
-          {data.map((m, i) => (
-            <Table.Tr key={`${m.partition ?? ""}:${m.offset ?? i}`} data-testid="infra-broker-message" data-id={m.id}>
-              {transport === "kafka" ? (
-                <Table.Td>
-                  p{m.partition}@{m.offset}
-                </Table.Td>
-              ) : (
-                <Table.Td>{m.unacked ? "unacked" : "ready"}</Table.Td>
-              )}
+          {messages.map((m, i) => (
+            <Table.Tr key={`${m.where}:${i}`} data-testid="infra-broker-message" data-id={m.id}>
+              <Table.Td>{m.where}</Table.Td>
               <Table.Td>{m.type}</Table.Td>
               <Table.Td>{m.attempts > 1 ? `attempt ${m.attempts}` : ""}</Table.Td>
               <Table.Td style={{ fontFamily: "monospace", wordBreak: "break-all", maxWidth: 420 }}>{m.body}</Table.Td>
@@ -286,12 +285,10 @@ function Messages({ active, transport, name }: { active: boolean; transport: "ra
 
 function RabbitQueue({
   q,
-  active,
   onRedrive,
 }: {
   q: BrokerInspectQueue;
-  active: boolean;
-  onRedrive: (address: string) => void;
+  onRedrive: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const dlqFor = deadLetterOf("rabbitmq", q.name);
@@ -310,26 +307,27 @@ function RabbitQueue({
           {q.ready} ready · {q.unacked} unacked · {q.consumers} consumers
         </Text>
         {dlqFor !== null && q.ready > 0 && (
-          <Button size="compact-xs" variant="light" onClick={() => onRedrive(dlqFor)} data-testid="infra-broker-redrive">
+          <Button size="compact-xs" variant="light" onClick={onRedrive} data-testid="infra-broker-redrive">
             Re-drive to {dlqFor}
           </Button>
         )}
       </Group>
-      {open && <Messages active={active} transport="rabbitmq" name={q.name} />}
+      {open && <Messages
+          name={q.name}
+          messages={q.messages.map((m, i) => ({ ...m, where: i < q.ready ? "ready" : "unacked" }))}
+        />}
     </Stack>
   );
 }
 
 function KafkaTopic({
   topic,
-  active,
   onSeek,
   onRedrive,
 }: {
   topic: BrokerInspectTopic;
-  active: boolean;
-  onSeek: (group: string, partition: number | undefined, offset: number | "earliest" | "latest") => void;
-  onRedrive: (address: string) => void;
+  onSeek: (group: string, partition: number | undefined, offset: number) => void;
+  onRedrive: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const dlqFor = deadLetterOf("kafka", topic.name);
@@ -350,7 +348,7 @@ function KafkaTopic({
           {topic.partitions.map((p, i) => `p${i} ${p.start}…${p.end}`).join(" · ")}
         </Text>
         {dlqFor !== null && retained > 0 && (
-          <Button size="compact-xs" variant="light" onClick={() => onRedrive(dlqFor)} data-testid="infra-broker-redrive">
+          <Button size="compact-xs" variant="light" onClick={onRedrive} data-testid="infra-broker-redrive">
             Re-drive to {dlqFor}
           </Button>
         )}
@@ -390,7 +388,10 @@ function KafkaTopic({
           </Table>
         </Table.ScrollContainer>
       )}
-      {open && <Messages active={active} transport="kafka" name={topic.name} />}
+      {open && <Messages
+          name={topic.name}
+          messages={topic.records.map((r) => ({ ...r, where: `p${r.partition}@${r.offset}`, attempts: 1 }))}
+        />}
     </Stack>
   );
 }
@@ -400,7 +401,7 @@ function SeekControl({
   onSeek,
 }: {
   partitions: number;
-  onSeek: (partition: number | undefined, offset: number | "earliest" | "latest") => void;
+  onSeek: (partition: number | undefined, offset: number) => void;
 }): JSX.Element {
   const [partition, setPartition] = useState("all");
   const [offset, setOffset] = useState<number | string>("");
@@ -432,7 +433,7 @@ function SeekControl({
       >
         Seek
       </Button>
-      <Button size="compact-xs" variant="subtle" onClick={() => onSeek(p, "earliest")} data-testid="infra-broker-seek-earliest">
+      <Button size="compact-xs" variant="subtle" onClick={() => onSeek(p, 0)} data-testid="infra-broker-seek-earliest">
         From start
       </Button>
     </Group>
