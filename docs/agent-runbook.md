@@ -89,6 +89,8 @@ A fleet does not send one PR per worker through the merge queue. Each queue entr
 - No pushes while the train is queued — GitHub refuses them (GH006), and a sync of a queued PR re-runs everything for nothing.
 - A member PR whose base is another member (a stacked PR) is **not** auto-closed when the train lands; close it by hand.
 - One push per fix. A conflict with `main` is the only reason to sync an open train.
+- **A queue timeout drops auto-merge.** When the merge queue removes a train for exceeding its checks timeout (a `removed_from_merge_queue` event, not a failed check), auto-merge is switched off. Re-enable it by hand once the cause is clear, or the train sits ready and never re-enters the queue.
+- **A conflicted PR runs no workflows.** GitHub starts no `pull_request` workflow on a PR that conflicts with its base, so nothing reports on its head; the scheduled `pr-gate` sweep marks it failed with "PR conflicts with main". Merge `main` and push.
 
 ## The kickoff prompt
 
