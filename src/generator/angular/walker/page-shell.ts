@@ -716,7 +716,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // — which `renderJsIntrinsic` renders only because the page shell brings the
   // binding into scope here.  Declining them instead falls through to a
   // verbatim `amt.min(x)`, which decimal.js has no instance method for.
-  if (usesDecimalBinding(result.tsx)) {
+  // The scan covers the members too: a money `state { x: money = 1.5 }`
+  // initializer renders `new Decimal(…)` into a class member, never the template.
+  if (usesDecimalBinding(result.tsx) || usesDecimalBinding(members.join("\n"))) {
+    // A money `@Input()` already imported the type-only binding; the value
+    // import replaces it (one `Decimal` binding per class file).
+    const typeOnly = imports.indexOf(`import type Decimal from "decimal.js";`);
+    if (typeOnly >= 0) imports.splice(typeOnly, 1);
     imports.push(`import Decimal from "decimal.js";`);
     members.push(`  protected readonly Decimal = Decimal;`);
   }

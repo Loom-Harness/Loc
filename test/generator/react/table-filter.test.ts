@@ -47,7 +47,7 @@ describe("Table client-side filter (React)", () => {
     const content = files.get("web/src/pages/x.tsx")!;
     // Controlled search input bound to the `q` state field.
     expect(content).toContain(
-      `<input type="search" placeholder="Filter…" aria-label="Filter table" value={q} onChange={(e) => setQ(e.target.value)}`,
+      `<input type="search" placeholder={t("chrome.tableFilterPlaceholder", "Filter…")} aria-label={t("chrome.tableFilterAria", "Filter table")} value={q} onChange={(e) => setQ(e.target.value)}`,
     );
     expect(content).toContain('data-testid="table-filter"');
     // The search box + table are two roots in the QueryView's `{cond && (…)}`

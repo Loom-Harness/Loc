@@ -7,5 +7,12 @@
     "java",
     "python"
   ],
-  "note": "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`)."
+  "note": "elixir refuses the let-bound mutating call every entry point here matches (`loom.elixir-bound-mutating-call-unsupported`).",
+  "apiCaller": {
+    "unattributed": [
+      "api.hold.instance (no such aggregate)",
+      "api.hold.run (no such aggregate)",
+      "api.pay.run (no such aggregate)"
+    ]
+  }
 }

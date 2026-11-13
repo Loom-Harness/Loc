@@ -2,6 +2,7 @@ import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
 import { channelPlan } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
+import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -925,6 +926,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     sourceLocaleOf(sys),
     sys.subdomains.flatMap((sub) => sub.contexts),
     args.translations,
+    authEnabled ? bootRequiredAuthEnv(sys.auth) : [],
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

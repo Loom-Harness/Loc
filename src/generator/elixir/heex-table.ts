@@ -221,7 +221,7 @@ function renderTableFilterInput(field: string, ctx: WalkContext): string {
     });
   }
   return (
-    `<.input type="search" name="${field}" value={@${field}} placeholder="Filter…" ` +
+    `<.input type="search" name="${field}" value={@${field}} placeholder=${heexChromeAttr(ctx, "tableFilterPlaceholder")} ` +
     `aria-label=${heexChromeAttr(ctx, "tableFilterAria")} phx-change="${eventName}" data-testid="table-filter" />`
   );
 }

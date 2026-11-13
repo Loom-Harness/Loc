@@ -29,6 +29,7 @@ import type { SystemIR } from "../../ir/types/loom-ir.js";
 import { consumedEventNames, contextsByName } from "../../ir/util/channel-consumption.js";
 import { sha256 } from "../../util/sha256.js";
 import { type BrokerBinding, brokerChannelBindings } from "./bindings.js";
+import { RABBIT_DECLARE } from "./delivery-policy.js";
 
 /** The single RabbitMQ vhost all Loom channels live in (design §7). */
 export const RABBIT_VHOST = "loom";
@@ -185,8 +186,12 @@ function rabbitTopology(
   sys: SystemIR,
   storageName: string,
 ): {
-  exchanges: { name: string; vhost: string; type: string; durable: boolean }[];
-  queues: { name: string; vhost: string; durable: boolean; arguments: Record<string, string> }[];
+  exchanges: ({ name: string; vhost: string; type: string } & typeof RABBIT_DECLARE.exchange & {
+      arguments: Record<string, string>;
+    })[];
+  queues: ({ name: string; vhost: string } & typeof RABBIT_DECLARE.queue & {
+      arguments: Record<string, string>;
+    })[];
   bindings: {
     source: string;
     vhost: string;
@@ -212,19 +217,26 @@ function rabbitTopology(
   const sortedAddresses = [...addresses].sort();
   const exchanges = [
     // The shared dead-letter exchange, declared once.
-    { name: "loom.dlx", vhost: RABBIT_VHOST, type: "direct", durable: true },
+    {
+      name: "loom.dlx",
+      vhost: RABBIT_VHOST,
+      type: "direct",
+      ...RABBIT_DECLARE.exchange,
+      arguments: {},
+    },
     ...sortedAddresses.map((a) => ({
       name: a,
       vhost: RABBIT_VHOST,
       type: "fanout",
-      durable: true,
+      ...RABBIT_DECLARE.exchange,
+      arguments: {},
     })),
   ];
   const queues = [
     ...sortedAddresses.map((a) => ({
       name: `loom.dlq.${a}`,
       vhost: RABBIT_VHOST,
-      durable: true,
+      ...RABBIT_DECLARE.queue,
       arguments: {} as Record<string, string>,
     })),
     ...[...consumerQueues.entries()]
@@ -232,7 +244,7 @@ function rabbitTopology(
       .map(([queue, address]) => ({
         name: queue,
         vhost: RABBIT_VHOST,
-        durable: true,
+        ...RABBIT_DECLARE.queue,
         arguments: {
           "x-dead-letter-exchange": "loom.dlx",
           "x-dead-letter-routing-key": address,
