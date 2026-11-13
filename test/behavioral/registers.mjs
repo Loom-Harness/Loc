@@ -383,6 +383,13 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
     },
+    // A workflow's emit broadcasts locally instead of dispatching through the
+    // channels module, so the durable event never reaches the outbox.
+    "channels-broker-workflow": {
+      issue: "#5745",
+      expect: "wire",
+      reason: "an Elixir workflow emit of a durable channel event bypasses the outbox; the broker records no publish",
+    },
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {
