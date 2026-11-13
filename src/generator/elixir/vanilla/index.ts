@@ -1,4 +1,5 @@
 import { aggregateRouteTypes } from "../../../ir/enrich/wire-policy.js";
+import { channelPlan } from "../../../ir/plan/index.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 // ---------------------------------------------------------------------------
@@ -14,11 +15,7 @@ import { frontendAxesOf } from "../../../util/frontend-axes.js";
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
 import { carriesFieldMask } from "../../../ir/enrich/mask-taint.js";
-import {
-  type ChannelIR,
-  sourceLocaleOf,
-  workflowEmitsCommandRoute,
-} from "../../../ir/types/loom-ir.js";
+import { sourceLocaleOf, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -34,7 +31,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { brokerChannelBindings } from "../../_channels/bindings.js";
 import { embedSpaInto } from "../../_frontend/embedded-spa.js";
 import { prepareThemeVM } from "../../_frontend/theme-preparer.js";
 import { hasDomainFloorMessages } from "../../_i18n/domain-floor.js";
@@ -285,7 +281,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // per-context dispatcher derivation as a stub with its REAL semantics
   // knobs (the Hono/Python/.NET/Java pattern); every broker-carried event
   // routes through the `<App>.Channels` tee at the emit seams.
-  const channelBindings = sys ? brokerChannelBindings(deployable, sys) : [];
+  const chPlan = channelPlan(contexts, sys ? { deployable, sys } : undefined);
+  const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
   // Durable-producer split (design §5): HOSTED durable events carried by a
   // wired `queue`/`work` (or future `log`) channel ride the outbox relay,
@@ -306,17 +303,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // backends.  Only when the deployable wires no broker at all — so exactly one
   // relay drains __loom_outbox.  Routes the emit seams through `<App>.Channels`.
   const standaloneOutbox = !hasChannels && hostedDurable.size > 0;
-  const hostedChannelNames = new Set(
-    contexts.flatMap((c) => c.channels ?? []).map((ch) => ch.name),
-  );
-  const wiredForeignChannels: ChannelIR[] = channelBindings
-    .filter((b) => !hostedChannelNames.has(b.channelName))
-    .map((b) => ({
-      name: b.channelName,
-      carries: b.events,
-      delivery: b.delivery,
-      retention: b.retention,
-    }));
+  const wiredForeignChannels = chPlan.foreignChannels;
   // Every broker-carried event's OWNING context module — dispatcher/handler
   // pattern-matches qualify structs with the owner (same value as the local
   // context for a co-hosted owner, so the map is safe to consult uniformly).
