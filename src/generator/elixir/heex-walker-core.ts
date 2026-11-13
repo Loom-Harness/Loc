@@ -216,9 +216,15 @@ export interface FormBinding {
    *  assigns `@can_<op>` from it and the trigger renders `disabled` while the
    *  gate refuses. */
   gated?: boolean;
-  /** kind:"operation" only — submit runs `<op>_<agg>(record, %{})` itself
-   *  (`liveViewCallsOp`) instead of the CRUD `update_<agg>`. */
+  /** kind:"operation" only — submit runs the named operation
+   *  `<op>_<agg>(record, params[, current_user])` (`liveViewCallsOp`) instead
+   *  of the CRUD `update_<agg>`; the form is backed by the submitted params,
+   *  not an aggregate changeset. */
   callsOp?: boolean;
+  /** kind:"operation" only — the named op answers a declared result rather
+   *  than the updated record (`liveViewOpReturnsRecord` false), so a submit
+   *  reloads the record. */
+  reloads?: boolean;
   /** kind:"operation" only — the LiveView assign holding the record this form
    *  operates on: the assign the enclosing `QueryView` bound its data lambda
    *  param to.  Absent for the by-name `OperationForm(of:, op:)` shape, which

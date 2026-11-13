@@ -415,6 +415,10 @@ export const TEST_DISCOVERY = {
     `Discovering tests — suite ${n} of ${total}: ${label}…`,
   cancel: "Cancel",
   cancelled: "Test discovery cancelled.",
+  /** Under the verdict legend when a suite failed to load: its requirements
+   *  read Unverified, but running is not what they wait on. */
+  unverifiedUnloadable:
+    "Some suites failed to load (see the error above): a requirement they cover stays Unverified until that is fixed, not until you run.",
   retry: "Retry",
   /** The one line above the raw build / import error.  Discovery installs
    *  the npm packages the generated suites import, so a failed install
@@ -423,7 +427,7 @@ export const TEST_DISCOVERY = {
   errorHint: (rawError: string): string =>
     /could not install the suite's npm dependencies/.test(rawError)
       ? "Test discovery couldn't download the npm packages the generated tests import — check the network, then Retry."
-      : "Test discovery couldn't load the generated tests — the details say which file and why.",
+      : "Some generated tests couldn't be loaded — the details name each suite, its file and why. The suites that loaded are listed and run as usual.",
   showRaw: "Show details",
   hideRaw: "Hide details",
 } as const;

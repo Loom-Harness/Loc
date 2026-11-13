@@ -142,4 +142,16 @@ describe("message-driven UI driver (parent shim → wire → sandbox executor)",
     await page.getByTestId("field").press("Escape");
     expect(pressed).toBe("Escape");
   });
+
+  it("or / and / locator(locator) cross the wire (robustFill expression)", async () => {
+    document.body.innerHTML = `<div data-testid="f"><input id="a" /></div><input data-testid="g" id="b" />`;
+    const page = harness();
+    for (const [id, target] of [["f", "a"], ["g", "b"]] as const) {
+      const __f = page.getByTestId(id);
+      const __input = page.locator("input, textarea");
+      await __f.locator(__input).or(__f.and(__input)).first().fill(`v-${id}`);
+      expect((document.getElementById(target) as HTMLInputElement).value).toBe(`v-${id}`);
+    }
+    expect(await page.locator("p, input").and(page.locator("#b")).count()).toBe(1);
+  });
 });

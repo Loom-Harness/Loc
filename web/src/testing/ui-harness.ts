@@ -38,24 +38,29 @@ const uiExpect: UiExpect = (received) =>
     ? createLocatorMatchers(received)
     : makeExpect(received);
 
+/** `test(name, fn)` plus `test.extend(fixtures)`.  The generated
+ *  `e2e/fixtures.ts` extends the base test with an auto fixture that only
+ *  captures browser console diagnostics for the CLI reporter; the in-browser
+ *  runner reports a case's errors itself, so `extend` hands back the same
+ *  collecting `test` and its fixtures are not instantiated. */
+export interface UiTest {
+  (name: string, fn: (args: { page: RemotePage }) => void | Promise<void>): void;
+  extend: (fixtures: unknown) => UiTest;
+}
+
 export interface UiHarness {
-  test: (
-    name: string,
-    fn: (args: { page: RemotePage }) => void | Promise<void>,
-  ) => void;
+  test: UiTest;
   expect: UiExpect;
   tests: UiTestCase[];
 }
 
 export function createUiHarness(): UiHarness {
   const tests: UiTestCase[] = [];
-  return {
-    test(name, fn) {
-      tests.push({ name, fn });
-    },
-    expect: uiExpect,
-    tests,
-  };
+  const test = ((name, fn) => {
+    tests.push({ name, fn });
+  }) as UiTest;
+  test.extend = () => test;
+  return { test, expect: uiExpect, tests };
 }
 
 export function runUiTests(

@@ -168,7 +168,7 @@ describe("interpretation lines (audit M19)", () => {
     );
     expect(offline).toMatch(/couldn't download the npm packages .* check the network/);
     const other = TEST_DISCOVERY.errorHint('vfs: cannot resolve ./ids from "domain/project.ts"');
-    expect(other).toMatch(/couldn't load the generated tests — the details say which file/);
+    expect(other).toMatch(/couldn't be loaded — the details name each suite, its file and why/);
     for (const hint of [offline, other]) expect(hint).not.toMatch(/Bundle|Tap Run/);
   });
 });
