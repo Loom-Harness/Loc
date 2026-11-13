@@ -317,6 +317,35 @@ Each backend bakes the same URL as its fallback
 storage that also carries a channel transport boots without the `guest` account
 (broker auth, `channels.md`), so no queue URL is injected for it.
 
+An `s3` storage that declares no `endpoint` runs as a MinIO sidecar that
+creates the storage's `bucket` before it reports healthy. Every deployable
+wiring an `objectStore` on it gets `<RESOURCE>_URL_ENDPOINT` (the sidecar),
+the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` that
+every S3 SDK reads on its own, and a `depends_on: service_healthy`:
+
+```ddd
+storage files { type: s3, config: { bucket: "lifecycle" } }
+resource shippingFiles { for: Shipping, kind: objectStore, use: files }
+```
+
+```yaml
+# docker-compose.yml
+  api:
+    depends_on:
+      files:
+        condition: service_healthy
+    environment:
+      SHIPPING_FILES_URL_ENDPOINT: "http://files:9000"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_REGION: "us-east-1"
+```
+
+Each backend's S3 client dials `<RESOURCE>_URL_ENDPOINT` path-style when it
+is set (falling back to the storage's declared `endpoint`). With neither, it
+talks to AWS with the ambient credentials. `<RESOURCE>_URL_BUCKET` and
+`<RESOURCE>_URL_REGION` override the declared bucket and region.
+
 ## Calling another Loom service — `use: <Api>`
 
 The two things a `resource` can bind are not symmetric:

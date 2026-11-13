@@ -75,7 +75,7 @@ function resourceKnobs({ deployable, sys }: EnvContractArgs): EnvRequirement[] {
     const base = resourceEnvBase(r.name);
     const names =
       r.kind === "objectStore"
-        ? [`${base}_URL_BUCKET`, `${base}_URL_REGION`]
+        ? [`${base}_URL_BUCKET`, `${base}_URL_REGION`, `${base}_URL_ENDPOINT`]
         : r.kind === "mailer"
           ? [`${base}_URL`, `${base}_FROM`]
           : r.kind === "api" || r.kind === "queue"
