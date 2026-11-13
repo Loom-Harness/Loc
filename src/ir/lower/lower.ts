@@ -743,14 +743,14 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
       }
       subdomains.push({
         name: m.name,
-        contexts: m.contexts.map((c) => lowerContext(c, user, permissions)),
+        contexts: m.contexts.map((c) => lowerContext(c, user, permissions, members)),
         permissions,
       });
     } else if (isBoundedContext(m)) {
       // Loose contexts under a system don't sit inside a subdomain,
       // so `permissions.X` references inside them stay unresolved
       // (the validator will surface a friendly diagnostic).
-      looseContexts.push(lowerContext(m, user));
+      looseContexts.push(lowerContext(m, user, undefined, members));
     } else if (isDeployable(m)) {
       deployables.push(lowerDeployable(m));
     } else if (isTestE2E(m)) {
@@ -1357,6 +1357,7 @@ function lowerContext(
   ctx: BoundedContext,
   user?: UserIR,
   modulePermissions?: PermissionDeclIR[],
+  systemMembers?: ReadonlyArray<AstNode>,
 ): BoundedContextIR {
   // Lowering produces a faithful AST projection only.  Auto-included
   // `findAll`, react `contextNames` inheritance, and wire-shape
@@ -1371,20 +1372,22 @@ function lowerContext(
   // system-level `resource X { for: <thisCtx>, kind, … }` declarations,
   // keyed by name → infra kind.  Workflow bodies resolve `files.put(…)`
   // against this map.  Empty for loose contexts (no enclosing system).
+  // `systemMembers` is the COMPOSED member list of the project's system —
+  // the `system { }` block plus the deployment members declared at the root
+  // of any file — so a root-level `resource` binds exactly as a nested one;
+  // without it (the structural pre-pass) the syntactic container is read.
   const resources = new Map<string, DataSourceKind>();
   // Which of those handles is an in-system api binding (M-T4.8) — the subset
   // whose `.op(...)` calls resolve against a served api's operation set rather
   // than the closed per-kind verb registry.
   const resourceApis = new Map<string, string>();
-  const sys = AstUtils.getContainerOfType(ctx, isSystem);
-  if (sys) {
-    for (const m of sys.members) {
-      if (isResource(m) && m.context?.ref === ctx && m.kind) {
-        resources.set(m.name, m.kind as DataSourceKind);
-        const target = m.use?.ref;
-        if (m.kind === "api" && target && isApi(target)) {
-          resourceApis.set(m.name, target.name);
-        }
+  const members = systemMembers ?? AstUtils.getContainerOfType(ctx, isSystem)?.members ?? [];
+  for (const m of members) {
+    if (isResource(m) && m.context?.ref === ctx && m.kind) {
+      resources.set(m.name, m.kind as DataSourceKind);
+      const target = m.use?.ref;
+      if (m.kind === "api" && target && isApi(target)) {
+        resourceApis.set(m.name, target.name);
       }
     }
   }

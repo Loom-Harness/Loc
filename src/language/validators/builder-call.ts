@@ -540,6 +540,14 @@ function wireFamily(t: Ty): WireFamily {
   }
 }
 
+/** `X id` into `guid`, through `?` and `[]` on both sides. */
+function isIdIntoGuid(value: Ty, target: Ty): boolean {
+  const v = value.kind === "optional" ? value.inner : value;
+  const t = target.kind === "optional" ? target.inner : target;
+  if (v.kind === "array" && t.kind === "array") return isIdIntoGuid(v.element, t.element);
+  return v.kind === "id" && t.kind === "primitive" && t.name === "guid";
+}
+
 export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
     const fc = factoryCallOf(node);
@@ -607,6 +615,24 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
           );
           continue;
         }
+      }
+      // A typed `X id` (or `X id[]`) EXPRESSION into a `guid` (`guid[]`) field.
+      // The permissiveness below is for JSON-shaped input, but an id is a typed
+      // value on every backend that names it (.NET `ProvId`, java `ProvId`,
+      // python's `NewType`), so no create factory takes it as a bare guid — the
+      // same widening every call argument already refuses.
+      if (isIdIntoGuid(typeOf(entry.value, env), expected)) {
+        accept(
+          "error",
+          diagMessage("loom.create-field-id-target#guid", {
+            name: agg.name,
+            name2: name,
+            expected: typeToString(expected),
+            actual: typeToString(typeOf(entry.value, env)),
+          }),
+          { node: entry.node, property: "value", code: "loom.create-field-id-target" },
+        );
+        continue;
       }
       const expFam = wireFamily(expected);
       // Only compare when the field is a concrete scalar wire family; skip

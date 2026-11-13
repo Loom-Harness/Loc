@@ -73,4 +73,8 @@ export {
   type SubscriptionHandler,
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
-export { workflowIsolation, workflowRunsInTransaction } from "./workflow-transaction.js";
+export {
+  workflowCapturesDurableEmits,
+  workflowIsolation,
+  workflowRunsInTransaction,
+} from "./workflow-transaction.js";

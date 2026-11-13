@@ -35,6 +35,21 @@ if let q = Products.find(Pricey(floor)) { … }        // Product? — the first
 let xs = Products.all(Pricey(floor))                  // Product[]
 ```
 
+On a `tenantOwned` aggregate a key is unique per tenant — `unique (tenantId, number)` — and a natural-key read names it **without** `tenantId`: the tenant floor already pins that column to the operating tenant (and `tenantId` is `internal`, so the author has no value to pass). A read that drops the floor with `ignoring tenantOwned` or `ignoring *` spans tenants, so it names the whole tuple.
+
+```ddd
+aggregate Invoice with tenantOwned, crudish { number: string  amountDue: int  unique (tenantId, number) }
+
+let i = Invoices.getBy(number: n)        // this tenant's invoice `n`
+```
+
+```ts
+// node — the key read filters on `number`; `invoiceScope()` is the tenant floor every read ANDs in
+async getByNumber(number: string): Promise<Invoice> {
+  const rootRows = await this.db.select().from(schema.invoices)
+    .where(and(eq(schema.invoices.number, number), invoiceScope())).orderBy(asc(schema.invoices.id)).limit(1);
+```
+
 ## The repository verbs
 
 The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:

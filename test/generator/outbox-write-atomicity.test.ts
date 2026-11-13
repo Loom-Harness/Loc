@@ -46,6 +46,12 @@ const DURABLE = (platform: string) => `system OS {
         orderId: Order id
         create(p: OrderPlaced) by p.order { orderId := p.order }
       }
+      workflow Replay transactional {
+        create(o: Order id) {
+          let x = Orders.get(o)
+          emit OrderPlaced { order: x.id, at: now() }
+        }
+      }
     }
   }
   api A from D
@@ -152,6 +158,22 @@ describe("outbox write atomicity — node/Hono (drizzle)", () => {
     expect(wf).toContain("await db.insert(schema.loomOutbox).values({ type: event.type");
   });
 
+  it("a transactional workflow records its durable emits inside its own transaction", async () => {
+    // Structural: only a crash between commit and a later insert tells the two
+    // placements apart, which no booted tier stages.
+    const files = await emit("node");
+    const wf = fileEndingWith(files, "http/workflows.ts");
+    const route = from(wf, '"/replay"');
+    const txOpen = route.indexOf("await db.transaction(async (tx) => {");
+    const record = route.indexOf("await events.recordDurable?.(workflowEvents, tx)");
+    const txClose = route.indexOf("});", record);
+    const dispatch = route.indexOf("for (const ev of workflowEvents) await events.dispatch(ev);");
+    expect(txOpen, "the workflow runs in a transaction").toBeGreaterThan(-1);
+    expect(record, "durable capture is INSIDE the transaction callback").toBeGreaterThan(txOpen);
+    expect(record).toBeLessThan(txClose);
+    expect(dispatch, "the rest dispatch after the commit").toBeGreaterThan(txClose);
+  });
+
   it("the channel publish tee forwards the capture instead of swallowing it", async () => {
     // Without the forward, a channels-wired deployable's repository sees a
     // dispatcher with no `recordDurable` and silently falls back to the
@@ -182,6 +204,26 @@ describe("outbox write atomicity — .NET (EF Core)", () => {
     // handle, M-T6.90, together with the rows staged here.)
     expect(save.split(/SaveChanges\w*Async\(/).length - 1).toBe(1);
     expect(save).toContain("foreach (var ev in __deferred)");
+  });
+
+  it("a transactional workflow records its durable emits inside its own transaction", async () => {
+    // Structural: only a crash between commit and a later insert tells the two
+    // placements apart, which no booted tier stages.
+    const files = await emit("dotnet");
+    const handler = fileEndingWith(files, "Application/Workflows/ReplayHandler.cs");
+    const capture = handler.indexOf(
+      "await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken)",
+    );
+    const commit = handler.indexOf("await tx.CommitAsync(cancellationToken);");
+    const dispatch = handler.indexOf("foreach (var ev in _workflowEvents)");
+    expect(capture, "durable capture precedes the commit").toBeGreaterThan(-1);
+    expect(capture).toBeLessThan(commit);
+    expect(dispatch, "the rest dispatch after the commit").toBeGreaterThan(commit);
+    // The EF adapter writes the staged rows inside that transaction.
+    const ports = fileEndingWith(files, "Infrastructure/Persistence/PersistencePorts.cs");
+    const ef = from(ports, "public async Task<IReadOnlyList<IDomainEvent>> CaptureDurableAsync(");
+    expect(ef).toContain("await dispatcher.RecordDurableAsync(events, null, cancellationToken);");
+    expect(ef).toContain("await _db.SaveChangesAsync(cancellationToken);");
   });
 
   it("the outbox dispatcher's capture Adds without saving", async () => {
@@ -259,5 +301,98 @@ describe("outbox write atomicity — elixir/Phoenix", () => {
     const ctx = fileEndingWith(files, "lib/d/shop.ex");
     const op = from(ctx, "def place_order(%D.Shop.Order{} = record, params)");
     expect(op.slice(0, op.indexOf("def ", 10))).not.toContain("D.Repo.transaction(fn ->");
+  });
+});
+
+// ── event-sourced append ────────────────────────────────────────────────────
+
+/** An event-sourced aggregate whose events a durable channel carries — the
+ *  append and the outbox rows must commit together. */
+const ES_DURABLE = (platform: string) => `system ES {
+  subdomain D {
+    context Accounts {
+      event Opened { account: Account id, owner: string }
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        create open(owner: string) { emit Opened { account: id, owner: owner } }
+        apply(e: Opened) { owner := e.owner }
+      }
+      repository Accounts for Account
+      channel AccountEvents {
+        carries: Opened
+        delivery: queue
+        retention: work
+      }
+    }
+  }
+  api A from D
+  storage db { type: postgres }
+  resource log { for: Accounts, kind: eventLog, use: db }
+  deployable d {
+    platform: ${platform}
+    contexts: [Accounts]
+    dataSources: [log]
+    serves: A
+    port: 4000
+  }
+}`;
+
+describe("outbox write atomicity — event-sourced append", () => {
+  // Structural: only a crash between the append and a later outbox insert
+  // tells the two placements apart, which no booted tier stages.
+  it("node appends and records the durable events in one transaction", async () => {
+    const files = await generateSystemFiles(ES_DURABLE("node"));
+    const repo = fileEndingWith(files, "db/repositories/account-repository.ts");
+    const save = from(repo, "async save(aggregate: Account");
+    const txOpen = save.indexOf("await this.db.transaction(async (tx) => {");
+    const insert = save.indexOf("await tx.insert(schema.");
+    const record = save.indexOf("this.events.recordDurable?.(pending, tx)");
+    const dispatch = save.indexOf("for (const event of dispatchAfterCommit) {");
+    expect(txOpen, "the append opens a transaction").toBeGreaterThan(-1);
+    expect(insert).toBeGreaterThan(txOpen);
+    expect(record, "the capture is inside it").toBeGreaterThan(insert);
+    expect(dispatch, "only the rest dispatch after it").toBeGreaterThan(record);
+  });
+
+  it("node (MikroORM) appends and records the durable events in one transaction", async () => {
+    const files = await generateSystemFiles(ES_DURABLE("node { persistence: mikroorm }"));
+    const repo = fileEndingWith(files, "db/repositories/account-repository.ts");
+    const save = from(repo, "async save(aggregate: Account");
+    const txOpen = save.indexOf("await em.transactional(async (tx) => {");
+    const record = save.indexOf("this.events.recordDurable?.(pending, tx)");
+    const dispatch = save.indexOf("for (const event of dispatchAfterCommit) {");
+    expect(txOpen, "the append opens a transaction").toBeGreaterThan(-1);
+    expect(record, "the capture is inside it").toBeGreaterThan(txOpen);
+    expect(dispatch, "only the rest dispatch after it").toBeGreaterThan(record);
+  });
+
+  it(".NET (EF) stages the outbox rows before the append's one SaveChangesAsync", async () => {
+    const files = await generateSystemFiles(ES_DURABLE("dotnet"));
+    const repo = fileEndingWith(files, "Infrastructure/Repositories/AccountRepository.cs");
+    const save = from(repo, "SaveAsync(Account aggregate");
+    const record = save.indexOf(
+      "__afterCommit = await _events.RecordDurableAsync(__pending, null, cancellationToken);",
+    );
+    const saveChanges = save.indexOf("await _db.SaveChangesAsync(cancellationToken);");
+    expect(record, "the capture precedes the save").toBeGreaterThan(-1);
+    expect(record).toBeLessThan(saveChanges);
+    expect(save).toContain("foreach (var ev in __afterCommit)");
+  });
+
+  it(".NET (Dapper) records the outbox rows on the append's transaction", async () => {
+    const files = await generateSystemFiles(ES_DURABLE("dotnet { persistence: dapper }"));
+    const repo = fileEndingWith(files, "Infrastructure/Repositories/AccountRepository.cs");
+    const save = from(repo, "SaveAsync(Account aggregate");
+    const begin = save.indexOf(
+      "var __tx = await __lease.BeginTransactionAsync(cancellationToken);",
+    );
+    const record = save.indexOf(
+      "__afterCommit = await _events.RecordDurableAsync(__pending, __tx, cancellationToken);",
+    );
+    const commit = save.indexOf("await __lease.CommitAsync(cancellationToken);");
+    expect(begin, "the append opens a transaction").toBeGreaterThan(-1);
+    expect(record, "the capture is inside it").toBeGreaterThan(begin);
+    expect(record).toBeLessThan(commit);
+    expect(save).toContain("foreach (var ev in __afterCommit)");
   });
 });

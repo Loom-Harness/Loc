@@ -1206,8 +1206,8 @@ function renderWorkflowModule(
   const contextModuleFq = `${appModule}.${ctxModule}`;
   const repoMod = `${appModule}.Repo`;
   const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
-  const transactional = ctx ? workflowRunsInTransaction(wf, ctx) : !!wf.transactional;
-  const isolation = ctx ? workflowIsolation(wf, ctx, sys) : wf.isolation;
+  const transactional = workflowRunsInTransaction(wf, ctx);
+  const isolation = workflowIsolation(wf, ctx, sys);
 
   // F58 — a state-bearing workflow's COMMAND route addresses the SAME persisted
   // saga row its event-triggered starter does (`dispatch-emit.ts`
@@ -1325,12 +1325,15 @@ function renderWorkflowModule(
         ),
       ]
     : [];
+  // A fresh key allocates the instance IN MEMORY: the row is written only once
+  // the body succeeded (below), so a failed start leaves no instance, as on
+  // every other backend.
   const statePrelude = corrParam
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
-        `    ${bindsState ? "loom_state" : "_"} =`,
+        `    loom_state =`,
         `      case Repo.get(${stateMod}, key) do`,
-        `        nil -> Repo.insert!(%${stateMod}{${allocFields.join(", ")}})`,
+        `        nil -> %${stateMod}{${allocFields.join(", ")}}`,
         `        existing -> existing`,
         `      end`,
         ...(bindsState ? ["", "    state = loom_state"] : []),
@@ -1340,16 +1343,18 @@ function renderWorkflowModule(
   const mutableStateFields = (wf.stateFields ?? [])
     .filter((f) => f.name !== wf.correlationField)
     .map((f) => `:${snake(f.name)}`);
-  // Only a body that WRITES own state has anything to persist — a read-only
-  // body's row is already durable (the allocate arm is a `Repo.insert!`), so an
-  // unconditional update would be an empty changeset that still bumps
-  // `updated_at`.
-  const persistLines =
-    bindsState && workflowBodyWritesOwnState(wf.statements ?? []) && mutableStateFields.length > 0
-      ? [
-          `Repo.update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
-        ]
-      : [];
+  // On success the instance row is inserted (a fresh key) or updated with the
+  // body's own-state writes.  An unchanged loaded row is an empty changeset,
+  // which Ecto skips without touching `updated_at`.
+  const writesState =
+    bindsState && workflowBodyWritesOwnState(wf.statements ?? []) && mutableStateFields.length > 0;
+  const persistLines = corrParam
+    ? [
+        writesState
+          ? `Repo.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
+          : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
+      ]
+    : [];
   const body = assembleBody(
     lines,
     completedCall,

@@ -1313,7 +1313,21 @@ function validateWorkflowBody(
     );
   }
 
-  if (wf.transactional && !mutated) {
+  // A statement lowering has no form for reaches the IR as the `__bad__`
+  // placeholder and is refused on its own (`loom.workflow-unrecognised-
+  // statement`).  Its effect is unknowable, so "this body changes nothing"
+  // cannot be claimed about a body that holds one.
+  const holdsRefused = workflowBodies(wf).some((statements) =>
+    statements.some((top) => {
+      let found = false;
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "expr-let" && st.name === "__bad__") found = true;
+      });
+      return found;
+    }),
+  );
+
+  if (wf.transactional && !mutated && !holdsRefused) {
     diags.push({
       severity: "warning",
       code: "loom.transactional-no-effect",
