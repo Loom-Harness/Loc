@@ -50,9 +50,9 @@ describe("elixir — value-object wire maps are cast against the declaration", (
   it("a VO operation param is cast through its own with-clause", async () => {
     const facade = file(await generateSystemFiles(SRC), "/lib/api/pay.ex");
     expect(facade).toContain(
-      'with {:ok, amount} <- __loom_vo_param(record, :amount, Map.get(params, "amount"), %{amount: :decimal, currency: :string, note: :string}, [:amount, :currency])',
+      'with {:ok, amount} <- __loom_vo_param(record, :amount, Map.get(params, "amount"), %{amount: :decimal, currency: :string, note: :string}, [:amount, :currency], &{:ok, &1})',
     );
-    expect(facade).toContain("defp __loom_vo_param(record, field, value, types, required)");
+    expect(facade).toContain("defp __loom_vo_param(record, field, value, types, required, rules)");
     // The raw param is not also bound flat ahead of the clause.
     expect(facade).not.toContain('amount = Map.get(params, "amount")');
   });

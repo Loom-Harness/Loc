@@ -110,12 +110,15 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
     // `&<=/2` structural sorter (silently wrong ordering), python a
     // `Decimal`-less `sum(...)`.  Audit finding A5.
     //
-    // NOTE — no `method-call` arm: `MethodCallExpr` carries `receiverType`
-    // but no result type, so an intrinsic body (`l.price.abs()`) cannot be
-    // typed here without re-running inference.  Callers keep their element-
-    // type fallback for that shape.
     case "binary":
       return e.resultType ?? e.leftType;
+    // A CALL body — `sum(a => Pricing.points(a))`, `avg(c => c.weight())`.
+    // Lowering records the result type the typing pass resolved (absent when
+    // it resolved none), so a decimal-returning call picks the decimal fold
+    // exactly as a decimal field read does.
+    case "call":
+    case "method-call":
+      return e.resultType;
     // `-x` keeps `x`'s type; `!x` is `bool`.  Also the probe the money-aware
     // unary arms (A11) read to decide `Decimal.neg()`/`BigDecimal.negate()`
     // over a bare `-`.
@@ -134,9 +137,7 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
           return undefined;
       }
     // No type derivable from the node alone.  `undefined` means "ask your own
-    // fallback", not "untyped": `method-call` is the documented example (see
-    // the NOTE above — `MethodCallExpr` carries no result type), and the rest
-    // either need the surrounding declaration (`this`, `id`, `action-ref`) or
+    // fallback", not "untyped": these either need the surrounding declaration (`this`, `id`, `action-ref`) or
     // are container shapes whose element type the caller already knows
     // (`list`, `new`, `object`, `match`, `lambda`).  Named rather than left to
     // a `default:` so a new `ExprIR` kind that DOES carry a result type is a
@@ -144,13 +145,11 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
     // the Python `"on " + <datetime>` TypeError found it.
     case "action-ref":
     case "authz-filter":
-    case "call":
     case "duration":
     case "id":
     case "lambda":
     case "list":
     case "match":
-    case "method-call":
     case "new":
     case "object":
     case "this":

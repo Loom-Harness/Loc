@@ -74,6 +74,7 @@ import {
   stateZero,
   subscriptionHandler,
   withReadPortRepos,
+  workflowCapturesDurableEmits,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
@@ -1295,6 +1296,13 @@ function emitWorkflowRoute(
     out.push(...audits.tail);
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
+    // A durable workflow emit is owed with the workflow's writes: its outbox
+    // row commits with `tx`, and only the remaining events dispatch after.
+    if (workflowCapturesDurableEmits(wf, ctx)) {
+      out.push(
+        `${bi}  workflowEvents.splice(0, workflowEvents.length, ...((await events.recordDurable?.(workflowEvents, tx)) ?? workflowEvents));`,
+      );
+    }
     out.push(...resultAssign(`${bi}  `));
     out.push(`${bi}}${txOpts});`);
     if (er) {

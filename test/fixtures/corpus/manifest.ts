@@ -442,6 +442,30 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  M-T5.36 P9 (F5) added the BEHAVIOURAL half: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and the `test e2e` DSL had no verb for that — `api.fulfillment.run(…)` was refused as an unknown AGGREGATE — so the note here used to defer it.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that verb set, and this fixture is their runtime proof: the folded `status` / `attempts` scalars are asserted on the very row the command create must have persisted, which is the half of F58 no compile gate can see",
   },
   {
+    id: "eventsourced-durable-outbox",
+    title:
+      "an event-sourced aggregate on a durable channel appends its events and their outbox rows in one transaction",
+    doc: "channels",
+    backends: ALL,
+    note: "node and .NET appended the stream rows, then wrote the outbox rows in a second write after it, so a crash in between left an event in the stream that was never published.  The fixture drives the append path with a durable channel on every backend; the placement itself is pinned by `outbox-write-atomicity.test.ts`, since only a crash between the two writes tells them apart.",
+  },
+  {
+    id: "workflow-partial-commit",
+    title:
+      "a workflow without `transactional` keeps the saves it made before failing; its `transactional` twin keeps none",
+    doc: "workflow",
+    backends: ALL,
+    note: "The transaction boundary of a workflow command is one save unless the workflow is `transactional` (the plan's `workflowRunsInTransaction`).  java wrapped every workflow service in a class-level `@Transactional` and python ran each request in one transaction, so a failing non-transactional workflow rolled its earlier saves back there while node, .NET and elixir kept them.",
+  },
+  {
+    id: "workflow-failed-start",
+    title:
+      "a correlated workflow whose start fails leaves no instance; a later successful start creates it",
+    doc: "workflow",
+    backends: ALL,
+    note: "Elixir inserted the instance row before the body ran, so a failing non-transactional start left a default-valued instance that the instance read answered with 200; node, .NET, java and python write the row only after the body succeeds.",
+  },
+  {
     id: "workflow-create-result",
     title:
       "command-triggered `create(…): T { … return <expr> }` — the workflow route answers 200 with the declared value (an `X id`, a scalar read after a transactional body); a result-less create keeps 204",
@@ -1014,6 +1038,55 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "domain-services",
     backends: ALL,
     note: "Also carries a `precondition` in a domainService operation's OWN body (`FeeQuote.forAmount`) — the last shape `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md` named as next in line, found in 0 of the 406 models it scanned, and the evaluation's F-009 trigger.  Such a precondition lowers to a throw/raise of the domain-error type inside the SERVICE module, whose import list each backend builds from a different sweep than the one collecting the service's own calls: node emitted `throw new DomainError(...)` with the name imported nowhere (TS2304, and `ReferenceError` at runtime — a 422 answering 500), shipped because the generated Dockerfile builds with `tsup`/esbuild, which strips types without checking them.  The near-miss that let the gap survive a fixture which LOOKS like it covers this: the two preconditions already here (`Registration.isHolderFree(holder)`, `s.tier(0.00) != \"\"`) are both in WORKFLOW bodies, emitted into the workflow module, which already collected its service imports — one level in, different emitter, different import sweep.  It sits on `FeeQuote` because `forAmount` is what `Account.withdraw`'s `requires` gate calls and the `test e2e` block calls `withdraw`, so the guard runs on a path the behavioural tier executes rather than compile-only; the predicate HOLDS for every value the e2e passes, so no response changes and the reviewed wire golden stays valid (verified by diffing the generated file map before/after: only the service module and the content-hash manifest move).  Keep the predicate true — one that fires here rewrites the golden.  MUTATION-PROVED: dropping `DomainError` from `usedErrors` in `src/generator/typescript/emit/domain-service.ts` turns this fixture RED (TS2304) while the pre-widening fixture, and `handler-triad` / `handler-resource-ops` / `projection` / `workflow-create-state`, all stay GREEN.",
+  },
+  {
+    id: "decimal-call-reductions",
+    title: "decimal `sum` / `avg` over a call-bodied lambda (domain-service op, aggregate function)",
+    doc: "domain-services",
+    backends: ALL,
+    note: "The reduction's fold reads the λ body's type off the IR; a CALL body carries it only through the call's recorded `resultType`. Without it java emitted `mapToInt(...).sum()` (javac) and elixir `Enum.sum` over `%Decimal{}` (500).",
+  },
+  {
+    id: "empty-list-ternary",
+    title: "an empty list literal `[]` as a ternary branch (+ `avg`'s null branch, a narrowed `[x]`)",
+    doc: "language",
+    backends: ALL,
+    note: "The typing join is element-wise, so `[]` takes the other branch's element type; lowering records it on the empty literal (`ExprIR.list.elementType`) for java `List.<T>of()` / .NET `new List<T>()`. .NET also unwraps a narrowed `[x]` element and types a `c ? null : <value T>` null as `T?`.",
+  },
+  {
+    id: "ref-collection-service",
+    title: "an `X id[]` read off a loaded aggregate, handed to a domain service",
+    doc: "domain-services",
+    backends: ALL,
+    note: "elixir loads a reference collection as a preloaded `many_to_many` (target structs); the read is projected to ids so a service's `contains` compares ids with ids. Before, the count came out 0 with no error, and a `contains` in a standalone service module called the context module's private `__ref_id_list/1`.",
+  },
+  {
+    id: "value-collection-invariants",
+    title: "cross-field and guarded invariants on a value-collection element",
+    doc: "language",
+    backends: ALL,
+    note: "elixir casts each element through the child schema's `changeset/2`, which now runs the same `validate_invariants/1` seam an aggregate and a part use; before it carried only `validate_required` and accepted bad rows with 201/204.",
+  },
+  {
+    id: "value-collection-op-param",
+    title: "an operation's value-object param appended to a value collection (own route + workflow)",
+    doc: "language",
+    backends: ALL,
+    note: "elixir rewrites the collection with `put_assoc`; a JSON-shaped element (string keys, datetime text, enum string) is now cast through the element schema's `changeset/2`, so it is typed and its invariants run. Before: `ArgumentError` / `Ecto.ChangeError`, a 500 where the other backends answer 204 / 422.",
+  },
+  {
+    id: "value-collection-copy",
+    title: "a loaded value collection copied into another aggregate (create + `:=`)",
+    doc: "language",
+    backends: ALL,
+    note: ".NET element-copies a value-object list (`x with { }`) at the create factory and at `:=`, so EF never re-parents another owner's tracked owned instances; elixir turns a loaded child-row struct into params before `cast_assoc`. Both answered 500 before.",
+  },
+  {
+    id: "guarded-not-null",
+    title: "a guarded `x != null when …` rule with the field left out (aggregate + value-collection element)",
+    doc: "language",
+    backends: ALL,
+    note: "Every backend answers the rule's own `problem.domain-floor` entry. Node's zod issue mapper treated a rule's `refine` issue on an absent key as `field.missing`, the one divergence.",
   },
   {
     id: "scaffold-macros",

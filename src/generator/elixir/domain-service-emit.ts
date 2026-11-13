@@ -384,6 +384,9 @@ function renderOperation(
     typesModule,
     ...ctxOverride,
   };
+  // A standalone `Domain.Services` module carries no `__ref_id_list/1`; a
+  // reading op rendered onto the context module (`ctxOverride`) does.
+  if (!ctxOverride) renderCtx.noRefIdListHelper = true;
   // Out-of-scope guard: a `reading` op whose read-ports span MORE THAN ONE
   // context can't be a single-context fn, so it stays in the `Domain.Services`
   // module — but the module has no ambient `Repo`/context to resolve its repo
