@@ -202,6 +202,8 @@ serves every pg row below, or the suite starts its own sidecar where noted);
 proxy (`docs/tools.md` → "Compiling generated backends in Docker" has the
 full per-toolchain write-ups).
 
+`npm run prequeue` runs the cheap queue-blocking gates (typecheck, lint, fast censuses) on `origin/main` + HEAD in a throwaway worktree and lists the per-backend compile gates the diff reaches; `--heavy` runs them (`scripts/prequeue.mjs` holds the backend → command table).
+
 Completeness is pinned by `test/system/local-run-mapping.test.ts` — every
 workflow file must have a row here, so a new gate without a local recipe
 fails the fast suite.

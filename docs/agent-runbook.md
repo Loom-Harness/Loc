@@ -81,7 +81,7 @@ A fleet does not send one PR per worker through the merge queue. Each queue entr
 **Coordinator**
 1. Branch the train from fresh `main`. Merge each finished member in with a **merge commit** — never squash or rebase — so each member's commits survive, `git bisect` can walk them, and a member PR based on `main` is closed as merged when the train lands.
 2. **3–8 members**, preferably one `area:`. Resolve conflicts between members once, here, instead of in the queue.
-3. Before queueing: merge `origin/main` once, run the push preflight and the heavy gates for every area the train touches. Then open **one** ready-for-review PR (title `Train: #a #b #c`, members listed in the body, each `Fixes #N` carried over), push **once**, enable auto-merge.
+3. Before queueing: merge `origin/main` once, run the push preflight, then `npm run prequeue` — it checks `origin/main` + the train in a throwaway worktree (`tsc -b`, test typecheck, lint, the fast censuses) and lists the per-backend compile gates the diff reaches; `npm run prequeue -- --heavy` runs them one at a time. Run it for every area the train touches. Then open **one** ready-for-review PR (title `Train: #a #b #c`, members listed in the body, each `Fixes #N` carried over), push **once**, enable auto-merge.
 4. **Red, in CI or after a queue ejection:** read which check failed and find the member from the log; when that is not obvious, `git bisect` over the member merges **locally** — never re-run CI to bisect. Rebuild the train without that member (do not revert on top), push once, and hand the member back to its worker on its draft.
 5. A member that keeps conflicting with `main` lands first, alone: ask the owner to jump it to the front of the queue rather than syncing it again.
 
