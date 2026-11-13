@@ -1068,7 +1068,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a `decimal` chain in a domain service ending in a SIBLING service-operation call (`base * usage * loadFactor(level)`) stays exact to its root",
     doc: "domain-services",
     backends: ALL,
-    note: "the sibling call typed as unknown, so node and python narrowed the chain to a double at the call (0.006999999999999999 for 0.007).  node is a tracked expected failure (BEHAVIOURAL_XFAIL) until its sibling-call naming is fixed — it calls the bare `loadFactor` while the module defines `rating_loadFactor` — so the golden is python's (its oracle field says so); node's entry flips when it passes and it then compares against the same golden.",
+    note: "the sibling call typed as unknown, so node and python narrowed the chain to a double at the call (0.006999999999999999 for 0.007).  The golden was minted from python (its oracle field says so) while node could not yet compile a domain-service sibling call; every leg, node included, compares against it.",
   },
   {
     id: "domain-floor-messages",

@@ -237,17 +237,7 @@ function baseReads({ passes = [], pins = {} } = {}) {
 export const RACE_PROBE_TEST = "two writers with the same If-Match";
 
 export const BEHAVIOURAL_XFAIL = {
-  node: {
-    // The domain service's sibling call renders the bare `loadFactor(level)`
-    // while the module defines `rating_loadFactor` — a ReferenceError → 500.
-    // The case's golden is python's; node compares against it once it passes.
-    "service-decimal-chain": {
-      issue: "#5180",
-      expect: "fail",
-      tests: { "a decimal chain ending in a sibling service call stays exact": "/rate → 500" },
-      reason: "a domainService op calling a sibling op emits the bare name, not the module-level function",
-    },
-  },
+  node: {},
   mikroorm: {},
   dotnet: {
     "contained-part-rebuild": {
