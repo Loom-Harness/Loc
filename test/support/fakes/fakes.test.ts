@@ -81,4 +81,27 @@ describe("effects", () => {
     expect(mayNeedSidecars("storage m { type: smtp }")).toBe(true);
     expect(mayNeedSidecars("storage p { type: postgres }")).toBe(false);
   });
+
+  it("plans a broker reached only through a hosted channel binding, with that binding", () => {
+    const loom = {
+      systems: [
+        {
+          deployables: [{ dataSourceNames: [], channelSourceNames: ["lifecycleBus"] }],
+          storages: [
+            { name: "bus", type: "rabbitmq" },
+            { name: "other", type: "redis" },
+          ],
+          dataSources: [],
+          channelSources: [
+            { name: "lifecycleBus", channelName: "Lifecycle", storageName: "bus" },
+            { name: "unbound", channelName: "Audit", storageName: "other" },
+          ],
+        },
+      ],
+    };
+    const plan = plannedFakes(loom);
+    expect(
+      plan.map((p) => [p.type, p.channelSources.map((c: { name: string }) => c.name)]),
+    ).toEqual([["rabbitmq", ["lifecycleBus"]]]);
+  });
 });

@@ -21,7 +21,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
  * Storage type → fake module loader.  A `null` entry is a type the kit knows
  * about but has no fake for yet; it is skipped like an unknown one.
  *
- * Every module exports `start({ storage, resources, genDir }) → { kind, env, observe(),
+ * Every module exports `start({ storage, resources, channelSources, genDir }) → { kind, env, observe(),
  * reset(), stop() }`; `kind` names the `effects` section its observations land
  * in, and `observe()` / `reset()` may be async.  A sidecar fronts a real,
  * digest-pinned service (`smtp` → Mailpit); an in-process fake serves an
@@ -64,10 +64,19 @@ export function plannedFakes(loom, storageFakes = STORAGE_FAKES, systemFakes = S
   const out = [];
   for (const sys of loom.systems ?? []) {
     const hosted = new Set(sys.deployables.flatMap((d) => d.dataSourceNames ?? []));
+    // A broker reached only through a channel binding (`channelSource`) is a
+    // storage the deployable never lists as a data source; it needs its
+    // sidecar all the same, with the binding's env.
+    const bound = new Set(sys.deployables.flatMap((d) => d.channelSourceNames ?? []));
     for (const storage of sys.storages) {
       if (!storageFakes[storage.type]) continue;
       const resources = sys.dataSources.filter((ds) => ds.storageName === storage.name && hosted.has(ds.name));
-      if (resources.length) out.push({ type: storage.type, storage, resources });
+      const channelSources = (sys.channelSources ?? []).filter(
+        (cs) => cs.storageName === storage.name && bound.has(cs.name),
+      );
+      if (resources.length || channelSources.length) {
+        out.push({ type: storage.type, storage, resources, channelSources });
+      }
     }
     for (const [type, f] of Object.entries(systemFakes)) {
       if (f?.wants(sys)) out.push({ type, system: sys });
