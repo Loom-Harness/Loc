@@ -862,7 +862,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         type: s.type as StorageKind,
         ...(s.instance ? { instance: s.instance } : {}),
         ...(s.connection ? { connection: lowerConnectionSource(s.connection) } : {}),
-        ...(s.config.length ? { config: s.config.map(lowerConfigEntry) } : {}),
+        config: s.config.map(lowerConfigEntry),
       }),
     );
   const dataSources = members
@@ -894,15 +894,11 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
           : {}),
         ...(d.readonly ? { readonly: true } : {}),
         ...(d.shape == null ? {} : { shape: d.shape as DataSourceIR["shape"] }),
-        ...(d.indexes.length
-          ? {
-              manualIndexes: d.indexes.map((spec) => ({
-                entity: spec.entity,
-                columns: [...spec.columns],
-              })),
-            }
-          : {}),
-        ...(d.config.length ? { config: d.config.map(lowerConfigEntry) } : {}),
+        manualIndexes: d.indexes.map((spec) => ({
+          entity: spec.entity,
+          columns: [...spec.columns],
+        })),
+        config: d.config.map(lowerConfigEntry),
       };
     });
   // Named `layout <Name> { … }` SystemMembers.  Each slot's

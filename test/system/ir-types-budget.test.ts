@@ -30,7 +30,11 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // +2: the context's `policyShareGates` list and a share gate's `when`
   // (absent = every caller), the same shape again.
   "context.ts": 33,
-  "deployment.ts": 22,
+  // Kept: a binding's per-kind knobs (absent = not declared, which the
+  // capability check tells apart from a declared knob), a frontend's target /
+  // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
+  // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain).
+  "deployment.ts": 20,
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).
   "expr.ts": 36,
@@ -45,7 +49,12 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   "projection.ts": 16,
   "queries.ts": 1,
   "stmt.ts": 16,
-  "system.ts": 29,
+  // Kept: the declared-or-absent system blocks (`user`, `auth`, `tenancy`,
+  // `theme`), each theme token (absent = the design pack's default), the OIDC
+  // endpoints a preset may leave unset, the auth preset name, the principal's
+  // tenancy registry, a timer's inert clauses, and a storage's instance /
+  // connection (absent = derived by the orchestrator).
+  "system.ts": 25,
   "traceability.ts": 5,
   "types.ts": 2,
   "ui.ts": 20,
