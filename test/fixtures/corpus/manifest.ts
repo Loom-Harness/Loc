@@ -977,6 +977,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Also carries a `precondition` in a domainService operation's OWN body (`FeeQuote.forAmount`) — the last shape `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md` named as next in line, found in 0 of the 406 models it scanned, and the evaluation's F-009 trigger.  Such a precondition lowers to a throw/raise of the domain-error type inside the SERVICE module, whose import list each backend builds from a different sweep than the one collecting the service's own calls: node emitted `throw new DomainError(...)` with the name imported nowhere (TS2304, and `ReferenceError` at runtime — a 422 answering 500), shipped because the generated Dockerfile builds with `tsup`/esbuild, which strips types without checking them.  The near-miss that let the gap survive a fixture which LOOKS like it covers this: the two preconditions already here (`Registration.isHolderFree(holder)`, `s.tier(0.00) != \"\"`) are both in WORKFLOW bodies, emitted into the workflow module, which already collected its service imports — one level in, different emitter, different import sweep.  It sits on `FeeQuote` because `forAmount` is what `Account.withdraw`'s `requires` gate calls and the `test e2e` block calls `withdraw`, so the guard runs on a path the behavioural tier executes rather than compile-only; the predicate HOLDS for every value the e2e passes, so no response changes and the reviewed wire golden stays valid (verified by diffing the generated file map before/after: only the service module and the content-hash manifest move).  Keep the predicate true — one that fires here rewrites the golden.  MUTATION-PROVED: dropping `DomainError` from `usedErrors` in `src/generator/typescript/emit/domain-service.ts` turns this fixture RED (TS2304) while the pre-widening fixture, and `handler-triad` / `handler-resource-ops` / `projection` / `workflow-create-state`, all stay GREEN.",
   },
   {
+    id: "value-collection-copy",
+    title: "a loaded value collection copied into another aggregate (create + `:=`)",
+    doc: "language",
+    backends: ALL,
+    note: ".NET element-copies a value-object list (`x with { }`) at the create factory and at `:=`, so EF never re-parents another owner's tracked owned instances; elixir turns a loaded child-row struct into params before `cast_assoc`. Both answered 500 before.",
+  },
+  {
     id: "scaffold-macros",
     title: "stdlib macros — crudish (create/update/destroy) + softDeletable capability + softDelete ops",
     doc: "scaffold-macros",

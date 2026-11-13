@@ -577,6 +577,7 @@ ${keyAliasPairs.join(",\n")}
             items
             |> Enum.with_index()
             |> Enum.map(fn {item, i} ->
+              item = vc_element_params(item)
               if is_map(item), do: Map.put(item, ordinal_key(item), i), else: item
             end)
 
@@ -588,6 +589,19 @@ ${keyAliasPairs.join(",\n")}
   end
 
   defp prepare_vc_attrs(attrs), do: attrs
+
+  # A value object has no identity, so an element copied from another row (a
+  # loaded child struct — \`src.conditions\` handed to a create) is its fields
+  # alone: \`cast_assoc\` takes params, not structs, and the source row's
+  # \`id\` would make Ecto match it as an existing child.
+  defp vc_element_params(%{__struct__: _} = item) do
+    item
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :id, :ordinal])
+    |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+  end
+
+  defp vc_element_params(item), do: item
 
   # An element map is keyed by strings (controller) or atoms (workflow); the
   # ordinal takes the element's own key type, since Ecto \`cast\` rejects a map

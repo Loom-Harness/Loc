@@ -1,0 +1,74 @@
+// shape: a LOADED value collection copied into another aggregate — through a
+// create (`RuleSet.create(rules: src.rules)`) and through `:=` in an operation.
+//
+// A value object has value semantics, so the copy owns its elements.  .NET maps
+// a `List<VO>` as EF owned entities and handed the new owner the source's
+// TRACKED instances ("… is part of a key and so cannot be modified" — 500);
+// elixir handed the loaded child-row structs to `cast_assoc`, which takes
+// params (`Protocol.UndefinedError` — 500).  Node/java/python copied by value.
+system ValueCollectionCopy {
+  subdomain Rules {
+    context Rules {
+      valueobject Rule {
+        name: string
+        weight: decimal
+      }
+
+      aggregate RuleSet with crudish {
+        name: string
+        rules: Rule[]
+
+        operation adopt(other: Rule[]) {
+          rules := other
+        }
+      }
+      repository RuleSets for RuleSet { }
+
+      workflow draftNext transactional {
+        create(source: RuleSet id): RuleSet id {
+          let src = RuleSets.get(source)
+          let next = RuleSet.create(name: "next", rules: src.rules)
+          return next.id
+        }
+      }
+      workflow adoptFrom transactional {
+        create(target: RuleSet id, source: RuleSet id) {
+          let t = RuleSets.get(target)
+          let src = RuleSets.get(source)
+          t.adopt(src.rules)
+        }
+      }
+    }
+  }
+
+  api RulesApi from Rules
+  storage primary { type: postgres }
+  resource rulesState { for: Rules, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Rules]
+    dataSources: [rulesState]
+    serves: RulesApi
+    port: 4000
+  }
+
+  test e2e "a loaded value collection is copied, not shared" against d {
+    let first = api.ruleSets.create({ name: "first", rules: [
+      { name: "a", weight: 1.5 },
+      { name: "b", weight: 2 }
+    ] })
+    let next = api.draftNext.run({ source: first.id })
+    let copied = api.ruleSets.getById(next)
+    expect(copied.name).toBe("next")
+    expect(copied.rules.count()).toBe(2)
+    expect(copied.rules.first().name).toBe("a")
+    expect(api.ruleSets.getById(first).rules.count()).toBe(2)
+
+    let empty = api.ruleSets.create({ name: "empty", rules: [] })
+    api.adoptFrom.run({ target: empty.id, source: first.id })
+    let adopted = api.ruleSets.getById(empty)
+    expect(adopted.rules.count()).toBe(2)
+    expect(decimal(adopted.rules.first().weight)).toBe(1.5)
+    expect(api.ruleSets.getById(first).rules.count()).toBe(2)
+  }
+}
