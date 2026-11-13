@@ -5,14 +5,14 @@
   },
   "classes": {
     "agree": 206076,
-    "declaration-name": 52570,
+    "declaration-name": 53666,
     "ir-differs": 8029,
     "nobody-knows": 482,
     "not-lowered": 4304,
     "unreached": 0
   },
   "unknownCauses": {
-    "not-a-value": 52570,
+    "not-a-value": 53666,
     "no-rule": 186,
     "unresolved-member": 93,
     "unresolved-name": 649,
