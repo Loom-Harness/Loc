@@ -81,6 +81,11 @@ const PINNED: Record<string, Pin> = {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
+  "src/generator/dotnet/validator-emit.ts:dateLocal": {
+    discipline: "per-run-reset",
+    reason:
+      "`buildFluentRules` sets it to 0 before rendering each rule's predicate, synchronously.",
+  },
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",
