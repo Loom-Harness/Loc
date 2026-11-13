@@ -100,7 +100,7 @@ export function heexI18nEnabled(ui: UiIR): boolean {
  *  (`chrome.pageOf` is "Page {page} of {pages}"), and HEEx renders none of
  *  them through this path, so a `{`-sniff would put the CLDR compile into every
  *  translatable app instead of the ones that use interpolation. */
-export function heexIcuEnabled(ui: UiIR): boolean {
+function heexIcuEnabled(ui: UiIR): boolean {
   return collectUiMessages(ui).some((m) => m.icu);
 }
 
