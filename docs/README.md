@@ -104,8 +104,8 @@ design record.  You do not need it to use Loom.
 
 ### Subdirectories
 
-- [`architecture/`](architecture/) — cross-cutting design specs shared by several proposals (`RequestContext`, wire envelope, modifier propagation, diagnostic catalog, CLI surface, fixture re-baseline).  Pin shapes that multiple features consume; back the `D-*` decisions in [`decisions.md`](decisions.md).
-- [`decisions.md`](decisions.md) — pinned cross-proposal decisions (the `D-*` tags).  The binding answer when a proposal cites a tag.
+- [`architecture/`](architecture/) — cross-cutting design specs shared by several proposals (`RequestContext`, wire envelope, modifier propagation, diagnostic catalog, CLI surface, fixture re-baseline).  Pin shapes that multiple features consume; back the `D-*` decisions in [`decisions/`](decisions/).
+- [`decisions/`](decisions/) — pinned cross-proposal decisions, one file per `D-*` tag ([`decisions.md`](decisions.md) says how to add one).  The binding answer when a proposal cites a tag.
 - Legacy design record (plans, proposals, audits, the mission plan) — removed from the tree; browse it at [https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs).  Work state lives in [GitHub issues](https://github.com/Loom-Harness/Loc/issues).
 
 ### See also

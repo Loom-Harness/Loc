@@ -2,7 +2,7 @@
 
 Loom ships an **MCP stdio server** (`ddd-mcp`) that exposes the `.ddd` authoring loop — validate, outline, generate, patch, and the LSP navigation/refactor verbs — to any Model Context Protocol host (Claude Code, Claude Desktop, an IDE agent). It is one thin transport over a transport-neutral **agent-tool catalog**, so the exact same tools that drive the server also back the in-browser playground's agentic chat with no schema drift.
 
-The design rationale is [D-AGENT-TOOLS](decisions.md#d-agent-tools--one-tool-catalog-over-the-toolkit-mcp-and-in-browser-are-transports); this doc is the shipped reference.
+The design rationale is [D-AGENT-TOOLS](decisions/D-AGENT-TOOLS.md); this doc is the shipped reference.
 
 ## Three layers
 
@@ -114,5 +114,5 @@ This loop is the in-browser playground chat's intended driver (the playground re
 ## Further reading
 
 - [api-toolkit.md](api-toolkit.md) — the `src/api/` toolkit the catalog sits on (validate / generate / applyPatches + the navigation verbs and their wire shapes).
-- [decisions.md → D-AGENT-TOOLS](decisions.md#d-agent-tools--one-tool-catalog-over-the-toolkit-mcp-and-in-browser-are-transports) and D-API-TOOLKIT — why one catalog over one toolkit.
+- [decisions.md → D-AGENT-TOOLS](decisions/D-AGENT-TOOLS.md) and D-API-TOOLKIT — why one catalog over one toolkit.
 - [`docs/old/proposals/agent-tools-and-mcp.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/agent-tools-and-mcp.md) — the originating proposal (aspirational; this doc is the shipped subset).

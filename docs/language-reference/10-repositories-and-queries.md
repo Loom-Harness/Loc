@@ -52,7 +52,7 @@ async getByNumber(number: string): Promise<Invoice> {
 
 ## The repository verbs
 
-The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:
+The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERBS](../decisions/D-REPO-VERBS.md)). `get` answers the row or a 404; `find` answers the row or nothing; `all` answers a list. Two of them are decided by their argument:
 
 - **`find` is overloaded on its argument.** A reference to a declared `criterion` (`Active`, `ByRef(r)`) is the criterion read — the first match. Any other argument is an id, and the call is the by-id read. A `retrieval` is a list, so `find(<Retrieval>)` is refused (`loom.repo-find-retrieval`) — run it with `all`.
 - **`get` takes an id only.** `get(<Criterion>)` is refused (`loom.repo-get-criterion`), and the message points at `find`.
@@ -104,7 +104,7 @@ The read lowers to a synthetic retrieval named after its shape (`findAllByActive
 
 ### `find` declarations are removed
 
-Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions.md)); a `find` left in a repository body is a parse error at the `find`:
+Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions/D-FINDDECL-REMOVED.md)); a `find` left in a repository body is a parse error at the `find`:
 
 ```ddd
 repository Orders for Order {
@@ -136,7 +136,7 @@ Each old shape has one replacement:
 
 ## Natural-key reads — `getBy` / `findBy`
 
-When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions.md)):
+When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions/D-REPO-KEY-LOOKUP.md)):
 
 ```ddd
 aggregate Product with crudish, softDeletable {

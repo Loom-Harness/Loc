@@ -1,6 +1,6 @@
 # Wire envelope — the four response shapes
 
-> **Pins [D-ENVELOPE](../decisions.md#d-envelope--the-wire-envelope-rule).**
+> **Pins [D-ENVELOPE](../decisions/D-ENVELOPE.md).**
 > Status: design pinned. The bare-entity and `Paged<T>` shapes overlap
 > existing emit; ProblemDetails arrives with exception-less (A3);
 > event-frame with workflow-and-applier.

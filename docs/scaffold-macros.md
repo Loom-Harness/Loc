@@ -228,7 +228,7 @@ The generated route and repository code for every backend are in
 ### `scaffoldGet` / `scaffoldGetApi` — one row on the wire
 
 The single-row twin of the pair above, and the route a repository `find`
-declaration gave before `find` was removed ([D-FINDDECL-REMOVED](decisions.md)).  `scaffoldGet` (target `context`) emits a
+declaration gave before `find` was removed ([D-FINDDECL-REMOVED](decisions/D-FINDDECL-REMOVED.md)).  `scaffoldGet` (target `context`) emits a
 `queryHandler` that answers one row or 404; `scaffoldGetApi` (target `api`)
 mounts it on the URL a find of the same name had — `GET /<aggs>/<read>`, its
 params on the query string — so a client of the find keeps its URL, query
