@@ -89,13 +89,16 @@ describe("feliz operation forms", () => {
     );
     // The curried `Api.renameProduct id` partial-app is the Cmd's async fn.
     expect(app).toContain(
-      "  | SubmitRenameProductOpForm id -> { model with RenameProductOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone",
+      "  | SubmitRenameProductOpForm _ when model.RenameProductOpFormPending -> model, Cmd.none",
     );
     expect(app).toContain(
-      '  | RenameProductOpDone (Ok ()) -> { model with RenameProductOpForm = emptyRenameProductOpForm }, Cmd.navigatePath("products")',
+      "  | SubmitRenameProductOpForm id -> { model with RenameProductOpFormServer = ServerErrors.empty; RenameProductOpFormPending = true }, Cmd.OfAsync.either (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone (fun ex -> RenameProductOpDone (Error (ServerErrors.formLevel ex.Message)))",
     );
     expect(app).toContain(
-      "  | RenameProductOpDone (Error e) -> { model with RenameProductOpFormServer = e }, Cmd.none",
+      "  | RenameProductOpDone (Ok ()) -> { model with RenameProductOpForm = emptyRenameProductOpForm; RenameProductOpFormPending = false; RenameProductOpFormOpen = false }, pageCmd model model.CurrentPage",
+    );
+    expect(app).toContain(
+      "  | RenameProductOpDone (Error e) -> { model with RenameProductOpFormServer = e; RenameProductOpFormPending = false }, Cmd.none",
     );
   });
 
@@ -107,7 +110,7 @@ describe("feliz operation forms", () => {
     // The submit carries the route id (instance-qualified op) + a validity guard,
     // plus the `<plural>-op-<op>-submit` testid the op page-object method clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.renameProductOpFormValid model.RenameProductOpForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text (I18n.t "Cat.Product.op.rename" "Rename") ]',
+      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (model.RenameProductOpFormPending || not (Validation.renameProductOpFormValid model.RenameProductOpForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text (I18n.t "Cat.Product.op.rename" "Rename") ]',
     );
     // The form container carries `<plural>-op-<op>-form` (waited for after the
     // trigger click, detached after submit).

@@ -69,9 +69,14 @@ describe("feliz param-less operation forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitConfirmOrderOpForm id -> model, Cmd.OfAsync.perform (Api.confirmOrder id) () ConfirmOrderOpDone",
+      "  | SubmitConfirmOrderOpForm id -> { model with ConfirmOrderOpFormServer = ServerErrors.empty; ConfirmOrderOpFormPending = true }, Cmd.OfAsync.either (Api.confirmOrder id) () ConfirmOrderOpDone (fun ex -> ConfirmOrderOpDone (Error (ServerErrors.formLevel ex.Message)))",
     );
-    expect(app).toContain('  | ConfirmOrderOpDone (Ok ()) -> model, Cmd.navigatePath("orders")');
-    expect(app).toContain("  | ConfirmOrderOpDone (Error _) -> model, Cmd.none");
+    // Success stays on the record's page and reloads it.
+    expect(app).toContain(
+      "  | ConfirmOrderOpDone (Ok ()) -> { model with ConfirmOrderOpFormPending = false; ConfirmOrderOpFormOpen = false }, pageCmd model model.CurrentPage",
+    );
+    expect(app).toContain(
+      "  | ConfirmOrderOpDone (Error e) -> { model with ConfirmOrderOpFormServer = e; ConfirmOrderOpFormPending = false }, Cmd.none",
+    );
   });
 });
