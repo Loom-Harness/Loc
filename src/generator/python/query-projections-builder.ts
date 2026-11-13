@@ -6,6 +6,7 @@ import type {
   ProjectionIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
+import { projectionQueryParams } from "../../ir/plan/index.js";
 import { isQueryTimeProjection, queryProjectionUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import {
   type AggregateSelect,
@@ -71,6 +72,22 @@ function requireLowered(proj: ProjectionIR, pred: PyPredicate | null): PyPredica
 }
 
 const REQUEST = pyRef("fastapi", "Request");
+
+/** A query-time projection's DECLARED parameters as FastAPI query parameters
+ *  — its only filter input (D-PROJECTION-PARAMS), the same list on every arm.
+ *  The python identifier is the snake-cased name the `where` lowering reads;
+ *  the query KEY stays the declared wire name (`?minScore=`), restored by
+ *  `Query(alias=…)` whenever the two differ.  FastAPI checks each value
+ *  against its annotation and answers the shared 422 before the body runs. */
+function projectionParamSig(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): string[] {
+  return projectionQueryParams(proj, ctx).map((p) => {
+    const ident = pythonIdent(p.name);
+    const type = paramPyType(p.type, ctx);
+    return ident === p.name
+      ? `${ident}: ${type}`
+      : `${ident}: ${pyRef("typing", "Annotated")}[${type}, ${pyRef("fastapi", "Query")}(alias=${JSON.stringify(p.name)})]`;
+  });
+}
 const USER = pyRef("app.auth.user", "User");
 const SELECT = pyRef("sqlalchemy", "select");
 const ROOT_MODEL = pyRef("pydantic", "RootModel");
@@ -156,6 +173,7 @@ export function buildPyQueryProjectionsFile(
               p,
               schemaRow(`${p.query!.source!}Row`),
               rowLowered.get(p.name) ?? null,
+              ctx,
             )
           : projectionRoute(p, dispatcherExpr, ctx);
   });
@@ -252,13 +270,12 @@ function projectionRoute(
   // FastAPI infers that from a plain scalar function parameter, exactly as a
   // parameterised `find` route does.  They lead the signature so the
   // `request` / `session` dependencies keep their trailing position.
-  const projParams = proj.params.map((p) => `${pythonIdent(p.name)}: ${paramPyType(p.type, ctx)}`);
   const sig = [
-    ...projParams,
+    ...projectionParamSig(proj, ctx),
     ...(needsUser ? [`request: ${REQUEST}`] : []),
     "session: SessionDep",
   ].join(", ");
-  const projArgs = proj.params
+  const projArgs = projectionQueryParams(proj, ctx)
     .map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx))
     .join(", ");
   const out: string[] = [
@@ -380,7 +397,11 @@ function aggregateProjectionRoute(
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
+  const sig = [
+    ...projectionParamSig(proj, ctx),
+    ...(needsUser ? [`request: ${REQUEST}`] : []),
+    "session: SessionDep",
+  ].join(", ");
   const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
   const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
@@ -472,7 +493,11 @@ function groupedProjectionRoute(
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
+  const sig = [
+    ...projectionParamSig(proj, ctx),
+    ...(needsUser ? [`request: ${REQUEST}`] : []),
+    "session: SessionDep",
+  ].join(", ");
   // ONE renderer for every key position (the `select`, the `group_by` and the
   // `order_by` below) so the three can never disagree — Postgres matches a
   // grouped select against the GROUP BY expression syntactically, so a bare
@@ -583,6 +608,7 @@ function rowSourcedProjectionRoute(
   proj: ProjectionIR,
   row: string,
   pred: PyPredicate | null,
+  ctx: EnrichedBoundedContextIR,
 ): string {
   const fn = snake(proj.name);
   const where = pred ? `.where(${pred.expr})` : "";
@@ -591,7 +617,11 @@ function rowSourcedProjectionRoute(
   // (→ 403) BEFORE the saga read runs.
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
+  const sig = [
+    ...projectionParamSig(proj, ctx),
+    ...(needsUser ? [`request: ${REQUEST}`] : []),
+    "session: SessionDep",
+  ].join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
