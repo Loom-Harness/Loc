@@ -7,7 +7,7 @@
 // population that carries a UI keeps the sweep from passing vacuously.
 
 import { describe, expect, it } from "vitest";
-import { buildFrontendContracts } from "../../../src/ir/contract/frontend-contract.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { dddSourceOf, trackedDddFiles } from "../../_helpers/ddd-corpus.js";
 import { toLoomModel } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
@@ -21,7 +21,8 @@ describe("Frontend Contract over the corpus", () => {
       const { model, errors } = await parseString(dddSourceOf(file), { validate: true });
       if (errors.length > 0) continue;
       try {
-        for (const contract of buildFrontendContracts(toLoomModel(model))) {
+        const loom = toLoomModel(model);
+        for (const contract of loom.systems.map((sys) => buildFrontendContract(loom, sys))) {
           built++;
           if (contract.ui.uis.some((u) => u.pages.length > 0)) withUi++;
           const roundTrip = JSON.parse(JSON.stringify(contract));

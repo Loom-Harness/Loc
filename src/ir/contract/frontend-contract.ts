@@ -4,7 +4,7 @@
 //
 // Two halves.  The UI half is the system's `ui`s, root components and layouts,
 // copied through the allowlist in `ui-spec.ts`.  The wire half is the exposed
-// API: the operations of every context an `api` exposes, the response record
+// API: the operations of every context the system serves (`exposedContexts`), the response record
 // of each exposed aggregate and part, the declared command / query / error /
 // payload records, the events a UI notification names, and the value objects
 // and enums those reach.  Response records come through `responseWireFor`
@@ -48,6 +48,7 @@ import {
   type ResponseWireField,
   responseWireFor,
 } from "../util/declared-response.js";
+import { exposedContexts } from "../util/exposed-contexts.js";
 import { classifyForWire } from "../validate/invariant-classify.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
 import { componentRule, exprRule, layoutRule, typeRule, uiRule } from "./ui-spec.js";
@@ -189,12 +190,6 @@ function as<T>(rule: Rule, value: unknown, at: string): T {
   return rule(value, at) as T;
 }
 
-/** The contexts an `api` of the system exposes, in declaration order. */
-function exposedContexts(sys: EnrichedSystemIR): EnrichedBoundedContextIR[] {
-  const modules = new Set(sys.apis.map((a) => a.sourceModule));
-  return sys.subdomains.filter((sd) => modules.has(sd.name)).flatMap((sd) => sd.contexts);
-}
-
 /** A synthesized `<Agg>Wire` record restates the derived wire shape; the paged
  *  and union carriers it sits beside are declared shapes and ship. */
 function isDerivedWireRecord(p: PayloadIR): boolean {
@@ -276,11 +271,6 @@ export function buildFrontendContract(
   };
   closeOverNamedTypes(model, sys, contract);
   return contract;
-}
-
-/** Every system's contract, in declaration order. */
-export function buildFrontendContracts(model: EnrichedLoomModel): FrontendContract[] {
-  return model.systems.map((sys) => buildFrontendContract(model, sys));
 }
 
 /** Add the value objects and enums the contract names, to a fixpoint: a value

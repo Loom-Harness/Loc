@@ -89,11 +89,16 @@ export function responseWireFor(
   }));
 }
 
+/** A declared response record leaves the identity implicit; every backend
+ *  serializes it first, as the derived shape does, so it is stated here. */
 function recordWire(rec: PayloadIR, entity: string): ResponseWire {
-  return {
-    name: rec.name,
-    entity,
-    source: "declared",
-    fields: rec.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
-  };
+  const fields: ResponseWireField[] = rec.fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+    optional: f.optional,
+  }));
+  if (!fields.some((f) => f.name === "id")) {
+    fields.unshift({ name: "id", type: { kind: "id", targetName: entity }, optional: false });
+  }
+  return { name: rec.name, entity, source: "declared", fields };
 }
