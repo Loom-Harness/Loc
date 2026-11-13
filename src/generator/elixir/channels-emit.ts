@@ -9,7 +9,11 @@ import {
 } from "../../util/channels.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import {
+  type BrokerBinding,
+  kafkaStartsAtEarliest,
+  uniqueBindings,
+} from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -108,15 +112,6 @@ export function opEmitsDurableEvent(
   return op.statements.some((s) =>
     branchesContain(s, (n) => n.kind === "emit" && durable.has(n.eventName)),
   );
-}
-
-function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
-  const seen = new Set<string>();
-  return bindings.filter((b) => {
-    if (seen.has(b.csName)) return false;
-    seen.add(b.csName);
-    return true;
-  });
 }
 
 /** Elixir expression serialising one event struct field into its envelope-data
