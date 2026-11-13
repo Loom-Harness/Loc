@@ -50,6 +50,8 @@ export const RABBITMQ_CONTAINER_ENV = {
 };
 
 const TAP = "loom.fake.tap";
+/** The pub/sub channel the valkey tap's observe() barrier rides on. */
+const BARRIER = "loom.fake.barrier";
 const ADMIN = { user: "guest", pass: "guest" };
 
 async function envNames() {
@@ -448,6 +450,8 @@ async function startRedis(opts) {
   }
 
   const captured = [];
+  /** nonce → resolve, for the observe() barrier. */
+  const barriers = new Map();
   let sock;
   let buf = Buffer.alloc(0);
   async function connect() {
@@ -466,6 +470,10 @@ async function startRedis(opts) {
       for (const v of values) {
         if (Array.isArray(v) && v[0] === "psubscribe") subscribed();
         if (Array.isArray(v) && v[0] === "pmessage") {
+          if (v[2] === BARRIER) {
+            barriers.get(v[3])?.();
+            continue;
+          }
           captured.push({ exchange: v[2], routingKey: "", type: cloudEventType(v[3]) });
         }
       }
@@ -498,10 +506,28 @@ async function startRedis(opts) {
     env,
     url: base,
     captured,
+    /** Valkey delivers to a subscriber in publish order, so once the tap
+     *  has seen a barrier published now, it has seen every publish made
+     *  before it — the backend's included.  Without the barrier a read that
+     *  lands between a publish and its delivery reports it missing. */
     async observe() {
-      // A publish already on the wire lands within one event-loop turn of
-      // the socket read; the kit's quiesce loop covers anything later.
-      await sleep(50);
+      const nonce = `${Date.now()}-${Math.random()}`;
+      const seen = new Promise((resolve) => barriers.set(nonce, resolve));
+      const pub = net.connect({ host, port });
+      await new Promise((resolve, reject) => {
+        pub.once("connect", resolve);
+        pub.once("error", reject);
+      });
+      pub.write((password ? resp("AUTH", password) : "") + resp("PUBLISH", BARRIER, nonce) + resp("QUIT"));
+      try {
+        await Promise.race([
+          seen,
+          sleep(10_000).then(() => Promise.reject(new Error("broker fake: the valkey tap never saw its barrier"))),
+        ]);
+      } finally {
+        barriers.delete(nonce);
+        pub.destroy();
+      }
       return summarise(captured);
     },
     async load() {
