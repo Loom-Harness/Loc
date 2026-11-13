@@ -37,7 +37,7 @@ describe("hono projection runtime", () => {
     const p = (await files()).get("http/projections.ts")!;
     expect(p).toContain("export async function foldOrderPlacedIntoOrderBook(");
     expect(p).toContain("const __key = e.order;");
-    expect(p).toContain("(await loadOrderBook(db, __key)) ?? { order: __key }");
+    expect(p).toContain("(await loadOrderBook(__db, __key)) ?? { order: __key }");
     expect(p).toContain("state.status = OrderStatus.Placed;");
     expect(p).toContain("onConflictDoUpdate({ target: schema.orderBooks.order, set: state })");
   });

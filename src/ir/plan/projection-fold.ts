@@ -17,6 +17,7 @@
 //     starts null until a fold writes it.
 
 import type {
+  BoundedContextIR,
   ExprIR,
   FieldIR,
   ProjectionIR,
@@ -24,6 +25,7 @@ import type {
   StmtIR,
   TypeIR,
 } from "../types/loom-ir.js";
+import { isMaterializedProjection } from "../types/loom-ir.js";
 
 /** One step of a fold, against the row (`this`). */
 export type FoldStep =
@@ -151,4 +153,20 @@ function neutralZero(t: TypeIR): FoldRowZero | undefined {
     default:
       return undefined;
   }
+}
+
+/** The fold inbox table: one row per `(projection, event_id)` a fold applied.
+ *  A fold delivered with an event id inserts its row in the transaction that
+ *  saves the projection row, and skips the event when the row already exists,
+ *  so a redelivered event changes the read model once. */
+export const FOLD_INBOX_TABLE = "__loom_fold_inbox";
+
+/** True when `ctx`'s folds dedupe through the inbox: some materialized
+ *  projection folds there, and the deployable delivers events durably
+ *  (`durable` — the same answer the saga `last_event_id` column hangs on), so
+ *  an event can arrive twice with the same id. */
+export function foldsDedupe(ctx: BoundedContextIR, durable: boolean): boolean {
+  return (
+    durable && ctx.projections.some((p) => isMaterializedProjection(p) && p.handlers.length > 0)
+  );
 }

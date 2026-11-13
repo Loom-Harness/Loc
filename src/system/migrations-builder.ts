@@ -11,7 +11,13 @@ import {
   tableNameFor,
 } from "../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, STREAM_TENANT_METADATA } from "../ir/enrich/stream-tenancy.js";
-import { eventLogTable, hasDurableEvents, hasStateRow } from "../ir/plan/index.js";
+import {
+  eventLogTable,
+  FOLD_INBOX_TABLE,
+  foldsDedupe,
+  hasDurableEvents,
+  hasStateRow,
+} from "../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -377,6 +383,12 @@ export function schemaFromModule(
   if (module.contexts.some((c) => hasDurableEvents(c))) {
     tables.push(outboxTableShape(module.name));
   }
+  // Fold inbox (D-PROJECTION-FOLD-INBOX): one shared table when a durably
+  // delivered event can reach a projection fold.  Machinery, like the outbox,
+  // so it takes no context schema.
+  if (module.contexts.some((c) => foldsDedupe(c, durableEvents.size > 0 || hasDurableEvents(c)))) {
+    tables.push(foldInboxTableShape(module.name));
+  }
   // Command audit (audit-and-logging.md): one shared append-only table when any
   // hosted context declares an `audited` command action.  Like the outbox it is
   // machinery, not domain — cross-context (rows carry `target_type`), so it
@@ -525,6 +537,24 @@ function outboxTableShape(ownerModule: string): TableShape {
         predicate: OUTBOX_PENDING_PREDICATE,
       },
     ],
+  };
+}
+
+/** The fold inbox table — one row per `(projection, event_id)` a fold applied,
+ *  written in the fold's own transaction.  The outbox retention purge deletes
+ *  rows older than its window, the same window a redelivery can arrive in. */
+function foldInboxTableShape(ownerModule: string): TableShape {
+  return {
+    name: FOLD_INBOX_TABLE,
+    ownerModule,
+    columns: [
+      { name: "projection", type: { kind: "text" }, nullable: false },
+      { name: "event_id", type: { kind: "text" }, nullable: false },
+      { name: "received_at", type: { kind: "datetime" }, nullable: false, default: "now()" },
+    ],
+    primaryKey: ["projection", "event_id"],
+    foreignKeys: [],
+    indexes: [],
   };
 }
 

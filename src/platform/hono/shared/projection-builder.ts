@@ -25,10 +25,13 @@ import {
   wireTitle,
 } from "../../../ir/enrich/wire-policy.js";
 import {
+  FOLD_INBOX_TABLE,
   type FoldRowSeed,
   type FoldStep,
   foldRowSeeds,
   foldSteps,
+  foldsDedupe,
+  hasDurableEvents,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
@@ -124,6 +127,9 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
   // differently depending on which context variant the caller had merged.
   const foldHandlers = (p: ProjectionIR): ProjectionOnIR[] => p.handlers;
 
+  // A durably delivered event can arrive twice with one id: each fold then
+  // claims `(projection, event_id)` in the inbox before it applies.
+  const dedupe = foldsDedupe(ctx, hasDurableEvents(ctx));
   const body: string[] = [];
   for (const p of folded) body.push(...emitResponseSchemas(p), "");
   for (const p of folded) {
@@ -134,7 +140,7 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
-    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx), "");
+    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
@@ -328,6 +334,7 @@ function emitFoldHandler(
   h: ProjectionOnIR,
   usingMikro = false,
   ctxDecls?: EnrichedBoundedContextIR,
+  dedupe = false,
 ): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
@@ -374,10 +381,44 @@ function emitFoldHandler(
     // the database refuses is dropped with the fork instead of staying in a
     // shared identity map where a later read would serve it.
     ...(usingMikro ? [`  const __em = db.fork();`] : []),
-    `  const state = (await load${T}(${usingMikro ? "__em" : "db"}, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
   ];
-  for (const step of foldSteps(p, h)) out.push(renderFoldStep(step, ctxDecls));
-  out.push(`  await save${T}(${usingMikro ? "__em" : "db"}, state);`);
+  const apply = (handle: string, indent: string): string[] => [
+    `${indent}const state = (await load${T}(${handle}, __key${cols ? ", __tenant" : ""})) ?? ${allocate};`,
+    ...foldSteps(p, h).map((step) => `${indent}${renderFoldStep(step, ctxDecls).trimStart()}`),
+    `${indent}await save${T}(${handle}, state);`,
+  ];
+  if (!dedupe) {
+    out.push(...apply(usingMikro ? "__em" : "db", "  "), `}`);
+    return out;
+  }
+  // The inbox claim and the row save commit together: a redelivered event
+  // finds its claim and changes nothing; a failed save releases it.
+  const claimSql = `insert into ${FOLD_INBOX_TABLE} (projection, event_id) values (?, ?) on conflict do nothing returning event_id`;
+  out.push(
+    `  const __eventId = (${escapeTsIdent(h.param)} as { __loomEventId?: string }).__loomEventId;`,
+  );
+  if (usingMikro) {
+    out.push(
+      `  await __em.transactional(async (__tx) => {`,
+      `    if (__eventId !== undefined) {`,
+      `      const __claimed = await __tx.execute(${JSON.stringify(claimSql)}, [${JSON.stringify(p.name)}, __eventId]);`,
+      `      if (__claimed.length === 0) return;`,
+      `    }`,
+      ...apply("__tx", "    "),
+      `  });`,
+    );
+  } else {
+    out.push(
+      `  await db.transaction(async (__tx) => {`,
+      `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
+      `    if (__eventId !== undefined) {`,
+      `      const __claimed = await __db.execute(${TS.sql}\`${claimSql.replace("(?, ?)", `(\${${JSON.stringify(p.name)}}, \${__eventId})`)}\`);`,
+      `      if (__claimed.rows.length === 0) return;`,
+      `    }`,
+      ...apply("__db", "    "),
+      `  });`,
+    );
+  }
   out.push(`}`);
   return out;
 }
