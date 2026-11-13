@@ -2,12 +2,12 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
-import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { AggregateIR } from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { enrichedAggregates, responseRows } from "../_helpers/ir.js";
 
 // ---------------------------------------------------------------------------
 // Field access modifier — grammar + lowering + enrichment resolution.
@@ -133,8 +133,11 @@ describe("field access — wireShape projection", () => {
         createdAt: datetime managed
 `);
     const { model } = await parseModel(src);
-    const agg = aggregateFrom(model, "Post");
-    const byName = Object.fromEntries(wireFieldsFor(agg).map((w) => [w.name, w]));
+    const enriched = enrichLoomModel(lowerModel(model));
+    const agg = enrichedAggregates(enriched).find((a) => a.name === "Post")!;
+    // The declared `PostResponse` record is the API-read contract (the system
+    // hosts C on a deployable).
+    const byName = Object.fromEntries(responseRows(enriched, agg).map((w) => [w.name, w]));
     expect(byName.id.access).toBe("token");
     expect(byName.label.access).toBe("editable");
     expect(byName.createdAt.access).toBe("managed");

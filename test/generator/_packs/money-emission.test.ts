@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // Phase 5 — per-backend money emission verification.  Uses the
 // alignment fixture `examples/money-primitive.ddd` and asserts that
 // each of the four backends emits the documented per-platform shape
@@ -20,6 +19,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
 } from "../../../src/ir/types/loom-ir.js";
+import { responseWireFor } from "../../../src/ir/util/response-wire.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/index.js";
 
 async function billingFixture(): Promise<{
@@ -168,8 +168,8 @@ describe("money emission — repository persist drops redundant parens", () => {
 describe("money emission — wire-spec doc", () => {
   it("Invoice's subtotal field is {type: string, format: decimal}", async () => {
     const { jsonPropertyForType } = await import("../../../src/system/wire-spec.js");
-    const { inv } = await billingFixture();
-    const subtotal = wireFieldsFor(inv).find((f) => f.name === "subtotal");
+    const { ctx, inv } = await billingFixture();
+    const subtotal = responseWireFor(ctx.payloads, inv).find((f) => f.name === "subtotal");
     expect(subtotal).toBeDefined();
     expect(jsonPropertyForType(subtotal!.type)).toEqual({
       type: "string",

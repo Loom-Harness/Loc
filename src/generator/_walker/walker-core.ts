@@ -1956,7 +1956,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // --- `Provenanced<T>` carrier hop (M-T6.12) ------------------------
       //
       // A `provenanced` field ships as `{ value, lineage }` on the wire
-      // (`wireTypeForField`), while its DECLARED type stays the scalar.  The
+      // (`responseWireFor`), while its DECLARED type stays the scalar.  The
       // scaffold macro spells the `.value` hop itself; a HAND-WRITTEN body
       // must not have to, or `Text { o.total }` puts the whole carrier object
       // into a text slot — a TS2322 on the JSX frontends and a stringified

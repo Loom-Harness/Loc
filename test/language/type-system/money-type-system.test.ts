@@ -1,4 +1,3 @@
-import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // `money` primitive — closed arithmetic semantics and
 // (non-)assignability with the existing numeric primitives.
 //
@@ -355,8 +354,8 @@ describe("money — array.sum is money-aware", () => {
   // doesn't silently demote precision through the wire shape.
 
   it("money[].sum → money (not decimal)", async () => {
-    const { buildLoomModel } = await import("../../_helpers/index.js");
-    const loom = await buildLoomModel(`
+    const { buildHostedModel } = await import("../../_helpers/index.js");
+    const loom = await buildHostedModel(`
       context Billing {
         aggregate Invoice {
           contains lines: LineItem[]
@@ -373,7 +372,8 @@ describe("money — array.sum is money-aware", () => {
     const _total = inv.derived.find((d) => d.name === "total")!;
     // The IR-side wireShape for the derived 'total' field carries the
     // computed type — money preserved through the collection-op.
-    const totalField = wireFieldsFor(inv).find((f) => f.name === "total");
+    const { responseRows } = await import("../../_helpers/index.js");
+    const totalField = responseRows(loom, inv).find((f) => f.name === "total");
     expect(totalField).toBeDefined();
     expect(totalField!.type).toEqual({ kind: "primitive", name: "money" });
   });
